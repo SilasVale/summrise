@@ -233,6 +233,24 @@
   </section>
 
   <section>
+    <h2>Terminal</h2>
+    <p class="hint">
+      Open a pty or a serial line on this machine and type into it. Loopback only, the same registry
+      the MCP's terminal.* tools use. A session does not survive a device restart.
+    </p>
+    <p>
+      <button id="term-pty" type="button">New pty</button>
+      <input id="term-port" type="text" placeholder="COM3" value="COM3" style="width:7rem">
+      <input id="term-baud" type="number" placeholder="115200" value="115200" style="width:7rem">
+      <button id="term-serial" type="button">New serial</button>
+      <button id="term-close" type="button">Close</button>
+    </p>
+    <pre id="term-output" class="config" style="min-height:8rem;white-space:pre-wrap"></pre>
+    <input id="term-input" type="text" placeholder="type and press Enter">
+    <p class="hint" id="term-status" role="status"></p>
+  </section>
+
+  <section>
     <h2>Terminal sessions</h2>
     <p class="hint">
       The same sessions an MCP client created on this machine, live. The interactive terminal lives
@@ -385,6 +403,88 @@ async function refresh() {
     terminal.textContent = "the device did not answer /api/terminal";
   }
 }
+
+// The interactive terminal: the panel's own create/write/read/close against /api/terminal/*.
+let termSession = null;
+let termCursor = 0;
+
+function termToken() {
+  return document.querySelector('meta[name="summrise-panel"]').content;
+}
+
+async function termCall(path, options) {
+  const response = await fetch(path, {
+    ...options,
+    headers: { "x-summrise-panel": termToken(), ...(options && options.headers) },
+  });
+  return response.json();
+}
+
+async function termCreate(kind) {
+  const body = { kind };
+  if (kind === "serial") {
+    body.port = document.getElementById("term-port").value;
+    body.baud = Number(document.getElementById("term-baud").value) || 115200;
+  }
+  const answer = await termCall("/api/terminal/create", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!answer.id) {
+    document.getElementById("term-status").textContent = JSON.stringify(answer);
+    return;
+  }
+  termSession = answer.id;
+  termCursor = 0;
+  document.getElementById("term-output").textContent = "";
+  document.getElementById("term-status").textContent = `${answer.kind} ${answer.id}`;
+  document.getElementById("term-input").focus();
+}
+
+async function termPoll() {
+  if (!termSession) return;
+  const answer = await termCall(
+    `/api/terminal/${termSession}/read?cursor=${termCursor}`,
+    {},
+  ).catch(() => null);
+  if (!answer || answer.text === undefined) return;
+  if (answer.text) {
+    const output = document.getElementById("term-output");
+    output.textContent += answer.text;
+    output.scrollTop = output.scrollHeight;
+  }
+  termCursor = answer.cursor;
+}
+
+async function termWrite() {
+  const input = document.getElementById("term-input");
+  if (!termSession || !input.value) return;
+  await termCall(`/api/terminal/${termSession}/write`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ data: input.value + "\n" }),
+  });
+  input.value = "";
+}
+
+async function termClose() {
+  if (!termSession) return;
+  await termCall(`/api/terminal/${termSession}/close`, { method: "POST" });
+  termSession = null;
+  document.getElementById("term-status").textContent = "session closed";
+}
+
+document.getElementById("term-pty").addEventListener("click", () => termCreate("pty"));
+document.getElementById("term-serial").addEventListener("click", () => termCreate("serial"));
+document.getElementById("term-close").addEventListener("click", termClose);
+document.getElementById("term-input").addEventListener("keydown", (event) => {
+  if (event.key === "Enter") {
+    event.preventDefault();
+    void termWrite();
+  }
+});
+setInterval(termPoll, 700);
 
 // The panel is the surface that still answers when nothing else does, so it has to be able to hand its
 // facts to someone else: a screenshot is not a bug report.

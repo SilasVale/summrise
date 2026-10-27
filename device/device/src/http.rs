@@ -12,7 +12,7 @@ use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use axum::body::Bytes;
-use axum::extract::{ConnectInfo, State};
+use axum::extract::{ConnectInfo, Query, State};
 use axum::http::{header, HeaderMap, StatusCode};
 use axum::middleware;
 use axum::response::{Html, IntoResponse, Response};
@@ -105,6 +105,13 @@ fn router_with(
         // The panel's read-only view of the live terminal sessions. Loopback-only like the page: it
         // names the shell/serial ports a person standing at this machine can already reach.
         .route("/api/terminal", get(panel_terminal))
+        // The panel's terminal operations: the same PtyRegistry the MCP's terminal.* tools use, so
+        // an operator at the machine can create, type into, read and close a session without a
+        // console. Loopback plus the panel token, exactly like the enrollment.
+        .route("/api/terminal/create", post(panel_terminal_create))
+        .route("/api/terminal/:id/write", post(panel_terminal_write))
+        .route("/api/terminal/:id/read", get(panel_terminal_read))
+        .route("/api/terminal/:id/close", post(panel_terminal_close))
         // The panel's enrollment: the page a person is looking at posts the code here. The handler
         // demands a loopback peer and this boot's panel token, and the token exists only in that
         // page, so a request from another origin cannot be made to look like the user's.
@@ -377,6 +384,160 @@ async fn panel_terminal(
         })
         .collect();
     Json(serde_json::json!({ "sessions": sessions })).into_response()
+}
+
+#[derive(Deserialize)]
+struct PanelTerminalCreate {
+    kind: String,
+    port: Option<String>,
+    baud: Option<u32>,
+    shell: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct PanelTerminalWrite {
+    data: String,
+}
+
+#[derive(Deserialize)]
+struct PanelTerminalRead {
+    cursor: Option<u64>,
+}
+
+/// The one gate every panel terminal operation passes: a loopback peer and this boot's token.
+fn panel_terminal_allowed(app: &AppState, peer: SocketAddr, headers: &HeaderMap) -> bool {
+    peer.ip().is_loopback() && app.panel_authorized(headers)
+}
+
+async fn panel_terminal_create(
+    State(app): State<AppState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+    Json(body): Json<PanelTerminalCreate>,
+) -> Response {
+    if !panel_terminal_allowed(&app, peer, &headers) {
+        return error_response(StatusCode::FORBIDDEN, "panel_only", None);
+    }
+    let kind = match terminal::Kind::parse(&body.kind) {
+        Ok(kind) => kind,
+        Err(error) => {
+            return error_response(
+                StatusCode::BAD_REQUEST,
+                "invalid_kind",
+                Some(error.to_string()),
+            )
+        }
+    };
+    let target = match kind {
+        terminal::Kind::Pty => terminal::CreateTarget::Pty {
+            shell: body.shell.as_deref(),
+        },
+        terminal::Kind::Serial => {
+            let Some(port) = body.port.as_deref().filter(|port| !port.is_empty()) else {
+                return error_response(
+                    StatusCode::BAD_REQUEST,
+                    "serial_needs_port",
+                    Some("kind serial needs a port, e.g. COM3".to_owned()),
+                );
+            };
+            let mut serial = terminal::SerialTarget::new(port);
+            if let Some(baud) = body.baud {
+                serial.baud = baud;
+            }
+            terminal::CreateTarget::Serial(serial)
+        }
+        terminal::Kind::Ssh => {
+            return error_response(
+                StatusCode::BAD_REQUEST,
+                "ssh_not_in_panel",
+                Some("the panel opens ptys and serial lines only".to_owned()),
+            )
+        }
+    };
+    match app.terminal.create(target, 24, 80).await {
+        Ok(id) => Json(serde_json::json!({
+            "id": id.as_str(),
+            "kind": kind.as_str(),
+        }))
+        .into_response(),
+        Err(error) => error_response(
+            StatusCode::BAD_REQUEST,
+            "terminal_create_refused",
+            Some(error.to_string()),
+        ),
+    }
+}
+
+async fn panel_terminal_write(
+    State(app): State<AppState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+    axum::extract::Path(id): axum::extract::Path<String>,
+    Json(body): Json<PanelTerminalWrite>,
+) -> Response {
+    if !panel_terminal_allowed(&app, peer, &headers) {
+        return error_response(StatusCode::FORBIDDEN, "panel_only", None);
+    }
+    let Some(id) = terminal::SessionId::parse(&id) else {
+        return error_response(StatusCode::BAD_REQUEST, "invalid_session", None);
+    };
+    match app.terminal.write(&id, body.data.as_bytes()).await {
+        Ok(written) => Json(serde_json::json!({ "written": written })).into_response(),
+        Err(error) => error_response(
+            StatusCode::BAD_REQUEST,
+            "terminal_write_refused",
+            Some(error.to_string()),
+        ),
+    }
+}
+
+async fn panel_terminal_read(
+    State(app): State<AppState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+    axum::extract::Path(id): axum::extract::Path<String>,
+    Query(query): Query<PanelTerminalRead>,
+) -> Response {
+    if !panel_terminal_allowed(&app, peer, &headers) {
+        return error_response(StatusCode::FORBIDDEN, "panel_only", None);
+    }
+    let Some(id) = terminal::SessionId::parse(&id) else {
+        return error_response(StatusCode::BAD_REQUEST, "invalid_session", None);
+    };
+    match app.terminal.read(&id, query.cursor.unwrap_or(0)) {
+        Ok(answer) => Json(serde_json::json!({
+            "text": String::from_utf8_lossy(&answer.data),
+            "cursor": answer.cursor,
+        }))
+        .into_response(),
+        Err(error) => error_response(
+            StatusCode::BAD_REQUEST,
+            "terminal_read_refused",
+            Some(error.to_string()),
+        ),
+    }
+}
+
+async fn panel_terminal_close(
+    State(app): State<AppState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+    axum::extract::Path(id): axum::extract::Path<String>,
+) -> Response {
+    if !panel_terminal_allowed(&app, peer, &headers) {
+        return error_response(StatusCode::FORBIDDEN, "panel_only", None);
+    }
+    let Some(id) = terminal::SessionId::parse(&id) else {
+        return error_response(StatusCode::BAD_REQUEST, "invalid_session", None);
+    };
+    match app.terminal.close(&id).await {
+        Ok(()) => Json(serde_json::json!({ "closed": true })).into_response(),
+        Err(error) => error_response(
+            StatusCode::BAD_REQUEST,
+            "terminal_close_refused",
+            Some(error.to_string()),
+        ),
+    }
 }
 
 /// The panel's enrollment request, as the page sends it. `force` and `allow_plaintext` are the two
@@ -1617,6 +1778,70 @@ mod tests {
         let list: serde_json::Value =
             serde_json::from_str(&body).expect("the terminal list is JSON");
         assert_eq!(list["sessions"], serde_json::json!([]));
+    }
+
+    #[tokio::test]
+    async fn the_panel_terminal_operations_need_the_panel_token_and_work() {
+        let fixture = fixture("panel-terminal-ops", None);
+        let client = client();
+        let server = PanelServer::start(fixture.app()).await;
+        let token = served_token(&client, &server).await;
+
+        // Without the token: refused before any session exists.
+        let response = client
+            .post(format!("{}/api/terminal/create", server.base_url))
+            .header("content-type", "application/json")
+            .body(json!({ "kind": "pty" }).to_string())
+            .send()
+            .await
+            .expect("the device answers");
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+
+        // With it: a pty, a write, a read and a close.
+        let response = client
+            .post(format!("{}/api/terminal/create", server.base_url))
+            .header("x-summrise-panel", &token)
+            .header("content-type", "application/json")
+            .body(json!({ "kind": "pty" }).to_string())
+            .send()
+            .await
+            .expect("the device answers");
+        assert_eq!(response.status(), StatusCode::OK);
+        let text = response.text().await.expect("the create answer");
+        let created: Value = serde_json::from_str(&text).expect("the create answer is JSON");
+        let id = created["id"].as_str().expect("a session id").to_owned();
+
+        for (method, path, body) in [
+            (
+                "write",
+                format!("/api/terminal/{id}/write"),
+                Some(json!({ "data": "exit\n" })),
+            ),
+            ("read", format!("/api/terminal/{id}/read?cursor=0"), None),
+            (
+                "close",
+                format!("/api/terminal/{id}/close"),
+                Some(json!({})),
+            ),
+        ] {
+            let request = if method == "read" {
+                client.get(format!("{}{path}", server.base_url))
+            } else {
+                client.post(format!("{}{path}", server.base_url))
+            };
+            let request = match body {
+                Some(body) => request
+                    .header("content-type", "application/json")
+                    .body(body.to_string()),
+                None => request,
+            };
+            let response = request
+                .header("x-summrise-panel", &token)
+                .send()
+                .await
+                .expect("the device answers");
+            assert_eq!(response.status(), StatusCode::OK, "{method} {path}");
+        }
     }
 
     #[tokio::test]
