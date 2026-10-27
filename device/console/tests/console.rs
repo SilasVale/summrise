@@ -3658,6 +3658,73 @@ async fn a_saved_connection_is_listed_on_the_terminal_page() {
     assert!(page.contains("10.0.0.5"), "{page}");
 }
 
+/// A restart is behind a second click and reaches `host.restart`; the answer says the device is
+/// coming back rather than pretending the page is unchanged.
+#[tokio::test]
+async fn the_system_page_can_restart_the_device() {
+    let fixture = Fixture::new("system-restart");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xe7)).await;
+    let (cookie, csrf) = sign_in_to_the_page(&fixture).await;
+
+    let app = fixture.app();
+    let request = post_form_cookie(
+        &format!("/next/system/{device_id}/restart"),
+        &[("csrf", &csrf)],
+        &cookie,
+    );
+    let restart = tokio::spawn(async move { send_text(app, request).await });
+
+    let frame = next_json(&mut device).await;
+    assert_eq!(
+        frame["mcp"]["params"]["name"],
+        json!("host.restart"),
+        "{frame}"
+    );
+    answer(
+        &mut device,
+        &frame,
+        json!({
+            "jsonrpc": "2.0", "id": 1,
+            "result": { "content": [{ "type": "text", "text": "{\"restarting\":true}" }], "isError": false }
+        }),
+    )
+    .await;
+
+    let (status, headers, _) = restart.await.expect("the restart finishes");
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let location = headers
+        .get(header::LOCATION)
+        .and_then(|value| value.to_str().ok())
+        .expect("a redirect");
+    assert!(
+        location.contains("restart=asked"),
+        "the page says the device is coming back: {location}"
+    );
+}
+
+/// The restart is offered where the processes are, behind a disclosure, with its consequence said.
+#[tokio::test]
+async fn the_system_page_offers_the_restart_behind_a_disclosure() {
+    let fixture = Fixture::new("system-restart-form");
+    let (device_id, _) = fixture.register(&signing_key(0xe6)).await;
+    let cookie = page_cookie(&fixture).await;
+
+    let (status, _, page) = send_text(
+        fixture.app(),
+        get_with_cookie(&format!("/next/system/{device_id}"), &cookie),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        page.contains(&format!("/next/system/{device_id}/restart")),
+        "{page}"
+    );
+    assert!(page.contains("Restart now"), "{page}");
+}
+
 /// The device's missing-parent refusal tells the operator to use `files.mkdir`; the page has to be
 /// able to do it, or it is pointing at a door that does not exist.
 #[tokio::test]

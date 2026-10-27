@@ -349,6 +349,8 @@ body.login { margin:0; background:var(--bg); }
 .menu-panel label { display:block; margin:0 0 4px; color:var(--muted); font-size:10.5px; font-weight:600; letter-spacing:.06em; text-transform:uppercase; }
 .menu-panel input { min-height:28px; padding:3px 8px; font-size:12px; }
 .menu-panel .field { margin:0 0 7px; }
+.restart-panel { width:300px; padding:12px; }
+.restart-panel p { margin:0 0 10px; }
 
 /* ---- small additions to the component set ---- */
 .chip.failed { background:var(--danger-soft); color:var(--danger); }
@@ -2195,6 +2197,28 @@ pub(super) fn system(
                                 td { span class="mono" { (process.name) } }
                                 td class="num" { (human_kb(process.memory_kb)) }
                             }
+                        }
+                    }
+                }
+            }
+        }
+        section class="card" {
+            (card_head("Lifecycle", Markup::default(), Markup::default()))
+            div class="card-body" {
+                p class="lead" {
+                    "Restarting restarts the app the launcher supervises. Every session on this "
+                    "device ends with it; a device the launcher did not start refuses."
+                }
+                details class="row-menu restart-menu" {
+                    summary class="btn btn-danger btn-sm" { "Restart the device" }
+                    div class="menu-panel restart-panel" {
+                        p class="small muted" {
+                            "Every terminal session ends, watches pause, and this page will show the "
+                            "device offline until the launcher brings it back."
+                        }
+                        form method="post" action=(format!("{base}/restart")) {
+                            input type="hidden" name="csrf" value=(csrf);
+                            button type="submit" class="btn btn-danger btn-sm btn-block" { "Restart now" }
                         }
                     }
                 }

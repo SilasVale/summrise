@@ -313,6 +313,7 @@ impl Console {
             .route("/next/state/:device", get(next_state_page))
             .route("/next/system/:device", get(next_system_page))
             .route("/next/system/:device/kill", post(next_system_kill))
+            .route("/next/system/:device/restart", post(next_system_restart))
             // The device's own memory: the entries, an append form, a delete per row.
             .route("/next/memory/:device", get(next_memory_page))
             .route("/next/memory/:device/append", post(next_memory_append))
@@ -2481,6 +2482,8 @@ struct SystemQuery {
     name: String,
     killed: Option<u64>,
     failed: Option<u64>,
+    /// `asked` after a successful restart request, or the device's sentence when it refused.
+    restart: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -2560,7 +2563,15 @@ async fn next_system_page(
             "the device ended {killed} process(es); {failed} could not be ended"
         )),
         _ => None,
-    };
+    }
+    .or_else(|| {
+        query.restart.as_deref().map(|restart| match restart {
+            "asked" => "The device is restarting: it reports itself offline until the launcher \
+                            brings it back."
+                .to_owned(),
+            sentence => sentence.to_owned(),
+        })
+    });
     Html(
         page::system(
             &device,
@@ -2573,6 +2584,32 @@ async fn next_system_page(
         .into_string(),
     )
     .into_response()
+}
+
+/// `POST /next/system/:device/restart`: restart the app the launcher supervises.
+///
+/// The device answers `{"restarting": true}` before it goes down, so the redirect lands; the next
+/// page load will find it offline until the launcher brings it back.
+async fn next_system_restart(
+    State(app): State<AppState>,
+    Path(device_id): Path<String>,
+    headers: HeaderMap,
+    Form(form): Form<NextRemove>,
+) -> Response {
+    if next_session(&app, &headers, Some(&form.csrf)).is_none() {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    if !app.has_device(&device_id) {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+    let uri = format!("/next/system/{device_id}");
+    match device_tool(&app, &device_id, "host.restart", json!({})).await {
+        Ok(_) => Redirect::to(&format!("{uri}?restart=asked")).into_response(),
+        Err(response) => {
+            let sentence = refusal_sentence(*response).await;
+            Redirect::to(&format!("{uri}?restart={}", page::encode(&sentence))).into_response()
+        }
+    }
 }
 
 /// `POST /next/system/:device/kill`: end a process by pid or by exact name.
