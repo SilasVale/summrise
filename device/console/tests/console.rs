@@ -4438,14 +4438,76 @@ async fn an_aggregate_call_reaches_the_named_device_and_audits_it() {
 }
 
 #[tokio::test]
-async fn an_aggregate_token_cannot_reach_another_device() {
-    let fixture = Fixture::new("aggregate-scope");
+async fn an_aggregate_call_resolves_a_unique_name_and_strips_it() {
+    let fixture = Fixture::new("aggregate-name");
     let server = TestServer::start(&fixture.console).await;
-    let (a, _ta, _da) = connected_device(&fixture, &server, &signing_key(0xaa)).await;
-    let (b, _tb, _db) = connected_device(&fixture, &server, &signing_key(0xab)).await;
-    let (c, _tc, _dc) = connected_device(&fixture, &server, &signing_key(0xac)).await;
+    let (a, _ta, _da) = connected_device(&fixture, &server, &signing_key(0xae)).await;
+    let (b, _tb, mut db) = connected_device(&fixture, &server, &signing_key(0xaf)).await;
     let session = fixture.authenticate().await;
-    let (_id, token) = aggregate_token_for(&fixture, &session, &[a, b], &["files.read"]).await;
+    let (status, renamed) = send(
+        fixture.app(),
+        post_json_bearer(
+            &format!("/fleet/{b}/name"),
+            &session,
+            json!({ "name": "bench" }),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "rename: {renamed}");
+    let (token_id, token) =
+        aggregate_token_for(&fixture, &session, &[a, b.clone()], &["files.read"]).await;
+
+    let http = send(
+        fixture.app(),
+        aggregate_request(
+            &token,
+            json!({
+                "jsonrpc": "2.0", "id": 2, "method": "tools/call",
+                "params": {"name": "files.read", "arguments": {"path": "C:\\x", "device": "bench"}}
+            }),
+        ),
+    );
+    let device_side = async {
+        let frame = next_json(&mut db).await;
+        assert!(frame["mcp"]["params"]["arguments"].get("device").is_none());
+        assert_eq!(frame["mcp"]["params"]["arguments"]["path"], json!("C:\\x"));
+        answer(
+            &mut db,
+            &frame,
+            json!({"jsonrpc": "2.0", "id": 2, "result": {"content": [{"type": "text", "text": "ok"}]}}),
+        )
+        .await;
+    };
+    let ((status, body), ()) = tokio::join!(http, device_side);
+
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let audit = audit_lines(&fixture);
+    assert!(
+        audit.iter().any(|line| line["kind"] == json!("mcp")
+            && line["device_id"] == json!(b)
+            && line["token_id"] == json!(token_id)),
+        "{audit:?}"
+    );
+}
+
+#[tokio::test]
+async fn an_out_of_scope_name_is_audited_as_requested() {
+    let fixture = Fixture::new("aggregate-name-scope");
+    let server = TestServer::start(&fixture.console).await;
+    let (a, _ta, _da) = connected_device(&fixture, &server, &signing_key(0xb0)).await;
+    let (c, _tc, _dc) = connected_device(&fixture, &server, &signing_key(0xb1)).await;
+    let session = fixture.authenticate().await;
+    let (status, renamed) = send(
+        fixture.app(),
+        post_json_bearer(
+            &format!("/fleet/{c}/name"),
+            &session,
+            json!({ "name": "attic" }),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "rename: {renamed}");
+    let (token_id, token) = aggregate_token_for(&fixture, &session, &[a], &["files.read"]).await;
 
     let (status, body) = send(
         fixture.app(),
@@ -4453,12 +4515,97 @@ async fn an_aggregate_token_cannot_reach_another_device() {
             &token,
             json!({
                 "jsonrpc": "2.0", "id": 3, "method": "tools/call",
-                "params": {"name": "files.read", "arguments": {"path": "C:\\x", "device": c}}
+                "params": {"name": "files.read", "arguments": {"path": "C:\\x", "device": "attic"}}
             }),
         ),
     )
     .await;
     assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+    assert_eq!(body["error"]["code"], json!(-32001));
+    let audit = audit_lines(&fixture);
+    assert!(
+        audit.iter().any(|line| line["kind"] == json!("denied")
+            && line["device_id"] == json!("attic")
+            && line["detail"] == json!("device_not_permitted")
+            && line["token_id"] == json!(token_id)),
+        "{audit:?}"
+    );
+}
+
+#[tokio::test]
+async fn an_ambiguous_name_is_refused_with_the_scope_error_and_audited_as_requested() {
+    let fixture = Fixture::new("aggregate-name-ambiguous");
+    let server = TestServer::start(&fixture.console).await;
+    let (a, _ta, _da) = connected_device(&fixture, &server, &signing_key(0xb2)).await;
+    let (b, _tb, _db) = connected_device(&fixture, &server, &signing_key(0xb3)).await;
+    let session = fixture.authenticate().await;
+    for id in [&a, &b] {
+        let (status, renamed) = send(
+            fixture.app(),
+            post_json_bearer(
+                &format!("/fleet/{id}/name"),
+                &session,
+                json!({ "name": "bench" }),
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "rename: {renamed}");
+    }
+    let (token_id, token) = aggregate_token_for(&fixture, &session, &[a, b], &["files.read"]).await;
+
+    let (status, body) = send(
+        fixture.app(),
+        aggregate_request(
+            &token,
+            json!({
+                "jsonrpc": "2.0", "id": 4, "method": "tools/call",
+                "params": {"name": "files.read", "arguments": {"path": "C:\\x", "device": "bench"}}
+            }),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+    assert_eq!(body["error"]["code"], json!(-32001));
+    let audit = audit_lines(&fixture);
+    assert!(
+        audit.iter().any(|line| line["kind"] == json!("denied")
+            && line["device_id"] == json!("bench")
+            && line["detail"] == json!("device_not_permitted")
+            && line["token_id"] == json!(token_id)),
+        "{audit:?}"
+    );
+}
+
+#[tokio::test]
+async fn an_aggregate_token_cannot_reach_another_device() {
+    let fixture = Fixture::new("aggregate-scope");
+    let server = TestServer::start(&fixture.console).await;
+    let (a, _ta, _da) = connected_device(&fixture, &server, &signing_key(0xaa)).await;
+    let (b, _tb, _db) = connected_device(&fixture, &server, &signing_key(0xab)).await;
+    let (c, _tc, _dc) = connected_device(&fixture, &server, &signing_key(0xac)).await;
+    let session = fixture.authenticate().await;
+    let (token_id, token) = aggregate_token_for(&fixture, &session, &[a, b], &["files.read"]).await;
+
+    let (status, body) = send(
+        fixture.app(),
+        aggregate_request(
+            &token,
+            json!({
+                "jsonrpc": "2.0", "id": 3, "method": "tools/call",
+                "params": {"name": "files.read", "arguments": {"path": "C:\\x", "device": c.clone()}}
+            }),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+    let audit = audit_lines(&fixture);
+    assert!(
+        audit.iter().any(|line| line["kind"] == json!("denied")
+            && line["device_id"] == json!(c)
+            && line["detail"] == json!("device_not_permitted")
+            && line["token_id"] == json!(token_id)),
+        "{audit:?}"
+    );
 }
 
 #[tokio::test]

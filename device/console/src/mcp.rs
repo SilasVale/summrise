@@ -148,7 +148,9 @@ pub(crate) fn aggregate_initialize_result(devices: &[(String, String)], version:
         "capabilities": { "tools": { "listChanged": false } },
         "serverInfo": { "name": "summrise-console", "version": version },
         "instructions": format!(
-            "This endpoint reaches {reach}. Every tool takes a required `device` argument: the              device id, or a unique device name. The tools it lists are the token's tools; every              call is audited."
+            "This endpoint reaches {reach}. Every tool takes a required `device` argument: the device \
+             id, or a unique device name. The tools it lists are the token's tools; every call is \
+             audited."
         ),
     })
 }
@@ -204,7 +206,13 @@ fn device_list(devices: &[(String, String)]) -> String {
     }
     devices
         .iter()
-        .map(|(id, name)| format!("{id} ({name})"))
+        .map(|(id, name)| {
+            if name.is_empty() {
+                id.clone()
+            } else {
+                format!("{id} ({name})")
+            }
+        })
         .collect::<Vec<_>>()
         .join(", ")
 }
@@ -435,6 +443,24 @@ mod tests {
         assert!(text.contains("a (ALPHA)"), "{text}");
         assert!(text.contains("b (BETA)"), "{text}");
         assert!(text.contains("device"), "{text}");
+    }
+
+    #[test]
+    fn an_unlabelled_device_is_listed_by_id_only() {
+        let value = aggregate_initialize_result(&[("a".into(), String::new())], "0.3.43");
+        let text = value["instructions"].as_str().expect("instructions");
+        assert!(text.contains("a"), "{text}");
+        assert!(!text.contains("unnamed"), "{text}");
+    }
+
+    #[test]
+    fn the_aggregate_instructions_have_no_source_indentation() {
+        let value = aggregate_initialize_result(
+            &[("a".into(), "ALPHA".into()), ("b".into(), "BETA".into())],
+            "0.3.43",
+        );
+        let text = value["instructions"].as_str().expect("instructions");
+        assert!(!text.contains("  "), "{text}");
     }
 
     #[test]
