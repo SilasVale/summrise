@@ -47,6 +47,15 @@ The console page is Rust. `/` redirects to `/next`, which `summrise-console` ren
 templates; there is no npm, no committed bundle and no second build. A page change is gated by the
 same `cargo test -p summrise-console` the rest of the crate uses.
 
+To look at every page at once — light and dark, at any width — the console renders itself into a
+directory and a browser photographs it:
+
+```bash
+scripts/console-screenshots.bash --out /tmp/console-shots          # 26 pages, light + dark
+scripts/console-screenshots.bash --out /tmp/console-shots --width 900 --light-only
+open /tmp/console-shots/index.html
+```
+
 The only JavaScript left is vendored xterm and the two terminal pages' glue
 (`device/console/assets/`, `device/device/src/panel.html`). `scripts/console-smoke.mjs` drives the
 console in a browser — the fleet table, every device link, and a real shell typed into — and needs

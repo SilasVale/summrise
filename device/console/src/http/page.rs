@@ -3133,7 +3133,10 @@ mod tests {
     #[test]
     #[ignore = "writes pages for a browser to look at"]
     fn render_pages_for_review() {
-        let dir = std::path::Path::new("/tmp/pages");
+        // `SUMMRISE_PAGE_DIR` lets the screenshot script render somewhere it owns; the default is
+        // the directory everyone already looks in.
+        let out = std::env::var("SUMMRISE_PAGE_DIR").unwrap_or_else(|_| "/tmp/pages".to_owned());
+        let dir = std::path::Path::new(&out);
         std::fs::create_dir_all(dir).expect("the review directory");
         let devices = vec![
             view('a', Some("DESKTOP-9VH92BJ"), true),
