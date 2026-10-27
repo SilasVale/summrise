@@ -41,6 +41,9 @@ tokio = { version = "1", features = [
 # WebSocket tests need a real listener and a client, because a handshake is not a tower response.
 [dev-dependencies]
 futures-util = "0.3"
+# The page's Access sign-in is tested with a real signed assertion, not a stub: the verifier the
+# test exercises is the one the deployment runs.
+jsonwebtoken = "9"
 tokio-tungstenite = { version = "0.24", default-features = false, features = [
     "connect",
     "handshake",

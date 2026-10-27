@@ -354,6 +354,10 @@ impl Console {
             // log holds what probing looks like, and it is surfaced read-only.
             .route("/denials", get(list_denials))
             .layer(axum::middleware::from_fn(no_store))
+            .layer(axum::middleware::from_fn_with_state(
+                self.inner.clone(),
+                access_sign_in,
+            ))
             .with_state(self.inner.clone())
     }
 }
@@ -800,6 +804,55 @@ async fn no_store(request: axum::extract::Request, next: axum::middleware::Next)
         header::X_FRAME_OPTIONS,
         axum::http::HeaderValue::from_static("DENY"),
     );
+    response
+}
+
+/// Sign the operator in when Cloudflare Access already identified them.
+///
+/// The page's gate is a cookie and the edge's identity is a header, so without this an operator
+/// Access had just authenticated was handed a 64-hex token box for a secret nobody gave them — it
+/// lives in a file on the host. A verified header mints the page's session: this request carries it
+/// (the handlers read the same header a cookie would have supplied), and the answer sets the cookie
+/// for the next one. Injecting it rather than redirecting keeps a browser that refuses cookies from
+/// looping between the cookie and the card.
+///
+/// GET and `/next…` only: a cross-site form POST that the edge happens to authenticate must not be
+/// able to mint a session, and the API's bearer tokens are not cookies.
+async fn access_sign_in(
+    State(app): State<AppState>,
+    mut request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> Response {
+    let path = request.uri().path();
+    let is_page = request.method() == axum::http::Method::GET
+        && (path == "/next" || path.starts_with("/next/"));
+    if !is_page || cookie_session(&app, request.headers()).is_some() {
+        return next.run(request).await;
+    }
+    let (operator, _) = app.identity(request.headers());
+    if operator.map(|operator| operator.via) != Some("access") {
+        return next.run(request).await;
+    }
+
+    let (_session, token) = new_session(&app);
+    let cookie = format!("{SESSION_COOKIE}={}", hex::encode(&token));
+    let combined = match request
+        .headers()
+        .get(header::COOKIE)
+        .and_then(|value| value.to_str().ok())
+    {
+        Some(existing) => format!("{cookie}; {existing}"),
+        None => cookie,
+    };
+    request.headers_mut().insert(
+        header::COOKIE,
+        HeaderValue::from_str(&combined).expect("a session cookie is a valid header value"),
+    );
+    let secure = secure_request(request.headers());
+    let mut response = next.run(request).await;
+    response
+        .headers_mut()
+        .append(header::SET_COOKIE, session_cookie(&token, secure));
     response
 }
 
@@ -2731,7 +2784,17 @@ async fn next_logout(
     if let Err(error) = crate::auth::save_sessions(&app.data, &lock(&app.sessions)) {
         eprintln!("summrise-console: the sessions could not be persisted: {error}");
     }
-    let mut response = Redirect::to("/next").into_response();
+    // Ours is the cookie; the identity is Access's. Clearing only the cookie would be undone by the
+    // next request the edge authenticates, so behind Access sign-out ends the edge's session too.
+    // Without Access there is no edge to sign out of, and the card is the way back in.
+    let mut response = match app.access.as_ref().and_then(crate::access::Access::issuer) {
+        Some(issuer) => Redirect::to(&format!(
+            "{}/cdn-cgi/access/logout",
+            issuer.trim_end_matches('/')
+        ))
+        .into_response(),
+        None => Redirect::to("/next").into_response(),
+    };
     response
         .headers_mut()
         .insert(header::SET_COOKIE, clear_session_cookie());

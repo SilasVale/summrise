@@ -16,13 +16,20 @@ use ed25519_dalek::{Signer, SigningKey};
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
-use summrise_console::{Config, Console};
+use summrise_console::{AccessConfig, Config, Console, ACCESS_HEADER};
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::{self, Message as WsMessage};
 use tower::ServiceExt;
 
 const OPERATOR_TOKEN: [u8; 32] = [0x11; 32];
 const GRANT_SEED: [u8; 32] = [0x22; 32];
+
+/// The throwaway Access team the unit tests under `src/access.rs` already use: this file signs its
+/// own assertions with the same fixture key, so a page test meets the verifier the deployment runs.
+const ACCESS_AUDIENCE: &str = "test-audience-tag";
+const ACCESS_ISSUER: &str = "https://test-team.cloudflareaccess.com";
+const ACCESS_KEY_PEM: &str = include_str!("fixtures/access-test-key.pem");
+const ACCESS_JWKS: &str = include_str!("fixtures/access-test-jwks.json");
 const START_MS: u64 = 1_000_000;
 const DAY_MS: u64 = 24 * 60 * 60 * 1000;
 const MINUTE_MS: u64 = 60 * 1000;
@@ -135,6 +142,25 @@ impl Fixture {
         let reader = fixture.clock.clone();
         fixture.console = Console::load_with_clock(&config, move || reader.load(Ordering::Relaxed))
             .expect("the console reloads with the broker");
+        fixture.config = config;
+        fixture
+    }
+
+    /// A console with Cloudflare Access configured the way the deployment has it: three facts and a
+    /// pinned JWKS on disk. The key that signs the tests' assertions is the one the JWKS names.
+    fn with_access(label: &str) -> Self {
+        let mut fixture = Self::new(label);
+        let jwks = fixture._dir.join("access-jwks.json");
+        fs::write(&jwks, ACCESS_JWKS).expect("the pinned JWKS is written");
+        let mut config = fixture.config.clone();
+        config.access = Some(AccessConfig {
+            jwks,
+            audience: ACCESS_AUDIENCE.to_owned(),
+            issuer: ACCESS_ISSUER.to_owned(),
+        });
+        let reader = fixture.clock.clone();
+        fixture.console = Console::load_with_clock(&config, move || reader.load(Ordering::Relaxed))
+            .expect("the console reloads with Access");
         fixture.config = config;
         fixture
     }
@@ -3183,6 +3209,119 @@ async fn the_session_probe_says_what_it_made_of_the_access_header() {
     assert_eq!(body["access"]["header"], true);
 }
 
+/// The page's gate is a cookie; Cloudflare Access is the identity in front of it. An operator the
+/// edge already authenticated was never given a token to type, so a verified header must sign them
+/// in — the token box is the break-glass path, not the front door.
+#[tokio::test]
+async fn a_verified_access_request_signs_the_page_in_without_a_token() {
+    let fixture = Fixture::with_access("access-sign-in");
+    let request = Request::builder()
+        .method("GET")
+        .uri("/next")
+        .header(ACCESS_HEADER, access_token(60))
+        .body(Body::empty())
+        .expect("the request builds");
+
+    let (status, headers, page) = send_text(fixture.app(), request).await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        page.contains("New enrollment code"),
+        "the signed-in fleet, not the token box: {page}"
+    );
+    assert!(!page.contains("Operator token"), "no token box: {page}");
+    let cookie = headers
+        .get(header::SET_COOKIE)
+        .and_then(|value| value.to_str().ok())
+        .expect("the answer sets the session it just minted");
+    assert!(cookie.starts_with("summrise_session="), "{cookie}");
+    assert!(cookie.contains("HttpOnly"), "{cookie}");
+}
+
+/// A header that does not verify is not an identity: the token box stays, and nothing is minted for
+/// whoever sent it.
+#[tokio::test]
+async fn an_access_header_that_does_not_verify_leaves_the_token_box() {
+    let fixture = Fixture::with_access("access-refused");
+    let request = Request::builder()
+        .method("GET")
+        .uri("/next")
+        .header(ACCESS_HEADER, "not-a-jwt")
+        .body(Body::empty())
+        .expect("the request builds");
+
+    let (status, headers, page) = send_text(fixture.app(), request).await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert!(page.contains("Operator token"), "{page}");
+    assert!(
+        headers.get(header::SET_COOKIE).is_none(),
+        "a refused identity mints nothing"
+    );
+}
+
+/// Only a GET signs in: a cross-site form POST that the edge happens to see must not mint a
+/// session, and a mutation still needs the session's own CSRF value.
+#[tokio::test]
+async fn a_post_carrying_only_an_access_header_mints_nothing() {
+    let fixture = Fixture::with_access("access-post");
+    let request = Request::builder()
+        .method("POST")
+        .uri("/next/fleet/device/name")
+        .header(ACCESS_HEADER, access_token(60))
+        .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+        .body(Body::from("csrf=00&name=renamed"))
+        .expect("the request builds");
+
+    let (status, headers, _) = send_text(fixture.app(), request).await;
+
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert!(
+        headers.get(header::SET_COOKIE).is_none(),
+        "a POST mints nothing"
+    );
+}
+
+/// Signing out has to end the session Access itself holds: clearing our cookie alone would be
+/// undone by the next request, which the edge would authenticate again.
+#[tokio::test]
+async fn signing_out_behind_access_ends_the_access_session() {
+    let fixture = Fixture::with_access("access-sign-out");
+    let (status, headers, _) = send_text(
+        fixture.app(),
+        post_form("/next/auth", &[("token", &hex(&OPERATOR_TOKEN))]),
+    )
+    .await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let set = headers
+        .get(header::SET_COOKIE)
+        .expect("a session cookie")
+        .to_str()
+        .expect("a cookie is ASCII");
+    let cookie = set.split(';').next().expect("the name=value pair");
+
+    let (_, _, page) = send_text(fixture.app(), get_with_cookie("/next", cookie)).await;
+    let csrf = csrf_from(&page);
+
+    let request = Request::builder()
+        .method("POST")
+        .uri("/next/logout")
+        .header(header::COOKIE, cookie)
+        .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+        .body(Body::from(format!("csrf={csrf}")))
+        .expect("the request builds");
+    let (status, headers, _) = send_text(fixture.app(), request).await;
+
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert_eq!(
+        headers
+            .get(header::LOCATION)
+            .and_then(|value| value.to_str().ok()),
+        Some("https://test-team.cloudflareaccess.com/cdn-cgi/access/logout"),
+        "our cookie is not the session that outlives us"
+    );
+}
+
 #[tokio::test]
 async fn no_console_answer_is_cacheable() {
     // A cached page outlives a deploy and a cached `/session` outlives a login: both were possible
@@ -5854,6 +5993,27 @@ fn csrf_from(page: &str) -> String {
     let marker = "name=\"csrf\" value=\"";
     let start = page.find(marker).expect("a CSRF field") + marker.len();
     page[start..].chars().take(64).collect()
+}
+
+/// A real Access assertion for the fixture team, expiring `seconds` from now. Signed with the same
+/// throwaway key the pinned JWKS publishes, so `Access::verify` is what accepts it.
+fn access_token(seconds: u64) -> String {
+    let mut header = jsonwebtoken::Header::new(jsonwebtoken::Algorithm::RS256);
+    header.kid = Some("test-key".to_owned());
+    let key = jsonwebtoken::EncodingKey::from_rsa_pem(ACCESS_KEY_PEM.as_bytes())
+        .expect("the fixture key loads");
+    let exp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("a clock after the epoch")
+        .as_secs()
+        + seconds;
+    let claims = json!({
+        "aud": ACCESS_AUDIENCE,
+        "iss": ACCESS_ISSUER,
+        "exp": exp,
+        "email": "operator@example.test",
+    });
+    jsonwebtoken::encode(&header, &claims, &key).expect("the token is signed")
 }
 
 #[tokio::test]
