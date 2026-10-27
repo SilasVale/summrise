@@ -132,3 +132,21 @@ What the phases did not anticipate, and what the page learned in use:
   navigation;
 - "looks good" needs a gate: the contrast test and the screenshot diff are what
   keep a styling change from being an opinion.
+
+## Acceptance record (2026-10-27, console 0.3.87)
+
+The evidence for the paragraphs above, in the order a reader would want it:
+
+| Check | Result |
+|---|---|
+| the device workspace's tests (`cargo test` over nine crates, CI's own command) | **1214 passed, 0 failed, 3 ignored** |
+| clippy, every target, warnings as errors | clean |
+| `cargo fmt --all -- --check` | clean |
+| `scripts/console-screenshots.bash --out /tmp/acceptance` | **26 pages, 52 images**, gallery written |
+| every live page (fleet, terminal, files, runs, system, state, memory, monitors, browser, tokens, vitals, audit, denials) | **13/13 answered 200**; nine carry a context rail |
+| `/health` on the running console | `ok`, version 0.3.87, three devices |
+| the browser smoke (`scripts/console-smoke.mjs --terminal`) | `terminal ok — session session-4 · powershell.exe, 2 tabs` |
+
+What is intentionally not here: a per-page pixel budget, a performance
+benchmark of the rendered page, and a translated UI. Each is a new goal, not a
+gap in this one.
