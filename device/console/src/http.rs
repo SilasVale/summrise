@@ -88,6 +88,9 @@ struct Inner {
     tokens: Mutex<Tokens>,
     /// Saved terminal presets, keyed by device inside the file. Operator convenience, not device state.
     connections: Mutex<connections::Connections>,
+    /// The last expression evaluated in a device's browser, and its answer. Console memory only: it
+    /// is a form result the next page load shows, not device state and not a file.
+    last_evals: Mutex<HashMap<String, page::LastEval>>,
     codes: Mutex<EnrollmentCodes>,
     channels: ChannelRegistry,
     audit: Audit,
@@ -171,6 +174,7 @@ impl Console {
                 devices: Mutex::new(devices),
                 tokens: Mutex::new(tokens),
                 connections: Mutex::new(connections),
+                last_evals: Mutex::new(HashMap::new()),
                 codes: Mutex::new(codes),
                 channels: ChannelRegistry::new(),
                 audit: Audit::new(&config.data, audit_max_bytes),
@@ -328,6 +332,7 @@ impl Console {
             // The device's browser: its targets, a capture, and open/close.
             .route("/next/browser/:device", get(next_browser_page))
             .route("/next/browser/:device/open", post(next_browser_open))
+            .route("/next/browser/:device/eval", post(next_browser_eval))
             .route("/next/browser/:device/close", post(next_browser_close))
             // The connect card: a device's permanent tokens, minted once and revocable.
             .route("/next/tokens/:device", get(next_tokens_page))
@@ -3108,6 +3113,7 @@ async fn next_browser_page(
             }
         }
     }
+    let last_eval = lock(&app.last_evals).get(&device.id).cloned();
     Html(
         page::browser(
             &device,
@@ -3116,6 +3122,7 @@ async fn next_browser_page(
             &hex::encode(&session.csrf),
             &app.version,
             error.as_deref(),
+            last_eval.as_ref(),
         )
         .into_string(),
     )
@@ -3142,6 +3149,69 @@ async fn next_browser_open(
     {
         Ok(_) => Redirect::to(&format!("/next/browser/{device_id}")).into_response(),
         Err(response) => *response,
+    }
+}
+
+#[derive(Deserialize)]
+struct BrowserEvalForm {
+    csrf: String,
+    target: String,
+    expression: String,
+}
+
+/// `POST /next/browser/:device/eval`: evaluate one expression in a target, and keep the answer for
+/// the page that follows.
+async fn next_browser_eval(
+    State(app): State<AppState>,
+    Path(device_id): Path<String>,
+    headers: HeaderMap,
+    Form(form): Form<BrowserEvalForm>,
+) -> Response {
+    if next_session(&app, &headers, Some(&form.csrf)).is_none() {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    if !app.has_device(&device_id) {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+    let uri = format!("/next/browser/{device_id}");
+    let expression = form.expression.trim().to_owned();
+    if expression.is_empty() {
+        return Redirect::to(&format!(
+            "{uri}?error={}",
+            page::encode("An expression is needed.")
+        ))
+        .into_response();
+    }
+    match device_tool(
+        &app,
+        &device_id,
+        "browser.eval",
+        json!({ "target": form.target, "expression": expression }),
+    )
+    .await
+    {
+        Ok(text) => {
+            let value: Value = serde_json::from_str(&text).unwrap_or_else(|_| json!(text));
+            let mut rendered =
+                serde_json::to_string_pretty(&value).unwrap_or_else(|_| value.to_string());
+            const LIMIT: usize = 4_000;
+            if rendered.chars().count() > LIMIT {
+                rendered = rendered.chars().take(LIMIT).collect::<String>() + "\n… (truncated)";
+            }
+            lock(&app.last_evals).insert(
+                device_id,
+                page::LastEval {
+                    target: form.target,
+                    expression,
+                    value: rendered,
+                },
+            );
+            Redirect::to(&uri).into_response()
+        }
+        Err(response) => {
+            let sentence = refusal_sentence(*response).await;
+            Redirect::to(&format!("{uri}?error={}", page::encode(&sentence))).into_response()
+        }
     }
 }
 

@@ -8591,6 +8591,102 @@ async fn the_monitors_page_lists_a_target_and_forwards_an_add() {
     );
 }
 
+/// An expression runs in the device's target and its answer is on the page that follows; the console
+/// keeps it in memory rather than in the URL.
+#[tokio::test]
+async fn the_browser_page_can_evaluate_and_shows_the_answer() {
+    let fixture = Fixture::new("browser-eval");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xdd)).await;
+    let (cookie, csrf) = sign_in_to_the_page(&fixture).await;
+
+    let app = fixture.app();
+    let request = post_form_cookie(
+        &format!("/next/browser/{device_id}/eval"),
+        &[
+            ("csrf", &csrf),
+            ("target", "target-1"),
+            ("expression", "document.title"),
+        ],
+        &cookie,
+    );
+    let eval = tokio::spawn(async move { send_text(app, request).await });
+
+    let frame = next_json(&mut device).await;
+    assert_eq!(
+        frame["mcp"]["params"]["name"],
+        json!("browser.eval"),
+        "{frame}"
+    );
+    assert_eq!(
+        frame["mcp"]["params"]["arguments"]["target"],
+        json!("target-1")
+    );
+    assert_eq!(
+        frame["mcp"]["params"]["arguments"]["expression"],
+        json!("document.title")
+    );
+    answer(
+        &mut device,
+        &frame,
+        json!({
+            "jsonrpc": "2.0", "id": 1,
+            "result": { "content": [{ "type": "text", "text": json!({ "type": "string", "value": "Example" }).to_string() }], "isError": false }
+        }),
+    )
+    .await;
+    let (status, _, _) = eval.await.expect("the eval finishes");
+    assert_eq!(status, StatusCode::SEE_OTHER);
+
+    // The page that follows shows the expression and the answer.
+    let app = fixture.app();
+    let request = get_with_cookie(&format!("/next/browser/{device_id}"), &cookie);
+    let page = tokio::spawn(async move { send_text(app, request).await });
+    let frame = next_json(&mut device).await;
+    assert_eq!(
+        frame["mcp"]["params"]["name"],
+        json!("browser.list"),
+        "{frame}"
+    );
+    answer(
+        &mut device,
+        &frame,
+        json!({
+            "jsonrpc": "2.0", "id": 1,
+            "result": { "content": [{ "type": "text", "text": json!([
+                { "id": "target-1", "title": "example", "url": "https://example.com/", "type": "page" }
+            ]).to_string() }], "isError": false }
+        }),
+    )
+    .await;
+    let frame = next_json(&mut device).await;
+    assert_eq!(
+        frame["mcp"]["params"]["name"],
+        json!("browser.screenshot"),
+        "{frame}"
+    );
+    answer(
+        &mut device,
+        &frame,
+        json!({
+            "jsonrpc": "2.0", "id": 1,
+            "result": { "content": [{ "type": "text", "text": json!({ "format": "png", "data": "QUJD", "bytes": 3 }).to_string() }], "isError": false }
+        }),
+    )
+    .await;
+
+    let (status, _, body) = page.await.expect("the browser page finishes");
+    assert_eq!(status, StatusCode::OK);
+    assert!(body.contains("Last evaluation"), "{body}");
+    assert!(body.contains("document.title"), "{body}");
+    assert!(body.contains("Example"), "{body}");
+    assert!(
+        body.contains(&format!("/next/browser/{device_id}/eval")),
+        "the form is there to run another: {body}"
+    );
+}
+
 #[tokio::test]
 async fn the_browser_page_lists_targets_captures_the_first_and_forwards_an_open() {
     let fixture = Fixture::new("browser-page");

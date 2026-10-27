@@ -350,6 +350,7 @@ body.login { margin:0; background:var(--bg); }
 .menu-panel input { min-height:28px; padding:3px 8px; font-size:12px; }
 .menu-panel .field { margin:0 0 7px; }
 .restart-panel { width:300px; padding:12px; }
+.code-block { margin:0 0 10px; padding:10px 12px; border:1px solid var(--line); border-radius:8px; background:var(--panel-2); color:var(--ink); font:12px/1.5 var(--mono); white-space:pre-wrap; overflow-wrap:anywhere; max-height:280px; overflow:auto; }
 .restart-panel p { margin:0 0 10px; }
 
 /* ---- small additions to the component set ---- */
@@ -2686,7 +2687,18 @@ pub(super) struct BrowserRow {
     pub(super) kind: String,
 }
 
-/// The browser page: the targets, a capture of the first one, and the open/close forms.
+/// The last expression the operator evaluated in a device's browser, and its answer. It lives in
+/// the console's memory (not on a device, not in a file) so a page load right after the form can
+/// show it without putting a megabyte into a URL.
+#[derive(Clone)]
+pub(super) struct LastEval {
+    pub target: String,
+    pub expression: String,
+    /// The device's answer, pretty-printed and truncated for display.
+    pub value: String,
+}
+
+/// The browser page: the targets, a capture of the first one, the forms, and the last evaluation.
 pub(super) fn browser(
     device: &DeviceView,
     rows: &[BrowserRow],
@@ -2694,6 +2706,7 @@ pub(super) fn browser(
     csrf: &str,
     version: &str,
     error: Option<&str>,
+    last_eval: Option<&LastEval>,
 ) -> Markup {
     let base = format!("/next/browser/{}", device.id);
     let content = html! {
@@ -2753,6 +2766,49 @@ pub(super) fn browser(
                                     }
                                 }
                             }
+                        }
+                    }
+                }
+            }
+        }
+        @if let Some(eval) = last_eval {
+            section class="card" {
+                (card_head(
+                    "Last evaluation",
+                    html! { span class="chip muted" { (eval.target) } },
+                    Markup::default(),
+                ))
+                div class="card-body" {
+                    p class="small muted" { "Expression" }
+                    pre class="code-block" { (eval.expression) }
+                    p class="small muted" { "Answer" }
+                    pre class="code-block" { (eval.value) }
+                }
+            }
+        }
+        section class="card" {
+            (card_head("Evaluate in a page", Markup::default(), Markup::default()))
+            div class="card-body" {
+                @if rows.is_empty() {
+                    p class="lead" { "Open a page first; an expression runs in a target's document." }
+                } @else {
+                    form method="post" action=(format!("{base}/eval")) {
+                        input type="hidden" name="csrf" value=(csrf);
+                        div class="field" {
+                            label for="eval-target" { "Target" }
+                            select id="eval-target" name="target" {
+                                @for row in rows {
+                                    option value=(row.id) { (row.title) " — " (row.url) }
+                                }
+                            }
+                        }
+                        div class="field" {
+                            label for="eval-expression" { "JavaScript" }
+                            textarea id="eval-expression" name="expression" rows="4" placeholder="document.title" {}
+                        }
+                        div class="form-actions" {
+                            button type="submit" class="btn" { "Evaluate" }
+                            span class="muted" { "Runs in the device's browser, not in this page." }
                         }
                     }
                 }
@@ -3265,7 +3321,10 @@ mod tests {
             ("Memory", memory(device, &[], "", "00", "0.1.0", None)),
             ("Screen", screen(device, None, "no screen", "00", "0.1.0")),
             ("Monitors", monitors(device, &[], "00", "0.1.0", None)),
-            ("Browser", browser(device, &[], None, "00", "0.1.0", None)),
+            (
+                "Browser",
+                browser(device, &[], None, "00", "0.1.0", None, None),
+            ),
             ("Tokens", tokens(device, &[], "00", "0.1.0", None)),
             (
                 "Tokens",
@@ -3869,7 +3928,15 @@ mod tests {
             ),
             (
                 "browser",
-                browser(&devices[0], &browser_rows, Some(CAPTURE), "csrf", "0.3.72", None),
+                browser(
+                    &devices[0],
+                    &browser_rows,
+                    Some(CAPTURE),
+                    "csrf",
+                    "0.3.72",
+                    None,
+                    None,
+                ),
             ),
             (
                 "tokens",
@@ -4115,7 +4182,7 @@ mod tests {
             system(&device, &[], "", "00", "0.1.0", None),
             memory(&device, &[], "", "00", "0.1.0", None),
             monitors(&device, &[], "00", "0.1.0", None),
-            browser(&device, &[], None, "00", "0.1.0", None),
+            browser(&device, &[], None, "00", "0.1.0", None, None),
             tokens(&device, &[], "00", "0.1.0", None),
             vitals(&device, &sample_vitals(), "00", "0.1.0"),
         ];
