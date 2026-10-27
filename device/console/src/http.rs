@@ -877,8 +877,21 @@ async fn access_sign_in(
     if !is_page || cookie_session(&app, request.headers()).is_some() {
         return next.run(request).await;
     }
-    let (operator, _) = app.identity(request.headers());
+    let (operator, access) = app.identity(request.headers());
     if operator.map(|operator| operator.via) != Some("access") {
+        // A header that was there and did not verify is the case a person cannot see from the
+        // page: the card says "did not accept", and this line is what proves the edge delivered
+        // anything at all. A header that is absent is not an event — every signed-out visit to a
+        // console without Access would write one.
+        if access.configured && access.header && access.error.is_some() {
+            app.record(
+                "auth",
+                None,
+                StatusCode::UNAUTHORIZED,
+                Some("access refused"),
+            )
+            .await;
+        }
         return next.run(request).await;
     }
 
@@ -3679,6 +3692,14 @@ async fn next_login(
         .await
         .is_err()
     {
+        // Never the attempt itself: a line that records what was typed is a line that leaks it.
+        app.record(
+            "auth",
+            None,
+            StatusCode::UNAUTHORIZED,
+            Some("token refused"),
+        )
+        .await;
         let (_, access) = app.identity(&headers);
         let note = access_note(&access, &headers);
         return (

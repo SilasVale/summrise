@@ -8591,6 +8591,48 @@ async fn the_monitors_page_lists_a_target_and_forwards_an_add() {
     );
 }
 
+/// A refused Access token leaves a line. "Was the edge's header there, and did the console accept
+/// it?" must be answerable from the audit, not only from the card the browser shows.
+#[tokio::test]
+async fn a_refused_access_token_is_audited() {
+    let fixture = Fixture::with_access("access-refusal-audited");
+    let mut request = get("/next", None);
+    request.headers_mut().insert(
+        "cf-access-jwt-assertion",
+        "not-a-jwt".parse().expect("a header value"),
+    );
+    let (status, _, _) = send_text(fixture.app(), request).await;
+    assert_eq!(status, StatusCode::OK);
+
+    let lines = audit_lines(&fixture);
+    let refused = lines
+        .iter()
+        .find(|line| line["kind"] == "auth" && line["status"] == 401)
+        .unwrap_or_else(|| panic!("a refusal line: {lines:#?}"));
+    assert_eq!(refused["detail"], "access refused");
+}
+
+/// A refused operator token leaves one too, and it never carries what was typed.
+#[tokio::test]
+async fn a_refused_operator_token_is_audited() {
+    let fixture = Fixture::new("token-refusal-audited");
+    let wrong = "0".repeat(64);
+    let (status, _, _) =
+        send_text(fixture.app(), post_form("/next/auth", &[("token", &wrong)])).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+
+    let lines = audit_lines(&fixture);
+    let refused = lines
+        .iter()
+        .find(|line| line["kind"] == "auth" && line["status"] == 401)
+        .unwrap_or_else(|| panic!("a refusal line: {lines:#?}"));
+    assert_eq!(refused["detail"], "token refused");
+    assert!(
+        !lines.iter().any(|line| line.to_string().contains(&wrong)),
+        "the attempt is not what is recorded"
+    );
+}
+
 /// A history row can be opened: `runs.get` answers the row, which is all the device keeps.
 #[tokio::test]
 async fn a_run_history_row_can_be_opened() {
