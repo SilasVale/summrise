@@ -50,9 +50,13 @@ const MAX_LOG_LIMIT: usize = 1000;
 /// How long the console tells an operator's client to wait before retrying a reconnecting device.
 const RETRY_AFTER_MS: u64 = 1_000;
 
-/// How long a held destructive call waits for the operator. The legacy gate held its question for
-/// about this long and expired CLOSED: an unanswered question is refused, never run.
-const APPROVAL_TTL: Duration = Duration::from_secs(600);
+/// How long a held destructive call waits for the operator, and it is deliberately shorter than it
+/// looks: the console is served through Cloudflare Access, whose origin bound cuts a request at
+/// about 100 s. A ten-minute hold would have the edge drop the client while the console still
+/// believed it was waiting, so the answer would be pressed onto a request nobody was holding. Ninety
+/// seconds fits inside that bound, and expiry fails CLOSED: an unanswered question is refused, never
+/// run.
+const APPROVAL_TTL: Duration = Duration::from_secs(90);
 
 /// One call held for approval: what the operator is asked about, and the wire back to the request
 /// that is waiting for the answer.
@@ -860,7 +864,7 @@ mod assets {
     pub(super) const FIT: &str = include_str!("../assets/addon-fit.js");
     /// The terminal page's glue: the loop between xterm and `/next/terminal`.
     pub(super) const TERMINAL: &str = include_str!("../assets/terminal.js");
-    /// The approvals badge: the one poll every page carries, because a held call waits ten minutes.
+    /// The approvals badge: the one poll every page carries, because a held call waits ninety seconds.
     pub(super) const APPROVALS: &str = include_str!("../assets/approvals.js");
     /// The browser pane's frame pump: replaces the server-rendered capture as frames arrive.
     pub(super) const BROWSER: &str = include_str!("../assets/browser.js");
@@ -1289,11 +1293,7 @@ async fn next_page(
         enroll: query.enroll.as_deref(),
         error: query.error.as_deref(),
     };
-    let mut approvals: Vec<page::ApprovalRow> = lock(&app.approvals)
-        .values()
-        .map(|pending| pending.row.clone())
-        .collect();
-    approvals.sort_by_key(|row| row.created_ms);
+    let approvals = live_approvals(&app);
     Html(
         // The fleet is the page an operator lands on; six lines of what the console just did
         // belong there, read from the same log `/audit` serves.
@@ -1316,12 +1316,49 @@ struct ApprovalDecision {
     csrf: String,
 }
 
+/// Refuse every held call for one device: the operator is not answering them, the device is gone.
+fn refusals_for(app: &AppState, device_id: &str) {
+    let gone: Vec<Pending> = {
+        let mut approvals = lock(&app.approvals);
+        let ids: Vec<String> = approvals
+            .values()
+            .filter(|pending| pending.row.device_id == device_id)
+            .map(|pending| pending.row.id.clone())
+            .collect();
+        ids.iter().filter_map(|id| approvals.remove(id)).collect()
+    };
+    for pending in gone {
+        // The waiting gate turns this into the device's own refusal.
+        let _ = pending.decide.send(false);
+    }
+}
+
+/// The held calls that are still worth showing: an entry past its deadline is not one, whatever
+/// happened to the future that registered it.
+fn live_approvals(app: &AppState) -> Vec<page::ApprovalRow> {
+    let now = (app.now)();
+    let mut approvals = lock(&app.approvals);
+    approvals.retain(|_, pending| {
+        pending
+            .row
+            .created_ms
+            .saturating_add(APPROVAL_TTL.as_millis() as u64)
+            > now
+    });
+    let mut rows: Vec<page::ApprovalRow> = approvals
+        .values()
+        .map(|pending| pending.row.clone())
+        .collect();
+    rows.sort_by_key(|row| row.created_ms);
+    rows
+}
+
 /// `GET /next/approvals/count`: how many calls are waiting, for the badge every page carries.
 async fn next_approvals_count(State(app): State<AppState>, headers: HeaderMap) -> Response {
     if cookie_session(&app, &headers).is_none() {
         return StatusCode::UNAUTHORIZED.into_response();
     }
-    Json(json!({ "pending": lock(&app.approvals).len() })).into_response()
+    Json(json!({ "pending": live_approvals(&app).len() })).into_response()
 }
 
 /// `POST /next/approvals/:id/approve` and `/refuse`: answer one held call.
@@ -1341,10 +1378,17 @@ async fn next_approval_decide(
     };
     match lock(&app.approvals).remove(&id) {
         Some(pending) => {
-            // The waiting request decides what to do with the answer; a sender whose request has
-            // already gone (the client hung up) is not an error worth a page.
-            let _ = pending.decide.send(approve);
-            Redirect::to("/next").into_response()
+            // The send's result is the only evidence the decision reached a live waiter. A click
+            // that lands after the hold resolved (or on a row whose client has gone) would
+            // otherwise be reported as done while nothing happened.
+            match pending.decide.send(approve) {
+                Ok(()) => Redirect::to("/next").into_response(),
+                Err(_) => Redirect::to(&format!(
+                    "/next?error={}",
+                    page::encode("That call is no longer waiting: it was answered or it expired.")
+                ))
+                .into_response(),
+            }
         }
         None => Redirect::to(&format!(
             "/next?error={}",
@@ -1457,6 +1501,11 @@ async fn next_remove(
         let mut devices = lock(&app.devices);
         devices.remove(&device_id)
     };
+    if removed == Ok(true) {
+        // A call held for a machine that no longer exists must not wait out its clock, and
+        // approving it could only re-send into a device that is gone.
+        refusals_for(&app, &device_id);
+    }
     match removed {
         Ok(true) => {
             app.record(
@@ -4937,17 +4986,43 @@ async fn proxy_reply(
                             .await;
                             // The consent is for THIS call, held in the console, and it is not
                             // written anywhere: the token keeps saying no to the next one.
-                            if let Ok(retried) = app
+                            //
+                            // The bound is the first dispatch's, not the general one: a run holds
+                            // its request for the command's own timeout, and approving one must not
+                            // make the console give up while the device is still running it.
+                            let bound = run_wait(&held)
+                                .map(|wait| wait + RUNS_BACKSTOP_GRACE)
+                                .unwrap_or(app.mcp_timeout);
+                            match app
                                 .channels
                                 .request_within(
                                     device_id,
                                     held.clone(),
                                     &RequestAuth::Token(&consenting),
-                                    app.mcp_timeout,
+                                    bound,
                                 )
                                 .await
                             {
-                                reply = retried;
+                                Ok(retried) => reply = retried,
+                                Err(_) => {
+                                    // The frame may have reached the device before the channel
+                                    // failed, so the call may have run. Returning the original
+                                    // "needs approval" would invite a retry that runs it TWICE; the
+                                    // only honest answer is that the outcome is unknown.
+                                    app.record_facts(AuditFacts {
+                                        kind: "approval",
+                                        device_id: audit_id.as_deref(),
+                                        status: StatusCode::GATEWAY_TIMEOUT,
+                                        detail: Some("approved, but the device did not answer"),
+                                        tool: tool.as_deref(),
+                                        token_id,
+                                    })
+                                    .await;
+                                    return Err(Box::new(ApiError::gateway_timeout(
+                                        "approved, but the device did not answer: the outcome is                                          unknown, and retrying may run it twice",
+                                    )
+                                    .into_response()));
+                                }
                             }
                         }
                         Ok(_) => {
@@ -5583,6 +5658,8 @@ async fn remove_device(
     if !removed {
         return Err(ApiError::not_found("no_such_device"));
     }
+    // Its held calls go with it: a removed machine has nothing left to approve.
+    refusals_for(&app, &device_id);
     // The device's permanent tokens are scoped to it; a removed machine leaves no token that only a
     // hand-edit could clear. A failed write is logged rather than failing the removal: the tokens can
     // no longer reach a registered device either way.

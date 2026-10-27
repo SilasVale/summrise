@@ -8940,6 +8940,156 @@ async fn visit_vitals(
     page.await.expect("the page finishes").2
 }
 
+/// An approved call whose device goes away before answering is UNKNOWN, never "needs approval":
+/// the frame may have run, so a retry could run it twice.
+#[tokio::test]
+async fn an_approved_call_whose_device_disappears_is_unknown() {
+    let fixture = Fixture::new("approval-unknown");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xcc)).await;
+    let session = fixture.authenticate().await;
+    let (status, created) = fixture
+        .create_token(
+            &session,
+            &device_id,
+            "cautious",
+            &["terminal.create"],
+            false,
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{created}");
+    let plaintext = created["token"].as_str().expect("the token").to_owned();
+    let call = json!({
+        "jsonrpc": "2.0",
+        "id": 63,
+        "method": "tools/call",
+        "params": { "name": "terminal.create", "arguments": { "kind": "pty" } },
+    });
+    let app = fixture.app();
+    let request = post_token(&device_id, &plaintext, call.clone());
+    let client = tokio::spawn(async move { send(app, request).await });
+
+    let frame = next_json(&mut device).await;
+    assert_eq!(frame["mcp"], call, "{frame}");
+    answer_error(
+        &mut device,
+        &frame,
+        json!({ "jsonrpc": "2.0", "id": 63, "error": { "code": -32002, "message": "'terminal.create' is destructive and needs approval" } }),
+    )
+    .await;
+
+    let (cookie, csrf) = sign_in_to_the_page(&fixture).await;
+    let id = wait_for_approval(&fixture, &cookie).await;
+
+    let approve = {
+        let app = fixture.app();
+        let request = post_form_cookie(
+            &format!("/next/approvals/{id}/approve"),
+            &[("csrf", &csrf)],
+            &cookie,
+        );
+        tokio::spawn(async move { send_text(app, request).await })
+    };
+
+    // The re-send arrives, and then the device is gone without answering it.
+    let frame = next_json(&mut device).await;
+    assert_eq!(frame["mcp"], call, "{frame}");
+    drop(device);
+
+    let (status, _, _) = approve.await.expect("the approve finishes");
+    assert_eq!(status, StatusCode::SEE_OTHER);
+
+    let (status, body) = client.await.expect("the client finishes");
+    assert_eq!(status, StatusCode::GATEWAY_TIMEOUT, "{body}");
+    assert!(
+        body.to_string().contains("unknown"),
+        "the answer says the outcome is unknown: {body}"
+    );
+
+    let lines = audit_lines(&fixture);
+    assert!(
+        lines.iter().any(|line| {
+            line["kind"] == "approval"
+                && line["status"] == 504
+                && line["detail"] == "approved, but the device did not answer"
+        }),
+        "the record names it: {lines:#?}"
+    );
+}
+
+/// Removing a device refuses its held calls instead of leaving them on the dashboard.
+#[tokio::test]
+async fn removing_a_device_refuses_its_held_calls() {
+    let fixture = Fixture::new("approval-device-removed");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xcb)).await;
+    let session = fixture.authenticate().await;
+    let (status, created) = fixture
+        .create_token(
+            &session,
+            &device_id,
+            "cautious",
+            &["terminal.create"],
+            false,
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{created}");
+    let plaintext = created["token"].as_str().expect("the token").to_owned();
+    let call = json!({
+        "jsonrpc": "2.0",
+        "id": 64,
+        "method": "tools/call",
+        "params": { "name": "terminal.create", "arguments": { "kind": "pty" } },
+    });
+    let app = fixture.app();
+    let request = post_token(&device_id, &plaintext, call.clone());
+    let client = tokio::spawn(async move { send(app, request).await });
+
+    let frame = next_json(&mut device).await;
+    assert_eq!(frame["mcp"], call, "{frame}");
+    answer_error(
+        &mut device,
+        &frame,
+        json!({ "jsonrpc": "2.0", "id": 64, "error": { "code": -32002, "message": "'terminal.create' is destructive and needs approval" } }),
+    )
+    .await;
+
+    let (cookie, csrf) = sign_in_to_the_page(&fixture).await;
+    let _ = wait_for_approval(&fixture, &cookie).await;
+
+    let (status, _, _) = send_text(
+        fixture.app(),
+        post_form_cookie(
+            &format!("/next/fleet/{device_id}/remove"),
+            &[("csrf", &csrf)],
+            &cookie,
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+
+    let (_, _, count) = send_text(
+        fixture.app(),
+        get_with_cookie("/next/approvals/count", &cookie),
+    )
+    .await;
+    let count: Value = serde_json::from_str(&count).expect("a JSON count");
+    assert_eq!(
+        count["pending"],
+        json!(0),
+        "the removed device's call is gone"
+    );
+
+    let (_, body) = client.await.expect("the client finishes");
+    assert_eq!(
+        body["error"]["code"],
+        json!(-32002),
+        "the refused call keeps the device's sentence: {body}"
+    );
+}
+
 /// A client that hangs up takes its held call with it: nothing sits on the dashboard waiting for a
 /// request that no longer exists.
 #[tokio::test]
@@ -9213,13 +9363,34 @@ async fn a_destructive_token_call_is_held_and_runs_when_approved() {
         .await;
         let count: Value = serde_json::from_str(&count).expect("a JSON count");
         assert_eq!(count["pending"], json!(0), "answered calls stop counting");
+        id
     };
 
-    let ((status, body), (), ()) = tokio::join!(http, device_side, operator);
+    let ((status, body), (), id) = tokio::join!(http, device_side, operator);
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_eq!(
         body["result"]["content"][0]["text"],
         json!("{\"id\":\"session-1\"}")
+    );
+
+    // A second press on the same question is not reported as delivered: the call is gone.
+    let (status, headers, _) = send_text(
+        fixture.app(),
+        post_form_cookie(
+            &format!("/next/approvals/{id}/approve"),
+            &[("csrf", &csrf)],
+            &cookie,
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let location = headers
+        .get(header::LOCATION)
+        .and_then(|value| value.to_str().ok())
+        .expect("a redirect");
+    assert!(
+        location.contains("no%20longer%20waiting"),
+        "the second press says the call is gone: {location}"
     );
 }
 

@@ -3,7 +3,7 @@
 //! data, and every interpolated value is escaped by construction.
 //!
 //! Two scripts exist: the terminal's glue (`assets/terminal.js`), and the approvals badge
-//! (`assets/approvals.js`), the one poll, because a held call waits only ten minutes and a person on
+//! (`assets/approvals.js`), the one poll, because a held call waits only ninety seconds and a person on
 //! another page should see it without refreshing. Every other page is a
 //! form and a link. That is why the shell carries no toggles: the pages are server-rendered, and a
 //! control that only exists in the browser would be a second, weaker copy of a rule the console
@@ -951,7 +951,7 @@ pub(super) fn dashboard(
                     p class="lead" {
                         "A client asked for a destructive call its credential did not allow. The call "
                         "is held here — the request is still open — and an unanswered question is "
-                        "refused after ten minutes, never run."
+                        "refused after ninety seconds, never run."
                     }
                     table class="table" {
                         caption class="visually-hidden" { "Calls waiting for an answer." }
