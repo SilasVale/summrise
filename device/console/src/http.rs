@@ -298,6 +298,10 @@ impl Console {
             .route("/next/browser/:device", get(next_browser_page))
             .route("/next/browser/:device/open", post(next_browser_open))
             .route("/next/browser/:device/close", post(next_browser_close))
+            // The connect card: a device's permanent tokens, minted once and revocable.
+            .route("/next/tokens/:device", get(next_tokens_page))
+            .route("/next/tokens/:device/mint", post(next_token_mint))
+            .route("/next/tokens/:device/revoke", post(next_token_revoke))
             .route("/session", get(session_probe))
             .route("/logout", post(logout))
             .route("/enroll", post(enroll))
@@ -2251,6 +2255,134 @@ async fn next_browser_close(
         Ok(_) => Redirect::to(&format!("/next/browser/{device_id}")).into_response(),
         Err(response) => *response,
     }
+}
+
+#[derive(Deserialize)]
+struct TokenMintForm {
+    csrf: String,
+    name: String,
+}
+
+#[derive(Deserialize)]
+struct TokenRevokeForm {
+    csrf: String,
+    id: String,
+}
+
+/// Every tool the registry declares: what a "one token, everything" token names.
+fn every_tool() -> Vec<String> {
+    summrise_core::registry::CAPABILITIES
+        .iter()
+        .flat_map(|capability| capability.tools.iter().map(|tool| tool.name.to_owned()))
+        .collect()
+}
+
+/// `GET /next/tokens/:device`: the tokens that name this device, and the mint form.
+async fn next_tokens_page(
+    State(app): State<AppState>,
+    Path(device_id): Path<String>,
+    headers: HeaderMap,
+) -> Response {
+    let Some(session) = cookie_session(&app, &headers) else {
+        return Html(page::login(None).into_string()).into_response();
+    };
+    let Some(device) = device_views(&app)
+        .into_iter()
+        .find(|device| device.id == device_id)
+    else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    let rows: Vec<page::TokenRow> = lock(&app.tokens)
+        .list()
+        .into_iter()
+        .filter(|token| token.device_id == device_id)
+        .map(|token| page::TokenRow {
+            id: token.id,
+            name: token.name,
+            tools: token.tools.len() as u64,
+            destructive: token.allow_destructive,
+            created_ms: token.created_at_ms,
+        })
+        .collect();
+    Html(
+        page::tokens(
+            &device,
+            &rows,
+            &hex::encode(&session.csrf),
+            &app.version,
+            None,
+        )
+        .into_string(),
+    )
+    .into_response()
+}
+
+/// `POST /next/tokens/:device/mint`: one permanent token, every tool, destructive allowed.
+async fn next_token_mint(
+    State(app): State<AppState>,
+    Path(device_id): Path<String>,
+    headers: HeaderMap,
+    Form(form): Form<TokenMintForm>,
+) -> Response {
+    let Some(_session) = next_session(&app, &headers, Some(&form.csrf)) else {
+        return StatusCode::FORBIDDEN.into_response();
+    };
+    let Some(device) = device_views(&app)
+        .into_iter()
+        .find(|device| device.id == device_id)
+    else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    let known: std::collections::BTreeSet<String> = lock(&app.devices)
+        .list()
+        .into_iter()
+        .map(|device| device.id)
+        .collect();
+    let created = lock(&app.tokens).create(
+        crate::tokens::Draft {
+            name: form.name,
+            scope: crate::tokens::TokenScope::Device(device_id.clone()),
+            tools: every_tool(),
+            allow_destructive: true,
+            expires_in_s: None,
+        },
+        |id| known.contains(id),
+        (app.now)(),
+    );
+    let (meta, secret) = match created {
+        Ok(created) => created,
+        Err(_) => {
+            return Redirect::to(&format!("/next/tokens/{device_id}?error=refused")).into_response()
+        }
+    };
+    let scheme = if secure_request(&headers) {
+        "https"
+    } else {
+        "http"
+    };
+    let host = headers
+        .get(header::HOST)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or("127.0.0.1");
+    let config = format!(
+        "- id: mcp-summrise\n  name: '@deepseek-ai/dsh-mcp-client'\n  config:\n    serverName: summrise\n    transport: streamable-http\n    url: {scheme}://{host}/mcp/{device_id}\n    headers:\n      Authorization: Bearer {secret}"
+    );
+    Html(page::token_created(&device, &meta.name, &secret, &config, &app.version).into_string())
+        .into_response()
+}
+
+/// `POST /next/tokens/:device/revoke`: retire one token.
+async fn next_token_revoke(
+    State(app): State<AppState>,
+    Path(device_id): Path<String>,
+    headers: HeaderMap,
+    Form(form): Form<TokenRevokeForm>,
+) -> Response {
+    let Some(_session) = next_session(&app, &headers, Some(&form.csrf)) else {
+        return StatusCode::FORBIDDEN.into_response();
+    };
+    let _ = lock(&app.tokens).revoke(&form.id);
+    Redirect::to(&format!("/next/tokens/{device_id}")).into_response()
 }
 
 /// `POST /next/auth`: the page's sign-in. The same operator secret as `/auth`, the same denial

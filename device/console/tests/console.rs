@@ -7465,3 +7465,69 @@ async fn a_terminal_create_can_name_an_ssh_or_a_serial_target() {
     let (status, _, body) = create.await.expect("the serial create finishes");
     assert_eq!(status, StatusCode::OK, "{body}");
 }
+
+#[tokio::test]
+async fn the_connect_page_mints_a_token_once_lists_it_and_revokes_it() {
+    let fixture = Fixture::new("connect-page");
+    let (device_id, _token) = fixture.register(&signing_key(0xf1)).await;
+    let (cookie, csrf) = sign_in_to_the_page(&fixture).await;
+
+    let page_uri = format!("/next/tokens/{device_id}");
+    let (status, _, body) = send_text(fixture.app(), get_with_cookie(&page_uri, &cookie)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(body.contains("Mint a token"), "{body}");
+    assert!(body.contains("No token names this device yet"), "{body}");
+
+    // Mint: the page shows the secret once, along with the client configuration for this device.
+    let mut request = post_form(
+        &format!("{page_uri}/mint"),
+        &[("csrf", &csrf), ("name", "dsh-aggregate")],
+    );
+    request
+        .headers_mut()
+        .insert(header::COOKIE, cookie.parse().expect("the cookie header"));
+    let (status, _, created) = send_text(fixture.app(), request).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(created.contains("srm_"), "{created}");
+    assert!(
+        created.contains(&format!("/mcp/{device_id}")),
+        "the client config names this device's endpoint: {created}"
+    );
+
+    // The list reports it, and carries the id the revoke form posts.
+    let (_, _, listed) = send_text(fixture.app(), get_with_cookie(&page_uri, &cookie)).await;
+    assert!(listed.contains("dsh-aggregate"), "{listed}");
+    let marker = "name=\"id\" value=\"";
+    let start = listed.find(marker).expect("a revoke form") + marker.len();
+    let end = start + listed[start..].find('"').expect("the id ends");
+    let id = listed[start..end].to_owned();
+
+    let mut request = post_form(
+        &format!("{page_uri}/revoke"),
+        &[("csrf", &csrf), ("id", &id)],
+    );
+    request
+        .headers_mut()
+        .insert(header::COOKIE, cookie.parse().expect("the cookie header"));
+    let (status, _, _) = send_text(fixture.app(), request).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let (_, _, after) = send_text(fixture.app(), get_with_cookie(&page_uri, &cookie)).await;
+    assert!(!after.contains("dsh-aggregate"), "{after}");
+    assert!(after.contains("No token names this device yet"), "{after}");
+}
+
+#[tokio::test]
+async fn a_token_mint_without_csrf_is_refused() {
+    let fixture = Fixture::new("connect-csrf");
+    let (device_id, _token) = fixture.register(&signing_key(0xf2)).await;
+    let (cookie, _csrf) = sign_in_to_the_page(&fixture).await;
+    let mut request = post_form(
+        &format!("/next/tokens/{device_id}/mint"),
+        &[("csrf", &"00".repeat(32)), ("name", "sneaky")],
+    );
+    request
+        .headers_mut()
+        .insert(header::COOKIE, cookie.parse().expect("the cookie header"));
+    let (status, _, _) = send_text(fixture.app(), request).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+}

@@ -182,6 +182,8 @@ pub(super) fn dashboard(
                                             a href=(format!("/next/monitors/{}", device.id)) { "Monitors" }
                                             " · "
                                             a href=(format!("/next/browser/{}", device.id)) { "Browser" }
+                                            " · "
+                                            a href=(format!("/next/tokens/{}", device.id)) { "Connect" }
                                         }
                                     }
                                 }
@@ -1028,6 +1030,126 @@ pub(super) fn browser(
                         input type="text" name="url" placeholder="https://example.com" required;
                         button type="submit" { "Open" }
                     }
+                }
+            }
+        }
+    }
+}
+
+/// One token as the page draws it.
+pub(super) struct TokenRow {
+    pub(super) id: String,
+    pub(super) name: String,
+    pub(super) tools: u64,
+    pub(super) destructive: bool,
+    pub(super) created_ms: u64,
+}
+
+/// The tokens a device accepts, with the form that mints one and a revoke per row.
+pub(super) fn tokens(
+    device: &DeviceView,
+    rows: &[TokenRow],
+    csrf: &str,
+    version: &str,
+    error: Option<&str>,
+) -> Markup {
+    let base = format!("/next/tokens/{}", device.id);
+    html! {
+        (DOCTYPE)
+        html lang="en" {
+            head {
+                meta charset="utf-8";
+                meta name="viewport" content="width=device-width, initial-scale=1";
+                title { "Summrise console — tokens" }
+                style { (STYLE) }
+            }
+            body {
+                header {
+                    h1 { "Summrise " span { "console" } }
+                    span class="version" { "console " (version) }
+                    span class="version" { (device.name.as_deref().unwrap_or(&device.id)) }
+                    a href="/next" { "Back to the fleet" }
+                }
+                main {
+                    h2 { "Connect an AI client" }
+                    p class="hint" {
+                        "A permanent token is one credential for this device, every tool, destructive "
+                        "calls included. It is shown once; the console keeps only its hash. The client "
+                        "connects to /mcp/{device id} with `Authorization: Bearer <token>`."
+                    }
+                    @if let Some(error) = error {
+                        p class="error" { (error) }
+                    }
+                    form method="post" action=(format!("{base}/mint")) class="format-form" {
+                        input type="hidden" name="csrf" value=(csrf);
+                        input type="text" name="name" placeholder="what this client is, e.g. dsh" required;
+                        button type="submit" { "Mint a token" }
+                    }
+                    h3 { "Tokens for this device" }
+                    @if rows.is_empty() {
+                        p class="hint" { "No token names this device yet." }
+                    } @else {
+                        table {
+                            thead { tr { th { "Name" } th { "Tools" } th { "Destructive" } th { "Created" } th { "" } } }
+                            tbody {
+                                @for row in rows {
+                                    tr {
+                                        td { (row.name) }
+                                        td { (row.tools) }
+                                        td { @if row.destructive { "allowed" } @else { "read-only" } }
+                                        td { (stamp(row.created_ms)) }
+                                        td {
+                                            form method="post" action=(format!("{base}/revoke")) class="row-form" {
+                                                input type="hidden" name="csrf" value=(csrf);
+                                                input type="hidden" name="id" value=(row.id);
+                                                button type="submit" class="inline-button" { "Revoke" }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    p class="hint" { code { (device.id) } }
+                }
+            }
+        }
+    }
+}
+
+/// The one page a minted token is ever shown on.
+pub(super) fn token_created(
+    device: &DeviceView,
+    name: &str,
+    secret: &str,
+    config: &str,
+    version: &str,
+) -> Markup {
+    html! {
+        (DOCTYPE)
+        html lang="en" {
+            head {
+                meta charset="utf-8";
+                meta name="viewport" content="width=device-width, initial-scale=1";
+                title { "Summrise console — token" }
+                style { (STYLE) }
+            }
+            body {
+                header {
+                    h1 { "Summrise " span { "console" } }
+                    span class="version" { "console " (version) }
+                    span class="version" { (device.name.as_deref().unwrap_or(&device.id)) }
+                    a href=(format!("/next/tokens/{}", device.id)) { "Back to tokens" }
+                }
+                main {
+                    h2 { "Token " (name) }
+                    p class="hint" {
+                        "This is the only time the token is shown. Copy it into the client's configuration "
+                        "now; a lost value means minting another."
+                    }
+                    pre class="file" { (secret) }
+                    h3 { "Client configuration" }
+                    pre class="file" { (config) }
                 }
             }
         }
