@@ -444,12 +444,9 @@ export function App() {
             <DevicePage
               title="Files"
               pickHint="The files live on the device, so pick one. The console signs a grant for the file tools, and the device checks that grant on every list, read, write and mkdir."
-              grantHint="A grant is signed by the console, names the tools and expires. The device checks it on every call. Everything is selected by default: press the button and the files appear."
               devices={devices}
               chosen={chosen}
-              grant={grant}
               onChoose={setSelected}
-              onGrant={(deviceId, envelope) => setGrant({ deviceId, envelope })}
             >
               {(active) => <FilesPage grant={active} />}
             </DevicePage>
@@ -500,9 +497,7 @@ export function App() {
               pickHint="The browser is one the device runs for you — in the user's session when the helper is there. Pick a device to grant the console its browser tools."
               devices={devices}
               chosen={chosen}
-              grant={grant}
               onChoose={setSelected}
-              onGrant={(deviceId, envelope) => setGrant({ deviceId, envelope })}
             >
               {(active) => <BrowserPane grant={active} />}
             </DevicePage>
@@ -512,12 +507,9 @@ export function App() {
             <DevicePage
               title="Screen"
               pickHint="The screen belongs to the device's user session, so pick the device whose screen you want to see. The console signs a grant for the capture tool, and the device checks that grant on every call."
-              grantHint="A grant is signed by the console, names the tools and expires. The device checks it on every call. Everything is selected by default: press the button and the screen can be captured."
               devices={devices}
               chosen={chosen}
-              grant={grant}
               onChoose={setSelected}
-              onGrant={(deviceId, envelope) => setGrant({ deviceId, envelope })}
             >
               {(active) => <ScreenPage grant={active} />}
             </DevicePage>
@@ -527,12 +519,9 @@ export function App() {
             <DevicePage
               title="Memory"
               pickHint="Memory is kept on the device, so pick one. The console signs a grant for the memory tools, and the device checks that grant on every read and every edit."
-              grantHint="A grant is signed by the console, names the tools and expires. The device checks it on every call. Everything is selected by default: press the button and the entries appear."
               devices={devices}
               chosen={chosen}
-              grant={grant}
               onChoose={setSelected}
-              onGrant={(deviceId, envelope) => setGrant({ deviceId, envelope })}
             >
               {(active) => <MemoryPage grant={active} />}
             </DevicePage>
@@ -542,12 +531,9 @@ export function App() {
             <DevicePage
               title="Monitors"
               pickHint="Monitors run on the device, so pick one. The console signs a grant for the monitor tools, and the device checks that grant on every add, probe and removal."
-              grantHint="A grant is signed by the console, names the tools and expires. The device checks it on every call. Everything is selected by default: press the button and the targets appear."
               devices={devices}
               chosen={chosen}
-              grant={grant}
               onChoose={setSelected}
-              onGrant={(deviceId, envelope) => setGrant({ deviceId, envelope })}
             >
               {(active) => <MonitorsPage grant={active} />}
             </DevicePage>
@@ -557,12 +543,9 @@ export function App() {
             <DevicePage
               title="Runs"
               pickHint="A run happens on the device, so pick one. runs.exec is destructive and audited: the console signs a grant for it, and the device checks that grant on every call."
-              grantHint="A grant is signed by the console, names the tools and expires. The device checks it on every call. Everything is selected by default: press the button and the run form appears."
               devices={devices}
               chosen={chosen}
-              grant={grant}
               onChoose={setSelected}
-              onGrant={(deviceId, envelope) => setGrant({ deviceId, envelope })}
             >
               {(active) => <RunsPage grant={active} />}
             </DevicePage>
@@ -572,12 +555,9 @@ export function App() {
             <DevicePage
               title="System"
               pickHint="Processes and reachability live on the device, so pick one. The console signs a grant for the system tools, and the device checks that grant on every read, every kill and every network test."
-              grantHint="A grant is signed by the console, names the tools and expires. The device checks it on every call. Everything is selected by default: press the button and the process list appears."
               devices={devices}
               chosen={chosen}
-              grant={grant}
               onChoose={setSelected}
-              onGrant={(deviceId, envelope) => setGrant({ deviceId, envelope })}
             >
               {(active) => <SystemPage grant={active} />}
             </DevicePage>
@@ -608,12 +588,9 @@ export function App() {
             <DevicePage
               title="Events"
               pickHint="The events are the device's own, so pick one. The console signs a grant for the state tool, and the device checks that grant on every read."
-              grantHint="A grant is signed by the console, names the tools and expires. The device checks it on every call. Everything is selected by default: press the button and the device's health and its last ten events appear."
               devices={devices}
               chosen={chosen}
-              grant={grant}
               onChoose={setSelected}
-              onGrant={(deviceId, envelope) => setGrant({ deviceId, envelope })}
             >
               {(active) => <EventsPage grant={active} />}
             </DevicePage>
