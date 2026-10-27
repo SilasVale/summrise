@@ -26,6 +26,7 @@ use summrise_core::{
 use crate::capabilities::{self, terminal};
 use crate::config::{Config, Release};
 use crate::helper;
+use crate::restart;
 use crate::store::{Store, EVENT_TAIL};
 use crate::watchdog;
 
@@ -39,7 +40,7 @@ pub(crate) fn router(config: &Config, store: Store) -> Router {
         None,
         None,
         None,
-        no_restart(),
+        restart::none(),
     )
 }
 
@@ -51,7 +52,7 @@ pub(crate) fn router_with_limits(
     store: Store,
     limits: terminal::Limits,
 ) -> Router {
-    router_with(config, store, limits, None, None, None, no_restart())
+    router_with(config, store, limits, None, None, None, restart::none())
 }
 
 fn router_with(
@@ -61,7 +62,7 @@ fn router_with(
     console: Option<crate::console::ConsoleEndpoint>,
     mesh: Option<crate::mesh::MeshLink>,
     helper: Option<Arc<helper::Helper>>,
-    restart: RestartHook,
+    restart: restart::Hook,
 ) -> Router {
     let state = AppState {
         token: load_token(&config.token_file),
@@ -71,15 +72,20 @@ fn router_with(
         data: config.data.clone(),
         panel_token: mint_panel_token(),
         supervised: config.supervised,
-        restart,
+        restart: restart.clone(),
     };
 
     // `/mcp` is the same secret as `/api/state`: the gate runs before the MCP service sees the
     // request, so an unauthenticated caller cannot even start a handshake. The body limit is inside
     // the token gate (layers wrap in reverse order of their addition), so an unauthorized caller is
     // refused before its body is collected.
+    // The app's restart is one hook: the panel's enrollment and the MCP `host.restart` tool both
+    // ask the same closure, so the two paths cannot drift.
     let mcp = Router::new()
-        .route_service("/mcp", crate::mcp::service(config, limits, console, mesh))
+        .route_service(
+            "/mcp",
+            crate::mcp::service(config, limits, console, mesh, restart),
+        )
         .route_layer(middleware::from_fn(crate::mcp::limit_request_body))
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
@@ -131,14 +137,10 @@ pub async fn serve(
     mesh: Option<crate::mesh::MeshLink>,
     helper: Option<Arc<helper::Helper>>,
 ) -> io::Result<()> {
-    // A supervised enrollment restarts through the launcher after the answer reaches the page; a
-    // standalone process has no supervisor to bring it back, so its handler never calls this.
-    let restart: RestartHook = std::sync::Arc::new(|| {
-        std::thread::spawn(|| {
-            std::thread::sleep(std::time::Duration::from_secs(2));
-            std::process::exit(0);
-        });
-    });
+    // A supervised app restarts through the launcher after the answer reaches the page or the MCP
+    // client; a standalone process has no supervisor to bring it back, so its handlers never call
+    // this hook. One closure serves both the enrollment and `host.restart`.
+    let restart = restart::exit_soon();
     let app = router_with(
         &config,
         store,
@@ -175,16 +177,6 @@ async fn bind(config: &Config) -> io::Result<tokio::net::TcpListener> {
     tokio::net::TcpListener::bind(loopback_addr(config.port)).await
 }
 
-/// What a successful panel enrollment does when the launcher is the parent: restart the app so its
-/// console link is rebuilt. A function so a test can record the call instead of ending the process.
-type RestartHook = std::sync::Arc<dyn Fn() + Send + Sync>;
-
-/// The hook a test uses: a restart is never requested. Production passes its own hook to `serve`.
-#[cfg(test)]
-fn no_restart() -> RestartHook {
-    std::sync::Arc::new(|| {})
-}
-
 /// Everything a handler needs: the state file, the token read once at startup, and the release this
 /// process was started as (the fact health reports).
 #[derive(Clone)]
@@ -204,11 +196,12 @@ struct AppState {
     /// only in the panel's HTML (a meta tag) and never in `/api/panel`, an error body, or a log line.
     panel_token: String,
     /// Whether the launcher started this process with a verified digest. Only then may a panel
-    /// enrollment restart it: a standalone app that exits would not come back.
+    /// enrollment or `host.restart` restart it: a standalone app that exits would not come back.
     supervised: bool,
-    /// What to do after a supervised enrollment wrote the console link (the real hook exits after a
-    /// short delay so the answer reaches the page; tests record the call).
-    restart: RestartHook,
+    /// What to do after a supervised enrollment wrote the console link, and after `host.restart`
+    /// was allowed (the real hook exits after a short delay so the answer reaches the caller first;
+    /// tests record the call).
+    restart: restart::Hook,
 }
 
 impl AppState {
@@ -771,16 +764,16 @@ mod tests {
 
     impl Fixture {
         fn app(&self) -> Router {
-            self.app_with(None, no_restart())
+            self.app_with(None, restart::none())
         }
 
         /// The same router with a helper identity, for the registration test.
         fn app_with_helper(&self, helper: Arc<crate::helper::Helper>) -> Router {
-            self.app_with(Some(helper), no_restart())
+            self.app_with(Some(helper), restart::none())
         }
 
         /// The same router with a recorded restart hook, for the supervised-enrolment test.
-        fn app_with_restart(&self, restart: RestartHook) -> Router {
+        fn app_with_restart(&self, restart: crate::restart::Hook) -> Router {
             self.app_with(None, restart)
         }
 
@@ -788,7 +781,7 @@ mod tests {
         fn app_with(
             &self,
             helper: Option<Arc<crate::helper::Helper>>,
-            restart: RestartHook,
+            restart: crate::restart::Hook,
         ) -> Router {
             router_with(
                 &self.config,
@@ -1660,7 +1653,7 @@ mod tests {
         let client = client();
         let calls = Arc::new(AtomicU64::new(0));
         let recorder = calls.clone();
-        let hook: RestartHook = Arc::new(move || {
+        let hook: crate::restart::Hook = Arc::new(move || {
             recorder.fetch_add(1, Ordering::SeqCst);
         });
         let server = PanelServer::start(fixture.app_with_restart(hook)).await;
@@ -1742,7 +1735,7 @@ mod tests {
         let data = fixture.config.data.clone();
         let recorder = calls.clone();
         let link = link_seen.clone();
-        let hook: RestartHook = Arc::new(move || {
+        let hook: crate::restart::Hook = Arc::new(move || {
             recorder.fetch_add(1, Ordering::SeqCst);
             if data.join("console.json").exists() {
                 link.fetch_add(1, Ordering::SeqCst);

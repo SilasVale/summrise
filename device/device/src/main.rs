@@ -29,6 +29,7 @@ mod lock;
 mod mcp;
 mod mesh;
 mod remote;
+mod restart;
 mod store;
 mod update;
 mod update_source;
