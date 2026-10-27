@@ -31,6 +31,7 @@ use crate::denials::Denials;
 use crate::devices::{self, Device, DeviceRegistry, RegisterError};
 use crate::grants::{self, GrantEnvelope, GrantError, VerifyError};
 use crate::hex;
+use crate::mcp::DeviceRef;
 use crate::tokens::{Token, TokenError, TokenMeta, Tokens};
 
 /// How far a device's clock may be from the console's when it registers: five minutes.
@@ -1920,7 +1921,7 @@ enum DeviceResolution {
 /// ambiguous rather than resolved by order.
 fn resolve_aggregate_device(
     allowed: &[String],
-    devices: &[(String, String)],
+    devices: &[DeviceRef],
     requested: &str,
 ) -> DeviceResolution {
     if allowed.iter().any(|id| id == requested) {
@@ -1928,8 +1929,8 @@ fn resolve_aggregate_device(
     }
     let matches: Vec<&String> = devices
         .iter()
-        .filter(|(id, name)| allowed.contains(id) && name == requested)
-        .map(|(id, _)| id)
+        .filter(|device| allowed.contains(&device.id) && device.name.as_deref() == Some(requested))
+        .map(|device| &device.id)
         .collect();
     match matches.as_slice() {
         [] => DeviceResolution::OutOfScope,
@@ -1954,7 +1955,7 @@ fn take_aggregate_device(request: &mut Value) -> Result<String, ()> {
 }
 
 /// The token's allowed devices that are still registered, as `(id, name)`.
-fn aggregate_devices(app: &AppState, allowed: &[String]) -> Vec<(String, String)> {
+fn aggregate_devices(app: &AppState, allowed: &[String]) -> Vec<DeviceRef> {
     let devices = lock(&app.devices).list();
     allowed
         .iter()
@@ -1962,7 +1963,10 @@ fn aggregate_devices(app: &AppState, allowed: &[String]) -> Vec<(String, String)
             devices
                 .iter()
                 .find(|device| &device.id == id)
-                .map(|device| (device.id.clone(), device.name.clone().unwrap_or_default()))
+                .map(|device| DeviceRef {
+                    id: device.id.clone(),
+                    name: device.name.clone(),
+                })
         })
         .collect()
 }
@@ -2745,12 +2749,19 @@ mod tests {
         }
     }
 
+    fn device(id: &str, name: Option<&str>) -> DeviceRef {
+        DeviceRef {
+            id: id.to_owned(),
+            name: name.map(str::to_owned),
+        }
+    }
+
     #[test]
     fn a_device_name_resolves_only_within_the_scope() {
         let devices = vec![
-            ("a".to_string(), "ALPHA".to_string()),
-            ("b".to_string(), "BETA".to_string()),
-            ("c".to_string(), "GAMMA".to_string()),
+            device("a", Some("ALPHA")),
+            device("b", Some("BETA")),
+            device("c", Some("GAMMA")),
         ];
         let allowed = vec!["a".to_string(), "b".to_string()];
         assert_eq!(
@@ -2773,10 +2784,7 @@ mod tests {
 
     #[test]
     fn a_shared_device_name_is_ambiguous() {
-        let devices = vec![
-            ("a".to_string(), "SAME".to_string()),
-            ("b".to_string(), "SAME".to_string()),
-        ];
+        let devices = vec![device("a", Some("SAME")), device("b", Some("SAME"))];
         assert_eq!(
             resolve_aggregate_device(&["a".into(), "b".into()], &devices, "SAME"),
             DeviceResolution::Ambiguous

@@ -131,12 +131,22 @@ pub(crate) fn initialize_result(device_id: &str, version: &str) -> Value {
     })
 }
 
+/// One device an aggregate token may reach: its registry id and the optional operator label.
+///
+/// The label is a convenience; the id is the identity. Keeping the pair in one type is what stops
+/// the `(String, String)` shape from being rebuilt by hand at every call site.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct DeviceRef {
+    pub id: String,
+    pub name: Option<String>,
+}
+
 /// The `initialize` result for the aggregate endpoint: the devices its token may reach and the one
 /// argument every tool takes.
 ///
 /// The list is `id (name)` so a client can pass either form; the console, not the schema, is the
 /// authority that a name is unique and inside the token's scope.
-pub(crate) fn aggregate_initialize_result(devices: &[(String, String)], version: &str) -> Value {
+pub(crate) fn aggregate_initialize_result(devices: &[DeviceRef], version: &str) -> Value {
     let list = device_list(devices);
     let reach = if devices.is_empty() {
         "no devices are currently registered in this token's scope".to_owned()
@@ -160,7 +170,7 @@ pub(crate) fn aggregate_initialize_result(devices: &[(String, String)], version:
 /// The device's own schema is preserved; the new property is described with the token's
 /// `id (name)` pairs and added to `required`. A tool that arrived without a schema still gets one
 /// that admits the argument, rather than being dropped from the surface.
-pub(crate) fn add_device_argument(result: &mut Value, devices: &[(String, String)]) {
+pub(crate) fn add_device_argument(result: &mut Value, devices: &[DeviceRef]) {
     let description = format!(
         "The device to act on: an id, or a name unique in this token's scope ({}).",
         device_list(devices)
@@ -200,18 +210,15 @@ pub(crate) fn add_device_argument(result: &mut Value, devices: &[(String, String
 }
 
 /// `id (name)` pairs for instructions and tool descriptions.
-fn device_list(devices: &[(String, String)]) -> String {
+fn device_list(devices: &[DeviceRef]) -> String {
     if devices.is_empty() {
         return "none".to_owned();
     }
     devices
         .iter()
-        .map(|(id, name)| {
-            if name.is_empty() {
-                id.clone()
-            } else {
-                format!("{id} ({name})")
-            }
+        .map(|device| match device.name.as_deref() {
+            Some(name) if !name.is_empty() => format!("{} ({name})", device.id),
+            _ => device.id.clone(),
         })
         .collect::<Vec<_>>()
         .join(", ")
@@ -431,10 +438,17 @@ mod tests {
             .contains(&"ab".repeat(32)));
     }
 
+    fn device(id: &str, name: Option<&str>) -> DeviceRef {
+        DeviceRef {
+            id: id.to_owned(),
+            name: name.map(str::to_owned),
+        }
+    }
+
     #[test]
     fn the_aggregate_initialize_names_every_device() {
         let value = aggregate_initialize_result(
-            &[("a".into(), "ALPHA".into()), ("b".into(), "BETA".into())],
+            &[device("a", Some("ALPHA")), device("b", Some("BETA"))],
             "0.3.43",
         );
         assert_eq!(value["serverInfo"]["name"], json!("summrise-console"));
@@ -447,7 +461,7 @@ mod tests {
 
     #[test]
     fn an_unlabelled_device_is_listed_by_id_only() {
-        let value = aggregate_initialize_result(&[("a".into(), String::new())], "0.3.43");
+        let value = aggregate_initialize_result(&[device("a", None)], "0.3.43");
         let text = value["instructions"].as_str().expect("instructions");
         assert!(text.contains("a"), "{text}");
         assert!(!text.contains("unnamed"), "{text}");
@@ -456,7 +470,7 @@ mod tests {
     #[test]
     fn the_aggregate_instructions_have_no_source_indentation() {
         let value = aggregate_initialize_result(
-            &[("a".into(), "ALPHA".into()), ("b".into(), "BETA".into())],
+            &[device("a", Some("ALPHA")), device("b", Some("BETA"))],
             "0.3.43",
         );
         let text = value["instructions"].as_str().expect("instructions");
@@ -479,7 +493,7 @@ mod tests {
                 "required": ["path"]
             }}
         ]}});
-        add_device_argument(&mut result, &[("a".into(), "ALPHA".into())]);
+        add_device_argument(&mut result, &[device("a", Some("ALPHA"))]);
         let schema = &result["result"]["tools"][0]["inputSchema"];
         assert_eq!(schema["properties"]["device"]["type"], json!("string"));
         assert!(schema["properties"]["device"]["description"]
@@ -502,7 +516,7 @@ mod tests {
     #[test]
     fn injection_tolerates_a_tool_without_a_schema() {
         let mut result = json!({"result": {"tools": [{"name": "x"}]}});
-        add_device_argument(&mut result, &[("a".into(), "ALPHA".into())]);
+        add_device_argument(&mut result, &[device("a", Some("ALPHA"))]);
         assert_eq!(
             result["result"]["tools"][0]["inputSchema"]["properties"]["device"]["type"],
             json!("string")
@@ -513,7 +527,7 @@ mod tests {
     fn injection_is_a_no_op_on_a_result_without_tools() {
         let mut result = json!({"result": {"tools": "not an array"}});
         let before = result.clone();
-        add_device_argument(&mut result, &[("a".into(), "ALPHA".into())]);
+        add_device_argument(&mut result, &[device("a", Some("ALPHA"))]);
         assert_eq!(result, before);
     }
 }
