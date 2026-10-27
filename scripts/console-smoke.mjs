@@ -100,6 +100,9 @@ if (terminalOnly) {
     await fail('no Terminal link on /next (is the page signed in?)');
   }
   await page.click('a:has-text("Terminal")');
+  // The page now asks what kind of session to open; the smoke opens the default (a local shell).
+  await page.waitForSelector('#terminal-form', { timeout: 20000 });
+  await page.click('#terminal-form button[type=submit]');
   await page.waitForSelector('.xterm', { timeout: 20000 });
   try {
     await page.waitForFunction(

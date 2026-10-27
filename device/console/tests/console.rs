@@ -7389,3 +7389,79 @@ async fn the_browser_page_lists_targets_captures_the_first_and_forwards_an_open(
         Some(format!("/next/browser/{device_id}").as_str())
     );
 }
+
+#[tokio::test]
+async fn a_terminal_create_can_name_an_ssh_or_a_serial_target() {
+    let fixture = Fixture::new("terminal-kinds");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xf0)).await;
+    let (cookie, csrf) = sign_in_to_the_page(&fixture).await;
+
+    // SSH: the page carries the password into the device's auth envelope and never into the URL.
+    let mut request = post_json_cookie(
+        &format!("/next/terminal/{device_id}/create"),
+        json!({
+            "kind": "ssh", "host": "10.0.0.5", "ssh_port": 2222, "user": "root",
+            "password": "hunter2", "rows": 30, "cols": 90
+        }),
+        &cookie,
+        Some(&csrf),
+    );
+    request.headers_mut().insert(
+        header::CONTENT_TYPE,
+        "application/json".parse().expect("a header"),
+    );
+    let app = fixture.app();
+    let create = tokio::spawn(async move { send_with_headers(app, request).await });
+    let frame = next_json(&mut device).await;
+    let arguments = &frame["mcp"]["params"]["arguments"];
+    assert_eq!(arguments["kind"], json!("ssh"), "{frame}");
+    assert_eq!(arguments["host"], json!("10.0.0.5"));
+    assert_eq!(arguments["port"], json!(2222));
+    assert_eq!(arguments["user"], json!("root"));
+    assert_eq!(arguments["auth"]["kind"], json!("password"));
+    assert_eq!(arguments["auth"]["password"], json!("hunter2"));
+    assert_eq!(arguments["rows"], json!(30));
+    answer(
+        &mut device,
+        &frame,
+        json!({
+            "jsonrpc": "2.0", "id": 1,
+            "result": { "content": [{ "type": "text", "text": json!({ "id": "session-9", "kind": "ssh", "shell": "root@10.0.0.5" }).to_string() }], "isError": false }
+        }),
+    )
+    .await;
+    let (status, _, body) = create.await.expect("the ssh create finishes");
+    assert_eq!(status, StatusCode::OK, "{body}");
+
+    // Serial: the port path and the baud, and no host or user.
+    let mut request = post_json_cookie(
+        &format!("/next/terminal/{device_id}/create"),
+        json!({ "kind": "serial", "serial_port": "COM3", "baud": 9600 }),
+        &cookie,
+        Some(&csrf),
+    );
+    request.headers_mut().insert(
+        header::CONTENT_TYPE,
+        "application/json".parse().expect("a header"),
+    );
+    let app = fixture.app();
+    let create = tokio::spawn(async move { send_with_headers(app, request).await });
+    let frame = next_json(&mut device).await;
+    let arguments = &frame["mcp"]["params"]["arguments"];
+    assert_eq!(arguments["kind"], json!("serial"), "{frame}");
+    assert_eq!(arguments["port"], json!("COM3"));
+    assert_eq!(arguments["baud"], json!(9600));
+    answer(
+        &mut device,
+        &frame,
+        json!({
+            "jsonrpc": "2.0", "id": 1,
+            "result": { "content": [{ "type": "text", "text": json!({ "id": "session-10", "kind": "serial", "shell": "COM3 9600 8N1" }).to_string() }], "isError": false }
+        }),
+    )
+    .await;
+    let (status, _, body) = create.await.expect("the serial create finishes");
+    assert_eq!(status, StatusCode::OK, "{body}");
+}

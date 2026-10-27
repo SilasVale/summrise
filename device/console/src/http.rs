@@ -1123,11 +1123,22 @@ async fn next_denials(State(app): State<AppState>, headers: HeaderMap) -> Respon
 /// in the path and nothing else, and the device is the one that decides what the call means.
 #[derive(Deserialize)]
 struct TerminalCreate {
-    /// Phase 3 is the pty; ssh and serial come with their own forms, not a hidden field.
     #[serde(default = "pty_kind")]
     kind: String,
     rows: Option<u16>,
     cols: Option<u16>,
+    /// `kind: "ssh"`.
+    #[serde(default)]
+    host: String,
+    ssh_port: Option<u16>,
+    #[serde(default)]
+    user: String,
+    #[serde(default)]
+    password: String,
+    /// `kind: "serial"`.
+    #[serde(default)]
+    serial_port: String,
+    baud: Option<u32>,
 }
 
 fn pty_kind() -> String {
@@ -1296,10 +1307,38 @@ async fn next_terminal_create(
     if terminal_csrf(&app, &headers).is_none() {
         return StatusCode::FORBIDDEN.into_response();
     }
-    if body.kind != "pty" {
-        return terminal_refusal(StatusCode::BAD_REQUEST, "kind must be pty");
-    }
-    let mut arguments = json!({ "kind": "pty" });
+    let mut arguments = match body.kind.as_str() {
+        "pty" => json!({ "kind": "pty" }),
+        "ssh" => {
+            if body.host.trim().is_empty() || body.user.trim().is_empty() {
+                return terminal_refusal(StatusCode::BAD_REQUEST, "ssh needs a host and a user");
+            }
+            if body.password.is_empty() {
+                return terminal_refusal(
+                    StatusCode::BAD_REQUEST,
+                    "ssh needs a password on this page (key files are not offered yet)",
+                );
+            }
+            json!({
+                "kind": "ssh",
+                "host": body.host.trim(),
+                "port": body.ssh_port.unwrap_or(22),
+                "user": body.user.trim(),
+                "auth": { "kind": "password", "password": body.password },
+            })
+        }
+        "serial" => {
+            if body.serial_port.trim().is_empty() {
+                return terminal_refusal(StatusCode::BAD_REQUEST, "serial needs a port path");
+            }
+            json!({
+                "kind": "serial",
+                "port": body.serial_port.trim(),
+                "baud": body.baud.unwrap_or(115_200),
+            })
+        }
+        _ => return terminal_refusal(StatusCode::BAD_REQUEST, "kind must be pty, ssh or serial"),
+    };
     if let Some(rows) = body.rows {
         arguments["rows"] = json!(rows);
     }

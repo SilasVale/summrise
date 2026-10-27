@@ -58,6 +58,11 @@ body.terminal { display:flex; flex-direction:column; height:100vh; overflow:hidd
 body.terminal main { flex:1; display:flex; flex-direction:column; min-height:0; }
 #terminal { flex:1; min-height:0; background:#000; border-radius:8px; padding:8px; }
 #terminal-status { margin:6px 2px 0; }
+.terminal-form { display:flex; flex-wrap:wrap; gap:10px 14px; align-items:end; margin-bottom:10px; }
+.terminal-form label { font-size:12px; color:var(--muted); }
+.terminal-form select, .terminal-form input { width:auto; min-width:120px; }
+.kind-fields { display:flex; flex-wrap:wrap; gap:10px 14px; align-items:end; }
+.kind-fields[hidden] { display:none; }
 header a { margin-left:auto; color:var(--accent); text-decoration:none; font-size:13px; }
 "#;
 
@@ -264,8 +269,33 @@ pub(super) fn terminal(device: &DeviceView, csrf: &str, version: &str) -> Markup
                     a href="/next" { "Back to the fleet" }
                 }
                 main {
-                    div id="terminal" data-device=(device.id) data-csrf=(csrf) {}
-                    p id="terminal-status" class="hint" { "connecting…" }
+                    form id="terminal-form" class="terminal-form" {
+                        label for="kind" { "Kind" }
+                        select id="kind" name="kind" {
+                            option value="pty" { "pty — a shell on this machine" }
+                            option value="ssh" { "ssh — a host this device can reach" }
+                            option value="serial" { "serial — an OS port" }
+                        }
+                        div class="kind-fields" data-kind="ssh" hidden {
+                            label for="host" { "Host" }
+                            input id="host" name="host" type="text" placeholder="192.168.1.1";
+                            label for="ssh_port" { "Port" }
+                            input id="ssh_port" name="ssh_port" type="number" value="22" min="1" max="65535";
+                            label for="user" { "User" }
+                            input id="user" name="user" type="text" placeholder="root";
+                            label for="password" { "Password" }
+                            input id="password" name="password" type="password" autocomplete="off";
+                        }
+                        div class="kind-fields" data-kind="serial" hidden {
+                            label for="serial_port" { "Port" }
+                            input id="serial_port" name="serial_port" type="text" placeholder="COM3 or /dev/ttyUSB0";
+                            label for="baud" { "Baud" }
+                            input id="baud" name="baud" type="number" value="115200" min="1";
+                        }
+                        button type="submit" { "Start session" }
+                    }
+                    div id="terminal" data-device=(device.id) data-csrf=(csrf) hidden {}
+                    p id="terminal-status" class="hint" { "choose a kind and start a session" }
                 }
             }
         }

@@ -8,6 +8,8 @@
 // already behind it — a second transport would be a second gate.
 const host = document.getElementById("terminal");
 const status = document.getElementById("terminal-status");
+const form = document.getElementById("terminal-form");
+const kind = document.getElementById("kind");
 const device = host.dataset.device;
 const csrf = host.dataset.csrf;
 
@@ -19,9 +21,6 @@ const term = new Terminal({
 });
 const fit = new FitAddon.FitAddon();
 term.loadAddon(fit);
-term.open(host);
-fit.fit();
-term.focus();
 
 let session = null;
 let cursor = 0;
@@ -98,28 +97,64 @@ async function read() {
   }
 }
 
-async function start() {
-  say("opening a shell…");
-  try {
-    const created = await call(`/next/terminal/${device}/create`, "POST", {
-      kind: "pty",
-      rows: term.rows,
-      cols: term.cols
-    });
-    session = created.id;
-    say(`session ${session} · ${created.shell || "pty"}`);
-    term.onData(queue);
-    term.onResize((size) => {
-      if (!session) return;
-      call(base() + "/resize", "POST", { rows: size.rows, cols: size.cols }).catch(() => {});
-    });
-    await read();
-  } catch (error) {
-    say(String(error.message || error));
+// The form's visible group follows the kind, so an operator never types an SSH host into a serial
+// port field.
+function showKindFields() {
+  for (const group of form.querySelectorAll("[data-kind]")) {
+    group.hidden = group.dataset.kind !== kind.value;
   }
 }
+kind.addEventListener("change", showKindFields);
+showKindFields();
 
-window.addEventListener("resize", () => fit.fit());
+function bodyFromForm() {
+  const body = { kind: kind.value, rows: term.rows || 24, cols: term.cols || 80 };
+  if (kind.value === "ssh") {
+    body.host = document.getElementById("host").value.trim();
+    body.ssh_port = Number(document.getElementById("ssh_port").value || 22);
+    body.user = document.getElementById("user").value.trim();
+    body.password = document.getElementById("password").value;
+  }
+  if (kind.value === "serial") {
+    body.serial_port = document.getElementById("serial_port").value.trim();
+    body.baud = Number(document.getElementById("baud").value || 115200);
+  }
+  return body;
+}
+
+async function start() {
+  const body = bodyFromForm();
+  say("opening a session…");
+  let created;
+  try {
+    created = await call(`/next/terminal/${device}/create`, "POST", body);
+  } catch (error) {
+    say(String(error.message || error));
+    return;
+  }
+  session = created.id;
+  form.hidden = true;
+  host.hidden = false;
+  term.open(host);
+  fit.fit();
+  term.focus();
+  say(`session ${session} · ${created.shell || created.kind || body.kind}`);
+  term.onData(queue);
+  term.onResize((size) => {
+    if (!session) return;
+    call(base() + "/resize", "POST", { rows: size.rows, cols: size.cols }).catch(() => {});
+  });
+  await read();
+}
+
+form.addEventListener("submit", (event) => {
+  event.preventDefault();
+  void start();
+});
+
+window.addEventListener("resize", () => {
+  if (!host.hidden) fit.fit();
+});
 window.addEventListener("beforeunload", () => {
   closed = true;
   if (!session) return;
@@ -129,5 +164,3 @@ window.addEventListener("beforeunload", () => {
     keepalive: true
   });
 });
-
-start();
