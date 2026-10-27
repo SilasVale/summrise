@@ -97,13 +97,13 @@ needed; bundle).
 - Tests: confirm opens; cancel no call; confirm exactly one `host.restart`; success sentence; refusal
   sentence; no client-side hiding based on the grant.
 
-- [ ] **Step 1: Tests first**
-- [ ] **Step 2: Implement, gates, commit**
+- [x] **Step 1: Tests first**
+- [x] **Step 2: Implement, gates, commit**
   `console: the System page restarts a supervised device app`.
 
 ### Task 3: The record
 
-- [ ] Tick the plan, record the rulings (registry as the single list; the refusal sentence; the
+- [x] Tick the plan, record the rulings (registry as the single list; the refusal sentence; the
   budget copy; one hook), commit `docs: the remote restart's decisions`.
 
 ## Self-review
@@ -113,3 +113,33 @@ needed; bundle).
 - Review Focus: refusal test, one hook, registry surface, deliberate page, no new authority.
 - Deliberate: no console button outside the System page; no restart history; no auto-retry; the
   launcher budget is a stated limit, not a queue.
+
+## Rulings
+
+Recorded when the page shipped (`24a72cb`). The device half is Task 1's; these are the decisions the
+round rests on, and the page's tests pin the ones it can see.
+
+- **The registry is the single list.** `host.restart` is one `ToolDef` in `summrise-core`'s host
+  capability with `destructive: true`; the device's schema and handler and the console's `/tools` are
+  readings of it. The System page keeps no copy and does not ask which tools the grant has: hiding
+  the button on that guess would make the device's refusal unreachable, and the grant's tools and
+  `allow_destructive` are enforced on the call. The cost: a grant that cannot restart still sees the
+  button and learns the boundary from the refusal.
+
+- **The refusal is the device's sentence.** Without `Config.supervised` the handler rejects with
+  "this device was not started by the launcher; restarting it here would not bring it back" and never
+  calls the hook. The page wraps that verbatim in "The device did not restart: …"; it does not
+  inspect a process list or a grant to predict it. The cost: the reason is prose, not a code the page
+  can branch on.
+
+- **The budget is stated, not queued.** The confirmation names the losses (open terminals, browser
+  tabs, runs), the brief offline, and the launcher's three-consecutive-restart allowance with "three
+  quick restarts can leave the device down". Cancel is first and makes no call; only "Restart app"
+  calls, once; after success the button is disabled until a reload. The cost: a legitimate second
+  restart needs a reload, because the page cannot know when the device is back.
+
+- **One hook, two callers.** Enrollment's restart and `host.restart` exit through `restart::Hook`:
+  the handler builds `{"restarting": true}`, calls the hook, returns the answer, and the hook sleeps
+  two seconds before `std::process::exit(0)`. The page therefore says "restarting", never "back",
+  and tests pass recorders rather than ending a process. The cost: success is a fact about the
+  request, not evidence of reconnection.
