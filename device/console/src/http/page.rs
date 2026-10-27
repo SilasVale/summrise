@@ -1431,9 +1431,10 @@ pub(super) fn terminal(
                                             span class="preset-target" { (preset_summary(preset)) }
                                         }
                                         div class="preset-actions" {
-                                            @if preset.kind == "ssh" {
-                                                // An SSH preset deliberately carries no password, so it
-                                                // fills the form instead of opening a session.
+                                            @if preset.kind == "ssh" && preset.key_path.is_none() {
+                                                // An SSH preset with no key deliberately carries no
+                                                // password either, so it fills the form instead of
+                                                // opening a session.
                                                 a class="btn btn-sm" href=(format!("/next/terminal/{}?preset={}", device.id, encode(&preset.id))) { "Use" }
                                             } @else {
                                                 form method="post" action=(format!("/next/terminal/{}/connections/{}/connect", device.id, encode(&preset.id))) {
@@ -1467,6 +1468,10 @@ pub(super) fn terminal(
                             div class="field" {
                                 label for="preset-target" { "Target" }
                                 input id="preset-target" name="target" placeholder="root@host:22 or COM3@115200";
+                            }
+                            div class="field" {
+                                label for="preset-key" { "Key file (ssh)" }
+                                input id="preset-key" name="key_path" placeholder="C:\\Users\\you\\.ssh\\id_ed25519";
                             }
                             button type="submit" class="btn btn-sm" { "Save preset" }
                         }
@@ -3627,6 +3632,7 @@ mod tests {
             user: Some("root".to_owned()),
             port_path: None,
             baud: None,
+            key_path: Some("C:\\Users\\operator\\.ssh\\id_ed25519".to_owned()),
         };
         let pages: Vec<(&str, Markup)> = vec![
             (
@@ -3714,7 +3720,7 @@ mod tests {
                         sessions: &[],
                         presets: std::slice::from_ref(&preset),
                         preset: None,
-                        error: Some("An ssh preset needs its password typed on the page."),
+                        error: Some("That preset is not on this device."),
                     },
                 ),
             ),

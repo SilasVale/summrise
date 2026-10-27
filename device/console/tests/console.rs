@@ -3658,6 +3658,129 @@ async fn a_saved_connection_is_listed_on_the_terminal_page() {
     assert!(page.contains("10.0.0.5"), "{page}");
 }
 
+/// An ssh preset that names a key on the device is like a serial one: it can open a session from the
+/// rail without a credential typed in, because a key path is configuration and the key stays put.
+#[tokio::test]
+async fn an_ssh_preset_with_a_key_connects_from_the_rail() {
+    let fixture = Fixture::new("preset-key-connect");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xec)).await;
+    let (cookie, csrf) = sign_in_to_the_page(&fixture).await;
+    let page_uri = format!("/next/terminal/{device_id}");
+
+    let mut request = post_form(
+        &format!("{page_uri}/connections"),
+        &[
+            ("csrf", &csrf),
+            ("name", "Edge"),
+            ("kind", "ssh"),
+            ("target", "root@10.0.0.5:2222"),
+            ("key_path", "C:\\Users\\op\\.ssh\\id_ed25519"),
+        ],
+    );
+    request
+        .headers_mut()
+        .insert(header::COOKIE, cookie.parse().expect("the cookie header"));
+    let (status, _, _) = send_text(fixture.app(), request).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+
+    let app = fixture.app();
+    let request = get_with_cookie(&page_uri, &cookie);
+    let page = tokio::spawn(async move { send_text(app, request).await });
+    let frame = next_json(&mut device).await;
+    answer(
+        &mut device,
+        &frame,
+        json!({
+            "jsonrpc": "2.0", "id": 1,
+            "result": { "content": [{ "type": "text", "text": "[]" }], "isError": false }
+        }),
+    )
+    .await;
+    let (_, _, body) = page.await.expect("the page finishes");
+    let preset = first_preset_id(&body);
+    assert!(
+        body.contains(&format!("/connections/{preset}/connect")),
+        "a key-bearing ssh preset connects from the rail: {body}"
+    );
+
+    let app = fixture.app();
+    let request = post_form_cookie(
+        &format!("{page_uri}/connections/{preset}/connect"),
+        &[("csrf", &csrf)],
+        &cookie,
+    );
+    let connect = tokio::spawn(async move { send_text(app, request).await });
+    let frame = next_json(&mut device).await;
+    assert_eq!(
+        frame["mcp"]["params"]["name"],
+        json!("terminal.create"),
+        "{frame}"
+    );
+    assert_eq!(
+        frame["mcp"]["params"]["arguments"]["auth"]["kind"],
+        json!("key"),
+        "{frame}"
+    );
+    assert_eq!(
+        frame["mcp"]["params"]["arguments"]["auth"]["path"],
+        json!("C:\\Users\\op\\.ssh\\id_ed25519"),
+        "{frame}"
+    );
+    answer(
+        &mut device,
+        &frame,
+        json!({
+            "jsonrpc": "2.0", "id": 1,
+            "result": { "content": [{ "type": "text", "text": json!({ "id": "session-77", "kind": "ssh", "shell": "root@10.0.0.5" }).to_string() }], "isError": false }
+        }),
+    )
+    .await;
+    let (status, headers, _) = connect.await.expect("the connect finishes");
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert_eq!(
+        headers
+            .get(header::LOCATION)
+            .and_then(|value| value.to_str().ok()),
+        Some(format!("{page_uri}?attach=session-77").as_str())
+    );
+}
+
+/// A key file belongs to the kind that uses one: a pty or serial preset that names one is a mistake,
+/// refused where it is made.
+#[tokio::test]
+async fn a_key_file_on_a_pty_preset_is_refused() {
+    let fixture = Fixture::new("preset-key-pty");
+    let (device_id, _) = fixture.register(&signing_key(0xeb)).await;
+    let (cookie, csrf) = sign_in_to_the_page(&fixture).await;
+
+    let mut request = post_form(
+        &format!("/next/terminal/{device_id}/connections"),
+        &[
+            ("csrf", &csrf),
+            ("name", "Shell"),
+            ("kind", "pty"),
+            ("target", ""),
+            ("key_path", "C:\\Users\\op\\.ssh\\id_ed25519"),
+        ],
+    );
+    request
+        .headers_mut()
+        .insert(header::COOKIE, cookie.parse().expect("the cookie header"));
+    let (status, headers, _) = send_text(fixture.app(), request).await;
+
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let location = headers
+        .get(header::LOCATION)
+        .and_then(|value| value.to_str().ok())
+        .expect("a redirect");
+    assert!(
+        location.contains("only%20an%20ssh%20preset"),
+        "the page says why: {location}"
+    );
+}
+
 /// The id of the first preset the page rendered, read off its remove form's action.
 fn first_preset_id(page: &str) -> String {
     let marker = "/connections/";

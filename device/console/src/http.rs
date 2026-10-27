@@ -1550,6 +1550,7 @@ fn draft_from_target(
             user: None,
             port_path: None,
             baud: None,
+            key_path: None,
         },
         "ssh" => {
             let (user, rest) = target
@@ -1573,6 +1574,7 @@ fn draft_from_target(
                 user: Some(user.trim().to_owned()),
                 port_path: None,
                 baud: None,
+                key_path: None,
             }
         }
         "serial" => {
@@ -1594,6 +1596,7 @@ fn draft_from_target(
                 user: None,
                 port_path: Some(path.trim().to_owned()),
                 baud,
+                key_path: None,
             }
         }
         _ => return Err("kind must be pty, ssh or serial"),
@@ -1827,10 +1830,16 @@ async fn next_terminal_preset_save(
     let refuse = |sentence: &str| {
         Redirect::to(&format!("{uri}?error={}", page::encode(sentence))).into_response()
     };
-    let draft = match draft_from_target(&form.name, &form.kind, &form.target) {
+    let mut draft = match draft_from_target(&form.name, &form.kind, &form.target) {
         Ok(draft) => draft,
         Err(sentence) => return refuse(sentence),
     };
+    draft.key_path = form
+        .key_path
+        .as_deref()
+        .map(str::trim)
+        .filter(|path| !path.is_empty())
+        .map(str::to_owned);
     match lock(&app.connections).add(&device_id, draft) {
         Ok(_) => Redirect::to(&uri).into_response(),
         Err(sentence) => refuse(sentence),
@@ -1898,7 +1907,20 @@ async fn next_terminal_preset_connect(
             "port": preset.port_path,
             "baud": preset.baud.unwrap_or(115_200),
         }),
-        "ssh" => return refuse("An ssh preset needs its password typed on the page."),
+        "ssh" => {
+            // No key on the preset means no credential at all: a password is never stored, so that
+            // preset can only fill the form.
+            let Some(key_path) = preset.key_path.as_deref() else {
+                return refuse("An ssh preset needs its password typed on the page.");
+            };
+            json!({
+                "kind": "ssh",
+                "host": preset.host,
+                "port": preset.port,
+                "user": preset.user,
+                "auth": { "kind": "key", "path": key_path },
+            })
+        }
         _ => return refuse("That preset's kind is unknown."),
     };
     match terminal_tool(&app, &device_id, "terminal.create", arguments).await {
@@ -1917,6 +1939,9 @@ struct PresetSave {
     kind: String,
     #[serde(default)]
     target: String,
+    /// An optional absolute path to a key on the device; only an ssh preset accepts one.
+    #[serde(default)]
+    key_path: Option<String>,
 }
 
 /// `POST /next/terminal/:device/create`: one pty, sized by the browser.
