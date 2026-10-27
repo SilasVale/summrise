@@ -8,9 +8,13 @@
 #   scripts/console-screenshots.bash --out /tmp/console-shots
 #   scripts/console-screenshots.bash --out /tmp/console-shots --width 900 --dark-only
 #   scripts/console-screenshots.bash --out /tmp/new --diff /tmp/console-shots   # what moved?
+#   scripts/console-screenshots.bash --out /tmp/new --diff                       # against the baseline
+#   scripts/console-screenshots.bash --out /tmp/new --update-baseline            # this run is the baseline
 #
 # The gallery is `<out>/index.html`; open it and every page is one click away. Screenshots are named
-# `<page>.png` and `<page>-dark.png`.
+# `<page>.png` and `<page>-dark.png`. `--diff` with no directory compares against the baseline
+# (`--baseline`, default `$XDG_CACHE_HOME/summrise-console-shots`), which `--update-baseline` replaces
+# with this run — so "what did my styling change" is two commands on a checkout with no prior run.
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -20,7 +24,10 @@ height=900
 dark_only=0
 light_only=0
 diff_against=""
+diff_requested=0
 fail_on_change=0
+baseline="${XDG_CACHE_HOME:-$HOME/.cache}/summrise-console-shots"
+update_baseline=0
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -29,7 +36,15 @@ while [ $# -gt 0 ]; do
         --height) height="$2"; shift 2 ;;
         --dark-only) dark_only=1; shift ;;
         --light-only) light_only=1; shift ;;
-        --diff) diff_against="${2:-}"; shift 2 ;;
+        --baseline) baseline="$2"; shift 2 ;;
+        --update-baseline) update_baseline=1; shift ;;
+        --diff)
+            diff_requested=1
+            case "${2:-}" in
+                ""|-*) shift ;;
+                *) diff_against="$2"; shift 2 ;;
+            esac
+            ;;
         --fail-on-change) fail_on_change=1; shift ;;
         -h|--help) sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *) echo "console-screenshots: unknown argument $1" >&2; exit 2 ;;
@@ -105,6 +120,9 @@ done
 
 # What moved since the last run: a page that changed is a page whose design changed, and the
 # interesting ones are the pages nobody meant to touch.
+if [ "$diff_requested" -eq 1 ] && [ -z "$diff_against" ]; then
+    diff_against="$baseline"
+fi
 changed=""
 if [ -n "$diff_against" ]; then
     if [ ! -d "$diff_against" ]; then
@@ -183,5 +201,11 @@ fi
         echo "</figure>"
     done
 } > "$out/index.html"
+
+if [ "$update_baseline" -eq 1 ]; then
+    mkdir -p "$baseline"
+    cp "$out"/*.png "$baseline"/ 2>/dev/null || true
+    echo "console-screenshots: baseline updated in $baseline"
+fi
 
 echo "console-screenshots: ${#names[@]} pages in $out (open $out/index.html)"

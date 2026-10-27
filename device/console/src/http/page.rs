@@ -579,6 +579,18 @@ fn human_kb(kb: u64) -> String {
     }
 }
 
+/// How an uptime share reads: a watch that never misses is green, one that misses now and then is
+/// amber, and anything under 95% is a target that is not being watched so much as hoped for.
+fn uptime_class(pct: u64) -> &'static str {
+    if pct >= 99 {
+        "ok"
+    } else if pct >= 95 {
+        "warn"
+    } else {
+        "error"
+    }
+}
+
 /// How long ago, in the unit a person would say: "just now", "6m ago", "3h ago", "2d ago".
 ///
 /// `then` of 0 is a device that has never been seen, which is not the same as "56 years ago".
@@ -2316,7 +2328,7 @@ pub(super) fn monitors(
                                             span class="mini-bar" aria-hidden="true" {
                                                 span class="bar-fill" style=(format!("width:{pct}%")) {}
                                             }
-                                            span class="mono" { (pct) "%" }
+                                            span class=(format!("mono status {}", uptime_class(pct))) { (pct) "%" }
                                         }
                                     } @else {
                                         span class="muted" { "—" }
@@ -3782,6 +3794,18 @@ mod tests {
                 "{theme}: the primary button's label is {on_solid:.2}:1 on its fill"
             );
         }
+    }
+
+    #[test]
+    fn an_uptime_share_is_coloured_by_its_own_number() {
+        // A watch that never misses is green; one that misses now and then is amber; anything under
+        // 95% is a target that is not being watched so much as hoped for.
+        assert_eq!(uptime_class(100), "ok");
+        assert_eq!(uptime_class(99), "ok");
+        assert_eq!(uptime_class(98), "warn");
+        assert_eq!(uptime_class(95), "warn");
+        assert_eq!(uptime_class(94), "error");
+        assert_eq!(uptime_class(0), "error");
     }
 
     #[test]
