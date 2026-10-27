@@ -7531,3 +7531,50 @@ async fn a_token_mint_without_csrf_is_refused() {
     let (status, _, _) = send_text(fixture.app(), request).await;
     assert_eq!(status, StatusCode::FORBIDDEN);
 }
+
+#[tokio::test]
+async fn the_vitals_page_draws_one_sample_of_the_devices_own_numbers() {
+    let fixture = Fixture::new("vitals-page");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xf3)).await;
+    let (cookie, _csrf) = sign_in_to_the_page(&fixture).await;
+
+    let app = fixture.app();
+    let request = get_with_cookie(&format!("/next/vitals/{device_id}"), &cookie);
+    let page = tokio::spawn(async move { send_text(app, request).await });
+    let frame = next_json(&mut device).await;
+    assert_eq!(
+        frame["mcp"]["params"]["name"],
+        json!("host.facts"),
+        "{frame}"
+    );
+    answer(
+        &mut device,
+        &frame,
+        json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {
+                "content": [{ "type": "text", "text": json!({
+                    "machine": "DESKTOP-TEST",
+                    "os": { "name": "Windows", "version": "10.0.22631" },
+                    "cpu": { "cores": 12 },
+                    "uptime_s": 7200,
+                    "memory": { "total_bytes": 8u64 * 1024 * 1024 * 1024, "available_bytes": 4u64 * 1024 * 1024 * 1024 },
+                    "disks": [{ "name": "C:\\", "total_bytes": 100u64 * 1024 * 1024 * 1024, "free_bytes": 25u64 * 1024 * 1024 * 1024 }],
+                    "update": { "current": { "version": "0.3.65", "channel": "canary" } }
+                }).to_string() }],
+                "isError": false
+            }
+        }),
+    )
+    .await;
+    let (status, _, body) = page.await.expect("the vitals page finishes");
+    assert_eq!(status, StatusCode::OK);
+    assert!(body.contains("DESKTOP-TEST"), "{body}");
+    assert!(body.contains("4.0 GiB used of 8.0 GiB"), "{body}");
+    assert!(body.contains("C:\\"), "{body}");
+    assert!(body.contains("0.3.65 (canary)"), "{body}");
+    assert!(body.contains("width:50%"), "the memory bar is half: {body}");
+}

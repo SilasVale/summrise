@@ -302,6 +302,8 @@ impl Console {
             .route("/next/tokens/:device", get(next_tokens_page))
             .route("/next/tokens/:device/mint", post(next_token_mint))
             .route("/next/tokens/:device/revoke", post(next_token_revoke))
+            // One sample of the device's own vitals.
+            .route("/next/vitals/:device", get(next_vitals_page))
             .route("/session", get(session_probe))
             .route("/logout", post(logout))
             .route("/enroll", post(enroll))
@@ -2383,6 +2385,64 @@ async fn next_token_revoke(
     };
     let _ = lock(&app.tokens).revoke(&form.id);
     Redirect::to(&format!("/next/tokens/{device_id}")).into_response()
+}
+
+/// `GET /next/vitals/:device`: one sample of what the device reports about itself.
+async fn next_vitals_page(
+    State(app): State<AppState>,
+    Path(device_id): Path<String>,
+    headers: HeaderMap,
+) -> Response {
+    if cookie_session(&app, &headers).is_none() {
+        return Html(page::login(None).into_string()).into_response();
+    }
+    let Some(device) = device_views(&app)
+        .into_iter()
+        .find(|device| device.id == device_id)
+    else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    let facts = match device_tool(&app, &device_id, "host.facts", json!({})).await {
+        Ok(text) => serde_json::from_str::<Value>(&text).unwrap_or(Value::Null),
+        Err(response) => return *response,
+    };
+    let disks = facts["disks"]
+        .as_array()
+        .map(|disks| {
+            disks
+                .iter()
+                .map(|disk| page::VitalsDisk {
+                    name: disk["name"].as_str().unwrap_or_default().to_owned(),
+                    total: disk["total_bytes"].as_u64().unwrap_or(0),
+                    free: disk["free_bytes"].as_u64().unwrap_or(0),
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    let sample = page::Vitals {
+        machine: facts["machine"].as_str().unwrap_or_default().to_owned(),
+        os: format!(
+            "{} {}",
+            facts["os"]["name"].as_str().unwrap_or_default(),
+            facts["os"]["version"].as_str().unwrap_or_default()
+        )
+        .trim()
+        .to_owned(),
+        cores: facts["cpu"]["cores"].as_u64().unwrap_or(0),
+        uptime_s: facts["uptime_s"].as_u64().unwrap_or(0),
+        memory_total: facts["memory"]["total_bytes"].as_u64().unwrap_or(0),
+        memory_available: facts["memory"]["available_bytes"].as_u64().unwrap_or(0),
+        disks,
+        version: facts["update"]["current"]["version"]
+            .as_str()
+            .unwrap_or("—")
+            .to_owned(),
+        channel: facts["update"]["current"]["channel"]
+            .as_str()
+            .unwrap_or("—")
+            .to_owned(),
+    };
+    Html(page::vitals(&device, &sample, &app.version).into_string()).into_response()
 }
 
 /// `POST /next/auth`: the page's sign-in. The same operator secret as `/auth`, the same denial

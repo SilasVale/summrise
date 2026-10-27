@@ -46,6 +46,8 @@ nav a { color:var(--accent); text-decoration:none; }
 label.check { display:flex; align-items:center; gap:6px; margin:12px 0; }
 label.check input { width:auto; }
 textarea { width:100%; font:13px/1.4 ui-monospace, monospace; padding:8px 10px; border:1px solid var(--line); border-radius:7px; background:var(--bg); color:var(--ink); }
+.bar { height:10px; background:var(--line); border-radius:6px; overflow:hidden; min-width:120px; }
+.bar-fill { height:100%; background:var(--accent); }
 img.capture { max-width:100%; border:1px solid var(--line); border-radius:8px; }
 select { padding:8px 10px; border:1px solid var(--line); border-radius:7px; background:var(--bg); color:var(--ink); font:inherit; }
 pre.file { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:12px 14px; overflow:auto; font:13px/1.5 ui-monospace, monospace; white-space:pre-wrap; }
@@ -184,6 +186,8 @@ pub(super) fn dashboard(
                                             a href=(format!("/next/browser/{}", device.id)) { "Browser" }
                                             " · "
                                             a href=(format!("/next/tokens/{}", device.id)) { "Connect" }
+                                            " · "
+                                            a href=(format!("/next/vitals/{}", device.id)) { "Vitals" }
                                         }
                                     }
                                 }
@@ -1150,6 +1154,108 @@ pub(super) fn token_created(
                     pre class="file" { (secret) }
                     h3 { "Client configuration" }
                     pre class="file" { (config) }
+                }
+            }
+        }
+    }
+}
+
+/// One disk on the vitals page.
+pub(super) struct VitalsDisk {
+    pub(super) name: String,
+    pub(super) total: u64,
+    pub(super) free: u64,
+}
+
+/// What the device reports about itself right now. The page is a sample, not a history: the
+/// console keeps no time series of its own.
+pub(super) struct Vitals {
+    pub(super) machine: String,
+    pub(super) os: String,
+    pub(super) cores: u64,
+    pub(super) uptime_s: u64,
+    pub(super) memory_total: u64,
+    pub(super) memory_available: u64,
+    pub(super) disks: Vec<VitalsDisk>,
+    pub(super) version: String,
+    pub(super) channel: String,
+}
+
+fn gib(bytes: u64) -> String {
+    format!("{:.1} GiB", bytes as f64 / (1024.0 * 1024.0 * 1024.0))
+}
+
+fn percent(used: u64, total: u64) -> u64 {
+    if total == 0 {
+        return 0;
+    }
+    ((used as f64 / total as f64) * 100.0).round() as u64
+}
+
+fn bar(used_pct: u64) -> Markup {
+    html! {
+        div class="bar" {
+            div class="bar-fill" style=(format!("width:{used_pct}%")) {}
+        }
+    }
+}
+
+/// The vitals page: one sample of what the device reports, drawn as bars and a table.
+pub(super) fn vitals(device: &DeviceView, sample: &Vitals, version: &str) -> Markup {
+    let memory_used = sample.memory_total.saturating_sub(sample.memory_available);
+    let memory_pct = percent(memory_used, sample.memory_total);
+    html! {
+        (DOCTYPE)
+        html lang="en" {
+            head {
+                meta charset="utf-8";
+                meta name="viewport" content="width=device-width, initial-scale=1";
+                title { "Summrise console — vitals" }
+                style { (STYLE) }
+            }
+            body {
+                header {
+                    h1 { "Summrise " span { "console" } }
+                    span class="version" { "console " (version) }
+                    span class="version" { (device.name.as_deref().unwrap_or(&device.id)) }
+                    a href="/next" { "Back to the fleet" }
+                }
+                main {
+                    h2 { "Vitals" }
+                    p class="hint" {
+                        "One sample, read from the device now. The console keeps no time series of its own: "
+                        "what it cannot store it does not draw."
+                    }
+                    table {
+                        tbody {
+                            tr { th { "Machine" } td { (sample.machine) } }
+                            tr { th { "OS" } td { (sample.os) } }
+                            tr { th { "Cores" } td { (sample.cores) } }
+                            tr { th { "Uptime" } td { (sample.uptime_s / 3600) " h " ((sample.uptime_s % 3600) / 60) " m" } }
+                            tr { th { "Build" } td { (sample.version) " (" (sample.channel) ")" } }
+                        }
+                    }
+                    h3 { "Memory" }
+                    p { (gib(memory_used)) " used of " (gib(sample.memory_total)) " — " (memory_pct) "%" }
+                    (bar(memory_pct))
+                    h3 { "Disks" }
+                    @if sample.disks.is_empty() {
+                        p class="hint" { "The device reported no disks." }
+                    } @else {
+                        table {
+                            thead { tr { th { "Disk" } th { "Used" } th { "Free" } th { "" } } }
+                            tbody {
+                                @for disk in &sample.disks {
+                                    tr {
+                                        td { code { (&disk.name) } }
+                                        td { (gib(disk.total.saturating_sub(disk.free))) " of " (gib(disk.total)) }
+                                        td { (gib(disk.free)) }
+                                        td { (bar(percent(disk.total.saturating_sub(disk.free), disk.total))) }
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
