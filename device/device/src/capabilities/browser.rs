@@ -1841,10 +1841,14 @@ async fn run_cast(
         return;
     }
     loop {
-        tokio::select! {
+        // The wait is bounded so the idle check runs even when Chrome sends nothing: a static page
+        // produces no frames, and without this the task would block on the socket forever.
+        let waited = tokio::select! {
             _ = stop.notified() => break,
-            message = client.next_message() => {
-                let Ok(message) = message else { break };
+            waited = tokio::time::timeout(Duration::from_millis(CAST_POLL_MS * 50), client.next_message()) => waited,
+        };
+        match waited {
+            Ok(Ok(message)) => {
                 if event_name(&message) == Some("Page.screencastFrame") {
                     if let Some(frame) = frame_from(&message) {
                         *latest.lock().expect("the frame slot") = Some(frame);
@@ -1860,6 +1864,9 @@ async fn run_cast(
                     }
                 }
             }
+            // A closed socket ends the stream; a quiet second is just no painting.
+            Ok(Err(_)) => break,
+            Err(_) => {}
         }
         if now_unix_ms().saturating_sub(asked_at_ms.load(Ordering::Relaxed)) > CAST_IDLE_MS {
             break;
