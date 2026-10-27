@@ -8780,6 +8780,89 @@ async fn a_terminal_id_that_is_not_one_is_refused() {
     assert_eq!(status, StatusCode::BAD_REQUEST);
 }
 
+/// The browser pane pumps frames: a JSON frame route behind the session, and an image the script can
+/// replace without re-rendering the page.
+#[tokio::test]
+async fn the_browser_pane_can_take_a_fresh_frame() {
+    let fixture = Fixture::new("browser-frame");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xcf)).await;
+    let cookie = page_cookie(&fixture).await;
+
+    // The page renders one capture and the hook the script follows.
+    let app = fixture.app();
+    let request = get_with_cookie(&format!("/next/browser/{device_id}"), &cookie);
+    let page = tokio::spawn(async move { send_text(app, request).await });
+    let frame = next_json(&mut device).await;
+    assert_eq!(
+        frame["mcp"]["params"]["name"],
+        json!("browser.list"),
+        "{frame}"
+    );
+    answer(
+        &mut device,
+        &frame,
+        json!({ "jsonrpc": "2.0", "id": 1, "result": { "content": [{ "type": "text", "text": json!([
+            { "id": "target-1", "title": "example", "url": "https://example.com/", "type": "page" }
+        ]).to_string() }], "isError": false } }),
+    )
+    .await;
+    let frame = next_json(&mut device).await;
+    assert_eq!(
+        frame["mcp"]["params"]["name"],
+        json!("browser.screenshot"),
+        "{frame}"
+    );
+    answer(
+        &mut device,
+        &frame,
+        json!({ "jsonrpc": "2.0", "id": 1, "result": { "content": [{ "type": "text", "text": json!({ "format": "png", "data": "QUJD", "bytes": 3 }).to_string() }], "isError": false } }),
+    )
+    .await;
+    let (_, _, body) = page.await.expect("the page finishes");
+    assert!(body.contains("id=\"cast\""), "{body}");
+    assert!(body.contains("data-target=\"target-1\""), "{body}");
+    assert!(body.contains("/assets/browser.js"), "{body}");
+
+    // The frame route answers with the same capture, for the pump.
+    let app = fixture.app();
+    let request = get_with_cookie(
+        &format!("/next/browser/{device_id}/frame?target=target-1"),
+        &cookie,
+    );
+    let frame_request = tokio::spawn(async move { send_text(app, request).await });
+    let frame = next_json(&mut device).await;
+    assert_eq!(
+        frame["mcp"]["params"]["name"],
+        json!("browser.screenshot"),
+        "{frame}"
+    );
+    assert_eq!(
+        frame["mcp"]["params"]["arguments"]["target"],
+        json!("target-1")
+    );
+    answer(
+        &mut device,
+        &frame,
+        json!({ "jsonrpc": "2.0", "id": 1, "result": { "content": [{ "type": "text", "text": json!({ "format": "png", "data": "QUJD", "bytes": 3 }).to_string() }], "isError": false } }),
+    )
+    .await;
+    let (status, _, body) = frame_request.await.expect("the frame finishes");
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let frame: Value = serde_json::from_str(&body).expect("a JSON frame");
+    assert_eq!(frame["format"], json!("png"));
+    assert_eq!(frame["data"], json!("QUJD"));
+
+    // Without a session it refuses before touching the device.
+    let request = get(
+        &format!("/next/browser/{device_id}/frame?target=target-1"),
+        None,
+    );
+    let (status, _, _) = send_text(fixture.app(), request).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+}
+
 /// The install card is the device's own account of its generations and its last swap: the console
 /// shows it and keeps no copy.
 #[tokio::test]

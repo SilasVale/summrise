@@ -2919,7 +2919,12 @@ pub(super) fn browser(
                     Markup::default(),
                 ))
                 div class="card-body" {
-                    img class="capture thumb" src=(shot) alt="the device's browser";
+                    @if let Some(first) = rows.first() {
+                        img id="cast" class="capture thumb" src=(shot) alt="the device's browser"
+                            data-device=(device.id) data-target=(first.id);
+                    } @else {
+                        img class="capture thumb" src=(shot) alt="the device's browser";
+                    }
                 }
             }
         }
@@ -3087,7 +3092,7 @@ pub(super) fn browser(
             csrf,
             status: device_status(device),
         },
-        Markup::default(),
+        html! { script src="/assets/browser.js" defer {} },
         context,
         content,
     )

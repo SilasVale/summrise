@@ -258,6 +258,15 @@ impl Console {
                 }),
             )
             .route(
+                "/assets/browser.js",
+                get(|| async {
+                    assets::Asset {
+                        body: assets::BROWSER,
+                        content_type: "text/javascript; charset=utf-8",
+                    }
+                }),
+            )
+            .route(
                 "/assets/approvals.js",
                 get(|| async {
                     assets::Asset {
@@ -362,6 +371,7 @@ impl Console {
             .route("/next/monitors/:device/remove", post(next_monitor_remove))
             // The device's browser: its targets, a capture, and open/close.
             .route("/next/browser/:device", get(next_browser_page))
+            .route("/next/browser/:device/frame", get(next_browser_frame))
             .route("/next/browser/:device/open", post(next_browser_open))
             .route("/next/browser/:device/eval", post(next_browser_eval))
             .route(
@@ -836,6 +846,8 @@ mod assets {
     pub(super) const TERMINAL: &str = include_str!("../assets/terminal.js");
     /// The approvals badge: the one poll every page carries, because a held call waits ten minutes.
     pub(super) const APPROVALS: &str = include_str!("../assets/approvals.js");
+    /// The browser pane's frame pump: replaces the server-rendered capture as frames arrive.
+    pub(super) const BROWSER: &str = include_str!("../assets/browser.js");
     /// The brand mark at 128 px: the browser tab's icon and the console's face in a task switcher.
     pub(super) const ICON: &[u8] = include_bytes!("../assets/icon.png");
 
@@ -3361,6 +3373,55 @@ struct BrowserTargetForm {
 }
 
 /// `GET /next/browser/:device`: the targets, and a capture of the first.
+#[derive(Deserialize)]
+struct BrowserFrameQuery {
+    target: String,
+}
+
+/// `GET /next/browser/:device/frame`: one capture, as JSON, for the pane's frame pump.
+///
+/// The same `browser.screenshot` the page renders once is served here on demand, so the pane can
+/// replace its picture without re-rendering the page (and without the target list moving under the
+/// operator's cursor).
+async fn next_browser_frame(
+    State(app): State<AppState>,
+    Path(device_id): Path<String>,
+    headers: HeaderMap,
+    Query(query): Query<BrowserFrameQuery>,
+) -> Response {
+    if cookie_session(&app, &headers).is_none() {
+        return StatusCode::UNAUTHORIZED.into_response();
+    }
+    if !app.has_device(&device_id) {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+    if query.target.trim().is_empty() {
+        return StatusCode::BAD_REQUEST.into_response();
+    }
+    match device_tool(
+        &app,
+        &device_id,
+        "browser.screenshot",
+        json!({ "target": query.target.trim() }),
+    )
+    .await
+    {
+        Ok(text) => {
+            let capture: Value = serde_json::from_str(&text).unwrap_or(Value::Null);
+            match capture["data"].as_str() {
+                Some(data) => Json(json!({
+                    "format": capture["format"].as_str().unwrap_or("png"),
+                    "data": data,
+                    "bytes": capture["bytes"],
+                }))
+                .into_response(),
+                None => StatusCode::BAD_GATEWAY.into_response(),
+            }
+        }
+        Err(response) => *response,
+    }
+}
+
 #[derive(Deserialize)]
 struct BrowserQuery {
     error: Option<String>,
