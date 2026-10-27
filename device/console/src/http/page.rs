@@ -1862,7 +1862,29 @@ pub(super) fn memory(
             "Device " code title=(device.id) { (&device.id) }
         }
     };
-    page(
+    let meta = if entries.is_empty() {
+        Markup::default()
+    } else {
+        html! { span class="chip muted" { (entries.len()) } }
+    };
+    let body = if entries.is_empty() {
+        html! { p class="rail-note" { "Nothing is remembered on this device yet." } }
+    } else {
+        html! {
+            ul class="rail-list" {
+                @for entry in entries.iter().take(6) {
+                    li {
+                        span class="rail-line" { (entry.text.chars().take(60).collect::<String>()) }
+                        @if !entry.tags.is_empty() {
+                            span class="rail-meta" { (&entry.tags) }
+                        }
+                    }
+                }
+            }
+        }
+    };
+    let context = context_rail("Memory", meta, body, Markup::default());
+    page_with_rail(
         Chrome {
             active: Page::Memory,
             device: Some(device),
@@ -1871,6 +1893,8 @@ pub(super) fn memory(
             csrf,
             status: device_status(device),
         },
+        Markup::default(),
+        context,
         content,
     )
 }
@@ -2062,7 +2086,33 @@ pub(super) fn monitors(
             }
         }
     };
-    page(
+    let meta = if rows.is_empty() {
+        Markup::default()
+    } else {
+        html! { span class="chip muted" { (rows.len()) } }
+    };
+    let body = if rows.is_empty() {
+        html! { p class="rail-note" { "No target is watched yet." } }
+    } else {
+        html! {
+            ul class="rail-list" {
+                @for row in rows {
+                    li {
+                        span class="rail-line mono" { (&row.target) }
+                        span class="rail-meta" {
+                            (&row.kind)
+                            " · "
+                            @if let Some(up) = row.up_now {
+                                @if up { span class="chip online" { "up" } } @else { span class="chip offline" { "down" } }
+                            } @else { span class="chip muted" { "unknown" } }
+                        }
+                    }
+                }
+            }
+        }
+    };
+    let context = context_rail("Targets", meta, body, Markup::default());
+    page_with_rail(
         Chrome {
             active: Page::Monitors,
             device: Some(device),
@@ -2071,6 +2121,8 @@ pub(super) fn monitors(
             csrf,
             status: device_status(device),
         },
+        Markup::default(),
+        context,
         content,
     )
 }
@@ -2168,7 +2220,27 @@ pub(super) fn browser(
             }
         }
     };
-    page(
+    let meta = if rows.is_empty() {
+        Markup::default()
+    } else {
+        html! { span class="chip muted" { (rows.len()) } }
+    };
+    let body = if rows.is_empty() {
+        html! { p class="rail-note" { "The browser has no open target." } }
+    } else {
+        html! {
+            ul class="rail-list" {
+                @for row in rows {
+                    li {
+                        span class="rail-line" { (&row.title) }
+                        span class="rail-meta" { (&row.kind) " · " (&row.url) }
+                    }
+                }
+            }
+        }
+    };
+    let context = context_rail("Targets", meta, body, Markup::default());
+    page_with_rail(
         Chrome {
             active: Page::Browser,
             device: Some(device),
@@ -2177,6 +2249,8 @@ pub(super) fn browser(
             csrf,
             status: device_status(device),
         },
+        Markup::default(),
+        context,
         content,
     )
 }
@@ -2470,7 +2544,29 @@ pub(super) fn vitals(device: &DeviceView, sample: &Vitals, csrf: &str, version: 
             }
         }
     };
-    page(
+    let mut disks: Vec<&VitalsDisk> = sample.disks.iter().collect();
+    disks.sort_by_key(|disk| std::cmp::Reverse(disk.total.saturating_sub(disk.free)));
+    let meta = if sample.disks.is_empty() {
+        Markup::default()
+    } else {
+        html! { span class="chip muted" { (sample.disks.len()) } }
+    };
+    let body = if sample.disks.is_empty() {
+        html! { p class="rail-note" { "The device reported no disks." } }
+    } else {
+        html! {
+            ul class="rail-list" {
+                @for disk in disks {
+                    li {
+                        span class="rail-line mono" { (&disk.name) }
+                        span class="rail-meta" { (percent(disk.total.saturating_sub(disk.free), disk.total)) "% used · " (gib(disk.free)) " free" }
+                    }
+                }
+            }
+        }
+    };
+    let context = context_rail("Disks", meta, body, Markup::default());
+    page_with_rail(
         Chrome {
             active: Page::Vitals,
             device: Some(device),
@@ -2479,6 +2575,8 @@ pub(super) fn vitals(device: &DeviceView, sample: &Vitals, csrf: &str, version: 
             csrf,
             status: device_status(device),
         },
+        Markup::default(),
+        context,
         content,
     )
 }
