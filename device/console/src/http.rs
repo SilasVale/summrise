@@ -275,6 +275,7 @@ impl Console {
             // The terminal page: one device, one shell, the session's own cookie as the gate.
             .route("/next/terminal/:device", get(next_terminal_page))
             .route("/next/terminal/:device/create", post(next_terminal_create))
+            .route("/next/terminal/:device/:id/end", post(next_terminal_end))
             .route(
                 "/next/terminal/:device/connections",
                 post(next_terminal_preset_save),
@@ -1699,11 +1700,11 @@ async fn terminal_tool(
 
 /// `GET /next/terminal/:device`: the page. A cookie is the page's gate; an unknown device is 404.
 /// The terminal page's query: a preset the operator asked to prefill, and the sentence a refused
-/// preset left behind.
+/// rail action (a preset or an end) left behind.
 #[derive(Deserialize)]
 struct TerminalPresetQuery {
     preset: Option<String>,
-    preset_error: Option<String>,
+    error: Option<String>,
 }
 
 async fn next_terminal_page(
@@ -1756,12 +1757,45 @@ async fn next_terminal_page(
                 sessions: &sessions,
                 presets: &presets,
                 preset,
-                error: query.preset_error.as_deref(),
+                error: query.error.as_deref(),
             },
         )
         .into_string(),
     )
     .into_response()
+}
+
+/// `POST /next/terminal/:device/:id/end`: close one of the device's sessions from the rail.
+///
+/// The page's own tabs close their session through the JSON route; this is for the session the
+/// operator can see but did not open in this browser.
+async fn next_terminal_end(
+    State(app): State<AppState>,
+    Path((device_id, session_id)): Path<(String, String)>,
+    headers: HeaderMap,
+    Form(form): Form<NextRemove>,
+) -> Response {
+    if next_session(&app, &headers, Some(&form.csrf)).is_none() {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    if !app.has_device(&device_id) {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+    let uri = format!("/next/terminal/{device_id}");
+    match terminal_tool(
+        &app,
+        &device_id,
+        "terminal.close",
+        json!({ "id": session_id }),
+    )
+    .await
+    {
+        Ok(_) => Redirect::to(&uri).into_response(),
+        Err(response) => {
+            let sentence = refusal_sentence(*response).await;
+            Redirect::to(&format!("{uri}?error={}", page::encode(&sentence))).into_response()
+        }
+    }
 }
 
 /// `POST /next/terminal/:device/connections`: save a preset from the toolbar's one-line form.
@@ -1779,7 +1813,7 @@ async fn next_terminal_preset_save(
     }
     let uri = format!("/next/terminal/{device_id}");
     let refuse = |sentence: &str| {
-        Redirect::to(&format!("{uri}?preset_error={}", page::encode(sentence))).into_response()
+        Redirect::to(&format!("{uri}?error={}", page::encode(sentence))).into_response()
     };
     let draft = match draft_from_target(&form.name, &form.kind, &form.target) {
         Ok(draft) => draft,
@@ -1808,12 +1842,12 @@ async fn next_terminal_preset_remove(
     match lock(&app.connections).remove(&device_id, &id) {
         Ok(true) => Redirect::to(&uri).into_response(),
         Ok(false) => Redirect::to(&format!(
-            "{uri}?preset_error={}",
+            "{uri}?error={}",
             page::encode("That preset is not on this device.")
         ))
         .into_response(),
         Err(sentence) => {
-            Redirect::to(&format!("{uri}?preset_error={}", page::encode(sentence))).into_response()
+            Redirect::to(&format!("{uri}?error={}", page::encode(sentence))).into_response()
         }
     }
 }
@@ -1836,7 +1870,7 @@ async fn next_terminal_preset_connect(
     }
     let uri = format!("/next/terminal/{device_id}");
     let refuse = |sentence: &str| {
-        Redirect::to(&format!("{uri}?preset_error={}", page::encode(sentence))).into_response()
+        Redirect::to(&format!("{uri}?error={}", page::encode(sentence))).into_response()
     };
     let Some(preset) = lock(&app.connections)
         .list(&device_id)

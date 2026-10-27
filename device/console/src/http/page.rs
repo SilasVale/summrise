@@ -254,6 +254,11 @@ body.terminal .content { display:flex; flex-direction:column; min-height:0; over
 .session-list { list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:4px; }
 .session-list a { display:flex; align-items:center; gap:10px; padding:8px 9px; border-radius:8px; text-decoration:none; color:var(--ink); }
 .session-list a:hover { background:var(--hover); }
+.session-row { display:flex; align-items:center; gap:2px; }
+.session-row > a { flex:1; min-width:0; }
+.rail-close { display:grid; place-items:center; flex:none; width:22px; height:22px; padding:0; border:0; border-radius:6px; background:transparent; color:var(--faint); font-size:15px; line-height:1; cursor:pointer; }
+.rail-close:hover { background:var(--danger-soft); color:var(--danger); }
+.rail-close:focus-visible { outline:2px solid var(--accent); outline-offset:1px; }
 .session-body { display:flex; flex-direction:column; min-width:0; }
 .session-kind { flex:none; font-size:10.5px; text-transform:uppercase; letter-spacing:0.07em; color:var(--muted); background:var(--surface-chip); border-radius:5px; padding:2px 5px; }
 .session-body code { font-size:12.5px; background:none; padding:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
@@ -1335,13 +1340,19 @@ pub(super) fn terminal(
         html! {
             ul class="session-list" {
                 @for session in sessions {
-                    li {
+                    li class="session-row" {
                         a href=(format!("?attach={}", encode(&session.id))) title=(format!("open {} · started {}", session.id, stamp(session.started_at_ms))) {
                             span class="session-kind" { (&session.kind) }
                             span class="session-body" {
                                 code { (&session.id) }
                                 span class="session-age" { "since " (clock(session.started_at_ms)) }
                             }
+                        }
+                        // A session another browser left behind can be ended here, without opening
+                        // it: the rail is the only list of them the operator has.
+                        form method="post" action=(format!("/next/terminal/{}/{}/end", device.id, encode(&session.id))) {
+                            input type="hidden" name="csrf" value=(csrf);
+                            button type="submit" class="rail-close" title="End this session" aria-label=(format!("End session {}", session.id)) { "×" }
                         }
                     }
                 }

@@ -8471,6 +8471,81 @@ async fn a_page_session_expires_after_its_lifetime() {
     assert!(body.contains("Sign in"), "{body}");
 }
 
+/// A session another browser left behind is visible in the rail; ending it there must close it on
+/// the device, not merely hide the row.
+#[tokio::test]
+async fn ending_a_session_from_the_rail_closes_it_on_the_device() {
+    let fixture = Fixture::new("terminal-rail-end");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xe2)).await;
+    let (cookie, csrf) = sign_in_to_the_page(&fixture).await;
+
+    // The page's own request, answered with one live session.
+    let app = fixture.app();
+    let request = get_with_cookie(&format!("/next/terminal/{device_id}"), &cookie);
+    let page = tokio::spawn(async move { send_text(app, request).await });
+    let frame = next_json(&mut device).await;
+    answer(
+        &mut device,
+        &frame,
+        json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {
+                "content": [{ "type": "text", "text": json!([
+                    { "id": "session-9", "kind": "pty", "started_at_ms": 1_791_000_000_000u64 }
+                ]).to_string() }],
+                "isError": false
+            }
+        }),
+    )
+    .await;
+    let (status, _, _) = page.await.expect("the page finishes");
+    assert_eq!(status, StatusCode::OK);
+
+    // The rail's form ends the session.
+    let app = fixture.app();
+    let request = post_form_cookie(
+        &format!("/next/terminal/{device_id}/session-9/end"),
+        &[("csrf", &csrf)],
+        &cookie,
+    );
+    let end = tokio::spawn(async move { send_text(app, request).await });
+
+    let frame = next_json(&mut device).await;
+    assert_eq!(
+        frame["mcp"]["params"]["name"],
+        json!("terminal.close"),
+        "{frame}"
+    );
+    assert_eq!(
+        frame["mcp"]["params"]["arguments"]["id"],
+        json!("session-9"),
+        "{frame}"
+    );
+    answer(
+        &mut device,
+        &frame,
+        json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": { "content": [{ "type": "text", "text": "{\"ok\":true}" }], "isError": false }
+        }),
+    )
+    .await;
+
+    let (status, headers, _) = end.await.expect("the end request finishes");
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert_eq!(
+        headers
+            .get(header::LOCATION)
+            .and_then(|value| value.to_str().ok()),
+        Some(format!("/next/terminal/{device_id}").as_str()),
+        "the page comes back after the session is closed"
+    );
+}
+
 #[tokio::test]
 async fn the_terminal_page_lists_the_devices_live_sessions() {
     let fixture = Fixture::new("terminal-rail");
@@ -8512,6 +8587,10 @@ async fn the_terminal_page_lists_the_devices_live_sessions() {
     assert!(body.contains("class=\"context-rail\""), "{body}");
     assert!(body.contains("?attach=session-3"), "{body}");
     assert!(body.contains("?attach=session-7"), "{body}");
+    assert!(
+        body.contains(&format!("/next/terminal/{device_id}/session-3/end")),
+        "a session in the rail can be ended without opening it: {body}"
+    );
     assert!(
         body.contains(&csrf),
         "the page still carries its CSRF value: {body}"
