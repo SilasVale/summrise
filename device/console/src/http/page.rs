@@ -57,6 +57,8 @@ h1, h2, h3, p { margin:0; }
 .mono { font-family:var(--mono); }
 .muted { color:var(--muted); }
 .small { font-size:11.5px; }
+.skip-link { position:absolute; left:-9999px; top:0; z-index:10; padding:8px 12px; border-radius:0 0 8px 0; background:var(--accent-solid); color:var(--accent-fg); font-weight:600; }
+.skip-link:focus { left:0; }
 .visually-hidden { position:absolute; width:1px; height:1px; margin:-1px; padding:0; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; border:0; }
 
 /* ---- the shell: dark icon rail, one column, a 28px strip at the foot ---- */
@@ -715,12 +717,14 @@ fn page_with_rail(chrome: Chrome<'_>, extra: Markup, context: Markup, content: M
         html lang="en" {
             (head(chrome.title, extra))
             body class=(body_class(chrome.active)) {
+                // The first Tab lands here: three rails and a table are a lot to walk past.
+                a class="skip-link" href="#content" { "Skip to content" }
                 (rail(chrome.active, chrome.device))
                 div class="shell" {
                     (topbar(chrome.title, chrome.device, chrome.version, chrome.csrf))
                     div class="body-row" {
                         (context)
-                        main class="content" { (content) }
+                        main id="content" class="content" tabindex="-1" { (content) }
                     }
                     (statusbar(chrome.version, chrome.status))
                 }
@@ -874,6 +878,7 @@ pub(super) fn dashboard(
                 ))
             } @else {
                 table class="table" {
+                    caption class="visually-hidden" { "Every device this console has enrolled, and the pages that act on it." }
                     thead {
                         tr {
                             th { "Device" }
@@ -952,6 +957,7 @@ pub(super) fn dashboard(
                     Markup::default(),
                 ))
                 table class="table" {
+                    caption class="visually-hidden" { "What the console did most recently." }
                     thead {
                         tr {
                             th { "When" }
@@ -1114,6 +1120,7 @@ pub(super) fn logs(
                 (empty_state(Page::Fleet, "Nothing has been recorded yet.", Markup::default()))
             } @else {
                 table class="table" {
+                    caption class="visually-hidden" { "The console's own audit lines." }
                     thead {
                         tr {
                             th { "When" }
@@ -1425,6 +1432,7 @@ pub(super) fn files(
                 ))
             } @else {
                 table class="table" {
+                    caption class="visually-hidden" { "The directory's entries." }
                     thead {
                         tr {
                             th { "Name" }
@@ -1713,6 +1721,7 @@ pub(super) fn runs(
                 (empty_state(Page::Runs, "No runs recorded yet.", Markup::default()))
             } @else {
                 table class="table" {
+                    caption class="visually-hidden" { "Runs the device has completed, newest first." }
                     thead {
                         tr {
                             th { "When" }
@@ -1935,6 +1944,7 @@ pub(super) fn system(
                 (empty_state(Page::System, "The device listed no processes.", Markup::default()))
             } @else {
                 table class="table" {
+                    caption class="visually-hidden" { "Processes running on the device." }
                     thead {
                         tr {
                             th class="num pid" { "PID" }
@@ -2065,6 +2075,7 @@ pub(super) fn memory(
                 ))
             } @else {
                 table class="table" {
+                    caption class="visually-hidden" { "What this device remembers." }
                     thead {
                         tr {
                             th { "Text" }
@@ -2242,6 +2253,7 @@ pub(super) fn monitors(
                 ))
             } @else {
                 table class="table" {
+                    caption class="visually-hidden" { "The targets this device watches." }
                     thead {
                         tr {
                             th { "Target" }
@@ -2430,6 +2442,7 @@ pub(super) fn browser(
                 ))
             } @else {
                 table class="table" {
+                    caption class="visually-hidden" { "The browser's open targets." }
                     thead {
                         tr {
                             th { "Title" }
@@ -2568,6 +2581,7 @@ pub(super) fn tokens(
                 ))
             } @else {
                 table class="table" {
+                    caption class="visually-hidden" { "The tokens that name this device." }
                     thead {
                         tr {
                             th { "Name" }
@@ -3629,6 +3643,43 @@ mod tests {
         let (a, b) = (luminance(a), luminance(b));
         let (lighter, darker) = if a > b { (a, b) } else { (b, a) };
         (lighter + 0.05) / (darker + 0.05)
+    }
+
+    #[test]
+    fn every_page_can_be_skipped_into_and_every_table_is_captioned() {
+        // A keyboard reaches the canvas in one Tab instead of walking three rails, and a screen
+        // reader announces what a table holds before it reads the columns.
+        let device = view('1', Some("studio"), true);
+        let fleet = [view('2', Some("other"), false)];
+        let pages = [
+            dashboard(&fleet, "00", "0.1.0", None, None, &[]),
+            terminal(&device, "00", "0.1.0", &[]),
+            files(&device, "", &[], "00", "0.1.0", None),
+            runs(&device, &[], "00", "0.1.0", None),
+            system(&device, &[], "", "00", "0.1.0", None),
+            memory(&device, &[], "", "00", "0.1.0", None),
+            monitors(&device, &[], "00", "0.1.0", None),
+            browser(&device, &[], None, "00", "0.1.0", None),
+            tokens(&device, &[], "00", "0.1.0", None),
+            vitals(&device, &sample_vitals(), "00", "0.1.0"),
+        ];
+        for page in pages {
+            let html = page.into_string();
+            assert!(
+                html.contains("class=\"skip-link\""),
+                "the page has a skip link"
+            );
+            assert!(
+                html.contains("id=\"content\""),
+                "the skip link has a target"
+            );
+            let tables = html.matches("<table").count();
+            let captions = html.matches("<caption").count();
+            assert_eq!(
+                tables, captions,
+                "every table is captioned: {tables} vs {captions}"
+            );
+        }
     }
 
     #[test]
