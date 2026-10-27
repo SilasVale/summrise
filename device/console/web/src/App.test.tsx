@@ -205,6 +205,23 @@ describe("App", () => {
     expect(within(statusbar as HTMLElement).getByText("signed in with the operator token")).toBeInTheDocument();
   });
 
+  it("warns when the fleet runs more than one build", async () => {
+    mocks.devices.mockResolvedValue([
+      { ...workshop, version: "0.3.30" },
+      { ...attic, version: "0.1.3" }
+    ]);
+    await bootAndSignIn();
+
+    expect(screen.getByText(/running 2 builds/)).toBeInTheDocument();
+    expect(screen.getByText(/0.1.3, 0.3.30/)).toBeInTheDocument();
+  });
+
+  it("does not warn when every device runs the same build", async () => {
+    await bootAndSignIn();
+
+    expect(screen.queryByText(/running 2 builds/)).not.toBeInTheDocument();
+  });
+
   it("renders the whole shell: the twelve rail sections, the brand, the build and the sign-in path", async () => {
     await bootAndSignIn();
 

@@ -73,6 +73,21 @@ export function App() {
     [devices]
   );
 
+  // The versions the fleet is actually running, oldest first. A mixed fleet is a real limitation:
+  // the console's tool registry is one list, while each device advertises its own — so a tool the
+  // page offers (or an aggregate token names) may not exist on the older build.
+  const versions = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          devices
+            .map((device) => device.version)
+            .filter((version): version is string => Boolean(version))
+        )
+      ).sort(compareVersions),
+    [devices]
+  );
+
   // Ask who we are first, then ask for data. Fetching the device list before knowing whether there is
   // a session earns two 401s on every cold load — visible in the browser console as failures that are
   // not failures, and exactly the noise that hides a real one later.
@@ -331,6 +346,13 @@ export function App() {
                   <p className="summary">
                     {devices.length} devices, {online} online
                   </p>
+                  {versions.length > 1 && (
+                    <p className="hint" role="status">
+                      The fleet is running {versions.length} builds ({versions.join(", ")}). Tools can
+                      differ by device; upgrade the older builds before relying on one shared tool
+                      surface.
+                    </p>
+                  )}
                   <div className="cards">
                     {devices.map((device) => (
                       <DeviceCard
