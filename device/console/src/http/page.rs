@@ -16,144 +16,326 @@ use super::DeviceView;
 /// Every colour is a token, and every token has a dark value: the operator reads this page on a
 /// desktop that follows the system theme, and a surface that only got a light value would keep it in
 /// the dark (`--panel` on `--ink` is the measured way that goes wrong).
-const STYLE: &str = r#"
-:root {
+const STYLE: &str = r#":root {
   color-scheme: light dark;
-  --bg:#fafafa; --panel:#ffffff; --panel-2:#f4f4f5;
-  --ink:#18181b; --muted:#71717a; --faint:#a1a1aa;
-  --line:#e4e4e7; --line-strong:#d4d4d8;
-  --accent:#bf3a0a; --accent-solid:#b03a0a; --accent-hover:#a63308; --accent-soft:#ffefe5; --accent-fg:#ffffff;
-  --ok:#1e7a33; --ok-soft:#e7f6ec; --danger:#b91c1c; --danger-soft:#fdecec;
-  --rail:#18181b; --rail-line:rgba(255,255,255,.08); --rail-ink:#a1a1aa; --rail-ink-hover:#f4f4f5; --rail-focus:#ffb86b;
-  --shadow:0 1px 2px rgba(24,24,27,.06), 0 10px 28px -22px rgba(24,24,27,.25);
-  --radius:14px; --radius-sm:10px; --radius-xs:8px;
-  --fs-xs:11px; --fs-sm:12px; --fs-base:13px; --fs-md:14px; --fs-lg:17px;
+  --bg:#f6f6f7; --panel:#ffffff; --panel-2:#f4f4f5; --panel-3:#ececef;
+  --ink:#18181b; --muted:#5d5e67; --faint:#74757f;
+  --line:#e6e6e9; --line-strong:#d5d5da;
+  --accent:#bf3a0a; --accent-solid:#b03a0a; --accent-hover:#963008;
+  --accent-soft:#fff0e6; --accent-fg:#ffffff;
+  --ok:#1d7a3c; --ok-soft:#e7f6ec;
+  --danger:#b3261e; --danger-soft:#fdecea;
+  --rail:#17181c; --rail-line:rgba(255,255,255,.08); --rail-ink:#9a9ba4;
+  --rail-ink-hover:#f4f4f5; --rail-focus:#ffb86b;
+  --shadow:0 1px 2px rgba(24,24,27,.04), 0 10px 30px -24px rgba(24,24,27,.30);
+  --radius:12px; --radius-sm:10px; --radius-xs:8px;
   --font:-apple-system,"SF Pro Text","PingFang SC","Hiragino Sans GB","Microsoft YaHei","Segoe UI",Roboto,sans-serif;
   --mono:"SF Mono",ui-monospace,"JetBrains Mono",Consolas,"Cascadia Mono",monospace;
 }
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg:#131418; --panel:#1c1d22; --panel-2:#24252b;
-    --ink:#ecedef; --muted:#a2a3ac; --faint:#6f707a;
-    --line:rgba(255,255,255,.09); --line-strong:rgba(255,255,255,.16);
-    --accent:#ffa94d; --accent-solid:#b03a0a; --accent-hover:#c2410c; --accent-soft:#3d2817; --accent-fg:#ffffff;
-    --ok:#69db7c; --ok-soft:rgba(47,158,68,.16); --danger:#ff8787; --danger-soft:rgba(220,38,38,.16);
-    --rail:#0f1014; --rail-line:rgba(255,255,255,.07); --rail-ink:#8f9099; --rail-ink-hover:#ffffff; --rail-focus:#ffb86b;
-    --shadow:0 1px 2px rgba(0,0,0,.4), 0 14px 34px -24px rgba(0,0,0,.8);
+    --bg:#101115; --panel:#191a1f; --panel-2:#212228; --panel-3:#2a2b32;
+    --ink:#ececf0; --muted:#a6a7b1; --faint:#8e909a;
+    --line:rgba(255,255,255,.08); --line-strong:rgba(255,255,255,.15);
+    --accent:#ffa36b; --accent-solid:#b03a0a; --accent-hover:#c2410c;
+    --accent-soft:#33211a; --accent-fg:#ffffff;
+    --ok:#6edc8b; --ok-soft:rgba(46,160,73,.16);
+    --danger:#ff8b84; --danger-soft:rgba(190,40,30,.18);
+    --rail:#0b0c0e; --rail-line:rgba(255,255,255,.07); --rail-ink:#8f9099;
+    --rail-ink-hover:#ffffff; --rail-focus:#ffb86b;
+    --shadow:0 1px 2px rgba(0,0,0,.45), 0 16px 36px -26px rgba(0,0,0,.9);
   }
 }
 * { box-sizing:border-box; }
 html { height:100%; }
-body { margin:0; min-height:100%; background:var(--bg); color:var(--ink); font:var(--fs-base)/1.5 var(--font); -webkit-font-smoothing:antialiased; }
+body { margin:0; min-height:100%; background:var(--bg); color:var(--ink); font:14px/1.5 var(--font); -webkit-font-smoothing:antialiased; }
 a { color:var(--accent); text-decoration:none; }
 a:hover { text-decoration:underline; }
 :focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+::selection { background:var(--accent-soft); color:var(--ink); }
+h1, h2, h3, p { margin:0; }
+.mono { font-family:var(--mono); }
+.muted { color:var(--muted); }
+.small { font-size:11.5px; }
+.visually-hidden { position:absolute; width:1px; height:1px; margin:-1px; padding:0; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; border:0; }
 
-/* ---- the shell: dark icon rail, one column, a 26px strip at the foot ---- */
-body.app { margin:0; height:100vh; display:flex; overflow:hidden; }
+/* ---- the shell: dark icon rail, one column, a 28px strip at the foot ---- */
+body.app { display:flex; height:100vh; overflow:hidden; }
 .rail { flex:0 0 52px; display:flex; flex-direction:column; align-items:center; gap:4px; padding:10px 0 12px; background:var(--rail); border-right:1px solid var(--rail-line); overflow-y:auto; scrollbar-width:none; }
 .rail::-webkit-scrollbar { display:none; }
 .rail a { display:grid; place-items:center; flex:none; width:40px; height:40px; border-radius:10px; color:var(--rail-ink); }
 .rail a:hover { background:rgba(255,255,255,.08); color:var(--rail-ink-hover); text-decoration:none; }
-.rail a:focus-visible { outline-color:var(--rail-focus); outline-offset:2px; }
+.rail a:focus-visible { outline-color:var(--rail-focus); }
 .rail a.active, .rail a.active:hover { background:var(--accent-solid); color:#fff; }
 .rail .brand { margin-bottom:10px; color:var(--rail-focus); }
 .rail .brand:hover { background:transparent; color:#fff; }
 .shell { flex:1; min-width:0; min-height:0; display:flex; flex-direction:column; height:100vh; }
-.topbar { flex:none; display:flex; align-items:center; gap:12px; padding:12px 20px; background:var(--panel); border-bottom:1px solid var(--line); }
-.topbar h1 { margin:0; font-size:var(--fs-md); font-weight:600; letter-spacing:-.01em; white-space:nowrap; }
-.topbar .device { min-width:0; max-width:42ch; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--muted); font-size:var(--fs-sm); }
+.topbar { flex:none; display:flex; align-items:center; gap:12px; height:56px; padding:0 24px; background:var(--panel); border-bottom:1px solid var(--line); }
+.topbar h1 { flex:none; font-size:18px; font-weight:600; letter-spacing:-.015em; white-space:nowrap; }
+.topbar .context { display:inline-flex; align-items:center; gap:7px; min-width:0; max-width:36ch; padding:3px 9px; border:1px solid var(--line); border-radius:999px; background:var(--panel-2); color:var(--muted); font-size:12px; }
+.topbar .context .dot { flex:none; width:6px; height:6px; border-radius:50%; background:var(--ok); }
+.topbar .context.offline .dot { background:var(--faint); }
+.topbar .context .name { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .topbar .spacer { flex:1; }
-.topbar .version { color:var(--muted); font-size:var(--fs-xs); font-family:var(--mono); }
-.topbar form { margin:0; }
-.content { flex:1; min-height:0; overflow:auto; padding:24px 24px 40px; }
-.content h2 { margin:24px 0 10px; font-size:var(--fs-md); font-weight:600; }
-.content h2:first-child { margin-top:0; }
-.content h3 { margin:28px 0 8px; color:var(--muted); font-size:var(--fs-xs); font-weight:600; text-transform:uppercase; letter-spacing:.08em; }
-.statusbar { flex:none; display:flex; align-items:center; gap:8px; height:26px; padding:0 14px; background:var(--panel); border-top:1px solid var(--line-strong); color:var(--muted); font-size:var(--fs-xs); white-space:nowrap; }
+.topbar .build { color:var(--faint); font:11.5px var(--mono); white-space:nowrap; }
+.topbar form { flex:none; }
+.statusbar { flex:none; display:flex; align-items:center; gap:8px; height:28px; padding:0 18px; background:var(--panel); border-top:1px solid var(--line); color:var(--faint); font-size:11.5px; white-space:nowrap; }
+.statusbar .middle { min-width:0; overflow:hidden; text-overflow:ellipsis; color:var(--muted); }
 .statusbar .spacer { flex:1; }
-.statusbar .middle { min-width:0; overflow:hidden; text-overflow:ellipsis; }
-.statusbar .sep { color:var(--faint); }
-.statusbar .side { color:var(--muted); text-transform:uppercase; letter-spacing:.1em; }
+.statusbar .sep { opacity:.55; }
+.statusbar .side { color:var(--faint); text-transform:uppercase; letter-spacing:.1em; font-size:10.5px; }
+.content { flex:1; min-height:0; overflow:auto; padding:24px max(24px, calc((100% - 1180px) / 2)) 48px; }
+.content > :first-child { margin-top:0; }
+.content > :last-child { margin-bottom:0; }
 
-/* ---- shared surfaces ---- */
-.hint { margin:0 0 16px; max-width:78ch; color:var(--muted); font-size:var(--fs-sm); }
-.error { margin:0 0 16px; padding:8px 12px; border:1px solid var(--danger); border-radius:var(--radius-xs); background:var(--danger-soft); color:var(--danger); font-size:var(--fs-sm); }
-.code { margin:0 0 16px; padding:10px 14px; border:1px solid var(--line); border-radius:var(--radius-sm); background:var(--panel); font-size:var(--fs-sm); }
-.code strong { font-family:var(--mono); letter-spacing:.04em; }
-code { padding:1px 5px; border-radius:6px; background:var(--panel-2); color:var(--muted); font-family:var(--mono); font-size:var(--fs-sm); }
-pre.file { margin:0 0 16px; padding:14px 16px; border:1px solid var(--line); border-radius:var(--radius-sm); background:var(--panel); box-shadow:var(--shadow); overflow:auto; font:var(--fs-sm)/1.6 var(--mono); white-space:pre-wrap; }
-table { width:100%; border-collapse:separate; border-spacing:0; overflow:hidden; background:var(--panel); border:1px solid var(--line); border-radius:var(--radius-sm); }
-th, td { padding:10px 14px; border-bottom:1px solid var(--line); text-align:left; vertical-align:top; }
-thead th { background:var(--panel-2); color:var(--muted); font-size:var(--fs-xs); font-weight:600; text-transform:uppercase; letter-spacing:.06em; }
-tbody tr:last-child td { border-bottom:0; }
-tbody tr:hover td, tbody tr:hover th { background:var(--panel-2); }
-.ok, .off { display:inline-flex; align-items:center; gap:5px; padding:2px 8px; border-radius:999px; font-size:var(--fs-xs); font-weight:600; }
-.ok { background:var(--ok-soft); color:var(--ok); }
-.off { background:var(--bg); color:var(--muted); }
-.ok::before, .off::before { content:""; width:6px; height:6px; border-radius:50%; background:currentColor; }
-.section-head { display:flex; align-items:center; gap:12px; margin:0 0 12px; }
-.section-head h2 { margin:0; }
-.section-head form { margin:0 0 0 auto; }
-.section-head button { margin:0; width:auto; }
-.links { display:flex; gap:16px; margin-top:24px; font-size:var(--fs-sm); }
-.bar { height:8px; min-width:120px; border-radius:999px; background:var(--line); overflow:hidden; }
-.bar-fill { height:100%; border-radius:999px; background:var(--accent-solid); }
-img.capture { max-width:100%; border:1px solid var(--line); border-radius:var(--radius-sm); background:var(--panel); box-shadow:var(--shadow); }
+/* ---- type and page furniture ---- */
+.lead { max-width:82ch; margin:0 0 20px; color:var(--muted); font-size:13px; line-height:1.6; }
+.lead code { color:var(--ink); }
+.breadcrumb { display:flex; flex-wrap:wrap; align-items:center; gap:7px; margin:0 0 14px; color:var(--faint); font-size:12px; }
+.breadcrumb a { color:var(--muted); }
+.breadcrumb a:hover { color:var(--accent); }
+.breadcrumb .sep { color:var(--faint); }
+.breadcrumb .current { color:var(--ink); font-family:var(--mono); font-size:12px; }
+.footnote { margin:24px 0 0; color:var(--faint); font-size:11.5px; line-height:1.7; }
+.footnote code { color:var(--muted); word-break:break-all; }
+.alert { display:flex; align-items:flex-start; gap:10px; margin:0 0 16px; padding:10px 14px; border:1px solid transparent; border-radius:var(--radius-sm); background:var(--panel); box-shadow:var(--shadow); color:var(--ink); font-size:13px; }
+.alert.error { background:var(--danger-soft); color:var(--danger); }
+.alert.notice { border-color:var(--line); background:var(--panel-2); color:var(--muted); }
+.callout { display:flex; flex-wrap:wrap; align-items:baseline; gap:6px 10px; margin:0 0 16px; padding:12px 16px; border:1px solid color-mix(in srgb, var(--accent) 28%, var(--line)); border-radius:var(--radius-sm); background:var(--accent-soft); color:var(--ink); font-size:13px; }
+.callout .label { color:var(--accent); font-size:11px; font-weight:600; letter-spacing:.08em; text-transform:uppercase; }
+.callout strong { font-family:var(--mono); font-size:14px; letter-spacing:.03em; word-break:break-all; }
+.callout .note { color:var(--muted); font-size:12px; }
+
+/* ---- cards ---- */
+.card { margin:0 0 20px; border:1px solid var(--line); border-radius:var(--radius); background:var(--panel); box-shadow:var(--shadow); }
+.card-head { display:flex; align-items:center; gap:10px; min-height:46px; padding:10px 16px; border-bottom:1px solid var(--line); }
+.card-head h2 { color:var(--muted); font-size:13px; font-weight:600; letter-spacing:.07em; text-transform:uppercase; }
+.card-head .actions { flex:none; display:flex; align-items:center; gap:8px; margin-left:auto; }
+.card-head .spacer { flex:1; }
+.card-body { padding:16px; }
+.card-body .lead { margin-bottom:14px; }
+.card-body .alert { box-shadow:none; }
+.card-body > :last-child { margin-bottom:0; }
+.card > .table { border-radius:0 0 var(--radius) var(--radius); }
+.card > .table tbody tr:last-child td:first-child { border-bottom-left-radius:calc(var(--radius) - 1px); }
+.card > .table tbody tr:last-child td:last-child { border-bottom-right-radius:calc(var(--radius) - 1px); }
+.card > pre:last-child { border-radius:0 0 var(--radius) var(--radius); }
+.card > .empty:last-child { border-radius:0 0 var(--radius) var(--radius); }
+
+/* ---- stats ---- */
+.stats { display:grid; grid-template-columns:repeat(auto-fit, minmax(150px, 1fr)); gap:12px; margin:0 0 20px; }
+.stat { min-width:0; padding:12px 14px; border:1px solid var(--line); border-radius:var(--radius-sm); background:var(--panel); box-shadow:var(--shadow); }
+.stat .label { margin:0 0 6px; color:var(--muted); font-size:10.5px; font-weight:600; letter-spacing:.08em; text-transform:uppercase; }
+.stat .value { overflow:hidden; color:var(--ink); font-size:15px; font-weight:600; line-height:1.35; text-overflow:ellipsis; white-space:nowrap; }
+.stat .value.mono { font-size:12.5px; font-weight:500; }
+.stat .sub { margin-top:2px; color:var(--muted); font-size:11.5px; }
+.stat .sub .up { color:var(--ok); font-weight:600; }
+
+/* ---- chips ---- */
+.chip { display:inline-flex; align-items:center; gap:6px; height:21px; padding:0 8px; border:1px solid transparent; border-radius:999px; background:var(--panel-2); color:var(--muted); font-size:11.5px; font-weight:600; white-space:nowrap; }
+.chip .dot { width:6px; height:6px; border-radius:50%; background:currentColor; }
+.chip.online { background:var(--ok-soft); color:var(--ok); }
+.chip.offline { background:var(--panel-2); color:var(--muted); }
+.chip.muted { background:var(--panel-2); color:var(--muted); }
+.chip.brand { background:var(--accent-soft); color:var(--accent); }
+.chip.plain { padding:0; background:none; color:var(--muted); }
+
+/* ---- buttons ---- */
+.btn { display:inline-flex; align-items:center; justify-content:center; gap:6px; min-height:30px; padding:0 12px; border:1px solid var(--line-strong); border-radius:var(--radius-xs); background:var(--panel); color:var(--ink); font:inherit; font-size:12.5px; font-weight:600; line-height:1; text-decoration:none; white-space:nowrap; cursor:pointer; }
+.btn:hover { background:var(--panel-2); text-decoration:none; }
+.btn:focus-visible { outline-offset:2px; }
+.btn-primary { border-color:var(--accent-solid); background:var(--accent-solid); color:var(--accent-fg); }
+.btn-primary:hover { border-color:var(--accent-hover); background:var(--accent-hover); }
+.btn-ghost { border-color:transparent; background:transparent; color:var(--muted); }
+.btn-ghost:hover { background:var(--panel-2); color:var(--ink); }
+.btn-danger { border-color:var(--line-strong); background:var(--panel); color:var(--danger); }
+.btn-danger:hover { border-color:var(--danger); background:var(--danger-soft); }
+.btn-sm { min-height:26px; padding:0 9px; font-size:11.5px; }
+.btn-block { width:100%; }
+button { font:inherit; cursor:pointer; }
+button.btn { font-family:inherit; }
 
 /* ---- forms ---- */
-label { display:block; margin:0 0 4px; color:var(--muted); font-size:var(--fs-sm); }
-input, select, textarea { width:100%; padding:8px 10px; border:1px solid var(--line-strong); border-radius:var(--radius-xs); background:var(--panel); color:var(--ink); font:inherit; }
-input:focus-visible, select:focus-visible, textarea:focus-visible { outline:2px solid var(--accent); outline-offset:1px; }
-textarea { font:var(--fs-sm)/1.5 var(--mono); }
 form { margin:0; }
-button { font:inherit; cursor:pointer; }
-button[type=submit] { margin-top:12px; padding:8px 14px; border:0; border-radius:var(--radius-xs); background:var(--accent-solid); color:var(--accent-fg); font-size:var(--fs-sm); font-weight:600; }
-button[type=submit]:hover { background:var(--accent-hover); }
-button.inline-button, button.ghost { background:transparent; color:var(--muted); border:1px solid var(--line-strong); font-weight:600; }
-button.inline-button:hover, button.ghost:hover { background:var(--panel-2); color:var(--ink); border-color:var(--faint); }
-.inline-button, .ghost { margin:0; width:auto; }
-.row-form { display:inline-flex; gap:6px; margin:8px 6px 0 0; }
-.row-form input[type=text], .row-form input[type=number] { width:122px; padding:4px 8px; font-size:var(--fs-sm); }
-.row-form button { margin:0; padding:5px 10px; font-size:var(--fs-sm); width:auto; }
-.format-form { display:flex; flex-wrap:wrap; align-items:end; gap:8px; margin-top:8px; }
-.format-form input, .format-form select { width:auto; min-width:180px; }
-.format-form button { margin:0; width:auto; }
-label.check { display:flex; align-items:center; gap:8px; margin:12px 0; color:var(--ink); font-size:var(--fs-sm); }
-label.check input { width:auto; }
+label { color:var(--muted); font-size:12px; font-weight:600; }
+input, select, textarea { width:100%; min-height:34px; padding:6px 10px; border:1px solid var(--line-strong); border-radius:var(--radius-xs); background:var(--panel); color:var(--ink); font:inherit; font-size:13px; }
+select { appearance:none; padding-right:30px; background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238b8c96' stroke-width='2.2' stroke-linecap='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E"); background-repeat:no-repeat; background-position:right 10px center; }
+textarea { min-height:82px; font:12.5px/1.6 var(--mono); resize:vertical; }
+input[type=checkbox] { width:auto; min-height:0; accent-color:var(--accent-solid); }
+input:focus-visible, select:focus-visible, textarea:focus-visible { border-color:var(--accent); outline:2px solid var(--accent-soft); outline-offset:0; }
+input::placeholder, textarea::placeholder { color:var(--faint); }
+.field { margin:0 0 14px; }
+.field > label, .field-label { display:block; margin:0 0 5px; }
+.form-grid { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:0 16px; }
+.form-grid .span-2 { grid-column:1 / -1; }
+.form-grid .field { margin-bottom:14px; }
+.form-actions { display:flex; flex-wrap:wrap; align-items:center; gap:10px; }
+label.check { display:flex; align-items:center; gap:8px; margin:0 0 14px; color:var(--ink); font-size:12.5px; font-weight:400; }
+.form-inline { display:flex; flex-wrap:wrap; align-items:center; gap:8px; }
+.form-inline .field { margin:0; }
+.input-sm { min-height:28px; padding:3px 8px; font-size:12px; }
+.filter-form { display:flex; align-items:center; gap:6px; }
+.filter-form input { min-height:28px; padding:3px 8px; font-size:12px; width:180px; }
 
-/* ---- sign-in card (no shell behind it: there is no session yet) ---- */
-body.login { display:grid; place-items:center; min-height:100vh; padding:24px; }
-.card { width:min(100%,380px); padding:28px; border:1px solid var(--line); border-radius:var(--radius); background:var(--panel); box-shadow:var(--shadow); }
-.card h1 { margin:0 0 6px; font-size:var(--fs-lg); font-weight:600; letter-spacing:-.01em; }
-.card h1 span { color:var(--muted); font-weight:400; }
-.card .hint { margin-bottom:20px; }
-.card form { margin:0; }
-.card button { width:100%; margin-top:14px; padding:9px 12px; }
+/* ---- tables ---- */
+.table { width:100%; border-collapse:collapse; background:var(--panel); font-size:13px; }
+.table th { padding:8px 16px; border-bottom:1px solid var(--line); color:var(--muted); font-size:10.5px; font-weight:600; letter-spacing:.08em; text-align:left; text-transform:uppercase; white-space:nowrap; }
+.table td { padding:11px 16px; border-bottom:1px solid var(--line); vertical-align:middle; }
+.table tbody tr:last-child td { border-bottom:0; }
+.table tbody tr:hover td { background:var(--panel-2); }
+.table .num { text-align:right; font-variant-numeric:tabular-nums; white-space:nowrap; }
+.table .nowrap { white-space:nowrap; }
+.table .wrap { word-break:break-word; }
+.table td .sub { margin-top:3px; color:var(--faint); font-size:11.5px; }
+.table .row-actions { display:flex; justify-content:flex-end; }
+.table .pid { width:84px; }
 
-/* ---- the terminal page: the one canvas that fills instead of scrolling ---- */
-body.terminal .content { display:flex; flex-direction:column; gap:8px; min-height:0; overflow:hidden; padding:16px 20px; }
-.terminal-form { display:flex; flex-wrap:wrap; gap:10px 14px; align-items:end; }
-.terminal-form label { margin:0; font-size:var(--fs-xs); text-transform:uppercase; letter-spacing:.06em; }
-.terminal-form select, .terminal-form input { width:auto; min-width:130px; padding:6px 8px; font-size:var(--fs-sm); }
-.kind-fields { display:flex; flex-wrap:wrap; gap:10px 14px; align-items:end; }
+/* ---- bars ---- */
+.bar { height:6px; overflow:hidden; border-radius:999px; background:var(--panel-3); }
+.bar-fill { height:100%; border-radius:999px; background:var(--accent); }
+.usage { display:grid; gap:8px; }
+.usage-line { display:flex; align-items:baseline; justify-content:space-between; gap:12px; color:var(--muted); font-size:12.5px; }
+.usage-line strong { color:var(--ink); font-size:12.5px; font-variant-numeric:tabular-nums; }
+.usage-sub { margin-top:6px; color:var(--faint); font-size:11.5px; }
+.usage-row { display:grid; grid-template-columns:minmax(120px, 1fr) minmax(140px, 2.2fr) minmax(120px, auto); align-items:center; gap:18px; padding:12px 0; border-bottom:1px solid var(--line); }
+.usage-row:first-child { padding-top:0; }
+.usage-row:last-child { padding-bottom:0; border-bottom:0; }
+.usage-name { min-width:0; font-family:var(--mono); font-size:12.5px; }
+.usage-name .usage-sub { display:block; margin-top:2px; font-family:var(--font); }
+.usage-value { color:var(--muted); font-size:11.5px; text-align:right; font-variant-numeric:tabular-nums; white-space:nowrap; }
+.usage-value strong { display:block; color:var(--ink); font-size:12.5px; }
+
+/* ---- empty states and pre ---- */
+.empty { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:10px; padding:40px 20px; color:var(--muted); font-size:13px; text-align:center; }
+.empty-icon { display:grid; place-items:center; width:38px; height:38px; border-radius:var(--radius-sm); background:var(--panel-2); color:var(--faint); }
+.empty p { max-width:48ch; }
+.empty .btn { margin-top:2px; }
+pre, code { font-family:var(--mono); }
+code { padding:1px 5px; border-radius:6px; background:var(--panel-2); color:var(--muted); font-size:12.5px; }
+pre.file { margin:0; padding:16px 18px; border:0; background:var(--panel); color:var(--ink); font:12.5px/1.65 var(--mono); white-space:pre-wrap; word-break:break-word; overflow:auto; }
+pre.out { margin:0; padding:14px 16px; background:#0f1014; color:#d9d5ce; font:12px/1.6 var(--mono); white-space:pre-wrap; word-break:break-word; overflow:auto; max-height:520px; }
+pre.out.stderr { color:#ffb4ad; }
+pre.secret { margin:0; padding:16px 18px; background:#0f1014; color:#ffd8c4; font:13px/1.6 var(--mono); letter-spacing:.02em; white-space:pre-wrap; word-break:break-all; }
+.cmd { display:block; padding:10px 14px; border:1px solid var(--line); border-radius:var(--radius-xs); background:var(--panel-2); color:var(--ink); font:12.5px/1.6 var(--mono); white-space:pre-wrap; word-break:break-all; }
+
+/* ---- toolbars ---- */
+.toolbar { display:flex; flex-wrap:wrap; align-items:center; gap:10px; margin:0 0 16px; }
+.toolbar .spacer { flex:1; }
+.pathbar { display:flex; align-items:center; gap:8px; margin:0 0 12px; color:var(--muted); font-size:12px; }
+.pathbar code { color:var(--ink); }
+.pathbar .spacer { flex:1; }
+.img-card { padding:16px; }
+img.capture { display:block; max-width:100%; max-height:560px; margin:0 auto; border:1px solid var(--line); border-radius:var(--radius-xs); background:var(--panel-2); }
+img.capture.thumb { max-height:360px; }
+
+/* ---- terminal: the one canvas that fills instead of scrolling ---- */
+body.terminal .content { display:flex; flex-direction:column; min-height:0; overflow:hidden; padding:16px max(20px, calc((100% - 1180px) / 2)) 18px; }
+.terminal-card { flex:1; min-height:0; display:flex; flex-direction:column; overflow:hidden; border:1px solid var(--line); border-radius:var(--radius); background:var(--panel); box-shadow:var(--shadow); }
+.terminal-toolbar { flex:none; display:flex; flex-wrap:wrap; align-items:center; gap:8px; padding:8px 10px; border-bottom:1px solid var(--line); background:var(--panel); }
+.terminal-form { display:flex; flex-wrap:wrap; align-items:center; gap:8px; }
+.terminal-form .toolbar-label { color:var(--muted); font-size:11px; font-weight:600; letter-spacing:.07em; text-transform:uppercase; }
+.terminal-form select { width:auto; min-width:150px; min-height:28px; padding:3px 30px 3px 8px; font-size:12px; }
+.terminal-form button { min-height:28px; }
+.kind-fields { display:flex; flex-wrap:wrap; align-items:center; gap:8px 10px; }
 .kind-fields[hidden] { display:none; }
-.tabs { display:flex; flex-wrap:wrap; gap:4px; }
-.tab { display:flex; align-items:center; gap:6px; width:auto; margin:0; padding:5px 9px; border:1px solid var(--line); border-radius:var(--radius-xs); background:var(--panel); color:var(--muted); font-size:var(--fs-sm); }
-.tab:hover { border-color:var(--line-strong); color:var(--ink); }
-.tab.active { border-color:var(--accent-solid); background:var(--accent-soft); color:var(--ink); }
-.tab-close { width:auto; margin:0; padding:0 2px; border:0; background:transparent; color:var(--muted); font-size:14px; line-height:1; }
+.kind-fields .field { margin:0; }
+.kind-fields label { display:block; margin:0 0 2px; font-size:10px; font-weight:600; letter-spacing:.06em; text-transform:uppercase; }
+.kind-fields input { width:130px; min-height:28px; padding:3px 8px; font-size:12px; }
+.kind-fields input#serial_port { width:170px; }
+.terminal-toolbar .spacer { flex:1; }
+.terminal-tabbar { flex:none; display:flex; align-items:center; gap:10px; min-height:0; padding:0 10px; border-bottom:1px solid var(--line); background:var(--panel-2); }
+.terminal-tabbar:has(#terminal-tabs:empty):has(#terminal-status:empty) { display:none; }
+.tabs { display:flex; flex:1; flex-wrap:wrap; align-items:center; gap:4px; }
+.tabs:empty { display:none; }
+#terminal-status { min-width:0; margin:0; padding:5px 0; overflow:hidden; color:var(--faint); font:11px var(--mono); text-overflow:ellipsis; white-space:nowrap; }
+.tab { display:inline-flex; align-items:center; gap:6px; width:auto; min-height:28px; margin:4px 0; padding:3px 8px; border:1px solid transparent; border-radius:7px; background:transparent; color:var(--muted); font-size:12px; }
+.tab:hover { background:var(--panel); color:var(--ink); }
+.tab.active { border-color:var(--line); background:var(--panel); color:var(--ink); box-shadow:0 1px 2px rgba(24,24,27,.05); }
+.tab-close { width:auto; min-height:0; margin:0; padding:0 2px; border:0; background:transparent; color:var(--faint); font-size:14px; line-height:1; }
 .tab-close:hover { color:var(--danger); }
-.panes { flex:1; min-height:0; display:flex; gap:6px; padding:6px; border:1px solid var(--line); border-radius:var(--radius-sm); background:#0b0c0f; }
+.panes { position:relative; flex:1; min-height:0; display:flex; gap:0; padding:0; background:#0b0c0f; }
 .pane { flex:1; min-height:0; display:flex; overflow:hidden; }
+.pane .xterm { padding:10px 12px; background:#000; }
 .pane[hidden] { display:none; }
-#terminal-status { margin:0; color:var(--muted); font-size:var(--fs-sm); }
+.terminal-empty { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:12px; color:#a2a6b0; font-size:13.5px; text-align:center; }
+.terminal-empty .empty-icon { width:48px; height:48px; border-radius:12px; background:rgba(255,255,255,.05); color:#ffa36b; }
+.terminal-empty .empty-icon svg { width:22px; height:22px; }
+.terminal-empty p { max-width:44ch; }
+#terminal-panes:has(.pane) .terminal-empty { display:none; }
 
+/* ---- sign-in ---- */
+body.login { display:grid; place-items:center; min-height:100vh; padding:24px; background:radial-gradient(760px 420px at 50% -8%, var(--accent-soft), transparent 72%), var(--bg); }
+.login-card { width:min(100%, 400px); padding:32px; border:1px solid var(--line); border-radius:16px; background:var(--panel); box-shadow:0 1px 2px rgba(24,24,27,.04), 0 24px 60px -32px rgba(24,24,27,.4); }
+.login-brand { display:grid; place-items:center; width:44px; height:44px; margin-bottom:20px; border-radius:12px; background:var(--accent-solid); color:#fff; box-shadow:0 8px 20px -12px rgba(176,58,10,.8); }
+.login-card h1 { margin:0 0 6px; font-size:22px; font-weight:600; letter-spacing:-.02em; }
+.login-card h1 span { color:var(--muted); font-weight:500; }
+.login-card .lead { margin:0 0 22px; font-size:13px; }
+.login-card .field { margin-bottom:16px; }
+.login-card .btn { width:100%; min-height:36px; }
+.login-card .alert { margin:16px 0 0; padding:9px 12px; box-shadow:none; }
+
+/* ---- the fleet row: identity, page links, and one disclosure ---- */
+.device-cell { min-width:250px; }
+.device-identity { display:flex; flex-wrap:wrap; align-items:center; gap:8px; }
+.device-name { font-size:15px; font-weight:600; letter-spacing:-.01em; }
+.device-version { color:var(--faint); font:11.5px var(--mono); }
+.device-meta { display:flex; flex-wrap:wrap; align-items:center; gap:7px; margin-top:4px; color:var(--muted); font-size:11.5px; }
+.device-id { padding:0; background:none; color:var(--muted); font-size:11.5px; }
+.meta-sep { color:var(--faint); }
+.pages-cell { width:100%; }
+.page-links { display:flex; flex-wrap:wrap; align-items:center; gap:2px 0; }
+.page-links a { padding:2px 0; color:var(--muted); font-size:12px; font-weight:500; white-space:nowrap; }
+.page-links a:hover { color:var(--accent); }
+.page-links a + a::before { content:"·"; margin:0 7px; color:var(--faint); font-weight:400; }
+.actions-cell { width:1%; text-align:right; white-space:nowrap; }
+.row-menu { position:relative; display:inline-block; }
+.row-menu summary { cursor:pointer; list-style:none; }
+.row-menu summary::-webkit-details-marker { display:none; }
+.row-menu summary .caret { margin-left:2px; color:var(--faint); font-size:9px; }
+.row-menu[open] summary { background:var(--panel-2); color:var(--ink); }
+.menu-panel { position:absolute; right:0; top:calc(100% + 6px); z-index:20; width:236px; padding:10px; border:1px solid var(--line); border-radius:var(--radius-xs); background:var(--panel); box-shadow:0 1px 2px rgba(24,24,27,.06), 0 18px 40px -20px rgba(24,24,27,.5); text-align:left; white-space:normal; }
+.menu-panel form + form { margin-top:8px; padding-top:8px; border-top:1px solid var(--line); }
+.menu-panel label { display:block; margin:0 0 4px; color:var(--muted); font-size:10.5px; font-weight:600; letter-spacing:.06em; text-transform:uppercase; }
+.menu-panel input { min-height:28px; padding:3px 8px; font-size:12px; }
+.menu-panel .field { margin:0 0 7px; }
+
+/* ---- small additions to the component set ---- */
+.chip.failed { background:var(--danger-soft); color:var(--danger); }
+.btn-quiet-danger { border-color:transparent; background:transparent; color:var(--muted); }
+.btn-quiet-danger:hover { border-color:transparent; background:var(--danger-soft); color:var(--danger); }
+.form-inline .grow { flex:1 1 260px; min-width:0; }
+.file-name { font-weight:500; }
+.cmd-line { white-space:pre-wrap; word-break:break-all; }
+.url { word-break:break-all; }
+.mini-usage { display:flex; align-items:center; gap:8px; min-width:104px; font-size:11.5px; }
+.mini-bar { display:block; flex:0 0 72px; height:4px; overflow:hidden; border-radius:999px; background:var(--panel-3); }
+.mini-bar .bar-fill { display:block; }
+.endpoint { display:flex; flex-wrap:wrap; align-items:baseline; gap:8px 10px; margin:0 0 14px; padding:10px 12px; border:1px solid var(--line); border-radius:var(--radius-xs); background:var(--panel-2); font-size:12px; }
+.endpoint .label { color:var(--muted); font-size:10.5px; font-weight:600; letter-spacing:.07em; text-transform:uppercase; }
+.endpoint code { background:var(--panel); word-break:break-all; }
+
+@media (max-width: 1100px) {
+  /* Below the width where the row of page links fits on one line, the separators would lead a
+     wrapped line: drop them and let the spacing do the separating. */
+  .page-links { gap:4px 12px; }
+  .page-links a + a::before { content:none; }
+}
+@media (min-width: 721px) and (max-width: 1000px) {
+  .stats { grid-template-columns:repeat(3, minmax(0, 1fr)); }
+}
 @media (max-width: 720px) {
-  .topbar { padding:8px 12px; }
-  .topbar .device { display:none; }
-  .content { padding:16px 12px 32px; }
+  .topbar { height:52px; padding:0 12px; gap:8px; }
+  .topbar h1 { font-size:16px; }
+  .topbar .context, .topbar .build { display:none; }
+  .content { padding:16px 14px 32px; }
+  .stats { grid-template-columns:repeat(2, minmax(0, 1fr)); }
+  .form-grid { grid-template-columns:1fr; }
+  .usage-row { grid-template-columns:1fr; gap:8px; }
+  .card-head { flex-wrap:wrap; }
+  .filter-form input { width:130px; }
   .statusbar .side { display:none; }
+  body.terminal .content { padding:10px; }
+  .kind-fields input { width:120px; }
 }
 "#;
 
@@ -330,15 +512,27 @@ fn rail(active: Page, device: Option<&DeviceView>) -> Markup {
     }
 }
 
-/// The device the page acts on, as a person reads it: the name when the operator gave one.
+/// The short id the fleet shows: the first eight characters, never a wall of hex.
+fn short_id(id: &str) -> String {
+    if let Some((index, _)) = id.char_indices().nth(8) {
+        format!("{}…", &id[..index])
+    } else {
+        id.to_owned()
+    }
+}
+
+/// The device the page acts on, as a person reads it: the name when the operator gave one, and the
+/// short id otherwise (the whole id stays in the links and the top bar's tooltip).
 fn device_label(device: &DeviceView) -> String {
-    device.name.clone().unwrap_or_else(|| {
-        if device.id.len() > 12 {
-            format!("{}…", &device.id[..12])
-        } else {
-            device.id.clone()
-        }
-    })
+    device.name.clone().unwrap_or_else(|| short_id(&device.id))
+}
+
+/// The name a fleet row leads with. A device nobody named is not a hex string to every reader.
+fn device_name(device: &DeviceView) -> String {
+    device
+        .name
+        .clone()
+        .unwrap_or_else(|| "Unnamed device".to_owned())
 }
 
 /// The status strip's middle cell on a device page.
@@ -392,25 +586,37 @@ fn body_class(active: Page) -> &'static str {
     }
 }
 
+/// One status chip: the dot is decoration, the word is what a reader (and a screen reader) gets.
+fn status_chip(online: bool) -> Markup {
+    if online {
+        html! { span class="chip online" { span class="dot" aria-hidden="true" {} "online" } }
+    } else {
+        html! { span class="chip offline" { span class="dot" aria-hidden="true" {} "offline" } }
+    }
+}
+
 /// The top bar: where this page is, which device it acts on, the build, and the way out.
 fn topbar(title: &str, device: Option<&DeviceView>, version: &str, csrf: &str) -> Markup {
     html! {
         header class="topbar" {
             h1 { (title) }
             @if let Some(device) = device {
-                span class="device" { (device_label(device)) }
+                span class=(if device.online { "context" } else { "context offline" }) title=(device.id) {
+                    span class="dot" aria-hidden="true" {}
+                    span class="name" { (device_label(device)) }
+                }
             }
             span class="spacer" {}
-            span class="version" { "console " (version) }
+            span class="build" { "console " (version) }
             form method="post" action="/next/logout" {
                 input type="hidden" name="csrf" value=(csrf);
-                button type="submit" class="ghost" { "Sign out" }
+                button type="submit" class="btn btn-ghost btn-sm" { "Sign out" }
             }
         }
     }
 }
 
-/// The 26px strip at the foot: the build, the page's one fact, and which surface this is.
+/// The 28px strip at the foot: the build, the page's one fact, and which surface this is.
 fn statusbar(version: &str, middle: Markup) -> Markup {
     html! {
         footer class="statusbar" {
@@ -446,6 +652,41 @@ fn page_with_head(chrome: Chrome<'_>, extra: Markup, content: Markup) -> Markup 
     }
 }
 
+/// A card's header: a muted section title on the left, optional metadata, an action on the right.
+fn card_head(title: &str, meta: Markup, actions: Markup) -> Markup {
+    html! {
+        div class="card-head" {
+            h2 { (title) }
+            (meta)
+            div class="actions" { (actions) }
+        }
+    }
+}
+
+/// The one empty state: a muted icon, a sentence, and at most one action.
+fn empty_state(icon: Page, message: &str, action: Markup) -> Markup {
+    html! {
+        div class="empty" {
+            div class="empty-icon" aria-hidden="true" { (icon.icon()) }
+            p { (message) }
+            (action)
+        }
+    }
+}
+
+/// A breadcrumb: a short trail of links and the name of the thing being read.
+fn breadcrumb(trail: &[(String, String)], current: &str) -> Markup {
+    html! {
+        nav class="breadcrumb" aria-label="Breadcrumb" {
+            @for (label, href) in trail {
+                a href=(href) { (label) }
+                span class="sep" aria-hidden="true" { "/" }
+            }
+            span class="current" { (current) }
+        }
+    }
+}
+
 /// The sign-in card. `error` is the one line a refused token gets.
 pub(super) fn login(error: Option<&str>) -> Markup {
     html! {
@@ -458,18 +699,21 @@ pub(super) fn login(error: Option<&str>) -> Markup {
                 style { (PreEscaped(STYLE)) }
             }
             body class="login" {
-                main class="card" {
+                main class="login-card" {
+                    div class="login-brand" aria-hidden="true" { (brand_icon()) }
                     h1 { "Summrise " span { "console" } }
-                    p class="hint" {
+                    p class="lead" {
                         "The operator token opens a session for this browser. It is not stored by the page."
                     }
                     form method="post" action="/next/auth" {
-                        label for="token" { "Operator token" }
-                        input id="token" name="token" type="password" autocomplete="off" required;
-                        button type="submit" { "Sign in" }
+                        div class="field" {
+                            label for="token" { "Operator token" }
+                            input id="token" name="token" type="password" autocomplete="off" required;
+                        }
+                        button type="submit" class="btn btn-primary" { "Sign in" }
                     }
                     @if let Some(error) = error {
-                        p class="error" { (error) }
+                        p class="alert error" { (error) }
                     }
                 }
             }
@@ -477,8 +721,8 @@ pub(super) fn login(error: Option<&str>) -> Markup {
     }
 }
 
-/// The signed-in page: the fleet table, the phase-2 mutations, and the sign-out form carrying the
-/// session's CSRF value.
+/// The signed-in page: the fleet, its summary, and the phase-2 mutations. Each device is one row:
+/// who it is, the pages that act on it, and the two mutations folded into a disclosure.
 pub(super) fn dashboard(
     devices: &[DeviceView],
     csrf: &str,
@@ -486,79 +730,130 @@ pub(super) fn dashboard(
     code: Option<&str>,
     error: Option<&str>,
 ) -> Markup {
+    let total = devices.len();
+    let online = devices.iter().filter(|device| device.online).count();
+    let enroll = html! {
+        form method="post" action="/next/enroll" {
+            input type="hidden" name="csrf" value=(csrf);
+            button type="submit" class="btn btn-primary" { "New enrollment code" }
+        }
+    };
     let content = html! {
+        p class="lead" {
+            "Every device this console has enrolled, and the pages that open on it."
+        }
         @if let Some(code) = code {
-            p class="code" {
-                "Enrollment code: " strong { (code) } " — single use, valid for 15 minutes."
+            div class="callout" {
+                span class="label" { "Enrollment code:" }
+                strong { (code) }
+                span class="note" { "Single use · valid for 15 minutes." }
             }
         }
         @if let Some(error) = error {
-            p class="error" { "That change was not applied: " (error) }
+            p class="alert error" { "That change was not applied: " (error) }
         }
-        div class="section-head" {
-            h2 { "Devices" }
-            form method="post" action="/next/enroll" {
-                input type="hidden" name="csrf" value=(csrf);
-                button type="submit" class="inline-button" { "New enrollment code" }
+        @if !devices.is_empty() {
+            div class="stats" {
+                div class="stat" {
+                    p class="label" { "Devices" }
+                    p class="value" { (total) }
+                }
+                div class="stat" {
+                    p class="label" { "Online" }
+                    p class="value" { (online) }
+                }
+                div class="stat" {
+                    p class="label" { "Offline" }
+                    p class="value" { (total - online) }
+                }
             }
         }
-        @if devices.is_empty() {
-            p class="hint" { "No devices have registered yet." }
-        } @else {
-            table {
-                thead { tr { th { "Device" } th { "State" } th { "Version" } th { "" } } }
-                tbody {
-                    @for device in devices {
+        section class="card" {
+            (card_head(
+                "Devices",
+                html! { span class="chip muted" { (total) } },
+                if devices.is_empty() { Markup::default() } else { enroll.clone() },
+            ))
+            @if devices.is_empty() {
+                (empty_state(
+                    Page::Fleet,
+                    "No devices have registered yet. Mint an enrollment code and run it on the machine.",
+                    enroll,
+                ))
+            } @else {
+                table class="table" {
+                    thead {
                         tr {
-                            td {
-                                strong { (device.name.as_deref().unwrap_or(&device.id)) }
-                                br;
-                                code { (&device.id) }
-                                form method="post" action=(format!("/next/fleet/{}/name", device.id)) class="row-form" {
-                                    input type="hidden" name="csrf" value=(csrf);
-                                    input type="text" name="name" maxlength="64" placeholder="rename";
-                                    button type="submit" { "Rename" }
+                            th { "Device" }
+                            th { "Pages" }
+                            th class="num" { "" }
+                        }
+                    }
+                    tbody {
+                        @for device in devices {
+                            tr {
+                                td class="device-cell" {
+                                    div class="device-identity" {
+                                        strong class="device-name" { (device_name(device)) }
+                                        (status_chip(device.online))
+                                    }
+                                    div class="device-meta" {
+                                        code class="device-id" title=(device.id) { (short_id(&device.id)) }
+                                        span class="meta-sep" aria-hidden="true" { "·" }
+                                        span class="device-version" {
+                                            @match device.version.as_deref() {
+                                                Some(announced) => { "v" (announced) },
+                                                None => { "no version" },
+                                            }
+                                        }
+                                    }
                                 }
-                                form method="post" action=(format!("/next/fleet/{}/remove", device.id)) class="row-form" {
-                                    input type="hidden" name="csrf" value=(csrf);
-                                    button type="submit" class="inline-button" { "Remove" }
+                                td class="pages-cell" {
+                                    nav class="page-links" aria-label=(format!("Pages for {}", device_label(device))) {
+                                        a href=(format!("/next/terminal/{}", device.id)) { "Terminal" }
+                                        a href=(format!("/next/files/{}", device.id)) { "Files" }
+                                        a href=(format!("/next/runs/{}", device.id)) { "Runs" }
+                                        a href=(format!("/next/system/{}", device.id)) { "System" }
+                                        a href=(format!("/next/state/{}", device.id)) { "State" }
+                                        a href=(format!("/next/memory/{}", device.id)) { "Memory" }
+                                        a href=(format!("/next/screen/{}", device.id)) { "Screen" }
+                                        a href=(format!("/next/monitors/{}", device.id)) { "Monitors" }
+                                        a href=(format!("/next/browser/{}", device.id)) { "Browser" }
+                                        a href=(format!("/next/tokens/{}", device.id)) { "Connect" }
+                                        a href=(format!("/next/vitals/{}", device.id)) { "Vitals" }
+                                    }
                                 }
-                            }
-                            td {
-                                @if device.online { span class="ok" { "online" } } @else { span class="off" { "offline" } }
-                            }
-                            td { (device.version.as_deref().unwrap_or("—")) }
-                            td {
-                                a href=(format!("/next/terminal/{}", device.id)) { "Terminal" }
-                                " · "
-                                a href=(format!("/next/files/{}", device.id)) { "Files" }
-                                " · "
-                                a href=(format!("/next/runs/{}", device.id)) { "Runs" }
-                                " · "
-                                a href=(format!("/next/system/{}", device.id)) { "System" }
-                                " · "
-                                a href=(format!("/next/state/{}", device.id)) { "State" }
-                                " · "
-                                a href=(format!("/next/memory/{}", device.id)) { "Memory" }
-                                " · "
-                                a href=(format!("/next/screen/{}", device.id)) { "Screen" }
-                                " · "
-                                a href=(format!("/next/monitors/{}", device.id)) { "Monitors" }
-                                " · "
-                                a href=(format!("/next/browser/{}", device.id)) { "Browser" }
-                                " · "
-                                a href=(format!("/next/tokens/{}", device.id)) { "Connect" }
-                                " · "
-                                a href=(format!("/next/vitals/{}", device.id)) { "Vitals" }
+                                td class="actions-cell" {
+                                    details class="row-menu" {
+                                        summary class="btn btn-ghost btn-sm" aria-label=(format!("Manage {}", device_label(device))) {
+                                            "Manage"
+                                            span class="caret" aria-hidden="true" { "▾" }
+                                        }
+                                        div class="menu-panel" {
+                                            form method="post" action=(format!("/next/fleet/{}/name", device.id)) {
+                                                input type="hidden" name="csrf" value=(csrf);
+                                                div class="field" {
+                                                    label for=(format!("rename-{}", short_id(&device.id))) { "Rename device" }
+                                                    input id=(format!("rename-{}", short_id(&device.id))) name="name" type="text" maxlength="64" placeholder="New name";
+                                                }
+                                                button type="submit" class="btn btn-sm" { "Rename" }
+                                            }
+                                            form method="post" action=(format!("/next/fleet/{}/remove", device.id)) {
+                                                input type="hidden" name="csrf" value=(csrf);
+                                                button type="submit" class="btn btn-sm btn-danger" { "Remove" }
+                                            }
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
                 }
             }
         }
-        nav class="links" {
-            a href="/next/audit" { "Audit" }
-            a href="/next/denials" { "Denials" }
+        nav class="toolbar" aria-label="Records" {
+            a class="btn btn-ghost btn-sm" href="/next/audit" { "Audit" }
+            a class="btn btn-ghost btn-sm" href="/next/denials" { "Denials" }
         }
     };
     page(
@@ -576,27 +871,70 @@ pub(super) fn dashboard(
 
 /// A read-only log page: the audit or denial lines, newest first, bounded by the caller.
 pub(super) fn logs(rows: &[serde_json::Value], title: &str, csrf: &str, version: &str) -> Markup {
+    let count = rows.len();
     let content = html! {
-        @if rows.is_empty() {
-            p class="hint" { "Nothing has been recorded yet." }
-        } @else {
-            table {
-                thead { tr { th { "When (ms)" } th { "Kind" } th { "Status" } th { "Device" } th { "Tool" } th { "Detail" } } }
-                tbody {
-                    @for row in rows {
+        p class="lead" {
+            "The console's own record, newest first. Times are UTC; a device id is shortened here "
+            "but named in full by the line's tooltip."
+        }
+        section class="card" {
+            (card_head(
+                title,
+                html! { span class="chip muted" { (count) } },
+                html! { a class="btn btn-ghost btn-sm" href="/next" { "Fleet" } },
+            ))
+            @if rows.is_empty() {
+                (empty_state(Page::Fleet, "Nothing has been recorded yet.", Markup::default()))
+            } @else {
+                table class="table" {
+                    thead {
                         tr {
-                            td { (row["ts_ms"].as_u64().unwrap_or(0)) }
-                            td { (row["kind"].as_str().unwrap_or("—")) }
-                            td { (row["status"].as_u64().unwrap_or(0)) }
-                            td { (row["device_id"].as_str().unwrap_or("—")) }
-                            td { (row["tool"].as_str().unwrap_or("—")) }
-                            td { (row["detail"].as_str().unwrap_or("")) }
+                            th { "When" }
+                            th { "Kind" }
+                            th class="num" { "Status" }
+                            th { "Device" }
+                            th { "Tool" }
+                            th { "Detail" }
+                        }
+                    }
+                    tbody {
+                        @for row in rows {
+                            tr {
+                                td class="nowrap" { (stamp(row["ts_ms"].as_u64().unwrap_or(0))) }
+                                td { (row["kind"].as_str().unwrap_or("—")) }
+                                td class="num" {
+                                    @match row["status"].as_u64().unwrap_or(0) {
+                                        0 => { span class="muted" { "—" } },
+                                        status => { (status) },
+                                    }
+                                }
+                                td {
+                                    @if let Some(id) = row["device_id"].as_str() {
+                                        code class="device-id" title=(id) { (short_id(id)) }
+                                    } @else {
+                                        "—"
+                                    }
+                                }
+                                td {
+                                    @if let Some(tool) = row["tool"].as_str().filter(|tool| !tool.is_empty()) {
+                                        code { (tool) }
+                                    } @else {
+                                        span class="muted" { "—" }
+                                    }
+                                }
+                                td class="wrap" {
+                                    @if let Some(detail) = row["detail"].as_str().filter(|detail| !detail.is_empty()) {
+                                        (detail)
+                                    } @else {
+                                        span class="muted" { "—" }
+                                    }
+                                }
+                            }
                         }
                     }
                 }
             }
         }
-        nav class="links" { a href="/next" { "Fleet" } }
     };
     page(
         Chrome {
@@ -605,47 +943,71 @@ pub(super) fn logs(rows: &[serde_json::Value], title: &str, csrf: &str, version:
             title,
             version,
             csrf,
-            status: html! { (rows.len()) " lines" },
+            status: html! { (count) " lines" },
         },
         content,
     )
 }
 
-/// The terminal page: one xterm host, wired to the console's `/next/terminal` endpoints.
-///
-/// The device id and this session's CSRF value ride in data attributes, not in the URL or a cookie
-/// the script reads: the session cookie is `HttpOnly`, so the page cannot leak what it cannot see.
+/// The terminal page: a toolbar, a tab strip and the xterm host, all inside one card that fills the
+/// canvas. The device id and this session's CSRF value ride in data attributes, not in the URL or a
+/// cookie the script reads: the session cookie is `HttpOnly`, so the page cannot leak what it
+/// cannot see.
 pub(super) fn terminal(device: &DeviceView, csrf: &str, version: &str) -> Markup {
     let content = html! {
-        form id="terminal-form" class="terminal-form" {
-            label for="kind" { "Kind" }
-            select id="kind" name="kind" {
-                option value="pty" { "pty — a shell on this machine" }
-                option value="ssh" { "ssh — a host this device can reach" }
-                option value="serial" { "serial — an OS port" }
+        div class="terminal-card" {
+            div class="terminal-toolbar" {
+                form id="terminal-form" class="terminal-form" {
+                    label for="kind" class="toolbar-label" { "Kind" }
+                    select id="kind" name="kind" {
+                        option value="pty" { "pty — a shell on this machine" }
+                        option value="ssh" { "ssh — a host this device can reach" }
+                        option value="serial" { "serial — an OS port" }
+                    }
+                    div class="kind-fields" data-kind="ssh" hidden {
+                        div class="field" {
+                            label for="host" { "Host" }
+                            input id="host" name="host" type="text" placeholder="192.168.1.1";
+                        }
+                        div class="field" {
+                            label for="ssh_port" { "Port" }
+                            input id="ssh_port" name="ssh_port" type="number" value="22" min="1" max="65535";
+                        }
+                        div class="field" {
+                            label for="user" { "User" }
+                            input id="user" name="user" type="text" placeholder="root";
+                        }
+                        div class="field" {
+                            label for="password" { "Password" }
+                            input id="password" name="password" type="password" autocomplete="off";
+                        }
+                    }
+                    div class="kind-fields" data-kind="serial" hidden {
+                        div class="field" {
+                            label for="serial_port" { "Port" }
+                            input id="serial_port" name="serial_port" type="text" placeholder="COM3 or /dev/ttyUSB0";
+                        }
+                        div class="field" {
+                            label for="baud" { "Baud" }
+                            input id="baud" name="baud" type="number" value="115200" min="1";
+                        }
+                    }
+                    button type="submit" class="btn btn-primary btn-sm" { "Start session" }
+                }
+                span class="spacer" {}
+                a class="btn btn-ghost btn-sm" href=(format!("/next/terminal/{}", device.id)) title="Close every session in this page" { "Close all" }
             }
-            div class="kind-fields" data-kind="ssh" hidden {
-                label for="host" { "Host" }
-                input id="host" name="host" type="text" placeholder="192.168.1.1";
-                label for="ssh_port" { "Port" }
-                input id="ssh_port" name="ssh_port" type="number" value="22" min="1" max="65535";
-                label for="user" { "User" }
-                input id="user" name="user" type="text" placeholder="root";
-                label for="password" { "Password" }
-                input id="password" name="password" type="password" autocomplete="off";
+            div class="terminal-tabbar" {
+                div id="terminal-tabs" class="tabs" {}
+                p id="terminal-status" aria-live="polite" {}
             }
-            div class="kind-fields" data-kind="serial" hidden {
-                label for="serial_port" { "Port" }
-                input id="serial_port" name="serial_port" type="text" placeholder="COM3 or /dev/ttyUSB0";
-                label for="baud" { "Baud" }
-                input id="baud" name="baud" type="number" value="115200" min="1";
+            div id="terminal-panes" class="panes" {
+                div class="terminal-empty" {
+                    div class="empty-icon" aria-hidden="true" { (Page::Terminal.icon()) }
+                    p { "No session yet — choose a kind and start one." }
+                }
+                div id="terminal" data-device=(device.id) data-csrf=(csrf) hidden {}
             }
-            button type="submit" { "Start session" }
-        }
-        div id="terminal-tabs" class="tabs" {}
-        p id="terminal-status" { "choose a kind and start a session" }
-        div id="terminal-panes" class="panes" {
-            div id="terminal" data-device=(device.id) data-csrf=(csrf) hidden {}
         }
     };
     let extra = html! {
@@ -689,7 +1051,49 @@ pub(super) fn encode(value: &str) -> String {
     out
 }
 
-/// The device's files, server-rendered: the list, a read form and a write form.
+/// A count with thousands separators: an operator reads `512,900` without counting digits.
+fn grouped(value: u64) -> String {
+    let digits = value.to_string();
+    let mut out = String::new();
+    for (index, digit) in digits.chars().rev().enumerate() {
+        if index > 0 && index % 3 == 0 {
+            out.push(',');
+        }
+        out.push(digit);
+    }
+    out.chars().rev().collect()
+}
+
+/// The ancestors of a path, as breadcrumb links: `Files`, then one link per directory above the
+/// current one. The last segment is left for the caller to render as the page's current name.
+fn trail_to(base: &str, path: &str) -> Vec<(String, String)> {
+    let segments: Vec<&str> = path
+        .split('/')
+        .filter(|segment| !segment.is_empty())
+        .collect();
+    let mut trail = vec![("Files".to_owned(), base.to_owned())];
+    let mut cumulative = String::new();
+    for segment in segments.iter().take(segments.len().saturating_sub(1)) {
+        if !cumulative.is_empty() {
+            cumulative.push('/');
+        }
+        cumulative.push_str(segment);
+        trail.push((
+            (*segment).to_owned(),
+            format!("{}?path={}", base, encode(&cumulative)),
+        ));
+    }
+    trail
+}
+
+/// The final segment of a device path, which is the name the page is reading.
+fn last_segment(path: &str) -> &str {
+    path.rsplit('/')
+        .find(|segment| !segment.is_empty())
+        .unwrap_or("root")
+}
+
+/// The device's files, server-rendered: a directory card, then the read and write forms.
 pub(super) fn files(
     device: &DeviceView,
     path: &str,
@@ -699,54 +1103,95 @@ pub(super) fn files(
     error: Option<&str>,
 ) -> Markup {
     let base = format!("/next/files/{}", device.id);
+    let count = entries.len();
     let content = html! {
-        @if path.is_empty() {
-            p class="hint" {
-                "The device's files root. Paths are relative to it; the device enforces the root."
-            }
-        } @else {
-            p {
-                "at /" (path)
-                " · "
-                a href=(format!("{}?path={}", base, encode(parent(path)))) { "up" }
-            }
+        p class="lead" {
+            "The device's files. Paths are relative to its root; the device enforces the root."
         }
         @if let Some(error) = error {
-            p class="error" { (error) }
+            p class="alert error" { (error) }
         }
-        @if entries.is_empty() {
-            p class="hint" { "This directory is empty." }
-        } @else {
-            table {
-                thead { tr { th { "Name" } th { "Kind" } th { "Bytes" } } }
-                tbody {
-                    @for entry in entries {
+        @if !path.is_empty() {
+            (breadcrumb(&trail_to(&base, path), last_segment(path)))
+        }
+        section class="card" {
+            (card_head(
+                "Directory",
+                html! { span class="chip muted" { (count) " item" (if count == 1 { "" } else { "s" }) } },
+                if path.is_empty() {
+                    Markup::default()
+                } else {
+                    html! { a class="btn btn-sm" href=(format!("{}?path={}", base, encode(parent(path)))) { "Up one level" } }
+                },
+            ))
+            @if entries.is_empty() {
+                (empty_state(
+                    Page::Files,
+                    "This directory is empty.",
+                    html! { a class="btn btn-sm" href="#write" { "Write the first file" } },
+                ))
+            } @else {
+                table class="table" {
+                    thead {
                         tr {
-                            td {
-                                @if entry.kind == "directory" {
-                                    a href=(format!("{}?path={}", base, encode(&join(path, &entry.name)))) { (entry.name) }
-                                } @else {
-                                    a href=(format!("{}/read?path={}", base, encode(&join(path, &entry.name)))) { (entry.name) }
+                            th { "Name" }
+                            th { "Kind" }
+                            th class="num" { "Bytes" }
+                        }
+                    }
+                    tbody {
+                        @for entry in entries {
+                            tr {
+                                td {
+                                    @if entry.kind == "directory" {
+                                        a class="file-name" href=(format!("{}?path={}", base, encode(&join(path, &entry.name)))) { (entry.name) }
+                                    } @else {
+                                        a class="file-name" href=(format!("{}/read?path={}", base, encode(&join(path, &entry.name)))) { (entry.name) }
+                                    }
+                                }
+                                td {
+                                    span class="chip muted" { (entry.kind) }
+                                }
+                                td class="num mono" {
+                                    @if entry.kind == "directory" { "—" } @else { (grouped(entry.len)) }
                                 }
                             }
-                            td { (entry.kind) }
-                            td { (entry.len) }
                         }
                     }
                 }
             }
         }
-        h2 { "Read a file" }
-        form method="get" action=(format!("{}/read", base)) class="format-form" {
-            input type="text" name="path" placeholder="notes.txt" required;
-            button type="submit" { "Read" }
+        section class="card" {
+            (card_head("Read a file", Markup::default(), Markup::default()))
+            div class="card-body" {
+                form method="get" action=(format!("{}/read", base)) class="form-inline" {
+                    div class="field grow" {
+                        label class="visually-hidden" for="read-path" { "Path to read" }
+                        input id="read-path" type="text" name="path" placeholder="notes.txt" required;
+                    }
+                    button type="submit" class="btn" { "Read" }
+                }
+            }
         }
-        h2 { "Write a file" }
-        form method="post" action=(format!("{}/write", base)) {
-            input type="hidden" name="csrf" value=(csrf);
-            input type="text" name="path" placeholder="notes.txt" required;
-            textarea name="content" rows="8" placeholder="text, written as UTF-8" {}
-            button type="submit" { "Write" }
+        section class="card" id="write" {
+            (card_head("Write a file", Markup::default(), Markup::default()))
+            div class="card-body" {
+                form method="post" action=(format!("{}/write", base)) {
+                    input type="hidden" name="csrf" value=(csrf);
+                    div class="field" {
+                        label for="write-path" { "Path" }
+                        input id="write-path" type="text" name="path" placeholder="notes.txt" required;
+                    }
+                    div class="field" {
+                        label for="write-content" { "Contents" }
+                        textarea id="write-content" name="content" rows="8" placeholder="text, written as UTF-8" {}
+                    }
+                    div class="form-actions" {
+                        button type="submit" class="btn btn-primary" { "Write" }
+                        span class="muted" { "Replaces the file as UTF-8." }
+                    }
+                }
+            }
         }
     };
     page(
@@ -772,11 +1217,17 @@ pub(super) fn file_text(
 ) -> Markup {
     let base = format!("/next/files/{}", device.id);
     let content = html! {
-        div class="section-head" {
-            h2 { (path) }
-            a href=(format!("{}?path={}", base, encode(parent(path)))) { "Back to the directory" }
+        (breadcrumb(&trail_to(&base, path), last_segment(path)))
+        section class="card" {
+            (card_head(
+                "Contents",
+                html! { span class="chip muted" { "text" } },
+                html! {
+                    a class="btn btn-sm" href=(format!("{}?path={}", base, encode(parent(path)))) { "Back to the directory" }
+                },
+            ))
+            pre class="file" tabindex="0" { (text) }
         }
-        pre class="file" { (text) }
     };
     page(
         Chrome {
@@ -852,6 +1303,19 @@ fn civil_from_days(days: i64) -> (u32, u32) {
     (month as u32, day as u32)
 }
 
+/// One exit code, as a chip: a finished zero, a refusal, or an end the device could not name.
+fn exit_chip(code: Option<i64>, timed_out: bool) -> Markup {
+    if timed_out {
+        html! { span class="chip failed" { "timed out" } }
+    } else {
+        match code {
+            Some(0) => html! { span class="chip online" { "0" } },
+            Some(code) => html! { span class="chip failed" { (code) } },
+            None => html! { span class="chip muted" { "killed" } },
+        }
+    }
+}
+
 /// The runs page: a form to run one command, and the device's own history under it.
 pub(super) fn runs(
     device: &DeviceView,
@@ -862,51 +1326,72 @@ pub(super) fn runs(
 ) -> Markup {
     let base = format!("/next/runs/{}", device.id);
     let content = html! {
-        p class="hint" {
+        p class="lead" {
             "A run is a process the device starts and reaps before it answers. The request holds "
             "the page open for the run's length: keep the timeout short, or start the long work "
             "with Start-Process and watch it through a later run. runs.exec is audited."
         }
         @if let Some(error) = error {
-            p class="error" { (error) }
+            p class="alert error" { (error) }
         }
-        h2 { "Run a command" }
-        form method="post" action=(format!("{base}/exec")) {
-            input type="hidden" name="csrf" value=(csrf);
-            label for="command" { "Command" }
-            input id="command" name="command" type="text" placeholder="pwsh" required;
-            label for="args" { "Arguments, one per line" }
-            textarea id="args" name="args" rows="3" placeholder="-NoProfile&#10;-Command&#10;Get-Date" {}
-            label for="cwd" { "Working directory (optional)" }
-            input id="cwd" name="cwd" type="text" placeholder="relative to the files root";
-            label for="timeout_ms" { "Timeout (ms)" }
-            input id="timeout_ms" name="timeout_ms" type="number" value="30000" min="1000" max="600000";
-            label class="check" {
-                input type="checkbox" name="shell" value="1";
-                " Run through the platform shell"
+        section class="card" {
+            (card_head("Run a command", Markup::default(), Markup::default()))
+            div class="card-body" {
+                form method="post" action=(format!("{base}/exec")) {
+                    input type="hidden" name="csrf" value=(csrf);
+                    div class="form-grid" {
+                        div class="field span-2" {
+                            label for="command" { "Command" }
+                            input id="command" name="command" type="text" placeholder="pwsh" required;
+                        }
+                        div class="field span-2" {
+                            label for="args" { "Arguments, one per line" }
+                            textarea id="args" name="args" rows="3" placeholder="-NoProfile -Command Get-Date" {}
+                        }
+                        div class="field" {
+                            label for="cwd" { "Working directory (optional)" }
+                            input id="cwd" name="cwd" type="text" placeholder="relative to the files root";
+                        }
+                        div class="field" {
+                            label for="timeout_ms" { "Timeout (ms)" }
+                            input id="timeout_ms" name="timeout_ms" type="number" value="30000" min="1000" max="600000";
+                        }
+                    }
+                    label class="check" {
+                        input type="checkbox" name="shell" value="1";
+                        " Run through the platform shell"
+                    }
+                    div class="form-actions" {
+                        button type="submit" class="btn btn-primary" { "Run" }
+                    }
+                }
             }
-            button type="submit" { "Run" }
         }
-        h2 { "History" }
-        @if rows.is_empty() {
-            p class="hint" { "No runs recorded yet." }
-        } @else {
-            table {
-                thead { tr { th { "When" } th { "Command" } th { "Took" } th { "Exit" } } }
-                tbody {
-                    @for row in rows {
+        section class="card" {
+            (card_head(
+                "History",
+                html! { span class="chip muted" { (rows.len()) } },
+                Markup::default(),
+            ))
+            @if rows.is_empty() {
+                (empty_state(Page::Runs, "No runs recorded yet.", Markup::default()))
+            } @else {
+                table class="table" {
+                    thead {
                         tr {
-                            td { (stamp(row.started_at_ms)) }
-                            td { code { (row.command_line) } }
-                            td { (row.duration_ms) " ms" }
-                            td {
-                                @if row.timed_out {
-                                    "timed out"
-                                } @else if let Some(code) = row.exit_code {
-                                    (code)
-                                } @else {
-                                    "killed"
-                                }
+                            th { "When" }
+                            th { "Command" }
+                            th class="num" { "Took" }
+                            th { "Exit" }
+                        }
+                    }
+                    tbody {
+                        @for row in rows {
+                            tr {
+                                td class="nowrap" { (stamp(row.started_at_ms)) }
+                                td { span class="mono cmd-line" { (row.command_line) } }
+                                td class="num" { (row.duration_ms) " ms" }
+                                td { (exit_chip(row.exit_code, row.timed_out)) }
                             }
                         }
                     }
@@ -935,6 +1420,7 @@ pub(super) fn run_result(
     csrf: &str,
     version: &str,
 ) -> Markup {
+    let base = format!("/next/runs/{}", device.id);
     let status = if result.timed_out {
         "timed out".to_owned()
     } else if let Some(code) = result.exit_code {
@@ -943,17 +1429,29 @@ pub(super) fn run_result(
         "killed".to_owned()
     };
     let content = html! {
-        h2 { "Run " (result.id) }
-        p { code { (command_line) } }
-        p class="hint" {
-            (status) " · " (result.duration_ms) " ms"
-            @if result.truncated { " · output truncated at the device's cap" }
+        (breadcrumb(&[("Runs".to_owned(), base)], &result.id))
+        div class="toolbar" {
+            span class="chip online" { (status) }
+            span class="muted small" { (result.duration_ms) " ms" }
+            @if result.truncated {
+                span class="chip muted" { "output truncated" }
+            }
         }
-        h3 { "stdout" }
-        pre class="file" { (result.stdout) }
+        section class="card" {
+            (card_head("Command", Markup::default(), Markup::default()))
+            div class="card-body" {
+                code class="cmd" { (command_line) }
+            }
+        }
+        section class="card" {
+            (card_head("stdout", Markup::default(), Markup::default()))
+            pre class="out" tabindex="0" { (result.stdout) }
+        }
         @if !result.stderr.is_empty() {
-            h3 { "stderr" }
-            pre class="file" { (result.stderr) }
+            section class="card" {
+                (card_head("stderr", Markup::default(), Markup::default()))
+                pre class="out stderr" tabindex="0" { (result.stderr) }
+            }
         }
     };
     page(
@@ -984,10 +1482,17 @@ pub(super) fn state_document(
     version: &str,
 ) -> Markup {
     let content = html! {
-        p class="hint" {
+        p class="lead" {
             "The document the device keeps: its health, and the last ten events it recorded."
         }
-        pre class="file" { (pretty) }
+        section class="card" {
+            (card_head(
+                "State document",
+                html! { span class="chip muted" { "json" } },
+                html! { a class="btn btn-ghost btn-sm" href=(format!("/next/system/{}", device.id)) { "Processes" } },
+            ))
+            pre class="file" tabindex="0" { (pretty) }
+        }
     };
     page(
         Chrome {
@@ -1013,38 +1518,70 @@ pub(super) fn system(
 ) -> Markup {
     let base = format!("/next/system/{}", device.id);
     let content = html! {
+        p class="lead" {
+            "The processes this device is running now. It is one sample, not a history; the filter "
+            "matches an executable name and asks the device for the list again."
+        }
         @if let Some(notice) = notice {
-            p class="hint" { (notice) }
+            p class="alert notice" { (notice) }
         }
-        form method="get" action=(base) class="format-form" {
-            input type="text" name="name" value=(name_filter) placeholder="filter by name";
-            button type="submit" { "Filter" }
-        }
-        @if processes.is_empty() {
-            p class="hint" { "The device listed no processes." }
-        } @else {
-            table {
-                thead { tr { th { "PID" } th { "Name" } th { "Memory" } } }
-                tbody {
-                    @for process in processes {
+        section class="card" {
+            (card_head(
+                "Processes",
+                html! { span class="chip muted" { (processes.len()) } },
+                html! {
+                    form method="get" action=(base) class="filter-form" {
+                        label class="visually-hidden" for="process-name" { "Filter by name" }
+                        input id="process-name" type="text" name="name" value=(name_filter) placeholder="filter by name";
+                        button type="submit" class="btn btn-sm" { "Filter" }
+                        @if !name_filter.is_empty() {
+                            a class="btn btn-ghost btn-sm" href=(base) { "Clear" }
+                        }
+                    }
+                },
+            ))
+            @if processes.is_empty() {
+                (empty_state(Page::System, "The device listed no processes.", Markup::default()))
+            } @else {
+                table class="table" {
+                    thead {
                         tr {
-                            td { (process.pid) }
-                            td { code { (process.name) } }
-                            td { (process.memory_kb) " KB" }
+                            th class="num pid" { "PID" }
+                            th { "Name" }
+                            th class="num" { "Memory" }
+                        }
+                    }
+                    tbody {
+                        @for process in processes {
+                            tr {
+                                td class="num mono pid" { (process.pid) }
+                                td { span class="mono" { (process.name) } }
+                                td class="num" { (grouped(process.memory_kb)) " KB" }
+                            }
                         }
                     }
                 }
             }
         }
-        h2 { "End a process" }
-        p class="hint" {
-            "Name a pid or an exact executable name, not both. This is destructive and audited."
-        }
-        form method="post" action=(format!("{base}/kill")) class="format-form" {
-            input type="hidden" name="csrf" value=(csrf);
-            input type="number" name="pid" min="1" placeholder="pid";
-            input type="text" name="name" placeholder="name";
-            button type="submit" { "Kill" }
+        section class="card" {
+            (card_head("End a process", Markup::default(), Markup::default()))
+            div class="card-body" {
+                p class="lead" {
+                    "Name a pid or an exact executable name, not both. This is destructive and audited."
+                }
+                form method="post" action=(format!("{base}/kill")) class="form-inline" {
+                    input type="hidden" name="csrf" value=(csrf);
+                    div class="field" {
+                        label for="kill-pid" { "PID" }
+                        input id="kill-pid" type="number" name="pid" min="1" placeholder="pid";
+                    }
+                    div class="field" {
+                        label for="kill-name" { "Name" }
+                        input id="kill-name" type="text" name="name" placeholder="name";
+                    }
+                    button type="submit" class="btn btn-danger" { "Kill" }
+                }
+            }
         }
     };
     page(
@@ -1078,32 +1615,54 @@ pub(super) fn memory(
 ) -> Markup {
     let base = format!("/next/memory/{}", device.id);
     let content = html! {
-        p class="hint" {
+        p class="lead" {
             "What this device remembers: notes an operator or a client appended, newest first. "
             "It is the device's own store, not the console's."
         }
         @if let Some(notice) = notice {
-            p class="hint" { (notice) }
+            p class="alert notice" { (notice) }
         }
-        form method="get" action=(base) class="format-form" {
-            input type="text" name="tag" value=(tag) placeholder="filter by tag";
-            button type="submit" { "Filter" }
-        }
-        @if entries.is_empty() {
-            p class="hint" { "Nothing is remembered yet." }
-        } @else {
-            table {
-                thead { tr { th { "Text" } th { "Tags" } th { "" } } }
-                tbody {
-                    @for entry in entries {
+        section class="card" {
+            (card_head(
+                "Entries",
+                html! { span class="chip muted" { (entries.len()) } },
+                html! {
+                    form method="get" action=(base) class="filter-form" {
+                        label class="visually-hidden" for="memory-tag" { "Filter by tag" }
+                        input id="memory-tag" type="text" name="tag" value=(tag) placeholder="filter by tag";
+                        button type="submit" class="btn btn-sm" { "Filter" }
+                        @if !tag.is_empty() {
+                            a class="btn btn-ghost btn-sm" href=(base) { "Clear" }
+                        }
+                    }
+                },
+            ))
+            @if entries.is_empty() {
+                (empty_state(
+                    Page::Memory,
+                    "Nothing is remembered yet.",
+                    html! { a class="btn btn-sm" href="#remember" { "Remember the first fact" } },
+                ))
+            } @else {
+                table class="table" {
+                    thead {
                         tr {
-                            td { (entry.text) }
-                            td { code { (entry.tags) } }
-                            td {
-                                form method="post" action=(format!("{base}/delete")) class="row-form" {
-                                    input type="hidden" name="csrf" value=(csrf);
-                                    input type="hidden" name="id" value=(entry.id);
-                                    button type="submit" class="inline-button" { "Delete" }
+                            th { "Text" }
+                            th { "Tags" }
+                            th class="num" { "" }
+                        }
+                    }
+                    tbody {
+                        @for entry in entries {
+                            tr {
+                                td class="wrap" { (entry.text) }
+                                td { code { (entry.tags) } }
+                                td class="num" {
+                                    form method="post" action=(format!("{base}/delete")) {
+                                        input type="hidden" name="csrf" value=(csrf);
+                                        input type="hidden" name="id" value=(entry.id);
+                                        button type="submit" class="btn btn-sm btn-quiet-danger" { "Delete" }
+                                    }
                                 }
                             }
                         }
@@ -1111,14 +1670,28 @@ pub(super) fn memory(
                 }
             }
         }
-        h2 { "Remember something" }
-        form method="post" action=(format!("{base}/append")) {
-            input type="hidden" name="csrf" value=(csrf);
-            textarea name="text" rows="3" placeholder="the fact to keep" required {}
-            input type="text" name="tags" placeholder="tags, comma-separated";
-            button type="submit" { "Append" }
+        section class="card" id="remember" {
+            (card_head("Remember something", Markup::default(), Markup::default()))
+            div class="card-body" {
+                form method="post" action=(format!("{base}/append")) {
+                    input type="hidden" name="csrf" value=(csrf);
+                    div class="field" {
+                        label for="memory-text" { "Fact" }
+                        textarea id="memory-text" name="text" rows="3" placeholder="the fact to keep" required {}
+                    }
+                    div class="field" {
+                        label for="memory-tags" { "Tags" }
+                        input id="memory-tags" type="text" name="tags" placeholder="tags, comma-separated";
+                    }
+                    div class="form-actions" {
+                        button type="submit" class="btn btn-primary" { "Append" }
+                    }
+                }
+            }
         }
-        p class="hint" { code { (device.id) } }
+        p class="footnote" {
+            "Device " code title=(device.id) { (&device.id) }
+        }
     };
     page(
         Chrome {
@@ -1141,12 +1714,33 @@ pub(super) fn screen(
     csrf: &str,
     version: &str,
 ) -> Markup {
+    let capture_again = format!("/next/screen/{}", device.id);
+    let meta = if image.is_some() {
+        html! { span class="chip muted" { "capture" } }
+    } else {
+        Markup::default()
+    };
+    let action = if image.is_some() {
+        html! { a class="btn btn-sm" href=(capture_again) { "Capture again" } }
+    } else {
+        Markup::default()
+    };
     let content = html! {
-        p class="hint" { (detail) }
-        @if let Some(image) = image {
-            img class="capture" src=(image) alt="the device screen";
+        p class="lead" { (detail) }
+        section class="card" {
+            (card_head("Screen", meta, action))
+            @if let Some(image) = image {
+                div class="card-body" {
+                    img class="capture" src=(image) alt="the device screen";
+                }
+            } @else {
+                (empty_state(
+                    Page::Screen,
+                    "No capture yet. The helper that takes one must be running in the user's session.",
+                    html! { a class="btn btn-sm" href=(capture_again) { "Capture again" } },
+                ))
+            }
         }
-        p { a href=(format!("/next/screen/{}", device.id)) { "Capture again" } }
     };
     page(
         Chrome {
@@ -1183,39 +1777,74 @@ pub(super) fn monitors(
 ) -> Markup {
     let base = format!("/next/monitors/{}", device.id);
     let content = html! {
-        p class="hint" {
+        p class="lead" {
             "The device probes each target on its own interval and keeps the last 60 probes. "
             "A down target is a fact, not a failure of this page."
         }
         @if let Some(error) = error {
-            p class="error" { (error) }
+            p class="alert error" { (error) }
         }
-        @if rows.is_empty() {
-            p class="hint" { "No targets are watched yet." }
-        } @else {
-            table {
-                thead { tr { th { "Target" } th { "Kind" } th { "Every" } th { "Now" } th { "Up %" } th { "Drops" } th { "Status" } th { "" } } }
-                tbody {
-                    @for row in rows {
+        section class="card" {
+            (card_head(
+                "Watched targets",
+                html! { span class="chip muted" { (rows.len()) } },
+                Markup::default(),
+            ))
+            @if rows.is_empty() {
+                (empty_state(
+                    Page::Monitors,
+                    "No targets are watched yet.",
+                    html! { a class="btn btn-sm" href="#watch" { "Watch a target" } },
+                ))
+            } @else {
+                table class="table" {
+                    thead {
                         tr {
-                            td { code { (row.target) } }
-                            td { (row.kind) }
-                            td { (row.interval_ms / 1000) " s" }
-                            td {
-                                @match row.up_now {
-                                    Some(true) => { span class="ok" { "up" } },
-                                    Some(false) => { span class="off" { "down" } },
-                                    None => { "—" },
+                            th { "Target" }
+                            th { "Now" }
+                            th { "Last 60" }
+                            th class="num" { "Drops" }
+                            th class="num" { "Status" }
+                            th class="num" { "" }
+                        }
+                    }
+                    tbody {
+                        @for row in rows {
+                            tr {
+                                td {
+                                    code { (row.target) }
+                                    div class="sub" {
+                                        span class="chip muted" { (row.kind) }
+                                        " every " (row.interval_ms / 1000) " s"
+                                    }
                                 }
-                            }
-                            td { (row.up_pct.map(|pct| pct.to_string()).unwrap_or_else(|| "—".to_owned())) }
-                            td { (row.drops.map(|drops| drops.to_string()).unwrap_or_else(|| "—".to_owned())) }
-                            td { (row.last_status.map(|status| status.to_string()).unwrap_or_else(|| "—".to_owned())) }
-                            td {
-                                form method="post" action=(format!("{base}/remove")) class="row-form" {
-                                    input type="hidden" name="csrf" value=(csrf);
-                                    input type="hidden" name="id" value=(row.id);
-                                    button type="submit" class="inline-button" { "Remove" }
+                                td {
+                                    @match row.up_now {
+                                        Some(true) => { span class="chip online" { "up" } },
+                                        Some(false) => { span class="chip failed" { "down" } },
+                                        None => { span class="muted" { "—" } },
+                                    }
+                                }
+                                td {
+                                    @if let Some(pct) = row.up_pct {
+                                        div class="mini-usage" {
+                                            span class="mini-bar" aria-hidden="true" {
+                                                span class="bar-fill" style=(format!("width:{pct}%")) {}
+                                            }
+                                            span class="mono" { (pct) "%" }
+                                        }
+                                    } @else {
+                                        span class="muted" { "—" }
+                                    }
+                                }
+                                td class="num" { (row.drops.map(|drops| drops.to_string()).unwrap_or_else(|| "—".to_owned())) }
+                                td class="num mono" { (row.last_status.map(|status| status.to_string()).unwrap_or_else(|| "—".to_owned())) }
+                                td class="num" {
+                                    form method="post" action=(format!("{base}/remove")) {
+                                        input type="hidden" name="csrf" value=(csrf);
+                                        input type="hidden" name="id" value=(row.id);
+                                        button type="submit" class="btn btn-sm btn-quiet-danger" { "Remove" }
+                                    }
                                 }
                             }
                         }
@@ -1223,25 +1852,45 @@ pub(super) fn monitors(
                 }
             }
         }
-        h2 { "Watch a target" }
-        form method="post" action=(format!("{base}/add")) {
-            input type="hidden" name="csrf" value=(csrf);
-            label for="kind" { "Kind" }
-            select id="kind" name="kind" {
-                option value="tcp" { "tcp" }
-                option value="http" { "http" }
+        section class="card" id="watch" {
+            (card_head("Watch a target", Markup::default(), Markup::default()))
+            div class="card-body" {
+                form method="post" action=(format!("{base}/add")) {
+                    input type="hidden" name="csrf" value=(csrf);
+                    div class="form-grid" {
+                        div class="field" {
+                            label for="kind" { "Kind" }
+                            select id="kind" name="kind" {
+                                option value="tcp" { "tcp" }
+                                option value="http" { "http" }
+                            }
+                        }
+                        div class="field" {
+                            label for="host" { "Host" }
+                            input id="host" name="host" type="text" placeholder="192.168.1.1" required;
+                        }
+                        div class="field" {
+                            label for="port" { "Port" }
+                            input id="port" name="port" type="number" min="1" max="65535" required;
+                        }
+                        div class="field" {
+                            label for="interval_ms" { "Interval (ms)" }
+                            input id="interval_ms" name="interval_ms" type="number" value="15000" min="5000";
+                        }
+                        div class="field" {
+                            label for="path" { "HTTP path (http only)" }
+                            input id="path" name="path" type="text" placeholder="/";
+                        }
+                        div class="field" {
+                            label for="expect" { "Body must contain (http only)" }
+                            input id="expect" name="expect" type="text";
+                        }
+                    }
+                    div class="form-actions" {
+                        button type="submit" class="btn btn-primary" { "Add target" }
+                    }
+                }
             }
-            label for="host" { "Host" }
-            input id="host" name="host" type="text" placeholder="192.168.1.1" required;
-            label for="port" { "Port" }
-            input id="port" name="port" type="number" min="1" max="65535" required;
-            label for="interval_ms" { "Interval (ms)" }
-            input id="interval_ms" name="interval_ms" type="number" value="15000" min="5000";
-            label for="path" { "HTTP path (http only)" }
-            input id="path" name="path" type="text" placeholder="/";
-            label for="expect" { "Body must contain (http only)" }
-            input id="expect" name="expect" type="text";
-            button type="submit" { "Add target" }
         }
     };
     page(
@@ -1276,32 +1925,59 @@ pub(super) fn browser(
 ) -> Markup {
     let base = format!("/next/browser/{}", device.id);
     let content = html! {
-        p class="hint" {
+        p class="lead" {
             "The browser the device runs for you — in the user's session when the helper is "
             "there, headless otherwise. The capture is the first target in the device's list."
         }
         @if let Some(error) = error {
-            p class="error" { (error) }
+            p class="alert error" { (error) }
         }
         @if let Some(shot) = shot {
-            img class="capture" src=(shot) alt="the device's browser";
+            section class="card" {
+                (card_head(
+                    "Capture",
+                    html! { span class="chip muted" { "first target" } },
+                    Markup::default(),
+                ))
+                div class="card-body" {
+                    img class="capture thumb" src=(shot) alt="the device's browser";
+                }
+            }
         }
-        @if rows.is_empty() {
-            p class="hint" { "The device has no browser targets." }
-        } @else {
-            table {
-                thead { tr { th { "Title" } th { "URL" } th { "Type" } th { "" } } }
-                tbody {
-                    @for row in rows {
+        section class="card" {
+            (card_head(
+                "Targets",
+                html! { span class="chip muted" { (rows.len()) } },
+                Markup::default(),
+            ))
+            @if rows.is_empty() {
+                (empty_state(
+                    Page::Browser,
+                    "The device has no browser targets.",
+                    html! { a class="btn btn-sm" href="#open" { "Open a page" } },
+                ))
+            } @else {
+                table class="table" {
+                    thead {
                         tr {
-                            td { (row.title) }
-                            td { code { (row.url) } }
-                            td { (row.kind) }
-                            td {
-                                form method="post" action=(format!("{base}/close")) class="row-form" {
-                                    input type="hidden" name="csrf" value=(csrf);
-                                    input type="hidden" name="target" value=(row.id);
-                                    button type="submit" class="inline-button" { "Close" }
+                            th { "Title" }
+                            th { "URL" }
+                            th { "Type" }
+                            th class="num" { "" }
+                        }
+                    }
+                    tbody {
+                        @for row in rows {
+                            tr {
+                                td { (row.title) }
+                                td { code class="url" { (row.url) } }
+                                td { span class="chip muted" { (row.kind) } }
+                                td class="num" {
+                                    form method="post" action=(format!("{base}/close")) {
+                                        input type="hidden" name="csrf" value=(csrf);
+                                        input type="hidden" name="target" value=(row.id);
+                                        button type="submit" class="btn btn-sm btn-quiet-danger" { "Close" }
+                                    }
                                 }
                             }
                         }
@@ -1309,11 +1985,18 @@ pub(super) fn browser(
                 }
             }
         }
-        h2 { "Open a page" }
-        form method="post" action=(format!("{base}/open")) class="format-form" {
-            input type="hidden" name="csrf" value=(csrf);
-            input type="text" name="url" placeholder="https://example.com" required;
-            button type="submit" { "Open" }
+        section class="card" id="open" {
+            (card_head("Open a page", Markup::default(), Markup::default()))
+            div class="card-body" {
+                form method="post" action=(format!("{base}/open")) class="form-inline" {
+                    input type="hidden" name="csrf" value=(csrf);
+                    div class="field grow" {
+                        label class="visually-hidden" for="browser-url" { "URL" }
+                        input id="browser-url" type="text" name="url" placeholder="https://example.com" required;
+                    }
+                    button type="submit" class="btn btn-primary" { "Open" }
+                }
+            }
         }
     };
     page(
@@ -1348,38 +2031,77 @@ pub(super) fn tokens(
 ) -> Markup {
     let base = format!("/next/tokens/{}", device.id);
     let content = html! {
-        h2 { "Connect an AI client" }
-        p class="hint" {
-            "A permanent token is one credential for this device, every tool, destructive "
-            "calls included. It is shown once; the console keeps only its hash. The client "
-            "connects to /mcp/{device id} with `Authorization: Bearer <token>`."
+        section class="card" {
+            (card_head(
+                "Connect an AI client",
+                html! { span class="chip muted" { "MCP" } },
+                Markup::default(),
+            ))
+            div class="card-body" {
+                p class="lead" {
+                    "A permanent token is one credential for this device: every tool, destructive "
+                    "calls included. It is shown once; the console keeps only its hash. The client "
+                    "connects to this endpoint with an Authorization: Bearer header."
+                }
+                div class="endpoint" {
+                    span class="label" { "Endpoint" }
+                    code { "/mcp/" (device.id) }
+                }
+                @if let Some(error) = error {
+                    p class="alert error" { (error) }
+                }
+                form method="post" action=(format!("{base}/mint")) class="form-inline" {
+                    input type="hidden" name="csrf" value=(csrf);
+                    div class="field grow" {
+                        label class="visually-hidden" for="token-name" { "Client name" }
+                        input id="token-name" type="text" name="name" placeholder="what this client is, e.g. dsh" required;
+                    }
+                    button type="submit" class="btn btn-primary" { "Mint a token" }
+                }
+            }
         }
-        @if let Some(error) = error {
-            p class="error" { (error) }
-        }
-        form method="post" action=(format!("{base}/mint")) class="format-form" {
-            input type="hidden" name="csrf" value=(csrf);
-            input type="text" name="name" placeholder="what this client is, e.g. dsh" required;
-            button type="submit" { "Mint a token" }
-        }
-        h3 { "Tokens for this device" }
-        @if rows.is_empty() {
-            p class="hint" { "No token names this device yet." }
-        } @else {
-            table {
-                thead { tr { th { "Name" } th { "Tools" } th { "Destructive" } th { "Created" } th { "" } } }
-                tbody {
-                    @for row in rows {
+        section class="card" {
+            (card_head(
+                "Tokens for this device",
+                html! { span class="chip muted" { (rows.len()) } },
+                Markup::default(),
+            ))
+            @if rows.is_empty() {
+                (empty_state(
+                    Page::Tokens,
+                    "No token names this device yet.",
+                    Markup::default(),
+                ))
+            } @else {
+                table class="table" {
+                    thead {
                         tr {
-                            td { (row.name) }
-                            td { (row.tools) }
-                            td { @if row.destructive { "allowed" } @else { "read-only" } }
-                            td { (stamp(row.created_ms)) }
-                            td {
-                                form method="post" action=(format!("{base}/revoke")) class="row-form" {
-                                    input type="hidden" name="csrf" value=(csrf);
-                                    input type="hidden" name="id" value=(row.id);
-                                    button type="submit" class="inline-button" { "Revoke" }
+                            th { "Name" }
+                            th class="num" { "Tools" }
+                            th { "Access" }
+                            th { "Created" }
+                            th class="num" { "" }
+                        }
+                    }
+                    tbody {
+                        @for row in rows {
+                            tr {
+                                td { (row.name) }
+                                td class="num" { (row.tools) }
+                                td {
+                                    @if row.destructive {
+                                        span class="chip brand" { "destructive allowed" }
+                                    } @else {
+                                        span class="chip muted" { "read-only" }
+                                    }
+                                }
+                                td class="nowrap" { (stamp(row.created_ms)) }
+                                td class="num" {
+                                    form method="post" action=(format!("{base}/revoke")) {
+                                        input type="hidden" name="csrf" value=(csrf);
+                                        input type="hidden" name="id" value=(row.id);
+                                        button type="submit" class="btn btn-sm btn-quiet-danger" { "Revoke" }
+                                    }
                                 }
                             }
                         }
@@ -1387,7 +2109,9 @@ pub(super) fn tokens(
                 }
             }
         }
-        p class="hint" { code { (device.id) } }
+        p class="footnote" {
+            "Device " code title=(device.id) { (&device.id) }
+        }
     };
     page(
         Chrome {
@@ -1411,15 +2135,27 @@ pub(super) fn token_created(
     csrf: &str,
     version: &str,
 ) -> Markup {
+    let base = format!("/next/tokens/{}", device.id);
     let content = html! {
-        h2 { "Token " (name) }
-        p class="hint" {
-            "This is the only time the token is shown. Copy it into the client's configuration "
-            "now; a lost value means minting another."
+        (breadcrumb(&[("Tokens".to_owned(), base)], "new token"))
+        section class="card" {
+            (card_head(
+                "Token",
+                html! { span class="chip brand" { (name) } },
+                Markup::default(),
+            ))
+            div class="card-body" {
+                p class="alert notice" {
+                    "This is the only time the token is shown. Copy it into the client's configuration "
+                    "now; a lost value means minting another."
+                }
+                pre class="secret" tabindex="0" { (secret) }
+            }
         }
-        pre class="file" { (secret) }
-        h3 { "Client configuration" }
-        pre class="file" { (config) }
+        section class="card" {
+            (card_head("Client configuration", Markup::default(), Markup::default()))
+            pre class="file" tabindex="0" { (config) }
+        }
     };
     page(
         Chrome {
@@ -1466,48 +2202,99 @@ fn percent(used: u64, total: u64) -> u64 {
     ((used as f64 / total as f64) * 100.0).round() as u64
 }
 
+/// Uptime at the resolution a reader needs: days when there are days, minutes when there are not.
+fn uptime(seconds: u64) -> String {
+    let days = seconds / 86_400;
+    let hours = (seconds % 86_400) / 3_600;
+    let minutes = (seconds % 3_600) / 60;
+    if days > 0 {
+        format!("{days} d {hours} h")
+    } else if hours > 0 {
+        format!("{hours} h {minutes} m")
+    } else {
+        format!("{minutes} m")
+    }
+}
+
 fn bar(used_pct: u64) -> Markup {
     html! {
-        div class="bar" {
+        div class="bar" aria-hidden="true" {
             div class="bar-fill" style=(format!("width:{used_pct}%")) {}
         }
     }
 }
 
-/// The vitals page: one sample of what the device reports, drawn as bars and a table.
+/// The vitals page: one sample of what the device reports, as stat cards and usage sections.
 pub(super) fn vitals(device: &DeviceView, sample: &Vitals, csrf: &str, version: &str) -> Markup {
     let memory_used = sample.memory_total.saturating_sub(sample.memory_available);
     let memory_pct = percent(memory_used, sample.memory_total);
     let content = html! {
-        p class="hint" {
+        p class="lead" {
             "One sample, read from the device now. The console keeps no time series of its own: "
             "what it cannot store it does not draw."
         }
-        table {
-            tbody {
-                tr { th { "Machine" } td { (sample.machine) } }
-                tr { th { "OS" } td { (sample.os) } }
-                tr { th { "Cores" } td { (sample.cores) } }
-                tr { th { "Uptime" } td { (sample.uptime_s / 3600) " h " ((sample.uptime_s % 3600) / 60) " m" } }
-                tr { th { "Build" } td { (sample.version) " (" (sample.channel) ")" } }
+        div class="stats" {
+            div class="stat" {
+                p class="label" { "Machine" }
+                p class="value" title=(sample.machine) { (sample.machine) }
+            }
+            div class="stat" {
+                p class="label" { "Operating system" }
+                p class="value" title=(sample.os) { (sample.os) }
+            }
+            div class="stat" {
+                p class="label" { "Cores" }
+                p class="value" { (sample.cores) }
+            }
+            div class="stat" {
+                p class="label" { "Uptime" }
+                p class="value" { (uptime(sample.uptime_s)) }
+            }
+            div class="stat" {
+                p class="label" { "Build" }
+                p class="value mono" { (sample.version) " (" (sample.channel) ")" }
             }
         }
-        h2 { "Memory" }
-        p { (gib(memory_used)) " used of " (gib(sample.memory_total)) " — " (memory_pct) "%" }
-        (bar(memory_pct))
-        h2 { "Disks" }
-        @if sample.disks.is_empty() {
-            p class="hint" { "The device reported no disks." }
-        } @else {
-            table {
-                thead { tr { th { "Disk" } th { "Used" } th { "Free" } th { "" } } }
-                tbody {
+        section class="card" {
+            (card_head(
+                "Memory",
+                html! { span class="chip muted" { (memory_pct) "% used" } },
+                Markup::default(),
+            ))
+            div class="card-body" {
+                div class="usage" {
+                    div class="usage-line" {
+                        span { (gib(memory_used)) " used of " (gib(sample.memory_total)) }
+                        strong { (memory_pct) "%" }
+                    }
+                    (bar(memory_pct))
+                }
+                p class="usage-sub" { (gib(sample.memory_available)) " available" }
+            }
+        }
+        section class="card" {
+            (card_head(
+                "Disks",
+                html! { span class="chip muted" { (sample.disks.len()) } },
+                Markup::default(),
+            ))
+            @if sample.disks.is_empty() {
+                (empty_state(Page::Vitals, "The device reported no disks.", Markup::default()))
+            } @else {
+                div class="card-body" {
                     @for disk in &sample.disks {
-                        tr {
-                            td { code { (&disk.name) } }
-                            td { (gib(disk.total.saturating_sub(disk.free))) " of " (gib(disk.total)) }
-                            td { (gib(disk.free)) }
-                            td { (bar(percent(disk.total.saturating_sub(disk.free), disk.total))) }
+                        @let used = disk.total.saturating_sub(disk.free);
+                        @let pct = percent(used, disk.total);
+                        div class="usage-row" {
+                            div class="usage-name" {
+                                code { (&disk.name) }
+                                span class="usage-sub" { (gib(disk.free)) " free" }
+                            }
+                            (bar(pct))
+                            div class="usage-value" {
+                                strong { (pct) "%" }
+                                span { (gib(used)) " of " (gib(disk.total)) }
+                            }
                         }
                     }
                 }
@@ -1537,6 +2324,30 @@ mod tests {
         "Tokens", "Vitals",
     ];
 
+    /// A stand-in capture for the review renderer, so the screen and browser cards have pixels.
+    const CAPTURE: &str = concat!(
+        "data:image/svg+xml;base64,",
+        "PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI5NjAiIGhlaWdodD0iNjAwIiB2aWV3Qm94",
+        "PSIwIDAgOTYwIDYwMCI+CiAgPGRlZnM+CiAgICA8bGluZWFyR3JhZGllbnQgaWQ9ImJnIiB4MT0iMCIgeTE9IjAiIHgyPSIx",
+        "IiB5Mj0iMSI+CiAgICAgIDxzdG9wIG9mZnNldD0iMCIgc3RvcC1jb2xvcj0iIzFjMjczMyIvPgogICAgICA8c3RvcCBvZmZz",
+        "ZXQ9IjEiIHN0b3AtY29sb3I9IiMyYTFjMTgiLz4KICAgIDwvbGluZWFyR3JhZGllbnQ+CiAgPC9kZWZzPgogIDxyZWN0IHdp",
+        "ZHRoPSI5NjAiIGhlaWdodD0iNjAwIiBmaWxsPSJ1cmwoI2JnKSIvPgogIDxyZWN0IHg9IjQ4IiB5PSI0MCIgd2lkdGg9Ijg2",
+        "NCIgaGVpZ2h0PSI1MjAiIHJ4PSIxMCIgZmlsbD0iIzBkMTExNyIgc3Ryb2tlPSIjMzAzNjNkIi8+CiAgPGNpcmNsZSBjeD0i",
+        "NzYiIGN5PSI2OCIgcj0iNSIgZmlsbD0iI2ZmNWY1NiIvPgogIDxjaXJjbGUgY3g9Ijk0IiBjeT0iNjgiIHI9IjUiIGZpbGw9",
+        "IiNmZmJkMmUiLz4KICA8Y2lyY2xlIGN4PSIxMTIiIGN5PSI2OCIgcj0iNSIgZmlsbD0iIzI3YzkzZiIvPgogIDx0ZXh0IHg9",
+        "IjQ4IiB5PSI5OCIgZmlsbD0iIzhiOTQ5ZSIgZm9udC1mYW1pbHk9Im1vbm9zcGFjZSIgZm9udC1zaXplPSIxMSIgbGV0dGVy",
+        "LXNwYWNpbmc9IjIiPkRFU0tUT1AtOVZIOTJCSiDCtyBQT1dFUlNIRUxMPC90ZXh0PgogIDx0ZXh0IHg9Ijc2IiB5PSIxNTAi",
+        "IGZpbGw9IiNjOWQxZDkiIGZvbnQtZmFtaWx5PSJtb25vc3BhY2UiIGZvbnQtc2l6ZT0iMTciPlBTIEM6XFVzZXJzXG9wZXJh",
+        "dG9yJmd0OyBHZXQtRGF0ZTwvdGV4dD4KICA8dGV4dCB4PSI3NiIgeT0iMTgyIiBmaWxsPSIjOGI5NDllIiBmb250LWZhbWls",
+        "eT0ibW9ub3NwYWNlIiBmb250LXNpemU9IjE3Ij5Nb25kYXksIDI3IE9jdG9iZXIgMjAyNiAxMjowMDowMDwvdGV4dD4KICA8",
+        "dGV4dCB4PSI3NiIgeT0iMjMwIiBmaWxsPSIjYzlkMWQ5IiBmb250LWZhbWlseT0ibW9ub3NwYWNlIiBmb250LXNpemU9IjE3",
+        "Ij5QUyBDOlxVc2Vyc1xvcGVyYXRvciZndDsgR2V0LVNlcnZpY2UgU3Bvb2xlcjwvdGV4dD4KICA8dGV4dCB4PSI3NiIgeT0i",
+        "MjYyIiBmaWxsPSIjOGI5NDllIiBmb250LWZhbWlseT0ibW9ub3NwYWNlIiBmb250LXNpemU9IjE3Ij5SdW5uaW5nICAgU3Bv",
+        "b2xlciAgIFByaW50IFNwb29sZXI8L3RleHQ+CiAgPHRleHQgeD0iNzYiIHk9IjMxMCIgZmlsbD0iI2M5ZDFkOSIgZm9udC1m",
+        "YW1pbHk9Im1vbm9zcGFjZSIgZm9udC1zaXplPSIxNyI+UFMgQzpcVXNlcnNcb3BlcmF0b3ImZ3Q7IF88L3RleHQ+Cjwvc3Zn",
+        "Pgo=",
+    );
+
     fn view(tag: char, name: Option<&str>, online: bool) -> DeviceView {
         DeviceView {
             id: tag.to_string().repeat(64),
@@ -1545,7 +2356,7 @@ mod tests {
             registered_at_ms: 0,
             last_seen_ms: 0,
             online,
-            version: None,
+            version: Some("0.3.72".to_owned()),
             host: None,
             last_attempt: None,
         }
@@ -1553,18 +2364,25 @@ mod tests {
 
     fn sample_vitals() -> Vitals {
         Vitals {
-            machine: "DESKTOP-TEST".to_owned(),
-            os: "Windows".to_owned(),
-            cores: 4,
-            uptime_s: 3_600,
+            machine: "DESKTOP-9VH92BJ".to_owned(),
+            os: "Windows 11 10.0.22631".to_owned(),
+            cores: 16,
+            uptime_s: 3 * 86_400 + 14 * 3_600,
             memory_total: 8 * 1024 * 1024 * 1024,
             memory_available: 4 * 1024 * 1024 * 1024,
-            disks: vec![VitalsDisk {
-                name: "C:\\".to_owned(),
-                total: 100,
-                free: 50,
-            }],
-            version: "0.3.65".to_owned(),
+            disks: vec![
+                VitalsDisk {
+                    name: "C:\\".to_owned(),
+                    total: 512 * 1024 * 1024 * 1024,
+                    free: 128 * 1024 * 1024 * 1024,
+                },
+                VitalsDisk {
+                    name: "D:\\".to_owned(),
+                    total: 2048 * 1024 * 1024 * 1024,
+                    free: 1434 * 1024 * 1024 * 1024,
+                },
+            ],
+            version: "0.3.72".to_owned(),
             channel: "canary".to_owned(),
         }
     }
@@ -1739,6 +2557,420 @@ mod tests {
             page.contains("data-kind=\"ssh\"") && page.contains("data-kind=\"serial\""),
             "the kind-specific fields stay hidden until chosen: {page}"
         );
+    }
+
+    /// A review harness: write each page to `/tmp/pages` so a browser can be pointed at the real
+    /// markup. Ignored, because it is a tool for the eyes rather than a gate.
+    #[test]
+    #[ignore = "writes pages for a browser to look at"]
+    fn render_pages_for_review() {
+        let dir = std::path::Path::new("/tmp/pages");
+        std::fs::create_dir_all(dir).expect("the review directory");
+        let devices = vec![
+            view('a', Some("DESKTOP-9VH92BJ"), true),
+            view('b', Some("DESKTOP-14RJCR8"), true),
+            view('c', None, false),
+        ];
+        let id = devices[0].id.clone();
+        let entries = vec![
+            FileEntry {
+                name: "config".to_owned(),
+                kind: "directory".to_owned(),
+                len: 0,
+            },
+            FileEntry {
+                name: "logs".to_owned(),
+                kind: "directory".to_owned(),
+                len: 0,
+            },
+            FileEntry {
+                name: "notes.txt".to_owned(),
+                kind: "file".to_owned(),
+                len: 1_842,
+            },
+            FileEntry {
+                name: "report-2026-10-27.txt".to_owned(),
+                kind: "file".to_owned(),
+                len: 65_210,
+            },
+        ];
+        let log_entries = vec![
+            FileEntry {
+                name: "agent.log".to_owned(),
+                kind: "file".to_owned(),
+                len: 148_211,
+            },
+            FileEntry {
+                name: "updater.log".to_owned(),
+                kind: "file".to_owned(),
+                len: 9_120,
+            },
+        ];
+        let runs_rows = vec![
+            RunRow {
+                command_line: "pwsh -NoProfile Get-Date".to_owned(),
+                started_at_ms: 1_793_059_200_000,
+                duration_ms: 412,
+                exit_code: Some(0),
+                timed_out: false,
+            },
+            RunRow {
+                command_line: "Get-Service Spooler".to_owned(),
+                started_at_ms: 1_793_058_100_000,
+                duration_ms: 286,
+                exit_code: Some(0),
+                timed_out: false,
+            },
+            RunRow {
+                command_line: "ping 10.0.0.1 -n 4".to_owned(),
+                started_at_ms: 1_793_057_000_000,
+                duration_ms: 30_000,
+                exit_code: None,
+                timed_out: true,
+            },
+            RunRow {
+                command_line: "Get-ChildItem C:\\Missing".to_owned(),
+                started_at_ms: 1_793_056_000_000,
+                duration_ms: 190,
+                exit_code: Some(1),
+                timed_out: false,
+            },
+        ];
+        let run = RunResult {
+            id: "run-2".to_owned(),
+            exit_code: Some(0),
+            timed_out: false,
+            duration_ms: 412,
+            stdout: "Monday, 27 October 2026 12:00:00\n\nPS C:\\Users\\operator>\n".to_owned(),
+            stderr: "WARNING: the spooler is not running.\n".to_owned(),
+            truncated: false,
+        };
+        let processes = vec![
+            ProcessRow {
+                pid: 1204,
+                name: "pwsh.exe".to_owned(),
+                memory_kb: 96_432,
+            },
+            ProcessRow {
+                pid: 880,
+                name: "explorer.exe".to_owned(),
+                memory_kb: 240_112,
+            },
+            ProcessRow {
+                pid: 4422,
+                name: "msedge.exe".to_owned(),
+                memory_kb: 512_900,
+            },
+            ProcessRow {
+                pid: 1712,
+                name: "svchost.exe".to_owned(),
+                memory_kb: 38_400,
+            },
+            ProcessRow {
+                pid: 2330,
+                name: "Summrise.Agent.exe".to_owned(),
+                memory_kb: 74_100,
+            },
+        ];
+        let memory_rows = vec![
+            MemoryRow {
+                id: "mem-1".to_owned(),
+                text: "The antenna is on COM3; 9600 8N1.".to_owned(),
+                tags: "hardware, serial".to_owned(),
+            },
+            MemoryRow {
+                id: "mem-2".to_owned(),
+                text: "Backups live on D:\\backups; keep 14 days.".to_owned(),
+                tags: "ops, backup".to_owned(),
+            },
+        ];
+        let monitors_rows = vec![
+            MonitorRow {
+                id: "mon-1".to_owned(),
+                kind: "tcp".to_owned(),
+                target: "10.0.0.1:443".to_owned(),
+                interval_ms: 15_000,
+                up_now: Some(true),
+                up_pct: Some(100),
+                drops: Some(0),
+                last_status: None,
+            },
+            MonitorRow {
+                id: "mon-2".to_owned(),
+                kind: "http".to_owned(),
+                target: "192.168.1.1:80".to_owned(),
+                interval_ms: 30_000,
+                up_now: Some(true),
+                up_pct: Some(95),
+                drops: Some(3),
+                last_status: Some(200),
+            },
+            MonitorRow {
+                id: "mon-3".to_owned(),
+                kind: "tcp".to_owned(),
+                target: "10.0.0.9:22".to_owned(),
+                interval_ms: 10_000,
+                up_now: Some(false),
+                up_pct: Some(41),
+                drops: Some(12),
+                last_status: None,
+            },
+        ];
+        let browser_rows = vec![
+            BrowserRow {
+                id: "target-1".to_owned(),
+                title: "Summrise console".to_owned(),
+                url: "http://127.0.0.1:19000/next".to_owned(),
+                kind: "page".to_owned(),
+            },
+            BrowserRow {
+                id: "target-2".to_owned(),
+                title: "Example Domain".to_owned(),
+                url: "https://example.com/".to_owned(),
+                kind: "page".to_owned(),
+            },
+        ];
+        let token_rows = vec![
+            TokenRow {
+                id: "token-1".to_owned(),
+                name: "dsh".to_owned(),
+                tools: 27,
+                destructive: true,
+                created_ms: 1_793_000_000_000,
+            },
+            TokenRow {
+                id: "token-2".to_owned(),
+                name: "readonly-dashboard".to_owned(),
+                tools: 12,
+                destructive: false,
+                created_ms: 1_792_900_000_000,
+            },
+        ];
+        let secret = "srm_2f9a8c7b6d5e4f3a2b1c0d9e8f7a6b5c4d3e2f1a0b9c8d7e6f5a4b3c2d1e0f9a";
+        let config = format!(
+            "{{\n  \"mcpServers\": {{\n    \"desk\": {{\n      \"url\": \"http://127.0.0.1:19000/mcp/{}\",\n      \"headers\": {{ \"Authorization\": \"Bearer {}\" }}\n    }}\n  }}\n}}",
+            id, secret
+        );
+        let log_rows = vec![
+            serde_json::json!({"ts_ms": 1_793_059_200_000u64, "kind": "tool", "status": 200, "device_id": id, "tool": "runs.exec", "detail": "pwsh -NoProfile Get-Date"}),
+            serde_json::json!({"ts_ms": 1_793_058_700_000u64, "kind": "tool", "status": 200, "device_id": id, "tool": "files.list", "detail": "logs"}),
+            serde_json::json!({"ts_ms": 1_793_058_300_000u64, "kind": "auth", "status": 200, "device_id": id, "tool": "", "detail": "operator session opened"}),
+            serde_json::json!({"ts_ms": 1_793_057_900_000u64, "kind": "tool", "status": 403, "device_id": id, "tool": "system.kill", "detail": "not permitted for this grant"}),
+            serde_json::json!({"ts_ms": 1_793_057_500_000u64, "kind": "device", "status": 0, "device_id": id, "tool": "", "detail": "channel open"}),
+            serde_json::json!({"ts_ms": 1_793_056_100_000u64, "kind": "tool", "status": 500, "device_id": id, "tool": "browser.open", "detail": "the device did not answer"}),
+        ];
+        let pages: Vec<(&str, Markup)> = vec![
+            (
+                "dashboard",
+                dashboard(&devices, "csrf", "0.3.72", None, None),
+            ),
+            (
+                "dashboard-code",
+                dashboard(
+                    &devices,
+                    "csrf",
+                    "0.3.72",
+                    Some(&"9f".repeat(32)),
+                    None,
+                ),
+            ),
+            (
+                "dashboard-empty",
+                dashboard(&[], "csrf", "0.3.72", None, None),
+            ),
+            ("terminal", terminal(&devices[0], "csrf", "0.3.72")),
+            (
+                "files",
+                files(&devices[0], "", &entries, "csrf", "0.3.72", None),
+            ),
+            (
+                "files-empty",
+                files(&devices[0], "empty", &[], "csrf", "0.3.72", None),
+            ),
+            (
+                "files-sub",
+                files(&devices[0], "logs", &log_entries, "csrf", "0.3.72", None),
+            ),
+            (
+                "file",
+                file_text(
+                    &devices[0],
+                    "logs/agent.log",
+                    "2026-10-27T12:00:01Z  INFO  channel opened from DESKTOP-9VH92BJ\n2026-10-27T12:00:02Z  INFO  host.facts answered in 12 ms\n2026-10-27T12:00:04Z  WARN  update channel canary is one build behind\n",
+                    "csrf",
+                    "0.3.72",
+                ),
+            ),
+            (
+                "runs",
+                runs(&devices[0], &runs_rows, "csrf", "0.3.72", None),
+            ),
+            (
+                "runs-empty",
+                runs(&devices[0], &[], "csrf", "0.3.72", None),
+            ),
+            (
+                "run",
+                run_result(&devices[0], "pwsh -NoProfile Get-Date", &run, "csrf", "0.3.72"),
+            ),
+            (
+                "system",
+                system(
+                    &devices[0],
+                    &processes,
+                    "",
+                    "csrf",
+                    "0.3.72",
+                    Some("Ended pwsh.exe (pid 1188)."),
+                ),
+            ),
+            (
+                "state",
+                state_document(
+                    &devices[0],
+                    "{\n  \"health\": \"ok\",\n  \"ready\": true,\n  \"events\": [\n    { \"at\": \"12:00:01\", \"kind\": \"boot\" },\n    { \"at\": \"12:00:02\", \"kind\": \"channel_open\" }\n  ]\n}",
+                    "csrf",
+                    "0.3.72",
+                ),
+            ),
+            (
+                "memory",
+                memory(&devices[0], &memory_rows, "", "csrf", "0.3.72", None),
+            ),
+            ("screen", screen(&devices[0], Some(CAPTURE), "A 1280×720 capture, taken just now.", "csrf", "0.3.72")),
+            (
+                "screen-empty",
+                screen(
+                    &devices[0],
+                    None,
+                    "No capture: the helper is not running in the user's session.",
+                    "csrf",
+                    "0.3.72",
+                ),
+            ),
+            (
+                "monitors",
+                monitors(&devices[0], &monitors_rows, "csrf", "0.3.72", None),
+            ),
+            (
+                "monitors-empty",
+                monitors(&devices[0], &[], "csrf", "0.3.72", None),
+            ),
+            (
+                "browser",
+                browser(&devices[0], &browser_rows, Some(CAPTURE), "csrf", "0.3.72", None),
+            ),
+            (
+                "tokens",
+                tokens(&devices[0], &token_rows, "csrf", "0.3.72", None),
+            ),
+            (
+                "tokens-empty",
+                tokens(&devices[0], &[], "csrf", "0.3.72", None),
+            ),
+            (
+                "token-created",
+                token_created(
+                    &devices[0],
+                    "dsh",
+                    secret,
+                    &config,
+                    "csrf",
+                    "0.3.72",
+                ),
+            ),
+            ("vitals", vitals(&devices[0], &sample_vitals(), "csrf", "0.3.72")),
+            ("audit", logs(&log_rows, "Audit", "csrf", "0.3.72")),
+            ("login", login(None)),
+        ];
+        for (name, markup) in pages {
+            std::fs::write(dir.join(format!("{name}.html")), markup.into_string())
+                .expect("the page is written");
+        }
+    }
+
+    #[test]
+    fn a_short_id_is_eight_characters_and_an_ellipsis() {
+        assert_eq!(short_id(&"a".repeat(64)), "aaaaaaaa…");
+        assert_eq!(short_id("abc"), "abc");
+    }
+
+    #[test]
+    fn the_fleet_row_is_identity_pages_and_one_disclosure() {
+        let device = view('a', Some("studio"), true);
+        let id = device.id.clone();
+        let page = dashboard(&[device], "00", "0.1.0", None, None).into_string();
+
+        assert!(
+            page.contains("aaaaaaaa…"),
+            "the row shows a short id: {page}"
+        );
+        assert!(
+            !page.contains(&format!(
+                "<code class=\"device-id\" title=\"{id}\">{id}</code>"
+            )),
+            "the whole id is not the row's text: {page}"
+        );
+        assert!(page.contains("class=\"row-menu\""), "{page}");
+        assert!(
+            page.contains(">Manage"),
+            "the mutations are folded away: {page}"
+        );
+        assert!(
+            page.contains("name=\"name\"") && page.contains(">Rename</button>"),
+            "the rename form is still on the page: {page}"
+        );
+        assert!(
+            page.contains(&format!("action=\"/next/fleet/{id}/remove\"")),
+            "the remove form is still on the page: {page}"
+        );
+        assert_eq!(
+            page.matches("class=\"page-links\"").count(),
+            1,
+            "one tidy row of page links: {page}"
+        );
+    }
+
+    #[test]
+    fn the_terminal_has_an_empty_state_and_a_close_control() {
+        let device = view('1', Some("studio"), true);
+        let page = terminal(&device, "00", "0.1.0").into_string();
+        assert!(
+            page.contains("No session yet — choose a kind and start one"),
+            "the empty state explains the canvas: {page}"
+        );
+        assert!(
+            page.contains("class=\"terminal-empty\""),
+            "the empty state sits inside the terminal area: {page}"
+        );
+        assert!(
+            page.contains(">Close all</a>"),
+            "the toolbar closes every session: {page}"
+        );
+        let form = between(&page, "<form id=\"terminal-form\"", "</form>");
+        assert!(
+            form.contains(">Start session</button>"),
+            "the toolbar starts a session: {page}"
+        );
+    }
+
+    #[test]
+    fn the_vitals_page_is_stat_cards_and_two_usage_sections() {
+        let device = view('1', Some("studio"), true);
+        let page = vitals(&device, &sample_vitals(), "00", "0.1.0").into_string();
+        assert_eq!(
+            page.matches("class=\"stat\"").count(),
+            5,
+            "five facts, five cards: {page}"
+        );
+        assert!(page.contains("4.0 GiB used of 8.0 GiB"), "{page}");
+        assert!(page.contains("width:50%"), "the memory bar is half: {page}");
+        assert_eq!(
+            page.matches("class=\"usage-row\"").count(),
+            sample_vitals().disks.len(),
+            "one row per disk: {page}"
+        );
+        assert!(page.contains("Build"), "{page}");
     }
 
     #[test]
