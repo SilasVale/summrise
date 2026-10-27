@@ -481,7 +481,7 @@ async fn a_wrong_operator_token_is_401() {
 }
 
 #[tokio::test]
-async fn the_operator_token_yields_a_session_that_expires_in_24_hours() {
+async fn the_operator_token_yields_a_session_that_expires_in_a_month() {
     let fixture = Fixture::new("right-token");
 
     let (status, body) = send(
@@ -494,7 +494,7 @@ async fn the_operator_token_yields_a_session_that_expires_in_24_hours() {
     let session = body["token"].as_str().expect("a session token");
     assert_eq!(session.len(), 64, "a session token is 32 bytes of hex");
     assert_ne!(session, hex(&OPERATOR_TOKEN), "a session is not the secret");
-    assert_eq!(body["expires_at_ms"], json!(START_MS + DAY_MS));
+    assert_eq!(body["expires_at_ms"], json!(START_MS + 30 * DAY_MS));
 }
 
 #[tokio::test]
@@ -505,7 +505,7 @@ async fn an_expired_session_is_401() {
     let (status, _) = send(fixture.app(), get("/fleet", Some(&session))).await;
     assert_eq!(status, StatusCode::OK, "the session starts out valid");
 
-    fixture.advance_ms(DAY_MS);
+    fixture.advance_ms(30 * DAY_MS);
     let (status, body) = send(fixture.app(), get("/fleet", Some(&session))).await;
     assert_eq!(status, StatusCode::UNAUTHORIZED);
     assert_eq!(body, json!({ "error": "unauthorized" }));
@@ -5889,7 +5889,7 @@ async fn the_rust_page_signs_in_with_a_cookie_and_signs_out_with_csrf() {
         "plain HTTP must not set Secure: {cookie}"
     );
     assert!(cookie.contains("Path=/next"), "{cookie}");
-    assert!(cookie.contains("Max-Age=86400"), "{cookie}");
+    assert!(cookie.contains("Max-Age=2592000"), "{cookie}");
     let cookie = cookie
         .split(';')
         .next()
@@ -6012,10 +6012,10 @@ async fn the_rust_page_hides_the_fleet_after_the_session_expires() {
         .expect("the name=value pair")
         .to_owned();
 
-    // The console's clock is injectable; a session lives 24 hours from its mint.
+    // The console's clock is injectable; a session lives a month from its mint.
     fixture
         .clock
-        .store(START_MS + DAY_MS + 1, Ordering::Relaxed);
+        .store(START_MS + 30 * DAY_MS + 1, Ordering::Relaxed);
 
     let (status, _, body) = send_text(fixture.app(), get_with_cookie("/next", &cookie)).await;
     assert_eq!(status, StatusCode::OK);
@@ -7599,8 +7599,8 @@ async fn a_page_session_expires_after_its_lifetime() {
     let fixture = Fixture::new("session-expiry");
     let (cookie, _csrf) = sign_in_to_the_page(&fixture).await;
 
-    // One minute short of the day: the session still works.
-    fixture.advance_ms(24 * 60 * 60 * 1000 - 60_000);
+    // One minute short of the month: the session still works.
+    fixture.advance_ms(30 * 24 * 60 * 60 * 1000 - 60_000);
     let (status, _, _) = send_text(fixture.app(), get_with_cookie("/next", &cookie)).await;
     assert_eq!(status, StatusCode::OK);
 
@@ -7609,4 +7609,51 @@ async fn a_page_session_expires_after_its_lifetime() {
     let (status, _, body) = send_text(fixture.app(), get_with_cookie("/next", &cookie)).await;
     assert_eq!(status, StatusCode::OK);
     assert!(body.contains("Sign in"), "{body}");
+}
+
+#[tokio::test]
+async fn the_terminal_page_lists_the_devices_live_sessions() {
+    let fixture = Fixture::new("terminal-rail");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xe1)).await;
+    let (cookie, csrf) = sign_in_to_the_page(&fixture).await;
+
+    let app = fixture.app();
+    let request = get_with_cookie(&format!("/next/terminal/{device_id}"), &cookie);
+    let page = tokio::spawn(async move { send_text(app, request).await });
+
+    // The page asks the device for its sessions before it renders the rail.
+    let frame = next_json(&mut device).await;
+    assert_eq!(
+        frame["mcp"]["params"]["name"],
+        json!("terminal.list"),
+        "{frame}"
+    );
+    answer(
+        &mut device,
+        &frame,
+        json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {
+                "content": [{ "type": "text", "text": json!([
+                    { "id": "session-3", "kind": "pty", "started_at_ms": 1_791_000_000_000u64 },
+                    { "id": "session-7", "kind": "ssh", "started_at_ms": 1_791_000_500_000u64 }
+                ]).to_string() }],
+                "isError": false
+            }
+        }),
+    )
+    .await;
+
+    let (status, _, body) = page.await.expect("the page finishes");
+    assert_eq!(status, StatusCode::OK);
+    assert!(body.contains("class=\"context-rail\""), "{body}");
+    assert!(body.contains("?attach=session-3"), "{body}");
+    assert!(body.contains("?attach=session-7"), "{body}");
+    assert!(
+        body.contains(&csrf),
+        "the page still carries its CSRF value: {body}"
+    );
 }

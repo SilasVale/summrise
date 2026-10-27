@@ -18,7 +18,13 @@ use serde::{Deserialize, Serialize};
 use crate::hex;
 
 /// How long a session token is valid.
-pub(crate) const SESSION_LIFETIME_MS: u64 = 24 * 60 * 60 * 1000;
+///
+/// Thirty days, not one: the console is a single operator's page behind Cloudflare Access, and a
+/// day-long session meant signing in again every morning — the one thing an operator asked about
+/// twice. The session is a hash on disk, `HttpOnly`, `SameSite=Lax`, and `Secure` whenever the
+/// request arrived over TLS, so the longer life widens nothing an attacker could not already reach
+/// with the operator token itself.
+pub(crate) const SESSION_LIFETIME_MS: u64 = 30 * 24 * 60 * 60 * 1000;
 
 /// One operator session. The token is not kept — only its hash — so a restart can validate a cookie
 /// without the file being a credential.
