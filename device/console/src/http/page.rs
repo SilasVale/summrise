@@ -165,6 +165,8 @@ pub(super) fn dashboard(
                                             a href=(format!("/next/runs/{}", device.id)) { "Runs" }
                                             " · "
                                             a href=(format!("/next/system/{}", device.id)) { "System" }
+                                            " · "
+                                            a href=(format!("/next/state/{}", device.id)) { "State" }
                                         }
                                     }
                                 }
