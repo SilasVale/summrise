@@ -1,6 +1,6 @@
-// The terminal page's glue: xterm owns the screen, and this file is the loop between it and the
-// console's `/next/terminal` endpoints. It is JavaScript because xterm is; every decision that
-// matters (which device, who may type, what a session is) stays on the Rust side.
+// The terminal page's glue: one xterm per session, a tab strip over them, and the poll loop between
+// each terminal and the console's `/next/terminal` endpoints. It is JavaScript because xterm is;
+// every decision that matters (which device, who may type, what a session is) stays in Rust.
 //
 // The protocol is the device's own `terminal.*` tools, relayed: create returns a session id, read
 // takes a cursor and returns the output after it, write sends keystrokes, resize reports the grid.
@@ -10,25 +10,16 @@ const host = document.getElementById("terminal");
 const status = document.getElementById("terminal-status");
 const form = document.getElementById("terminal-form");
 const kind = document.getElementById("kind");
+const tabs = document.getElementById("terminal-tabs");
+const panes = document.getElementById("terminal-panes");
 const device = host.dataset.device;
 const csrf = host.dataset.csrf;
 
-const term = new Terminal({
-  cursorBlink: true,
-  fontSize: 13,
-  scrollback: 5000,
-  theme: { background: "#000000", foreground: "#d8d4cd", cursor: "#e07a4a" }
-});
-const fit = new FitAddon.FitAddon();
-term.loadAddon(fit);
+/** Every open session: id → the terminal, its pane, its tab and its cursor. */
+const sessions = new Map();
+let active = null;
 
-let session = null;
-let cursor = 0;
-let closed = false;
-let pending = "";
-let flushTimer = null;
-
-const base = () => `/next/terminal/${device}/${session}`;
+const base = (id) => `/next/terminal/${device}/${id}`;
 const say = (text) => {
   status.textContent = text;
 };
@@ -57,44 +48,132 @@ async function call(path, method = "GET", body) {
 
 // One write per tick, not one per keystroke: a paste is thousands of onData calls, and the device
 // sees a line of audit either way.
-function flush() {
-  flushTimer = null;
-  if (!session || pending === "" || closed) return;
-  const data = pending;
-  pending = "";
-  call(base() + "/write", "POST", { data }).catch((error) => say(String(error.message || error)));
-}
-
-function queue(chunk) {
-  pending += chunk;
-  if (pending.length >= 4096) {
-    if (flushTimer) {
-      clearTimeout(flushTimer);
-      flushTimer = null;
+function makeWriter(session) {
+  let pending = "";
+  let timer = null;
+  const flush = () => {
+    timer = null;
+    if (!session.id || pending === "" || session.closed) return;
+    const data = pending;
+    pending = "";
+    call(base(session.id) + "/write", "POST", { data }).catch((error) =>
+      say(String(error.message || error))
+    );
+  };
+  return (chunk) => {
+    pending += chunk;
+    if (pending.length >= 4096) {
+      if (timer) {
+        clearTimeout(timer);
+        timer = null;
+      }
+      flush();
+      return;
     }
-    flush();
-    return;
-  }
-  if (!flushTimer) flushTimer = setTimeout(flush, 40);
+    if (!timer) timer = setTimeout(flush, 40);
+  };
 }
 
-async function read() {
-  while (!closed) {
+async function readLoop(session) {
+  while (!session.closed) {
     let answer;
     try {
-      answer = await call(`${base()}/read?cursor=${cursor}`);
+      answer = await call(`${base(session.id)}/read?cursor=${session.cursor}`);
     } catch (error) {
       say(String(error.message || error));
       return;
     }
-    if (answer.data) term.write(answer.data);
-    cursor = answer.cursor;
+    if (answer.data) session.term.write(answer.data);
+    session.cursor = answer.cursor;
     if (!answer.alive) {
       say("the session ended");
       return;
     }
     await new Promise((resolve) => setTimeout(resolve, 200));
   }
+}
+
+function activate(id) {
+  active = id;
+  for (const [other, session] of sessions) {
+    const on = other === id;
+    session.pane.hidden = !on;
+    session.tab.classList.toggle("active", on);
+    if (on) {
+      session.fit.fit();
+      session.term.focus();
+    }
+  }
+}
+
+function addSession(created, label) {
+  const id = created.id;
+  const pane = document.createElement("div");
+  pane.className = "pane";
+  panes.append(pane);
+
+  const tab = document.createElement("button");
+  tab.type = "button";
+  tab.className = "tab";
+  tab.textContent = label;
+  tab.addEventListener("click", () => activate(id));
+  tabs.append(tab);
+
+  const close = document.createElement("button");
+  close.type = "button";
+  close.className = "tab-close";
+  close.textContent = "×";
+  close.title = "close this session";
+  close.addEventListener("click", (event) => {
+    event.stopPropagation();
+    void closeSession(id);
+  });
+  tab.append(close);
+
+  const term = new Terminal({
+    cursorBlink: true,
+    fontSize: 13,
+    scrollback: 5000,
+    theme: { background: "#000000", foreground: "#d8d4cd", cursor: "#e07a4a" }
+  });
+  const fit = new FitAddon.FitAddon();
+  term.loadAddon(fit);
+
+  const session = { id, term, fit, pane, tab, cursor: 0, closed: false };
+  sessions.set(id, session);
+  activate(id);
+  term.open(pane);
+  fit.fit();
+  term.focus();
+  term.onData(makeWriter(session));
+  term.onResize((size) => {
+    if (session.closed) return;
+    call(base(id) + "/resize", "POST", { rows: size.rows, cols: size.cols }).catch(() => {});
+  });
+  term.onTitleChange((title) => {
+    if (title) label = title;
+  });
+  void readLoop(session);
+}
+
+async function closeSession(id) {
+  const session = sessions.get(id);
+  if (!session) return;
+  session.closed = true;
+  sessions.delete(id);
+  session.pane.remove();
+  session.tab.remove();
+  try {
+    await call(base(id) + "/close", "POST");
+  } catch {
+    // The session may already be gone; the row is what matters.
+  }
+  if (sessions.size === 0) {
+    active = null;
+    say("choose a kind and start a session");
+    return;
+  }
+  if (active === id) activate(sessions.keys().next().value);
 }
 
 // The form's visible group follows the kind, so an operator never types an SSH host into a serial
@@ -108,7 +187,7 @@ kind.addEventListener("change", showKindFields);
 showKindFields();
 
 function bodyFromForm() {
-  const body = { kind: kind.value, rows: term.rows || 24, cols: term.cols || 80 };
+  const body = { kind: kind.value, rows: 24, cols: 80 };
   if (kind.value === "ssh") {
     body.host = document.getElementById("host").value.trim();
     body.ssh_port = Number(document.getElementById("ssh_port").value || 22);
@@ -122,45 +201,29 @@ function bodyFromForm() {
   return body;
 }
 
-async function start() {
-  const body = bodyFromForm();
-  say("opening a session…");
-  let created;
-  try {
-    created = await call(`/next/terminal/${device}/create`, "POST", body);
-  } catch (error) {
-    say(String(error.message || error));
-    return;
-  }
-  session = created.id;
-  form.hidden = true;
-  host.hidden = false;
-  term.open(host);
-  fit.fit();
-  term.focus();
-  say(`session ${session} · ${created.shell || created.kind || body.kind}`);
-  term.onData(queue);
-  term.onResize((size) => {
-    if (!session) return;
-    call(base() + "/resize", "POST", { rows: size.rows, cols: size.cols }).catch(() => {});
-  });
-  await read();
-}
-
 form.addEventListener("submit", (event) => {
   event.preventDefault();
-  void start();
+  const body = bodyFromForm();
+  say("opening a session…");
+  call(`/next/terminal/${device}/create`, "POST", body)
+    .then((created) => {
+      const label = created.shell || created.kind || body.kind;
+      addSession(created, String(label));
+      say(`session ${created.id} · ${label}`);
+    })
+    .catch((error) => say(String(error.message || error)));
 });
 
 window.addEventListener("resize", () => {
-  if (!host.hidden) fit.fit();
+  if (active && sessions.has(active)) sessions.get(active).fit.fit();
 });
 window.addEventListener("beforeunload", () => {
-  closed = true;
-  if (!session) return;
-  fetch(`${base()}/close`, {
-    method: "POST",
-    headers: { "x-csrf": csrf },
-    keepalive: true
-  });
+  for (const session of sessions.values()) {
+    session.closed = true;
+    fetch(base(session.id) + "/close", {
+      method: "POST",
+      headers: { "x-csrf": csrf },
+      keepalive: true
+    });
+  }
 });

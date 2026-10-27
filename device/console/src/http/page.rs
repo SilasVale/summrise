@@ -60,7 +60,14 @@ body.terminal { display:flex; flex-direction:column; height:100vh; overflow:hidd
 body.terminal main { flex:1; display:flex; flex-direction:column; min-height:0; }
 #terminal { flex:1; min-height:0; background:#000; border-radius:8px; padding:8px; }
 #terminal-status { margin:6px 2px 0; }
-.terminal-form { display:flex; flex-wrap:wrap; gap:10px 14px; align-items:end; margin-bottom:10px; }
+.terminal-form { display:flex; flex-wrap:wrap; gap:10px 14px; align-items:end; margin-bottom:8px; }
+.tabs { display:flex; gap:4px; flex-wrap:wrap; margin-bottom:6px; }
+.tab { margin:0; width:auto; padding:5px 8px; font-size:12px; border:1px solid var(--line); border-radius:7px 7px 0 0; background:var(--panel); color:var(--muted); display:flex; gap:6px; align-items:center; }
+.tab.active { color:var(--ink); border-bottom-color:var(--panel); }
+.tab-close { margin:0; width:auto; padding:0 2px; background:transparent; color:var(--muted); border:0; font-size:14px; line-height:1; }
+.panes { flex:1; min-height:0; display:flex; }
+.pane { flex:1; min-height:0; background:#000; border-radius:0 8px 8px 8px; padding:6px; }
+.pane[hidden] { display:none; }
 .terminal-form label { font-size:12px; color:var(--muted); }
 .terminal-form select, .terminal-form input { width:auto; min-width:120px; }
 .kind-fields { display:flex; flex-wrap:wrap; gap:10px 14px; align-items:end; }
@@ -300,7 +307,10 @@ pub(super) fn terminal(device: &DeviceView, csrf: &str, version: &str) -> Markup
                         }
                         button type="submit" { "Start session" }
                     }
-                    div id="terminal" data-device=(device.id) data-csrf=(csrf) hidden {}
+                    div id="terminal-tabs" class="tabs" {}
+                    div id="terminal-panes" class="panes" {
+                        div id="terminal" data-device=(device.id) data-csrf=(csrf) hidden {}
+                    }
                     p id="terminal-status" class="hint" { "choose a kind and start a session" }
                 }
             }

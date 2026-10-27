@@ -132,10 +132,17 @@ if (terminalOnly) {
   } catch {
     await fail('the command was not echoed back by xterm');
   }
+  // A second session must get its own tab and its own xterm; the first one stays alive behind it.
+  await page.click('#terminal-form button[type=submit]');
+  await page.waitForFunction(() => document.querySelectorAll('.tab').length === 2, {
+    timeout: 20000
+  });
+  const tabs = await page.locator('.tab').count();
+  if (tabs !== 2) await fail(`expected two terminal tabs, saw ${tabs}`);
   const session = await page.locator('#terminal-status').innerText();
   if (shot) await page.screenshot({ path: shot, fullPage: true });
   await browser.close();
-  console.log('console-smoke: terminal ok — ' + session.replace(/\s+/g, ' '));
+  console.log('console-smoke: terminal ok — ' + session.replace(/\s+/g, ' ') + ', 2 tabs');
   process.exit(0);
 }
 
