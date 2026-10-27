@@ -229,6 +229,7 @@ fn platform_facts() -> serde_json::Value {
         Ok(facts) => json!({
             "os": {
                 "name": "Windows",
+                "release": facts.os_release,
                 "version": facts.os_version,
                 "arch": std::env::consts::ARCH,
             },
