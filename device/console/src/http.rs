@@ -862,7 +862,7 @@ async fn access_sign_in(
         return next.run(request).await;
     }
 
-    let (_session, token) = new_session(&app);
+    let (_session, token) = new_session(&app, "access").await;
     let cookie = format!("{SESSION_COOKIE}={}", hex::encode(&token));
     let combined = match request
         .headers()
@@ -1000,7 +1000,12 @@ async fn operator_from_credentials(
 ///
 /// The file is written here rather than on a timer: a session the operator can use must survive the
 /// next restart, and a session that is not on disk is one a deploy forgets.
-fn new_session(app: &AppState) -> (Session, [u8; 32]) {
+/// Mint a session, persist it, and write the audit line that says how it was bought.
+///
+/// `via` is one of `access`, `token`, `login-link`. The line is written here rather than at each
+/// caller so no future way in can forget it: the audit is where "did the edge deliver the header?"
+/// gets answered, and an answer with holes is not an answer.
+async fn new_session(app: &AppState, via: &'static str) -> (Session, [u8; 32]) {
     let now = (app.now)();
     let token = new_session_token();
     let session = Session {
@@ -1021,6 +1026,7 @@ fn new_session(app: &AppState) -> (Session, [u8; 32]) {
     if let Err(error) = crate::auth::save_sessions(&app.data, &lock(&app.sessions)) {
         eprintln!("summrise-console: the sessions could not be persisted: {error}");
     }
+    app.record("auth", None, StatusCode::OK, Some(via)).await;
     (session, token)
 }
 
@@ -1038,7 +1044,7 @@ async fn authenticate(
     operator_from_credentials(&app, request.code.as_deref(), request.token.as_deref()).await?;
     // A session is a thing that happened. It has no device, so it goes in as `auth` with the
     // detail a reader needs and nothing about the credential itself.
-    let (session, token) = new_session(&app);
+    let (session, token) = new_session(&app, "token").await;
     Ok(Json(AuthResponse {
         token: hex::encode(&token),
         expires_at_ms: session.expires_at_ms,
@@ -1167,7 +1173,7 @@ async fn next_page(
         // A `--login-link` code arrives in the URL, not a form: spending it here is what makes the
         // printed link work on the page it was minted for. The token box stays underneath it.
         if let Some(code) = query.code.as_deref() {
-            return login_with_code(&app, &headers, code);
+            return login_with_code(&app, &headers, code).await;
         }
         let (_, access) = app.identity(&headers);
         let note = access_note(&access, &headers);
@@ -1202,7 +1208,7 @@ async fn next_page(
 ///
 /// The redirect is the point: the code must leave the address bar with the request that spent it,
 /// and a 303 makes the next request a plain `GET /next` carrying the cookie.
-fn login_with_code(app: &AppState, headers: &HeaderMap, code: &str) -> Response {
+async fn login_with_code(app: &AppState, headers: &HeaderMap, code: &str) -> Response {
     if let Err(reason) = crate::store::spend_login_code(&app.data, code, (app.now)()) {
         eprintln!("summrise-console: refused a login code: {reason}");
         let (_, access) = app.identity(headers);
@@ -1216,7 +1222,7 @@ fn login_with_code(app: &AppState, headers: &HeaderMap, code: &str) -> Response 
         )
         .into_response();
     }
-    let (_session, token) = new_session(app);
+    let (_session, token) = new_session(app, "login-link").await;
     let mut response = Redirect::to("/next").into_response();
     response.headers_mut().insert(
         header::SET_COOKIE,
@@ -3085,7 +3091,7 @@ async fn next_login(
         )
             .into_response();
     }
-    let (_session, token) = new_session(&app);
+    let (_session, token) = new_session(&app, "token").await;
     let mut response = Redirect::to("/next").into_response();
     response.headers_mut().insert(
         header::SET_COOKIE,

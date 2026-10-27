@@ -2348,9 +2348,11 @@ async fn the_audit_lists_the_newest_lines_first() {
             json!("grant"),
             json!("register"),
             json!("enroll"),
-            json!("enroll")
+            json!("auth"),
+            json!("enroll"),
+            json!("auth")
         ],
-        "one line per operator action, newest first"
+        "one line per operator action, newest first, sign-ins included"
     );
 }
 
@@ -2591,8 +2593,10 @@ async fn an_operator_mcp_call_is_one_audit_line_without_its_payload() {
     assert_eq!(
         kinds,
         vec![
+            json!("auth"),
             json!("enroll"),
             json!("register"),
+            json!("auth"),
             json!("grant"),
             json!("mcp")
         ],
@@ -2777,7 +2781,11 @@ async fn a_spent_enrollment_code_is_a_denial_with_the_device_id() {
     // is a denial.
     let audit = audit_lines(&fixture);
     let kinds: Vec<Value> = audit.iter().map(|line| line["kind"].clone()).collect();
-    assert_eq!(kinds, vec![json!("enroll"), json!("register")]);
+    assert_eq!(
+        kinds,
+        vec![json!("auth"), json!("enroll"), json!("register")],
+        "the sign-in, then the actions it bought"
+    );
 
     let denied = denial_lines(&fixture).pop().expect("the denial line");
     assert_eq!(denied["kind"], json!("denied"));
@@ -2840,8 +2848,8 @@ async fn a_channel_with_a_bad_device_token_is_a_denial_line() {
     assert_eq!(denied["device_id"], json!(device_id));
     assert_eq!(
         audit_lines(&fixture).len(),
-        2,
-        "the registration's enroll and register lines are the only audit lines"
+        3,
+        "the registration's sign-in, enroll and register lines are the audit lines"
     );
 }
 
@@ -2888,7 +2896,10 @@ async fn the_audit_cap_rotates_to_one_generation_and_discards_the_older_one() {
         for line in text.lines() {
             let value: Value =
                 serde_json::from_str(line).expect("rotation never splits a line from its JSON");
-            assert_eq!(value["kind"], json!("denied"));
+            assert!(
+                value["kind"] == json!("denied") || value["kind"] == json!("auth"),
+                "a generation holds refusals and sign-ins, nothing else: {value}"
+            );
         }
     }
 
@@ -2904,7 +2915,8 @@ async fn the_audit_cap_rotates_to_one_generation_and_discards_the_older_one() {
         "the older generations are discarded, not accumulated: {} lines",
         lines.len()
     );
-    assert_eq!(lines[0]["kind"], json!("denied"));
+    // The newest line is the sign-in this read needed; the refusals sit behind it.
+    assert_eq!(lines[0]["kind"], json!("auth"));
 }
 
 #[tokio::test]
@@ -3061,8 +3073,13 @@ async fn unauthenticated_denials_are_rated_and_cannot_rotate_the_audit() {
 
     // The authenticated index is untouched: one enroll line, no rotation, no denial text.
     let audit = audit_lines(&fixture);
-    assert_eq!(audit.len(), 1, "one authenticated action, one audit line");
-    assert_eq!(audit[0]["kind"], json!("enroll"));
+    assert_eq!(
+        audit.len(),
+        2,
+        "the sign-in and the enroll: authenticated actions, no denial"
+    );
+    assert_eq!(audit[0]["kind"], json!("auth"));
+    assert_eq!(audit[1]["kind"], json!("enroll"));
     assert!(
         !fixture.config.data.join("audit.1.jsonl").exists(),
         "unauthenticated traffic must not rotate the audit"
@@ -3448,6 +3465,62 @@ async fn the_card_is_quiet_on_a_direct_request_when_access_is_configured() {
         !page.contains("Cloudflare Access did not identify"),
         "a direct request must not send the operator to an edge that is not in the path: {page}"
     );
+}
+
+/// Every way in leaves an audit line naming the way, and nothing about the credential. The console
+/// could not previously answer "did the edge deliver the header?" from its own record — a question
+/// that cost an operator an hour when the page fell back to the token box.
+#[tokio::test]
+async fn each_way_in_writes_an_auth_line() {
+    let fixture = Fixture::with_access("auth-audit");
+
+    // 1. Cloudflare Access: a verified assertion and no cookie.
+    let request = Request::builder()
+        .method("GET")
+        .uri("/next")
+        .header(ACCESS_HEADER, access_token(60))
+        .body(Body::empty())
+        .expect("the request builds");
+    send_text(fixture.app(), request).await;
+
+    // 2. The API's token exchange, whose session then reads the log.
+    let session = fixture.authenticate().await;
+
+    // 3. The page's token form.
+    let _ = page_cookie(&fixture).await;
+
+    // 4. A `--login-link` code.
+    let code = LoginCode {
+        code: "f".repeat(64),
+        expires_at_ms: fixture.now_ms() + MINUTE_MS,
+    };
+    summrise_console::write_login_code(&fixture.config.data, &code).expect("the code is written");
+    send_text(
+        fixture.app(),
+        get(&format!("/next?code={}", code.code), None),
+    )
+    .await;
+
+    let (status, rows) = send(fixture.app(), get("/audit", Some(&session))).await;
+    assert_eq!(status, StatusCode::OK, "{rows}");
+    let details: Vec<&str> = rows
+        .as_array()
+        .expect("the audit is a list")
+        .iter()
+        .filter(|row| row["kind"] == "auth")
+        .filter_map(|row| row["detail"].as_str())
+        .collect();
+
+    for way in ["access", "token", "login-link"] {
+        assert!(
+            details.contains(&way),
+            "a {way} sign-in is in the audit: {details:?}"
+        );
+    }
+    // The row names the way in, never the secret it came with.
+    let text = rows.to_string();
+    assert!(!text.contains(&hex(&OPERATOR_TOKEN)), "{text}");
+    assert!(!text.contains(&code.code), "{text}");
 }
 
 /// Presets are operator convenience the console stores, and the terminal page is where they are
