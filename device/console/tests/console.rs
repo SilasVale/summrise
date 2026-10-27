@@ -3658,6 +3658,83 @@ async fn a_saved_connection_is_listed_on_the_terminal_page() {
     assert!(page.contains("10.0.0.5"), "{page}");
 }
 
+/// Reachability is a question an operator asks the device ("can you see X:443?"), and the answer is
+/// a summary in the page's notice slot.
+#[tokio::test]
+async fn the_system_page_can_test_reachability_from_the_device() {
+    let fixture = Fixture::new("system-net-test");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xe5)).await;
+    let (cookie, csrf) = sign_in_to_the_page(&fixture).await;
+
+    let app = fixture.app();
+    let request = post_form_cookie(
+        &format!("/next/system/{device_id}/net"),
+        &[("csrf", &csrf), ("host", "10.0.0.5"), ("port", "443")],
+        &cookie,
+    );
+    let test = tokio::spawn(async move { send_text(app, request).await });
+
+    let frame = next_json(&mut device).await;
+    assert_eq!(
+        frame["mcp"]["params"]["name"],
+        json!("system.net_test"),
+        "{frame}"
+    );
+    assert_eq!(
+        frame["mcp"]["params"]["arguments"]["host"],
+        json!("10.0.0.5")
+    );
+    assert_eq!(frame["mcp"]["params"]["arguments"]["port"], json!(443));
+    answer(
+        &mut device,
+        &frame,
+        json!({
+            "jsonrpc": "2.0", "id": 1,
+            "result": { "content": [{ "type": "text", "text": json!({
+                // The device's own shape: the address that connected, not a boolean.
+                "addresses": ["10.0.0.5:443"], "connected": "10.0.0.5:443", "latency_ms": 3, "error": null
+            }).to_string() }], "isError": false }
+        }),
+    )
+    .await;
+
+    let (status, headers, _) = test.await.expect("the test finishes");
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let location = headers
+        .get(header::LOCATION)
+        .and_then(|value| value.to_str().ok())
+        .expect("a redirect");
+    assert!(location.contains("net="), "{location}");
+    assert!(location.contains("reachable"), "{location}");
+    assert!(
+        location.contains("connected%20to%2010.0.0.5%3A443"),
+        "the summary names the address that answered: {location}"
+    );
+}
+
+/// The form is on the page it acts on, next to the process tools.
+#[tokio::test]
+async fn the_system_page_offers_a_reachability_check() {
+    let fixture = Fixture::new("system-net-form");
+    let (device_id, _) = fixture.register(&signing_key(0xe4)).await;
+    let cookie = page_cookie(&fixture).await;
+
+    let (status, _, page) = send_text(
+        fixture.app(),
+        get_with_cookie(&format!("/next/system/{device_id}"), &cookie),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        page.contains(&format!("/next/system/{device_id}/net")),
+        "{page}"
+    );
+    assert!(page.contains("Test reachability"), "{page}");
+}
+
 /// A restart is behind a second click and reaches `host.restart`; the answer says the device is
 /// coming back rather than pretending the page is unchanged.
 #[tokio::test]

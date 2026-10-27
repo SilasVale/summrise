@@ -2203,6 +2203,27 @@ pub(super) fn system(
             }
         }
         section class="card" {
+            (card_head("Reachability", Markup::default(), Markup::default()))
+            div class="card-body" {
+                p class="lead" {
+                    "Ask this device whether it can reach a host and port — the way to tell a "
+                    "broken target from a broken path to it."
+                }
+                form method="post" action=(format!("{base}/net")) class="form-inline" {
+                    input type="hidden" name="csrf" value=(csrf);
+                    div class="field grow" {
+                        label class="visually-hidden" for="net-host" { "Host" }
+                        input id="net-host" type="text" name="host" placeholder="10.0.0.5 or example.com" required;
+                    }
+                    div class="field" {
+                        label class="visually-hidden" for="net-port" { "Port" }
+                        input id="net-port" type="number" name="port" min="1" max="65535" placeholder="443" required;
+                    }
+                    button type="submit" class="btn" { "Test reachability" }
+                }
+            }
+        }
+        section class="card" {
             (card_head("Lifecycle", Markup::default(), Markup::default()))
             div class="card-body" {
                 p class="lead" {

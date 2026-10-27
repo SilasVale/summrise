@@ -314,6 +314,7 @@ impl Console {
             .route("/next/system/:device", get(next_system_page))
             .route("/next/system/:device/kill", post(next_system_kill))
             .route("/next/system/:device/restart", post(next_system_restart))
+            .route("/next/system/:device/net", post(next_system_net_test))
             // The device's own memory: the entries, an append form, a delete per row.
             .route("/next/memory/:device", get(next_memory_page))
             .route("/next/memory/:device/append", post(next_memory_append))
@@ -2484,6 +2485,8 @@ struct SystemQuery {
     failed: Option<u64>,
     /// `asked` after a successful restart request, or the device's sentence when it refused.
     restart: Option<String>,
+    /// The summary of a reachability test, or the device's sentence when it was refused.
+    net: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -2564,6 +2567,7 @@ async fn next_system_page(
         )),
         _ => None,
     }
+    .or_else(|| query.net.clone())
     .or_else(|| {
         query.restart.as_deref().map(|restart| match restart {
             "asked" => "The device is restarting: it reports itself offline until the launcher \
@@ -2584,6 +2588,68 @@ async fn next_system_page(
         .into_string(),
     )
     .into_response()
+}
+
+#[derive(Deserialize)]
+struct NetTestForm {
+    csrf: String,
+    host: String,
+    port: u16,
+}
+
+/// `POST /next/system/:device/net`: ask the device whether it can reach a host:port.
+///
+/// The answer is a summary, not the raw sample: the page's notice slot is one sentence, and what an
+/// operator asked is "yes or no, and how long".
+async fn next_system_net_test(
+    State(app): State<AppState>,
+    Path(device_id): Path<String>,
+    headers: HeaderMap,
+    Form(form): Form<NetTestForm>,
+) -> Response {
+    if next_session(&app, &headers, Some(&form.csrf)).is_none() {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    if !app.has_device(&device_id) {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+    let host = form.host.trim().to_owned();
+    let uri = format!("/next/system/{device_id}");
+    let target = format!("{host}:{}", form.port);
+    match device_tool(
+        &app,
+        &device_id,
+        "system.net_test",
+        json!({ "host": host, "port": form.port }),
+    )
+    .await
+    {
+        Ok(text) => {
+            let report: Value = serde_json::from_str(&text).unwrap_or(Value::Null);
+            let addresses = report["addresses"]
+                .as_array()
+                .map(|list| list.len())
+                .unwrap_or(0);
+            // The device reports the address that connected, not a boolean: `connected` is a
+            // string on success and null on failure. Reading it as a bool made every success look
+            // like a failure, which is what the live check caught.
+            let summary = match report["connected"].as_str() {
+                Some(address) => format!(
+                    "{target} is reachable — {addresses} address(es), connected to {address} in {} ms",
+                    report["latency_ms"].as_u64().unwrap_or(0)
+                ),
+                None => {
+                    let reason = report["error"].as_str().unwrap_or("no connection");
+                    format!("{target} did not connect: {reason}")
+                }
+            };
+            Redirect::to(&format!("{uri}?net={}", page::encode(&summary))).into_response()
+        }
+        Err(response) => {
+            let sentence = refusal_sentence(*response).await;
+            Redirect::to(&format!("{uri}?net={}", page::encode(&sentence))).into_response()
+        }
+    }
 }
 
 /// `POST /next/system/:device/restart`: restart the app the launcher supervises.
