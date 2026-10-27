@@ -67,7 +67,7 @@ pub struct Draft {
 }
 ```
 
-`Tokens::create` takes the known device set (not a single `bool`), so every id in an aggregate
+`Tokens::create` takes a known-device predicate (not a single `bool`), so every id in an aggregate
 scope is checked. It refuses an empty list, duplicates and unknown ids with distinct errors. The
 record keeps the ids exactly as created; removing a device later does not rewrite a token (the
 removed id is inert), which keeps revocation of a machine independent from token lifetime.

@@ -279,6 +279,30 @@ impl Fixture {
         send(self.app(), post_json_bearer("/tokens", session, body)).await
     }
 
+    /// `POST /tokens` for one aggregate token: an explicit device list, no single device.
+    async fn create_aggregate_token(
+        &self,
+        session: &str,
+        name: &str,
+        device_ids: &[String],
+        tools: &[&str],
+    ) -> (StatusCode, Value) {
+        send(
+            self.app(),
+            post_json_bearer(
+                "/tokens",
+                session,
+                json!({
+                    "name": name,
+                    "device_ids": device_ids,
+                    "tools": tools,
+                    "allow_destructive": false,
+                }),
+            ),
+        )
+        .await
+    }
+
     /// `POST /tokens/:id/rotate`: replace one token's secret, keeping its scope.
     async fn rotate_token(&self, session: &str, id: &str) -> (StatusCode, Value) {
         send(
@@ -3510,6 +3534,36 @@ fn post_token(device_id: &str, token: &str, body: Value) -> Request<Body> {
     )
 }
 
+fn aggregate_request(token: &str, body: Value) -> Request<Body> {
+    Request::builder()
+        .method("POST")
+        .uri("/mcp/all")
+        .header(header::AUTHORIZATION, format!("Bearer {token}"))
+        .header(header::CONTENT_TYPE, "application/json")
+        .header(header::ACCEPT, "application/json")
+        .body(Body::from(body.to_string()))
+        .expect("the aggregate request builds")
+}
+
+async fn aggregate_token_for(
+    fixture: &Fixture,
+    session: &str,
+    ids: &[String],
+    tools: &[&str],
+) -> (String, String) {
+    let (status, created) = fixture
+        .create_aggregate_token(session, "aggregate", ids, tools)
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{created}");
+    (
+        created["id"].as_str().expect("a token id").to_owned(),
+        created["token"]
+            .as_str()
+            .expect("the one-time secret")
+            .to_owned(),
+    )
+}
+
 fn ping_request() -> Value {
     json!({ "jsonrpc": "2.0", "id": 1, "method": "ping" })
 }
@@ -4217,6 +4271,289 @@ async fn a_tool_call_without_a_name_is_a_json_rpc_error_at_http_200() {
 
 /// The create response is the only plaintext; the list and the audit never carry it, and the file
 /// keeps only its hash.
+#[tokio::test]
+async fn an_aggregate_token_is_created_and_listed_without_a_secret() {
+    let fixture = Fixture::new("aggregate-token-create");
+    let session = fixture.authenticate().await;
+    let (a, _) = fixture.register(&signing_key(0x70)).await;
+    let (b, _) = fixture.register(&signing_key(0x71)).await;
+    let (status, created) = fixture
+        .create_aggregate_token(&session, "all", &[a.clone(), b.clone()], &["files.read"])
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{created}");
+    assert_eq!(created["device_ids"], json!([a.clone(), b.clone()]));
+    assert_eq!(created["device_id"], json!(""));
+    assert!(created["token"].as_str().unwrap().starts_with("srm_"));
+
+    let (_, list) = send(fixture.app(), get("/tokens", Some(&session))).await;
+    assert_eq!(list[0]["device_ids"], json!([a, b]));
+    assert!(list[0].get("token").is_none());
+}
+
+#[tokio::test]
+async fn a_token_create_requires_exactly_one_scope() {
+    let fixture = Fixture::new("aggregate-token-scope");
+    let session = fixture.authenticate().await;
+    let (device, _) = fixture.register(&signing_key(0x72)).await;
+    let body = json!({ "name": "x", "tools": ["files.read"] });
+    let (status, _) = send(fixture.app(), post_json_bearer("/tokens", &session, body)).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+
+    let body = json!({
+        "name": "x", "device_id": device, "device_ids": [device], "tools": ["files.read"]
+    });
+    let (status, _) = send(fixture.app(), post_json_bearer("/tokens", &session, body)).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn an_aggregate_token_validates_every_device_in_its_scope() {
+    let fixture = Fixture::new("aggregate-token-validate");
+    let session = fixture.authenticate().await;
+    let (device, _) = fixture.register(&signing_key(0x73)).await;
+    let (status, _) = send(
+        fixture.app(),
+        post_json_bearer(
+            "/tokens",
+            &session,
+            json!({ "name": "x", "device_ids": [], "tools": ["files.read"] }),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "an empty scope is refused");
+
+    let (status, _) = send(
+        fixture.app(),
+        post_json_bearer(
+            "/tokens",
+            &session,
+            json!({ "name": "x", "device_ids": [device.clone(), device], "tools": ["files.read"] }),
+        ),
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::BAD_REQUEST,
+        "a duplicate device is refused"
+    );
+
+    let (status, _) = send(
+        fixture.app(),
+        post_json_bearer(
+            "/tokens",
+            &session,
+            json!({ "name": "x", "device_ids": ["ff".repeat(32)], "tools": ["files.read"] }),
+        ),
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::NOT_FOUND,
+        "an unknown device is refused"
+    );
+}
+
+#[tokio::test]
+async fn an_aggregate_token_lists_tools_with_a_required_device() {
+    let fixture = Fixture::new("aggregate-list");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _device_token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xa7)).await;
+    let session = fixture.authenticate().await;
+    let (_id, token) = aggregate_token_for(&fixture, &session, &[device_id], &["files.read"]).await;
+
+    let http = send(
+        fixture.app(),
+        aggregate_request(
+            &token,
+            json!({"jsonrpc": "2.0", "id": 1, "method": "tools/list"}),
+        ),
+    );
+    let device_side = async {
+        let frame = next_json(&mut device).await;
+        assert_eq!(frame["mcp"]["method"], json!("tools/list"));
+        answer(
+            &mut device,
+            &frame,
+            json!({"jsonrpc": "2.0", "id": 1, "result": {"tools": [{
+                "name": "files.read",
+                "inputSchema": {"type": "object", "properties": {}, "required": []}
+            }]}}),
+        )
+        .await;
+    };
+    let ((status, body), ()) = tokio::join!(http, device_side);
+
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let tool = &body["result"]["tools"][0];
+    assert_eq!(tool["name"], "files.read");
+    assert!(tool["inputSchema"]["required"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|value| value == "device"));
+}
+
+#[tokio::test]
+async fn an_aggregate_call_reaches_the_named_device_and_audits_it() {
+    let fixture = Fixture::new("aggregate-call");
+    let server = TestServer::start(&fixture.console).await;
+    let (a, _ta, _da) = connected_device(&fixture, &server, &signing_key(0xa8)).await;
+    let (b, _tb, mut db) = connected_device(&fixture, &server, &signing_key(0xa9)).await;
+    let session = fixture.authenticate().await;
+    let (token_id, token) =
+        aggregate_token_for(&fixture, &session, &[a.clone(), b.clone()], &["files.read"]).await;
+
+    let http = send(
+        fixture.app(),
+        aggregate_request(
+            &token,
+            json!({
+                "jsonrpc": "2.0", "id": 2, "method": "tools/call",
+                "params": {"name": "files.read", "arguments": {"path": "C:\\x", "device": b.clone()}}
+            }),
+        ),
+    );
+    let device_side = async {
+        let frame = next_json(&mut db).await;
+        assert!(frame["mcp"]["params"]["arguments"].get("device").is_none());
+        assert_eq!(frame["mcp"]["params"]["arguments"]["path"], json!("C:\\x"));
+        answer(
+            &mut db,
+            &frame,
+            json!({"jsonrpc": "2.0", "id": 2, "result": {"content": [{"type": "text", "text": "ok"}]}}),
+        )
+        .await;
+    };
+    let ((status, body), ()) = tokio::join!(http, device_side);
+
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let audit = audit_lines(&fixture);
+    assert!(
+        audit.iter().any(|line| line["kind"] == json!("mcp")
+            && line["device_id"] == json!(b)
+            && line["token_id"] == json!(token_id)),
+        "{audit:?}"
+    );
+}
+
+#[tokio::test]
+async fn an_aggregate_token_cannot_reach_another_device() {
+    let fixture = Fixture::new("aggregate-scope");
+    let server = TestServer::start(&fixture.console).await;
+    let (a, _ta, _da) = connected_device(&fixture, &server, &signing_key(0xaa)).await;
+    let (b, _tb, _db) = connected_device(&fixture, &server, &signing_key(0xab)).await;
+    let (c, _tc, _dc) = connected_device(&fixture, &server, &signing_key(0xac)).await;
+    let session = fixture.authenticate().await;
+    let (_id, token) = aggregate_token_for(&fixture, &session, &[a, b], &["files.read"]).await;
+
+    let (status, body) = send(
+        fixture.app(),
+        aggregate_request(
+            &token,
+            json!({
+                "jsonrpc": "2.0", "id": 3, "method": "tools/call",
+                "params": {"name": "files.read", "arguments": {"path": "C:\\x", "device": c}}
+            }),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+}
+
+#[tokio::test]
+async fn a_device_token_is_refused_on_the_aggregate_route() {
+    let fixture = Fixture::new("aggregate-device-token");
+    let session = fixture.authenticate().await;
+    let (device_id, _) = fixture.register(&signing_key(0xad)).await;
+    let (_, created) = fixture
+        .create_token(&session, &device_id, "one", &["files.read"], false)
+        .await;
+    let token = created["token"].as_str().expect("the secret").to_owned();
+
+    let (status, _) = send(
+        fixture.app(),
+        aggregate_request(&token, json!({"jsonrpc": "2.0", "id": 4, "method": "ping"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn an_aggregate_token_is_refused_on_a_device_route() {
+    let fixture = Fixture::new("aggregate-on-device");
+    let session = fixture.authenticate().await;
+    let (device_id, _) = fixture.register(&signing_key(0xae)).await;
+    let (_id, token) = aggregate_token_for(
+        &fixture,
+        &session,
+        std::slice::from_ref(&device_id),
+        &["files.read"],
+    )
+    .await;
+
+    let (status, _) = send(
+        fixture.app(),
+        post_token(
+            &device_id,
+            &token,
+            json!({"jsonrpc": "2.0", "id": 5, "method": "ping"}),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn an_empty_aggregate_list_is_a_retryable_503() {
+    let fixture = Fixture::new("aggregate-offline");
+    let session = fixture.authenticate().await;
+    let (device_id, _) = fixture.register(&signing_key(0xaf)).await;
+    let (_id, token) = aggregate_token_for(&fixture, &session, &[device_id], &["files.read"]).await;
+
+    let (status, _) = send(
+        fixture.app(),
+        aggregate_request(
+            &token,
+            json!({"jsonrpc": "2.0", "id": 6, "method": "tools/list"}),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+}
+
+#[tokio::test]
+async fn an_aggregate_token_initializes_without_a_device() {
+    let fixture = Fixture::new("aggregate-initialize");
+    let session = fixture.authenticate().await;
+    let (device_id, _) = fixture.register(&signing_key(0xb1)).await;
+    let (_id, token) = aggregate_token_for(
+        &fixture,
+        &session,
+        std::slice::from_ref(&device_id),
+        &["files.read"],
+    )
+    .await;
+
+    let (status, body) = send(
+        fixture.app(),
+        aggregate_request(
+            &token,
+            json!({"jsonrpc": "2.0", "id": 7, "method": "initialize", "params": {}}),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(
+        body["result"]["serverInfo"]["name"],
+        json!("summrise-console")
+    );
+    assert!(body["result"]["instructions"]
+        .as_str()
+        .unwrap()
+        .contains(&device_id));
+}
+
 #[tokio::test]
 async fn a_created_token_is_shown_once_and_only_its_hash_is_stored() {
     let fixture = Fixture::new("token-create");

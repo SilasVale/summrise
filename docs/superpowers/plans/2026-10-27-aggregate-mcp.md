@@ -68,7 +68,7 @@
   pub(crate) fn create(
       &mut self,
       draft: Draft,
-      known_devices: &BTreeSet<String>,
+      known_devices: impl Fn(&str) -> bool,
       now_ms: u64,
   ) -> Result<(TokenMeta, String), TokenError>
   ```
@@ -92,9 +92,8 @@ fn aggregate(ids: &[&str]) -> Draft {
 fn an_aggregate_token_records_every_device_and_never_a_single_device() {
     let data = tempdir("aggregate-scope");
     let mut tokens = Tokens::load(&data).expect("an empty store loads");
-    let known = BTreeSet::from(["a".to_string(), "b".to_string(), "c".to_string()]);
     let (meta, secret) = tokens
-        .create(aggregate(&["a", "b", "c"]), &known, 1_000)
+        .create(aggregate(&["a", "b", "c"]), |_| true, 1_000)
         .expect("an aggregate token is mintable");
     assert!(is_token(&secret));
     assert_eq!(meta.device_id, "");
@@ -105,17 +104,16 @@ fn an_aggregate_token_records_every_device_and_never_a_single_device() {
 fn an_aggregate_token_needs_one_known_unique_device() {
     let data = tempdir("aggregate-validate");
     let mut tokens = Tokens::load(&data).expect("an empty store loads");
-    let known = BTreeSet::from(["a".to_string()]);
     assert!(matches!(
-        tokens.create(aggregate(&[]), &known, 0),
+        tokens.create(aggregate(&[]), |_| true, 0),
         Err(TokenError::EmptyDevices)
     ));
     assert!(matches!(
-        tokens.create(aggregate(&["a", "a"]), &known, 0),
+        tokens.create(aggregate(&["a", "a"]), |_| true, 0),
         Err(TokenError::DuplicateDevice)
     ));
     assert!(matches!(
-        tokens.create(aggregate(&["z"]), &known, 0),
+        tokens.create(aggregate(&["z"]), |_| false, 0),
         Err(TokenError::UnknownDevice)
     ));
 }
@@ -124,9 +122,8 @@ fn an_aggregate_token_needs_one_known_unique_device() {
 fn rotating_an_aggregate_token_keeps_its_scope() {
     let data = tempdir("aggregate-rotate");
     let mut tokens = Tokens::load(&data).expect("an empty store loads");
-    let known = BTreeSet::from(["a".to_string(), "b".to_string()]);
     let (meta, _) = tokens
-        .create(aggregate(&["a", "b"]), &known, 0)
+        .create(aggregate(&["a", "b"]), |_| true, 0)
         .expect("an aggregate token is mintable");
     let (rotated, _) = tokens.rotate(&meta.id, 1).expect("rotation succeeds");
     assert_eq!(rotated.device_ids, Some(vec!["a".into(), "b".into()]));
@@ -146,7 +143,7 @@ Expected: compile errors for `TokenScope`, `Draft.scope`, `Tokens::empty_for_tes
 - In `create`, build `(device_id, device_ids)` from the scope, validate the list (non-empty, no duplicates, every id in `known_devices`), then store both.
 - Map the errors in `http.rs`'s `create_token` (Task 2).
 - Update every existing `Draft { device_id: ... }` construction in tests and `http.rs` to `scope: TokenScope::Device(...)`.
-- Update `Tokens::create` call sites to pass `&BTreeSet<String>`; a test helper may use `BTreeSet::from([...])`.
+- Update `Tokens::create` call sites to pass a `Fn(&str) -> bool`; the HTTP handler resolves the registry once, and tests pass `|_| true` or a narrower predicate.
 - `rotate` clones the record, so it keeps both fields.
 
 - [ ] **Step 4: Run the tests to verify they pass**
@@ -405,7 +402,7 @@ git commit -m "console: the aggregate tool surface names its devices"
       request: Value,
       invalid_params_status: StatusCode,
       filter: Option<&[String]>,
-  ) -> Result<Reply, Response>
+  ) -> Result<Reply, Box<Response>>
   ```
 
 - [ ] **Step 1: Write the failing unit tests**
@@ -537,10 +534,10 @@ async fn an_aggregate_token_lists_tools_with_a_required_device() {
     let device_side = async {
         let frame = next_json(&mut device).await;
         assert_eq!(frame["mcp"]["method"], json!("tools/list"));
-        answer(&mut device, &frame, json!({"tools": [{
+        answer(&mut device, &frame, json!({"jsonrpc": "2.0", "id": 1, "result": {"tools": [{
             "name": "files.read",
             "inputSchema": {"type": "object", "properties": {}, "required": []}
-        }]}))
+        }]}}))
         .await;
     };
     let ((status, body), ()) = tokio::join!(http, device_side);
@@ -573,7 +570,8 @@ async fn an_aggregate_call_reaches_the_named_device_and_audits_it() {
         let frame = next_json(&mut db).await;
         assert!(frame["mcp"]["params"]["arguments"].get("device").is_none());
         assert_eq!(frame["mcp"]["params"]["arguments"]["path"], json!("C:\\x"));
-        answer(&mut db, &frame, json!({"content": [{"type": "text", "text": "ok"}]})).await;
+        answer(&mut db, &frame, json!({"jsonrpc": "2.0", "id": 2,
+            "result": {"content": [{"type": "text", "text": "ok"}]}})).await;
     };
     let ((status, body), ()) = tokio::join!(http, device_side);
 

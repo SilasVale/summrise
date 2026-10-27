@@ -99,7 +99,10 @@ export type Device = {
 export type TokenMeta = {
   id: string;
   name: string;
+  /** Empty on an aggregate token; use `device_ids` for its scope. */
   device_id: string;
+  /** The devices an aggregate token may reach; absent on a device token. */
+  device_ids?: string[];
   tools: string[];
   allow_destructive: boolean;
   created_at_ms: number;

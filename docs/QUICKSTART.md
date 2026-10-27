@@ -55,6 +55,10 @@ list nor the audit can produce it again, so keep it in a secret, not a repositor
 is permanent by default; an optional expiry (1 hour–365 days) can be set at creation, and revocation
 is the only withdrawal for a permanent token ([the scope rules](CONNECT-MCP.md#scope-and-revocation)).
 
+To reach several devices with one client, mint an aggregate token through the API
+(`POST /tokens` with `device_ids`) and point the client at `https://<console>/mcp/all`; every tool
+takes a `device` argument. The page's card still creates one-device tokens.
+
 ## 4. Point the client at the endpoint
 
 The endpoint is the console's MCP route for that device; the device id is on its card (64 lowercase

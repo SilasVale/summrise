@@ -31,7 +31,7 @@ use crate::denials::Denials;
 use crate::devices::{self, Device, DeviceRegistry, RegisterError};
 use crate::grants::{self, GrantEnvelope, GrantError, VerifyError};
 use crate::hex;
-use crate::tokens::{TokenError, TokenMeta, Tokens};
+use crate::tokens::{Token, TokenError, TokenMeta, Tokens};
 
 /// How far a device's clock may be from the console's when it registers: five minutes.
 const REGISTRATION_SKEW_MS: u64 = 5 * 60 * 1000;
@@ -275,6 +275,7 @@ impl Console {
             .route("/tokens/:id", axum::routing::delete(revoke_token))
             .route("/tokens/:id/rotate", post(rotate_token))
             .route("/mcp", post(proxy_mcp))
+            .route("/mcp/all", post(aggregate_mcp))
             .route("/mcp/:id", post(standard_mcp))
             .route("/audit", get(list_audit))
             // The same read as `/audit`, over the unauthenticated-refusal log. Operator-only: the
@@ -1048,7 +1049,12 @@ async fn create_grant(
 #[derive(Deserialize)]
 struct CreateToken {
     name: String,
-    device_id: String,
+    /// One device, for the per-device endpoint. Exactly one of this and `device_ids` is required.
+    #[serde(default)]
+    device_id: Option<String>,
+    /// Several devices, for the aggregate endpoint. Exactly one of this and `device_id` is required.
+    #[serde(default)]
+    device_ids: Option<Vec<String>>,
     tools: Vec<String>,
     /// The operator's explicit consent to destructive tools under this token. Absent means `false`:
     /// consent is a deliberate `true`, never a default.
@@ -1085,17 +1091,44 @@ async fn create_token(
     _: OperatorSession,
     Json(request): Json<CreateToken>,
 ) -> Result<(StatusCode, Json<CreatedToken>), ApiError> {
-    let audit_id = audit_device_id(&request.device_id);
-    let device_known = app.has_device(&request.device_id);
+    // The failure audit names the requested device when the request named one; an aggregate token
+    // names none, so its refusal is a scope fact, not a device fact.
+    let audit_id = request.device_id.as_deref().and_then(audit_device_id);
+    let scope = match (request.device_id, request.device_ids) {
+        (Some(device_id), None) => crate::tokens::TokenScope::Device(device_id),
+        (None, Some(device_ids)) => crate::tokens::TokenScope::Devices(device_ids),
+        (Some(_), Some(_)) => {
+            return Err(app
+                .deny(
+                    audit_id.as_deref(),
+                    ApiError::bad_request("ambiguous_scope"),
+                )
+                .await)
+        }
+        (None, None) => {
+            return Err(app
+                .deny(
+                    audit_id.as_deref(),
+                    ApiError::bad_request("device_required"),
+                )
+                .await)
+        }
+    };
+    // Resolve the registry before taking the token lock: the closure must not hold a second lock.
+    let known: std::collections::BTreeSet<String> = lock(&app.devices)
+        .list()
+        .into_iter()
+        .map(|device| device.id)
+        .collect();
     let created = lock(&app.tokens).create(
         crate::tokens::Draft {
             name: request.name,
-            device_id: request.device_id,
+            scope,
             tools: request.tools,
             allow_destructive: request.allow_destructive,
             expires_in_s: request.expires_in_s,
         },
-        device_known,
+        |id| known.contains(id),
         (app.now)(),
     );
 
@@ -1108,6 +1141,8 @@ async fn create_token(
                 TokenError::EmptyTools => ApiError::bad_request("empty_tools"),
                 TokenError::UnknownTool => ApiError::bad_request("unknown_tool"),
                 TokenError::UnknownDevice => ApiError::not_found("unknown_device"),
+                TokenError::EmptyDevices => ApiError::bad_request("empty_devices"),
+                TokenError::DuplicateDevice => ApiError::bad_request("duplicate_device"),
                 TokenError::TooManyTokens => ApiError::too_many("too_many_tokens"),
                 TokenError::ExpiryTooShort => ApiError::bad_request("expiry_too_short"),
                 TokenError::ExpiryTooLong => ApiError::bad_request("expiry_too_long"),
@@ -1118,9 +1153,10 @@ async fn create_token(
     };
 
     // The consent is an authorization fact, as it is on a grant: a later review must find it.
+    let created_device = (!meta.device_id.is_empty()).then_some(meta.device_id.as_str());
     app.record(
         "token",
-        Some(&meta.device_id),
+        created_device,
         StatusCode::CREATED,
         Some(consent_detail(meta.allow_destructive)),
     )
@@ -1397,18 +1433,13 @@ struct MintedGrant {
 ///
 /// A successful signing also marks the token used, best-effort: the in-memory last use moves on
 /// every exchange, the file at the store's own throttle, and a failed write does not fail this call.
-fn mint_token_grant(
-    app: &AppState,
-    device_id: &str,
-    token: &str,
-) -> Result<MintedGrant, TokenRefusal> {
+fn live_token(app: &AppState, token: &str) -> Result<Token, TokenRefusal> {
     let hash = crate::tokens::hash_token(token);
     let Some(record) = lock(&app.tokens).find_by_hash(&hash) else {
         return Err(TokenRefusal::Unauthenticated("unknown_api_token"));
     };
     // An expired token is a credential failure, checked before the scope: a caller cannot learn
-    // which device it belongs to with a credential that is no longer valid. Nothing is signed,
-    // nothing is marked used, and the existing denial path reports the reason.
+    // which device it belongs to with a credential that is no longer valid.
     let now = (app.now)();
     if record
         .expires_at_ms
@@ -1416,14 +1447,20 @@ fn mint_token_grant(
     {
         return Err(TokenRefusal::Unauthenticated("expired_api_token"));
     }
-    if record.device_id != device_id {
-        return Err(TokenRefusal::ForeignDevice);
-    }
+    Ok(record)
+}
 
+/// Sign a grant from the record's own scope and mark the token used.
+fn sign_token_grant(
+    app: &AppState,
+    record: &Token,
+    device_id: &str,
+) -> Result<MintedGrant, TokenRefusal> {
+    let now = (app.now)();
     let signed = grants::sign(
         &app.grant_key,
         device_id,
-        record.tools,
+        record.tools.clone(),
         crate::tokens::MINTED_GRANT_LIFETIME_S,
         record.allow_destructive,
         now,
@@ -1432,15 +1469,45 @@ fn mint_token_grant(
 
     // The exchange happened, so the record says when. This is after a successful signature for
     // exactly this device: an unknown, revoked, foreign or unmintable token never gets here.
-    lock(&app.tokens).mark_used(&hash, now);
+    lock(&app.tokens).mark_used(&record.hash, now);
 
     Ok(MintedGrant {
         envelope: GrantEnvelope {
             grant: signed.grant,
             signature: hex::encode(&signed.signature.to_bytes()),
         },
-        token_id: record.id,
+        token_id: record.id.clone(),
     })
+}
+
+/// A device token on `/mcp/:id`: one device only, never an aggregate record.
+fn mint_token_grant(
+    app: &AppState,
+    device_id: &str,
+    token: &str,
+) -> Result<MintedGrant, TokenRefusal> {
+    let record = live_token(app, token)?;
+    if record.device_ids.is_some() || record.device_id != device_id {
+        return Err(TokenRefusal::ForeignDevice);
+    }
+    sign_token_grant(app, &record, device_id)
+}
+
+/// An aggregate token on `/mcp/all`: the path is not a device, so the requested device is checked
+/// against the record's list before anything is signed.
+fn mint_aggregate_grant(
+    app: &AppState,
+    device_id: &str,
+    token: &str,
+) -> Result<MintedGrant, TokenRefusal> {
+    let record = live_token(app, token)?;
+    let Some(allowed) = record.device_ids.as_ref() else {
+        return Err(TokenRefusal::Unauthenticated("not_an_aggregate_token"));
+    };
+    if !allowed.iter().any(|id| id == device_id) {
+        return Err(TokenRefusal::ForeignDevice);
+    }
+    sign_token_grant(app, &record, device_id)
 }
 
 /// Forward one MCP exchange to a device and record the authenticated outcome.
@@ -1451,7 +1518,7 @@ fn mint_token_grant(
 /// grant's tool list when the request is `tools/list` on the standard route; the custom route passes
 /// `None` and keeps its unfiltered answer. `token_id` is the permanent token's record id when one
 /// authenticated this exchange, and is written on every line this function records.
-async fn forward(
+async fn proxy_reply(
     app: &AppState,
     device_id: &str,
     grant: &GrantEnvelope,
@@ -1459,7 +1526,7 @@ async fn forward(
     request: Value,
     invalid_params_status: StatusCode,
     filter: Option<&[String]>,
-) -> Response {
+) -> Result<Reply, Box<Response>> {
     let audit_id = audit_device_id(device_id);
     let request_id = request.get("id").cloned().unwrap_or(Value::Null);
     let tool = match requested_tool(&request) {
@@ -1474,13 +1541,13 @@ async fn forward(
                 token_id,
             })
             .await;
-            return jsonrpc_error(
+            return Err(Box::new(jsonrpc_error(
                 invalid_params_status,
                 request_id,
                 -32602,
                 "invalid params: tools/call requires params.name",
                 None,
-            );
+            )));
         }
     };
     let is_tools_list = request.get("method").and_then(Value::as_str) == Some("tools/list");
@@ -1496,13 +1563,13 @@ async fn forward(
                 token_id,
             })
             .await;
-            return jsonrpc_error(
+            return Err(Box::new(jsonrpc_error(
                 StatusCode::FORBIDDEN,
                 request_id,
                 -32001,
                 "tool not permitted by grant",
                 Some(json!({ "tool": tool })),
-            );
+            )));
         }
     }
 
@@ -1540,7 +1607,9 @@ async fn forward(
                 token_id,
             })
             .await;
-            ApiError::gateway_timeout("device timeout").into_response()
+            Err(Box::new(
+                ApiError::gateway_timeout("device timeout").into_response(),
+            ))
         }
         Ok(Err(error)) => {
             let failure = failure_for(error);
@@ -1553,7 +1622,7 @@ async fn forward(
                 token_id,
             })
             .await;
-            failure.into_response()
+            Err(Box::new(failure.into_response()))
         }
         Ok(Ok(mut reply)) => {
             if let (Some(allowed), true) = (filter, is_tools_list) {
@@ -1571,11 +1640,38 @@ async fn forward(
                 token_id,
             })
             .await;
-            match reply {
-                Reply::Result(result) => (StatusCode::OK, Json(result)).into_response(),
-                Reply::Error(error) => (StatusCode::OK, Json(error)).into_response(),
-            }
+            Ok(reply)
         }
+    }
+}
+
+/// Forward one MCP exchange and turn the reply into the HTTP response.
+///
+/// A device `error` envelope is HTTP 200 with the JSON-RPC body unchanged: an MCP client treats a
+/// non-2xx as a transport failure and would lose the error's code and message.
+async fn forward(
+    app: &AppState,
+    device_id: &str,
+    grant: &GrantEnvelope,
+    token_id: Option<&str>,
+    request: Value,
+    invalid_params_status: StatusCode,
+    filter: Option<&[String]>,
+) -> Response {
+    match proxy_reply(
+        app,
+        device_id,
+        grant,
+        token_id,
+        request,
+        invalid_params_status,
+        filter,
+    )
+    .await
+    {
+        Ok(Reply::Result(result)) => (StatusCode::OK, Json(result)).into_response(),
+        Ok(Reply::Error(error)) => (StatusCode::OK, Json(error)).into_response(),
+        Err(response) => *response,
     }
 }
 
@@ -1784,6 +1880,341 @@ async fn standard_mcp(
                 None,
             )
             .await
+        }
+        _ => (
+            StatusCode::OK,
+            Json(crate::mcp::jsonrpc_error_body(
+                id,
+                -32601,
+                "method not found",
+            )),
+        )
+            .into_response(),
+    }
+}
+
+/// Where one `device` argument points inside an aggregate token's scope.
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum DeviceResolution {
+    Resolved(String),
+    OutOfScope,
+    Ambiguous,
+}
+
+/// Resolve the `device` argument against the token's allowed ids and the registered names.
+///
+/// An exact id wins. A name is matched only among the **allowed** devices, so a name that exists
+/// outside the scope is an out-of-scope request, not a hint; a name shared by two allowed devices is
+/// ambiguous rather than resolved by order.
+fn resolve_aggregate_device(
+    allowed: &[String],
+    devices: &[(String, String)],
+    requested: &str,
+) -> DeviceResolution {
+    if allowed.iter().any(|id| id == requested) {
+        return DeviceResolution::Resolved(requested.to_owned());
+    }
+    let matches: Vec<&String> = devices
+        .iter()
+        .filter(|(id, name)| allowed.contains(id) && name == requested)
+        .map(|(id, _)| id)
+        .collect();
+    match matches.as_slice() {
+        [] => DeviceResolution::OutOfScope,
+        [id] => DeviceResolution::Resolved((*id).clone()),
+        _ => DeviceResolution::Ambiguous,
+    }
+}
+
+/// Remove `params.arguments.device` from a `tools/call`, returning it when it is a non-empty string.
+fn take_aggregate_device(request: &mut Value) -> Result<String, ()> {
+    let Some(arguments) = request
+        .get_mut("params")
+        .and_then(|params| params.get_mut("arguments"))
+        .and_then(Value::as_object_mut)
+    else {
+        return Err(());
+    };
+    match arguments.remove("device") {
+        Some(Value::String(device)) if !device.is_empty() => Ok(device),
+        _ => Err(()),
+    }
+}
+
+/// The token's allowed devices that are still registered, as `(id, name)`.
+fn aggregate_devices(app: &AppState, allowed: &[String]) -> Vec<(String, String)> {
+    let devices = lock(&app.devices).list();
+    allowed
+        .iter()
+        .filter_map(|id| {
+            devices
+                .iter()
+                .find(|device| &device.id == id)
+                .map(|device| {
+                    (
+                        device.id.clone(),
+                        device.name.clone().unwrap_or_else(|| "unnamed".to_owned()),
+                    )
+                })
+        })
+        .collect()
+}
+
+/// `POST /mcp/all`: one standard MCP transport for every device an aggregate token names.
+///
+/// The bearer is an aggregate token only. `initialize` names the token's devices, `tools/list` is
+/// answered by the first allowed device that has a channel and its schemas gain the required
+/// `device` property, and `tools/call` resolves that property, strips it, and forwards an ordinary
+/// per-device grant. The device never sees the token.
+async fn aggregate_mcp(State(app): State<AppState>, request: axum::extract::Request) -> Response {
+    let (parts, body) = request.into_parts();
+    let headers = parts.headers;
+
+    if !crate::mcp::content_type_is_json(&headers) {
+        return (
+            StatusCode::UNSUPPORTED_MEDIA_TYPE,
+            Json(json!({ "error": "unsupported_media_type" })),
+        )
+            .into_response();
+    }
+    if !crate::mcp::accept_allows_json(&headers) {
+        return (
+            StatusCode::NOT_ACCEPTABLE,
+            Json(json!({ "error": "not_acceptable" })),
+        )
+            .into_response();
+    }
+
+    let Some(bearer) = crate::mcp::bearer_from_headers(&headers) else {
+        return app
+            .refuse(None, ApiError::unauthorized())
+            .await
+            .into_response();
+    };
+    let token = match bearer {
+        crate::mcp::BearerKind::Token(token) => token,
+        crate::mcp::BearerKind::Grant(_) => {
+            return app
+                .refuse_as(None, ApiError::unauthorized(), "aggregate_requires_token")
+                .await
+                .into_response()
+        }
+    };
+    let record = match live_token(&app, &token) {
+        Ok(record) => record,
+        Err(TokenRefusal::Unauthenticated(detail)) => {
+            return app
+                .refuse_as(None, ApiError::unauthorized(), detail)
+                .await
+                .into_response()
+        }
+        Err(TokenRefusal::ForeignDevice) => {
+            return app
+                .refuse_as(None, ApiError::unauthorized(), "foreign_api_token")
+                .await
+                .into_response()
+        }
+    };
+    let Some(allowed) = record.device_ids.clone() else {
+        return app
+            .refuse_as(None, ApiError::unauthorized(), "not_an_aggregate_token")
+            .await
+            .into_response();
+    };
+
+    // The token is authenticated, so this buffer can only be filled by a caller who proved one.
+    let bytes = match axum::body::to_bytes(body, MAX_STANDARD_MCP_BODY_BYTES).await {
+        Ok(bytes) => bytes,
+        Err(_) => {
+            return (
+                StatusCode::PAYLOAD_TOO_LARGE,
+                Json(json!({ "error": "payload_too_large" })),
+            )
+                .into_response()
+        }
+    };
+    let mut request: Value = match serde_json::from_slice(&bytes) {
+        Ok(request) => request,
+        Err(_) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(crate::mcp::jsonrpc_error_body(
+                    Value::Null,
+                    -32700,
+                    "parse error",
+                )),
+            )
+                .into_response()
+        }
+    };
+    let Some(object) = request.as_object() else {
+        return invalid_protocol_request(Value::Null, "invalid request");
+    };
+    if object.get("jsonrpc").and_then(Value::as_str) != Some("2.0") {
+        return invalid_protocol_request(Value::Null, "invalid request");
+    }
+    let id = object.get("id").cloned().unwrap_or(Value::Null);
+    let Some(method) = object
+        .get("method")
+        .and_then(Value::as_str)
+        .map(str::to_owned)
+    else {
+        return invalid_protocol_request(id, "invalid request");
+    };
+    if object.get("id").is_none() {
+        return StatusCode::ACCEPTED.into_response();
+    }
+
+    match method.as_str() {
+        "initialize" => {
+            let devices = aggregate_devices(&app, &allowed);
+            (
+                StatusCode::OK,
+                Json(crate::mcp::jsonrpc_result(
+                    id,
+                    crate::mcp::aggregate_initialize_result(&devices, &app.version),
+                )),
+            )
+                .into_response()
+        }
+        "ping" => (
+            StatusCode::OK,
+            Json(crate::mcp::jsonrpc_result(id, json!({}))),
+        )
+            .into_response(),
+        "tools/list" => {
+            let Some(device_id) = allowed.iter().find(|id| app.channels.online(id)).cloned() else {
+                return failure_for(RequestError::Offline).into_response();
+            };
+            let granted = match mint_aggregate_grant(&app, &device_id, &token) {
+                Ok(granted) => granted,
+                Err(TokenRefusal::Unauthenticated(detail)) => {
+                    return app
+                        .refuse_as(None, ApiError::unauthorized(), detail)
+                        .await
+                        .into_response()
+                }
+                Err(TokenRefusal::ForeignDevice) => {
+                    return app
+                        .refuse_as(None, ApiError::unauthorized(), "foreign_api_token")
+                        .await
+                        .into_response()
+                }
+            };
+            match proxy_reply(
+                &app,
+                &device_id,
+                &granted.envelope,
+                Some(&granted.token_id),
+                request,
+                StatusCode::OK,
+                Some(&record.tools),
+            )
+            .await
+            {
+                Ok(Reply::Result(mut result)) => {
+                    let devices = aggregate_devices(&app, &allowed);
+                    crate::mcp::add_device_argument(&mut result, &devices);
+                    (StatusCode::OK, Json(result)).into_response()
+                }
+                Ok(Reply::Error(error)) => (StatusCode::OK, Json(error)).into_response(),
+                Err(response) => *response,
+            }
+        }
+        "tools/call" => {
+            let requested = match take_aggregate_device(&mut request) {
+                Ok(device) => device,
+                Err(()) => {
+                    app.record_facts(AuditFacts {
+                        kind: "denied",
+                        device_id: None,
+                        status: StatusCode::BAD_REQUEST,
+                        detail: Some("missing_device"),
+                        tool: None,
+                        token_id: Some(&record.id),
+                    })
+                    .await;
+                    return jsonrpc_error(
+                        StatusCode::BAD_REQUEST,
+                        id,
+                        -32602,
+                        "invalid params: tools/call requires params.arguments.device",
+                        None,
+                    );
+                }
+            };
+            let devices = aggregate_devices(&app, &allowed);
+            match resolve_aggregate_device(&allowed, &devices, &requested) {
+                DeviceResolution::Resolved(device_id) => {
+                    if let Err(error) = ensure_registered(&app, &device_id) {
+                        return app
+                            .deny(audit_device_id(&device_id).as_deref(), error)
+                            .await
+                            .into_response();
+                    }
+                    let granted = match mint_aggregate_grant(&app, &device_id, &token) {
+                        Ok(granted) => granted,
+                        Err(TokenRefusal::Unauthenticated(detail)) => {
+                            return app
+                                .refuse_as(None, ApiError::unauthorized(), detail)
+                                .await
+                                .into_response()
+                        }
+                        Err(TokenRefusal::ForeignDevice) => {
+                            return app
+                                .refuse_as(None, ApiError::unauthorized(), "foreign_api_token")
+                                .await
+                                .into_response()
+                        }
+                    };
+                    forward(
+                        &app,
+                        &device_id,
+                        &granted.envelope,
+                        Some(&granted.token_id),
+                        request,
+                        StatusCode::OK,
+                        None,
+                    )
+                    .await
+                }
+                DeviceResolution::OutOfScope => {
+                    app.record_facts(AuditFacts {
+                        kind: "denied",
+                        device_id: audit_device_id(&requested).as_deref(),
+                        status: StatusCode::FORBIDDEN,
+                        detail: Some("device_not_permitted"),
+                        tool: None,
+                        token_id: Some(&record.id),
+                    })
+                    .await;
+                    jsonrpc_error(
+                        StatusCode::FORBIDDEN,
+                        id,
+                        -32001,
+                        "device not permitted by token",
+                        Some(json!({ "device": requested })),
+                    )
+                }
+                DeviceResolution::Ambiguous => {
+                    app.record_facts(AuditFacts {
+                        kind: "denied",
+                        device_id: None,
+                        status: StatusCode::BAD_REQUEST,
+                        detail: Some("ambiguous_device"),
+                        tool: None,
+                        token_id: Some(&record.id),
+                    })
+                    .await;
+                    jsonrpc_error(
+                        StatusCode::BAD_REQUEST,
+                        id,
+                        -32602,
+                        "ambiguous device name",
+                        Some(json!({ "device": requested })),
+                    )
+                }
+            }
         }
         _ => (
             StatusCode::OK,
@@ -2351,6 +2782,67 @@ mod tests {
                 !response.headers().contains_key(header::RETRY_AFTER),
                 "an unknown or timed-out outcome must not invite a blind retry"
             );
+        }
+    }
+
+    #[test]
+    fn a_device_name_resolves_only_within_the_scope() {
+        let devices = vec![
+            ("a".to_string(), "ALPHA".to_string()),
+            ("b".to_string(), "BETA".to_string()),
+            ("c".to_string(), "GAMMA".to_string()),
+        ];
+        let allowed = vec!["a".to_string(), "b".to_string()];
+        assert_eq!(
+            resolve_aggregate_device(&allowed, &devices, "b"),
+            DeviceResolution::Resolved("b".to_owned())
+        );
+        assert_eq!(
+            resolve_aggregate_device(&allowed, &devices, "BETA"),
+            DeviceResolution::Resolved("b".to_owned())
+        );
+        assert_eq!(
+            resolve_aggregate_device(&allowed, &devices, "GAMMA"),
+            DeviceResolution::OutOfScope
+        );
+        assert_eq!(
+            resolve_aggregate_device(&allowed, &devices, "nope"),
+            DeviceResolution::OutOfScope
+        );
+    }
+
+    #[test]
+    fn a_shared_device_name_is_ambiguous() {
+        let devices = vec![
+            ("a".to_string(), "SAME".to_string()),
+            ("b".to_string(), "SAME".to_string()),
+        ];
+        assert_eq!(
+            resolve_aggregate_device(&["a".into(), "b".into()], &devices, "SAME"),
+            DeviceResolution::Ambiguous
+        );
+        // The same name outside the scope is not a match at all.
+        assert_eq!(
+            resolve_aggregate_device(&["a".into()], &devices, "SAME"),
+            DeviceResolution::Resolved("a".to_owned())
+        );
+    }
+
+    #[test]
+    fn the_aggregate_strips_the_device_before_forwarding() {
+        let mut request = json!({"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+            "params": {"name": "files.read", "arguments": {"path": "C:\\x", "device": "a"}}});
+        assert_eq!(take_aggregate_device(&mut request), Ok("a".to_owned()));
+        assert!(request["params"]["arguments"].get("device").is_none());
+        assert_eq!(request["params"]["arguments"]["path"], json!("C:\\x"));
+    }
+
+    #[test]
+    fn a_missing_or_empty_device_is_refused_before_forwarding() {
+        for arguments in [json!({}), json!({"device": ""}), json!({"device": 7})] {
+            let mut request =
+                json!({"method": "tools/call", "params": {"name": "x", "arguments": arguments}});
+            assert_eq!(take_aggregate_device(&mut request), Err(()));
         }
     }
 }
