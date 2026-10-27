@@ -949,6 +949,8 @@ async fn authenticate(
     Json(request): Json<AuthRequest>,
 ) -> Result<Json<AuthResponse>, ApiError> {
     operator_from_credentials(&app, request.code.as_deref(), request.token.as_deref()).await?;
+    // A session is a thing that happened. It has no device, so it goes in as `auth` with the
+    // detail a reader needs and nothing about the credential itself.
     let (session, token) = new_session(&app);
     Ok(Json(AuthResponse {
         token: hex::encode(&token),
@@ -1053,12 +1055,15 @@ async fn next_page(
         return Html(page::login(None).into_string()).into_response();
     };
     Html(
+        // The fleet is the page an operator lands on; six lines of what the console just did
+        // belong there, read from the same log `/audit` serves.
         page::dashboard(
             &device_views(&app),
             &hex::encode(&session.csrf),
             &app.version,
             query.code.as_deref(),
             query.error.as_deref(),
+            &app.audit.newest(6).await,
         )
         .into_string(),
     )
@@ -1130,8 +1135,14 @@ async fn next_enroll(
     let Some(_session) = next_session(&app, &headers, Some(&form.csrf)) else {
         return StatusCode::FORBIDDEN.into_response();
     };
-    match lock(&app.codes).issue((app.now)()) {
-        Ok((code, _)) => Redirect::to(&format!("/next?code={code}")).into_response(),
+    // The guard ends here: holding it across the audit's await would make the future non-Send.
+    let issued = lock(&app.codes).issue((app.now)());
+    match issued {
+        Ok((code, _)) => {
+            // The same action the API's `/enroll` records: a code exists because someone minted it.
+            app.record("enroll", None, StatusCode::OK, None).await;
+            Redirect::to(&format!("/next?code={code}")).into_response()
+        }
         Err(IssueError::TooMany) => Redirect::to("/next?error=too_many_codes").into_response(),
         Err(IssueError::Storage) => Redirect::to("/next?error=code_storage").into_response(),
     }

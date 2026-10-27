@@ -7657,3 +7657,25 @@ async fn the_terminal_page_lists_the_devices_live_sessions() {
         "the page still carries its CSRF value: {body}"
     );
 }
+
+#[tokio::test]
+async fn the_fleet_shows_the_console_s_own_recent_activity() {
+    let fixture = Fixture::new("fleet-activity");
+    let (cookie, csrf) = sign_in_to_the_page(&fixture).await;
+
+    // A device action lands in the audit log; the fleet page reads the same file `/audit` serves.
+    let (status, _, _) = send_text(
+        fixture.app(),
+        post_form_cookie("/next/enroll", &[("csrf", &csrf)], &cookie),
+    )
+    .await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+
+    let (status, _, body) = send_text(fixture.app(), get_with_cookie("/next", &cookie)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(body.contains("Recent activity"), "the card is on the page");
+    assert!(
+        body.contains("enroll"),
+        "the enrollment is one of the lines: {body}"
+    );
+}

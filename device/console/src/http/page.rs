@@ -803,6 +803,7 @@ pub(super) fn dashboard(
     version: &str,
     code: Option<&str>,
     error: Option<&str>,
+    recent: &[serde_json::Value],
 ) -> Markup {
     let total = devices.len();
     let online = devices.iter().filter(|device| device.online).count();
@@ -917,6 +918,55 @@ pub(super) fn dashboard(
                                                 button type="submit" class="btn btn-sm btn-danger" { "Remove" }
                                             }
                                         }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        @if !recent.is_empty() {
+            section class="card" {
+                // The footer below already links Audit and Denials; a second link here was noise.
+                (card_head(
+                    "Recent activity",
+                    html! { span class="chip muted" { (recent.len()) } },
+                    Markup::default(),
+                ))
+                table class="table" {
+                    thead {
+                        tr {
+                            th { "When" }
+                            th { "Kind" }
+                            th { "Tool" }
+                            th class="num" { "Status" }
+                        }
+                    }
+                    tbody {
+                        @for row in recent {
+                            tr {
+                                td class="nowrap" { (stamp(row["ts_ms"].as_u64().unwrap_or(0))) }
+                                td {
+                                    @if let Some(kind) = row["kind"].as_str() {
+                                        span class="chip muted" { (kind) }
+                                    } @else { span class="muted" { "—" } }
+                                }
+                                td {
+                                    // A tool when the line has one (a device action), otherwise
+                                    // what the line says it was (a sign-in, a channel event).
+                                    @if let Some(tool) = row["tool"].as_str().filter(|tool| !tool.is_empty()) {
+                                        code { (tool) }
+                                    } @else if let Some(detail) = row["detail"].as_str().filter(|detail| !detail.is_empty()) {
+                                        span class="muted" { (detail) }
+                                    } @else { span class="muted" { "—" } }
+                                }
+                                td class="num" {
+                                    @match row["status"].as_u64().unwrap_or(0) {
+                                        0 => { span class="muted" { "—" } },
+                                        status if status >= 500 => { span class="status error" { (status) } },
+                                        status if status >= 400 => { span class="status warn" { (status) } },
+                                        status => { span class="status ok" { (status) } },
                                     }
                                 }
                             }
@@ -2724,7 +2774,7 @@ mod tests {
         vec![
             (
                 "Fleet",
-                dashboard(std::slice::from_ref(device), "00", "0.1.0", None, None),
+                dashboard(std::slice::from_ref(device), "00", "0.1.0", None, None, &[]),
             ),
             ("Fleet", logs(&[], "Audit", "00", "0.1.0")),
             ("Fleet", logs(&[], "Denials", "00", "0.1.0")),
@@ -2812,7 +2862,7 @@ mod tests {
         let offline = view('2', None, false);
         let ids = [online.id.clone(), offline.id.clone()];
         let devices = [online, offline];
-        let page = dashboard(&devices, "00", "0.1.0", None, None).into_string();
+        let page = dashboard(&devices, "00", "0.1.0", None, None, &[]).into_string();
 
         assert!(
             page.contains("2 devices · 1 online"),
@@ -3114,7 +3164,18 @@ mod tests {
         let pages: Vec<(&str, Markup)> = vec![
             (
                 "dashboard",
-                dashboard(&devices, "csrf", "0.3.72", None, None),
+                dashboard(
+                    &devices,
+                    "csrf",
+                    "0.3.72",
+                    None,
+                    None,
+                    &[
+                        serde_json::json!({ "ts_ms": 1_791_000_000_000u64, "kind": "tool", "tool": "runs.exec", "status": 200 }),
+                        serde_json::json!({ "ts_ms": 1_790_999_500_000u64, "kind": "tool", "tool": "system.kill", "status": 403 }),
+                        serde_json::json!({ "ts_ms": 1_790_999_000_000u64, "kind": "device", "tool": "", "status": 0 }),
+                    ],
+                ),
             ),
             (
                 "dashboard-code",
@@ -3124,11 +3185,12 @@ mod tests {
                     "0.3.72",
                     Some(&"9f".repeat(32)),
                     None,
+                    &[],
                 ),
             ),
             (
                 "dashboard-empty",
-                dashboard(&[], "csrf", "0.3.72", None, None),
+                dashboard(&[], "csrf", "0.3.72", None, None, &[]),
             ),
             (
                 "terminal",
@@ -3270,7 +3332,7 @@ mod tests {
     fn the_fleet_row_is_identity_pages_and_one_disclosure() {
         let device = view('a', Some("studio"), true);
         let id = device.id.clone();
-        let page = dashboard(&[device], "00", "0.1.0", None, None).into_string();
+        let page = dashboard(&[device], "00", "0.1.0", None, None, &[]).into_string();
 
         assert!(
             page.contains("aaaaaaaa…"),
@@ -3357,7 +3419,7 @@ mod tests {
             host: None,
             last_attempt: None,
         };
-        let page = dashboard(&[device], "00", "0.3.48", None, None).into_string();
+        let page = dashboard(&[device], "00", "0.3.48", None, None, &[]).into_string();
         assert!(
             page.contains("&lt;script&gt;alert(1)&lt;/script&gt;"),
             "{page}"
