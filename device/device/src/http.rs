@@ -12,10 +12,10 @@ use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use axum::body::Bytes;
-use axum::extract::{ConnectInfo, Query, State};
+use axum::extract::{ConnectInfo, Form, Query, State};
 use axum::http::{header, HeaderMap, StatusCode};
 use axum::middleware;
-use axum::response::{Html, IntoResponse, Response};
+use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
@@ -26,6 +26,7 @@ use summrise_core::{
 use crate::capabilities::{self, terminal};
 use crate::config::{Config, Release};
 use crate::helper;
+use crate::panel;
 use crate::restart;
 use crate::store::{Store, EVENT_TAIL};
 use crate::watchdog;
@@ -75,6 +76,7 @@ fn router_with(
         release: config.release(),
         helper,
         data: config.data.clone(),
+        port: config.port,
         panel_token: mint_panel_token(),
         supervised: config.supervised,
         restart,
@@ -101,6 +103,12 @@ fn router_with(
         // non-loopback peer, so a reverse proxy in front of 127.0.0.1 cannot turn either into a
         // remote read.
         .route("/", get(local_panel))
+        // The same panel, rendered in Rust, one path ahead of the switch: `/` still serves
+        // `panel.html` until a later step flips it.
+        .route("/panel", get(panel_page))
+        // The rendered page has no script for enrollment, so the form posts here. The redirect
+        // carries the outcome; the page renders it as a banner on the next GET.
+        .route("/panel/enroll", post(enroll_from_panel_form))
         .route("/api/panel", get(panel_snapshot))
         // The panel's read-only view of the live terminal sessions. Loopback-only like the page: it
         // names the shell/serial ports a person standing at this machine can already reach.
@@ -138,6 +146,16 @@ fn router_with(
                 (
                     [(header::CONTENT_TYPE, "text/css; charset=utf-8")],
                     PANEL_XTERM_CSS,
+                )
+            }),
+        )
+        // The panel's own terminal glue: create/read/write/resize/close, and nothing else.
+        .route(
+            "/panel/panel-terminal.js",
+            get(|| async {
+                (
+                    [(header::CONTENT_TYPE, "text/javascript; charset=utf-8")],
+                    PANEL_TERMINAL_JS,
                 )
             }),
         )
@@ -234,6 +252,9 @@ struct AppState {
     helper: Option<Arc<helper::Helper>>,
     /// The data directory enrollment writes `console.json` and `console-token.json` under.
     data: PathBuf,
+    /// The port the listener binds. The rendered panel prints the MCP endpoint from it; the page
+    /// cannot ask the browser its origin because the page is built before a browser sees it.
+    port: u16,
     /// This boot's panel token: 64 lowercase hex, minted once when the router is built. It is served
     /// only in the panel's HTML (a meta tag) and never in `/api/panel`, an error body, or a log line.
     panel_token: String,
@@ -275,6 +296,13 @@ impl AppState {
         else {
             return false;
         };
+
+        self.panel_token_matches(presented)
+    }
+
+    /// The same comparison for a token that travelled in the enrollment form instead of a header:
+    /// an HTML form cannot set a custom header, and a cross-site page cannot read the hidden field.
+    fn panel_token_matches(&self, presented: &str) -> bool {
         let Some(presented) = decode_hex_32(presented.trim()) else {
             return false;
         };
@@ -341,6 +369,80 @@ const PANEL_TOKEN_PLACEHOLDER: &str = "__PANEL_TOKEN__";
 /// without a CORS preflight, and this API never grants one.
 const PANEL_TOKEN_HEADER: &str = "x-summrise-panel";
 
+/// The rendered panel's query: the enrollment form's redirect says whether it worked.
+#[derive(Deserialize)]
+struct PanelQuery {
+    enrolled: Option<String>,
+    error: Option<String>,
+}
+
+/// `GET /panel`: the panel rendered from [`panel::PanelFacts`] instead of `panel.html`.
+///
+/// The gate is the same one `GET /` uses — a loopback peer, refused with `loopback_only` — because
+/// the page carries this boot's token. A failed enrollment comes back here as `?error=<code>` and a
+/// successful one as `?enrolled=1`, so the page is always one server-rendered read.
+async fn panel_page(
+    State(app): State<AppState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    Query(query): Query<PanelQuery>,
+) -> Response {
+    if !peer.ip().is_loopback() {
+        return error_response(StatusCode::FORBIDDEN, "loopback_only", None);
+    }
+
+    let facts = panel_facts(&app);
+    let markup = if let Some(error) = query.error {
+        panel::enroll_result(&facts, panel::EnrollOutcome::Failed(error))
+    } else if query.enrolled.as_deref() == Some("1") {
+        panel::enroll_result(&facts, panel::EnrollOutcome::Enrolled)
+    } else {
+        panel::page(&facts)
+    };
+
+    Html(markup.into_string()).into_response()
+}
+
+/// Read every fact the rendered panel shows, from the same sources `/api/panel` reads. One read
+/// per request: a browser reload is a fresh look at the machine, and nothing is cached in between.
+fn panel_facts(app: &AppState) -> panel::PanelFacts {
+    let state = app
+        .store
+        .load()
+        .ok()
+        .and_then(|state| serde_json::to_value(state).ok());
+    // A failure to read the log prints the same "no events" line the HTML page printed for a null
+    // tail; the difference is not a fact the page has ever shown.
+    let events = app.store.tail_events(EVENT_TAIL).unwrap_or_default();
+    let sessions = app
+        .terminal
+        .list()
+        .into_iter()
+        .map(|session| panel::SessionFacts {
+            kind: session.kind.as_str().to_owned(),
+            shell: session.shell,
+            id: session.id.as_str().to_owned(),
+        })
+        .collect();
+    let data_dir = app.data.display().to_string();
+    let (token_file, token_command) = panel::token_facts(&data_dir);
+
+    panel::PanelFacts {
+        version: app.release.version.clone(),
+        channel: app.release.channel.clone(),
+        sha256: app.release.sha256.clone(),
+        pid: std::process::id(),
+        data_dir,
+        mcp_endpoint: format!("http://127.0.0.1:{}/mcp", app.port),
+        token_file,
+        token_command,
+        state,
+        events,
+        console_attempt: crate::console::last_attempt(),
+        sessions,
+        panel_token: app.panel_token.clone(),
+    }
+}
+
 /// 32 bytes from the operating system's generator, as lowercase hex: the same shape the helper's and
 /// the console's tokens have, and for the same reason — a token that is guessable is not a token.
 fn mint_panel_token() -> String {
@@ -395,6 +497,9 @@ async fn panel_snapshot(
 const PANEL_XTERM_JS: &str = include_str!("../assets/xterm.js");
 const PANEL_XTERM_CSS: &str = include_str!("../assets/xterm.css");
 const PANEL_XTERM_FIT: &str = include_str!("../assets/addon-fit.js");
+/// The panel's own terminal glue, kept apart from the emulator: this is the file that speaks
+/// `/api/terminal/*` and knows the page's element ids.
+const PANEL_TERMINAL_JS: &str = include_str!("../assets/panel-terminal.js");
 
 /// `GET /api/terminal`: the live terminal sessions, read-only, for the panel's list.
 async fn panel_terminal(
@@ -661,6 +766,104 @@ async fn enroll_from_panel(
         }
         // The operator reads the device's own sentence; the panel invents none.
         Err(error) => sentence_response(StatusCode::BAD_REQUEST, &error.to_string()),
+    }
+}
+
+/// The rendered panel's enrollment form. A browser form cannot set the JSON route's header, so the
+/// token travels in a hidden field; `force` and `allow_plaintext` are checkboxes, whose submitted
+/// value is `on` (or absent), not a JSON boolean.
+#[derive(Deserialize)]
+struct PanelEnrollForm {
+    /// Optional so a missing field is the page's `usage` banner, not axum's plain 422: every
+    /// failure of this form has a redirect to explain it.
+    console_url: Option<String>,
+    code: Option<String>,
+    force: Option<String>,
+    allow_plaintext: Option<String>,
+    /// This boot's panel token, rendered into the form. A cross-site page cannot read it.
+    panel_token: Option<String>,
+}
+
+/// `POST /panel/enroll`: the form half of `/api/enroll`, with the same gates and the same
+/// [`crate::enroll::enroll`] call. The answer is a redirect, not a body, so a reload cannot repeat
+/// the write and the page remains a server-rendered read.
+async fn enroll_from_panel_form(
+    State(app): State<AppState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+    Form(form): Form<PanelEnrollForm>,
+) -> Response {
+    if !peer.ip().is_loopback() {
+        return error_response(StatusCode::FORBIDDEN, "loopback_only", None);
+    }
+    let authorized = app.panel_authorized(&headers)
+        || form
+            .panel_token
+            .as_deref()
+            .is_some_and(|presented| app.panel_token_matches(presented));
+    if !authorized {
+        return error_response(StatusCode::FORBIDDEN, "unauthorized", None);
+    }
+
+    let console_url = form.console_url.as_deref().unwrap_or("").trim().to_owned();
+    let code = form.code.as_deref().unwrap_or("").trim().to_owned();
+    if console_url.is_empty() || code.is_empty() {
+        return Redirect::to("/panel?error=usage").into_response();
+    }
+
+    let invocation = crate::enroll::EnrollInvocation {
+        console_url,
+        code,
+        data: app.data.clone(),
+        force: checked(form.force.as_deref()),
+        allow_plaintext: checked(form.allow_plaintext.as_deref()),
+    };
+    match crate::enroll::enroll(&invocation).await {
+        Ok(_) => {
+            // The answer is built before the hook is asked, exactly like `/api/enroll`: the hook's
+            // delay is what lets the browser receive the redirect and issue the follow-up GET.
+            let restarting = app.supervised;
+            let response = Redirect::to("/panel?enrolled=1").into_response();
+            if restarting {
+                (app.restart)();
+            }
+            response
+        }
+        Err(error) => {
+            Redirect::to(&format!("/panel?error={}", enroll_error_code(&error))).into_response()
+        }
+    }
+}
+
+/// A checkbox's form value: present and not an explicit off value. The page submits `on`; `0` and
+/// `false` are the spellings a hand-written client might send.
+fn checked(value: Option<&str>) -> bool {
+    value.is_some_and(|value| {
+        let value = value.trim();
+        !value.is_empty() && value != "0" && !value.eq_ignore_ascii_case("false")
+    })
+}
+
+/// The stable code a failed form enrollment redirects with. The page maps the code to a sentence;
+/// `/api/enroll` keeps returning `EnrollError`'s own Display text unchanged.
+fn enroll_error_code(error: &crate::enroll::EnrollError) -> &'static str {
+    use crate::enroll::EnrollError;
+
+    match error {
+        EnrollError::Bootstrap(_) => "bootstrap",
+        EnrollError::Usage => "usage",
+        EnrollError::BadUrl(_) => "bad_url",
+        EnrollError::DataDir { .. } => "data_dir",
+        EnrollError::Identity(_) => "identity",
+        EnrollError::Console { .. } => "console_unreachable",
+        EnrollError::Status { .. } => "console_status",
+        EnrollError::Refused { .. } => "console_refused",
+        EnrollError::BadResponse { .. } => "bad_response",
+        EnrollError::ConsoleFile { .. } => "console_file",
+        EnrollError::TokenConflict { .. } => "token_conflict",
+        EnrollError::Write { .. } => "write",
+        #[cfg(windows)]
+        EnrollError::Protect { .. } => "protect",
     }
 }
 
@@ -2252,6 +2455,275 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn the_rust_panel_renders_the_facts_the_html_page_shows() {
+        let mut fixture = fixture_with_release(
+            "panel-rust-page",
+            None,
+            Some("2.0.3"),
+            Some("b1946ac92492d2347c6235b4d2611184"),
+            Some(Channel::Stable),
+        );
+        fixture.config.port = 18_080;
+        fixture.saved_state();
+        let client = client();
+        let server = PanelServer::start(fixture.app()).await;
+
+        let (status, html) = get_text(&client, &format!("{}/panel", server.base_url)).await;
+        assert_eq!(status, StatusCode::OK);
+        let token = panel_meta(&html).expect("GET /panel carries the panel token meta tag");
+        assert_eq!(token.len(), 64, "the token is 32 bytes as hex: {token}");
+
+        for fact in [
+            "2.0.3",
+            "stable",
+            "b1946ac92492d2347c6235b4d2611184",
+            "http://127.0.0.1:18080/mcp",
+            "Use this machine",
+            "Console link",
+            "Recent events",
+            "schema",
+            "lastVerdict",
+            "<title>Summrise — this machine</title>",
+        ] {
+            assert!(
+                html.contains(fact),
+                "{fact:?} is missing from /panel: {html}"
+            );
+        }
+        assert!(
+            html.contains("pid "),
+            "the build section prints the process: {html}"
+        );
+        assert!(
+            html.contains(&format!(
+                "cat &quot;{}/token&quot;",
+                fixture.config.data.display()
+            )),
+            "the read command names the token file: {html}"
+        );
+        assert!(html.contains(r#"action="/panel/enroll""#));
+        assert!(html.contains(r#"name="panel_token""#));
+
+        // A live session is read from the same registry `/api/terminal` reads, and the page is
+        // rendered at request time rather than cached: one created after the first GET shows up.
+        let response = client
+            .post(format!("{}/api/terminal/create", server.base_url))
+            .header("x-summrise-panel", &token)
+            .header("content-type", "application/json")
+            .body(json!({ "kind": "pty" }).to_string())
+            .send()
+            .await
+            .expect("the device answers");
+        assert_eq!(response.status(), StatusCode::OK);
+        let created: Value =
+            serde_json::from_str(&response.text().await.expect("the create answer is text"))
+                .expect("the create answer is JSON");
+        let id = created["id"].as_str().expect("a session id").to_owned();
+
+        let (status, html) = get_text(&client, &format!("{}/panel", server.base_url)).await;
+        assert_eq!(status, StatusCode::OK);
+        let start = html
+            .find("Terminal sessions")
+            .expect("the sessions section");
+        let end = start + html[start..].find("Build").expect("the build section");
+        let sessions = &html[start..end];
+        assert!(
+            sessions.contains(&id) && sessions.contains("pty"),
+            "the live session is in its section: {sessions}"
+        );
+
+        let _ = client
+            .post(format!("{}/api/terminal/{id}/close", server.base_url))
+            .header("x-summrise-panel", &token)
+            .send()
+            .await;
+    }
+
+    #[tokio::test]
+    async fn the_rust_panel_refuses_a_non_loopback_peer() {
+        let fixture = fixture("panel-rust-non-loopback", None);
+        let app = fixture.app();
+        let remote = SocketAddr::from(([203, 0, 113, 10], 40_123));
+
+        let mut request = get("/panel", None);
+        request.extensions_mut().insert(ConnectInfo(remote));
+        let (status, answer) = send(app.clone(), request).await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+        assert_eq!(
+            answer,
+            json!({ "error": "loopback_only" }),
+            "the rendered page carries the token, so a remote peer gets no page"
+        );
+
+        let mut request = Request::builder()
+            .method("POST")
+            .uri("/panel/enroll")
+            .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+            .body(Body::from(
+                "console_url=http%3A%2F%2F127.0.0.1%3A1&code=a&panel_token=b",
+            ))
+            .expect("the request builds");
+        request.extensions_mut().insert(ConnectInfo(remote));
+        let (status, answer) = send(app, request).await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+        assert_eq!(answer, json!({ "error": "loopback_only" }));
+    }
+
+    #[tokio::test]
+    async fn the_panel_enroll_form_redirects_with_the_outcome() {
+        let fixture = fixture("panel-form-enroll", None);
+        let console = MockConsole::start().await;
+        let client = reqwest::Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .expect("a client that leaves the redirect visible");
+        let server = PanelServer::start(fixture.app()).await;
+        let (status, html) = get_text(&client, &format!("{}/panel", server.base_url)).await;
+        assert_eq!(status, StatusCode::OK);
+        let token = panel_meta(&html).expect("the form carries this boot's token");
+        let code = "a".repeat(64);
+
+        // A form with the wrong hidden token must not reach the console.
+        let wrong = format!(
+            "{}{}",
+            if token.starts_with('0') { '1' } else { '0' },
+            &token[1..]
+        );
+        let response = client
+            .post(format!("{}/panel/enroll", server.base_url))
+            .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+            .body(format!(
+                "console_url={}&code={code}&panel_token={wrong}",
+                console.base_url
+            ))
+            .send()
+            .await
+            .expect("the device answers");
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        assert!(
+            console.requests().is_empty(),
+            "a form without this boot's token writes nothing and sends nothing"
+        );
+
+        let response = client
+            .post(format!("{}/panel/enroll", server.base_url))
+            .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+            .body(format!(
+                "console_url={}&code={code}&panel_token={token}",
+                console.base_url
+            ))
+            .send()
+            .await
+            .expect("the device answers");
+        assert_eq!(response.status(), StatusCode::SEE_OTHER);
+        assert_eq!(
+            response
+                .headers()
+                .get(header::LOCATION)
+                .and_then(|value| value.to_str().ok()),
+            Some("/panel?enrolled=1")
+        );
+        assert_eq!(console.requests().len(), 1, "the real enrollment ran");
+
+        let (status, page) =
+            get_text(&client, &format!("{}/panel?enrolled=1", server.base_url)).await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(page.contains(r#"class="enroll-status ok""#));
+        assert!(page.contains("Enrolled."));
+
+        // A second enrollment is a conflict until the form's force box is ticked; the redirect says
+        // which code the page should explain.
+        let response = client
+            .post(format!("{}/panel/enroll", server.base_url))
+            .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+            .body(format!(
+                "console_url={}&code={}&panel_token={token}",
+                console.base_url,
+                "b".repeat(64)
+            ))
+            .send()
+            .await
+            .expect("the device answers");
+        assert_eq!(response.status(), StatusCode::SEE_OTHER);
+        assert_eq!(
+            response
+                .headers()
+                .get(header::LOCATION)
+                .and_then(|value| value.to_str().ok()),
+            Some("/panel?error=token_conflict")
+        );
+
+        let (status, page) = get_text(
+            &client,
+            &format!("{}/panel?error=token_conflict", server.base_url),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(page.contains(r#"class="enroll-status error""#));
+        assert!(page.contains("Enrolment failed (token_conflict)"));
+        assert!(page.contains("a console token already exists"));
+
+        // The force checkbox is a form field, not a JSON boolean: `on` must reach `enroll`'s force.
+        let response = client
+            .post(format!("{}/panel/enroll", server.base_url))
+            .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+            .body(format!(
+                "console_url={}&code={}&force=on&allow_plaintext=on&panel_token={token}",
+                console.base_url,
+                "c".repeat(64)
+            ))
+            .send()
+            .await
+            .expect("the device answers");
+        assert_eq!(response.status(), StatusCode::SEE_OTHER);
+        assert_eq!(
+            response
+                .headers()
+                .get(header::LOCATION)
+                .and_then(|value| value.to_str().ok()),
+            Some("/panel?enrolled=1"),
+            "force rotates the existing enrollment"
+        );
+        assert_eq!(
+            console.requests().len(),
+            2,
+            "the checked boxes reach the real enrollment"
+        );
+
+        // A field the form needs but did not carry is still a redirect, so the page can explain it.
+        let response = client
+            .post(format!("{}/panel/enroll", server.base_url))
+            .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+            .body(format!("panel_token={token}"))
+            .send()
+            .await
+            .expect("the device answers");
+        assert_eq!(response.status(), StatusCode::SEE_OTHER);
+        assert_eq!(
+            response
+                .headers()
+                .get(header::LOCATION)
+                .and_then(|value| value.to_str().ok()),
+            Some("/panel?error=usage")
+        );
+        assert_eq!(
+            console.requests().len(),
+            2,
+            "an incomplete form never reaches the console"
+        );
+    }
+
+    #[test]
+    fn a_checkbox_is_true_when_present_and_false_when_absent() {
+        assert!(!checked(None));
+        assert!(!checked(Some("")));
+        assert!(!checked(Some("0")));
+        assert!(!checked(Some("false")));
+        assert!(checked(Some("on")));
+        assert!(checked(Some("1")));
+    }
+
+    #[tokio::test]
     async fn the_panel_serves_its_own_terminal_assets() {
         // The terminal is xterm now, embedded in this binary; a build without the assets is a page
         // whose terminal never opens. These are the three routes the page asks for.
@@ -2268,6 +2740,11 @@ mod tests {
                 "FitAddon",
             ),
             ("/panel/xterm.css", "text/css; charset=utf-8", "xterm"),
+            (
+                "/panel/panel-terminal.js",
+                "text/javascript; charset=utf-8",
+                "term-host",
+            ),
         ] {
             let response = fixture
                 .app()

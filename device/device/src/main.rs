@@ -28,6 +28,7 @@ mod identity;
 mod lock;
 mod mcp;
 mod mesh;
+mod panel;
 mod remote;
 mod restart;
 mod store;

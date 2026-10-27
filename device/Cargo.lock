@@ -4842,6 +4842,7 @@ dependencies = [
  "base64 0.22.1",
  "ed25519-dalek",
  "futures-util",
+ "maud",
  "nix 0.25.1",
  "portable-pty",
  "rand_core 0.6.4",
