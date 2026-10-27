@@ -230,6 +230,19 @@ img.capture.thumb { max-height:360px; }
 
 /* ---- terminal: the one canvas that fills instead of scrolling ---- */
 body.terminal .content { display:flex; flex-direction:column; min-height:0; overflow:hidden; padding:16px max(20px, calc((100% - 1180px) / 2)) 18px; }
+.with-rail { flex:1; display:flex; gap:16px; align-items:stretch; min-height:0; }
+.context-rail { flex:0 0 244px; display:flex; flex-direction:column; gap:10px; padding:14px; background:var(--panel); border:1px solid var(--line); border-radius:12px; }
+.rail-head { display:flex; align-items:center; justify-content:space-between; }
+.rail-head h2 { margin:0; }
+.rail-note { margin:0; color:var(--muted); font-size:12.5px; }
+.session-list { list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:4px; }
+.session-list a { display:flex; align-items:center; gap:10px; padding:8px 9px; border-radius:8px; text-decoration:none; color:var(--ink); }
+.session-list a:hover { background:var(--hover); }
+.session-body { display:flex; flex-direction:column; min-width:0; }
+.session-kind { flex:none; font-size:10.5px; text-transform:uppercase; letter-spacing:0.07em; color:var(--muted); background:var(--surface-chip); border-radius:5px; padding:2px 5px; }
+.session-body code { font-size:12.5px; background:none; padding:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.session-age { font-size:11.5px; color:var(--faint); }
+.rail-action { margin-top:auto; }
 .terminal-card { flex:1; min-height:0; display:flex; flex-direction:column; overflow:hidden; border:1px solid var(--line); border-radius:var(--radius); background:var(--panel); box-shadow:var(--shadow); }
 .terminal-toolbar { flex:none; display:flex; flex-wrap:wrap; align-items:center; gap:8px; padding:8px 10px; border-bottom:1px solid var(--line); background:var(--panel); }
 .terminal-form { display:flex; flex-wrap:wrap; align-items:center; gap:8px; }
@@ -953,8 +966,45 @@ pub(super) fn logs(rows: &[serde_json::Value], title: &str, csrf: &str, version:
 /// canvas. The device id and this session's CSRF value ride in data attributes, not in the URL or a
 /// cookie the script reads: the session cookie is `HttpOnly`, so the page cannot leak what it
 /// cannot see.
-pub(super) fn terminal(device: &DeviceView, csrf: &str, version: &str) -> Markup {
+/// One live terminal session on the device, as the rail lists it.
+pub(super) struct TerminalSession {
+    pub(super) id: String,
+    pub(super) kind: String,
+    pub(super) started_at_ms: u64,
+}
+
+pub(super) fn terminal(
+    device: &DeviceView,
+    csrf: &str,
+    version: &str,
+    sessions: &[TerminalSession],
+) -> Markup {
     let content = html! {
+        div class="with-rail" {
+            aside class="context-rail" {
+                div class="rail-head" {
+                    h2 { "Sessions" }
+                    @if !sessions.is_empty() { span class="chip" { (sessions.len()) } }
+                }
+                @if sessions.is_empty() {
+                    p class="rail-note" { "No live session on this device." }
+                } @else {
+                    ul class="session-list" {
+                        @for session in sessions {
+                            li {
+                                a href=(format!("?attach={}", encode(&session.id))) title=(format!("open {} · started {}", session.id, stamp(session.started_at_ms))) {
+                                    span class="session-kind" { (&session.kind) }
+                                    span class="session-body" {
+                                        code { (&session.id) }
+                                        span class="session-age" { "since " (clock(session.started_at_ms)) }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                a class="btn btn-ghost btn-sm rail-action" href=(format!("/next/terminal/{}", device.id)) { "Refresh" }
+            }
         div class="terminal-card" {
             div class="terminal-toolbar" {
                 form id="terminal-form" class="terminal-form" {
@@ -1004,9 +1054,14 @@ pub(super) fn terminal(device: &DeviceView, csrf: &str, version: &str) -> Markup
             div id="terminal-panes" class="panes" {
                 div class="terminal-empty" {
                     div class="empty-icon" aria-hidden="true" { (Page::Terminal.icon()) }
-                    p { "No session yet — choose a kind and start one." }
+                    @if sessions.is_empty() {
+                        p { "No session yet — choose a kind and start one." }
+                    } @else {
+                        p { "Pick a session on the left to attach, or start a new one." }
+                    }
                 }
                 div id="terminal" data-device=(device.id) data-csrf=(csrf) hidden {}
+            }
             }
         }
     };
@@ -1038,6 +1093,16 @@ pub(super) struct FileEntry {
 }
 
 /// Percent-encode a query value. `/` stays readable because a path is the value most of the time.
+/// The time of day a rail row shows: UTC, no date, because the rail is about "since when" rather
+/// than "which day". The full stamp is in the row's tooltip.
+fn clock(ms: u64) -> String {
+    let stamp = stamp(ms);
+    match stamp.split_once(' ') {
+        Some((_, rest)) => rest.to_owned(),
+        None => stamp,
+    }
+}
+
 pub(super) fn encode(value: &str) -> String {
     let mut out = String::new();
     for byte in value.as_bytes() {
@@ -2406,7 +2471,7 @@ mod tests {
             ),
             ("Fleet", logs(&[], "Audit", "00", "0.1.0")),
             ("Fleet", logs(&[], "Denials", "00", "0.1.0")),
-            ("Terminal", terminal(device, "00", "0.1.0")),
+            ("Terminal", terminal(device, "00", "0.1.0", &[])),
             ("Files", files(device, "", &[], "00", "0.1.0", None)),
             (
                 "Files",
@@ -2520,9 +2585,39 @@ mod tests {
     }
 
     #[test]
+    fn the_terminal_rail_lists_the_devices_live_sessions() {
+        let device = view('1', Some("studio"), true);
+        let sessions = [
+            TerminalSession {
+                id: "session-3".to_owned(),
+                kind: "pty".to_owned(),
+                started_at_ms: 1_791_000_000_000,
+            },
+            TerminalSession {
+                id: "session-7".to_owned(),
+                kind: "ssh".to_owned(),
+                started_at_ms: 1_791_000_500_000,
+            },
+        ];
+        let page = terminal(&device, "00", "0.1.0", &sessions).into_string();
+        assert!(page.contains("class=\"context-rail\""), "{page}");
+        assert!(
+            page.contains("?attach=session-3"),
+            "a rail row attaches: {page}"
+        );
+        assert!(page.contains("?attach=session-7"), "{page}");
+        assert!(page.contains(">pty<") && page.contains(">ssh<"), "{page}");
+
+        // An empty device says so rather than showing an empty rail.
+        let empty = terminal(&device, "00", "0.1.0", &[]).into_string();
+        assert!(empty.contains("No live session on this device"), "{empty}");
+        assert!(!empty.contains("?attach="), "{empty}");
+    }
+
+    #[test]
     fn the_terminal_page_keeps_its_form_and_tabs() {
         let device = view('1', Some("studio"), true);
-        let page = terminal(&device, "ab".repeat(32).as_str(), "0.1.0").into_string();
+        let page = terminal(&device, "ab".repeat(32).as_str(), "0.1.0", &[]).into_string();
 
         for marker in [
             "id=\"terminal-form\"",
@@ -2778,7 +2873,26 @@ mod tests {
                 "dashboard-empty",
                 dashboard(&[], "csrf", "0.3.72", None, None),
             ),
-            ("terminal", terminal(&devices[0], "csrf", "0.3.72")),
+            (
+                "terminal",
+                terminal(
+                    &devices[0],
+                    "csrf",
+                    "0.3.72",
+                    &[
+                        TerminalSession {
+                            id: "session-3".to_owned(),
+                            kind: "pty".to_owned(),
+                            started_at_ms: 1_791_000_000_000,
+                        },
+                        TerminalSession {
+                            id: "session-7".to_owned(),
+                            kind: "ssh".to_owned(),
+                            started_at_ms: 1_791_000_500_000,
+                        },
+                    ],
+                ),
+            ),
             (
                 "files",
                 files(&devices[0], "", &entries, "csrf", "0.3.72", None),
@@ -2934,7 +3048,7 @@ mod tests {
     #[test]
     fn the_terminal_has_an_empty_state_and_a_close_control() {
         let device = view('1', Some("studio"), true);
-        let page = terminal(&device, "00", "0.1.0").into_string();
+        let page = terminal(&device, "00", "0.1.0", &[]).into_string();
         assert!(
             page.contains("No session yet — choose a kind and start one"),
             "the empty state explains the canvas: {page}"

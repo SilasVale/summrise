@@ -83,7 +83,13 @@ async function readLoop(session) {
       say(String(error.message || error));
       return;
     }
-    if (answer.data) session.term.write(answer.data);
+    // The device answers both the lossy text (`data`) and the bytes (`data_base64`): a multi-byte
+    // character split by the poll boundary is U+FFFD in the text and intact in the bytes.
+    if (answer.data_base64) {
+      session.term.write(Uint8Array.from(atob(answer.data_base64), (c) => c.charCodeAt(0)));
+    } else if (answer.data) {
+      session.term.write(answer.data);
+    }
     session.cursor = answer.cursor;
     if (!answer.alive) {
       say("the session ended");
@@ -213,6 +219,17 @@ form.addEventListener("submit", (event) => {
     })
     .catch((error) => say(String(error.message || error)));
 });
+
+// `?attach=<id>` opens a session that already exists (the rail's links). Reading from cursor 0
+// replays what the session has retained, which is what an operator expects when they click in.
+function attachFromQuery() {
+  const id = new URLSearchParams(window.location.search).get("attach");
+  if (!id) return;
+  addSession({ id, kind: "session", shell: id.slice(0, 10) }, id.slice(0, 10));
+  say(`attached to ${id}`);
+}
+
+attachFromQuery();
 
 window.addEventListener("resize", () => {
   if (active && sessions.has(active)) sessions.get(active).fit.fit();

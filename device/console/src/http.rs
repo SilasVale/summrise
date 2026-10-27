@@ -1331,8 +1331,37 @@ async fn next_terminal_page(
     else {
         return StatusCode::NOT_FOUND.into_response();
     };
-    Html(page::terminal(&device, &hex::encode(&session.csrf), &app.version).into_string())
-        .into_response()
+    // The rail's sessions are a snapshot: the page is server-rendered, and a reload is the refresh.
+    // A device that cannot answer gets an empty rail rather than an error page — the terminal itself
+    // reports the failure when the operator starts a session.
+    let sessions: Vec<page::TerminalSession> =
+        match device_tool(&app, &device_id, "terminal.list", json!({})).await {
+            Ok(text) => serde_json::from_str::<Value>(&text)
+                .ok()
+                .and_then(|value| {
+                    value.as_array().map(|rows| {
+                        rows.iter()
+                            .map(|row| page::TerminalSession {
+                                id: row["id"].as_str().unwrap_or_default().to_owned(),
+                                kind: row["kind"].as_str().unwrap_or_default().to_owned(),
+                                started_at_ms: row["started_at_ms"].as_u64().unwrap_or(0),
+                            })
+                            .collect()
+                    })
+                })
+                .unwrap_or_default(),
+            Err(_) => Vec::new(),
+        };
+    Html(
+        page::terminal(
+            &device,
+            &hex::encode(&session.csrf),
+            &app.version,
+            &sessions,
+        )
+        .into_string(),
+    )
+    .into_response()
 }
 
 /// `POST /next/terminal/:device/create`: one pty, sized by the browser.
