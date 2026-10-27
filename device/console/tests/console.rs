@@ -7539,3 +7539,23 @@ async fn the_vitals_page_draws_one_sample_of_the_devices_own_numbers() {
     assert!(body.contains("0.3.65 (canary)"), "{body}");
     assert!(body.contains("width:50%"), "the memory bar is half: {body}");
 }
+
+#[tokio::test]
+async fn the_conventional_favicon_path_answers_with_the_icon() {
+    // A browser asks for /favicon.ico on every page it opens; a 404 there is a console error on
+    // every page that does not declare an icon.
+    let fixture = Fixture::new("favicon");
+    let response = fixture
+        .app()
+        .oneshot(get("/favicon.ico", None))
+        .await
+        .expect("the icon is served");
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        response
+            .headers()
+            .get(header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok()),
+        Some("image/png")
+    );
+}

@@ -194,6 +194,17 @@ impl Console {
             // The terminal emulator, served from the binary: the page needs a real terminal for
             // interactive prompts (sudo, ssh host keys), and fetching it from a CDN would make the
             // console depend on a third party at run time. Two files, no build step.
+            // The conventional favicon path: a browser asks for it on every page, and a 404 there is a
+            // console error in every page that does not declare an icon. It is the same PNG.
+            .route(
+                "/favicon.ico",
+                get(|| async {
+                    (
+                        [(header::CONTENT_TYPE, "image/png")],
+                        axum::body::Bytes::from_static(assets::ICON),
+                    )
+                }),
+            )
             .route(
                 "/assets/icon.png",
                 get(|| async {
