@@ -6917,3 +6917,118 @@ async fn a_run_without_the_page_csrf_is_refused_before_the_device_hears_of_it() 
         "a refused run must not reach the device"
     );
 }
+
+#[tokio::test]
+async fn the_state_page_shows_the_devices_own_document() {
+    let fixture = Fixture::new("state-page");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xe9)).await;
+    let (cookie, _csrf) = sign_in_to_the_page(&fixture).await;
+
+    let app = fixture.app();
+    let request = get_with_cookie(&format!("/next/state/{device_id}"), &cookie);
+    let page = tokio::spawn(async move { send_text(app, request).await });
+    let frame = next_json(&mut device).await;
+    assert_eq!(
+        frame["mcp"]["params"]["name"],
+        json!("state.get"),
+        "{frame}"
+    );
+    answer(
+        &mut device,
+        &frame,
+        json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {
+                "content": [{ "type": "text", "text": json!({
+                    "health": { "status": "ok" },
+                    "events": [{ "kind": "boot", "ts_ms": 1 }]
+                }).to_string() }],
+                "isError": false
+            }
+        }),
+    )
+    .await;
+    let (status, _, body) = page.await.expect("the state page finishes");
+    assert_eq!(status, StatusCode::OK);
+    // maud escapes the document's quotes, so the page is asserted on its words, not its JSON.
+    assert!(body.contains("health"), "{body}");
+    assert!(body.contains("boot"), "{body}");
+}
+
+#[tokio::test]
+async fn the_system_page_lists_processes_and_forwards_a_kill() {
+    let fixture = Fixture::new("system-page");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xea)).await;
+    let (cookie, csrf) = sign_in_to_the_page(&fixture).await;
+
+    let app = fixture.app();
+    let request = get_with_cookie(&format!("/next/system/{device_id}"), &cookie);
+    let page = tokio::spawn(async move { send_text(app, request).await });
+    let frame = next_json(&mut device).await;
+    assert_eq!(
+        frame["mcp"]["params"]["name"],
+        json!("system.process_list"),
+        "{frame}"
+    );
+    answer(
+        &mut device,
+        &frame,
+        json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {
+                "content": [{ "type": "text", "text": json!([
+                    { "pid": 4242, "name": "pwsh.exe", "memory_kb": 1024 }
+                ]).to_string() }],
+                "isError": false
+            }
+        }),
+    )
+    .await;
+    let (status, _, body) = page.await.expect("the system page finishes");
+    assert_eq!(status, StatusCode::OK);
+    assert!(body.contains("pwsh.exe"), "{body}");
+    assert!(body.contains("End a process"), "{body}");
+
+    let mut request = post_form(
+        &format!("/next/system/{device_id}/kill"),
+        &[("csrf", &csrf), ("pid", "4242")],
+    );
+    request
+        .headers_mut()
+        .insert(header::COOKIE, cookie.parse().expect("the cookie header"));
+    let kill = tokio::spawn(async move { send_text(fixture.app(), request).await });
+    let frame = next_json(&mut device).await;
+    assert_eq!(
+        frame["mcp"]["params"]["name"],
+        json!("system.process_kill"),
+        "{frame}"
+    );
+    assert_eq!(frame["mcp"]["params"]["arguments"]["pid"], json!(4242));
+    answer(
+        &mut device,
+        &frame,
+        json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {
+                "content": [{ "type": "text", "text": json!({ "killed": 1, "failed": [] }).to_string() }],
+                "isError": false
+            }
+        }),
+    )
+    .await;
+    let (status, headers, _) = kill.await.expect("the kill finishes");
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert_eq!(
+        headers
+            .get(header::LOCATION)
+            .and_then(|value| value.to_str().ok()),
+        Some(format!("/next/system/{device_id}?killed=1&failed=0").as_str())
+    );
+}

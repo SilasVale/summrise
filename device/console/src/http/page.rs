@@ -163,6 +163,8 @@ pub(super) fn dashboard(
                                             a href=(format!("/next/files/{}", device.id)) { "Files" }
                                             " · "
                                             a href=(format!("/next/runs/{}", device.id)) { "Runs" }
+                                            " · "
+                                            a href=(format!("/next/system/{}", device.id)) { "System" }
                                         }
                                     }
                                 }
@@ -575,6 +577,110 @@ pub(super) fn run_result(
                     @if !result.stderr.is_empty() {
                         h3 { "stderr" }
                         pre class="file" { (result.stderr) }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// One process row on the system page.
+pub(super) struct ProcessRow {
+    pub(super) pid: u64,
+    pub(super) name: String,
+    pub(super) memory_kb: u64,
+}
+
+/// The device's own state document: health, readiness and the last events, as the device wrote it.
+pub(super) fn state_document(device: &DeviceView, pretty: &str, version: &str) -> Markup {
+    html! {
+        (DOCTYPE)
+        html lang="en" {
+            head {
+                meta charset="utf-8";
+                meta name="viewport" content="width=device-width, initial-scale=1";
+                title { "Summrise console — state" }
+                style { (STYLE) }
+            }
+            body {
+                header {
+                    h1 { "Summrise " span { "console" } }
+                    span class="version" { "console " (version) }
+                    span class="version" { (device.name.as_deref().unwrap_or(&device.id)) }
+                    a href="/next" { "Back to the fleet" }
+                }
+                main {
+                    h2 { "State" }
+                    p class="hint" {
+                        "The document the device keeps: its health, and the last ten events it recorded."
+                    }
+                    pre class="file" { (pretty) }
+                }
+            }
+        }
+    }
+}
+
+/// The system page: the process list, a kill form, and whatever the last action reported.
+pub(super) fn system(
+    device: &DeviceView,
+    processes: &[ProcessRow],
+    name_filter: &str,
+    csrf: &str,
+    version: &str,
+    notice: Option<&str>,
+) -> Markup {
+    let base = format!("/next/system/{}", device.id);
+    html! {
+        (DOCTYPE)
+        html lang="en" {
+            head {
+                meta charset="utf-8";
+                meta name="viewport" content="width=device-width, initial-scale=1";
+                title { "Summrise console — system" }
+                style { (STYLE) }
+            }
+            body {
+                header {
+                    h1 { "Summrise " span { "console" } }
+                    span class="version" { "console " (version) }
+                    span class="version" { (device.name.as_deref().unwrap_or(&device.id)) }
+                    a href="/next" { "Back to the fleet" }
+                }
+                main {
+                    h2 { "System" }
+                    @if let Some(notice) = notice {
+                        p class="hint" { (notice) }
+                    }
+                    form method="get" action=(base) class="format-form" {
+                        input type="text" name="name" value=(name_filter) placeholder="filter by name";
+                        button type="submit" { "Filter" }
+                    }
+                    @if processes.is_empty() {
+                        p class="hint" { "The device listed no processes." }
+                    } @else {
+                        table {
+                            thead { tr { th { "PID" } th { "Name" } th { "Memory" } } }
+                            tbody {
+                                @for process in processes {
+                                    tr {
+                                        td { (process.pid) }
+                                        td { code { (process.name) } }
+                                        td { (process.memory_kb) " KB" }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    h3 { "End a process" }
+                    p class="hint" {
+                        "Name a pid or an exact executable name, not both. This is destructive and audited."
+                    }
+                    form method="post" action=(format!("{base}/kill")) class="format-form" {
+                        input type="hidden" name="csrf" value=(csrf);
+                        input type="number" name="pid" min="1" placeholder="pid";
+                        input type="text" name="name" placeholder="name";
+                        button type="submit" { "Kill" }
                     }
                 }
             }

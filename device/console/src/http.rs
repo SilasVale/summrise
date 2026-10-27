@@ -281,6 +281,10 @@ impl Console {
             // The runs page: one command, its output, and the device's own history.
             .route("/next/runs/:device", get(next_runs_page))
             .route("/next/runs/:device/exec", post(next_runs_exec))
+            // The device's own state, and the system page with its process list.
+            .route("/next/state/:device", get(next_state_page))
+            .route("/next/system/:device", get(next_system_page))
+            .route("/next/system/:device/kill", post(next_system_kill))
             .route("/session", get(session_probe))
             .route("/logout", post(logout))
             .route("/enroll", post(enroll))
@@ -1641,6 +1645,138 @@ async fn next_runs_exec(
             ))
             .into_response(),
         },
+        Err(response) => *response,
+    }
+}
+
+#[derive(Deserialize, Default)]
+struct SystemQuery {
+    #[serde(default)]
+    name: String,
+    killed: Option<u64>,
+    failed: Option<u64>,
+}
+
+#[derive(Deserialize)]
+struct SystemKillForm {
+    csrf: String,
+    pid: Option<u64>,
+    #[serde(default)]
+    name: String,
+}
+
+/// `GET /next/state/:device`: the device's own state document, pretty-printed.
+async fn next_state_page(
+    State(app): State<AppState>,
+    Path(device_id): Path<String>,
+    headers: HeaderMap,
+) -> Response {
+    if cookie_session(&app, &headers).is_none() {
+        return Html(page::login(None).into_string()).into_response();
+    }
+    let Some(device) = device_views(&app)
+        .into_iter()
+        .find(|device| device.id == device_id)
+    else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    match device_tool(&app, &device_id, "state.get", json!({})).await {
+        Ok(text) => {
+            let pretty = serde_json::from_str::<Value>(&text)
+                .ok()
+                .and_then(|value| serde_json::to_string_pretty(&value).ok())
+                .unwrap_or(text);
+            Html(page::state_document(&device, &pretty, &app.version).into_string()).into_response()
+        }
+        Err(response) => *response,
+    }
+}
+
+/// `GET /next/system/:device`: the process list and the kill form.
+async fn next_system_page(
+    State(app): State<AppState>,
+    Path(device_id): Path<String>,
+    headers: HeaderMap,
+    Query(query): Query<SystemQuery>,
+) -> Response {
+    let Some(session) = cookie_session(&app, &headers) else {
+        return Html(page::login(None).into_string()).into_response();
+    };
+    let Some(device) = device_views(&app)
+        .into_iter()
+        .find(|device| device.id == device_id)
+    else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    let name = query.name.trim().to_owned();
+    let mut arguments = json!({});
+    if !name.is_empty() {
+        arguments["name"] = json!(name);
+    }
+    let processes = match device_tool(&app, &device_id, "system.process_list", arguments).await {
+        Ok(text) => serde_json::from_str::<Vec<Value>>(&text).unwrap_or_default(),
+        Err(_) => Vec::new(),
+    };
+    let processes: Vec<page::ProcessRow> = processes
+        .iter()
+        .map(|process| page::ProcessRow {
+            pid: process["pid"].as_u64().unwrap_or(0),
+            name: process["name"].as_str().unwrap_or_default().to_owned(),
+            memory_kb: process["memory_kb"].as_u64().unwrap_or(0),
+        })
+        .collect();
+    let notice = match (query.killed, query.failed) {
+        (Some(killed), Some(failed)) => Some(format!(
+            "the device ended {killed} process(es); {failed} could not be ended"
+        )),
+        _ => None,
+    };
+    Html(
+        page::system(
+            &device,
+            &processes,
+            &name,
+            &hex::encode(&session.csrf),
+            &app.version,
+            notice.as_deref(),
+        )
+        .into_string(),
+    )
+    .into_response()
+}
+
+/// `POST /next/system/:device/kill`: end a process by pid or by exact name.
+async fn next_system_kill(
+    State(app): State<AppState>,
+    Path(device_id): Path<String>,
+    headers: HeaderMap,
+    Form(form): Form<SystemKillForm>,
+) -> Response {
+    let Some(_session) = next_session(&app, &headers, Some(&form.csrf)) else {
+        return StatusCode::FORBIDDEN.into_response();
+    };
+    let name = form.name.trim();
+    let mut arguments = json!({});
+    if let Some(pid) = form.pid {
+        arguments["pid"] = json!(pid);
+    } else if !name.is_empty() {
+        arguments["name"] = json!(name);
+    } else {
+        return Redirect::to(&format!("/next/system/{device_id}?failed=0")).into_response();
+    }
+    match device_tool(&app, &device_id, "system.process_kill", arguments).await {
+        Ok(text) => {
+            let answer: Value = serde_json::from_str(&text).unwrap_or(Value::Null);
+            let killed = answer["killed"].as_u64().unwrap_or(0);
+            let failed = answer["failed"]
+                .as_array()
+                .map(|failed| failed.len())
+                .unwrap_or(0);
+            Redirect::to(&format!(
+                "/next/system/{device_id}?killed={killed}&failed={failed}"
+            ))
+            .into_response()
+        }
         Err(response) => *response,
     }
 }
