@@ -39,9 +39,13 @@ export function FleetTokens({
 }) {
   const tools = useToolNames();
   const [name, setName] = useState("");
-  const [selected, setSelected] = useState<Set<string>>(new Set());
+  // Full trust is the operator's model: a new fleet token starts on every device and destructive
+  // tools allowed, so "I have a token" means "I may do everything" unless narrowed by hand.
+  const [selected, setSelected] = useState<Set<string>>(
+    new Set(devices.map((device) => device.id)),
+  );
   const [chosen, setChosen] = useState<Set<string>>(new Set(tools));
-  const [destructive, setDestructive] = useState(false);
+  const [destructive, setDestructive] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [created, setCreated] = useState<Created | null>(null);
