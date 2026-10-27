@@ -7,6 +7,7 @@
 #
 #   scripts/console-screenshots.bash --out /tmp/console-shots
 #   scripts/console-screenshots.bash --out /tmp/console-shots --width 900 --dark-only
+#   scripts/console-screenshots.bash --out /tmp/new --diff /tmp/console-shots   # what moved?
 #
 # The gallery is `<out>/index.html`; open it and every page is one click away. Screenshots are named
 # `<page>.png` and `<page>-dark.png`.
@@ -18,6 +19,8 @@ width=1280
 height=900
 dark_only=0
 light_only=0
+diff_against=""
+fail_on_change=0
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -26,6 +29,8 @@ while [ $# -gt 0 ]; do
         --height) height="$2"; shift 2 ;;
         --dark-only) dark_only=1; shift ;;
         --light-only) light_only=1; shift ;;
+        --diff) diff_against="${2:-}"; shift 2 ;;
+        --fail-on-change) fail_on_change=1; shift ;;
         -h|--help) sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *) echo "console-screenshots: unknown argument $1" >&2; exit 2 ;;
     esac
@@ -98,6 +103,69 @@ PY
     fi
 done
 
+# What moved since the last run: a page that changed is a page whose design changed, and the
+# interesting ones are the pages nobody meant to touch.
+changed=""
+if [ -n "$diff_against" ]; then
+    if [ ! -d "$diff_against" ]; then
+        echo "console-screenshots: --diff $diff_against is not a directory" >&2
+        exit 2
+    fi
+    mkdir -p "$out/diff"
+    changed="$(python3 - "$out" "$diff_against" <<'DIFF'
+import os
+import sys
+
+from PIL import Image, ImageChops
+
+out, base = sys.argv[1], sys.argv[2]
+changed = []
+for name in sorted(os.listdir(out)):
+    if not name.endswith(".png"):
+        continue
+    new_path = os.path.join(out, name)
+    old_path = os.path.join(base, name)
+    if not os.path.exists(old_path):
+        changed.append((name, 100.0, "new"))
+        continue
+    new = Image.open(new_path).convert("RGB")
+    old = Image.open(old_path).convert("RGB")
+    if new.size != old.size:
+        changed.append((name, 100.0, "resized"))
+        continue
+    difference = ImageChops.difference(new, old).convert("L")
+    # A one-level difference is antialiasing noise, not a design change.
+    mask = difference.point(lambda value: 255 if value > 4 else 0)
+    pixels = sum(1 for value in mask.getdata() if value)
+    if pixels == 0:
+        continue
+    share = 100.0 * pixels / (new.size[0] * new.size[1])
+    # The diff image: the old page faded, the changed pixels in the brand's accent.
+    faded = old.point(lambda value: 32 + value * 3 // 4)
+    accent = Image.new("RGB", new.size, (191, 58, 10))
+    faded.paste(accent, (0, 0), mask)
+    faded.save(os.path.join(out, "diff", name))
+    changed.append((name, share, "changed"))
+
+for name, share, state in changed:
+    detail = f" ({share:.2f}% of pixels)" if state == "changed" else ""
+    print(f"  {name}: {state}{detail}")
+print(f"SUMMARY {len(changed)}")
+DIFF
+)"
+    changed_count="$(printf '%s\n' "$changed" | sed -n 's/^SUMMARY //p')"
+    if [ "${changed_count:-0}" -eq 0 ]; then
+        echo "console-screenshots: nothing moved since $diff_against"
+    else
+        echo "console-screenshots: ${changed_count} page(s) moved since $diff_against"
+        printf '%s\n' "$changed" | grep -v '^SUMMARY' || true
+    fi
+    if [ "$fail_on_change" -eq 1 ] && [ "${changed_count:-0}" -gt 0 ]; then
+        echo "console-screenshots: --fail-on-change, and something moved" >&2
+        exit 1
+    fi
+fi
+
 # A gallery, so a reviewer does not need a file manager.
 {
     echo '<!doctype html><meta charset="utf-8"><title>Console pages</title>'
@@ -105,6 +173,9 @@ done
     echo 'h1{font-size:18px}figure{margin:0 0 28px}figcaption{margin:0 0 6px;font-weight:600}'
     echo 'img{max-width:100%;border:1px solid #e6e6e9;border-radius:10px;background:#fff}</style>'
     echo "<h1>Console pages — ${#names[@]} rendered, ${width}px wide</h1>"
+    if [ -n "$diff_against" ]; then
+        echo "<p>Compared with <code>$diff_against</code>: ${changed_count:-0} page(s) moved; the images are in <code>diff/</code>.</p>"
+    fi
     for name in "${names[@]}"; do
         echo "<figure><figcaption>$name</figcaption>"
         [ -f "$out/$name.png" ] && echo "<img src=\"$name.png\" alt=\"$name, light\">"

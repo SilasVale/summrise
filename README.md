@@ -56,6 +56,10 @@ scripts/console-screenshots.bash --out /tmp/console-shots --width 900 --light-on
 open /tmp/console-shots/index.html
 ```
 
+A second run can say what moved: `--diff <previous run>` compares every screenshot, lists the pages
+whose pixels changed (with the share), writes a highlighted diff image per changed page under
+`<out>/diff/`, and `--fail-on-change` makes it an exit code for a gate.
+
 The only JavaScript left is vendored xterm and the two terminal pages' glue
 (`device/console/assets/`, `device/device/src/panel.html`). `scripts/console-smoke.mjs` drives the
 console in a browser — the fleet table, every device link, and a real shell typed into — and needs
