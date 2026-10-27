@@ -8780,6 +8780,57 @@ async fn a_terminal_id_that_is_not_one_is_refused() {
     assert_eq!(status, StatusCode::BAD_REQUEST);
 }
 
+/// The install card is the device's own account of its generations and its last swap: the console
+/// shows it and keeps no copy.
+#[tokio::test]
+async fn the_vitals_page_shows_the_install_it_reads() {
+    let fixture = Fixture::new("vitals-install");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xd0)).await;
+    let cookie = page_cookie(&fixture).await;
+    let facts = json!({
+        "machine": "BOX",
+        "os": { "name": "Windows", "version": "11" },
+        "cpu": { "cores": 8 },
+        "uptime_s": 120,
+        "memory": { "total_bytes": 8_000_000_000u64, "available_bytes": 4_000_000_000u64 },
+        "disks": [],
+        "update": {
+            "current": { "version": "0.3.112", "channel": "canary" },
+            "previous": { "version": "0.3.111", "channel": "canary" },
+            "pending": null,
+            "last_swap": {
+                "outcome": "rolled_back",
+                "version": "0.3.111",
+                "at_ms": 1_790_990_000_000u64,
+                "reason": "the new build did not answer /health"
+            },
+            "repairs": [{ "from": "previous", "at_ms": 1_790_990_300_000u64 }]
+        }
+    });
+
+    let page = visit_vitals(&fixture, &cookie, &device_id, &mut device, &facts).await;
+
+    assert!(page.contains("Install"), "{page}");
+    assert!(page.contains("0.3.112"), "the current generation: {page}");
+    assert!(page.contains("Previous"), "{page}");
+    assert!(page.contains("0.3.111"), "the previous generation: {page}");
+    assert!(
+        page.contains("rolled back"),
+        "the last swap's outcome: {page}"
+    );
+    assert!(
+        page.contains("the new build did not answer /health"),
+        "and the launcher's reason: {page}"
+    );
+    assert!(page.contains("from previous"), "the repair: {page}");
+    assert!(
+        page.contains("no generation"),
+        "an absent pending says so: {page}"
+    );
+}
+
 /// Open the vitals page once, answering its `host.facts` call with `facts`, and return the page.
 async fn visit_vitals(
     fixture: &Fixture,

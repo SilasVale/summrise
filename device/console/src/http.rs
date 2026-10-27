@@ -3838,6 +3838,48 @@ async fn next_vitals_page(
         }
         points.clone()
     };
+    let generation = |name: &str| {
+        let generation = &facts["update"][name];
+        generation["version"]
+            .as_str()
+            .map(|version| page::Generation {
+                version: version.to_owned(),
+                channel: generation["channel"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .to_owned(),
+            })
+    };
+    let swap = {
+        let swap = &facts["update"]["last_swap"];
+        swap["outcome"].as_str().map(|outcome| page::SwapView {
+            outcome: outcome.to_owned(),
+            version: swap["version"].as_str().map(str::to_owned),
+            at_ms: swap["at_ms"].as_u64().unwrap_or(0),
+            reason: swap["reason"].as_str().map(str::to_owned),
+        })
+    };
+    let repairs = facts["update"]["repairs"]
+        .as_array()
+        .map(|repairs| {
+            repairs
+                .iter()
+                .filter_map(|repair| {
+                    Some(page::RepairView {
+                        from: repair["from"].as_str()?.to_owned(),
+                        at_ms: repair["at_ms"].as_u64().unwrap_or(0),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    let install = page::InstallView {
+        current: generation("current"),
+        previous: generation("previous"),
+        pending: generation("pending"),
+        swap,
+        repairs,
+    };
     let sample = page::Vitals {
         machine: facts["machine"].as_str().unwrap_or_default().to_owned(),
         os: format!(
@@ -3852,6 +3894,7 @@ async fn next_vitals_page(
         memory_total: facts["memory"]["total_bytes"].as_u64().unwrap_or(0),
         memory_available: facts["memory"]["available_bytes"].as_u64().unwrap_or(0),
         trend,
+        install,
         disks,
         version: facts["update"]["current"]["version"]
             .as_str()

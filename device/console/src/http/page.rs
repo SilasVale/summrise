@@ -358,6 +358,9 @@ body.login { margin:0; background:var(--bg); }
 .trend-values { color:var(--muted); font-size:11.5px; text-align:right; }
 .badge-approvals { display:inline-flex; align-items:center; height:24px; padding:0 9px; border-radius:999px; background:var(--danger-soft); color:var(--danger); font:600 11.5px/1 var(--font); text-decoration:none; white-space:nowrap; }
 .badge-approvals:hover { background:var(--danger); color:var(--panel); }
+/* The hidden attribute loses to a display rule; without this the empty pill is visible on every
+   page until the poll answers. */
+.badge-approvals[hidden] { display:none; }
 .spark { display:block; width:100%; height:28px; }
 .spark polyline { fill:none; stroke:var(--accent); stroke-width:1.5; vector-effect:non-scaling-stroke; stroke-linejoin:round; }
 .facts { display:grid; grid-template-columns:max-content 1fr; gap:6px 18px; margin:0 0 12px; }
@@ -3270,6 +3273,40 @@ pub(super) struct VitalPoint {
     pub(super) disk_pct: u64,
 }
 
+/// One install generation the device reports: its version and channel, side by side.
+#[derive(Clone)]
+pub(super) struct Generation {
+    pub(super) version: String,
+    pub(super) channel: String,
+}
+
+/// The launcher's last swap, as the device reports it: what happened, to what, and why.
+#[derive(Clone)]
+pub(super) struct SwapView {
+    /// `applied`, `rolled_back` or `refused`.
+    pub(super) outcome: String,
+    pub(super) version: Option<String>,
+    pub(super) at_ms: u64,
+    pub(super) reason: Option<String>,
+}
+
+/// One repair the launcher made, newest first.
+#[derive(Clone)]
+pub(super) struct RepairView {
+    pub(super) from: String,
+    pub(super) at_ms: u64,
+}
+
+/// The install's generations and the launcher's last answers. The console reads them from
+/// `host.facts`; it keeps no copy of its own.
+pub(super) struct InstallView {
+    pub(super) current: Option<Generation>,
+    pub(super) previous: Option<Generation>,
+    pub(super) pending: Option<Generation>,
+    pub(super) swap: Option<SwapView>,
+    pub(super) repairs: Vec<RepairView>,
+}
+
 /// What the device reports about itself right now, plus the points this console has collected by
 /// opening this page. The series is the page's own: one point per visit, console memory only, and
 /// the trend card says so rather than implying a sampler runs in the background.
@@ -3284,6 +3321,18 @@ pub(super) struct Vitals {
     pub(super) version: String,
     pub(super) channel: String,
     pub(super) trend: Vec<VitalPoint>,
+    pub(super) install: InstallView,
+}
+
+/// A generation as one line: `0.3.113 (canary)`, or the word for an absent one.
+fn generation_line(generation: Option<&Generation>) -> Markup {
+    match generation {
+        Some(generation) => html! {
+            span class="mono" { (generation.version) }
+            span class="muted" { " (" (generation.channel) ")" }
+        },
+        None => html! { span class="muted" { "no generation" } },
+    }
 }
 
 fn gib(bytes: u64) -> String {
@@ -3414,6 +3463,59 @@ pub(super) fn vitals(device: &DeviceView, sample: &Vitals, csrf: &str, version: 
                         "One point per time this page was opened; the console's memory only, lost on "
                         "restart. Not a sampler."
                     }
+                }
+            }
+        }
+        section class="card" {
+            (card_head(
+                "Install",
+                html! {
+                    @if let Some(generation) = &sample.install.current {
+                        span class="chip muted" { (generation.version) }
+                    }
+                },
+                Markup::default(),
+            ))
+            div class="card-body" {
+                dl class="facts" {
+                    dt { "Current" }
+                    dd { (generation_line(sample.install.current.as_ref())) }
+                    dt { "Previous" }
+                    dd { (generation_line(sample.install.previous.as_ref())) }
+                    dt { "Pending" }
+                    dd { (generation_line(sample.install.pending.as_ref())) }
+                }
+                @if let Some(swap) = &sample.install.swap {
+                    p class="small muted" { "Last swap" }
+                    div class="form-inline" {
+                        @match swap.outcome.as_str() {
+                            "applied" => { span class="chip online" { "applied" } },
+                            "rolled_back" => { span class="chip warn" { "rolled back" } },
+                            _ => { span class="chip failed" { (swap.outcome) } },
+                        }
+                        @if let Some(version) = &swap.version {
+                            span class="mono small" { (version) }
+                        }
+                        span class="muted small" { (stamp(swap.at_ms)) }
+                    }
+                    @if let Some(reason) = &swap.reason {
+                        p class="small muted" { (reason) }
+                    }
+                }
+                @if !sample.install.repairs.is_empty() {
+                    p class="small muted" { "Repairs" }
+                    ul class="rail-list" {
+                        @for repair in &sample.install.repairs {
+                            li {
+                                span class="rail-line mono" { "from " (repair.from) }
+                                span class="rail-meta" { (stamp(repair.at_ms)) }
+                            }
+                        }
+                    }
+                }
+                p class="footnote" {
+                    "Read from the device's install sidecars: what it has, what it last tried, and "
+                    "what the launcher repaired. The console keeps no copy."
                 }
             }
         }
@@ -3570,6 +3672,27 @@ mod tests {
             ],
             version: "0.3.72".to_owned(),
             channel: "canary".to_owned(),
+            install: InstallView {
+                current: Some(Generation {
+                    version: "0.3.72".to_owned(),
+                    channel: "stable".to_owned(),
+                }),
+                previous: Some(Generation {
+                    version: "0.3.71".to_owned(),
+                    channel: "stable".to_owned(),
+                }),
+                pending: None,
+                swap: Some(SwapView {
+                    outcome: "rolled_back".to_owned(),
+                    version: Some("0.3.73".to_owned()),
+                    at_ms: 1_790_990_000_000,
+                    reason: Some("the new build did not answer /health in 30 s".to_owned()),
+                }),
+                repairs: vec![RepairView {
+                    from: "previous".to_owned(),
+                    at_ms: 1_790_990_300_000,
+                }],
+            },
             trend: vec![
                 VitalPoint {
                     memory_pct: 42,
