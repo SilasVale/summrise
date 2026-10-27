@@ -580,7 +580,12 @@ export function App() {
           )}
 
           {page === "security" && (
-            <SecurityPage lines={denials} devices={devices} tokens={tokens} />
+            <SecurityPage
+              lines={denials}
+              devices={devices}
+              tokens={tokens}
+              onTokensChanged={refreshData}
+            />
           )}
 
           {page === "events" && (

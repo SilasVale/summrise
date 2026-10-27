@@ -1,5 +1,6 @@
 import type { AuditLine, Device, TokenMeta } from "./api";
 import { AuditTable } from "./AuditTable";
+import { FleetTokens } from "./FleetTokens";
 
 /**
  * The console's failed authentications, read-only.
@@ -12,14 +13,18 @@ import { AuditTable } from "./AuditTable";
 export function SecurityPage({
   lines,
   devices,
-  tokens
+  tokens,
+  onTokensChanged = () => {}
 }: {
   lines: AuditLine[];
   devices: Device[];
   tokens: TokenMeta[];
+  onTokensChanged?: () => void;
 }) {
   return (
-    <section className="panel">
+    <>
+      <FleetTokens devices={devices} tokens={tokens} onChanged={onTokensChanged} />
+      <section className="panel">
       <div className="panel-head">
         <h2>Security</h2>
       </div>
@@ -34,6 +39,7 @@ export function SecurityPage({
         empty="No failed authentications yet."
         emptyFiltered="No failed authentication matches this filter."
       />
-    </section>
+      </section>
+    </>
   );
 }
