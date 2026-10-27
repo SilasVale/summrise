@@ -897,12 +897,23 @@ pub(super) struct Notes<'a> {
     pub error: Option<&'a str>,
 }
 
+/// One call a device refused for lack of destructive consent, waiting for the operator.
+#[derive(Clone)]
+pub(super) struct ApprovalRow {
+    pub(super) id: String,
+    pub(super) device_id: String,
+    pub(super) tool: String,
+    pub(super) arguments: String,
+    pub(super) created_ms: u64,
+}
+
 pub(super) fn dashboard(
     devices: &[DeviceView],
     csrf: &str,
     version: &str,
     notes: Notes<'_>,
     recent: &[serde_json::Value],
+    approvals: &[ApprovalRow],
     now_ms: u64,
 ) -> Markup {
     let total = devices.len();
@@ -914,6 +925,56 @@ pub(super) fn dashboard(
         }
     };
     let content = html! {
+        @if !approvals.is_empty() {
+            section class="card" {
+                (card_head(
+                    "Waiting for your approval",
+                    html! { span class="chip failed" { (approvals.len()) } },
+                    Markup::default(),
+                ))
+                div class="card-body" {
+                    p class="lead" {
+                        "A client asked for a destructive call its credential did not allow. The call "
+                        "is held here — the request is still open — and an unanswered question is "
+                        "refused after ten minutes, never run."
+                    }
+                    table class="table" {
+                        caption class="visually-hidden" { "Calls waiting for an answer." }
+                        thead {
+                            tr {
+                                th { "Device" }
+                                th { "Tool" }
+                                th { "Arguments" }
+                                th { "Waiting since" }
+                                th class="num" { "" }
+                            }
+                        }
+                        tbody {
+                            @for row in approvals {
+                                tr {
+                                    td { code title=(row.device_id) { (row.device_id.chars().take(12).collect::<String>()) } }
+                                    td { code { (row.tool) } }
+                                    td class="wrap" { pre class="code-block" { (row.arguments) } }
+                                    td class="nowrap" { (stamp(row.created_ms)) }
+                                    td class="num" {
+                                        div class="form-inline" {
+                                            form method="post" action=(format!("/next/approvals/{}/approve", encode(&row.id))) {
+                                                input type="hidden" name="csrf" value=(csrf);
+                                                button type="submit" class="btn btn-primary btn-sm" { "Approve" }
+                                            }
+                                            form method="post" action=(format!("/next/approvals/{}/refuse", encode(&row.id))) {
+                                                input type="hidden" name="csrf" value=(csrf);
+                                                button type="submit" class="btn btn-quiet-danger btn-sm" { "Refuse" }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
         p class="lead" {
             "Every device this console has enrolled, and the pages that open on it."
         }
@@ -3444,6 +3505,7 @@ mod tests {
                     "0.1.0",
                     Notes::default(),
                     &[],
+                    &[],
                     1_791_000_000_000,
                 ),
             ),
@@ -3575,6 +3637,7 @@ mod tests {
             "00",
             "0.1.0",
             Notes::default(),
+            &[],
             &[],
             1_791_000_000_000,
         )
@@ -3947,6 +4010,13 @@ mod tests {
                         serde_json::json!({ "ts_ms": 1_790_999_500_000u64, "kind": "tool", "tool": "system.kill", "status": 403 }),
                         serde_json::json!({ "ts_ms": 1_790_999_000_000u64, "kind": "device", "tool": "", "status": 0 }),
                     ],
+                    &[ApprovalRow {
+                        id: "a1b2c3d4e5f60718".to_owned(),
+                        device_id: devices[0].id.clone(),
+                        tool: "terminal.create".to_owned(),
+                        arguments: "{\n  \"kind\": \"pty\"\n}".to_owned(),
+                        created_ms: 1_790_999_900_000,
+                    }],
                     1_791_000_000_000,
                 ),
             ),
@@ -3961,12 +4031,13 @@ mod tests {
                         ..Notes::default()
                     },
                     &[],
+                    &[],
                     1_791_000_000_000,
                 ),
             ),
             (
                 "dashboard-empty",
-                dashboard(&[], "csrf", "0.3.72", Notes::default(), &[], 1_791_000_000_000),
+                dashboard(&[], "csrf", "0.3.72", Notes::default(), &[], &[], 1_791_000_000_000),
             ),
             (
                 "terminal",
@@ -4184,6 +4255,7 @@ mod tests {
             "0.1.0",
             Notes::default(),
             &[],
+            &[],
             1_791_000_000_000,
         )
         .into_string();
@@ -4343,6 +4415,7 @@ mod tests {
                 "0.1.0",
                 Notes::default(),
                 &[],
+                &[],
                 1_791_000_000_000,
             ),
             terminal(
@@ -4491,6 +4564,7 @@ mod tests {
             "00",
             "0.3.48",
             Notes::default(),
+            &[],
             &[],
             1_791_000_000_000,
         )

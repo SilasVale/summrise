@@ -8780,6 +8780,172 @@ async fn a_terminal_id_that_is_not_one_is_refused() {
     assert_eq!(status, StatusCode::BAD_REQUEST);
 }
 
+/// A destructive call a token did not consent to is held for the operator, and the request stays
+/// open while they decide. Approving re-sends it with consent for THIS call only.
+#[tokio::test]
+async fn a_destructive_token_call_is_held_and_runs_when_approved() {
+    let fixture = Fixture::new("approval-approved");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xd3)).await;
+    let session = fixture.authenticate().await;
+    let (status, created) = fixture
+        .create_token(
+            &session,
+            &device_id,
+            "cautious",
+            &["terminal.create"],
+            false,
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{created}");
+    let plaintext = created["token"].as_str().expect("the token").to_owned();
+    let call = json!({
+        "jsonrpc": "2.0",
+        "id": 31,
+        "method": "tools/call",
+        "params": { "name": "terminal.create", "arguments": { "kind": "pty" } },
+    });
+    let http = send(
+        fixture.app(),
+        post_token(&device_id, &plaintext, call.clone()),
+    );
+
+    let device_side = async {
+        let frame = next_json(&mut device).await;
+        assert_eq!(frame["mcp"], call, "{frame}");
+        answer_error(
+            &mut device,
+            &frame,
+            json!({ "jsonrpc": "2.0", "id": 31, "error": { "code": -32002, "message": "'terminal.create' is destructive and needs approval" } }),
+        )
+        .await;
+
+        // The approved re-send: same call, consenting token.
+        let frame = next_json(&mut device).await;
+        assert_eq!(frame["mcp"], call, "{frame}");
+        assert_eq!(
+            frame["token"]["allow_destructive"],
+            json!(true),
+            "the console consents for this call: {frame}"
+        );
+        answer(
+            &mut device,
+            &frame,
+            json!({ "jsonrpc": "2.0", "id": 31, "result": { "content": [{ "type": "text", "text": "{\"id\":\"session-1\"}" }], "isError": false } }),
+        )
+        .await;
+    };
+
+    let (cookie, csrf) = sign_in_to_the_page(&fixture).await;
+    let operator = async {
+        let id = wait_for_approval(&fixture, &cookie).await;
+        let (status, _, _) = send_text(
+            fixture.app(),
+            post_form_cookie(
+                &format!("/next/approvals/{id}/approve"),
+                &[("csrf", &csrf)],
+                &cookie,
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::SEE_OTHER);
+    };
+
+    let ((status, body), (), ()) = tokio::join!(http, device_side, operator);
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(
+        body["result"]["content"][0]["text"],
+        json!("{\"id\":\"session-1\"}")
+    );
+}
+
+/// Refusing returns the device's own sentence: the call did not run.
+#[tokio::test]
+async fn a_refused_approval_returns_the_device_sentence() {
+    let fixture = Fixture::new("approval-refused");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xd2)).await;
+    let session = fixture.authenticate().await;
+    let (status, created) = fixture
+        .create_token(
+            &session,
+            &device_id,
+            "cautious",
+            &["terminal.create"],
+            false,
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{created}");
+    let plaintext = created["token"].as_str().expect("the token").to_owned();
+    let call = json!({
+        "jsonrpc": "2.0",
+        "id": 32,
+        "method": "tools/call",
+        "params": { "name": "terminal.create", "arguments": { "kind": "pty" } },
+    });
+    let http = send(
+        fixture.app(),
+        post_token(&device_id, &plaintext, call.clone()),
+    );
+
+    let device_side = async {
+        let frame = next_json(&mut device).await;
+        answer_error(
+            &mut device,
+            &frame,
+            json!({ "jsonrpc": "2.0", "id": 32, "error": { "code": -32002, "message": "'terminal.create' is destructive and needs approval" } }),
+        )
+        .await;
+    };
+
+    let (cookie, csrf) = sign_in_to_the_page(&fixture).await;
+    let operator = async {
+        let id = wait_for_approval(&fixture, &cookie).await;
+        let (status, _, _) = send_text(
+            fixture.app(),
+            post_form_cookie(
+                &format!("/next/approvals/{id}/refuse"),
+                &[("csrf", &csrf)],
+                &cookie,
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::SEE_OTHER);
+    };
+
+    let ((status, body), (), ()) = tokio::join!(http, device_side, operator);
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["error"]["code"], json!(-32002), "{body}");
+    assert!(
+        body["error"]["message"]
+            .as_str()
+            .is_some_and(|message| message.contains("destructive")),
+        "{body}"
+    );
+}
+
+/// The id of the first held call the dashboard lists, read off its approve form's action.
+fn first_approval_id(body: &str) -> Option<String> {
+    let start = body.find("/next/approvals/")? + "/next/approvals/".len();
+    let rest = &body[start..];
+    let end = rest.find('/')?;
+    Some(rest[..end].to_owned())
+}
+
+/// Wait for the dashboard to list a held call, then answer with its id.
+async fn wait_for_approval(fixture: &Fixture, cookie: &str) -> String {
+    for _ in 0..200 {
+        let (_, _, body) = send_text(fixture.app(), get_with_cookie("/next", cookie)).await;
+        if let Some(id) = first_approval_id(&body) {
+            return id;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    panic!("the dashboard never listed a held call");
+}
+
 /// A refused Access token leaves a line. "Was the edge's header there, and did the console accept
 /// it?" must be answerable from the audit, not only from the card the browser shows.
 #[tokio::test]

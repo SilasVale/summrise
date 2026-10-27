@@ -50,6 +50,17 @@ const MAX_LOG_LIMIT: usize = 1000;
 /// How long the console tells an operator's client to wait before retrying a reconnecting device.
 const RETRY_AFTER_MS: u64 = 1_000;
 
+/// How long a held destructive call waits for the operator. The legacy gate held its question for
+/// about this long and expired CLOSED: an unanswered question is refused, never run.
+const APPROVAL_TTL: Duration = Duration::from_secs(600);
+
+/// One call held for approval: what the operator is asked about, and the wire back to the request
+/// that is waiting for the answer.
+struct Pending {
+    row: page::ApprovalRow,
+    decide: tokio::sync::oneshot::Sender<bool>,
+}
+
 /// How many sessions the store keeps.
 ///
 /// One operator, a handful of browsers. The page also mints a session for an Access-verified request
@@ -91,6 +102,9 @@ struct Inner {
     /// The last expression evaluated in a device's browser, and its answer. Console memory only: it
     /// is a form result the next page load shows, not device state and not a file.
     last_evals: Mutex<HashMap<String, page::LastEval>>,
+    /// Calls a device refused because the credential did not consent to a destructive tool, held
+    /// while the operator answers. Console memory only; a restart refuses them all at once.
+    approvals: Mutex<HashMap<String, Pending>>,
     codes: Mutex<EnrollmentCodes>,
     channels: ChannelRegistry,
     audit: Audit,
@@ -175,6 +189,7 @@ impl Console {
                 tokens: Mutex::new(tokens),
                 connections: Mutex::new(connections),
                 last_evals: Mutex::new(HashMap::new()),
+                approvals: Mutex::new(HashMap::new()),
                 codes: Mutex::new(codes),
                 channels: ChannelRegistry::new(),
                 audit: Audit::new(&config.data, audit_max_bytes),
@@ -271,6 +286,7 @@ impl Console {
             .route("/next", get(next_page))
             .route("/next/auth", post(next_login))
             .route("/next/logout", post(next_logout))
+            .route("/next/approvals/:id/:decision", post(next_approval_decide))
             .route("/next/fleet/:id/name", post(next_rename))
             .route("/next/fleet/:id/remove", post(next_remove))
             .route("/next/enroll", post(next_enroll))
@@ -1230,6 +1246,11 @@ async fn next_page(
         enroll: query.enroll.as_deref(),
         error: query.error.as_deref(),
     };
+    let mut approvals: Vec<page::ApprovalRow> = lock(&app.approvals)
+        .values()
+        .map(|pending| pending.row.clone())
+        .collect();
+    approvals.sort_by_key(|row| row.created_ms);
     Html(
         // The fleet is the page an operator lands on; six lines of what the console just did
         // belong there, read from the same log `/audit` serves.
@@ -1239,11 +1260,47 @@ async fn next_page(
             &app.version,
             notes,
             &app.audit.newest(6).await,
+            &approvals,
             (app.now)(),
         )
         .into_string(),
     )
     .into_response()
+}
+
+#[derive(Deserialize)]
+struct ApprovalDecision {
+    csrf: String,
+}
+
+/// `POST /next/approvals/:id/approve` and `/refuse`: answer one held call.
+async fn next_approval_decide(
+    State(app): State<AppState>,
+    Path((id, decision)): Path<(String, String)>,
+    headers: HeaderMap,
+    Form(form): Form<ApprovalDecision>,
+) -> Response {
+    if next_session(&app, &headers, Some(&form.csrf)).is_none() {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    let approve = match decision.as_str() {
+        "approve" => true,
+        "refuse" => false,
+        _ => return StatusCode::NOT_FOUND.into_response(),
+    };
+    match lock(&app.approvals).remove(&id) {
+        Some(pending) => {
+            // The waiting request decides what to do with the answer; a sender whose request has
+            // already gone (the client hung up) is not an error worth a page.
+            let _ = pending.decide.send(approve);
+            Redirect::to("/next").into_response()
+        }
+        None => Redirect::to(&format!(
+            "/next?error={}",
+            page::encode("That call is no longer waiting: it was answered or it expired.")
+        ))
+        .into_response(),
+    }
 }
 
 /// Spend a `--login-link` code and answer with the session it buys.
@@ -4494,6 +4551,32 @@ fn mint_aggregate_scope(
 /// grant's tool list when the request is `tools/list` on the standard route; the custom route passes
 /// `None` and keeps its unfiltered answer. `token_id` is the permanent token's record id when one
 /// authenticated this exchange, and is written on every line this function records.
+/// The JSON-RPC code a device's error envelope carries, when it is one.
+fn error_code(reply: &Reply) -> Option<i64> {
+    match reply {
+        Reply::Error(error) => error
+            .get("error")
+            .and_then(|body| body.get("code"))
+            .and_then(Value::as_i64),
+        Reply::Result(_) => None,
+    }
+}
+
+/// What a held call will run, as the operator should read it: the arguments, pretty-printed and cut.
+fn arguments_summary(request: &Value) -> String {
+    let arguments = request
+        .get("params")
+        .and_then(|params| params.get("arguments"))
+        .cloned()
+        .unwrap_or(Value::Null);
+    let text = serde_json::to_string_pretty(&arguments).unwrap_or_default();
+    let mut summary: String = text.chars().take(400).collect();
+    if text.chars().count() > 400 {
+        summary.push('…');
+    }
+    summary
+}
+
 async fn proxy_reply(
     app: &AppState,
     device_id: &str,
@@ -4527,6 +4610,8 @@ async fn proxy_reply(
         }
     };
     let is_tools_list = request.get("method").and_then(Value::as_str) == Some("tools/list");
+    // An approval is answered by re-sending this exact call, so it is kept beside the one that left.
+    let held = request.clone();
 
     if let Some(tool) = tool.as_deref() {
         // A `*` is a wildcard, as it is on the device: the operator's own scope is `["*"]`, and an
@@ -4607,6 +4692,96 @@ async fn proxy_reply(
             Err(Box::new(failure.into_response()))
         }
         Ok(Ok(mut reply)) => {
+            // A device answers -32002 when a destructive call's credential did not consent to it.
+            // Through the console that call is HELD here instead of returned: the console is the
+            // only surface where a person can say yes, and the client's request stays open while
+            // they decide. An unanswered question is refused — expiry fails closed, as the legacy
+            // gate did.
+            if error_code(&reply) == Some(-32002) {
+                if let RequestAuth::Token(scope) = auth {
+                    let consenting = crate::channels::TokenScope {
+                        token_id: scope.token_id.clone(),
+                        device_id: scope.device_id.clone(),
+                        scopes: scope.scopes.clone(),
+                        allow_destructive: true,
+                        expires_at_ms: scope.expires_at_ms,
+                    };
+                    let id = hex::encode(&random_32()[..8]);
+                    let (decide, answer) = tokio::sync::oneshot::channel();
+                    lock(&app.approvals).insert(
+                        id.clone(),
+                        Pending {
+                            row: page::ApprovalRow {
+                                id: id.clone(),
+                                device_id: device_id.to_owned(),
+                                tool: tool.clone().unwrap_or_default(),
+                                arguments: arguments_summary(&held),
+                                created_ms: (app.now)(),
+                            },
+                            decide,
+                        },
+                    );
+                    app.record_facts(AuditFacts {
+                        kind: "approval",
+                        device_id: audit_id.as_deref(),
+                        status: StatusCode::OK,
+                        detail: Some("asked"),
+                        tool: tool.as_deref(),
+                        token_id,
+                    })
+                    .await;
+                    match tokio::time::timeout(APPROVAL_TTL, answer).await {
+                        Ok(Ok(true)) => {
+                            app.record_facts(AuditFacts {
+                                kind: "approval",
+                                device_id: audit_id.as_deref(),
+                                status: StatusCode::OK,
+                                detail: Some("approved"),
+                                tool: tool.as_deref(),
+                                token_id,
+                            })
+                            .await;
+                            // The consent is for THIS call, held in the console, and it is not
+                            // written anywhere: the token keeps saying no to the next one.
+                            if let Ok(retried) = app
+                                .channels
+                                .request_within(
+                                    device_id,
+                                    held.clone(),
+                                    &RequestAuth::Token(&consenting),
+                                    app.mcp_timeout,
+                                )
+                                .await
+                            {
+                                reply = retried;
+                            }
+                        }
+                        Ok(_) => {
+                            app.record_facts(AuditFacts {
+                                kind: "approval",
+                                device_id: audit_id.as_deref(),
+                                status: StatusCode::OK,
+                                detail: Some("refused"),
+                                tool: tool.as_deref(),
+                                token_id,
+                            })
+                            .await;
+                        }
+                        Err(_) => {
+                            app.record_facts(AuditFacts {
+                                kind: "approval",
+                                device_id: audit_id.as_deref(),
+                                status: StatusCode::OK,
+                                detail: Some("timed out"),
+                                tool: tool.as_deref(),
+                                token_id,
+                            })
+                            .await;
+                        }
+                    }
+                    lock(&app.approvals).remove(&id);
+                }
+            }
             if let (Some(allowed), true) = (filter, is_tools_list) {
                 if let Reply::Result(result) = &mut reply {
                     crate::mcp::filter_tools(result, allowed);
