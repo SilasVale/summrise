@@ -274,6 +274,10 @@ impl Console {
                 "/next/terminal/:device/:id/close",
                 post(next_terminal_close),
             )
+            // The files page: a server-rendered list, a read view and a text write.
+            .route("/next/files/:device", get(next_files_page))
+            .route("/next/files/:device/read", get(next_files_read))
+            .route("/next/files/:device/write", post(next_files_write))
             .route("/session", get(session_probe))
             .route("/logout", post(logout))
             .route("/enroll", post(enroll))
@@ -1138,17 +1142,17 @@ fn terminal_refusal(status: StatusCode, message: &str) -> Response {
     (status, Json(json!({ "error": message }))).into_response()
 }
 
-/// One `terminal.*` call on the operator's own authority, relayed through the device's channel.
+/// One tool call on the operator's own authority, relayed through the device's channel.
 ///
 /// The console session is the credential — the same rule `/mcp` follows: a signed-in operator may
 /// use every tool on the named device, destructive ones included. The device's answer is the tool's
-/// own JSON text; this page passes it through unchanged so a refusal keeps its sentence.
-async fn terminal_tool(
+/// own text; this function returns it unchanged so a refusal keeps its sentence.
+async fn device_tool(
     app: &AppState,
     device_id: &str,
     tool: &str,
     arguments: Value,
-) -> Result<Value, Box<Response>> {
+) -> Result<String, Box<Response>> {
     let scope = crate::channels::TokenScope {
         token_id: "operator".to_owned(),
         device_id: device_id.to_owned(),
@@ -1210,7 +1214,18 @@ async fn terminal_tool(
     {
         return Err(Box::new(terminal_refusal(StatusCode::BAD_GATEWAY, text)));
     }
-    serde_json::from_str(text).map_err(|_| {
+    Ok(text.to_owned())
+}
+
+/// One `terminal.*` call, whose answer is the tool's JSON text.
+async fn terminal_tool(
+    app: &AppState,
+    device_id: &str,
+    tool: &str,
+    arguments: Value,
+) -> Result<Value, Box<Response>> {
+    let text = device_tool(app, device_id, tool, arguments).await?;
+    serde_json::from_str(&text).map_err(|_| {
         Box::new(terminal_refusal(
             StatusCode::BAD_GATEWAY,
             "the device's answer was not JSON",
@@ -1354,6 +1369,127 @@ async fn next_terminal_close(
     .await
     {
         Ok(_) => Json(json!({ "ok": true })).into_response(),
+        Err(response) => *response,
+    }
+}
+
+#[derive(Deserialize, Default)]
+struct FilesQuery {
+    #[serde(default)]
+    path: String,
+    error: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct FilesWriteForm {
+    csrf: String,
+    path: String,
+    content: String,
+}
+
+/// `GET /next/files/:device`: the files root, server-rendered.
+async fn next_files_page(
+    State(app): State<AppState>,
+    Path(device_id): Path<String>,
+    headers: HeaderMap,
+    Query(query): Query<FilesQuery>,
+) -> Response {
+    let Some(session) = cookie_session(&app, &headers) else {
+        return Html(page::login(None).into_string()).into_response();
+    };
+    let Some(device) = device_views(&app)
+        .into_iter()
+        .find(|device| device.id == device_id)
+    else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    let path = query.path.trim_matches('/').to_owned();
+    let mut error = query.error.clone();
+    let entries = match device_tool(&app, &device_id, "files.list", json!({ "path": path })).await {
+        Ok(text) => serde_json::from_str::<Vec<Value>>(&text).unwrap_or_default(),
+        Err(_) => {
+            error =
+                Some("the device did not answer; the console's audit names the reason".to_owned());
+            Vec::new()
+        }
+    };
+    let entries: Vec<page::FileEntry> = entries
+        .iter()
+        .map(|entry| page::FileEntry {
+            name: entry["name"].as_str().unwrap_or_default().to_owned(),
+            kind: entry["kind"].as_str().unwrap_or("other").to_owned(),
+            len: entry["len"].as_u64().unwrap_or(0),
+        })
+        .collect();
+    Html(
+        page::files(
+            &device,
+            &path,
+            &entries,
+            &hex::encode(&session.csrf),
+            &app.version,
+            error.as_deref(),
+        )
+        .into_string(),
+    )
+    .into_response()
+}
+
+/// `GET /next/files/:device/read?path=`: one file, as text.
+async fn next_files_read(
+    State(app): State<AppState>,
+    Path(device_id): Path<String>,
+    headers: HeaderMap,
+    Query(query): Query<FilesQuery>,
+) -> Response {
+    if cookie_session(&app, &headers).is_none() {
+        return Html(page::login(None).into_string()).into_response();
+    }
+    let Some(device) = device_views(&app)
+        .into_iter()
+        .find(|device| device.id == device_id)
+    else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    let path = query.path.trim_matches('/').to_owned();
+    match device_tool(&app, &device_id, "files.read", json!({ "path": path })).await {
+        Ok(text) => {
+            Html(page::file_text(&device, &path, &text, &app.version).into_string()).into_response()
+        }
+        Err(response) => *response,
+    }
+}
+
+/// `POST /next/files/:device/write`: write one text file, then show its directory.
+async fn next_files_write(
+    State(app): State<AppState>,
+    Path(device_id): Path<String>,
+    headers: HeaderMap,
+    Form(form): Form<FilesWriteForm>,
+) -> Response {
+    let Some(_session) = next_session(&app, &headers, Some(&form.csrf)) else {
+        return StatusCode::FORBIDDEN.into_response();
+    };
+    let path = form.path.trim().trim_start_matches('/').to_owned();
+    if path.is_empty() {
+        return Redirect::to(&format!("/next/files/{device_id}?error=empty_path")).into_response();
+    }
+    match device_tool(
+        &app,
+        &device_id,
+        "files.write",
+        json!({ "path": path, "content": form.content }),
+    )
+    .await
+    {
+        Ok(_) => {
+            let directory = path.rsplit_once('/').map(|(head, _)| head).unwrap_or("");
+            Redirect::to(&format!(
+                "/next/files/{device_id}?path={}",
+                page::encode(directory)
+            ))
+            .into_response()
+        }
         Err(response) => *response,
     }
 }

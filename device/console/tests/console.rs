@@ -6623,3 +6623,166 @@ async fn an_operator_mcp_call_without_a_grant_reaches_the_device() {
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_eq!(body["content"][0]["text"], json!("hello"));
 }
+
+#[tokio::test]
+async fn the_files_page_lists_the_devices_root_and_marks_directories_as_links() {
+    let fixture = Fixture::new("files-page");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xe5)).await;
+    let (cookie, _csrf) = sign_in_to_the_page(&fixture).await;
+
+    let app = fixture.app();
+    let request = get_with_cookie(&format!("/next/files/{device_id}"), &cookie);
+    let page = tokio::spawn(async move { send_text(app, request).await });
+
+    let frame = next_json(&mut device).await;
+    assert_eq!(
+        frame["mcp"]["params"]["name"],
+        json!("files.list"),
+        "{frame}"
+    );
+    assert_eq!(frame["mcp"]["params"]["arguments"]["path"], json!(""));
+    answer(
+        &mut device,
+        &frame,
+        json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {
+                "content": [{ "type": "text", "text": json!([
+                    { "name": "notes.txt", "kind": "file", "len": 5 },
+                    { "name": "logs", "kind": "directory", "len": 0 }
+                ]).to_string() }],
+                "isError": false
+            }
+        }),
+    )
+    .await;
+
+    let (status, _, body) = page.await.expect("the page finishes");
+    assert_eq!(status, StatusCode::OK);
+    let html = body;
+    assert!(html.contains("notes.txt"), "{html}");
+    assert!(html.contains("logs"), "{html}");
+    assert!(
+        html.contains(&format!("/next/files/{device_id}/read?path=notes.txt")),
+        "a file is a read link: {html}"
+    );
+    assert!(
+        html.contains(&format!("/next/files/{device_id}?path=logs")),
+        "a directory is a listing link: {html}"
+    );
+    assert!(html.contains("Write a file"), "{html}");
+}
+
+#[tokio::test]
+async fn the_files_page_shows_a_file_and_a_write_without_csrf_is_refused() {
+    let fixture = Fixture::new("files-read-write");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xe6)).await;
+    let (cookie, csrf) = sign_in_to_the_page(&fixture).await;
+
+    let app = fixture.app();
+    let request = get_with_cookie(
+        &format!("/next/files/{device_id}/read?path=notes.txt"),
+        &cookie,
+    );
+    let page = tokio::spawn(async move { send_text(app, request).await });
+    let frame = next_json(&mut device).await;
+    assert_eq!(
+        frame["mcp"]["params"]["name"],
+        json!("files.read"),
+        "{frame}"
+    );
+    answer(
+        &mut device,
+        &frame,
+        json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {
+                "content": [{ "type": "text", "text": "hello from the file" }],
+                "isError": false
+            }
+        }),
+    )
+    .await;
+    let (status, _, body) = page.await.expect("the read page finishes");
+    assert_eq!(status, StatusCode::OK);
+    assert!(body.contains("hello from the file"), "{body}");
+
+    // A write without the page's CSRF value changes nothing and never reaches the device.
+    let mut request = post_form(
+        &format!("/next/files/{device_id}/write"),
+        &[
+            ("csrf", &"00".repeat(32)),
+            ("path", "notes.txt"),
+            ("content", "x"),
+        ],
+    );
+    request
+        .headers_mut()
+        .insert(header::COOKIE, cookie.parse().expect("the cookie header"));
+    let (status, _, _) = send_text(fixture.app(), request).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert!(
+        tokio::time::timeout(
+            std::time::Duration::from_millis(200),
+            next_json(&mut device)
+        )
+        .await
+        .is_err(),
+        "a refused write must not reach the device"
+    );
+
+    // With it, the write is forwarded and the page returns to the file's directory.
+    let mut request = post_form(
+        &format!("/next/files/{device_id}/write"),
+        &[
+            ("csrf", &csrf),
+            ("path", "logs/notes.txt"),
+            ("content", "written"),
+        ],
+    );
+    request
+        .headers_mut()
+        .insert(header::COOKIE, cookie.parse().expect("the cookie header"));
+    let write = tokio::spawn(async move { send_text(fixture.app(), request).await });
+    let frame = next_json(&mut device).await;
+    assert_eq!(
+        frame["mcp"]["params"]["name"],
+        json!("files.write"),
+        "{frame}"
+    );
+    assert_eq!(
+        frame["mcp"]["params"]["arguments"]["path"],
+        json!("logs/notes.txt")
+    );
+    assert_eq!(
+        frame["mcp"]["params"]["arguments"]["content"],
+        json!("written")
+    );
+    answer(
+        &mut device,
+        &frame,
+        json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {
+                "content": [{ "type": "text", "text": json!({ "path": "logs/notes.txt", "bytes": 7 }).to_string() }],
+                "isError": false
+            }
+        }),
+    )
+    .await;
+    let (status, headers, _) = write.await.expect("the write finishes");
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert_eq!(
+        headers
+            .get(header::LOCATION)
+            .and_then(|value| value.to_str().ok()),
+        Some(format!("/next/files/{device_id}?path=logs").as_str())
+    );
+}

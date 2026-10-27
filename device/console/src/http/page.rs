@@ -43,6 +43,9 @@ nav a { color:var(--accent); text-decoration:none; }
 .inline-button { background:transparent; color:var(--muted); border:1px solid var(--line); }
 .code { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:10px 14px; font-size:13px; }
 .code strong { font-family:ui-monospace, monospace; letter-spacing:0.04em; }
+textarea { width:100%; font:13px/1.4 ui-monospace, monospace; padding:8px 10px; border:1px solid var(--line); border-radius:7px; background:var(--bg); color:var(--ink); }
+pre.file { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:12px 14px; overflow:auto; font:13px/1.5 ui-monospace, monospace; white-space:pre-wrap; }
+h3 { font-size:13px; text-transform:uppercase; letter-spacing:0.06em; color:var(--muted); margin:22px 0 8px; }
 "#;
 
 /// The terminal page's own few rules: the xterm host must have a height, and the page is a column.
@@ -152,7 +155,11 @@ pub(super) fn dashboard(
                                             @if device.online { span class="ok" { "online" } } @else { span class="off" { "offline" } }
                                         }
                                         td { (device.version.as_deref().unwrap_or("—")) }
-                                        td { a href=(format!("/next/terminal/{}", device.id)) { "Terminal" } }
+                                        td {
+                                            a href=(format!("/next/terminal/{}", device.id)) { "Terminal" }
+                                            " · "
+                                            a href=(format!("/next/files/{}", device.id)) { "Files" }
+                                        }
                                     }
                                 }
                             }
@@ -244,6 +251,148 @@ pub(super) fn terminal(device: &DeviceView, csrf: &str, version: &str) -> Markup
                 }
             }
         }
+    }
+}
+
+/// One entry the files page draws: the name, what it is, and its length.
+pub(super) struct FileEntry {
+    pub(super) name: String,
+    pub(super) kind: String,
+    pub(super) len: u64,
+}
+
+/// Percent-encode a query value. `/` stays readable because a path is the value most of the time.
+pub(super) fn encode(value: &str) -> String {
+    let mut out = String::new();
+    for byte in value.as_bytes() {
+        match *byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' | b'/' => {
+                out.push(*byte as char)
+            }
+            _ => out.push_str(&format!("%{byte:02X}")),
+        }
+    }
+    out
+}
+
+/// The device's files, server-rendered: the list, a read form and a write form.
+pub(super) fn files(
+    device: &DeviceView,
+    path: &str,
+    entries: &[FileEntry],
+    csrf: &str,
+    version: &str,
+    error: Option<&str>,
+) -> Markup {
+    let base = format!("/next/files/{}", device.id);
+    html! {
+        (DOCTYPE)
+        html lang="en" {
+            head {
+                meta charset="utf-8";
+                meta name="viewport" content="width=device-width, initial-scale=1";
+                title { "Summrise console — files" }
+                style { (STYLE) }
+            }
+            body {
+                header {
+                    h1 { "Summrise " span { "console" } }
+                    span class="version" { "console " (version) }
+                    span class="version" { (device.name.as_deref().unwrap_or(&device.id)) }
+                    a href="/next" { "Back to the fleet" }
+                }
+                main {
+                    h2 { "Files" }
+                    p class="hint" {
+                        "The device's files root. Paths are relative to it; the device enforces the root."
+                    }
+                    @if let Some(error) = error {
+                        p class="error" { (error) }
+                    }
+                    p {
+                        "at /" (path)
+                        @if !path.is_empty() {
+                            " · "
+                            a href=(format!("{}?path={}", base, encode(parent(path)))) { "up" }
+                        }
+                    }
+                    @if entries.is_empty() {
+                        p class="hint" { "This directory is empty." }
+                    } @else {
+                        table {
+                            thead { tr { th { "Name" } th { "Kind" } th { "Bytes" } } }
+                            tbody {
+                                @for entry in entries {
+                                    tr {
+                                        td {
+                                            @if entry.kind == "directory" {
+                                                a href=(format!("{}?path={}", base, encode(&join(path, &entry.name)))) { (entry.name) }
+                                            } @else {
+                                                a href=(format!("{}/read?path={}", base, encode(&join(path, &entry.name)))) { (entry.name) }
+                                            }
+                                        }
+                                        td { (entry.kind) }
+                                        td { (entry.len) }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    h3 { "Read a file" }
+                    form method="get" action=(format!("{}/read", base)) class="format-form" {
+                        input type="text" name="path" placeholder="notes.txt" required;
+                        button type="submit" { "Read" }
+                    }
+                    h3 { "Write a file" }
+                    form method="post" action=(format!("{}/write", base)) {
+                        input type="hidden" name="csrf" value=(csrf);
+                        input type="text" name="path" placeholder="notes.txt" required;
+                        textarea name="content" rows="8" placeholder="text, written as UTF-8";
+                        button type="submit" { "Write" }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// One file, as text.
+pub(super) fn file_text(device: &DeviceView, path: &str, text: &str, version: &str) -> Markup {
+    let base = format!("/next/files/{}", device.id);
+    html! {
+        (DOCTYPE)
+        html lang="en" {
+            head {
+                meta charset="utf-8";
+                meta name="viewport" content="width=device-width, initial-scale=1";
+                title { "Summrise console — " (path) }
+                style { (STYLE) }
+            }
+            body {
+                header {
+                    h1 { "Summrise " span { "console" } }
+                    span class="version" { "console " (version) }
+                    span class="version" { (device.name.as_deref().unwrap_or(&device.id)) }
+                    a href=(format!("{}?path={}", base, encode(parent(path)))) { "Back to the directory" }
+                }
+                main {
+                    h2 { (path) }
+                    pre class="file" { (text) }
+                }
+            }
+        }
+    }
+}
+
+fn parent(path: &str) -> &str {
+    path.rsplit_once('/').map(|(head, _)| head).unwrap_or("")
+}
+
+fn join(path: &str, name: &str) -> String {
+    if path.is_empty() {
+        name.to_owned()
+    } else {
+        format!("{path}/{name}")
     }
 }
 
