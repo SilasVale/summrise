@@ -8591,6 +8591,173 @@ async fn the_monitors_page_lists_a_target_and_forwards_an_add() {
     );
 }
 
+/// The memory page can search the text (not only filter a tag), which is what `memory.search` is for.
+#[tokio::test]
+async fn the_memory_page_searches_the_text() {
+    let fixture = Fixture::new("memory-search");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xdb)).await;
+    let cookie = page_cookie(&fixture).await;
+
+    let app = fixture.app();
+    let request = get_with_cookie(&format!("/next/memory/{device_id}?q=needle"), &cookie);
+    let page = tokio::spawn(async move { send_text(app, request).await });
+
+    let frame = next_json(&mut device).await;
+    assert_eq!(
+        frame["mcp"]["params"]["name"],
+        json!("memory.search"),
+        "{frame}"
+    );
+    assert_eq!(
+        frame["mcp"]["params"]["arguments"]["query"],
+        json!("needle")
+    );
+    answer(
+        &mut device,
+        &frame,
+        json!({
+            "jsonrpc": "2.0", "id": 1,
+            "result": { "content": [{ "type": "text", "text": json!([
+                { "id": "entry-1", "text": "a needle in the store", "tags": ["probe"] }
+            ]).to_string() }], "isError": false }
+        }),
+    )
+    .await;
+
+    let (status, _, body) = page.await.expect("the page finishes");
+    assert_eq!(status, StatusCode::OK);
+    assert!(body.contains("a needle in the store"), "{body}");
+}
+
+/// An entry can be rewritten in place; the form is filled from the entry the list already returned.
+#[tokio::test]
+async fn the_memory_page_can_edit_an_entry() {
+    let fixture = Fixture::new("memory-edit");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xda)).await;
+    let (cookie, csrf) = sign_in_to_the_page(&fixture).await;
+
+    let app = fixture.app();
+    let request = get_with_cookie(&format!("/next/memory/{device_id}?edit=entry-1"), &cookie);
+    let page = tokio::spawn(async move { send_text(app, request).await });
+    let frame = next_json(&mut device).await;
+    assert_eq!(
+        frame["mcp"]["params"]["name"],
+        json!("memory.list"),
+        "{frame}"
+    );
+    answer(
+        &mut device,
+        &frame,
+        json!({
+            "jsonrpc": "2.0", "id": 1,
+            "result": { "content": [{ "type": "text", "text": json!([
+                { "id": "entry-1", "text": "the old fact", "tags": ["a", "b"] }
+            ]).to_string() }], "isError": false }
+        }),
+    )
+    .await;
+    let (status, _, body) = page.await.expect("the page finishes");
+    assert_eq!(status, StatusCode::OK);
+    assert!(body.contains("Edit an entry"), "{body}");
+    assert!(body.contains("the old fact"), "{body}");
+    assert!(
+        body.contains(&format!("/next/memory/{device_id}/update")),
+        "{body}"
+    );
+
+    let app = fixture.app();
+    let request = post_form_cookie(
+        &format!("/next/memory/{device_id}/update"),
+        &[
+            ("csrf", &csrf),
+            ("id", "entry-1"),
+            ("text", "the new fact"),
+            ("tags", "a, b"),
+        ],
+        &cookie,
+    );
+    let update = tokio::spawn(async move { send_text(app, request).await });
+    let frame = next_json(&mut device).await;
+    assert_eq!(
+        frame["mcp"]["params"]["name"],
+        json!("memory.update"),
+        "{frame}"
+    );
+    assert_eq!(frame["mcp"]["params"]["arguments"]["id"], json!("entry-1"));
+    assert_eq!(
+        frame["mcp"]["params"]["arguments"]["text"],
+        json!("the new fact")
+    );
+    assert_eq!(
+        frame["mcp"]["params"]["arguments"]["tags"],
+        json!(["a", "b"]),
+        "tags are the complete new list, split from the field"
+    );
+    answer(
+        &mut device,
+        &frame,
+        json!({
+            "jsonrpc": "2.0", "id": 1,
+            "result": { "content": [{ "type": "text", "text": "{}" }], "isError": false }
+        }),
+    )
+    .await;
+    let (status, _, _) = update.await.expect("the update finishes");
+    assert_eq!(status, StatusCode::SEE_OTHER);
+}
+
+/// The whole store can be taken away as JSONL, which is what `memory.export` is for.
+#[tokio::test]
+async fn the_memory_page_can_export_the_store() {
+    let fixture = Fixture::new("memory-export");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xd9)).await;
+    let cookie = page_cookie(&fixture).await;
+
+    let app = fixture.app();
+    let request = get_with_cookie(&format!("/next/memory/{device_id}/export"), &cookie);
+    let export = tokio::spawn(async move { send_text(app, request).await });
+
+    let frame = next_json(&mut device).await;
+    assert_eq!(
+        frame["mcp"]["params"]["name"],
+        json!("memory.export"),
+        "{frame}"
+    );
+    answer(
+        &mut device,
+        &frame,
+        json!({
+            "jsonrpc": "2.0", "id": 1,
+            "result": { "content": [{ "type": "text", "text": "{\"id\":\"1\",\"text\":\"kept\"}\n" }], "isError": false }
+        }),
+    )
+    .await;
+
+    let (status, headers, body) = export.await.expect("the export finishes");
+    assert_eq!(status, StatusCode::OK);
+    assert!(body.contains("kept"), "{body}");
+    assert!(
+        headers
+            .get(header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok())
+            .is_some_and(|value| value.contains("json")),
+        "the response names what it is"
+    );
+    assert!(
+        headers
+            .get(header::CONTENT_DISPOSITION)
+            .and_then(|value| value.to_str().ok())
+            .is_some_and(|value| value.contains("attachment")),
+        "it downloads rather than renders"
+    );
+}
+
 /// Navigation and shutdown were the two browser tools without a form; both now reach the device.
 #[tokio::test]
 async fn the_browser_page_can_navigate_and_shut_the_browser_down() {

@@ -2310,6 +2310,7 @@ pub(super) fn system(
 }
 
 /// One memory entry, as the page draws it.
+#[derive(Clone)]
 pub(super) struct MemoryRow {
     pub(super) id: String,
     pub(super) text: String,
@@ -2317,14 +2318,27 @@ pub(super) struct MemoryRow {
 }
 
 /// The device-local memory: the entries, an append form, and a delete button per row.
+/// What the memory page is showing: which filter or search produced the list, and which entry (if
+/// any) the edit form is filled from.
+pub(super) struct MemoryLook<'a> {
+    pub tag: &'a str,
+    pub query: &'a str,
+    pub editing: Option<&'a MemoryRow>,
+}
+
 pub(super) fn memory(
     device: &DeviceView,
     entries: &[MemoryRow],
-    tag: &str,
+    look: MemoryLook<'_>,
     csrf: &str,
     version: &str,
     notice: Option<&str>,
 ) -> Markup {
+    let MemoryLook {
+        tag,
+        query,
+        editing,
+    } = look;
     let base = format!("/next/memory/{}", device.id);
     let content = html! {
         p class="lead" {
@@ -2339,13 +2353,18 @@ pub(super) fn memory(
                 "Entries",
                 html! { span class="chip muted" { (entries.len()) } },
                 html! {
-                    form method="get" action=(base) class="filter-form" {
-                        label class="visually-hidden" for="memory-tag" { "Filter by tag" }
-                        input id="memory-tag" type="text" name="tag" value=(tag) placeholder="filter by tag";
-                        button type="submit" class="btn btn-sm" { "Filter" }
-                        @if !tag.is_empty() {
-                            a class="btn btn-ghost btn-sm" href=(base) { "Clear" }
+                    div class="form-inline" {
+                        form method="get" action=(base) class="filter-form" {
+                            label class="visually-hidden" for="memory-q" { "Search" }
+                            input id="memory-q" type="text" name="q" value=(query) placeholder="search text or tags";
+                            label class="visually-hidden" for="memory-tag" { "Filter by tag" }
+                            input id="memory-tag" type="text" name="tag" value=(tag) placeholder="tag";
+                            button type="submit" class="btn btn-sm" { "Search" }
+                            @if !tag.is_empty() || !query.is_empty() {
+                                a class="btn btn-ghost btn-sm" href=(base) { "Clear" }
+                            }
                         }
+                        a class="btn btn-ghost btn-sm" href=(format!("{base}/export")) { "Export" }
                     }
                 },
             ))
@@ -2371,13 +2390,44 @@ pub(super) fn memory(
                                 td class="wrap" { (entry.text) }
                                 td { code { (entry.tags) } }
                                 td class="num" {
-                                    form method="post" action=(format!("{base}/delete")) {
-                                        input type="hidden" name="csrf" value=(csrf);
-                                        input type="hidden" name="id" value=(entry.id);
-                                        button type="submit" class="btn btn-sm btn-quiet-danger" { "Delete" }
+                                    div class="form-inline" {
+                                        a class="btn btn-sm" href=(format!("{base}?edit={}", encode(&entry.id))) { "Edit" }
+                                        form method="post" action=(format!("{base}/delete")) {
+                                            input type="hidden" name="csrf" value=(csrf);
+                                            input type="hidden" name="id" value=(entry.id);
+                                            button type="submit" class="btn btn-sm btn-quiet-danger" { "Delete" }
+                                        }
                                     }
                                 }
                             }
+                        }
+                    }
+                }
+            }
+        }
+        @if let Some(entry) = editing {
+            section class="card" id="edit" {
+                (card_head(
+                    "Edit an entry",
+                    html! { span class="chip muted" { (entry.id) } },
+                    Markup::default(),
+                ))
+                div class="card-body" {
+                    form method="post" action=(format!("{base}/update")) {
+                        input type="hidden" name="csrf" value=(csrf);
+                        input type="hidden" name="id" value=(entry.id);
+                        div class="field" {
+                            label for="edit-text" { "Fact" }
+                            textarea id="edit-text" name="text" rows="3" required { (entry.text) }
+                        }
+                        div class="field" {
+                            label for="edit-tags" { "Tags" }
+                            input id="edit-tags" type="text" name="tags" value=(entry.tags) placeholder="tags, comma-separated";
+                        }
+                        div class="form-actions" {
+                            button type="submit" class="btn btn-primary" { "Save" }
+                            a class="btn btn-ghost" href=(base) { "Cancel" }
+                            span class="muted" { "Tags are the complete new list, not a patch." }
                         }
                     }
                 }
@@ -3354,7 +3404,21 @@ mod tests {
             ("Runs", run_result(device, "cmd", &run, "00", "0.1.0")),
             ("System", state_document(device, "{}", "00", "0.1.0")),
             ("System", system(device, &[], "", "00", "0.1.0", None)),
-            ("Memory", memory(device, &[], "", "00", "0.1.0", None)),
+            (
+                "Memory",
+                memory(
+                    device,
+                    &[],
+                    MemoryLook {
+                        tag: "",
+                        query: "",
+                        editing: None,
+                    },
+                    "00",
+                    "0.1.0",
+                    None,
+                ),
+            ),
             ("Screen", screen(device, None, "no screen", "00", "0.1.0")),
             ("Monitors", monitors(device, &[], "00", "0.1.0", None)),
             (
@@ -3941,7 +4005,14 @@ mod tests {
             ),
             (
                 "memory",
-                memory(&devices[0], &memory_rows, "", "csrf", "0.3.72", None),
+                memory(
+                    &devices[0],
+                    &memory_rows,
+                    MemoryLook { tag: "", query: "", editing: None },
+                    "csrf",
+                    "0.3.72",
+                    None,
+                ),
             ),
             ("screen", screen(&devices[0], Some(CAPTURE), "A 1280×720 capture, taken just now.", "csrf", "0.3.72")),
             (
@@ -4216,7 +4287,18 @@ mod tests {
             files(&device, "", &[], "00", "0.1.0", None),
             runs(&device, &[], "00", "0.1.0", None),
             system(&device, &[], "", "00", "0.1.0", None),
-            memory(&device, &[], "", "00", "0.1.0", None),
+            memory(
+                &device,
+                &[],
+                MemoryLook {
+                    tag: "",
+                    query: "",
+                    editing: None,
+                },
+                "00",
+                "0.1.0",
+                None,
+            ),
             monitors(&device, &[], "00", "0.1.0", None),
             browser(&device, &[], None, "00", "0.1.0", None, None),
             tokens(&device, &[], "00", "0.1.0", None),

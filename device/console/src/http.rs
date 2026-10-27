@@ -323,6 +323,8 @@ impl Console {
             .route("/next/memory/:device", get(next_memory_page))
             .route("/next/memory/:device/append", post(next_memory_append))
             .route("/next/memory/:device/delete", post(next_memory_delete))
+            .route("/next/memory/:device/update", post(next_memory_update))
+            .route("/next/memory/:device/export", get(next_memory_export))
             // The device's screen, and the watches it runs.
             .route("/next/screen/:device", get(next_screen_page))
             .route("/next/monitors/:device", get(next_monitors_page))
@@ -2731,6 +2733,13 @@ async fn next_system_kill(
 struct MemoryQuery {
     #[serde(default)]
     tag: String,
+    /// A text search: when present, `memory.search` answers instead of `memory.list`.
+    #[serde(default)]
+    q: String,
+    /// The entry the edit form is filled from.
+    edit: Option<String>,
+    /// A sentence after an update.
+    notice: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -2739,6 +2748,9 @@ struct MemoryAppendForm {
     text: String,
     #[serde(default)]
     tags: String,
+    /// Set by the edit form; an append leaves it absent.
+    #[serde(default)]
+    id: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -2764,13 +2776,28 @@ async fn next_memory_page(
         return StatusCode::NOT_FOUND.into_response();
     };
     let tag = query.tag.trim().to_owned();
-    let mut arguments = json!({ "limit": 50 });
-    if !tag.is_empty() {
-        arguments["tag"] = json!(tag);
-    }
-    let entries = match device_tool(&app, &device_id, "memory.list", arguments).await {
-        Ok(text) => serde_json::from_str::<Vec<Value>>(&text).unwrap_or_default(),
-        Err(_) => Vec::new(),
+    let search = query.q.trim().to_owned();
+    let entries = if search.is_empty() {
+        let mut arguments = json!({ "limit": 50 });
+        if !tag.is_empty() {
+            arguments["tag"] = json!(tag);
+        }
+        match device_tool(&app, &device_id, "memory.list", arguments).await {
+            Ok(text) => serde_json::from_str::<Vec<Value>>(&text).unwrap_or_default(),
+            Err(_) => Vec::new(),
+        }
+    } else {
+        match device_tool(
+            &app,
+            &device_id,
+            "memory.search",
+            json!({ "query": search, "limit": 50 }),
+        )
+        .await
+        {
+            Ok(text) => serde_json::from_str::<Vec<Value>>(&text).unwrap_or_default(),
+            Err(_) => Vec::new(),
+        }
     };
     let entries: Vec<page::MemoryRow> = entries
         .iter()
@@ -2788,18 +2815,96 @@ async fn next_memory_page(
                 .unwrap_or_default(),
         })
         .collect();
+    let editing = query
+        .edit
+        .as_deref()
+        .and_then(|id| entries.iter().find(|entry| entry.id == id).cloned());
     Html(
         page::memory(
             &device,
             &entries,
-            &tag,
+            page::MemoryLook {
+                tag: &tag,
+                query: &search,
+                editing: editing.as_ref(),
+            },
             &hex::encode(&session.csrf),
             &app.version,
-            None,
+            query.notice.as_deref(),
         )
         .into_string(),
     )
     .into_response()
+}
+
+/// `POST /next/memory/:device/update`: rewrite one entry's text and complete tag list.
+async fn next_memory_update(
+    State(app): State<AppState>,
+    Path(device_id): Path<String>,
+    headers: HeaderMap,
+    Form(form): Form<MemoryAppendForm>,
+) -> Response {
+    if next_session(&app, &headers, Some(&form.csrf)).is_none() {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    let Some(id) = form.id.clone() else {
+        return Redirect::to(&format!("/next/memory/{device_id}")).into_response();
+    };
+    let text = form.text.trim().to_owned();
+    if text.is_empty() {
+        return Redirect::to(&format!(
+            "/next/memory/{device_id}?notice={}",
+            page::encode("An entry's text cannot be emptied; delete it instead.")
+        ))
+        .into_response();
+    }
+    let tags: Vec<String> = form
+        .tags
+        .split(',')
+        .map(str::trim)
+        .filter(|tag| !tag.is_empty())
+        .map(str::to_owned)
+        .collect();
+    match device_tool(
+        &app,
+        &device_id,
+        "memory.update",
+        json!({ "id": id, "text": text, "tags": tags }),
+    )
+    .await
+    {
+        Ok(_) => Redirect::to(&format!(
+            "/next/memory/{device_id}?notice={}",
+            page::encode("The entry is rewritten.")
+        ))
+        .into_response(),
+        Err(response) => *response,
+    }
+}
+
+/// `GET /next/memory/:device/export`: the whole store as JSONL, as a download.
+async fn next_memory_export(
+    State(app): State<AppState>,
+    Path(device_id): Path<String>,
+    headers: HeaderMap,
+) -> Response {
+    let Some(_session) = cookie_session(&app, &headers) else {
+        return login_card(&app, &headers).into_response();
+    };
+    if !app.has_device(&device_id) {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+    match device_tool(&app, &device_id, "memory.export", json!({})).await {
+        Ok(text) => Response::builder()
+            .header(header::CONTENT_TYPE, "application/x-ndjson; charset=utf-8")
+            .header(
+                header::CONTENT_DISPOSITION,
+                format!("attachment; filename=\"memory-{device_id}.jsonl\""),
+            )
+            .body(axum::body::Body::from(text))
+            .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response()),
+        Err(response) => *response,
+    }
 }
 
 /// `POST /next/memory/:device/append`: keep one fact on the device.
