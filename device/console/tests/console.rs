@@ -2003,7 +2003,6 @@ async fn a_request_with_no_channel_waits_then_is_503_device_reconnecting() {
     let fixture = Fixture::new("mcp-reconnecting");
     let (device_id, _token) = fixture.register(&signing_key(0x93)).await;
     let session = fixture.authenticate().await;
-    let grant = fixture.create_grant(&session, &device_id, 60).await;
 
     let started = std::time::Instant::now();
     let (status, headers, body) = send_with_headers(
@@ -2064,7 +2063,7 @@ async fn an_expired_grant_is_refused() {
             &session,
             json!({
                 "device_id": device_id,
-"grant": grant,
+            "grant": grant,
                 "request": { "jsonrpc": "2.0", "id": 1, "method": "tools/list" },
             }),
         ),
@@ -2090,7 +2089,7 @@ async fn a_grant_that_names_another_device_is_refused() {
             &session,
             json!({
                 "device_id": device_id,
-"grant": grant,
+            "grant": grant,
                 "request": { "jsonrpc": "2.0", "id": 1, "method": "tools/list" },
             }),
         ),
@@ -2116,7 +2115,7 @@ async fn a_tampered_grant_is_refused() {
             &session,
             json!({
                 "device_id": device_id,
-"grant": grant,
+            "grant": grant,
                 "request": { "jsonrpc": "2.0", "id": 1, "method": "tools/list" },
             }),
         ),
@@ -2141,7 +2140,6 @@ async fn two_hundred_requests_against_a_wedged_device_stay_bounded_and_busy() {
     let (device_id, _token, _device) =
         connected_device(&fixture, &server, &signing_key(0xc4)).await;
     let session = fixture.authenticate().await;
-    let grant = fixture.create_grant(&session, &device_id, 60).await;
 
     let mut calls = Vec::new();
     for _ in 0..200 {
@@ -2220,7 +2218,6 @@ async fn a_device_that_never_answers_is_a_504() {
         .await
         .expect("the device channel");
     let session = fixture.authenticate().await;
-    let grant = fixture.create_grant(&session, &device_id, 60).await;
 
     let mut outcome = None;
     for _ in 0..40 {
@@ -2782,7 +2779,7 @@ async fn an_expired_grant_is_audited_as_denied_with_its_reason() {
             &session,
             json!({
                 "device_id": device_id,
-"grant": grant,
+            "grant": grant,
                 "request": { "jsonrpc": "2.0", "id": 1, "method": "tools/list" },
             }),
         ),
@@ -2890,7 +2887,6 @@ async fn a_request_that_arrives_between_channels_waits_for_the_next_one() {
     let server = TestServer::start(&fixture.console).await;
     let (device_id, token) = fixture.register(&signing_key(0xb1)).await;
     let session = fixture.authenticate().await;
-    let grant = fixture.create_grant(&session, &device_id, 60).await;
 
     let app = fixture.app();
     let request = post_json_bearer(
@@ -2935,7 +2931,6 @@ async fn a_replaced_channel_fails_an_in_flight_request_as_502_without_retry_afte
     let (device_id, token, mut device) =
         connected_device(&fixture, &server, &signing_key(0xb2)).await;
     let session = fixture.authenticate().await;
-    let grant = fixture.create_grant(&session, &device_id, 60).await;
 
     let app = fixture.app();
     let request = post_json_bearer(
@@ -2995,7 +2990,6 @@ async fn a_channel_that_dies_mid_request_is_502() {
     let (device_id, _token, mut device) =
         connected_device(&fixture, &server, &signing_key(0xb3)).await;
     let session = fixture.authenticate().await;
-    let grant = fixture.create_grant(&session, &device_id, 60).await;
 
     let app = fixture.app();
     let request = post_json_bearer(
