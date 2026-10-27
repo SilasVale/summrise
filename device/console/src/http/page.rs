@@ -1716,6 +1716,20 @@ pub(super) fn files(
                 }
             }
         }
+        section class="card" {
+            (card_head("New folder", Markup::default(), Markup::default()))
+            div class="card-body" {
+                form method="post" action=(format!("{}/mkdir", base)) class="form-inline" {
+                    input type="hidden" name="csrf" value=(csrf);
+                    input type="hidden" name="current" value=(path);
+                    div class="field grow" {
+                        label class="visually-hidden" for="mkdir-path" { "Folder path" }
+                        input id="mkdir-path" type="text" name="path" placeholder="logs/2026" required;
+                    }
+                    button type="submit" class="btn" { "Create folder" }
+                }
+            }
+        }
     };
     // The rail is the directory itself: how much is in it, and the two ways out of it.
     let dirs = entries
@@ -2518,10 +2532,17 @@ pub(super) fn monitors(
                                 td class="num" { (row.drops.map(|drops| drops.to_string()).unwrap_or_else(|| "—".to_owned())) }
                                 td class="num mono" { (row.last_status.map(|status| status.to_string()).unwrap_or_else(|| "—".to_owned())) }
                                 td class="num" {
-                                    form method="post" action=(format!("{base}/remove")) {
-                                        input type="hidden" name="csrf" value=(csrf);
-                                        input type="hidden" name="id" value=(row.id);
-                                        button type="submit" class="btn btn-sm btn-quiet-danger" { "Remove" }
+                                    div class="form-inline" {
+                                        form method="post" action=(format!("{base}/probe")) {
+                                            input type="hidden" name="csrf" value=(csrf);
+                                            input type="hidden" name="id" value=(row.id);
+                                            button type="submit" class="btn btn-sm" { "Probe now" }
+                                        }
+                                        form method="post" action=(format!("{base}/remove")) {
+                                            input type="hidden" name="csrf" value=(csrf);
+                                            input type="hidden" name="id" value=(row.id);
+                                            button type="submit" class="btn btn-sm btn-quiet-danger" { "Remove" }
+                                        }
                                     }
                                 }
                             }

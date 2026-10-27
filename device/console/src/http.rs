@@ -305,6 +305,7 @@ impl Console {
             .route("/next/files/:device", get(next_files_page))
             .route("/next/files/:device/read", get(next_files_read))
             .route("/next/files/:device/write", post(next_files_write))
+            .route("/next/files/:device/mkdir", post(next_files_mkdir))
             // The runs page: one command, its output, and the device's own history.
             .route("/next/runs/:device", get(next_runs_page))
             .route("/next/runs/:device/exec", post(next_runs_exec))
@@ -320,6 +321,7 @@ impl Console {
             .route("/next/screen/:device", get(next_screen_page))
             .route("/next/monitors/:device", get(next_monitors_page))
             .route("/next/monitors/:device/add", post(next_monitor_add))
+            .route("/next/monitors/:device/probe", post(next_monitor_probe))
             .route("/next/monitors/:device/remove", post(next_monitor_remove))
             // The device's browser: its targets, a capture, and open/close.
             .route("/next/browser/:device", get(next_browser_page))
@@ -2224,6 +2226,55 @@ async fn next_files_read(
     }
 }
 
+#[derive(Deserialize)]
+struct FilesMkdirForm {
+    csrf: String,
+    /// The folder to create, relative to the device's root.
+    path: String,
+    /// The listing the operator was looking at; the redirect comes back to it.
+    #[serde(default)]
+    current: String,
+}
+
+/// `POST /next/files/:device/mkdir`: create one directory, then show the listing it was made from.
+async fn next_files_mkdir(
+    State(app): State<AppState>,
+    Path(device_id): Path<String>,
+    headers: HeaderMap,
+    Form(form): Form<FilesMkdirForm>,
+) -> Response {
+    if next_session(&app, &headers, Some(&form.csrf)).is_none() {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    if !app.has_device(&device_id) {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+    let mut target = format!("/next/files/{device_id}");
+    let current = form.current.trim_matches('/');
+    if !current.is_empty() {
+        target.push_str(&format!("?path={}", page::encode(current)));
+    }
+    let refuse = |sentence: &str| {
+        let separator = if target.contains('?') { '&' } else { '?' };
+        Redirect::to(&format!(
+            "{target}{separator}error={}",
+            page::encode(sentence)
+        ))
+        .into_response()
+    };
+    let path = match page_path(&form.path) {
+        Ok(path) => path,
+        Err(sentence) => return refuse(sentence),
+    };
+    if path.is_empty() {
+        return refuse("A folder needs a name.");
+    }
+    match device_tool(&app, &device_id, "files.mkdir", json!({ "path": path })).await {
+        Ok(_) => Redirect::to(&target).into_response(),
+        Err(response) => refuse(&refusal_sentence(*response).await),
+    }
+}
+
 /// `POST /next/files/:device/write`: write one text file, then show its directory.
 async fn next_files_write(
     State(app): State<AppState>,
@@ -2704,6 +2755,29 @@ struct MonitorRemoveForm {
     id: String,
 }
 
+/// `POST /next/monitors/:device/probe`: probe one watched target now, then show its summary.
+async fn next_monitor_probe(
+    State(app): State<AppState>,
+    Path(device_id): Path<String>,
+    headers: HeaderMap,
+    Form(form): Form<MonitorRemoveForm>,
+) -> Response {
+    if next_session(&app, &headers, Some(&form.csrf)).is_none() {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    if !app.has_device(&device_id) {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+    let uri = format!("/next/monitors/{device_id}");
+    match device_tool(&app, &device_id, "monitor.probe", json!({ "id": form.id })).await {
+        Ok(_) => Redirect::to(&uri).into_response(),
+        Err(response) => {
+            let sentence = refusal_sentence(*response).await;
+            Redirect::to(&format!("{uri}?error={}", page::encode(&sentence))).into_response()
+        }
+    }
+}
+
 /// `GET /next/screen/:device`: one capture, inline as a data URL.
 async fn next_screen_page(
     State(app): State<AppState>,
@@ -2758,10 +2832,16 @@ async fn next_screen_page(
 }
 
 /// `GET /next/monitors/:device`: the watches, their newest state, and the add form.
+#[derive(Deserialize)]
+struct MonitorQuery {
+    error: Option<String>,
+}
+
 async fn next_monitors_page(
     State(app): State<AppState>,
     Path(device_id): Path<String>,
     headers: HeaderMap,
+    Query(query): Query<MonitorQuery>,
 ) -> Response {
     let Some(session) = cookie_session(&app, &headers) else {
         return login_card(&app, &headers).into_response();
@@ -2772,7 +2852,7 @@ async fn next_monitors_page(
     else {
         return StatusCode::NOT_FOUND.into_response();
     };
-    let mut error = None;
+    let mut error = query.error.clone();
     let targets = match device_tool(&app, &device_id, "monitor.list", json!({})).await {
         Ok(text) => serde_json::from_str::<Vec<Value>>(&text).unwrap_or_default(),
         Err(response) => {

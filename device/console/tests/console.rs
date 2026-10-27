@@ -3658,6 +3658,124 @@ async fn a_saved_connection_is_listed_on_the_terminal_page() {
     assert!(page.contains("10.0.0.5"), "{page}");
 }
 
+/// The device's missing-parent refusal tells the operator to use `files.mkdir`; the page has to be
+/// able to do it, or it is pointing at a door that does not exist.
+#[tokio::test]
+async fn a_directory_can_be_created_from_the_files_page() {
+    let fixture = Fixture::new("files-mkdir");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xea)).await;
+    let (cookie, csrf) = sign_in_to_the_page(&fixture).await;
+
+    let app = fixture.app();
+    let request = post_form_cookie(
+        &format!("/next/files/{device_id}/mkdir"),
+        &[("csrf", &csrf), ("path", "logs/2026"), ("current", "logs")],
+        &cookie,
+    );
+    let create = tokio::spawn(async move { send_text(app, request).await });
+
+    let frame = next_json(&mut device).await;
+    assert_eq!(
+        frame["mcp"]["params"]["name"],
+        json!("files.mkdir"),
+        "{frame}"
+    );
+    assert_eq!(
+        frame["mcp"]["params"]["arguments"]["path"],
+        json!("logs/2026")
+    );
+    answer(
+        &mut device,
+        &frame,
+        json!({
+            "jsonrpc": "2.0", "id": 1,
+            "result": { "content": [{ "type": "text", "text": "{}" }], "isError": false }
+        }),
+    )
+    .await;
+
+    let (status, headers, _) = create.await.expect("the mkdir finishes");
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert_eq!(
+        headers
+            .get(header::LOCATION)
+            .and_then(|value| value.to_str().ok()),
+        Some(format!("/next/files/{device_id}?path=logs").as_str()),
+        "the listing the operator was looking at comes back"
+    );
+}
+
+/// The page's path rule covers the new folder too.
+#[tokio::test]
+async fn a_mkdir_path_outside_the_root_is_refused_by_the_page() {
+    let fixture = Fixture::new("files-mkdir-traversal");
+    let (device_id, _) = fixture.register(&signing_key(0xe9)).await;
+    let (cookie, csrf) = sign_in_to_the_page(&fixture).await;
+
+    let (status, headers, _) = send_text(
+        fixture.app(),
+        post_form_cookie(
+            &format!("/next/files/{device_id}/mkdir"),
+            &[("csrf", &csrf), ("path", "../escape")],
+            &cookie,
+        ),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let location = headers
+        .get(header::LOCATION)
+        .and_then(|value| value.to_str().ok())
+        .expect("a redirect");
+    assert!(location.contains("cannot%20contain"), "{location}");
+}
+
+/// A watched target can be probed now, so a fresh status does not wait for the interval.
+#[tokio::test]
+async fn a_watched_target_can_be_probed_now() {
+    let fixture = Fixture::new("monitor-probe-now");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xe8)).await;
+    let (cookie, csrf) = sign_in_to_the_page(&fixture).await;
+
+    let app = fixture.app();
+    let request = post_form_cookie(
+        &format!("/next/monitors/{device_id}/probe"),
+        &[("csrf", &csrf), ("id", "target-1")],
+        &cookie,
+    );
+    let probe = tokio::spawn(async move { send_text(app, request).await });
+
+    let frame = next_json(&mut device).await;
+    assert_eq!(
+        frame["mcp"]["params"]["name"],
+        json!("monitor.probe"),
+        "{frame}"
+    );
+    assert_eq!(frame["mcp"]["params"]["arguments"]["id"], json!("target-1"));
+    answer(
+        &mut device,
+        &frame,
+        json!({
+            "jsonrpc": "2.0", "id": 1,
+            "result": { "content": [{ "type": "text", "text": json!({"ts_ms": 1, "ok": true, "latency_ms": 3}).to_string() }], "isError": false }
+        }),
+    )
+    .await;
+
+    let (status, headers, _) = probe.await.expect("the probe finishes");
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert_eq!(
+        headers
+            .get(header::LOCATION)
+            .and_then(|value| value.to_str().ok()),
+        Some(format!("/next/monitors/{device_id}").as_str())
+    );
+}
+
 /// An ssh preset that names a key on the device is like a serial one: it can open a session from the
 /// rail without a credential typed in, because a key path is configuration and the key stays put.
 #[tokio::test]
