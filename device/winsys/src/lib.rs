@@ -118,58 +118,6 @@ fn working_set_kb(pid: u32) -> u64 {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use std::process::{Command, Stdio};
-    use std::time::{Duration, Instant};
-
-    use super::*;
-
-    #[test]
-    fn the_list_names_this_test_process() {
-        let processes = processes().expect("a snapshot is available to a normal process");
-        let me = std::process::id();
-        let found = processes
-            .iter()
-            .find(|process| process.pid == me)
-            .expect("the test's own process is in its own snapshot");
-        assert!(!found.name.is_empty());
-    }
-
-    #[test]
-    fn a_spawned_process_can_be_terminated_by_pid() {
-        // `ping` is a console program that sleeps between replies, which makes it a process that is
-        // alive long enough to be ended on purpose rather than one that may have exited already.
-        let mut child = Command::new("cmd")
-            .args(["/C", "ping", "-n", "30", "127.0.0.1"])
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()
-            .expect("the child starts");
-        let pid = child.id();
-        assert!(
-            processes()
-                .expect("a snapshot")
-                .iter()
-                .any(|process| process.pid == pid),
-            "the child is listed before it is killed"
-        );
-
-        terminate(pid).expect("the child can be terminated");
-        let deadline = Instant::now() + Duration::from_secs(10);
-        loop {
-            match child.try_wait().expect("the child's status is readable") {
-                Some(_) => break,
-                None if Instant::now() >= deadline => {
-                    let _ = child.kill();
-                    panic!("the terminated child did not exit");
-                }
-                None => std::thread::sleep(Duration::from_millis(50)),
-            }
-        }
-    }
-}
-
 /// One frame of the interactive desktop, top-down RGBA.
 pub struct Screen {
     pub width: u32,
@@ -291,7 +239,7 @@ pub fn capture_primary_screen() -> io::Result<Screen> {
             return Err(error);
         }
         // GDI hands back BGRA; the PNG the caller writes wants RGBA.
-        for pixel in rgba.chunks_exact_mut(4) {
+        for pixel in rgba.as_chunks_mut::<4>().0 {
             pixel.swap(0, 2);
         }
         Ok(Screen {
@@ -324,6 +272,10 @@ pub struct HostFacts {
     /// The real Windows version, e.g. `10.0.26100` (`RtlGetVersion`, not the manifest-dependent
     /// `GetVersionEx`, which reports 6.2 on a modern build for an unmanifested executable).
     pub os_version: String,
+    /// The client release the build belongs to, e.g. `Windows 11`. Windows 10 and 11 both report a
+    /// `10.0.x` version, so the build number is the only discriminator; `os_version` stays raw.
+    /// Client builds only — Server 2022's 20348 would read as Windows 11.
+    pub os_release: String,
     /// The NetBIOS name.
     pub machine: String,
     /// Seconds since boot.
@@ -337,8 +289,11 @@ pub struct HostFacts {
 /// Gather the host facts; a fact that cannot be read is zero, not an error, because a device that
 /// answers with five of six facts is more useful than one that answers with none.
 pub fn host_facts() -> io::Result<HostFacts> {
+    let os_version = os_version()?;
+    let os_release = os_release(&os_version).to_owned();
     Ok(HostFacts {
-        os_version: os_version()?,
+        os_version,
+        os_release,
         machine: machine_name()?,
         uptime_s: uptime_seconds(),
         memory_total_bytes: memory().map(|(total, _)| total).unwrap_or(0),
@@ -356,6 +311,20 @@ pub fn session_of_process(pid: u32) -> Option<u32> {
     // SAFETY: the out pointer is valid for the call.
     let ok = unsafe { ProcessIdToSessionId(pid, &mut session) };
     (ok != 0).then_some(session)
+}
+
+/// The client Windows release a build belongs to. Windows 10 and 11 share the 10.0 major, so the
+/// build is the only discriminator; an unreadable build stays the generic family rather than a guess.
+fn os_release(version: &str) -> &'static str {
+    let build = version
+        .rsplit('.')
+        .next()
+        .and_then(|part| part.parse::<u32>().ok());
+    match build {
+        Some(22000..) => "Windows 11",
+        Some(10240..=19045) => "Windows 10",
+        _ => "Windows",
+    }
 }
 
 fn os_version() -> io::Result<String> {
@@ -540,5 +509,66 @@ fn state_name(state: windows_sys::Win32::System::RemoteDesktop::WTS_CONNECTSTATE
         8 => "down".to_owned(),
         9 => "init".to_owned(),
         other => format!("state-{other}"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::process::{Command, Stdio};
+    use std::time::{Duration, Instant};
+
+    use super::*;
+
+    #[test]
+    fn the_list_names_this_test_process() {
+        let processes = processes().expect("a snapshot is available to a normal process");
+        let me = std::process::id();
+        let found = processes
+            .iter()
+            .find(|process| process.pid == me)
+            .expect("the test's own process is in its own snapshot");
+        assert!(!found.name.is_empty());
+    }
+
+    #[test]
+    fn the_build_names_the_client_release() {
+        assert_eq!(os_release("10.0.22631"), "Windows 11");
+        assert_eq!(os_release("10.0.26100"), "Windows 11");
+        assert_eq!(os_release("10.0.19045"), "Windows 10");
+        assert_eq!(os_release("10.0.10240"), "Windows 10");
+        assert_eq!(os_release("garbage"), "Windows");
+    }
+
+    #[test]
+    fn a_spawned_process_can_be_terminated_by_pid() {
+        // `ping` is a console program that sleeps between replies, which makes it a process that is
+        // alive long enough to be ended on purpose rather than one that may have exited already.
+        let mut child = Command::new("cmd")
+            .args(["/C", "ping", "-n", "30", "127.0.0.1"])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("the child starts");
+        let pid = child.id();
+        assert!(
+            processes()
+                .expect("a snapshot")
+                .iter()
+                .any(|process| process.pid == pid),
+            "the child is listed before it is killed"
+        );
+
+        terminate(pid).expect("the child can be terminated");
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            match child.try_wait().expect("the child's status is readable") {
+                Some(_) => break,
+                None if Instant::now() >= deadline => {
+                    let _ = child.kill();
+                    panic!("the terminated child did not exit");
+                }
+                None => std::thread::sleep(Duration::from_millis(50)),
+            }
+        }
     }
 }
