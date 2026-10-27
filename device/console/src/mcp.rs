@@ -131,6 +131,84 @@ pub(crate) fn initialize_result(device_id: &str, version: &str) -> Value {
     })
 }
 
+/// The `initialize` result for the aggregate endpoint: the devices its token may reach and the one
+/// argument every tool takes.
+///
+/// The list is `id (name)` so a client can pass either form; the console, not the schema, is the
+/// authority that a name is unique and inside the token's scope.
+pub(crate) fn aggregate_initialize_result(devices: &[(String, String)], version: &str) -> Value {
+    let list = device_list(devices);
+    let reach = if devices.is_empty() {
+        "no devices are currently registered in this token's scope".to_owned()
+    } else {
+        format!("{} Summrise device(s): {list}", devices.len())
+    };
+    json!({
+        "protocolVersion": PROTOCOL_VERSION,
+        "capabilities": { "tools": { "listChanged": false } },
+        "serverInfo": { "name": "summrise-console", "version": version },
+        "instructions": format!(
+            "This endpoint reaches {reach}. Every tool takes a required `device` argument: the              device id, or a unique device name. The tools it lists are the token's tools; every              call is audited."
+        ),
+    })
+}
+
+/// Add the required `device` argument to every tool in a `tools/list` result.
+///
+/// The device's own schema is preserved; the new property is described with the token's
+/// `id (name)` pairs and added to `required`. A tool that arrived without a schema still gets one
+/// that admits the argument, rather than being dropped from the surface.
+pub(crate) fn add_device_argument(result: &mut Value, devices: &[(String, String)]) {
+    let description = format!(
+        "The device to act on: an id, or a name unique in this token's scope ({}).",
+        device_list(devices)
+    );
+    let Some(tools) = result
+        .get_mut("result")
+        .and_then(|result| result.get_mut("tools"))
+        .and_then(Value::as_array_mut)
+    else {
+        return;
+    };
+    for tool in tools {
+        let Some(tool) = tool.as_object_mut() else {
+            continue;
+        };
+        let schema = tool
+            .entry("inputSchema")
+            .or_insert_with(|| json!({ "type": "object" }));
+        let Some(schema) = schema.as_object_mut() else {
+            continue;
+        };
+        schema.entry("type").or_insert_with(|| json!("object"));
+        let properties = schema.entry("properties").or_insert_with(|| json!({}));
+        if let Some(properties) = properties.as_object_mut() {
+            properties.insert(
+                "device".to_owned(),
+                json!({ "type": "string", "description": description }),
+            );
+        }
+        let required = schema.entry("required").or_insert_with(|| json!([]));
+        if let Some(required) = required.as_array_mut() {
+            if !required.iter().any(|value| value == "device") {
+                required.push(json!("device"));
+            }
+        }
+    }
+}
+
+/// `id (name)` pairs for instructions and tool descriptions.
+fn device_list(devices: &[(String, String)]) -> String {
+    if devices.is_empty() {
+        return "none".to_owned();
+    }
+    devices
+        .iter()
+        .map(|(id, name)| format!("{id} ({name})"))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
 /// Retain only the tools the grant names, in the order the device returned them.
 ///
 /// The device's `tools/list` is the authority on names, descriptions and input schemas; the grant is
@@ -343,5 +421,73 @@ mod tests {
             .as_str()
             .expect("an instructions string")
             .contains(&"ab".repeat(32)));
+    }
+
+    #[test]
+    fn the_aggregate_initialize_names_every_device() {
+        let value = aggregate_initialize_result(
+            &[("a".into(), "ALPHA".into()), ("b".into(), "BETA".into())],
+            "0.3.43",
+        );
+        assert_eq!(value["serverInfo"]["name"], json!("summrise-console"));
+        assert_eq!(value["serverInfo"]["version"], json!("0.3.43"));
+        let text = value["instructions"].as_str().expect("instructions");
+        assert!(text.contains("a (ALPHA)"), "{text}");
+        assert!(text.contains("b (BETA)"), "{text}");
+        assert!(text.contains("device"), "{text}");
+    }
+
+    #[test]
+    fn the_aggregate_initialize_with_no_devices_says_so() {
+        let value = aggregate_initialize_result(&[], "0.3.43");
+        let text = value["instructions"].as_str().expect("instructions");
+        assert!(text.contains("no devices"), "{text}");
+    }
+
+    #[test]
+    fn every_tool_gets_a_required_device_argument() {
+        let mut result = json!({"result": {"tools": [
+            {"name": "files.read", "inputSchema": {
+                "type": "object",
+                "properties": {"path": {"type": "string"}},
+                "required": ["path"]
+            }}
+        ]}});
+        add_device_argument(&mut result, &[("a".into(), "ALPHA".into())]);
+        let schema = &result["result"]["tools"][0]["inputSchema"];
+        assert_eq!(schema["properties"]["device"]["type"], json!("string"));
+        assert!(schema["properties"]["device"]["description"]
+            .as_str()
+            .unwrap()
+            .contains("a (ALPHA)"));
+        assert!(schema["required"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|value| value == "device"));
+        assert_eq!(schema["properties"]["path"]["type"], json!("string"));
+        assert!(schema["required"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|value| value == "path"));
+    }
+
+    #[test]
+    fn injection_tolerates_a_tool_without_a_schema() {
+        let mut result = json!({"result": {"tools": [{"name": "x"}]}});
+        add_device_argument(&mut result, &[("a".into(), "ALPHA".into())]);
+        assert_eq!(
+            result["result"]["tools"][0]["inputSchema"]["properties"]["device"]["type"],
+            json!("string")
+        );
+    }
+
+    #[test]
+    fn injection_is_a_no_op_on_a_result_without_tools() {
+        let mut result = json!({"result": {"tools": "not an array"}});
+        let before = result.clone();
+        add_device_argument(&mut result, &[("a".into(), "ALPHA".into())]);
+        assert_eq!(result, before);
     }
 }

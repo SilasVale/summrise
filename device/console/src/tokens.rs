@@ -82,8 +82,11 @@ pub struct Token {
     pub id: String,
     /// The operator's label for the token.
     pub name: String,
-    /// The one device the token may reach.
+    /// The one device the token may reach; empty on an aggregate token.
     pub device_id: String,
+    /// The devices an aggregate token may reach; absent on a device token.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub device_ids: Option<Vec<String>>,
     /// The registry tools the minted grant may name.
     pub tools: Vec<String>,
     /// The operator's signed consent to destructive tools under this token.
@@ -111,6 +114,7 @@ impl Token {
             id: self.id.clone(),
             name: self.name.clone(),
             device_id: self.device_id.clone(),
+            device_ids: self.device_ids.clone(),
             tools: self.tools.clone(),
             allow_destructive: self.allow_destructive,
             created_at_ms: self.created_at_ms,
@@ -126,6 +130,9 @@ pub struct TokenMeta {
     pub id: String,
     pub name: String,
     pub device_id: String,
+    /// The devices an aggregate token may reach; absent on a device token.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub device_ids: Option<Vec<String>>,
     pub tools: Vec<String>,
     pub allow_destructive: bool,
     pub created_at_ms: u64,
@@ -137,10 +144,16 @@ pub struct TokenMeta {
     pub last_used_ms: Option<u64>,
 }
 
+/// What one token may reach: one device, or an explicit list of devices.
+pub(crate) enum TokenScope {
+    Device(String),
+    Devices(Vec<String>),
+}
+
 /// A request to mint one token, after the operator has filled a form.
 pub(crate) struct Draft {
     pub(crate) name: String,
-    pub(crate) device_id: String,
+    pub(crate) scope: TokenScope,
     pub(crate) tools: Vec<String>,
     pub(crate) allow_destructive: bool,
     /// The requested lifetime in seconds; absent means the token never expires.
@@ -153,6 +166,7 @@ pub(crate) struct Draft {
 struct Scope {
     name: String,
     device_id: String,
+    device_ids: Option<Vec<String>>,
     tools: Vec<String>,
     allow_destructive: bool,
 }
@@ -165,6 +179,7 @@ fn issue(scope: Scope, expires_at_ms: Option<u64>, now_ms: u64) -> (Token, Strin
         id: hex::encode(&random_32()),
         name: scope.name,
         device_id: scope.device_id,
+        device_ids: scope.device_ids,
         tools: scope.tools,
         allow_destructive: scope.allow_destructive,
         created_at_ms: now_ms,
@@ -189,6 +204,10 @@ pub(crate) enum TokenError {
     UnknownTool,
     /// The token names a device this console does not have.
     UnknownDevice,
+    /// An aggregate token named no devices.
+    EmptyDevices,
+    /// An aggregate token named the same device twice.
+    DuplicateDevice,
     /// [`MAX_TOKENS`] tokens already exist.
     TooManyTokens,
     /// The requested lifetime is shorter than [`MIN_TOKEN_EXPIRY_S`].
@@ -269,12 +288,12 @@ impl Tokens {
     /// Mint one token and return its public facts with the plaintext, which is the only time it is
     /// ever visible.
     ///
-    /// `device_known` is the registry's answer about `draft.device_id`; this store does not keep a
-    /// second copy of the device list, so the caller passes the fact in.
+    /// `known_devices` is the registry's answer about every id in the draft's scope; this store does
+    /// not keep a second copy of the device list, so the caller passes the fact in.
     pub(crate) fn create(
         &mut self,
         draft: Draft,
-        device_known: bool,
+        known_devices: impl Fn(&str) -> bool,
         now_ms: u64,
     ) -> Result<(TokenMeta, String), TokenError> {
         let name = draft.name.trim();
@@ -294,9 +313,29 @@ impl Tokens {
         {
             return Err(TokenError::UnknownTool);
         }
-        if !device_known {
-            return Err(TokenError::UnknownDevice);
-        }
+        let (device_id, device_ids) = match draft.scope {
+            TokenScope::Device(id) => {
+                if !known_devices(&id) {
+                    return Err(TokenError::UnknownDevice);
+                }
+                (id, None)
+            }
+            TokenScope::Devices(ids) => {
+                if ids.is_empty() {
+                    return Err(TokenError::EmptyDevices);
+                }
+                let mut seen = BTreeSet::new();
+                for id in &ids {
+                    if !seen.insert(id.clone()) {
+                        return Err(TokenError::DuplicateDevice);
+                    }
+                    if !known_devices(id) {
+                        return Err(TokenError::UnknownDevice);
+                    }
+                }
+                (String::new(), Some(ids))
+            }
+        };
         if self.tokens.len() >= MAX_TOKENS {
             return Err(TokenError::TooManyTokens);
         }
@@ -315,7 +354,8 @@ impl Tokens {
 
         let scope = Scope {
             name: name.to_owned(),
-            device_id: draft.device_id,
+            device_id,
+            device_ids,
             tools: draft.tools,
             allow_destructive: draft.allow_destructive,
         };
@@ -360,6 +400,7 @@ impl Tokens {
         let scope = Scope {
             name: old.name.clone(),
             device_id: old.device_id.clone(),
+            device_ids: old.device_ids.clone(),
             tools: old.tools.clone(),
             allow_destructive: old.allow_destructive,
         };
@@ -482,10 +523,29 @@ fn index(list: Vec<Token>) -> Result<(BTreeMap<String, Token>, usize), String> {
         if !is_lower_hex_64(&token.hash) {
             return Err("an entry's hash is not 32 bytes of lowercase hex".to_owned());
         }
-        if !is_lower_hex_64(&token.device_id) {
-            return Err(
-                "an entry names a device id that is not 32 bytes of lowercase hex".to_owned(),
-            );
+        match &token.device_ids {
+            Some(ids) => {
+                let mut seen = BTreeSet::new();
+                let unique = ids.iter().all(|id| seen.insert(id.clone()));
+                if !token.device_id.is_empty()
+                    || ids.is_empty()
+                    || !unique
+                    || ids.iter().any(|id| !is_lower_hex_64(id))
+                {
+                    return Err(
+                        "an aggregate entry must carry a non-empty, unique list of device ids and an empty device_id"
+                            .to_owned(),
+                    );
+                }
+            }
+            None => {
+                if !is_lower_hex_64(&token.device_id) {
+                    return Err(
+                        "an entry names a device id that is not 32 bytes of lowercase hex"
+                            .to_owned(),
+                    );
+                }
+            }
         }
         if token.name.trim().is_empty() || token.name.chars().count() > MAX_NAME_CHARS {
             return Err("an entry has an empty or overlong name".to_owned());
@@ -572,7 +632,7 @@ mod tests {
     fn draft(name: &str, device_id: &str, tools: &[&str]) -> Draft {
         Draft {
             name: name.to_owned(),
-            device_id: device_id.to_owned(),
+            scope: TokenScope::Device(device_id.to_owned()),
             tools: tools.iter().map(|tool| (*tool).to_owned()).collect(),
             allow_destructive: false,
             expires_in_s: None,
@@ -603,7 +663,7 @@ mod tests {
                     &device_id(),
                     &["files.read", "memory.search"],
                 ),
-                true,
+                |_| true,
                 1_000,
             )
             .expect("a valid token");
@@ -679,7 +739,7 @@ mod tests {
         let data = tempdir("revoke");
         let mut tokens = Tokens::load(&data).expect("an empty store loads");
         let (meta, plaintext) = tokens
-            .create(draft("ci", &device_id(), &["files.read"]), true, 1_000)
+            .create(draft("ci", &device_id(), &["files.read"]), |_| true, 1_000)
             .expect("a valid token");
         let hash = hash_token(&plaintext);
 
@@ -713,7 +773,9 @@ mod tests {
         let mut tokens = Tokens::load(&data).expect("an empty store loads");
         let mut scope = draft("laptop-dsh", &device_id(), &["files.read", "memory.search"]);
         scope.allow_destructive = true;
-        let (old_meta, old_plaintext) = tokens.create(scope, true, 1_000).expect("a valid token");
+        let (old_meta, old_plaintext) = tokens
+            .create(scope, |_| true, 1_000)
+            .expect("a valid token");
         assert!(
             tokens.mark_used(&hash_token(&old_plaintext), 1_500),
             "the old record has a use to lose"
@@ -790,7 +852,7 @@ mod tests {
             let (meta, _) = tokens
                 .create(
                     draft(&format!("client-{index}"), &device_id(), &["files.read"]),
-                    true,
+                    |_| true,
                     1_000 + index as u64,
                 )
                 .expect("a token under the cap");
@@ -823,7 +885,11 @@ mod tests {
         let data = tempdir("rotate-unknown");
         let mut tokens = Tokens::load(&data).expect("an empty store loads");
         let (meta, _) = tokens
-            .create(draft("laptop", &device_id(), &["files.read"]), true, 1_000)
+            .create(
+                draft("laptop", &device_id(), &["files.read"]),
+                |_| true,
+                1_000,
+            )
             .expect("a valid token");
         let before = std::fs::read(data.join(TOKENS_FILE)).expect("the file is readable");
         let list_before = tokens.list();
@@ -853,7 +919,11 @@ mod tests {
         let data = tempdir("rotate-write-failure");
         let mut tokens = Tokens::load(&data).expect("an empty store loads");
         let (meta, plaintext) = tokens
-            .create(draft("laptop", &device_id(), &["files.read"]), true, 1_000)
+            .create(
+                draft("laptop", &device_id(), &["files.read"]),
+                |_| true,
+                1_000,
+            )
             .expect("a valid token");
         let hash = hash_token(&plaintext);
         let before = std::fs::read(data.join(TOKENS_FILE)).expect("the file is readable");
@@ -897,7 +967,7 @@ mod tests {
             tokens
                 .create(
                     draft(&format!("client-{index}"), &device_id(), &["files.read"]),
-                    true,
+                    |_| true,
                     1_000 + index as u64,
                 )
                 .expect("a token under the cap");
@@ -905,7 +975,7 @@ mod tests {
 
         let refused = tokens.create(
             draft("one-too-many", &device_id(), &["files.read"]),
-            true,
+            |_| true,
             2_000,
         );
 
@@ -927,30 +997,32 @@ mod tests {
 
         assert_eq!(
             tokens
-                .create(draft("   ", &device_id(), &["files.read"]), true, 0)
+                .create(draft("   ", &device_id(), &["files.read"]), |_| true, 0)
                 .err(),
             Some(TokenError::NameEmpty)
         );
         let long = "n".repeat(MAX_NAME_CHARS + 1);
         assert_eq!(
             tokens
-                .create(draft(&long, &device_id(), &["files.read"]), true, 0)
+                .create(draft(&long, &device_id(), &["files.read"]), |_| true, 0)
                 .err(),
             Some(TokenError::NameTooLong)
         );
         assert_eq!(
-            tokens.create(draft("x", &device_id(), &[]), true, 0).err(),
+            tokens
+                .create(draft("x", &device_id(), &[]), |_| true, 0)
+                .err(),
             Some(TokenError::EmptyTools)
         );
         assert_eq!(
             tokens
-                .create(draft("x", &device_id(), &["no.such.tool"]), true, 0)
+                .create(draft("x", &device_id(), &["no.such.tool"]), |_| true, 0)
                 .err(),
             Some(TokenError::UnknownTool)
         );
         assert_eq!(
             tokens
-                .create(draft("x", &device_id(), &["files.read"]), false, 0)
+                .create(draft("x", &device_id(), &["files.read"]), |_| false, 0)
                 .err(),
             Some(TokenError::UnknownDevice)
         );
@@ -966,11 +1038,11 @@ mod tests {
 
         let exact = "n".repeat(MAX_NAME_CHARS);
         tokens
-            .create(draft(&exact, &device_id(), &["files.read"]), true, 0)
+            .create(draft(&exact, &device_id(), &["files.read"]), |_| true, 0)
             .expect("eighty characters is the limit");
         assert_eq!(
             tokens
-                .create(draft("y", &other_device(), &["files.read"]), true, 0)
+                .create(draft("y", &other_device(), &["files.read"]), |_| true, 0)
                 .ok()
                 .map(|(meta, _)| meta.device_id),
             Some(other_device()),
@@ -1088,7 +1160,7 @@ mod tests {
         let data = tempdir("revoke-durable");
         let mut tokens = Tokens::load(&data).expect("an empty store loads");
         let (meta, plaintext) = tokens
-            .create(draft("laptop", &device_id(), &["files.read"]), true, 0)
+            .create(draft("laptop", &device_id(), &["files.read"]), |_| true, 0)
             .expect("a valid token");
         tokens.revoke(&meta.id).expect("the revocation writes");
 
@@ -1143,13 +1215,17 @@ mod tests {
         let data = tempdir("revoke-device");
         let mut tokens = Tokens::load(&data).expect("an empty store loads");
         let (_a1, _) = tokens
-            .create(draft("one", &device_id(), &["files.read"]), true, 0)
+            .create(draft("one", &device_id(), &["files.read"]), |_| true, 0)
             .expect("a token");
         let (_a2, _) = tokens
-            .create(draft("two", &device_id(), &["files.read"]), true, 0)
+            .create(draft("two", &device_id(), &["files.read"]), |_| true, 0)
             .expect("a token");
         let (_b, _) = tokens
-            .create(draft("other", &other_device(), &["files.read"]), true, 0)
+            .create(
+                draft("other", &other_device(), &["files.read"]),
+                |_| true,
+                0,
+            )
             .expect("a token");
 
         let removed = tokens
@@ -1171,7 +1247,11 @@ mod tests {
         let data = tempdir("leftover");
         let mut tokens = Tokens::load(&data).expect("an empty store loads");
         let (meta, plaintext) = tokens
-            .create(draft("laptop", &device_id(), &["files.read"]), true, 1_000)
+            .create(
+                draft("laptop", &device_id(), &["files.read"]),
+                |_| true,
+                1_000,
+            )
             .expect("a valid token");
         std::fs::write(data.join("tokens.json.tmp"), b"{ half a write")
             .expect("the leftover is written");
@@ -1198,7 +1278,11 @@ mod tests {
         let data = tempdir("last-used-none");
         let mut tokens = Tokens::load(&data).expect("an empty store loads");
         let (meta, _) = tokens
-            .create(draft("laptop", &device_id(), &["files.read"]), true, 1_000)
+            .create(
+                draft("laptop", &device_id(), &["files.read"]),
+                |_| true,
+                1_000,
+            )
             .expect("a valid token");
 
         assert_eq!(meta.last_used_ms, None, "a new token has never been used");
@@ -1217,7 +1301,11 @@ mod tests {
         let data = tempdir("last-used-throttle");
         let mut tokens = Tokens::load(&data).expect("an empty store loads");
         let (meta, plaintext) = tokens
-            .create(draft("laptop", &device_id(), &["files.read"]), true, 1_000)
+            .create(
+                draft("laptop", &device_id(), &["files.read"]),
+                |_| true,
+                1_000,
+            )
             .expect("a valid token");
         let hash = hash_token(&plaintext);
 
@@ -1261,7 +1349,11 @@ mod tests {
         let data = tempdir("last-used-unknown");
         let mut tokens = Tokens::load(&data).expect("an empty store loads");
         let (_meta, plaintext) = tokens
-            .create(draft("laptop", &device_id(), &["files.read"]), true, 1_000)
+            .create(
+                draft("laptop", &device_id(), &["files.read"]),
+                |_| true,
+                1_000,
+            )
             .expect("a valid token");
         let before = std::fs::read(data.join(TOKENS_FILE)).expect("the file is readable");
         let list_before = tokens.list();
@@ -1337,7 +1429,11 @@ mod tests {
         let data = tempdir("last-used-write-failure");
         let mut tokens = Tokens::load(&data).expect("an empty store loads");
         let (_meta, plaintext) = tokens
-            .create(draft("laptop", &device_id(), &["files.read"]), true, 1_000)
+            .create(
+                draft("laptop", &device_id(), &["files.read"]),
+                |_| true,
+                1_000,
+            )
             .expect("a valid token");
         let hash = hash_token(&plaintext);
 
@@ -1370,12 +1466,20 @@ mod tests {
         let data = tempdir("write-failure");
         let mut tokens = Tokens::load(&data).expect("an empty store loads");
         let (meta, _) = tokens
-            .create(draft("first", &device_id(), &["files.read"]), true, 1_000)
+            .create(
+                draft("first", &device_id(), &["files.read"]),
+                |_| true,
+                1_000,
+            )
             .expect("a valid token");
 
         std::fs::set_permissions(&data, std::fs::Permissions::from_mode(0o500))
             .expect("the directory is made read-only");
-        let refused = tokens.create(draft("second", &device_id(), &["files.read"]), true, 2_000);
+        let refused = tokens.create(
+            draft("second", &device_id(), &["files.read"]),
+            |_| true,
+            2_000,
+        );
         std::fs::set_permissions(&data, std::fs::Permissions::from_mode(0o700))
             .expect("the directory is writable again");
 
@@ -1400,7 +1504,7 @@ mod tests {
         let mut shortest = draft("shortest", &device_id(), &["files.read"]);
         shortest.expires_in_s = Some(MIN_TOKEN_EXPIRY_S);
         let (shortest_meta, _) = tokens
-            .create(shortest, true, now)
+            .create(shortest, |_| true, now)
             .expect("one hour is allowed");
         assert_eq!(
             shortest_meta.expires_at_ms,
@@ -1411,7 +1515,7 @@ mod tests {
         let mut longest = draft("longest", &device_id(), &["files.read"]);
         longest.expires_in_s = Some(MAX_TOKEN_EXPIRY_S);
         let (longest_meta, _) = tokens
-            .create(longest, true, now)
+            .create(longest, |_| true, now)
             .expect("a year is allowed");
         assert_eq!(
             longest_meta.expires_at_ms,
@@ -1422,7 +1526,7 @@ mod tests {
         let mut too_short = draft("too-short", &device_id(), &["files.read"]);
         too_short.expires_in_s = Some(MIN_TOKEN_EXPIRY_S - 1);
         assert_eq!(
-            tokens.create(too_short, true, now).err(),
+            tokens.create(too_short, |_| true, now).err(),
             Some(TokenError::ExpiryTooShort),
             "one second under an hour is a unit error"
         );
@@ -1430,7 +1534,7 @@ mod tests {
         let mut too_long = draft("too-long", &device_id(), &["files.read"]);
         too_long.expires_in_s = Some(MAX_TOKEN_EXPIRY_S + 1);
         assert_eq!(
-            tokens.create(too_long, true, now).err(),
+            tokens.create(too_long, |_| true, now).err(),
             Some(TokenError::ExpiryTooLong),
             "one second over a year is a unit error"
         );
@@ -1444,7 +1548,7 @@ mod tests {
         let mut saturated = draft("saturated", &device_id(), &["files.read"]);
         saturated.expires_in_s = Some(MIN_TOKEN_EXPIRY_S);
         let (saturated_meta, _) = tokens
-            .create(saturated, true, u64::MAX)
+            .create(saturated, |_| true, u64::MAX)
             .expect("a clock at the end of time still mints");
         assert_eq!(
             saturated_meta.expires_at_ms,
@@ -1462,7 +1566,11 @@ mod tests {
         let mut tokens = Tokens::load(&data).expect("an empty store loads");
 
         let (meta, _) = tokens
-            .create(draft("laptop", &device_id(), &["files.read"]), true, 1_000)
+            .create(
+                draft("laptop", &device_id(), &["files.read"]),
+                |_| true,
+                1_000,
+            )
             .expect("a valid token");
 
         assert_eq!(meta.expires_at_ms, None, "an absent lifetime is permanent");
@@ -1535,18 +1643,22 @@ mod tests {
 
         let mut thirty = draft("thirty", &device_id(), &["files.read"]);
         thirty.expires_in_s = Some(30 * DAY_S);
-        let (thirty_meta, _) = tokens.create(thirty, true, 1_000).expect("a valid token");
+        let (thirty_meta, _) = tokens
+            .create(thirty, |_| true, 1_000)
+            .expect("a valid token");
         assert_eq!(thirty_meta.expires_at_ms, Some(1_000 + 30 * DAY_MS));
 
         let mut ninety = draft("ninety", &device_id(), &["files.read"]);
         ninety.expires_in_s = Some(90 * DAY_S);
-        let (ninety_meta, _) = tokens.create(ninety, true, 1_000).expect("a valid token");
+        let (ninety_meta, _) = tokens
+            .create(ninety, |_| true, 1_000)
+            .expect("a valid token");
         assert_eq!(ninety_meta.expires_at_ms, Some(1_000 + 90 * DAY_MS));
 
         let (permanent_meta, _) = tokens
             .create(
                 draft("permanent", &device_id(), &["files.read"]),
-                true,
+                |_| true,
                 1_000,
             )
             .expect("a valid token");
@@ -1598,6 +1710,85 @@ mod tests {
             serde_json::json!(rotated_at + 90 * DAY_MS),
             "the policy reaches the file: {ninety_record}"
         );
+        std::fs::remove_dir_all(&data).ok();
+    }
+
+    fn aggregate(ids: &[&str]) -> Draft {
+        Draft {
+            name: "all".into(),
+            scope: TokenScope::Devices(ids.iter().map(|id| (*id).to_owned()).collect()),
+            tools: vec!["files.read".into()],
+            allow_destructive: false,
+            expires_in_s: None,
+        }
+    }
+
+    #[test]
+    fn an_aggregate_token_records_every_device_and_never_a_single_device() {
+        let data = tempdir("aggregate-scope");
+        let mut tokens = Tokens::load(&data).expect("an empty store loads");
+        let (meta, secret) = tokens
+            .create(aggregate(&["a", "b", "c"]), |_| true, 1_000)
+            .expect("an aggregate token is mintable");
+        assert!(is_token(&secret));
+        assert_eq!(meta.device_id, "");
+        assert_eq!(
+            meta.device_ids,
+            Some(vec!["a".into(), "b".into(), "c".into()])
+        );
+        std::fs::remove_dir_all(&data).ok();
+    }
+
+    #[test]
+    fn an_aggregate_token_needs_one_known_unique_device() {
+        let data = tempdir("aggregate-validate");
+        let mut tokens = Tokens::load(&data).expect("an empty store loads");
+        assert!(matches!(
+            tokens.create(aggregate(&[]), |_| true, 0),
+            Err(TokenError::EmptyDevices)
+        ));
+        assert!(matches!(
+            tokens.create(aggregate(&["a", "a"]), |_| true, 0),
+            Err(TokenError::DuplicateDevice)
+        ));
+        assert!(matches!(
+            tokens.create(aggregate(&["a", "z"]), |id| id == "a", 0),
+            Err(TokenError::UnknownDevice)
+        ));
+        std::fs::remove_dir_all(&data).ok();
+    }
+
+    #[test]
+    fn rotating_an_aggregate_token_keeps_its_scope() {
+        let data = tempdir("aggregate-rotate");
+        let mut tokens = Tokens::load(&data).expect("an empty store loads");
+        let (meta, _) = tokens
+            .create(aggregate(&["a", "b"]), |_| true, 0)
+            .expect("an aggregate token is mintable");
+        let (rotated, _) = tokens
+            .rotate(&meta.id, 1)
+            .expect("rotation writes")
+            .expect("the id was there");
+        assert_eq!(rotated.device_ids, Some(vec!["a".into(), "b".into()]));
+        assert_eq!(rotated.device_id, "");
+        std::fs::remove_dir_all(&data).ok();
+    }
+
+    #[test]
+    fn an_aggregate_token_round_trips_through_the_file() {
+        let data = tempdir("aggregate-reload");
+        let mut tokens = Tokens::load(&data).expect("an empty store loads");
+        let (meta, _) = tokens
+            .create(aggregate(&[&device_id(), &other_device()]), |_| true, 0)
+            .expect("an aggregate token is mintable");
+        let reloaded = Tokens::load(&data).expect("the store reloads");
+        let listed = reloaded.list();
+        let record = listed
+            .iter()
+            .find(|entry| entry.id == meta.id)
+            .expect("the record reloads");
+        assert_eq!(record.device_ids, Some(vec![device_id(), other_device()]));
+        assert_eq!(record.device_id, "");
         std::fs::remove_dir_all(&data).ok();
     }
 }

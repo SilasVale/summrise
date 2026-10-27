@@ -13,7 +13,7 @@ Six workspace members, six owners:
 | `release` | the signed release document and its channels; **the one update decision** (`select`); the offline `summrise-release sign` tool | nothing at runtime |
 | `launch` | the app binary and its baseline; the SCM service; the swap; the repair log | `<install>/summrise-device.exe`, `<install>/baseline/{current,previous,pending}/*`, `<install>/swap.result.json`, `<install>/repair.log`, `<data>/token`, `<data>/console.json` (console **and** mesh facts), `<data>/launcher.pid`, `<data>/app.pid` |
 | `device` | the running app: sessions, HTTP/MCP, console and mesh channels, update staging | `<data>/state.json`, `<data>/device.lock`, `<data>/device.pid`, `<data>/identity.key`, `<data>/console-token.json`, `<data>/console.json` (the console half; mesh fields are preserved), `<install>/summrise-device.new.exe`, `<install>/summrise-device.new.json`, `<install>/swap.request.json`, `<data>/events.jsonl`, `<data>/memory.jsonl`, `<data>/runs.jsonl`, `<data>/known_hosts.json`, `<data>/monitors.json`, `<data>/workspace/` |
-| `console` | the operator's control plane: the embedded operator page, auth, device registry, grant signing, the device channel, the `/mcp` proxy, the audit index | `<data>/devices.json`, `<data>/codes.json`, `<data>/audit.jsonl`, `<data>/denials.jsonl` |
+| `console` | the operator's control plane: the embedded operator page, auth, device registry, grant signing, the device channel, the `/mcp` proxy and `/mcp/all` aggregate, the audit index | `<data>/devices.json`, `<data>/codes.json`, `<data>/audit.jsonl`, `<data>/denials.jsonl` |
 | `mesh` | the broker/relay library and its two binaries | nothing under the device's install or data directory |
 
 **The two one-writer rules are the design.** Only the serving `device` app writes the state document
@@ -207,6 +207,11 @@ no framework.
 The page asks for the operator token, exchanges it at `POST /auth`, and keeps the session token in a
 JavaScript variable. Nothing is written to browser storage; a comment in the page says the token
 stays in memory, and the integration test asserts the page contains no token and no storage call.
+
+The page's **AI client** card creates one-device tokens. A token can also name several devices
+(`POST /tokens` with `device_ids`), and `POST /mcp/all` is the one standard MCP endpoint those
+tokens use: every tool takes a required `device` argument and every call still becomes an ordinary
+per-device sixty-second grant. The page's fleet-level form for this scope is the follow-up.
 
 It lists `GET /devices` with `last_seen_ms` rendered as an age, builds a grant form from a hardcoded
 list of the registry's 28 tool names (`POST /grants`), calls `state.get` through `POST /mcp` with

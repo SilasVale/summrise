@@ -2,7 +2,7 @@
 
 > In a hurry? [`QUICKSTART.md`](QUICKSTART.md) is the five-minute path from an installed device to a working client; this document is the long form.
 
-The console carries a standard streamable-HTTP MCP endpoint for each device. It is **not** the page's
+The console carries a standard streamable-HTTP MCP endpoint for each device, plus one aggregate endpoint for a token that spans several. It is **not** the page's
 `POST /mcp` envelope: that route belongs to the console's own page and requires an operator session.
 This endpoint is for an MCP client (DeepSeek Harness, any `StreamableHTTPClientTransport`), and its
 credential is a bearer the console accepts: a console-signed grant for a session, or a permanent token
@@ -106,6 +106,41 @@ and create another. Keep the file that holds it out of the repository (or have t
 the literal from a secret); the header is the password. Behind Cloudflare Access, add the same
 `CF-Access-*` headers as the grant configuration below — the token is the endpoint's credential, not
 the edge's.
+
+## One endpoint for several devices
+
+`POST https://<console>/mcp/all` is the aggregate transport: one MCP server whose tools take a
+required `device` argument. Its bearer is an **aggregate token** (`srm_…`) whose scope is a list of
+devices. `initialize` answers from the token's device list; `tools/list` is answered by the first
+allowed device that is online and every tool's schema gains the required `device` property; a
+`tools/call` resolves `device` — an id, or a name unique among the token's devices — strips it, and
+signs an ordinary sixty-second grant for that device. The device sees exactly the grant `/mcp/<id>`
+sends; the token never reaches it.
+
+Create one with the operator session from the previous section:
+
+```bash
+curl -sS -X POST "$CONSOLE/tokens" \
+  -H "authorization: Bearer $SESSION" -H 'content-type: application/json' \
+  -d '{"name":"dsh","device_ids":["<id>","<id>"],"tools":["files.read","terminal.create"],
+       "allow_destructive":true}'
+```
+
+The answer carries the plaintext once. Use it as the bearer on `/mcp/all`:
+
+```json
+{"mcpServers": {"summrise": {
+  "type": "http",
+  "url": "https://<console>/mcp/all",
+  "headers": {"Authorization": "Bearer srm_…"}
+}}}
+```
+
+The device list is the scope: a call naming a device outside it is refused before a frame is sent,
+and a name shared by two allowed devices is ambiguous and refused, never guessed. A device token is
+refused on `/mcp/all`; an aggregate token is refused on `/mcp/<device-id>`. The page's per-device
+card creates one-device tokens; an aggregate token is created through the API above until the
+fleet-level form ships.
 
 ### Scope and revocation
 
