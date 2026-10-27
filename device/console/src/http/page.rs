@@ -230,8 +230,14 @@ img.capture.thumb { max-height:360px; }
 
 /* ---- terminal: the one canvas that fills instead of scrolling ---- */
 body.terminal .content { display:flex; flex-direction:column; min-height:0; overflow:hidden; padding:16px max(20px, calc((100% - 1180px) / 2)) 18px; }
-.with-rail { flex:1; display:flex; gap:16px; align-items:stretch; min-height:0; }
-.context-rail { flex:0 0 244px; display:flex; flex-direction:column; gap:10px; padding:14px; background:var(--panel); border:1px solid var(--line); border-radius:12px; }
+.body-row { flex:1; display:flex; min-height:0; }
+.context-rail { flex:0 0 244px; display:flex; flex-direction:column; gap:10px; padding:16px; background:var(--panel-2); border-right:1px solid var(--line); overflow:auto; }
+.rail-list { list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:2px; }
+.rail-list li { display:flex; flex-direction:column; gap:3px; padding:7px 8px; border-radius:8px; }
+.rail-meta { display:flex; align-items:center; gap:6px; font-size:11.5px; color:var(--faint); }
+.rail-list li:hover { background:var(--hover); }
+.rail-when { font-size:11.5px; color:var(--faint); }
+.rail-line { font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .rail-head { display:flex; align-items:center; justify-content:space-between; }
 .rail-head h2 { margin:0; }
 .rail-note { margin:0; color:var(--muted); font-size:12.5px; }
@@ -525,6 +531,18 @@ fn rail(active: Page, device: Option<&DeviceView>) -> Markup {
     }
 }
 
+/// A memory figure a person reads: kilobytes under 1 MiB, MiB under 1 GiB, GiB above it.
+fn human_kb(kb: u64) -> String {
+    let bytes = kb.saturating_mul(1024);
+    if bytes >= 1024 * 1024 * 1024 {
+        format!("{:.1} GB", bytes as f64 / (1024.0 * 1024.0 * 1024.0))
+    } else if bytes >= 1024 * 1024 {
+        format!("{:.1} MB", bytes as f64 / (1024.0 * 1024.0))
+    } else {
+        format!("{kb} KB")
+    }
+}
+
 /// The short id the fleet shows: the first eight characters, never a wall of hex.
 fn short_id(id: &str) -> String {
     if let Some((index, _)) = id.char_indices().nth(8) {
@@ -649,6 +667,15 @@ fn page(chrome: Chrome<'_>, content: Markup) -> Markup {
 
 /// The same page with something extra in `<head>` (the terminal's xterm stylesheet and scripts).
 fn page_with_head(chrome: Chrome<'_>, extra: Markup, content: Markup) -> Markup {
+    page_with_rail(chrome, extra, Markup::default(), content)
+}
+
+/// The page, with a context rail between the icon rail and the canvas.
+///
+/// The icon rail is navigation and the context rail is context — the sessions on a machine, the
+/// runs that already happened, the processes that are using the memory. A page with nothing worth
+/// showing there passes an empty rail and the canvas takes the whole width.
+fn page_with_rail(chrome: Chrome<'_>, extra: Markup, context: Markup, content: Markup) -> Markup {
     html! {
         (DOCTYPE)
         html lang="en" {
@@ -657,10 +684,27 @@ fn page_with_head(chrome: Chrome<'_>, extra: Markup, content: Markup) -> Markup 
                 (rail(chrome.active, chrome.device))
                 div class="shell" {
                     (topbar(chrome.title, chrome.device, chrome.version, chrome.csrf))
-                    main class="content" { (content) }
+                    div class="body-row" {
+                        (context)
+                        main class="content" { (content) }
+                    }
                     (statusbar(chrome.version, chrome.status))
                 }
             }
+        }
+    }
+}
+
+/// The context rail: one heading and what this page has to show beside its canvas.
+fn context_rail(heading: &str, meta: Markup, body: Markup, action: Markup) -> Markup {
+    html! {
+        aside class="context-rail" aria-label=(heading) {
+            div class="rail-head" {
+                h2 { (heading) }
+                (meta)
+            }
+            (body)
+            (action)
         }
     }
 }
@@ -979,32 +1023,37 @@ pub(super) fn terminal(
     version: &str,
     sessions: &[TerminalSession],
 ) -> Markup {
-    let content = html! {
-        div class="with-rail" {
-            aside class="context-rail" {
-                div class="rail-head" {
-                    h2 { "Sessions" }
-                    @if !sessions.is_empty() { span class="chip" { (sessions.len()) } }
-                }
-                @if sessions.is_empty() {
-                    p class="rail-note" { "No live session on this device." }
-                } @else {
-                    ul class="session-list" {
-                        @for session in sessions {
-                            li {
-                                a href=(format!("?attach={}", encode(&session.id))) title=(format!("open {} · started {}", session.id, stamp(session.started_at_ms))) {
-                                    span class="session-kind" { (&session.kind) }
-                                    span class="session-body" {
-                                        code { (&session.id) }
-                                        span class="session-age" { "since " (clock(session.started_at_ms)) }
-                                    }
-                                }
+    let meta = if sessions.is_empty() {
+        Markup::default()
+    } else {
+        html! { span class="chip" { (sessions.len()) } }
+    };
+    let body = if sessions.is_empty() {
+        html! { p class="rail-note" { "No live session on this device." } }
+    } else {
+        html! {
+            ul class="session-list" {
+                @for session in sessions {
+                    li {
+                        a href=(format!("?attach={}", encode(&session.id))) title=(format!("open {} · started {}", session.id, stamp(session.started_at_ms))) {
+                            span class="session-kind" { (&session.kind) }
+                            span class="session-body" {
+                                code { (&session.id) }
+                                span class="session-age" { "since " (clock(session.started_at_ms)) }
                             }
                         }
                     }
                 }
-                a class="btn btn-ghost btn-sm rail-action" href=(format!("/next/terminal/{}", device.id)) { "Refresh" }
             }
+        }
+    };
+    let context = context_rail(
+        "Sessions",
+        meta,
+        body,
+        html! { a class="btn btn-ghost btn-sm rail-action" href=(format!("/next/terminal/{}", device.id)) { "Refresh" } },
+    );
+    let content = html! {
         div class="terminal-card" {
             div class="terminal-toolbar" {
                 form id="terminal-form" class="terminal-form" {
@@ -1062,7 +1111,6 @@ pub(super) fn terminal(
                 }
                 div id="terminal" data-device=(device.id) data-csrf=(csrf) hidden {}
             }
-            }
         }
     };
     let extra = html! {
@@ -1071,7 +1119,7 @@ pub(super) fn terminal(
         script src="/assets/addon-fit.js" defer {}
         script src="/assets/terminal.js" defer {}
     };
-    page_with_head(
+    page_with_rail(
         Chrome {
             active: Page::Terminal,
             device: Some(device),
@@ -1081,6 +1129,7 @@ pub(super) fn terminal(
             status: device_status(device),
         },
         extra,
+        context,
         content,
     )
 }
@@ -1464,7 +1513,31 @@ pub(super) fn runs(
             }
         }
     };
-    page(
+    let meta = if rows.is_empty() {
+        Markup::default()
+    } else {
+        html! { span class="chip muted" { (rows.len()) } }
+    };
+    let body = if rows.is_empty() {
+        html! { p class="rail-note" { "Nothing has run on this device yet." } }
+    } else {
+        html! {
+            ul class="rail-list" {
+                @for row in rows.iter().take(8) {
+                    li {
+                        span class="rail-line mono" { (row.command_line) }
+                        span class="rail-meta" {
+                            (clock(row.started_at_ms))
+                            " · "
+                            (exit_chip(row.exit_code, row.timed_out))
+                        }
+                    }
+                }
+            }
+        }
+    };
+    let rail = context_rail("Recent runs", meta, body, Markup::default());
+    page_with_rail(
         Chrome {
             active: Page::Runs,
             device: Some(device),
@@ -1473,6 +1546,8 @@ pub(super) fn runs(
             csrf,
             status: device_status(device),
         },
+        Markup::default(),
+        rail,
         content,
     )
 }
@@ -1621,7 +1696,7 @@ pub(super) fn system(
                             tr {
                                 td class="num mono pid" { (process.pid) }
                                 td { span class="mono" { (process.name) } }
-                                td class="num" { (grouped(process.memory_kb)) " KB" }
+                                td class="num" { (human_kb(process.memory_kb)) }
                             }
                         }
                     }
@@ -1649,7 +1724,34 @@ pub(super) fn system(
             }
         }
     };
-    page(
+    // The rail answers the question the page is about: what is using the machine.
+    let mut top: Vec<&ProcessRow> = processes.iter().collect();
+    top.sort_by_key(|row| std::cmp::Reverse(row.memory_kb));
+    let meta = if processes.is_empty() {
+        Markup::default()
+    } else {
+        html! { span class="chip muted" { (processes.len()) } }
+    };
+    let body = if processes.is_empty() {
+        html! { p class="rail-note" { "The device reported no processes." } }
+    } else {
+        html! {
+            ul class="rail-list" {
+                @for row in top.iter().take(8) {
+                    li {
+                        span class="rail-line mono" { (row.name) }
+                        span class="rail-meta" {
+                            "pid " (row.pid)
+                            " · "
+                            (human_kb(row.memory_kb))
+                        }
+                    }
+                }
+            }
+        }
+    };
+    let context = context_rail("Top by memory", meta, body, Markup::default());
+    page_with_rail(
         Chrome {
             active: Page::System,
             device: Some(device),
@@ -1658,6 +1760,8 @@ pub(super) fn system(
             csrf,
             status: device_status(device),
         },
+        Markup::default(),
+        context,
         content,
     )
 }
