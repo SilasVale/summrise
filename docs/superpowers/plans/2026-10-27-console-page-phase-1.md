@@ -1,10 +1,10 @@
 # The Console Page's First Rust Slice Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Serve a working operator page from Rust at `/next` — cookie session, sign-in, sign-out, and the fleet list — while the React page stays at `/`.
 
-**Architecture:** A new `/next` namespace on the existing axum console. The page's credential is the same operator token `/auth` accepts, exchanged for an HttpOnly `SameSite=Strict` cookie scoped to `/next`; the session store is the console's existing in-memory `sessions`. The session gains a server-side CSRF token every mutation echoes; the cookie never carries it. The page is rendered by `maud` (one new crate) with inline CSS and no JavaScript. The fleet rows reuse the exact `DeviceView` projection `/fleet` already returns. No API route, wire shape, or the React page changes.
+**Architecture:** A new `/next` namespace on the existing axum console. The page's credential is the same operator token `/auth` accepts, exchanged for an HttpOnly `SameSite=Lax` cookie scoped to `/next`; the session store is the console's existing in-memory `sessions`. The session gains a server-side CSRF token every mutation echoes; the cookie never carries it. The page is rendered by `maud` (one new crate) with inline CSS and no JavaScript. The fleet rows reuse the exact `DeviceView` projection `/fleet` already returns. No API route, wire shape, or the React page changes.
 
 **Tech Stack:** Rust 2021, axum 0.7, maud, the existing `summrise-console` crate and its in-process test harness.
 
@@ -15,7 +15,8 @@
 - The repository is written in English: code, comments, commit messages, docs. Talking to the operator is Chinese.
 - Rust only. The only new dependency is `maud`; its lockfile entry is committed. No JS, no npm, no build step for `/next`.
 - The React page at `/` and every API route keep their current behaviour and wire shapes; `/next` is additive.
-- The cookie is `HttpOnly; SameSite=Strict; Path=/next; Max-Age=86400`, with `Secure` iff `X-Forwarded-Proto: https`.
+- The cookie is `HttpOnly; SameSite=Lax; Path=/next; Max-Age=86400`, with `Secure` iff `X-Forwarded-Proto: https`.
+  (Task 1 review: `Strict` would withhold the cookie on the Access-login return and on any cross-site link to `/next`; the only mutation is a CSRF-checked POST and `GET /next` is read-only, so `Lax` is not weaker here.)
 - The CSRF token lives in the session (server memory), is rendered into forms, and is compared in constant time. It is never in the cookie or a URL.
 - Page HTML goes through `maud`, so device names are escaped; no `format!`-built HTML.
 - `cargo test -p summrise-console` from `device/` stays green; the deploy version is `0.3.48`.
@@ -53,7 +54,7 @@
   - `page::login(error: Option<&str>) -> maud::Markup`
   - `page::dashboard(devices: &[DeviceView], csrf: &str, version: &str) -> maud::Markup`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Append to `device/console/tests/console.rs`:
 
@@ -109,7 +110,7 @@ async fn the_rust_page_signs_in_with_a_cookie_and_signs_out_with_csrf() {
         .expect("a cookie is ASCII")
         .to_owned();
     assert!(cookie.contains("HttpOnly"), "{cookie}");
-    assert!(cookie.contains("SameSite=Strict"), "{cookie}");
+    assert!(cookie.contains("SameSite=Lax"), "{cookie}");
     assert!(cookie.contains("Path=/next"), "{cookie}");
     assert!(cookie.contains("Max-Age=86400"), "{cookie}");
     let cookie = cookie.split(';').next().expect("the name=value pair").to_owned();
@@ -175,12 +176,12 @@ async fn the_rust_page_refuses_a_wrong_token_and_a_missing_csrf() {
 }
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `cd device && cargo test -p summrise-console --test console the_rust_page -- --nocapture`
 Expected: FAIL (`/next` is 404; the helpers may not compile).
 
-- [ ] **Step 3: Add `maud` and the CSRF field**
+- [x] **Step 3: Add `maud` and the CSRF field**
 
 In `device/console/Cargo.toml` under `[dependencies]`, after `serde_json`:
 
@@ -202,7 +203,7 @@ pub(crate) struct Session {
 }
 ```
 
-- [ ] **Step 4: Refactor the credential check and the session mint**
+- [x] **Step 4: Refactor the credential check and the session mint**
 
 In `device/console/src/http.rs`, extract these helpers and make `/auth` use them:
 
@@ -272,7 +273,7 @@ async fn authenticate(
 }
 ```
 
-- [ ] **Step 5: Add the cookie helpers**
+- [x] **Step 5: Add the cookie helpers**
 
 In `device/console/src/http.rs`:
 
@@ -306,7 +307,7 @@ fn secure_request(headers: &HeaderMap) -> bool {
 
 fn session_cookie(token: &[u8; 32], secure: bool) -> HeaderValue {
     let mut cookie = format!(
-        "{SESSION_COOKIE}={}; Path=/next; HttpOnly; SameSite=Strict; Max-Age={}",
+        "{SESSION_COOKIE}={}; Path=/next; HttpOnly; SameSite=Lax; Max-Age={}",
         hex::encode(token),
         SESSION_LIFETIME_MS / 1000
     );
@@ -317,11 +318,11 @@ fn session_cookie(token: &[u8; 32], secure: bool) -> HeaderValue {
 }
 
 fn clear_session_cookie() -> HeaderValue {
-    HeaderValue::from_static("summrise_session=; Path=/next; HttpOnly; SameSite=Strict; Max-Age=0")
+    HeaderValue::from_static("summrise_session=; Path=/next; HttpOnly; SameSite=Lax; Max-Age=0")
 }
 ```
 
-- [ ] **Step 6: Extract `device_views` and add the `/next` handlers/routes**
+- [x] **Step 6: Extract `device_views` and add the `/next` handlers/routes**
 
 In `device/console/src/http.rs`, move the body of `list_devices` into a helper both callers use:
 
@@ -434,7 +435,7 @@ Register the routes after `/auth`:
 .route("/next/logout", post(next_logout))
 ```
 
-- [ ] **Step 7: Create `page::login` and `page::dashboard`**
+- [x] **Step 7: Create `page::login` and `page::dashboard`**
 
 Create `device/console/src/http/page.rs`; add `mod page;` at the top of `http.rs`:
 
@@ -560,17 +561,17 @@ pub(super) fn dashboard(devices: &[DeviceView], csrf: &str, version: &str) -> Ma
 }
 ```
 
-- [ ] **Step 8: Run the tests to verify they pass**
+- [x] **Step 8: Run the tests to verify they pass**
 
 Run: `cd device && cargo test -p summrise-console --test console the_rust_page -- --nocapture`
 Expected: PASS — two tests.
 
-- [ ] **Step 9: Run the whole console suite and clippy**
+- [x] **Step 9: Run the whole console suite and clippy**
 
 Run: `cd device && cargo test -p summrise-console && cargo clippy -p summrise-console --all-targets -- -D warnings`
 Expected: the existing 140 integration tests plus the two new ones pass; clippy silent.
 
-- [ ] **Step 10: Commit**
+- [x] **Step 10: Commit**
 
 ```bash
 git add device/console/Cargo.toml device/console/Cargo.lock device/console/src/auth.rs device/console/src/http.rs device/console/src/http/page.rs device/console/tests/console.rs
@@ -598,7 +599,7 @@ VERIFIED: cargo test -p summrise-console (N passed); clippy -D warnings."
 - Consumes: Task 1's `page::dashboard`, `DeviceView`, the fixture's registration.
 - Produces: no new API; the tests pin the rows and escaping.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 In `device/console/tests/console.rs`:
 
@@ -681,12 +682,12 @@ mod tests {
 }
 ```
 
-- [ ] **Step 2: Run them to verify they fail or pass for the right reason**
+- [x] **Step 2: Run them to verify they fail or pass for the right reason**
 
 Run: `cd device && cargo test -p summrise-console the_rust_page_lists -- --nocapture && cargo test -p summrise-console a_device_name_is_escaped --lib -- --nocapture`
 Expected: the integration test passes once Task 1 is in (the dashboard already renders the rows); the escaping test passes because `maud` escapes. If the integration test fails because the fixture's device is not registered, fix the registration call, not the page.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add device/console/tests/console.rs device/console/src/http/page.rs

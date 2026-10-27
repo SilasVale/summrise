@@ -725,6 +725,12 @@ async fn no_store(request: axum::extract::Request, next: axum::middleware::Next)
         header::CACHE_CONTROL,
         axum::http::HeaderValue::from_static("no-store"),
     );
+    // The credential-entry surface must not be frameable: a clickjacked token box is the one way a
+    // page this small can leak the operator secret.
+    response.headers_mut().insert(
+        header::X_FRAME_OPTIONS,
+        axum::http::HeaderValue::from_static("DENY"),
+    );
     response
 }
 
@@ -890,7 +896,7 @@ fn secure_request(headers: &HeaderMap) -> bool {
 
 fn session_cookie(token: &[u8; 32], secure: bool) -> HeaderValue {
     let mut cookie = format!(
-        "{SESSION_COOKIE}={}; Path=/next; HttpOnly; SameSite=Strict; Max-Age={}",
+        "{SESSION_COOKIE}={}; Path=/next; HttpOnly; SameSite=Lax; Max-Age={}",
         hex::encode(token),
         SESSION_LIFETIME_MS / 1000
     );
@@ -901,7 +907,7 @@ fn session_cookie(token: &[u8; 32], secure: bool) -> HeaderValue {
 }
 
 fn clear_session_cookie() -> HeaderValue {
-    HeaderValue::from_static("summrise_session=; Path=/next; HttpOnly; SameSite=Strict; Max-Age=0")
+    HeaderValue::from_static("summrise_session=; Path=/next; HttpOnly; SameSite=Lax; Max-Age=0")
 }
 
 #[derive(Deserialize)]
@@ -911,7 +917,9 @@ struct NextLogin {
 
 #[derive(Deserialize)]
 struct NextLogout {
-    csrf: String,
+    /// Absent is a refusal, not a deserialization error: the page promises 403 for a form that does
+    /// not carry its session's CSRF value, and that includes a form with no field at all.
+    csrf: Option<String>,
 }
 
 /// `GET /next`: the login form without a live cookie, the page with one.
@@ -965,7 +973,7 @@ async fn next_logout(
     let Some(session) = cookie_session(&app, &headers) else {
         return Redirect::to("/next").into_response();
     };
-    let Some(csrf) = hex::decode_32(&form.csrf) else {
+    let Some(csrf) = form.csrf.as_deref().and_then(hex::decode_32) else {
         return StatusCode::FORBIDDEN.into_response();
     };
     if !constant_time_eq(&csrf, &session.csrf) {

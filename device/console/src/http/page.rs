@@ -52,11 +52,11 @@ pub(super) fn login(error: Option<&str>) -> Markup {
                 main class="card" {
                     h1 { "Summrise " span { "console" } }
                     p class="hint" {
-                        "The Rust page. The operator token opens a cookie session; nothing leaves this machine."
+                        "The operator token opens a session for this browser. It is not stored by the page."
                     }
                     form method="post" action="/next/auth" {
                         label for="token" { "Operator token" }
-                        input id="token" name="token" type="password" autocomplete="current-password" required;
+                        input id="token" name="token" type="password" autocomplete="off" required;
                         button type="submit" { "Sign in" }
                     }
                     @if let Some(error) = error {
