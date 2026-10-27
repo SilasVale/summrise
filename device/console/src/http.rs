@@ -1421,6 +1421,18 @@ enum TokenRefusal {
     ForeignDevice,
 }
 
+/// The one wire answer for an aggregate token that failed lookup or minting: 401, with the denial
+/// detail the refusal names. A wrong, foreign or revoked credential is not distinguished on the wire.
+async fn refuse_token(app: &AppState, refusal: TokenRefusal) -> Response {
+    let detail = match refusal {
+        TokenRefusal::Unauthenticated(detail) => detail,
+        TokenRefusal::ForeignDevice => "foreign_api_token",
+    };
+    app.refuse_as(None, ApiError::unauthorized(), detail)
+        .await
+        .into_response()
+}
+
 /// The grant one token request is answered with, and the record that authenticated it.
 struct MintedGrant {
     envelope: GrantEnvelope,
@@ -1950,12 +1962,7 @@ fn aggregate_devices(app: &AppState, allowed: &[String]) -> Vec<(String, String)
             devices
                 .iter()
                 .find(|device| &device.id == id)
-                .map(|device| {
-                    (
-                        device.id.clone(),
-                        device.name.clone().unwrap_or_else(|| "unnamed".to_owned()),
-                    )
-                })
+                .map(|device| (device.id.clone(), device.name.clone().unwrap_or_default()))
         })
         .collect()
 }
@@ -2002,18 +2009,7 @@ async fn aggregate_mcp(State(app): State<AppState>, request: axum::extract::Requ
     };
     let record = match live_token(&app, &token) {
         Ok(record) => record,
-        Err(TokenRefusal::Unauthenticated(detail)) => {
-            return app
-                .refuse_as(None, ApiError::unauthorized(), detail)
-                .await
-                .into_response()
-        }
-        Err(TokenRefusal::ForeignDevice) => {
-            return app
-                .refuse_as(None, ApiError::unauthorized(), "foreign_api_token")
-                .await
-                .into_response()
-        }
+        Err(refusal) => return refuse_token(&app, refusal).await,
     };
     let Some(allowed) = record.device_ids.clone() else {
         return app
@@ -2088,18 +2084,7 @@ async fn aggregate_mcp(State(app): State<AppState>, request: axum::extract::Requ
             };
             let granted = match mint_aggregate_grant(&app, &device_id, &token) {
                 Ok(granted) => granted,
-                Err(TokenRefusal::Unauthenticated(detail)) => {
-                    return app
-                        .refuse_as(None, ApiError::unauthorized(), detail)
-                        .await
-                        .into_response()
-                }
-                Err(TokenRefusal::ForeignDevice) => {
-                    return app
-                        .refuse_as(None, ApiError::unauthorized(), "foreign_api_token")
-                        .await
-                        .into_response()
-                }
+                Err(refusal) => return refuse_token(&app, refusal).await,
             };
             match proxy_reply(
                 &app,
@@ -2154,18 +2139,7 @@ async fn aggregate_mcp(State(app): State<AppState>, request: axum::extract::Requ
                     }
                     let granted = match mint_aggregate_grant(&app, &device_id, &token) {
                         Ok(granted) => granted,
-                        Err(TokenRefusal::Unauthenticated(detail)) => {
-                            return app
-                                .refuse_as(None, ApiError::unauthorized(), detail)
-                                .await
-                                .into_response()
-                        }
-                        Err(TokenRefusal::ForeignDevice) => {
-                            return app
-                                .refuse_as(None, ApiError::unauthorized(), "foreign_api_token")
-                                .await
-                                .into_response()
-                        }
+                        Err(refusal) => return refuse_token(&app, refusal).await,
                     };
                     forward(
                         &app,
@@ -2178,10 +2152,14 @@ async fn aggregate_mcp(State(app): State<AppState>, request: axum::extract::Requ
                     )
                     .await
                 }
-                DeviceResolution::OutOfScope => {
+                DeviceResolution::OutOfScope | DeviceResolution::Ambiguous => {
+                    // The audit records the `device` value as sent: a name is a legal input, and an
+                    // ambiguous one is exactly what an operator needs to see. The wire answer stays
+                    // the plan's one scope refusal, so the error code cannot probe for a device
+                    // outside the token.
                     app.record_facts(AuditFacts {
                         kind: "denied",
-                        device_id: audit_device_id(&requested).as_deref(),
+                        device_id: Some(requested.as_str()),
                         status: StatusCode::FORBIDDEN,
                         detail: Some("device_not_permitted"),
                         tool: None,
@@ -2193,24 +2171,6 @@ async fn aggregate_mcp(State(app): State<AppState>, request: axum::extract::Requ
                         id,
                         -32001,
                         "device not permitted by token",
-                        Some(json!({ "device": requested })),
-                    )
-                }
-                DeviceResolution::Ambiguous => {
-                    app.record_facts(AuditFacts {
-                        kind: "denied",
-                        device_id: None,
-                        status: StatusCode::BAD_REQUEST,
-                        detail: Some("ambiguous_device"),
-                        tool: None,
-                        token_id: Some(&record.id),
-                    })
-                    .await;
-                    jsonrpc_error(
-                        StatusCode::BAD_REQUEST,
-                        id,
-                        -32602,
-                        "ambiguous device name",
                         Some(json!({ "device": requested })),
                     )
                 }

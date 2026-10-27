@@ -14,12 +14,12 @@ export function SecurityPage({
   lines,
   devices,
   tokens,
-  onTokensChanged = () => {}
+  onTokensChanged
 }: {
   lines: AuditLine[];
   devices: Device[];
   tokens: TokenMeta[];
-  onTokensChanged?: () => void;
+  onTokensChanged: () => void;
 }) {
   return (
     <>

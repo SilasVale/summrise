@@ -1,4 +1,4 @@
-# Connecting an AI client to one device
+# Connecting an AI client
 
 > In a hurry? [`QUICKSTART.md`](QUICKSTART.md) is the five-minute path from an installed device to a working client; this document is the long form.
 
@@ -107,46 +107,12 @@ the literal from a secret); the header is the password. Behind Cloudflare Access
 `CF-Access-*` headers as the grant configuration below — the token is the endpoint's credential, not
 the edge's.
 
-## One endpoint for several devices
-
-`POST https://<console>/mcp/all` is the aggregate transport: one MCP server whose tools take a
-required `device` argument. Its bearer is an **aggregate token** (`srm_…`) whose scope is a list of
-devices. `initialize` answers from the token's device list; `tools/list` is answered by the first
-allowed device that is online and every tool's schema gains the required `device` property; a
-`tools/call` resolves `device` — an id, or a name unique among the token's devices — strips it, and
-signs an ordinary sixty-second grant for that device. The device sees exactly the grant `/mcp/<id>`
-sends; the token never reaches it.
-
-Create one with the operator session from the previous section:
-
-```bash
-curl -sS -X POST "$CONSOLE/tokens" \
-  -H "authorization: Bearer $SESSION" -H 'content-type: application/json' \
-  -d '{"name":"dsh","device_ids":["<id>","<id>"],"tools":["files.read","terminal.create"],
-       "allow_destructive":true}'
-```
-
-The answer carries the plaintext once. Use it as the bearer on `/mcp/all`:
-
-```json
-{"mcpServers": {"summrise": {
-  "type": "http",
-  "url": "https://<console>/mcp/all",
-  "headers": {"Authorization": "Bearer srm_…"}
-}}}
-```
-
-The device list is the scope: a call naming a device outside it is refused before a frame is sent,
-and a name shared by two allowed devices is ambiguous and refused, never guessed. A device token is
-refused on `/mcp/all`; an aggregate token is refused on `/mcp/<device-id>`. The Security page's
-**Fleet tokens** section creates, lists and revokes aggregate tokens; the per-device card still
-creates one-device tokens.
-
 ### Scope and revocation
 
-A token is bound to **one device**, a **non-empty tool set**, and the destructive consent it was
-created with. The path must match: a token for device A sent to `/mcp/<device B>` is refused with
-`401`, and a tool outside its set never reaches the device, because the minted grant does not name it.
+A **device** token is bound to **one device**, a **non-empty tool set**, and the destructive consent
+it was created with. An **aggregate** token is bound to the list of devices it was created with; see
+[One endpoint for several devices](#one-endpoint-for-several-devices). The path must match: a device token for device A sent to `/mcp/<device B>` is refused with `401`, and
+a tool outside its set never reaches the device, because the minted grant does not name it.
 A token is not an operator session: it cannot mint grants, list devices, read the audit, or create
 another token. The console accepts at most 64 tokens.
 
@@ -185,6 +151,41 @@ single atomic file replacement.
 
 If the client can be handed a fresh grant each session, that is the safer default. A token is for the
 configurations that cannot.
+
+## One endpoint for several devices
+
+`POST https://<console>/mcp/all` is the aggregate transport: one MCP server whose tools take a
+required `device` argument. Its bearer is an **aggregate token** (`srm_…`) whose scope is a list of
+devices. `initialize` answers from the token's device list; `tools/list` is answered by the first
+allowed device that is online and every tool's schema gains the required `device` property; a
+`tools/call` resolves `device` — an id, or a name unique among the token's devices — strips it, and
+signs an ordinary sixty-second grant for that device. The device sees exactly the grant `/mcp/<id>`
+sends; the token never reaches it.
+
+Create one with the operator session from the previous section:
+
+```bash
+curl -sS -X POST "$CONSOLE/tokens" \
+  -H "authorization: Bearer $SESSION" -H 'content-type: application/json' \
+  -d '{"name":"dsh","device_ids":["<id>","<id>"],"tools":["files.read","terminal.create"],
+       "allow_destructive":true}'
+```
+
+The answer carries the plaintext once. Use it as the bearer on `/mcp/all`:
+
+```json
+{"mcpServers": {"summrise": {
+  "type": "http",
+  "url": "https://<console>/mcp/all",
+  "headers": {"Authorization": "Bearer srm_…"}
+}}}
+```
+
+The device list is the scope: a call naming a device outside it is refused before a frame is sent,
+and a name shared by two allowed devices is ambiguous and refused, never guessed. A device token is
+refused on `/mcp/all`; an aggregate token is refused on `/mcp/<device-id>`. The Security page's
+**Fleet tokens** section creates, lists and revokes aggregate tokens; the per-device card still
+creates one-device tokens.
 
 ## DeepSeek Harness
 
@@ -233,8 +234,9 @@ A loopback or tunnel deployment without Access needs no dashboard step.
 
 ## Security
 
-- **One grant or token, one device.** A grant names the device id and the path must match it; a token
-  is bound to one device at creation, and the console refuses a path that names another.
+- **A grant or a device token names one device.** A grant names the device id and the path must
+  match it; a device token is bound to one device at creation, and the console refuses a path that
+  names another. An aggregate token names a list and is accepted only on `/mcp/all`.
 - **Tool scope is enforced twice:** the console refuses a `tools/call` outside the grant before the
   frame leaves (for a token, outside the token's tool set), and the device re-verifies the same signed
   bytes offline.
@@ -247,7 +249,7 @@ A loopback or tunnel deployment without Access needs no dashboard step.
 
 ## Limits
 
-- One device per endpoint; one endpoint per device.
+- A per-device endpoint reaches one device; `/mcp/all` reaches the aggregate token's device list.
 - No SSE: a `GET` on the path is `405`, and the official client tolerates that.
 - `tools/list` is answered by the device, so an offline device cannot list its tools.
 - The body cap is 8 MiB (the device's own `/mcp` cap); files are base64 and capped at 1 MiB.

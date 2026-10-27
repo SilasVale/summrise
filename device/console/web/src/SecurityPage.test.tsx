@@ -42,7 +42,7 @@ const suppressed: AuditLine = {
 
 describe("SecurityPage", () => {
   it("says what the log is, including the rate limit and the suppression summary", () => {
-    render(<SecurityPage lines={[]} devices={[]} tokens={[]} />);
+    render(<SecurityPage lines={[]} devices={[]} tokens={[]} onTokensChanged={() => {}} />);
 
     expect(screen.getByRole("heading", { name: "Security" })).toBeInTheDocument();
     expect(screen.getByText(/rate-limited to 100\/minute/)).toBeInTheDocument();
@@ -54,7 +54,7 @@ describe("SecurityPage", () => {
   });
 
   it("names a filter that matches no failed authentication", () => {
-    render(<SecurityPage lines={[denied]} devices={[]} tokens={[]} />);
+    render(<SecurityPage lines={[denied]} devices={[]} tokens={[]} onTokensChanged={() => {}} />);
     fireEvent.change(screen.getByLabelText("Status"), { target: { value: "ok" } });
 
     expect(
@@ -64,7 +64,7 @@ describe("SecurityPage", () => {
   });
 
   it("renders the refusal log in the audit table, with no token named", () => {
-    render(<SecurityPage lines={[denied, suppressed]} devices={[workshop]} tokens={[]} />);
+    render(<SecurityPage lines={[denied, suppressed]} devices={[workshop]} tokens={[]} onTokensChanged={() => {}} />);
 
     expect(screen.queryByText("No failed authentications yet.")).not.toBeInTheDocument();
     const table = within(screen.getByRole("table"));

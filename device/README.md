@@ -299,7 +299,7 @@ the launcher key cannot be applied as an update. That split is the point of the 
   and the relay floor remains the fallback. The STUN exchange is one request with a two-second
   deadline at join time, never a per-connection cost.
 - The console has no state route: `/`, `/health`, `/auth`, `/enroll`, `/devices`,
-  `/devices/:id/channel`, `/grants`, `/mcp` and `/audit` are its whole surface. The page at `/`
+  `/devices/:id/channel`, `/grants`, `/mcp`, `/mcp/all` and `/audit` are its whole surface. The page at `/`
   reads a device through the `state.get` tool over `/mcp` (see “Reading a device's state”); adding a
   console state route would be a second data path and a second thing to authorize.
 - The console does not generate the device's identity: `--enroll` uses `<data>/identity.key`, which
