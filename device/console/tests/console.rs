@@ -6493,9 +6493,14 @@ async fn the_terminal_page_relays_create_and_read_with_the_cursor_it_was_given()
     answer(
         &mut device,
         &frame,
+        // The device's reply is the JSON-RPC envelope it would send an MCP client.
         json!({
-            "content": [{ "type": "text", "text": json!({ "id": "session-1", "kind": "pty", "shell": "pwsh" }).to_string() }],
-            "isError": false,
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {
+                "content": [{ "type": "text", "text": json!({ "id": "session-1", "kind": "pty", "shell": "pwsh" }).to_string() }],
+                "isError": false,
+            },
         }),
     )
     .await;
@@ -6526,8 +6531,12 @@ async fn the_terminal_page_relays_create_and_read_with_the_cursor_it_was_given()
         &mut device,
         &frame,
         json!({
-            "content": [{ "type": "text", "text": json!({ "data": "hello", "cursor": 12, "alive": true }).to_string() }],
-            "isError": false,
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {
+                "content": [{ "type": "text", "text": json!({ "data": "hello", "cursor": 12, "alive": true }).to_string() }],
+                "isError": false,
+            },
         }),
     )
     .await;
@@ -6551,7 +6560,11 @@ async fn the_terminal_page_relays_create_and_read_with_the_cursor_it_was_given()
     answer_error(
         &mut device,
         &frame,
-        json!({ "code": -32001, "message": "terminal.write: no such session" }),
+        json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "error": { "code": -32001, "message": "terminal.write: no such session" },
+        }),
     )
     .await;
     let (status, _, body) = write.await.expect("the write call finishes");

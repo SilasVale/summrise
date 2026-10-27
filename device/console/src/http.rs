@@ -1179,10 +1179,11 @@ async fn terminal_tool(
     let result = match reply {
         Reply::Result(result) => result,
         Reply::Error(error) => {
-            // The device's own sentence when it has one; the envelope otherwise, so a refusal this
-            // page does not recognise is still readable instead of becoming "refused".
+            // The device wraps its answer in the JSON-RPC envelope it would send an MCP client
+            // (`{"jsonrpc","id","error":{...}}`), so the sentence is one level deeper.
             let sentence = error
-                .get("message")
+                .get("error")
+                .and_then(|body| body.get("message"))
                 .and_then(Value::as_str)
                 .map(str::to_owned)
                 .unwrap_or_else(|| error.to_string());
@@ -1192,14 +1193,17 @@ async fn terminal_tool(
             )));
         }
     };
-    let text = result
+    // The device's `result` is the JSON-RPC envelope it would send an MCP client, not the bare
+    // `{content, isError}`: the tool's text sits under `result.result.content`.
+    let body = result.get("result").unwrap_or(&result);
+    let text = body
         .get("content")
         .and_then(Value::as_array)
         .and_then(|content| content.first())
         .and_then(|item| item.get("text"))
         .and_then(Value::as_str)
         .unwrap_or_default();
-    if result
+    if body
         .get("isError")
         .and_then(Value::as_bool)
         .unwrap_or(false)
