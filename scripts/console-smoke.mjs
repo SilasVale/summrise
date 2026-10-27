@@ -11,6 +11,16 @@
 //   CONSOLE_TOKEN_FILE=C:\SummriseConsole\operator.token \
 //   node scripts/console-smoke.mjs [--shot out.png] [--expect 2] [--expect-online 2]
 //
+// `--terminal` checks the Rust page at /next/terminal/<device> instead of the SPA at `/`: it signs
+// in with the page cookie, opens a shell, and waits for a marker it typed to come back through
+// xterm. It must run where a browser can start — a signed-in desktop session, not the device
+// service (which has no desktop and cannot launch Edge). CONSOLE_BROWSER names a system Chromium
+// when the runtime has no bundled one:
+//
+//   CONSOLE_URL=http://127.0.0.1:19000 CONSOLE_TOKEN_FILE=/path/operator.token \
+//   CONSOLE_BROWSER='C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe' \
+//   node scripts/console-smoke.mjs --terminal
+//
 // Exit codes: 0 the page works · 1 the page is broken · 2 it could not be checked.
 
 import { createRequire } from 'node:module';
@@ -57,7 +67,8 @@ if (!playwright) {
 }
 
 const token = readFileSync(tokenFile, 'utf8').trim();
-const browser = await playwright.chromium.launch();
+const browserPath = process.env.CONSOLE_BROWSER || '';
+const browser = await playwright.chromium.launch(browserPath ? { executablePath: browserPath } : {});
 const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
 
 const errors = [];
@@ -73,6 +84,57 @@ const fail = async (reason) => {
   for (const error of errors) console.error('  ' + error);
   process.exit(1);
 };
+
+const terminalOnly = args.includes('--terminal');
+
+if (terminalOnly) {
+  // The Rust page at /next signs in with a cookie, not the SPA's bearer. The leg proves the page
+  // runs a shell: it types a marker and waits to read it back through xterm, which is the one thing
+  // a string test cannot see.
+  await page.goto(base + '/next', { waitUntil: 'domcontentloaded', timeout: 30000 });
+  if (await page.locator('input#token').isVisible().catch(() => false)) {
+    await page.fill('input#token', token);
+    await Promise.all([page.waitForLoadState('domcontentloaded'), page.click('button[type=submit]')]);
+  }
+  if (!(await page.locator('a:has-text("Terminal")').count())) {
+    await fail('no Terminal link on /next (is the page signed in?)');
+  }
+  await page.click('a:has-text("Terminal")');
+  await page.waitForSelector('.xterm', { timeout: 20000 });
+  try {
+    await page.waitForFunction(
+      () => {
+        const status = document.getElementById('terminal-status');
+        return status && /session/.test(status.textContent || '');
+      },
+      { timeout: 20000 }
+    );
+  } catch {
+    const status = await page.locator('#terminal-status').innerText().catch(() => '(missing)');
+    await fail('the terminal did not open a session: ' + status);
+  }
+  const markerText = 'smoke-terminal-ok';
+  await page.click('.xterm');
+  await page.keyboard.type('echo ' + markerText);
+  await page.keyboard.press('Enter');
+  try {
+    await page.waitForFunction(
+      (text) => {
+        const rows = document.querySelector('.xterm-rows');
+        return !!rows && rows.innerText.includes(text);
+      },
+      markerText,
+      { timeout: 20000 }
+    );
+  } catch {
+    await fail('the command was not echoed back by xterm');
+  }
+  const session = await page.locator('#terminal-status').innerText();
+  if (shot) await page.screenshot({ path: shot, fullPage: true });
+  await browser.close();
+  console.log('console-smoke: terminal ok — ' + session.replace(/\s+/g, ' '));
+  process.exit(0);
+}
 
 await page.goto(base + '/', { waitUntil: 'load', timeout: 30000 });
 
