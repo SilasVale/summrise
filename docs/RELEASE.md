@@ -6,7 +6,7 @@ Three version streams ship from this repository and none of them is deployed by 
 |---|---|---|
 | **device runtime** | `summrise-launch` + `summrise-device`, the Windows service | the installer, or the device's own update check against the mirror |
 | **console** | `summrise-console`, the operator's surface | copied to the console host and restarted |
-| **console page** | `console/web`, built into one HTML file | inside the console binary — no separate deploy |
+| **console page** | Rust handlers in `console/src/http/page.rs`, rendered per request | inside the console binary — no separate deploy, no npm |
 
 They share a version number because they are released together, but a *device* release does not redeploy a
 *console*, and a console deploy does not touch a device. `verify-release.sh` is the tool that keeps those
@@ -35,8 +35,9 @@ scripts/publish-canary.bash \
     --console http://127.0.0.1:19000        # optional: verify the world at the end
 ```
 
-It refuses to publish when the console page is older than its sources (`build-web.sh --check`): a
-TypeScript edit that never reached the bundle is the one failure a publish cannot see on its own.
+The page is Rust rendered per request, compiled into the console binary, so there is no separate
+artifact that can be older than its sources — a publish's binary IS the page. What the publish still
+checks is the version it signs and the mirror it names.
 
 What it produces:
 
@@ -105,8 +106,9 @@ The console binary carries the page and, for every registered device, the standa
 
 1. `curl http://127.0.0.1:19000/health` — the version must be the one just built, and `devices` the
    registry size.
-2. The page at `http://127.0.0.1:19000/`: sign in and press **AI client** on a device card. The modal
-   mints a grant and shows the endpoint, the header and a DeepSeek Harness configuration.
+2. The page at `http://127.0.0.1:19000/`: sign in, open a device's **Connect an AI client** page (rail:
+   **Tokens**) and **Mint a token**; it shows the endpoint and the header once. A session grant is the
+   same call through `POST /grants`, not a page.
 3. The endpoint: use the card's header (or a grant minted through the loopback `/grants`) and send
    `initialize`, `tools/list` and one `tools/call`. The data directory's `audit.jsonl` records
    `{"kind":"mcp","tool":"<tool>","status":200}` for the call; `initialize`/`tools/list` are not a tool
@@ -215,12 +217,15 @@ a real state for a day.
 
 ## The page itself
 
+Nothing is built beside the binary: the page is `maud` templates in `console/src/http/page.rs` and
+the binary renders it. To look at every page without a browser workflow:
+
 ```bash
-scripts/build-web.sh          # npm ci (once) + vite build → console/web/dist/index.html
-scripts/build-web.sh --check  # fails when the artifact is older than the sources
+scripts/console-screenshots.bash --out /tmp/console-shots   # 28 pages, light + dark
 ```
 
-`dist/index.html` is embedded with `include_str!`. Nothing from `node_modules` ships.
+The two scripts the page serves (`assets/approvals.js`, `assets/browser.js`) are `include_str!`'d,
+and the terminal's xterm stack is vendored the same way.
 
 ## Rolling back
 

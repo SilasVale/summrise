@@ -51,7 +51,7 @@ To look at every page at once — light and dark, at any width — the console r
 directory and a browser photographs it:
 
 ```bash
-scripts/console-screenshots.bash --out /tmp/console-shots          # 26 pages, light + dark
+scripts/console-screenshots.bash --out /tmp/console-shots          # 28 pages, light + dark
 scripts/console-screenshots.bash --out /tmp/console-shots --width 900 --light-only
 open /tmp/console-shots/index.html
 ```
@@ -176,5 +176,6 @@ The design is a record, not a wiki page: each document states a decision and wha
 
 * `docs/RELEASE.md` — how a release is published, deployed and **verified against the world**.
 * `docs/superpowers/specs/` — the designs and decisions, including the ones that were reversed.
-* `device/console/web` — the console page (React, built into one file the binary embeds).
+* `device/console/src/http/page.rs` — the console page's Rust renderers (maud), compiled into the
+  binary; `assets/` holds its two scripts and the vendored terminal.
 * `device/device/src/panel.html` — the device's own panel (hand-written, same design tokens).
