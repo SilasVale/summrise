@@ -6225,3 +6225,129 @@ async fn the_console_refuses_framing_on_the_page_and_the_sign_in() {
         );
     }
 }
+
+/// A phase-2 form post that also carries the page's session cookie.
+fn post_form_cookie(uri: &str, fields: &[(&str, &str)], cookie: &str) -> Request<Body> {
+    let mut request = post_form(uri, fields);
+    request
+        .headers_mut()
+        .insert(header::COOKIE, cookie.parse().expect("the cookie header"));
+    request
+}
+
+#[tokio::test]
+async fn the_rust_page_renames_and_removes_a_device_with_its_csrf() {
+    let fixture = Fixture::new("rust-page-mutate");
+    let (device_id, _) = fixture.register(&signing_key(0xb4)).await;
+    let cookie = page_cookie(&fixture).await;
+    let (_, _, page) = send_text(fixture.app(), get_with_cookie("/next", &cookie)).await;
+    let csrf = csrf_from(&page);
+
+    let (status, _, _) = send_text(
+        fixture.app(),
+        post_form_cookie(
+            &format!("/next/fleet/{device_id}/name"),
+            &[("csrf", &csrf), ("name", "studio")],
+            &cookie,
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "a rename redirects");
+    let (_, _, page) = send_text(fixture.app(), get_with_cookie("/next", &cookie)).await;
+    assert!(page.contains("studio"), "{page}");
+
+    // A wrong CSRF is 403 and changes nothing.
+    let (status, _, _) = send_text(
+        fixture.app(),
+        post_form_cookie(
+            &format!("/next/fleet/{device_id}/name"),
+            &[("csrf", &"00".repeat(32)), ("name", "hijacked")],
+            &cookie,
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let (_, _, page) = send_text(fixture.app(), get_with_cookie("/next", &cookie)).await;
+    assert!(page.contains("studio") && !page.contains("hijacked"), "{page}");
+
+    // An empty name is refused, not treated as "clear".
+    let (status, _, _) = send_text(
+        fixture.app(),
+        post_form_cookie(
+            &format!("/next/fleet/{device_id}/name"),
+            &[("csrf", &csrf), ("name", "   ")],
+            &cookie,
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let (_, _, page) = send_text(
+        fixture.app(),
+        get_with_cookie("/next?error=invalid_name", &cookie),
+    )
+    .await;
+    assert!(page.contains("invalid_name"), "{page}");
+    assert!(page.contains("studio"), "{page}");
+
+    // Remove: the row disappears and the console records it.
+    let (status, _, _) = send_text(
+        fixture.app(),
+        post_form_cookie(
+            &format!("/next/fleet/{device_id}/remove"),
+            &[("csrf", &csrf)],
+            &cookie,
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let (_, _, page) = send_text(fixture.app(), get_with_cookie("/next", &cookie)).await;
+    assert!(!page.contains(&device_id), "the device row is gone: {page}");
+    let (status, _, audit) = send_text(fixture.app(), get_with_cookie("/next/audit", &cookie)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(audit.contains("device_remove"), "{audit}");
+}
+
+#[tokio::test]
+async fn the_rust_page_mints_an_enrollment_code_once_and_gates_the_logs() {
+    let fixture = Fixture::new("rust-page-enroll");
+    let cookie = page_cookie(&fixture).await;
+    let (_, _, page) = send_text(fixture.app(), get_with_cookie("/next", &cookie)).await;
+    let csrf = csrf_from(&page);
+
+    let (status, headers, _) = send_text(
+        fixture.app(),
+        post_form_cookie("/next/enroll", &[("csrf", &csrf)], &cookie),
+    )
+    .await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let location = headers.get(header::LOCATION).expect("a redirect").to_str().expect("ASCII");
+    assert!(location.starts_with("/next?code="), "{location}");
+    let code = location.trim_start_matches("/next?code=");
+    assert_eq!(code.len(), 64, "the code is 32 bytes in hex");
+
+    let (status, _, page) = send_text(
+        fixture.app(),
+        get_with_cookie(&format!("/next?code={code}"), &cookie),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(page.contains("Enrollment code:") && page.contains(code), "{page}");
+
+    // Wrong CSRF: no code, 403.
+    let (status, _, _) = send_text(
+        fixture.app(),
+        post_form_cookie("/next/enroll", &[("csrf", &"00".repeat(32))], &cookie),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+
+    // The logs are login-gated, then readable.
+    for uri in ["/next/audit", "/next/denials"] {
+        let (status, _, body) = send_text(fixture.app(), get(uri, None)).await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(body.contains("Sign in"), "{uri}: {body}");
+        let (status, _, body) = send_text(fixture.app(), get_with_cookie(uri, &cookie)).await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(!body.contains("Sign in"), "{uri}: {body}");
+    }
+}

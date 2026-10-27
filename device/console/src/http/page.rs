@@ -35,6 +35,14 @@ code { color:var(--muted); font-size:12px; }
 .ok { color:#1f8f4e; }
 .off { color:var(--muted); }
 .version { color:var(--muted); font-size:12px; }
+nav { display:flex; gap:14px; margin-top:18px; font-size:13px; }
+nav a { color:var(--accent); text-decoration:none; }
+.format-form { display:flex; gap:6px; margin-top:6px; }
+.row-form input { padding:4px 6px; font-size:12px; width:120px; }
+.row-form button, .inline-button { margin:0; width:auto; padding:4px 8px; font-size:12px; }
+.inline-button { background:transparent; color:var(--muted); border:1px solid var(--line); }
+.code { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:10px 14px; font-size:13px; }
+.code strong { font-family:ui-monospace, monospace; letter-spacing:0.04em; }
 "#;
 
 /// The sign-in card. `error` is the one line a refused token gets.
@@ -68,8 +76,15 @@ pub(super) fn login(error: Option<&str>) -> Markup {
     }
 }
 
-/// The signed-in page: the fleet table and the sign-out form carrying the session's CSRF value.
-pub(super) fn dashboard(devices: &[DeviceView], csrf: &str, version: &str) -> Markup {
+/// The signed-in page: the fleet table, the phase-2 mutations, and the sign-out form carrying the
+/// session's CSRF value.
+pub(super) fn dashboard(
+    devices: &[DeviceView],
+    csrf: &str,
+    version: &str,
+    code: Option<&str>,
+    error: Option<&str>,
+) -> Markup {
     html! {
         (DOCTYPE)
         html lang="en" {
@@ -89,7 +104,19 @@ pub(super) fn dashboard(devices: &[DeviceView], csrf: &str, version: &str) -> Ma
                     }
                 }
                 main {
+                    @if let Some(code) = code {
+                        p class="code" {
+                            "Enrollment code: " strong { (code) } " — single use, valid for 15 minutes."
+                        }
+                    }
+                    @if let Some(error) = error {
+                        p class="error" { "That change was not applied: " (error) }
+                    }
                     h2 { "Devices" }
+                    form method="post" action="/next/enroll" {
+                        input type="hidden" name="csrf" value=(csrf);
+                        button type="submit" class="inline-button" { "New enrollment code" }
+                    }
                     @if devices.is_empty() {
                         p class="hint" { "No devices have registered yet." }
                     } @else {
@@ -102,6 +129,15 @@ pub(super) fn dashboard(devices: &[DeviceView], csrf: &str, version: &str) -> Ma
                                             strong { (device.name.as_deref().unwrap_or(&device.id)) }
                                             br;
                                             code { (&device.id) }
+                                            form method="post" action=(format!("/next/fleet/{}/name", device.id)) class="row-form" {
+                                                input type="hidden" name="csrf" value=(csrf);
+                                                input type="text" name="name" maxlength="64" placeholder="rename";
+                                                button type="submit" { "Rename" }
+                                            }
+                                            form method="post" action=(format!("/next/fleet/{}/remove", device.id)) class="row-form" {
+                                                input type="hidden" name="csrf" value=(csrf);
+                                                button type="submit" class="inline-button" { "Remove" }
+                                            }
                                         }
                                         td {
                                             @if device.online { span class="ok" { "online" } } @else { span class="off" { "offline" } }
@@ -112,6 +148,55 @@ pub(super) fn dashboard(devices: &[DeviceView], csrf: &str, version: &str) -> Ma
                             }
                         }
                     }
+                    nav {
+                        a href="/next/audit" { "Audit" }
+                        a href="/next/denials" { "Denials" }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// A read-only log page: the audit or denial lines, newest first, bounded by the caller.
+pub(super) fn logs(rows: &[serde_json::Value], title: &str, version: &str) -> Markup {
+    html! {
+        (DOCTYPE)
+        html lang="en" {
+            head {
+                meta charset="utf-8";
+                meta name="viewport" content="width=device-width, initial-scale=1";
+                title { "Summrise console — " (title) }
+                style { (STYLE) }
+            }
+            body {
+                header {
+                    h1 { "Summrise " span { "console" } }
+                    span class="version" { "console " (version) }
+                    a href="/next" { "Back to the fleet" }
+                }
+                main {
+                    h2 { (title) }
+                    @if rows.is_empty() {
+                        p class="hint" { "Nothing has been recorded yet." }
+                    } @else {
+                        table {
+                            thead { tr { th { "When (ms)" } th { "Kind" } th { "Status" } th { "Device" } th { "Tool" } th { "Detail" } } }
+                            tbody {
+                                @for row in rows {
+                                    tr {
+                                        td { (row["ts_ms"].as_u64().unwrap_or(0)) }
+                                        td { (row["kind"].as_str().unwrap_or("—")) }
+                                        td { (row["status"].as_u64().unwrap_or(0)) }
+                                        td { (row["device_id"].as_str().unwrap_or("—")) }
+                                        td { (row["tool"].as_str().unwrap_or("—")) }
+                                        td { (row["detail"].as_str().unwrap_or("")) }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    nav { a href="/next" { "Fleet" } }
                 }
             }
         }
@@ -135,7 +220,7 @@ mod tests {
             host: None,
             last_attempt: None,
         };
-        let page = dashboard(&[device], "00", "0.3.48").into_string();
+        let page = dashboard(&[device], "00", "0.3.48", None, None).into_string();
         assert!(
             page.contains("&lt;script&gt;alert(1)&lt;/script&gt;"),
             "{page}"

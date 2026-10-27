@@ -244,6 +244,11 @@ impl Console {
             .route("/next", get(next_page))
             .route("/next/auth", post(next_login))
             .route("/next/logout", post(next_logout))
+            .route("/next/fleet/:id/name", post(next_rename))
+            .route("/next/fleet/:id/remove", post(next_remove))
+            .route("/next/enroll", post(next_enroll))
+            .route("/next/audit", get(next_audit))
+            .route("/next/denials", get(next_denials))
             .route("/session", get(session_probe))
             .route("/logout", post(logout))
             .route("/enroll", post(enroll))
@@ -923,7 +928,40 @@ struct NextLogout {
 }
 
 /// `GET /next`: the login form without a live cookie, the page with one.
-async fn next_page(State(app): State<AppState>, headers: HeaderMap) -> Response {
+#[derive(Deserialize, Default)]
+struct NextQuery {
+    code: Option<String>,
+    error: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct NextRename {
+    csrf: String,
+    name: String,
+}
+
+#[derive(Deserialize)]
+struct NextRemove {
+    csrf: String,
+}
+
+#[derive(Deserialize)]
+struct NextEnroll {
+    csrf: String,
+}
+
+/// The cookie session a `/next` mutation presents, if its CSRF value is this session's.
+fn next_session(app: &AppState, headers: &HeaderMap, csrf: Option<&str>) -> Option<Session> {
+    let session = cookie_session(app, headers)?;
+    let presented = csrf.and_then(hex::decode_32)?;
+    constant_time_eq(&presented, &session.csrf).then_some(session)
+}
+
+async fn next_page(
+    State(app): State<AppState>,
+    headers: HeaderMap,
+    Query(query): Query<NextQuery>,
+) -> Response {
     let Some(session) = cookie_session(&app, &headers) else {
         return Html(page::login(None).into_string()).into_response();
     };
@@ -932,10 +970,97 @@ async fn next_page(State(app): State<AppState>, headers: HeaderMap) -> Response 
             &device_views(&app),
             &hex::encode(&session.csrf),
             &app.version,
+            query.code.as_deref(),
+            query.error.as_deref(),
         )
         .into_string(),
     )
     .into_response()
+}
+
+/// `POST /next/fleet/:id/name`: rename a device from the page. The name rules are the API's, and an
+/// empty or invalid name is refused rather than silently clearing a label.
+async fn next_rename(
+    State(app): State<AppState>,
+    Path(device_id): Path<String>,
+    headers: HeaderMap,
+    Form(form): Form<NextRename>,
+) -> Response {
+    let Some(_session) = next_session(&app, &headers, Some(&form.csrf)) else {
+        return StatusCode::FORBIDDEN.into_response();
+    };
+    let trimmed = form.name.trim();
+    if trimmed.is_empty() || trimmed.len() > 64 || trimmed.chars().any(|c| c.is_control()) {
+        return Redirect::to("/next?error=invalid_name").into_response();
+    }
+    let renamed = {
+        let mut devices = lock(&app.devices);
+        devices.rename(&device_id, Some(trimmed.to_owned()))
+    };
+    match renamed {
+        Ok(Some(_)) => Redirect::to("/next").into_response(),
+        Ok(None) => Redirect::to("/next?error=no_such_device").into_response(),
+        Err(_) => Redirect::to("/next?error=registry_unwritable").into_response(),
+    }
+}
+
+/// `POST /next/fleet/:id/remove`: forget a device from the page.
+async fn next_remove(
+    State(app): State<AppState>,
+    Path(device_id): Path<String>,
+    headers: HeaderMap,
+    Form(form): Form<NextRemove>,
+) -> Response {
+    let Some(_session) = next_session(&app, &headers, Some(&form.csrf)) else {
+        return StatusCode::FORBIDDEN.into_response();
+    };
+    let removed = {
+        let mut devices = lock(&app.devices);
+        devices.remove(&device_id)
+    };
+    match removed {
+        Ok(true) => {
+            app.record("device_remove", Some(&device_id), StatusCode::NO_CONTENT, Some("page"))
+                .await;
+            Redirect::to("/next").into_response()
+        }
+        Ok(false) => Redirect::to("/next?error=no_such_device").into_response(),
+        Err(_) => Redirect::to("/next?error=registry_unwritable").into_response(),
+    }
+}
+
+/// `POST /next/enroll`: mint a one-time enrollment code and show it once.
+async fn next_enroll(
+    State(app): State<AppState>,
+    headers: HeaderMap,
+    Form(form): Form<NextEnroll>,
+) -> Response {
+    let Some(_session) = next_session(&app, &headers, Some(&form.csrf)) else {
+        return StatusCode::FORBIDDEN.into_response();
+    };
+    match lock(&app.codes).issue((app.now)()) {
+        Ok((code, _)) => Redirect::to(&format!("/next?code={code}")).into_response(),
+        Err(IssueError::TooMany) => Redirect::to("/next?error=too_many_codes").into_response(),
+        Err(IssueError::Storage) => Redirect::to("/next?error=code_storage").into_response(),
+    }
+}
+
+/// `GET /next/audit`: the audit log, read-only, behind the page's cookie.
+async fn next_audit(State(app): State<AppState>, headers: HeaderMap) -> Response {
+    if cookie_session(&app, &headers).is_none() {
+        return Html(page::login(None).into_string()).into_response();
+    }
+    let rows = app.audit.newest(DEFAULT_LOG_LIMIT).await;
+    Html(page::logs(&rows, "Audit", &app.version).into_string()).into_response()
+}
+
+/// `GET /next/denials`: the unauthenticated-refusal log, read-only, behind the page's cookie.
+async fn next_denials(State(app): State<AppState>, headers: HeaderMap) -> Response {
+    if cookie_session(&app, &headers).is_none() {
+        return Html(page::login(None).into_string()).into_response();
+    }
+    let rows = app.denials.newest(DEFAULT_LOG_LIMIT).await;
+    Html(page::logs(&rows, "Denials", &app.version).into_string()).into_response()
 }
 
 /// `POST /next/auth`: the page's sign-in. The same operator secret as `/auth`, the same denial
