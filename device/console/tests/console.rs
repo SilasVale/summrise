@@ -8806,6 +8806,34 @@ async fn visit_vitals(
     page.await.expect("the page finishes").2
 }
 
+/// The badge is on every signed-in page, and its count route answers only to a session.
+#[tokio::test]
+async fn every_page_carries_the_approvals_badge() {
+    let fixture = Fixture::new("approvals-badge");
+    let cookie = page_cookie(&fixture).await;
+
+    let (status, _, page) = send_text(fixture.app(), get_with_cookie("/next/audit", &cookie)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(page.contains("id=\"approvals-badge\""), "{page}");
+    assert!(page.contains("/assets/approvals.js"), "{page}");
+
+    let (status, count) = send(fixture.app(), get("/next/approvals/count", None)).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED, "{count}");
+
+    let (status, _, count) = send_text(
+        fixture.app(),
+        get_with_cookie("/next/approvals/count", &cookie),
+    )
+    .await;
+    let count: Value = serde_json::from_str(&count).expect("a JSON count");
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(count["pending"], json!(0));
+
+    let (status, _, js) = send_text(fixture.app(), get("/assets/approvals.js", None)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(js.contains("/next/approvals/count"), "{js}");
+}
+
 /// The vitals page keeps its own trend: one point per visit, in the console's memory, and it says
 /// so rather than implying a sampler runs behind it.
 #[tokio::test]
@@ -8897,6 +8925,13 @@ async fn a_destructive_token_call_is_held_and_runs_when_approved() {
     let (cookie, csrf) = sign_in_to_the_page(&fixture).await;
     let operator = async {
         let id = wait_for_approval(&fixture, &cookie).await;
+        let (_, _, count) = send_text(
+            fixture.app(),
+            get_with_cookie("/next/approvals/count", &cookie),
+        )
+        .await;
+        let count: Value = serde_json::from_str(&count).expect("a JSON count");
+        assert_eq!(count["pending"], json!(1), "the badge counts the held call");
         let (status, _, _) = send_text(
             fixture.app(),
             post_form_cookie(
@@ -8907,6 +8942,13 @@ async fn a_destructive_token_call_is_held_and_runs_when_approved() {
         )
         .await;
         assert_eq!(status, StatusCode::SEE_OTHER);
+        let (_, _, count) = send_text(
+            fixture.app(),
+            get_with_cookie("/next/approvals/count", &cookie),
+        )
+        .await;
+        let count: Value = serde_json::from_str(&count).expect("a JSON count");
+        assert_eq!(count["pending"], json!(0), "answered calls stop counting");
     };
 
     let ((status, body), (), ()) = tokio::join!(http, device_side, operator);

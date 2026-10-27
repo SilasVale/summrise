@@ -258,6 +258,15 @@ impl Console {
                 }),
             )
             .route(
+                "/assets/approvals.js",
+                get(|| async {
+                    assets::Asset {
+                        body: assets::APPROVALS,
+                        content_type: "text/javascript; charset=utf-8",
+                    }
+                }),
+            )
+            .route(
                 "/assets/terminal.js",
                 get(|| async {
                     assets::Asset {
@@ -289,6 +298,7 @@ impl Console {
             .route("/next", get(next_page))
             .route("/next/auth", post(next_login))
             .route("/next/logout", post(next_logout))
+            .route("/next/approvals/count", get(next_approvals_count))
             .route("/next/approvals/:id/:decision", post(next_approval_decide))
             .route("/next/fleet/:id/name", post(next_rename))
             .route("/next/fleet/:id/remove", post(next_remove))
@@ -814,7 +824,7 @@ struct Health {
     version: String,
 }
 
-/// The two vendored assets behind `/assets/`.
+/// The static assets behind `/assets/`: two vendored, two ours.
 mod assets {
     use axum::http::header;
     use axum::response::{IntoResponse, Response};
@@ -824,6 +834,8 @@ mod assets {
     pub(super) const FIT: &str = include_str!("../assets/addon-fit.js");
     /// The terminal page's glue: the loop between xterm and `/next/terminal`.
     pub(super) const TERMINAL: &str = include_str!("../assets/terminal.js");
+    /// The approvals badge: the one poll every page carries, because a held call waits ten minutes.
+    pub(super) const APPROVALS: &str = include_str!("../assets/approvals.js");
     /// The brand mark at 128 px: the browser tab's icon and the console's face in a task switcher.
     pub(super) const ICON: &[u8] = include_bytes!("../assets/icon.png");
 
@@ -1274,6 +1286,14 @@ async fn next_page(
 #[derive(Deserialize)]
 struct ApprovalDecision {
     csrf: String,
+}
+
+/// `GET /next/approvals/count`: how many calls are waiting, for the badge every page carries.
+async fn next_approvals_count(State(app): State<AppState>, headers: HeaderMap) -> Response {
+    if cookie_session(&app, &headers).is_none() {
+        return StatusCode::UNAUTHORIZED.into_response();
+    }
+    Json(json!({ "pending": lock(&app.approvals).len() })).into_response()
 }
 
 /// `POST /next/approvals/:id/approve` and `/refuse`: answer one held call.

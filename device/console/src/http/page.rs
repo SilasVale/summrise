@@ -2,7 +2,9 @@
 //! strip — and one renderer per surface. `maud` builds the HTML from the Rust that already owns the
 //! data, and every interpolated value is escaped by construction.
 //!
-//! The only script on any page is the terminal's glue (`assets/terminal.js`); every other page is a
+//! Two scripts exist: the terminal's glue (`assets/terminal.js`), and the approvals badge
+//! (`assets/approvals.js`), the one poll, because a held call waits only ten minutes and a person on
+//! another page should see it without refreshing. Every other page is a
 //! form and a link. That is why the shell carries no toggles: the pages are server-rendered, and a
 //! control that only exists in the browser would be a second, weaker copy of a rule the console
 //! already enforces.
@@ -354,6 +356,8 @@ body.login { margin:0; background:var(--bg); }
 .trend-row:last-of-type { margin-bottom:6px; }
 .trend-label { display:flex; flex-direction:column; gap:2px; font:600 12px/1.4 var(--font); }
 .trend-values { color:var(--muted); font-size:11.5px; text-align:right; }
+.badge-approvals { display:inline-flex; align-items:center; height:24px; padding:0 9px; border-radius:999px; background:var(--danger-soft); color:var(--danger); font:600 11.5px/1 var(--font); text-decoration:none; white-space:nowrap; }
+.badge-approvals:hover { background:var(--danger); color:var(--panel); }
 .spark { display:block; width:100%; height:28px; }
 .spark polyline { fill:none; stroke:var(--accent); stroke-width:1.5; vector-effect:non-scaling-stroke; stroke-linejoin:round; }
 .facts { display:grid; grid-template-columns:max-content 1fr; gap:6px 18px; margin:0 0 12px; }
@@ -691,6 +695,7 @@ fn head(title: &str, extra: Markup) -> Markup {
             meta name="viewport" content="width=device-width, initial-scale=1";
             title { (title) " — Summrise console" }
             (extra)
+            script src="/assets/approvals.js" defer {}
             style { (PreEscaped(STYLE)) }
         }
     }
@@ -741,6 +746,7 @@ fn topbar(title: &str, device: Option<&DeviceView>, version: &str, csrf: &str) -
                 }
             }
             span class="spacer" {}
+            a class="badge-approvals" id="approvals-badge" href="/next" hidden {}
             span class="build" { "console " (version) }
             form method="post" action="/next/logout" {
                 input type="hidden" name="csrf" value=(csrf);
