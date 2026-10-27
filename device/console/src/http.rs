@@ -61,6 +61,22 @@ struct Pending {
     decide: tokio::sync::oneshot::Sender<bool>,
 }
 
+/// The held call's registration, removed when the holding future drops.
+///
+/// A client that hangs up drops the proxy's future, and with it the waiter the timeout lived in. An
+/// entry left behind would sit on the dashboard forever and, worse, answer a call nobody is waiting
+/// for. The guard is what makes the map's size follow the requests that exist.
+struct Held<'a> {
+    app: &'a AppState,
+    id: String,
+}
+
+impl Drop for Held<'_> {
+    fn drop(&mut self) {
+        lock(&self.app.approvals).remove(&self.id);
+    }
+}
+
 /// How many sessions the store keeps.
 ///
 /// One operator, a handful of browsers. The page also mints a session for an Access-verified request
@@ -4882,6 +4898,10 @@ async fn proxy_reply(
                     };
                     let id = hex::encode(&random_32()[..8]);
                     let (decide, answer) = tokio::sync::oneshot::channel();
+                    let registration = Held {
+                        app,
+                        id: id.clone(),
+                    };
                     lock(&app.approvals).insert(
                         id.clone(),
                         Pending {
@@ -4953,7 +4973,7 @@ async fn proxy_reply(
                             .await;
                         }
                     }
-                    lock(&app.approvals).remove(&id);
+                    drop(registration);
                 }
             }
             if let (Some(allowed), true) = (filter, is_tools_list) {

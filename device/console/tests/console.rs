@@ -8940,6 +8940,136 @@ async fn visit_vitals(
     page.await.expect("the page finishes").2
 }
 
+/// A client that hangs up takes its held call with it: nothing sits on the dashboard waiting for a
+/// request that no longer exists.
+#[tokio::test]
+async fn a_held_call_leaves_when_its_client_hangs_up() {
+    let fixture = Fixture::new("approval-hangup");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xcd)).await;
+    let session = fixture.authenticate().await;
+    let (status, created) = fixture
+        .create_token(
+            &session,
+            &device_id,
+            "cautious",
+            &["terminal.create"],
+            false,
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{created}");
+    let plaintext = created["token"].as_str().expect("the token").to_owned();
+    let call = json!({
+        "jsonrpc": "2.0",
+        "id": 62,
+        "method": "tools/call",
+        "params": { "name": "terminal.create", "arguments": { "kind": "pty" } },
+    });
+    let app = fixture.app();
+    let request = post_token(&device_id, &plaintext, call.clone());
+    let client = tokio::spawn(async move { send(app, request).await });
+
+    let frame = next_json(&mut device).await;
+    assert_eq!(frame["mcp"], call, "{frame}");
+    answer_error(
+        &mut device,
+        &frame,
+        json!({ "jsonrpc": "2.0", "id": 62, "error": { "code": -32002, "message": "'terminal.create' is destructive and needs approval" } }),
+    )
+    .await;
+
+    let (cookie, _csrf) = sign_in_to_the_page(&fixture).await;
+    let _ = wait_for_approval(&fixture, &cookie).await;
+
+    // The client goes away without an answer.
+    client.abort();
+
+    let mut pending = json!(1);
+    for _ in 0..200 {
+        let (_, _, body) = send_text(
+            fixture.app(),
+            get_with_cookie("/next/approvals/count", &cookie),
+        )
+        .await;
+        pending = serde_json::from_str::<Value>(&body)
+            .map(|body| body["pending"].clone())
+            .unwrap_or(json!(1));
+        if pending == json!(0) {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+    }
+    assert_eq!(
+        pending,
+        json!(0),
+        "the hung-up call is not waiting for anyone"
+    );
+}
+
+/// Nobody answers: the gate's deadline ends the call, and the client gets the device's refusal.
+/// Expiry fails CLOSED, as the legacy gate did — this is the one path a person never sees.
+#[tokio::test(start_paused = true)]
+async fn an_unanswered_approval_expires_closed() {
+    let fixture = Fixture::new("approval-expiry");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xce)).await;
+    let session = fixture.authenticate().await;
+    let (status, created) = fixture
+        .create_token(
+            &session,
+            &device_id,
+            "cautious",
+            &["terminal.create"],
+            false,
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{created}");
+    let plaintext = created["token"].as_str().expect("the token").to_owned();
+    let call = json!({
+        "jsonrpc": "2.0",
+        "id": 61,
+        "method": "tools/call",
+        "params": { "name": "terminal.create", "arguments": { "kind": "pty" } },
+    });
+    let http = send(
+        fixture.app(),
+        post_token(&device_id, &plaintext, call.clone()),
+    );
+
+    let device_side = async {
+        let frame = next_json(&mut device).await;
+        assert_eq!(frame["mcp"], call, "{frame}");
+        answer_error(
+            &mut device,
+            &frame,
+            json!({ "jsonrpc": "2.0", "id": 61, "error": { "code": -32002, "message": "'terminal.create' is destructive and needs approval" } }),
+        )
+        .await;
+    };
+
+    let (cookie, _csrf) = sign_in_to_the_page(&fixture).await;
+    let watcher = async {
+        let id = wait_for_approval(&fixture, &cookie).await;
+        assert!(!id.is_empty());
+        // Nobody presses anything; time passes.
+        tokio::time::advance(std::time::Duration::from_secs(601)).await;
+    };
+
+    let ((status, body), (), ()) = tokio::join!(http, device_side, watcher);
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["error"]["code"], json!(-32002), "{body}");
+
+    let lines = audit_lines(&fixture);
+    assert!(
+        lines
+            .iter()
+            .any(|line| line["kind"] == "approval" && line["detail"] == "timed out"),
+        "the record says it expired: {lines:#?}"
+    );
+}
+
 /// The badge is on every signed-in page, and its count route answers only to a session.
 #[tokio::test]
 async fn every_page_carries_the_approvals_badge() {
