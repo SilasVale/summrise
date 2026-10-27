@@ -30,12 +30,36 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
 use axum::extract::ws::{close_code, CloseFrame, Message, WebSocket};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tokio::sync::mpsc::error::TrySendError;
 use tokio::sync::{mpsc, oneshot, Notify};
 
 use crate::grants::GrantEnvelope;
+
+/// What authorizes one request on the wire: the legacy signed grant, or the console's permanent
+/// token scope. The device accepts both (`remote::Admitted`); the console sends whichever the
+/// caller's credential is.
+// The Token arm lands before the /mcp handlers switch to it (both ship together); until then only
+// the tests construct it.
+#[allow(dead_code)]
+pub(crate) enum RequestAuth<'a> {
+    Grant(&'a GrantEnvelope),
+    Token(&'a TokenScope),
+}
+
+/// A permanent token's scope, as the console forwards it. The device checks the same facts it
+/// checks on a grant: device, expiry, tool coverage.
+#[allow(dead_code)]
+#[derive(Serialize)]
+pub(crate) struct TokenScope {
+    pub(crate) token_id: String,
+    pub(crate) device_id: String,
+    pub(crate) scopes: Vec<String>,
+    pub(crate) allow_destructive: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) expires_at_ms: Option<u64>,
+}
 
 /// How long a request waits for a channel to exist before it is refused as retryable.
 pub(crate) const RECONNECT_WAIT: Duration = Duration::from_secs(2);
@@ -295,9 +319,9 @@ impl ChannelRegistry {
         &self,
         device_id: &str,
         mcp: Value,
-        grant: &GrantEnvelope,
+        auth: &RequestAuth<'_>,
     ) -> Result<Reply, RequestError> {
-        self.request_within(device_id, mcp, grant, self.reply_timeout)
+        self.request_within(device_id, mcp, auth, self.reply_timeout)
             .await
     }
 
@@ -311,7 +335,7 @@ impl ChannelRegistry {
         &self,
         device_id: &str,
         mcp: Value,
-        grant: &GrantEnvelope,
+        auth: &RequestAuth<'_>,
         reply: Duration,
     ) -> Result<Reply, RequestError> {
         let _in_flight = InFlight::begin(self, device_id)?;
@@ -327,7 +351,11 @@ impl ChannelRegistry {
         };
 
         let (accepted, accepted_rx) = oneshot::channel();
-        let frame = json!({ "id": id, "mcp": mcp, "grant": grant }).to_string();
+        let frame = match auth {
+            RequestAuth::Grant(grant) => json!({ "id": id, "mcp": mcp, "grant": grant }),
+            RequestAuth::Token(scope) => json!({ "id": id, "mcp": mcp, "token": scope }),
+        }
+        .to_string();
         let queued = outbound.max_capacity().saturating_sub(outbound.capacity());
         match outbound.try_send(Outbound::Text {
             id,
@@ -665,7 +693,7 @@ mod tests {
             .request(
                 &device_id(),
                 json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list" }),
-                &grant(),
+                &RequestAuth::Grant(&grant()),
             )
             .await;
 
@@ -700,7 +728,7 @@ mod tests {
             .request(
                 &device_id(),
                 json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list" }),
-                &grant(),
+                &RequestAuth::Grant(&grant()),
             )
             .await;
 
@@ -746,7 +774,7 @@ mod tests {
             .request(
                 &device_id(),
                 json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list" }),
-                &grant(),
+                &RequestAuth::Grant(&grant()),
             )
             .await;
         assert_eq!(general, Err(RequestError::ReplyTimeout));
@@ -756,7 +784,7 @@ mod tests {
             .request_within(
                 &device_id(),
                 json!({ "jsonrpc": "2.0", "id": 2, "method": "tools/call" }),
-                &grant(),
+                &RequestAuth::Grant(&grant()),
                 Duration::from_millis(500),
             )
             .await;
@@ -782,7 +810,7 @@ mod tests {
                     .request(
                         &device_id(),
                         json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list" }),
-                        &grant(),
+                        &RequestAuth::Grant(&grant()),
                     )
                     .await
             }));
@@ -806,7 +834,7 @@ mod tests {
             .request(
                 &device_id(),
                 json!({ "jsonrpc": "2.0", "id": 2, "method": "tools/list" }),
-                &grant(),
+                &RequestAuth::Grant(&grant()),
             )
             .await;
         assert_eq!(

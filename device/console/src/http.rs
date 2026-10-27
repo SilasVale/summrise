@@ -23,7 +23,7 @@ use crate::audit::{self, Audit};
 use crate::auth::{
     bearer_secret, constant_time_eq, new_session_token, random_32, Session, SESSION_LIFETIME_MS,
 };
-use crate::channels::{ChannelRegistry, Reply, RequestError};
+use crate::channels::{ChannelRegistry, Reply, RequestAuth, RequestError};
 use crate::codes::{ConsumeError, EnrollmentCodes, IssueError};
 use crate::config::{load_grant_key, load_operator_token, Config, StartupError};
 use crate::connections;
@@ -1866,7 +1866,8 @@ async fn proxy_reply(
         Some(wait) => {
             tokio::time::timeout(
                 wait + RUNS_BACKSTOP_GRACE,
-                app.channels.request_within(device_id, request, grant, wait),
+                app.channels
+                    .request_within(device_id, request, &RequestAuth::Grant(grant), wait),
             )
             .await
         }
@@ -1874,7 +1875,8 @@ async fn proxy_reply(
         None => {
             tokio::time::timeout(
                 app.mcp_timeout,
-                app.channels.request(device_id, request, grant),
+                app.channels
+                    .request(device_id, request, &RequestAuth::Grant(grant)),
             )
             .await
         }
