@@ -5883,3 +5883,345 @@ async fn the_console_page_canary() {
 
     tokio::time::sleep(Duration::from_secs(300)).await;
 }
+
+/// A form body the page's sign-in and sign-out send.
+fn post_form(uri: &str, fields: &[(&str, &str)]) -> Request<Body> {
+    let body = fields
+        .iter()
+        .map(|(key, value)| format!("{key}={value}"))
+        .collect::<Vec<_>>()
+        .join("&");
+    Request::builder()
+        .method("POST")
+        .uri(uri)
+        .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+        .body(Body::from(body))
+        .expect("the request builds")
+}
+
+fn get_with_cookie(uri: &str, cookie: &str) -> Request<Body> {
+    Request::builder()
+        .method("GET")
+        .uri(uri)
+        .header(header::COOKIE, cookie)
+        .body(Body::empty())
+        .expect("the request builds")
+}
+
+/// The CSRF value the sign-out form carries.
+fn csrf_from(page: &str) -> String {
+    let marker = "name=\"csrf\" value=\"";
+    let start = page.find(marker).expect("a CSRF field") + marker.len();
+    page[start..].chars().take(64).collect()
+}
+
+#[tokio::test]
+async fn the_rust_page_signs_in_with_a_cookie_and_signs_out_with_csrf() {
+    let fixture = Fixture::new("rust-page-login");
+    let token = hex(&OPERATOR_TOKEN);
+
+    let (status, _, body) = send_text(fixture.app(), get("/next", None)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(body.contains("Sign in"), "{body}");
+    assert!(
+        body.contains("autocomplete=\"off\""),
+        "the token box must not invite a password manager: {body}"
+    );
+    assert!(
+        !body.contains("Devices"),
+        "the fleet is behind the cookie: {body}"
+    );
+
+    let (status, headers, _) =
+        send_text(fixture.app(), post_form("/next/auth", &[("token", &token)])).await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "a form sign-in redirects");
+    let cookie = headers
+        .get(header::SET_COOKIE)
+        .expect("a session cookie")
+        .to_str()
+        .expect("a cookie is ASCII")
+        .to_owned();
+    assert!(cookie.contains("HttpOnly"), "{cookie}");
+    assert!(cookie.contains("SameSite=Lax"), "{cookie}");
+    assert!(
+        !cookie.contains("Secure"),
+        "plain HTTP must not set Secure: {cookie}"
+    );
+    assert!(cookie.contains("Path=/next"), "{cookie}");
+    assert!(cookie.contains("Max-Age=86400"), "{cookie}");
+    let cookie = cookie
+        .split(';')
+        .next()
+        .expect("the name=value pair")
+        .to_owned();
+
+    let (status, _, body) = send_text(fixture.app(), get_with_cookie("/next", &cookie)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(body.contains("Devices"), "{body}");
+    let csrf = csrf_from(&body);
+
+    let mut request = post_form("/next/logout", &[("csrf", &csrf)]);
+    request
+        .headers_mut()
+        .insert(header::COOKIE, cookie.parse().expect("the cookie header"));
+    let (status, headers, _) = send_text(fixture.app(), request).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert!(headers
+        .get(header::SET_COOKIE)
+        .expect("a clearing cookie")
+        .to_str()
+        .expect("a cookie is ASCII")
+        .contains("Max-Age=0"));
+
+    let (status, _, body) = send_text(fixture.app(), get_with_cookie("/next", &cookie)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        body.contains("Sign in"),
+        "the ended session is signed out: {body}"
+    );
+}
+
+#[tokio::test]
+async fn the_rust_page_refuses_a_wrong_token_and_a_wrong_csrf() {
+    let fixture = Fixture::new("rust-page-refusals");
+
+    let (status, _, body) = send_text(
+        fixture.app(),
+        post_form("/next/auth", &[("token", &"00".repeat(32))]),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    assert!(body.contains("Sign in"), "{body}");
+
+    let (status, headers, _) = send_text(
+        fixture.app(),
+        post_form("/next/auth", &[("token", &hex(&OPERATOR_TOKEN))]),
+    )
+    .await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let cookie = headers
+        .get(header::SET_COOKIE)
+        .expect("a session cookie")
+        .to_str()
+        .expect("a cookie is ASCII")
+        .split(';')
+        .next()
+        .expect("the name=value pair")
+        .to_owned();
+
+    let mut request = post_form("/next/logout", &[("csrf", &"00".repeat(32))]);
+    request
+        .headers_mut()
+        .insert(header::COOKIE, cookie.parse().expect("the cookie header"));
+    let (status, _, _) = send_text(fixture.app(), request).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "a wrong CSRF ends nothing");
+
+    let (status, _, body) = send_text(fixture.app(), get_with_cookie("/next", &cookie)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        body.contains("Devices"),
+        "the session survived the refusal: {body}"
+    );
+}
+
+#[tokio::test]
+async fn the_rust_page_lists_the_registered_fleet() {
+    let fixture = Fixture::new("rust-page-fleet");
+    let (device_id, _) = fixture.register(&signing_key(0xb4)).await;
+    let token = hex(&OPERATOR_TOKEN);
+    let (status, headers, _) =
+        send_text(fixture.app(), post_form("/next/auth", &[("token", &token)])).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let cookie = headers
+        .get(header::SET_COOKIE)
+        .expect("a session cookie")
+        .to_str()
+        .expect("a cookie is ASCII")
+        .split(';')
+        .next()
+        .expect("the name=value pair")
+        .to_owned();
+
+    let (status, _, body) = send_text(fixture.app(), get_with_cookie("/next", &cookie)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(body.contains("Devices"), "{body}");
+    assert!(
+        body.contains(&device_id),
+        "the registered device is listed: {body}"
+    );
+    assert!(!body.contains("No devices have registered yet."), "{body}");
+}
+
+#[tokio::test]
+async fn the_rust_page_hides_the_fleet_after_the_session_expires() {
+    let fixture = Fixture::new("rust-page-expiry");
+    let (status, headers, _) = send_text(
+        fixture.app(),
+        post_form("/next/auth", &[("token", &hex(&OPERATOR_TOKEN))]),
+    )
+    .await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let cookie = headers
+        .get(header::SET_COOKIE)
+        .expect("a session cookie")
+        .to_str()
+        .expect("a cookie is ASCII")
+        .split(';')
+        .next()
+        .expect("the name=value pair")
+        .to_owned();
+
+    // The console's clock is injectable; a session lives 24 hours from its mint.
+    fixture
+        .clock
+        .store(START_MS + DAY_MS + 1, Ordering::Relaxed);
+
+    let (status, _, body) = send_text(fixture.app(), get_with_cookie("/next", &cookie)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        body.contains("Sign in"),
+        "the expired cookie is signed out: {body}"
+    );
+    assert!(!body.contains("Devices"), "{body}");
+}
+
+/// The session cookie a page sign-in sets.
+async fn page_cookie(fixture: &Fixture) -> String {
+    let (status, headers, _) = send_text(
+        fixture.app(),
+        post_form("/next/auth", &[("token", &hex(&OPERATOR_TOKEN))]),
+    )
+    .await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    headers
+        .get(header::SET_COOKIE)
+        .expect("a session cookie")
+        .to_str()
+        .expect("a cookie is ASCII")
+        .split(';')
+        .next()
+        .expect("the name=value pair")
+        .to_owned()
+}
+
+#[tokio::test]
+async fn the_page_cookie_is_secure_only_behind_https() {
+    let fixture = Fixture::new("rust-page-secure");
+    let mut request = post_form("/next/auth", &[("token", &hex(&OPERATOR_TOKEN))]);
+    request.headers_mut().insert(
+        axum::http::HeaderName::from_static("x-forwarded-proto"),
+        axum::http::HeaderValue::from_static("https"),
+    );
+    let (status, headers, _) = send_text(fixture.app(), request).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let cookie = headers
+        .get(header::SET_COOKIE)
+        .expect("a cookie")
+        .to_str()
+        .expect("ASCII");
+    assert!(cookie.contains("Secure"), "{cookie}");
+
+    let (status, headers, _) = send_text(
+        fixture.app(),
+        post_form("/next/auth", &[("token", &hex(&OPERATOR_TOKEN))]),
+    )
+    .await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let cookie = headers
+        .get(header::SET_COOKIE)
+        .expect("a cookie")
+        .to_str()
+        .expect("ASCII");
+    assert!(
+        !cookie.contains("Secure"),
+        "plain HTTP must not set Secure: {cookie}"
+    );
+}
+
+#[tokio::test]
+async fn a_bad_page_token_leaves_the_same_denial_as_auth() {
+    let fixture = Fixture::new("rust-page-denial");
+    let session = fixture.authenticate().await;
+    let (status, _, body) = send_text(
+        fixture.app(),
+        post_form("/next/auth", &[("token", &"00".repeat(32))]),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    assert!(body.contains("Sign in"), "{body}");
+
+    let (status, denials) = send(fixture.app(), get("/denials", Some(&session))).await;
+    assert_eq!(status, StatusCode::OK);
+    let newest = denials
+        .as_array()
+        .expect("a denial list")
+        .last()
+        .expect("a line");
+    assert_eq!(newest["detail"], json!("bad_operator_token"));
+}
+
+#[tokio::test]
+async fn the_page_logout_refuses_a_foreign_or_absent_csrf_and_a_missing_cookie() {
+    let fixture = Fixture::new("rust-page-csrf");
+    let a = page_cookie(&fixture).await;
+    let b = page_cookie(&fixture).await;
+    let (_, _, body) = send_text(fixture.app(), get_with_cookie("/next", &a)).await;
+    let csrf_a = csrf_from(&body);
+
+    let mut request = post_form("/next/logout", &[("csrf", &csrf_a)]);
+    request
+        .headers_mut()
+        .insert(header::COOKIE, b.parse().expect("b"));
+    let (status, _, _) = send_text(fixture.app(), request).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "a foreign CSRF ends nothing");
+
+    let mut request = post_form("/next/logout", &[]);
+    request
+        .headers_mut()
+        .insert(header::COOKIE, b.parse().expect("b"));
+    let (status, _, _) = send_text(fixture.app(), request).await;
+    assert_eq!(
+        status,
+        StatusCode::FORBIDDEN,
+        "an absent CSRF is 403, not 422"
+    );
+
+    let (status, headers, _) = send_text(
+        fixture.app(),
+        post_form("/next/logout", &[("csrf", &csrf_a)]),
+    )
+    .await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert_eq!(
+        headers
+            .get(header::LOCATION)
+            .expect("a redirect")
+            .to_str()
+            .expect("ASCII"),
+        "/next"
+    );
+
+    for cookie in [&a, &b] {
+        let (status, _, body) = send_text(fixture.app(), get_with_cookie("/next", cookie)).await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(body.contains("Devices"), "the session survived: {body}");
+    }
+}
+
+#[tokio::test]
+async fn the_console_refuses_framing_on_the_page_and_the_sign_in() {
+    let fixture = Fixture::new("rust-page-frame");
+    for uri in ["/", "/next"] {
+        let (status, headers, _) = send_text(fixture.app(), get(uri, None)).await;
+        assert_eq!(status, StatusCode::OK, "{uri}");
+        assert_eq!(
+            headers
+                .get("x-frame-options")
+                .expect("the header")
+                .to_str()
+                .expect("ASCII"),
+            "DENY",
+            "{uri}"
+        );
+    }
+}
