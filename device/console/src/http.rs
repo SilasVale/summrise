@@ -1020,8 +1020,13 @@ async fn next_remove(
     };
     match removed {
         Ok(true) => {
-            app.record("device_remove", Some(&device_id), StatusCode::NO_CONTENT, Some("page"))
-                .await;
+            app.record(
+                "device_remove",
+                Some(&device_id),
+                StatusCode::NO_CONTENT,
+                Some("page"),
+            )
+            .await;
             Redirect::to("/next").into_response()
         }
         Ok(false) => Redirect::to("/next?error=no_such_device").into_response(),

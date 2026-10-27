@@ -6268,7 +6268,10 @@ async fn the_rust_page_renames_and_removes_a_device_with_its_csrf() {
     .await;
     assert_eq!(status, StatusCode::FORBIDDEN);
     let (_, _, page) = send_text(fixture.app(), get_with_cookie("/next", &cookie)).await;
-    assert!(page.contains("studio") && !page.contains("hijacked"), "{page}");
+    assert!(
+        page.contains("studio") && !page.contains("hijacked"),
+        "{page}"
+    );
 
     // An empty name is refused, not treated as "clear".
     let (status, _, _) = send_text(
@@ -6302,7 +6305,8 @@ async fn the_rust_page_renames_and_removes_a_device_with_its_csrf() {
     assert_eq!(status, StatusCode::SEE_OTHER);
     let (_, _, page) = send_text(fixture.app(), get_with_cookie("/next", &cookie)).await;
     assert!(!page.contains(&device_id), "the device row is gone: {page}");
-    let (status, _, audit) = send_text(fixture.app(), get_with_cookie("/next/audit", &cookie)).await;
+    let (status, _, audit) =
+        send_text(fixture.app(), get_with_cookie("/next/audit", &cookie)).await;
     assert_eq!(status, StatusCode::OK);
     assert!(audit.contains("device_remove"), "{audit}");
 }
@@ -6320,7 +6324,11 @@ async fn the_rust_page_mints_an_enrollment_code_once_and_gates_the_logs() {
     )
     .await;
     assert_eq!(status, StatusCode::SEE_OTHER);
-    let location = headers.get(header::LOCATION).expect("a redirect").to_str().expect("ASCII");
+    let location = headers
+        .get(header::LOCATION)
+        .expect("a redirect")
+        .to_str()
+        .expect("ASCII");
     assert!(location.starts_with("/next?code="), "{location}");
     let code = location.trim_start_matches("/next?code=");
     assert_eq!(code.len(), 64, "the code is 32 bytes in hex");
@@ -6331,7 +6339,10 @@ async fn the_rust_page_mints_an_enrollment_code_once_and_gates_the_logs() {
     )
     .await;
     assert_eq!(status, StatusCode::OK);
-    assert!(page.contains("Enrollment code:") && page.contains(code), "{page}");
+    assert!(
+        page.contains("Enrollment code:") && page.contains(code),
+        "{page}"
+    );
 
     // Wrong CSRF: no code, 403.
     let (status, _, _) = send_text(
