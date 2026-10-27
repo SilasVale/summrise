@@ -866,12 +866,13 @@ pub(super) fn monitors(
                         p class="hint" { "No targets are watched yet." }
                     } @else {
                         table {
-                            thead { tr { th { "Target" } th { "Kind" } th { "Now" } th { "Up %" } th { "Drops" } th { "Status" } th { "" } } }
+                            thead { tr { th { "Target" } th { "Kind" } th { "Every" } th { "Now" } th { "Up %" } th { "Drops" } th { "Status" } th { "" } } }
                             tbody {
                                 @for row in rows {
                                     tr {
                                         td { code { (row.target) } }
                                         td { (row.kind) }
+                                        td { (row.interval_ms / 1000) " s" }
                                         td {
                                             @match row.up_now {
                                                 Some(true) => { span class="ok" { "up" } },
