@@ -1139,20 +1139,22 @@ async fn next_enroll(
 
 /// `GET /next/audit`: the audit log, read-only, behind the page's cookie.
 async fn next_audit(State(app): State<AppState>, headers: HeaderMap) -> Response {
-    if cookie_session(&app, &headers).is_none() {
+    let Some(session) = cookie_session(&app, &headers) else {
         return Html(page::login(None).into_string()).into_response();
-    }
+    };
     let rows = app.audit.newest(DEFAULT_LOG_LIMIT).await;
-    Html(page::logs(&rows, "Audit", &app.version).into_string()).into_response()
+    Html(page::logs(&rows, "Audit", &hex::encode(&session.csrf), &app.version).into_string())
+        .into_response()
 }
 
 /// `GET /next/denials`: the unauthenticated-refusal log, read-only, behind the page's cookie.
 async fn next_denials(State(app): State<AppState>, headers: HeaderMap) -> Response {
-    if cookie_session(&app, &headers).is_none() {
+    let Some(session) = cookie_session(&app, &headers) else {
         return Html(page::login(None).into_string()).into_response();
-    }
+    };
     let rows = app.denials.newest(DEFAULT_LOG_LIMIT).await;
-    Html(page::logs(&rows, "Denials", &app.version).into_string()).into_response()
+    Html(page::logs(&rows, "Denials", &hex::encode(&session.csrf), &app.version).into_string())
+        .into_response()
 }
 
 /// The terminal page's request bodies. All three are small on purpose: the page sends a session id
@@ -1551,9 +1553,9 @@ async fn next_files_read(
     headers: HeaderMap,
     Query(query): Query<FilesQuery>,
 ) -> Response {
-    if cookie_session(&app, &headers).is_none() {
+    let Some(session) = cookie_session(&app, &headers) else {
         return Html(page::login(None).into_string()).into_response();
-    }
+    };
     let Some(device) = device_views(&app)
         .into_iter()
         .find(|device| device.id == device_id)
@@ -1562,9 +1564,17 @@ async fn next_files_read(
     };
     let path = query.path.trim_matches('/').to_owned();
     match device_tool(&app, &device_id, "files.read", json!({ "path": path })).await {
-        Ok(text) => {
-            Html(page::file_text(&device, &path, &text, &app.version).into_string()).into_response()
-        }
+        Ok(text) => Html(
+            page::file_text(
+                &device,
+                &path,
+                &text,
+                &hex::encode(&session.csrf),
+                &app.version,
+            )
+            .into_string(),
+        )
+        .into_response(),
         Err(response) => *response,
     }
 }
@@ -1694,7 +1704,7 @@ async fn next_runs_exec(
     headers: HeaderMap,
     Form(form): Form<RunsExecForm>,
 ) -> Response {
-    let Some(_session) = next_session(&app, &headers, Some(&form.csrf)) else {
+    let Some(session) = next_session(&app, &headers, Some(&form.csrf)) else {
         return StatusCode::FORBIDDEN.into_response();
     };
     let Some(device) = device_views(&app)
@@ -1739,8 +1749,17 @@ async fn next_runs_exec(
                     stderr: answer.stderr,
                     truncated: answer.truncated,
                 };
-                Html(page::run_result(&device, &command_line, &answer, &app.version).into_string())
-                    .into_response()
+                Html(
+                    page::run_result(
+                        &device,
+                        &command_line,
+                        &answer,
+                        &hex::encode(&session.csrf),
+                        &app.version,
+                    )
+                    .into_string(),
+                )
+                .into_response()
             }
             Err(_) => Redirect::to(&format!(
                 "/next/runs/{device_id}?error=the_device_answer_was_not_a_run"
@@ -1773,9 +1792,9 @@ async fn next_state_page(
     Path(device_id): Path<String>,
     headers: HeaderMap,
 ) -> Response {
-    if cookie_session(&app, &headers).is_none() {
+    let Some(session) = cookie_session(&app, &headers) else {
         return Html(page::login(None).into_string()).into_response();
-    }
+    };
     let Some(device) = device_views(&app)
         .into_iter()
         .find(|device| device.id == device_id)
@@ -1788,7 +1807,11 @@ async fn next_state_page(
                 .ok()
                 .and_then(|value| serde_json::to_string_pretty(&value).ok())
                 .unwrap_or(text);
-            Html(page::state_document(&device, &pretty, &app.version).into_string()).into_response()
+            Html(
+                page::state_document(&device, &pretty, &hex::encode(&session.csrf), &app.version)
+                    .into_string(),
+            )
+            .into_response()
         }
         Err(response) => *response,
     }
@@ -2033,9 +2056,9 @@ async fn next_screen_page(
     Path(device_id): Path<String>,
     headers: HeaderMap,
 ) -> Response {
-    if cookie_session(&app, &headers).is_none() {
+    let Some(session) = cookie_session(&app, &headers) else {
         return Html(page::login(None).into_string()).into_response();
-    }
+    };
     let Some(device) = device_views(&app)
         .into_iter()
         .find(|device| device.id == device_id)
@@ -2051,12 +2074,31 @@ async fn next_screen_page(
             let height = capture["height"].as_u64().unwrap_or(0);
             let url = format!("data:image/{format};base64,{data}");
             let detail = format!("{width}×{height} png, captured now");
-            Html(page::screen(&device, Some(&url), &detail, &app.version).into_string())
-                .into_response()
+            Html(
+                page::screen(
+                    &device,
+                    Some(&url),
+                    &detail,
+                    &hex::encode(&session.csrf),
+                    &app.version,
+                )
+                .into_string(),
+            )
+            .into_response()
         }
         Err(response) => {
             let sentence = refusal_sentence(*response).await;
-            Html(page::screen(&device, None, &sentence, &app.version).into_string()).into_response()
+            Html(
+                page::screen(
+                    &device,
+                    None,
+                    &sentence,
+                    &hex::encode(&session.csrf),
+                    &app.version,
+                )
+                .into_string(),
+            )
+            .into_response()
         }
     }
 }
@@ -2356,7 +2398,7 @@ async fn next_token_mint(
     headers: HeaderMap,
     Form(form): Form<TokenMintForm>,
 ) -> Response {
-    let Some(_session) = next_session(&app, &headers, Some(&form.csrf)) else {
+    let Some(session) = next_session(&app, &headers, Some(&form.csrf)) else {
         return StatusCode::FORBIDDEN.into_response();
     };
     let Some(device) = device_views(&app)
@@ -2399,8 +2441,18 @@ async fn next_token_mint(
     let config = format!(
         "- id: mcp-summrise\n  name: '@deepseek-ai/dsh-mcp-client'\n  config:\n    serverName: summrise\n    transport: streamable-http\n    url: {scheme}://{host}/mcp/{device_id}\n    headers:\n      Authorization: Bearer {secret}"
     );
-    Html(page::token_created(&device, &meta.name, &secret, &config, &app.version).into_string())
-        .into_response()
+    Html(
+        page::token_created(
+            &device,
+            &meta.name,
+            &secret,
+            &config,
+            &hex::encode(&session.csrf),
+            &app.version,
+        )
+        .into_string(),
+    )
+    .into_response()
 }
 
 /// `POST /next/tokens/:device/revoke`: retire one token.
@@ -2423,9 +2475,9 @@ async fn next_vitals_page(
     Path(device_id): Path<String>,
     headers: HeaderMap,
 ) -> Response {
-    if cookie_session(&app, &headers).is_none() {
+    let Some(session) = cookie_session(&app, &headers) else {
         return Html(page::login(None).into_string()).into_response();
-    }
+    };
     let Some(device) = device_views(&app)
         .into_iter()
         .find(|device| device.id == device_id)
@@ -2472,7 +2524,8 @@ async fn next_vitals_page(
             .unwrap_or("—")
             .to_owned(),
     };
-    Html(page::vitals(&device, &sample, &app.version).into_string()).into_response()
+    Html(page::vitals(&device, &sample, &hex::encode(&session.csrf), &app.version).into_string())
+        .into_response()
 }
 
 /// `POST /next/auth`: the page's sign-in. The same operator secret as `/auth`, the same denial
