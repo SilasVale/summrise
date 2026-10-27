@@ -860,12 +860,21 @@ pub(super) fn login(note: Option<&str>, error: Option<&str>) -> Markup {
 
 /// The signed-in page: the fleet, its summary, and the phase-2 mutations. Each device is one row:
 /// who it is, the pages that act on it, and the two mutations folded into a disclosure.
+/// The optional lines the dashboard can carry, grouped so the renderer stays inside the argument
+/// limit clippy enforces: who signed the operator in, the enrollment code `POST /next/enroll` just
+/// minted, and the error a refused mutation left in the query.
+#[derive(Default)]
+pub(super) struct Notes<'a> {
+    pub signer: Option<&'a str>,
+    pub enroll: Option<&'a str>,
+    pub error: Option<&'a str>,
+}
+
 pub(super) fn dashboard(
     devices: &[DeviceView],
     csrf: &str,
     version: &str,
-    code: Option<&str>,
-    error: Option<&str>,
+    notes: Notes<'_>,
     recent: &[serde_json::Value],
     now_ms: u64,
 ) -> Markup {
@@ -881,14 +890,22 @@ pub(super) fn dashboard(
         p class="lead" {
             "Every device this console has enrolled, and the pages that open on it."
         }
-        @if let Some(code) = code {
+        // Who opened this page. An operator who was shown a token box for a secret they never had
+        // deserves to see that Cloudflare Access, not a token, signed them in.
+        @match notes.signer {
+            Some(email) => p class="small muted" {
+                "Signed in through Cloudflare Access as " strong { (email) } "."
+            },
+            None => p class="small muted" { "Signed in with the operator token." },
+        }
+        @if let Some(code) = notes.enroll {
             div class="callout" {
                 span class="label" { "Enrollment code:" }
                 strong { (code) }
                 span class="note" { "Single use · valid for 15 minutes." }
             }
         }
-        @if let Some(error) = error {
+        @if let Some(error) = notes.error {
             p class="alert error" { "That change was not applied: " (error) }
         }
         @if !devices.is_empty() {
@@ -2990,8 +3007,7 @@ mod tests {
                     std::slice::from_ref(device),
                     "00",
                     "0.1.0",
-                    None,
-                    None,
+                    Notes::default(),
                     &[],
                     1_791_000_000_000,
                 ),
@@ -3082,8 +3098,15 @@ mod tests {
         let offline = view('2', None, false);
         let ids = [online.id.clone(), offline.id.clone()];
         let devices = [online, offline];
-        let page =
-            dashboard(&devices, "00", "0.1.0", None, None, &[], 1_791_000_000_000).into_string();
+        let page = dashboard(
+            &devices,
+            "00",
+            "0.1.0",
+            Notes::default(),
+            &[],
+            1_791_000_000_000,
+        )
+        .into_string();
 
         assert!(
             page.contains("2 devices · 1 online"),
@@ -3395,8 +3418,10 @@ mod tests {
                     &devices,
                     "csrf",
                     "0.3.72",
-                    None,
-                    None,
+                    Notes {
+                        signer: Some("operator@example.test"),
+                        ..Notes::default()
+                    },
                     &[
                         serde_json::json!({ "ts_ms": 1_791_000_000_000u64, "kind": "tool", "tool": "runs.exec", "status": 200 }),
                         serde_json::json!({ "ts_ms": 1_790_999_500_000u64, "kind": "tool", "tool": "system.kill", "status": 403 }),
@@ -3411,15 +3436,17 @@ mod tests {
                     &devices,
                     "csrf",
                     "0.3.72",
-                    Some(&"9f".repeat(32)),
-                    None,
+                    Notes {
+                        enroll: Some(&"9f".repeat(32)),
+                        ..Notes::default()
+                    },
                     &[],
                     1_791_000_000_000,
                 ),
             ),
             (
                 "dashboard-empty",
-                dashboard(&[], "csrf", "0.3.72", None, None, &[], 1_791_000_000_000),
+                dashboard(&[], "csrf", "0.3.72", Notes::default(), &[], 1_791_000_000_000),
             ),
             (
                 "terminal",
@@ -3583,8 +3610,15 @@ mod tests {
     fn the_fleet_row_is_identity_pages_and_one_disclosure() {
         let device = view('a', Some("studio"), true);
         let id = device.id.clone();
-        let page =
-            dashboard(&[device], "00", "0.1.0", None, None, &[], 1_791_000_000_000).into_string();
+        let page = dashboard(
+            &[device],
+            "00",
+            "0.1.0",
+            Notes::default(),
+            &[],
+            1_791_000_000_000,
+        )
+        .into_string();
 
         assert!(
             page.contains("aaaaaaaa…"),
@@ -3724,7 +3758,14 @@ mod tests {
         let device = view('1', Some("studio"), true);
         let fleet = [view('2', Some("other"), false)];
         let pages = [
-            dashboard(&fleet, "00", "0.1.0", None, None, &[], 1_791_000_000_000),
+            dashboard(
+                &fleet,
+                "00",
+                "0.1.0",
+                Notes::default(),
+                &[],
+                1_791_000_000_000,
+            ),
             terminal(&device, "00", "0.1.0", &[]),
             files(&device, "", &[], "00", "0.1.0", None),
             runs(&device, &[], "00", "0.1.0", None),
@@ -3849,8 +3890,7 @@ mod tests {
             &[device],
             "00",
             "0.3.48",
-            None,
-            None,
+            Notes::default(),
             &[],
             1_791_000_000_000,
         )

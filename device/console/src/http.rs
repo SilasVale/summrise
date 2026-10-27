@@ -753,6 +753,9 @@ struct Health {
     status: &'static str,
     devices: usize,
     uptime_s: u64,
+    /// Whether Cloudflare Access is configured as an operator identity. The first thing to check when
+    /// the page asks for a token: with this false, it always will.
+    access_configured: bool,
     /// The deepest any per-device outbound queue has been since the console started. It is a bound
     /// an operator can see, not a secret.
     max_queued_frames: usize,
@@ -876,6 +879,7 @@ async fn health(State(app): State<AppState>) -> Json<Health> {
         status: "ok",
         devices: lock(&app.devices).len(),
         uptime_s: app.started.elapsed().as_secs(),
+        access_configured: app.access.is_some(),
         max_queued_frames: app.channels.peak_queued_frames(),
         version: app.version.clone(),
     })
@@ -1157,6 +1161,15 @@ async fn next_page(
         let note = access_note(&access, &headers);
         return Html(page::login(note.as_deref(), None).into_string()).into_response();
     };
+    // Access is the usual signer, and the page says so: the operator was earlier shown a token box
+    // for a secret that lives in a file on the host, and the dashboard is where that gets answered.
+    let (operator, _) = app.identity(&headers);
+    let signer = operator.and_then(|operator| operator.email);
+    let notes = page::Notes {
+        signer: signer.as_deref(),
+        enroll: query.enroll.as_deref(),
+        error: query.error.as_deref(),
+    };
     Html(
         // The fleet is the page an operator lands on; six lines of what the console just did
         // belong there, read from the same log `/audit` serves.
@@ -1164,8 +1177,7 @@ async fn next_page(
             &device_views(&app),
             &hex::encode(&session.csrf),
             &app.version,
-            query.enroll.as_deref(),
-            query.error.as_deref(),
+            notes,
             &app.audit.newest(6).await,
             (app.now)(),
         )

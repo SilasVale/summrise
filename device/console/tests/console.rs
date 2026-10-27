@@ -3450,6 +3450,55 @@ async fn the_card_is_quiet_on_a_direct_request_when_access_is_configured() {
     );
 }
 
+/// `/health` is what a supervisor and a human check first; whether Access is configured is the fact
+/// that explains why the page behaves the way it does, and it is not a secret.
+#[tokio::test]
+async fn health_says_whether_access_is_configured() {
+    let plain = Fixture::new("health-no-access");
+    let (status, body) = send(plain.app(), get("/health", None)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["access_configured"], false);
+
+    let trusted = Fixture::with_access("health-access");
+    let (status, body) = send(trusted.app(), get("/health", None)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["access_configured"], true);
+}
+
+/// The page names who signed the operator in. A person who was told to type a token they never had
+/// deserves to see, on the page, that Access — not the token — opened it.
+#[tokio::test]
+async fn the_dashboard_names_access_as_the_signer() {
+    let fixture = Fixture::with_access("dashboard-signer-access");
+    let request = Request::builder()
+        .method("GET")
+        .uri("/next")
+        .header(ACCESS_HEADER, access_token(60))
+        .body(Body::empty())
+        .expect("the request builds");
+
+    let (status, _, page) = send_text(fixture.app(), request).await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        page.contains("Signed in through Cloudflare Access as ")
+            && page.contains("operator@example.test"),
+        "the page names Access and the identity it verified: {page}"
+    );
+}
+
+/// Without Access the sentence has to be the other one, because the token really did sign them in.
+#[tokio::test]
+async fn the_dashboard_says_the_token_signed_in_without_access() {
+    let fixture = Fixture::new("dashboard-signer-token");
+    let cookie = page_cookie(&fixture).await;
+
+    let (status, _, page) = send_text(fixture.app(), get_with_cookie("/next", &cookie)).await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert!(page.contains("Signed in with the operator token"), "{page}");
+}
+
 /// The explanation is not the landing page's privilege: a bookmarked deep link that lands signed out
 /// gets the same sentence, because that is where an operator without a session actually arrives.
 #[tokio::test]
