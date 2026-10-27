@@ -42,9 +42,11 @@ What it produces:
 
 * `summrise-device-<version>.exe` and `release-<version>.json` — the signed document naming the artifact
   URL and its sha256;
+* `SummriseSetup-<version>.exe` — the installer, which carries the Rust tray (`summrise-shell.exe`) and
+  registers it under `HKLM\Software\Microsoft\Windows\CurrentVersion\Run` so each interactive login
+  shows the device's status dot. The service is headless; the tray is the visible half;
 * `release-<channel>.json` — the **channel pointer**, the file a device's `update.json` names, always the
   newest document for that channel;
-* `SummriseSetup-<version>.exe` — the installer, carrying the first generation's sidecar.
 
 ## Deploying the console
 

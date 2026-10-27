@@ -102,7 +102,7 @@ signer="target/release/summrise-release"
 export SUMMRISE_BUILD_VERSION="$version"
 
 echo "== building the runtime for $target"
-cargo xwin build --release --target "$target" -p summrise-launch -p summrise-device -p summrise-console
+cargo xwin build --release --target "$target" -p summrise-launch -p summrise-device -p summrise-console -p summrise-shell
 bin="target/$target/release"
 mkdir -p "$out"
 
