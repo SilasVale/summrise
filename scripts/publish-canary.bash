@@ -95,6 +95,12 @@ echo "== building the signer for this host (it is what signs; it never ships to 
 cargo build --release -p summrise-release
 signer="target/release/summrise-release"
 
+# **BEFORE THE BUILD, NOT AFTER IT.** `SUMMRISE_BUILD_VERSION` is read by build.rs, so exporting it
+# after the cargo line only labels the document: the binary keeps whatever version it was last built
+# as, and the update installs an app whose /health disagrees with the release that named it. The
+# 0.3.46 publish set this in its caller, which is the workaround this line removes.
+export SUMMRISE_BUILD_VERSION="$version"
+
 echo "== building the runtime for $target"
 cargo xwin build --release --target "$target" -p summrise-launch -p summrise-device -p summrise-console
 bin="target/$target/release"
@@ -103,9 +109,6 @@ mkdir -p "$out"
 # The console page is a build artifact inside the binary. A publish that embeds yesterday's JavaScript
 # is the one failure this check exists for, and it costs a second.
 "$root/scripts/build-web.sh" --check
-
-# The console reports the version it was BUILT as; a hand-written one drifted once already.
-export SUMMRISE_BUILD_VERSION="$version"
 
 echo "== signing the release document for $version ($channel)"
 signer_bin="$signer"
