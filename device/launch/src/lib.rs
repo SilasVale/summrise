@@ -2215,10 +2215,15 @@ pub fn wait_healthy(
     expected_version: &str,
     expected_pid: u32,
     timeout: Duration,
+    should_stop: impl Fn() -> bool,
 ) -> bool {
     let deadline = Instant::now() + timeout;
     let mut consecutive = 0u8;
     loop {
+        // A service stop must not wait out a ten-second probe while the SCM counts down.
+        if should_stop() {
+            return false;
+        }
         match probe_health(port, expected_version, expected_pid) {
             Ok(_) => {
                 consecutive = consecutive.saturating_add(1);
@@ -3505,7 +3510,13 @@ mod tests {
             health_response("2.0.4", 4321),
             health_response("2.0.4", 4321),
         ]);
-        assert!(wait_healthy(port, "2.0.4", 4321, Duration::from_secs(2)));
+        assert!(wait_healthy(
+            port,
+            "2.0.4",
+            4321,
+            Duration::from_secs(2),
+            || false
+        ));
         server.join().unwrap();
     }
 
@@ -3513,10 +3524,28 @@ mod tests {
     fn one_health_answer_is_not_two_consecutive_probes() {
         let (port, server) = serve_health(vec![health_response("2.0.4", 4321)]);
         assert!(
-            !wait_healthy(port, "2.0.4", 4321, Duration::from_millis(700)),
+            !wait_healthy(port, "2.0.4", 4321, Duration::from_millis(700), || false),
             "a single 200 must not satisfy the two-probe requirement"
         );
         server.join().unwrap();
+    }
+
+    #[test]
+    fn a_stop_interrupts_the_health_wait() {
+        // Port 1 never answers; the stop must end the wait without spending its ten seconds.
+        let started = Instant::now();
+        assert!(!wait_healthy(
+            1,
+            "2.0.4",
+            4321,
+            Duration::from_secs(10),
+            || true
+        ));
+        assert!(
+            started.elapsed() < Duration::from_secs(2),
+            "the stop returned in {:?}",
+            started.elapsed()
+        );
     }
 
     #[test]
@@ -3529,7 +3558,8 @@ mod tests {
             port,
             "2.0.4",
             4321,
-            Duration::from_millis(700)
+            Duration::from_millis(700),
+            || false
         ));
         server.join().unwrap();
     }

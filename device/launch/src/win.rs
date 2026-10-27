@@ -21,8 +21,8 @@ use std::net::{SocketAddr, TcpStream};
 use std::os::windows::ffi::{OsStrExt, OsStringExt};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitCode};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use summrise_launch::{
@@ -440,10 +440,26 @@ fn service_main(_arguments: Vec<OsString>) {
     };
     let stop = Arc::new(AtomicBool::new(false));
     let signal = Arc::clone(&stop);
+    // The handler runs on the SCM's thread and needs the status handle `register` returns, so the
+    // handle is installed into this slot immediately after registering. A stop that arrives before
+    // that store sets the flag and skips the pending report; the main loop still stops promptly.
+    let pending_status = Arc::new(Mutex::new(None));
+    let pending_for_handler = Arc::clone(&pending_status);
+    let checkpoint = Arc::new(AtomicU32::new(0));
+    let checkpoint_for_handler = Arc::clone(&checkpoint);
     let handler = move |control| -> ServiceControlHandlerResult {
         match control {
             ServiceControl::Stop | ServiceControl::Shutdown => {
                 signal.store(true, Ordering::SeqCst);
+                // Tell the SCM the stop is in progress before the supervisor's cooperative shutdown
+                // runs; without STOP_PENDING a slow swap could be killed at the 5 s timeout.
+                let next = checkpoint_for_handler.fetch_add(1, Ordering::SeqCst) + 1;
+                if let Some(handle) = *pending_for_handler
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+                {
+                    report_pending(&handle, next);
+                }
                 ServiceControlHandlerResult::NoError
             }
             ServiceControl::Interrogate => ServiceControlHandlerResult::NoError,
@@ -457,6 +473,9 @@ fn service_main(_arguments: Vec<OsString>) {
             return;
         }
     };
+    *pending_status
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(status_handle);
     let config = match config_from_args(&launcher_args) {
         Ok(config) => config,
         Err(error) => {
@@ -532,6 +551,23 @@ fn report(handle: &ServiceStatusHandle, state: ServiceState, exit_code: ServiceE
     };
     if let Err(error) = handle.set_service_status(status) {
         eprintln!("launch: cannot report the service status: {error}");
+    }
+}
+
+/// Report a stop that is being carried out. A pending state needs a nonzero, increasing checkpoint
+/// and a wait hint; zero for both is the status of a service that is not transitioning.
+fn report_pending(handle: &ServiceStatusHandle, checkpoint: u32) {
+    let status = ServiceStatus {
+        service_type: ServiceType::OWN_PROCESS,
+        current_state: ServiceState::StopPending,
+        controls_accepted: ServiceControlAccept::empty(),
+        exit_code: ServiceExitCode::NO_ERROR,
+        checkpoint,
+        wait_hint: Duration::from_secs(15),
+        process_id: None,
+    };
+    if let Err(error) = handle.set_service_status(status) {
+        eprintln!("launch: cannot report STOP_PENDING: {error}");
     }
 }
 
@@ -647,9 +683,19 @@ pub fn supervise(config: &Config, stop: &AtomicBool) -> u32 {
         let poll_due = last_poll.is_none_or(|at: Instant| at.elapsed() >= SWAP_POLL_INTERVAL);
         if poll_due {
             last_poll = Some(Instant::now());
-            if matches!(poll_swap(config, &job, &mut child), SwapPoll::Swapped) {
-                started = Instant::now();
-                restart_at = None;
+            match poll_swap(config, &job, &mut child, stop) {
+                SwapPoll::Swapped => {
+                    started = Instant::now();
+                    restart_at = None;
+                }
+                SwapPoll::Stopped => {
+                    if let Err(error) = stop_child(&mut child) {
+                        eprintln!("launch: warning: {error}; the kill-on-close job will finish it");
+                    }
+                    let _ = fs::remove_file(app_pid_file(&config.data));
+                    return 0;
+                }
+                SwapPoll::None | SwapPoll::Handled => {}
             }
         }
 
@@ -841,6 +887,8 @@ enum SwapPoll {
     Handled,
     /// A transaction ran and installed a different child.
     Swapped,
+    /// The service is stopping; the update was abandoned before it was committed.
+    Stopped,
 }
 
 /// The result of the shared transaction.
@@ -859,6 +907,9 @@ enum SwapError {
     Refused(String),
     /// The app was stopped and could not be recovered cleanly.
     Failed(String),
+    /// The service was asked to stop; the transaction was abandoned at a safe point and the next
+    /// start repairs from the committed baseline.
+    Stopped(String),
 }
 
 /// Who owns the process during a transaction.
@@ -972,7 +1023,13 @@ impl SwapOwner for ManualOwner<'_> {
         start_service(service)?;
         let pid = wait_for_pid_file(&app_pid_file(&self.config.data), Duration::from_secs(30))
             .ok_or_else(|| "the service started but its app did not write a pid".to_string())?;
-        if !wait_healthy(self.config.port, &sidecar.version, pid, HEALTH_TIMEOUT) {
+        if !wait_healthy(
+            self.config.port,
+            &sidecar.version,
+            pid,
+            HEALTH_TIMEOUT,
+            || false,
+        ) {
             return Err(format!(
                 "the service started but its app (pid {pid}) did not become healthy on version {}",
                 sidecar.version
@@ -983,7 +1040,12 @@ impl SwapOwner for ManualOwner<'_> {
 }
 
 /// Poll for a request and, when one is valid, run the transaction once.
-fn poll_swap(config: &Config, job: &Option<ChildJob>, child: &mut Option<Child>) -> SwapPoll {
+fn poll_swap(
+    config: &Config,
+    job: &Option<ChildJob>,
+    child: &mut Option<Child>,
+    stop: &AtomicBool,
+) -> SwapPoll {
     let request_path = swap_request(&config.install);
     let request = match read_swap_request(&request_path, now_ms()) {
         SwapRequestState::Missing => return SwapPoll::None,
@@ -1051,7 +1113,7 @@ fn poll_swap(config: &Config, job: &Option<ChildJob>, child: &mut Option<Child>)
 
     let version = pair.sidecar.version.clone();
     let mut owner = SupervisedOwner { config, job, child };
-    let outcome = run_swap(config, &pair, &mut owner);
+    let outcome = run_swap(config, &pair, &mut owner, stop);
     let at_ms = now_ms();
     let (result, poll) = match outcome {
         Ok(SwapAct::Applied) => {
@@ -1074,6 +1136,20 @@ fn poll_swap(config: &Config, job: &Option<ChildJob>, child: &mut Option<Child>)
                 SwapResult::refused_verified(&pair.sidecar.sha256, at_ms, reason),
                 SwapPoll::Handled,
             )
+        }
+        Err(SwapError::Stopped(reason)) => {
+            eprintln!("launch: the service is stopping; the update was abandoned: {reason}");
+            // The request is consumed: a stop means "not now", not "retry the same update on the
+            // next start". The operator has to ask again, which also revalidates the artifact.
+            if let Err(error) = fs::remove_file(&request_path) {
+                if error.kind() != io::ErrorKind::NotFound {
+                    eprintln!(
+                        "launch: warning: cannot remove {}: {error}",
+                        request_path.display()
+                    );
+                }
+            }
+            return SwapPoll::Stopped;
         }
         Err(SwapError::Failed(reason)) => {
             // The supervisor's `finish` is infallible and `Failed` is only the pre-install stop
@@ -1145,6 +1221,7 @@ fn run_swap<O: SwapOwner>(
     config: &Config,
     pair: &StagedPair,
     owner: &mut O,
+    stop: &AtomicBool,
 ) -> Result<SwapAct, SwapError> {
     if let Err(error) = discard_pending(&config.install) {
         return Err(SwapError::Refused(format!(
@@ -1165,6 +1242,15 @@ fn run_swap<O: SwapOwner>(
         )));
     }
 
+    // A stop between stopping the app and replacing it abandons the update before anything on disk
+    // changed; the next start runs the committed baseline.
+    if stop.load(Ordering::SeqCst) {
+        let _ = discard_pending(&config.install);
+        return Err(SwapError::Stopped(
+            "a stop arrived before the new pair was installed".to_owned(),
+        ));
+    }
+
     if let Err(error) = install_pending_over_app(&config.install, &pair.sidecar) {
         return Ok(roll_back(
             config,
@@ -1172,6 +1258,14 @@ fn run_swap<O: SwapOwner>(
             &pair.sidecar.version,
             &pair.sidecar.sha256,
             format!("cannot install the staged binary: {error}"),
+            stop,
+        ));
+    }
+
+    if stop.load(Ordering::SeqCst) {
+        let _ = discard_pending(&config.install);
+        return Err(SwapError::Stopped(
+            "a stop arrived after the new pair was installed and before it was started".to_owned(),
         ));
     }
 
@@ -1184,10 +1278,24 @@ fn run_swap<O: SwapOwner>(
                 &pair.sidecar.version,
                 &pair.sidecar.sha256,
                 format!("cannot start the new app: {error}"),
+                stop,
             ))
         }
     };
-    if !wait_healthy(config.port, &pair.sidecar.version, pid, HEALTH_TIMEOUT) {
+    if !wait_healthy(
+        config.port,
+        &pair.sidecar.version,
+        pid,
+        HEALTH_TIMEOUT,
+        || stop.load(Ordering::SeqCst),
+    ) {
+        if stop.load(Ordering::SeqCst) {
+            owner.stop_started();
+            let _ = discard_pending(&config.install);
+            return Err(SwapError::Stopped(
+                "a stop arrived while the new app was being probed".to_owned(),
+            ));
+        }
         return Ok(roll_back(
             config,
             owner,
@@ -1198,6 +1306,7 @@ fn run_swap<O: SwapOwner>(
                 pair.sidecar.version,
                 HEALTH_TIMEOUT.as_secs()
             ),
+            stop,
         ));
     }
 
@@ -1208,6 +1317,7 @@ fn run_swap<O: SwapOwner>(
             &pair.sidecar.version,
             &pair.sidecar.sha256,
             format!("cannot commit the baseline generation: {error}"),
+            stop,
         ));
     }
     if let Err(error) = owner.finish(Finish::Applied, &pair.sidecar) {
@@ -1232,6 +1342,7 @@ fn roll_back<O: SwapOwner>(
     failed_version: &str,
     failed_sha256: &str,
     reason: String,
+    stop: &AtomicBool,
 ) -> SwapAct {
     eprintln!("launch: rolling back: {reason}");
     publish_result(
@@ -1247,7 +1358,7 @@ fn roll_back<O: SwapOwner>(
     if let Err(error) = discard_pending(&config.install) {
         eprintln!("launch: warning: cannot discard the pending generation: {error}");
     }
-    match start_current(config, owner) {
+    match start_current(config, owner, stop) {
         Ok(baseline) => {
             if let Err(error) = owner.finish(Finish::RolledBack, &baseline.sidecar) {
                 eprintln!("launch: CRITICAL: the rollback did not settle: {error}");
@@ -1261,10 +1372,20 @@ fn roll_back<O: SwapOwner>(
 }
 
 /// Restore the resolved baseline and start one child from it, waiting for its health best-effort.
-fn start_current<O: SwapOwner>(config: &Config, owner: &mut O) -> Result<Baseline, String> {
+fn start_current<O: SwapOwner>(
+    config: &Config,
+    owner: &mut O,
+    stop: &AtomicBool,
+) -> Result<Baseline, String> {
     let baseline = restore_current_app(&config.install)?;
     let pid = owner.start(&baseline.sidecar)?;
-    if !wait_healthy(config.port, &baseline.sidecar.version, pid, HEALTH_TIMEOUT) {
+    if !wait_healthy(
+        config.port,
+        &baseline.sidecar.version,
+        pid,
+        HEALTH_TIMEOUT,
+        || stop.load(Ordering::SeqCst),
+    ) {
         eprintln!(
             "launch: warning: the restored app (pid {pid}, version {}) did not answer health",
             baseline.sidecar.version
@@ -1325,7 +1446,8 @@ pub fn apply(config: &Config, staged: &Path, sidecar_path: &Path) -> ExitCode {
         service: &service,
         child: None,
     };
-    match run_swap(config, &pair, &mut owner) {
+    let no_stop = AtomicBool::new(false);
+    match run_swap(config, &pair, &mut owner, &no_stop) {
         Ok(SwapAct::Applied) => {
             eprintln!(
                 "launch: update to {} applied and healthy on port {}",
@@ -1342,6 +1464,7 @@ pub fn apply(config: &Config, staged: &Path, sidecar_path: &Path) -> ExitCode {
         }
         Err(SwapError::Refused(error)) => fail(&error),
         Err(SwapError::Failed(error)) => exit_for(Err(error)),
+        Err(SwapError::Stopped(error)) => exit_for(Err(error)),
     }
 }
 
