@@ -9,6 +9,7 @@
      put it in /api/panel, diagnostics, or a log line. -->
 <meta name="summrise-panel" content="__PANEL_TOKEN__">
 <title>Summrise — this machine</title>
+<link rel="stylesheet" href="/panel/xterm.css">
 <!--
   The device's own panel: the surface a person standing at this machine uses, and the one that still
   answers when the console is down. It shares the console's design tokens — the same brand amber, the
@@ -143,6 +144,7 @@
 
   /* The local MCP instructions: the config is the thing to copy, so it gets the free space and a
      button, while the token itself is named by file and never printed. */
+  .term-host { height: 20rem; background: #000; border-radius: 8px; padding: 6px; }
   .config {
     margin: 0.5rem 0 0.6rem; padding: 0.7rem 0.8rem; overflow-x: auto;
     background: var(--surface-recessed); border: 1px solid var(--line); border-radius: 8px;
@@ -245,9 +247,8 @@
       <button id="term-serial" type="button">New serial</button>
       <button id="term-close" type="button">Close</button>
     </p>
-    <pre id="term-output" class="config" style="min-height:8rem;white-space:pre-wrap"></pre>
-    <input id="term-input" type="text" placeholder="type and press Enter">
-    <p class="hint" id="term-status" role="status"></p>
+    <div id="term-host" class="term-host"></div>
+    <p class="hint" id="term-status" role="status">choose a session above</p>
   </section>
 
   <section>
@@ -294,6 +295,8 @@
     <p class="none" id="no-events" hidden>No event has been recorded on this device.</p>
   </section>
 </main>
+<script src="/panel/xterm.js"></script>
+<script src="/panel/addon-fit.js"></script>
 <script>
 function row(dl, term, value, mono) {
   const dt = document.createElement("dt");
@@ -404,9 +407,24 @@ async function refresh() {
   }
 }
 
-// The interactive terminal: the panel's own create/write/read/close against /api/terminal/*.
+// The interactive terminal: a real emulator over the panel's own create/write/read/close.
+// The <pre> and the line input this replaces could not run an interactive program: no cursor, no
+// echo of what was typed, and every line had to be an Enter.
+const term = new Terminal({
+  cursorBlink: true,
+  fontSize: 13,
+  scrollback: 5000,
+  theme: { background: "#000000", foreground: "#d8d4cd", cursor: "#e07a4a" },
+});
+const fit = new FitAddon.FitAddon();
+term.loadAddon(fit);
+
 let termSession = null;
 let termCursor = 0;
+let termOpened = false;
+let termPending = "";
+let termTimer = null;
+let termClosed = false;
 
 function termToken() {
   return document.querySelector('meta[name="summrise-panel"]').content;
@@ -420,8 +438,51 @@ async function termCall(path, options) {
   return response.json();
 }
 
+function termFlush() {
+  termTimer = null;
+  if (!termSession || termPending === "" || termClosed) return;
+  const data = termPending;
+  termPending = "";
+  termCall(`/api/terminal/${termSession}/write`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ data }),
+  }).catch(() => {});
+}
+
+function termQueue(chunk) {
+  termPending += chunk;
+  if (termPending.length >= 4096) {
+    if (termTimer) {
+      clearTimeout(termTimer);
+      termTimer = null;
+    }
+    termFlush();
+    return;
+  }
+  if (!termTimer) termTimer = setTimeout(termFlush, 40);
+}
+
+function termOpen() {
+  if (termOpened) return;
+  termOpened = true;
+  term.open(document.getElementById("term-host"));
+  fit.fit();
+  term.focus();
+  term.onData(termQueue);
+  term.onResize((size) => {
+    if (!termSession || termClosed) return;
+    termCall(`/api/terminal/${termSession}/resize`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ rows: size.rows, cols: size.cols }),
+    }).catch(() => {});
+  });
+}
+
 async function termCreate(kind) {
-  const body = { kind };
+  if (termSession) await termClose();
+  const body = { kind, rows: 30, cols: 100 };
   if (kind === "serial") {
     body.port = document.getElementById("term-port").value;
     body.baud = Number(document.getElementById("term-baud").value) || 115200;
@@ -431,60 +492,54 @@ async function termCreate(kind) {
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
   });
+  const status = document.getElementById("term-status");
   if (!answer.id) {
-    document.getElementById("term-status").textContent = JSON.stringify(answer);
+    status.textContent = JSON.stringify(answer);
     return;
   }
   termSession = answer.id;
   termCursor = 0;
-  document.getElementById("term-output").textContent = "";
-  document.getElementById("term-status").textContent = `${answer.kind} ${answer.id}`;
-  document.getElementById("term-input").focus();
+  termClosed = false;
+  term.reset();
+  termOpen();
+  fit.fit();
+  term.focus();
+  status.textContent = `${answer.kind} ${answer.id}`;
+  void termLoop();
 }
 
-async function termPoll() {
-  if (!termSession) return;
-  const answer = await termCall(
-    `/api/terminal/${termSession}/read?cursor=${termCursor}`,
-    {},
-  ).catch(() => null);
-  if (!answer || answer.text === undefined) return;
-  if (answer.text) {
-    const output = document.getElementById("term-output");
-    output.textContent += answer.text;
-    output.scrollTop = output.scrollHeight;
+async function termLoop() {
+  while (termSession && !termClosed) {
+    const answer = await termCall(
+      `/api/terminal/${termSession}/read?cursor=${termCursor}`,
+      {},
+    ).catch(() => null);
+    if (!answer || answer.text === undefined) {
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      continue;
+    }
+    if (answer.text) term.write(answer.text);
+    termCursor = answer.cursor;
+    await new Promise((resolve) => setTimeout(resolve, 150));
   }
-  termCursor = answer.cursor;
-}
-
-async function termWrite() {
-  const input = document.getElementById("term-input");
-  if (!termSession || !input.value) return;
-  await termCall(`/api/terminal/${termSession}/write`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ data: input.value + "\n" }),
-  });
-  input.value = "";
 }
 
 async function termClose() {
   if (!termSession) return;
-  await termCall(`/api/terminal/${termSession}/close`, { method: "POST" });
+  const id = termSession;
+  termClosed = true;
   termSession = null;
+  await termCall(`/api/terminal/${id}/close`, { method: "POST" }).catch(() => {});
   document.getElementById("term-status").textContent = "session closed";
 }
+
+window.addEventListener("resize", () => {
+  if (termOpened) fit.fit();
+});
 
 document.getElementById("term-pty").addEventListener("click", () => termCreate("pty"));
 document.getElementById("term-serial").addEventListener("click", () => termCreate("serial"));
 document.getElementById("term-close").addEventListener("click", termClose);
-document.getElementById("term-input").addEventListener("keydown", (event) => {
-  if (event.key === "Enter") {
-    event.preventDefault();
-    void termWrite();
-  }
-});
-setInterval(termPoll, 700);
 
 // The panel is the surface that still answers when nothing else does, so it has to be able to hand its
 // facts to someone else: a screenshot is not a bug report.

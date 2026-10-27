@@ -112,6 +112,35 @@ fn router_with(
         .route("/api/terminal/:id/write", post(panel_terminal_write))
         .route("/api/terminal/:id/read", get(panel_terminal_read))
         .route("/api/terminal/:id/close", post(panel_terminal_close))
+        .route("/api/terminal/:id/resize", post(panel_terminal_resize))
+        // The terminal emulator, embedded: the panel's terminal is the same xterm the console uses.
+        .route(
+            "/panel/xterm.js",
+            get(|| async {
+                (
+                    [(header::CONTENT_TYPE, "text/javascript; charset=utf-8")],
+                    PANEL_XTERM_JS,
+                )
+            }),
+        )
+        .route(
+            "/panel/addon-fit.js",
+            get(|| async {
+                (
+                    [(header::CONTENT_TYPE, "text/javascript; charset=utf-8")],
+                    PANEL_XTERM_FIT,
+                )
+            }),
+        )
+        .route(
+            "/panel/xterm.css",
+            get(|| async {
+                (
+                    [(header::CONTENT_TYPE, "text/css; charset=utf-8")],
+                    PANEL_XTERM_CSS,
+                )
+            }),
+        )
         // The panel's enrollment: the page a person is looking at posts the code here. The handler
         // demands a loopback peer and this boot's panel token, and the token exists only in that
         // page, so a request from another origin cannot be made to look like the user's.
@@ -362,6 +391,11 @@ async fn panel_snapshot(
     .into_response()
 }
 
+/// The xterm the panel's terminal needs, served from the binary so the page has no CDN dependency.
+const PANEL_XTERM_JS: &str = include_str!("../assets/xterm.js");
+const PANEL_XTERM_CSS: &str = include_str!("../assets/xterm.css");
+const PANEL_XTERM_FIT: &str = include_str!("../assets/addon-fit.js");
+
 /// `GET /api/terminal`: the live terminal sessions, read-only, for the panel's list.
 async fn panel_terminal(
     State(app): State<AppState>,
@@ -392,6 +426,12 @@ struct PanelTerminalCreate {
     port: Option<String>,
     baud: Option<u32>,
     shell: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct PanelTerminalResize {
+    rows: u16,
+    cols: u16,
 }
 
 #[derive(Deserialize)]
@@ -486,6 +526,30 @@ async fn panel_terminal_write(
         Err(error) => error_response(
             StatusCode::BAD_REQUEST,
             "terminal_write_refused",
+            Some(error.to_string()),
+        ),
+    }
+}
+
+/// `POST /api/terminal/:id/resize`: the browser's grid, so a full-screen program draws correctly.
+async fn panel_terminal_resize(
+    State(app): State<AppState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+    axum::extract::Path(id): axum::extract::Path<String>,
+    Json(body): Json<PanelTerminalResize>,
+) -> Response {
+    if !panel_terminal_allowed(&app, peer, &headers) {
+        return error_response(StatusCode::FORBIDDEN, "panel_only", None);
+    }
+    let Some(id) = terminal::SessionId::parse(&id) else {
+        return error_response(StatusCode::BAD_REQUEST, "invalid_session", None);
+    };
+    match app.terminal.resize(&id, body.rows, body.cols).await {
+        Ok(()) => Json(serde_json::json!({ "resized": true })).into_response(),
+        Err(error) => error_response(
+            StatusCode::BAD_REQUEST,
+            "terminal_resize_refused",
             Some(error.to_string()),
         ),
     }
@@ -2185,5 +2249,53 @@ mod tests {
             console.requests().is_empty(),
             "a non-loopback request never reaches the console"
         );
+    }
+
+    #[tokio::test]
+    async fn the_panel_serves_its_own_terminal_assets() {
+        // The terminal is xterm now, embedded in this binary; a build without the assets is a page
+        // whose terminal never opens. These are the three routes the page asks for.
+        let fixture = fixture("panel-assets", None);
+        for (path, content_type, marker) in [
+            (
+                "/panel/xterm.js",
+                "text/javascript; charset=utf-8",
+                "Terminal",
+            ),
+            (
+                "/panel/addon-fit.js",
+                "text/javascript; charset=utf-8",
+                "FitAddon",
+            ),
+            ("/panel/xterm.css", "text/css; charset=utf-8", "xterm"),
+        ] {
+            let response = fixture
+                .app()
+                .oneshot(
+                    Request::builder()
+                        .uri(path)
+                        .body(Body::empty())
+                        .expect("a request"),
+                )
+                .await
+                .expect("the asset answers");
+            assert_eq!(response.status(), StatusCode::OK, "{path}");
+            assert_eq!(
+                response
+                    .headers()
+                    .get(header::CONTENT_TYPE)
+                    .and_then(|value| value.to_str().ok()),
+                Some(content_type),
+                "{path}"
+            );
+            let body = axum::body::to_bytes(response.into_body(), 8 << 20)
+                .await
+                .expect("a body");
+            assert!(
+                body.windows(marker.len())
+                    .any(|window| window == marker.as_bytes()),
+                "{path} carries its marker"
+            );
+        }
     }
 }
