@@ -278,6 +278,9 @@ impl Console {
             .route("/next/files/:device", get(next_files_page))
             .route("/next/files/:device/read", get(next_files_read))
             .route("/next/files/:device/write", post(next_files_write))
+            // The runs page: one command, its output, and the device's own history.
+            .route("/next/runs/:device", get(next_runs_page))
+            .route("/next/runs/:device/exec", post(next_runs_exec))
             .route("/session", get(session_probe))
             .route("/logout", post(logout))
             .route("/enroll", post(enroll))
@@ -1490,6 +1493,154 @@ async fn next_files_write(
             ))
             .into_response()
         }
+        Err(response) => *response,
+    }
+}
+
+#[derive(Deserialize, Default)]
+struct RunsQuery {
+    error: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct RunsExecForm {
+    csrf: String,
+    command: String,
+    #[serde(default)]
+    args: String,
+    #[serde(default)]
+    cwd: String,
+    timeout_ms: Option<u64>,
+    shell: Option<String>,
+}
+
+/// The answer `runs.exec` gives: the status and the output the device captured for it.
+#[derive(Deserialize)]
+struct RunAnswer {
+    id: String,
+    exit_code: Option<i64>,
+    timed_out: bool,
+    duration_ms: u64,
+    stdout: String,
+    stderr: String,
+    truncated: bool,
+}
+
+/// `GET /next/runs/:device`: the form and the device's own history.
+async fn next_runs_page(
+    State(app): State<AppState>,
+    Path(device_id): Path<String>,
+    headers: HeaderMap,
+    Query(query): Query<RunsQuery>,
+) -> Response {
+    let Some(session) = cookie_session(&app, &headers) else {
+        return Html(page::login(None).into_string()).into_response();
+    };
+    let Some(device) = device_views(&app)
+        .into_iter()
+        .find(|device| device.id == device_id)
+    else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    let rows = match device_tool(&app, &device_id, "runs.list", json!({ "limit": 20 })).await {
+        Ok(text) => serde_json::from_str::<Vec<Value>>(&text).unwrap_or_default(),
+        Err(_) => Vec::new(),
+    };
+    let rows: Vec<page::RunRow> = rows
+        .iter()
+        .map(|row| {
+            let command = row["command"].as_str().unwrap_or_default();
+            let args = row["args"]
+                .as_array()
+                .map(|args| {
+                    args.iter()
+                        .filter_map(Value::as_str)
+                        .collect::<Vec<_>>()
+                        .join(" ")
+                })
+                .unwrap_or_default();
+            page::RunRow {
+                command_line: format!("{command} {args}").trim().to_owned(),
+                started_at_ms: row["started_at_ms"].as_u64().unwrap_or(0),
+                duration_ms: row["duration_ms"].as_u64().unwrap_or(0),
+                exit_code: row["exit_code"].as_i64(),
+                timed_out: row["timed_out"].as_bool().unwrap_or(false),
+            }
+        })
+        .collect();
+    Html(
+        page::runs(
+            &device,
+            &rows,
+            &hex::encode(&session.csrf),
+            &app.version,
+            query.error.as_deref(),
+        )
+        .into_string(),
+    )
+    .into_response()
+}
+
+/// `POST /next/runs/:device/exec`: one command, answered with its own output.
+async fn next_runs_exec(
+    State(app): State<AppState>,
+    Path(device_id): Path<String>,
+    headers: HeaderMap,
+    Form(form): Form<RunsExecForm>,
+) -> Response {
+    let Some(_session) = next_session(&app, &headers, Some(&form.csrf)) else {
+        return StatusCode::FORBIDDEN.into_response();
+    };
+    let Some(device) = device_views(&app)
+        .into_iter()
+        .find(|device| device.id == device_id)
+    else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    let command = form.command.trim().to_owned();
+    if command.is_empty() {
+        return Redirect::to(&format!("/next/runs/{device_id}?error=empty_command"))
+            .into_response();
+    }
+    let args: Vec<String> = form
+        .args
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(str::to_owned)
+        .collect();
+    let command_line = format!("{command} {}", args.join(" ")).trim().to_owned();
+    let timeout = form.timeout_ms.unwrap_or(30_000).clamp(1_000, 600_000);
+    let mut arguments = json!({
+        "command": command,
+        "args": args,
+        "timeout_ms": timeout,
+        "shell": form.shell.is_some(),
+    });
+    let cwd = form.cwd.trim();
+    if !cwd.is_empty() {
+        arguments["cwd"] = json!(cwd);
+    }
+    match device_tool(&app, &device_id, "runs.exec", arguments).await {
+        Ok(text) => match serde_json::from_str::<RunAnswer>(&text) {
+            Ok(answer) => {
+                let answer = page::RunResult {
+                    id: answer.id,
+                    exit_code: answer.exit_code,
+                    timed_out: answer.timed_out,
+                    duration_ms: answer.duration_ms,
+                    stdout: answer.stdout,
+                    stderr: answer.stderr,
+                    truncated: answer.truncated,
+                };
+                Html(page::run_result(&device, &command_line, &answer, &app.version).into_string())
+                    .into_response()
+            }
+            Err(_) => Redirect::to(&format!(
+                "/next/runs/{device_id}?error=the_device_answer_was_not_a_run"
+            ))
+            .into_response(),
+        },
         Err(response) => *response,
     }
 }

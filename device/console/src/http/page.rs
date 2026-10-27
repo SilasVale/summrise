@@ -43,6 +43,8 @@ nav a { color:var(--accent); text-decoration:none; }
 .inline-button { background:transparent; color:var(--muted); border:1px solid var(--line); }
 .code { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:10px 14px; font-size:13px; }
 .code strong { font-family:ui-monospace, monospace; letter-spacing:0.04em; }
+label.check { display:flex; align-items:center; gap:6px; margin:12px 0; }
+label.check input { width:auto; }
 textarea { width:100%; font:13px/1.4 ui-monospace, monospace; padding:8px 10px; border:1px solid var(--line); border-radius:7px; background:var(--bg); color:var(--ink); }
 pre.file { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:12px 14px; overflow:auto; font:13px/1.5 ui-monospace, monospace; white-space:pre-wrap; }
 h3 { font-size:13px; text-transform:uppercase; letter-spacing:0.06em; color:var(--muted); margin:22px 0 8px; }
@@ -159,6 +161,8 @@ pub(super) fn dashboard(
                                             a href=(format!("/next/terminal/{}", device.id)) { "Terminal" }
                                             " · "
                                             a href=(format!("/next/files/{}", device.id)) { "Files" }
+                                            " · "
+                                            a href=(format!("/next/runs/{}", device.id)) { "Runs" }
                                         }
                                     }
                                 }
@@ -393,6 +397,188 @@ fn join(path: &str, name: &str) -> String {
         name.to_owned()
     } else {
         format!("{path}/{name}")
+    }
+}
+
+/// One row of the run history, as the page draws it.
+pub(super) struct RunRow {
+    pub(super) command_line: String,
+    pub(super) started_at_ms: u64,
+    pub(super) duration_ms: u64,
+    pub(super) exit_code: Option<i64>,
+    pub(super) timed_out: bool,
+}
+
+/// One finished run, with the output the tool captured for it.
+pub(super) struct RunResult {
+    pub(super) id: String,
+    pub(super) exit_code: Option<i64>,
+    pub(super) timed_out: bool,
+    pub(super) duration_ms: u64,
+    pub(super) stdout: String,
+    pub(super) stderr: String,
+    pub(super) truncated: bool,
+}
+
+/// A UTC stamp from Unix milliseconds, without a date library: `MM-DD HH:MM:SS UTC`.
+fn stamp(ms: u64) -> String {
+    let seconds = ms / 1000;
+    let days = seconds / 86_400;
+    let day_seconds = seconds % 86_400;
+    let (hour, minute, second) = (
+        day_seconds / 3600,
+        (day_seconds % 3600) / 60,
+        day_seconds % 60,
+    );
+    // 1970-01-01 was a Thursday; the month/day arithmetic starts at 1970-01-01 and counts forward.
+    let (month, day) = civil_from_days(days as i64);
+    format!("{month:02}-{day:02} {hour:02}:{minute:02}:{second:02} UTC")
+}
+
+/// Days since 1970-01-01 to (month, day), by the usual 400-year cycle arithmetic.
+fn civil_from_days(days: i64) -> (u32, u32) {
+    let z = days + 719_468;
+    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+    let doe = (z - era * 146_097) as u64;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = doy - (153 * mp + 2) / 5 + 1;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 };
+    let _year = yoe + era as u64 * 400 + if month <= 2 { 1 } else { 0 };
+    (month as u32, day as u32)
+}
+
+/// The runs page: a form to run one command, and the device's own history under it.
+pub(super) fn runs(
+    device: &DeviceView,
+    rows: &[RunRow],
+    csrf: &str,
+    version: &str,
+    error: Option<&str>,
+) -> Markup {
+    let base = format!("/next/runs/{}", device.id);
+    html! {
+        (DOCTYPE)
+        html lang="en" {
+            head {
+                meta charset="utf-8";
+                meta name="viewport" content="width=device-width, initial-scale=1";
+                title { "Summrise console — runs" }
+                style { (STYLE) }
+            }
+            body {
+                header {
+                    h1 { "Summrise " span { "console" } }
+                    span class="version" { "console " (version) }
+                    span class="version" { (device.name.as_deref().unwrap_or(&device.id)) }
+                    a href="/next" { "Back to the fleet" }
+                }
+                main {
+                    h2 { "Runs" }
+                    p class="hint" {
+                        "A run is a process the device starts and reaps before it answers. The request holds "
+                        "the page open for the run's length: keep the timeout short, or start the long work "
+                        "with Start-Process and watch it through a later run. runs.exec is audited."
+                    }
+                    @if let Some(error) = error {
+                        p class="error" { (error) }
+                    }
+                    form method="post" action=(format!("{base}/exec")) {
+                        input type="hidden" name="csrf" value=(csrf);
+                        label for="command" { "Command" }
+                        input id="command" name="command" type="text" placeholder="pwsh" required;
+                        label for="args" { "Arguments, one per line" }
+                        textarea id="args" name="args" rows="3" placeholder="-NoProfile&#10;-Command&#10;Get-Date";
+                        label for="cwd" { "Working directory (optional)" }
+                        input id="cwd" name="cwd" type="text" placeholder="relative to the files root";
+                        label for="timeout_ms" { "Timeout (ms)" }
+                        input id="timeout_ms" name="timeout_ms" type="number" value="30000" min="1000" max="600000";
+                        label class="check" {
+                            input type="checkbox" name="shell" value="1";
+                            " Run through the platform shell"
+                        }
+                        button type="submit" { "Run" }
+                    }
+                    h3 { "History" }
+                    @if rows.is_empty() {
+                        p class="hint" { "No runs recorded yet." }
+                    } @else {
+                        table {
+                            thead { tr { th { "When" } th { "Command" } th { "Took" } th { "Exit" } } }
+                            tbody {
+                                @for row in rows {
+                                    tr {
+                                        td { (stamp(row.started_at_ms)) }
+                                        td { code { (row.command_line) } }
+                                        td { (row.duration_ms) " ms" }
+                                        td {
+                                            @if row.timed_out {
+                                                "timed out"
+                                            } @else if let Some(code) = row.exit_code {
+                                                (code)
+                                            } @else {
+                                                "killed"
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// One finished run: its status, then the output the tool captured.
+pub(super) fn run_result(
+    device: &DeviceView,
+    command_line: &str,
+    result: &RunResult,
+    version: &str,
+) -> Markup {
+    let base = format!("/next/runs/{}", device.id);
+    let status = if result.timed_out {
+        "timed out".to_owned()
+    } else if let Some(code) = result.exit_code {
+        format!("exit {code}")
+    } else {
+        "killed".to_owned()
+    };
+    html! {
+        (DOCTYPE)
+        html lang="en" {
+            head {
+                meta charset="utf-8";
+                meta name="viewport" content="width=device-width, initial-scale=1";
+                title { "Summrise console — run " (result.id) }
+                style { (STYLE) }
+            }
+            body {
+                header {
+                    h1 { "Summrise " span { "console" } }
+                    span class="version" { "console " (version) }
+                    span class="version" { (device.name.as_deref().unwrap_or(&device.id)) }
+                    a href=(base) { "Back to runs" }
+                }
+                main {
+                    h2 { "Run " (result.id) }
+                    p { code { (command_line) } }
+                    p class="hint" {
+                        (status) " · " (result.duration_ms) " ms"
+                        @if result.truncated { " · output truncated at the device's cap" }
+                    }
+                    h3 { "stdout" }
+                    pre class="file" { (result.stdout) }
+                    @if !result.stderr.is_empty() {
+                        h3 { "stderr" }
+                        pre class="file" { (result.stderr) }
+                    }
+                }
+            }
+        }
     }
 }
 

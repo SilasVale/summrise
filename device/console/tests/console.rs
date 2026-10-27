@@ -6786,3 +6786,134 @@ async fn the_files_page_shows_a_file_and_a_write_without_csrf_is_refused() {
         Some(format!("/next/files/{device_id}?path=logs").as_str())
     );
 }
+
+#[tokio::test]
+async fn the_runs_page_lists_the_devices_history_and_a_run_is_forwarded() {
+    let fixture = Fixture::new("runs-page");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xe7)).await;
+    let (cookie, csrf) = sign_in_to_the_page(&fixture).await;
+
+    let app = fixture.app();
+    let request = get_with_cookie(&format!("/next/runs/{device_id}"), &cookie);
+    let page = tokio::spawn(async move { send_text(app, request).await });
+    let frame = next_json(&mut device).await;
+    assert_eq!(
+        frame["mcp"]["params"]["name"],
+        json!("runs.list"),
+        "{frame}"
+    );
+    answer(
+        &mut device,
+        &frame,
+        json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {
+                "content": [{ "type": "text", "text": json!([
+                    { "id": "run-1", "command": "pwsh", "args": ["-NoProfile", "Get-Date"],
+                      "started_at_ms": 1_793_000_000_000u64, "duration_ms": 120,
+                      "exit_code": 0, "timed_out": false }
+                ]).to_string() }],
+                "isError": false
+            }
+        }),
+    )
+    .await;
+    let (status, _, body) = page.await.expect("the runs page finishes");
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        body.contains("Run a command") || body.contains("History"),
+        "{body}"
+    );
+    assert!(body.contains("pwsh -NoProfile Get-Date"), "{body}");
+
+    // One run: the form is forwarded unchanged and its output is what the page shows.
+    let mut request = post_form(
+        &format!("/next/runs/{device_id}/exec"),
+        &[
+            ("csrf", &csrf),
+            ("command", "echo"),
+            ("args", "hello\nfrom\nthe\npage"),
+            ("timeout_ms", "5000"),
+        ],
+    );
+    request
+        .headers_mut()
+        .insert(header::COOKIE, cookie.parse().expect("the cookie header"));
+    let run = tokio::spawn(async move { send_text(fixture.app(), request).await });
+    let frame = next_json(&mut device).await;
+    assert_eq!(
+        frame["mcp"]["params"]["name"],
+        json!("runs.exec"),
+        "{frame}"
+    );
+    assert_eq!(
+        frame["mcp"]["params"]["arguments"]["command"],
+        json!("echo")
+    );
+    assert_eq!(
+        frame["mcp"]["params"]["arguments"]["args"],
+        json!(["hello", "from", "the", "page"])
+    );
+    assert_eq!(
+        frame["mcp"]["params"]["arguments"]["timeout_ms"],
+        json!(5000)
+    );
+    assert_eq!(frame["mcp"]["params"]["arguments"]["shell"], json!(false));
+    answer(
+        &mut device,
+        &frame,
+        json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {
+                "content": [{ "type": "text", "text": json!({
+                    "id": "run-2", "exit_code": 0, "timed_out": false, "duration_ms": 42,
+                    "stdout": "hello\nfrom\nthe\npage\n", "stderr": "", "truncated": false,
+                    "history_recorded": true
+                }).to_string() }],
+                "isError": false
+            }
+        }),
+    )
+    .await;
+    let (status, _, body) = run.await.expect("the run finishes");
+    assert_eq!(status, StatusCode::OK);
+    assert!(body.contains("hello"), "{body}");
+    assert!(body.contains("exit 0"), "{body}");
+    assert!(body.contains("run-2"), "{body}");
+}
+
+#[tokio::test]
+async fn a_run_without_the_page_csrf_is_refused_before_the_device_hears_of_it() {
+    let fixture = Fixture::new("runs-csrf");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xe8)).await;
+    let (cookie, _csrf) = sign_in_to_the_page(&fixture).await;
+
+    let mut request = post_form(
+        &format!("/next/runs/{device_id}/exec"),
+        &[
+            ("csrf", &"00".repeat(32)),
+            ("command", "echo"),
+            ("args", "x"),
+        ],
+    );
+    request
+        .headers_mut()
+        .insert(header::COOKIE, cookie.parse().expect("the cookie header"));
+    let (status, _, _) = send_text(fixture.app(), request).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert!(
+        tokio::time::timeout(
+            std::time::Duration::from_millis(200),
+            next_json(&mut device)
+        )
+        .await
+        .is_err(),
+        "a refused run must not reach the device"
+    );
+}
