@@ -1,9 +1,10 @@
 # The console page, in Rust
 
 **Date:** 2026-10-27
-**Status:** phase 1–2 shipped at `/next`; phase 3's first slice landed 2026-10-27
-(`/next/terminal/:device` runs one pty, with the session cookie and a CSRF header as its gates).
-Tabs, ssh/serial kinds and the session list are still open, as is deleting `web/`.
+**Status:** shipped. `/` redirects to `/next`, every page is maud-rendered by the console, the
+terminal page runs pty/ssh/serial in tabs, and `device/console/web` (with its npm build, committed
+bundle, CI job and `scripts/build-web.sh`) is deleted. The only JavaScript left is vendored xterm
+and the terminal page's glue; `scripts/console-smoke.mjs` is its browser check.
 
 ## Problem
 
