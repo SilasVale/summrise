@@ -1577,7 +1577,10 @@ async fn device_channel(
 #[derive(Deserialize)]
 struct McpProxy {
     device_id: String,
-    grant: GrantEnvelope,
+    /// The legacy signed grant. When absent, the operator's session is the authorization: the full
+    /// tool set on the named device, destructive allowed.
+    #[serde(default)]
+    grant: Option<GrantEnvelope>,
     request: Value,
 }
 
@@ -1980,14 +1983,33 @@ async fn proxy_mcp(
     if let Err(error) = ensure_registered(&app, &body.device_id) {
         return app.deny(audit_id.as_deref(), error).await.into_response();
     }
-    if let Err(error) = verify_presented(&app, &body.device_id, &body.grant) {
-        return app.deny(audit_id.as_deref(), error).await.into_response();
-    }
-
+    // The operator's session is the credential. A legacy client may still present a grant, verified
+    // exactly as before; a client that presents none gets the operator's own authority: every tool on
+    // the named device, destructive allowed. "I have a token" means "I may do everything".
+    let legacy = match &body.grant {
+        Some(grant) => {
+            if let Err(error) = verify_presented(&app, &body.device_id, grant) {
+                return app.deny(audit_id.as_deref(), error).await.into_response();
+            }
+            Some(grant)
+        }
+        None => None,
+    };
+    let operator_scope = crate::channels::TokenScope {
+        token_id: "operator".to_owned(),
+        device_id: body.device_id.clone(),
+        scopes: vec!["*".to_owned()],
+        allow_destructive: true,
+        expires_at_ms: None,
+    };
+    let auth = match legacy {
+        Some(grant) => RequestAuth::Grant(grant),
+        None => RequestAuth::Token(&operator_scope),
+    };
     forward(
         &app,
         &body.device_id,
-        &RequestAuth::Grant(&body.grant),
+        &auth,
         None,
         body.request,
         StatusCode::BAD_REQUEST,
