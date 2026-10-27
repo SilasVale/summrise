@@ -64,6 +64,11 @@ fn router_with(
     helper: Option<Arc<helper::Helper>>,
     restart: restart::Hook,
 ) -> Router {
+    // The MCP service and the panel share one terminal registry, so a session an MCP client opened
+    // is the session the panel lists. `/mcp` is the same secret as `/api/state`: the gate runs before
+    // the MCP service sees the request, so an unauthenticated caller cannot even start a handshake.
+    let (mcp_service, terminal) =
+        crate::mcp::service_with_terminal(config, limits, console, mesh, restart.clone());
     let state = AppState {
         token: load_token(&config.token_file),
         store,
@@ -72,7 +77,8 @@ fn router_with(
         data: config.data.clone(),
         panel_token: mint_panel_token(),
         supervised: config.supervised,
-        restart: restart.clone(),
+        restart,
+        terminal,
     };
 
     // `/mcp` is the same secret as `/api/state`: the gate runs before the MCP service sees the
@@ -82,10 +88,7 @@ fn router_with(
     // The app's restart is one hook: the panel's enrollment and the MCP `host.restart` tool both
     // ask the same closure, so the two paths cannot drift.
     let mcp = Router::new()
-        .route_service(
-            "/mcp",
-            crate::mcp::service(config, limits, console, mesh, restart),
-        )
+        .route_service("/mcp", mcp_service)
         .route_layer(middleware::from_fn(crate::mcp::limit_request_body))
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
@@ -99,6 +102,9 @@ fn router_with(
         // remote read.
         .route("/", get(local_panel))
         .route("/api/panel", get(panel_snapshot))
+        // The panel's read-only view of the live terminal sessions. Loopback-only like the page: it
+        // names the shell/serial ports a person standing at this machine can already reach.
+        .route("/api/terminal", get(panel_terminal))
         // The panel's enrollment: the page a person is looking at posts the code here. The handler
         // demands a loopback peer and this boot's panel token, and the token exists only in that
         // page, so a request from another origin cannot be made to look like the user's.
@@ -202,6 +208,9 @@ struct AppState {
     /// was allowed (the real hook exits after a short delay so the answer reaches the caller first;
     /// tests record the call).
     restart: restart::Hook,
+    /// The live terminal sessions, shared with the MCP service: the panel lists the same sessions an
+    /// MCP client created, because they are the same machine's terminals.
+    terminal: Arc<terminal::PtyRegistry>,
 }
 
 impl AppState {
@@ -344,6 +353,30 @@ async fn panel_snapshot(
         "console_attempt": crate::console::last_attempt(),
     }))
     .into_response()
+}
+
+/// `GET /api/terminal`: the live terminal sessions, read-only, for the panel's list.
+async fn panel_terminal(
+    State(app): State<AppState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+) -> Response {
+    if !peer.ip().is_loopback() {
+        return error_response(StatusCode::FORBIDDEN, "loopback_only", None);
+    }
+    let sessions: Vec<serde_json::Value> = app
+        .terminal
+        .list()
+        .into_iter()
+        .map(|session| {
+            serde_json::json!({
+                "id": session.id.as_str(),
+                "kind": session.kind.as_str(),
+                "shell": session.shell,
+                "started_at_ms": session.started_at_ms,
+            })
+        })
+        .collect();
+    Json(serde_json::json!({ "sessions": sessions })).into_response()
 }
 
 /// The panel's enrollment request, as the page sends it. `force` and `allow_plaintext` are the two
@@ -1564,6 +1597,22 @@ mod tests {
         assert_eq!(other_status, StatusCode::OK);
         let other = panel_meta(&other_html).expect("the second server carries its own token");
         assert_ne!(token, other, "a second boot gets a second token");
+    }
+
+    #[tokio::test]
+    async fn the_panel_lists_the_live_terminal_sessions() {
+        let fixture = fixture("panel-terminal", None);
+        let client = client();
+        let server = PanelServer::start(fixture.app()).await;
+
+        let (status, html) = get_text(&client, &server.base_url).await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(html.contains("Terminal sessions"), "the panel has the terminal card");
+
+        let (status, body) = get_text(&client, &format!("{}/api/terminal", server.base_url)).await;
+        assert_eq!(status, StatusCode::OK);
+        let list: serde_json::Value = serde_json::from_str(&body).expect("the terminal list is JSON");
+        assert_eq!(list["sessions"], serde_json::json!([]));
     }
 
     #[tokio::test]

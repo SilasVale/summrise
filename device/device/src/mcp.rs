@@ -216,7 +216,23 @@ pub(crate) fn service(
     mesh: Option<crate::mesh::MeshLink>,
     restart: restart::Hook,
 ) -> StreamableHttpService<DeviceServer, LocalSessionManager> {
+    service_with_terminal(config, limits, console, mesh, restart).0
+}
+
+/// The MCP service plus the terminal registry behind it, so the device's own panel can list the live
+/// sessions without a second registry: one machine, one set of terminals.
+pub(crate) fn service_with_terminal(
+    config: &Config,
+    limits: terminal::Limits,
+    console: Option<crate::console::ConsoleEndpoint>,
+    mesh: Option<crate::mesh::MeshLink>,
+    restart: restart::Hook,
+) -> (
+    StreamableHttpService<DeviceServer, LocalSessionManager>,
+    Arc<terminal::PtyRegistry>,
+) {
     let server = DeviceServer::new(config, limits).with_restart(restart);
+    let terminal = Arc::clone(&server.terminal);
     // The sweeper is the device's, not a client's: it holds a weak reference, so the children are
     // closed when the service (and its registry) is dropped.
     server.terminal.spawn_sweeper();
@@ -233,10 +249,13 @@ pub(crate) fn service(
     if let Some(link) = mesh {
         crate::mesh::spawn(link, server.clone());
     }
-    StreamableHttpService::new(
-        move || Ok(server.clone()),
-        Default::default(),
-        StreamableHttpServerConfig::default(),
+    (
+        StreamableHttpService::new(
+            move || Ok(server.clone()),
+            Default::default(),
+            StreamableHttpServerConfig::default(),
+        ),
+        terminal,
     )
 }
 

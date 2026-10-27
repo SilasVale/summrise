@@ -233,6 +233,15 @@
   </section>
 
   <section>
+    <h2>Terminal sessions</h2>
+    <p class="hint">
+      The same sessions an MCP client created on this machine, live. The interactive terminal lives
+      in the console; this list is what an operator standing here can check without it.
+    </p>
+    <div id="terminal-sessions" class="hint">reading…</div>
+  </section>
+
+  <section>
     <h2>Build</h2>
     <dl id="build"><dt>…</dt><dd>reading</dd></dl>
   </section>
@@ -356,6 +365,24 @@ async function refresh() {
     }
     tr.append(ts, what);
     body.append(tr);
+  }
+
+  // The live terminal sessions: the same registry the MCP's terminal.list reads.
+  const terminal = document.getElementById("terminal-sessions");
+  try {
+    const sessions = (await (await fetch("/api/terminal", { cache: "no-store" })).json()).sessions || [];
+    terminal.replaceChildren();
+    if (sessions.length === 0) {
+      terminal.textContent = "No live terminal sessions.";
+    } else {
+      const list = document.createElement("dl");
+      for (const session of sessions) {
+        row(list, session.kind, `${session.shell} · ${session.id}`);
+      }
+      terminal.append(list);
+    }
+  } catch (error) {
+    terminal.textContent = "the device did not answer /api/terminal";
   }
 }
 

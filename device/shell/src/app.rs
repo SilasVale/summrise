@@ -117,7 +117,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
                 button: tray_icon::MouseButton::Left,
                 button_state: tray_icon::MouseButtonState::Up,
                 ..
-            })) => open_console(target, &mut ui),
+            })) => open_url(PANEL),
             Event::UserEvent(Wake::Tray(_)) => {}
             Event::UserEvent(Wake::Menu(event)) => match event.id.as_ref() {
                 OPEN_CONSOLE => open_console(target, &mut ui),
