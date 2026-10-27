@@ -59,12 +59,6 @@ pub(crate) const TOKEN_HEX_CHARS: usize = 64;
 /// The full length of a token: the prefix plus its 32 bytes.
 pub(crate) const TOKEN_LEN: usize = TOKEN_PREFIX.len() + TOKEN_HEX_CHARS;
 
-/// How long the grant minted for one token request lives.
-///
-/// Sixty seconds is [`crate::grants::MIN_GRANT_LIFETIME_S`], the shortest a grant may live: the point
-/// of a long-lived token is that the *token* is long-lived, not the grant it is exchanged for.
-pub(crate) const MINTED_GRANT_LIFETIME_S: u64 = 60;
-
 /// How often a token's last use is allowed to rewrite the file.
 ///
 /// Every successful exchange updates the in-memory fact; the file is written only when the value it

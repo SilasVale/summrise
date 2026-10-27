@@ -4911,16 +4911,19 @@ async fn a_rotated_token_kills_the_old_one_and_keeps_the_scope() {
     let device_side = async {
         let frame = next_json(&mut device).await;
         assert_eq!(frame["mcp"], request);
-        let grant: summrise_console::Grant =
-            serde_json::from_value(frame["grant"]["grant"].clone())
-                .expect("the frame carries a grant");
-        assert_eq!(
-            grant.tools,
-            vec!["files.read".to_owned(), "memory.search".to_owned()],
-            "the new token mints the same tools"
-        );
+        let token = &frame["token"];
         assert!(
-            grant.allow_destructive,
+            token["token_id"].as_str().is_some(),
+            "the frame carries a token scope"
+        );
+        assert_eq!(
+            token["scopes"],
+            json!(["files.read", "memory.search"]),
+            "the new token keeps the same tools"
+        );
+        assert_eq!(
+            token["allow_destructive"],
+            json!(true),
             "the new token keeps the destructive consent"
         );
         answer(
@@ -5046,7 +5049,6 @@ async fn a_token_mints_a_sixty_second_grant_with_the_tokens_tools_and_consent() 
         .await;
     assert_eq!(status, StatusCode::CREATED, "{created}");
     let token = created["token"].as_str().expect("the token").to_owned();
-    let minted_at = fixture.now_ms();
 
     let request = json!({ "jsonrpc": "2.0", "id": 11, "method": "tools/list" });
     let http = send(
@@ -5056,31 +5058,22 @@ async fn a_token_mints_a_sixty_second_grant_with_the_tokens_tools_and_consent() 
     let device_side = async {
         let frame = next_json(&mut device).await;
         assert_eq!(frame["mcp"], request);
-        let grant: summrise_console::Grant =
-            serde_json::from_value(frame["grant"]["grant"].clone())
-                .expect("the frame carries a grant");
-        assert_eq!(grant.device_id, device_id);
-        assert_eq!(
-            grant.tools,
-            vec!["files.read".to_owned(), "memory.search".to_owned()],
-            "the grant names exactly the token's tools"
-        );
+        let token = &frame["token"];
         assert!(
-            grant.allow_destructive,
+            token["token_id"].as_str().is_some(),
+            "the frame carries a token scope"
+        );
+        assert_eq!(token["device_id"], json!(device_id));
+        assert_eq!(
+            token["scopes"],
+            json!(["files.read", "memory.search"]),
+            "the scope names exactly the token's tools"
+        );
+        assert_eq!(
+            token["allow_destructive"],
+            json!(true),
             "the consent is the token's, not the caller's"
         );
-        assert_eq!(
-            grant.expires_at_ms,
-            minted_at + 60_000,
-            "a minted grant lives sixty seconds"
-        );
-        let message = summrise_console::canonical_message(&grant);
-        let signature =
-            decode_signature(frame["grant"]["signature"].as_str().expect("a signature"));
-        SigningKey::from_bytes(&GRANT_SEED)
-            .verifying_key()
-            .verify_strict(message.as_bytes(), &signature)
-            .expect("the device can verify the minted grant offline");
         answer(
             &mut device,
             &frame,
@@ -5684,13 +5677,15 @@ async fn a_token_works_one_millisecond_before_it_expires() {
     let device_side = async {
         let frame = next_json(&mut device).await;
         assert_eq!(frame["mcp"], request);
-        let grant: summrise_console::Grant =
-            serde_json::from_value(frame["grant"]["grant"].clone())
-                .expect("the frame carries a grant");
+        let token = &frame["token"];
+        assert!(
+            token["token_id"].as_str().is_some(),
+            "the frame carries a token scope"
+        );
         assert_eq!(
-            grant.expires_at_ms,
-            fixture.now_ms() + 60_000,
-            "the grant is minted from the same clock"
+            token["expires_at_ms"],
+            json!(created_at + one_hour_ms),
+            "the scope carries the token's own expiry"
         );
         answer(
             &mut device,

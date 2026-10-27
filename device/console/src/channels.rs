@@ -42,15 +42,23 @@ use crate::grants::GrantEnvelope;
 /// caller's credential is.
 // The Token arm lands before the /mcp handlers switch to it (both ship together); until then only
 // the tests construct it.
-#[allow(dead_code)]
 pub(crate) enum RequestAuth<'a> {
     Grant(&'a GrantEnvelope),
     Token(&'a TokenScope),
 }
 
+impl RequestAuth<'_> {
+    /// The tool patterns this request authorizes, in the order the credential named them.
+    pub(crate) fn tools(&self) -> &[String] {
+        match self {
+            RequestAuth::Grant(grant) => &grant.grant.tools,
+            RequestAuth::Token(scope) => &scope.scopes,
+        }
+    }
+}
+
 /// A permanent token's scope, as the console forwards it. The device checks the same facts it
 /// checks on a grant: device, expiry, tool coverage.
-#[allow(dead_code)]
 #[derive(Serialize)]
 pub(crate) struct TokenScope {
     pub(crate) token_id: String,

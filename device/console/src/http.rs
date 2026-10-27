@@ -1705,9 +1705,9 @@ async fn refuse_token(app: &AppState, refusal: TokenRefusal) -> Response {
         .into_response()
 }
 
-/// The grant one token request is answered with, and the record that authenticated it.
-struct MintedGrant {
-    envelope: GrantEnvelope,
+/// The scope one token request is answered with, and the record that authenticated it.
+struct MintedScope {
+    scope: crate::channels::TokenScope,
     /// The token record's id: the audit names this, never the `srm_` secret.
     token_id: String,
 }
@@ -1735,55 +1735,43 @@ fn live_token(app: &AppState, token: &str) -> Result<Token, TokenRefusal> {
 }
 
 /// Sign a grant from the record's own scope and mark the token used.
-fn sign_token_grant(
-    app: &AppState,
-    record: &Token,
-    device_id: &str,
-) -> Result<MintedGrant, TokenRefusal> {
-    let now = (app.now)();
-    let signed = grants::sign(
-        &app.grant_key,
-        device_id,
-        record.tools.clone(),
-        crate::tokens::MINTED_GRANT_LIFETIME_S,
-        record.allow_destructive,
-        now,
-    )
-    .map_err(|_| TokenRefusal::Unauthenticated("api_token_unusable"))?;
+/// The token record's own scope, as the console forwards it: no signature, because the channel is
+/// the authentication. Marking the token used happens here, after the device check.
+fn token_scope(app: &AppState, record: &Token, device_id: &str) -> MintedScope {
+    lock(&app.tokens).mark_used(&record.hash, (app.now)());
 
-    // The exchange happened, so the record says when. This is after a successful signature for
-    // exactly this device: an unknown, revoked, foreign or unmintable token never gets here.
-    lock(&app.tokens).mark_used(&record.hash, now);
-
-    Ok(MintedGrant {
-        envelope: GrantEnvelope {
-            grant: signed.grant,
-            signature: hex::encode(&signed.signature.to_bytes()),
+    MintedScope {
+        scope: crate::channels::TokenScope {
+            token_id: record.id.clone(),
+            device_id: device_id.to_owned(),
+            scopes: record.tools.clone(),
+            allow_destructive: record.allow_destructive,
+            expires_at_ms: record.expires_at_ms,
         },
         token_id: record.id.clone(),
-    })
+    }
 }
 
 /// A device token on `/mcp/:id`: one device only, never an aggregate record.
-fn mint_token_grant(
+fn mint_token_scope(
     app: &AppState,
     device_id: &str,
     token: &str,
-) -> Result<MintedGrant, TokenRefusal> {
+) -> Result<MintedScope, TokenRefusal> {
     let record = live_token(app, token)?;
     if record.device_ids.is_some() || record.device_id != device_id {
         return Err(TokenRefusal::ForeignDevice);
     }
-    sign_token_grant(app, &record, device_id)
+    Ok(token_scope(app, &record, device_id))
 }
 
 /// An aggregate token on `/mcp/all`: the path is not a device, so the requested device is checked
 /// against the record's list before anything is signed.
-fn mint_aggregate_grant(
+fn mint_aggregate_scope(
     app: &AppState,
     device_id: &str,
     token: &str,
-) -> Result<MintedGrant, TokenRefusal> {
+) -> Result<MintedScope, TokenRefusal> {
     let record = live_token(app, token)?;
     let Some(allowed) = record.device_ids.as_ref() else {
         return Err(TokenRefusal::Unauthenticated("not_an_aggregate_token"));
@@ -1791,7 +1779,7 @@ fn mint_aggregate_grant(
     if !allowed.iter().any(|id| id == device_id) {
         return Err(TokenRefusal::ForeignDevice);
     }
-    sign_token_grant(app, &record, device_id)
+    Ok(token_scope(app, &record, device_id))
 }
 
 /// Forward one MCP exchange to a device and record the authenticated outcome.
@@ -1805,7 +1793,7 @@ fn mint_aggregate_grant(
 async fn proxy_reply(
     app: &AppState,
     device_id: &str,
-    grant: &GrantEnvelope,
+    auth: &RequestAuth<'_>,
     token_id: Option<&str>,
     request: Value,
     invalid_params_status: StatusCode,
@@ -1837,7 +1825,7 @@ async fn proxy_reply(
     let is_tools_list = request.get("method").and_then(Value::as_str) == Some("tools/list");
 
     if let Some(tool) = tool.as_deref() {
-        if !grant.grant.tools.iter().any(|allowed| allowed == tool) {
+        if !auth.tools().iter().any(|allowed| allowed == tool) {
             app.record_facts(AuditFacts {
                 kind: "denied",
                 device_id: audit_id.as_deref(),
@@ -1866,8 +1854,7 @@ async fn proxy_reply(
         Some(wait) => {
             tokio::time::timeout(
                 wait + RUNS_BACKSTOP_GRACE,
-                app.channels
-                    .request_within(device_id, request, &RequestAuth::Grant(grant), wait),
+                app.channels.request_within(device_id, request, auth, wait),
             )
             .await
         }
@@ -1875,8 +1862,7 @@ async fn proxy_reply(
         None => {
             tokio::time::timeout(
                 app.mcp_timeout,
-                app.channels
-                    .request(device_id, request, &RequestAuth::Grant(grant)),
+                app.channels.request(device_id, request, auth),
             )
             .await
         }
@@ -1938,7 +1924,7 @@ async fn proxy_reply(
 async fn forward(
     app: &AppState,
     device_id: &str,
-    grant: &GrantEnvelope,
+    auth: &RequestAuth<'_>,
     token_id: Option<&str>,
     request: Value,
     invalid_params_status: StatusCode,
@@ -1947,7 +1933,7 @@ async fn forward(
     match proxy_reply(
         app,
         device_id,
-        grant,
+        auth,
         token_id,
         request,
         invalid_params_status,
@@ -2001,7 +1987,7 @@ async fn proxy_mcp(
     forward(
         &app,
         &body.device_id,
-        &body.grant,
+        &RequestAuth::Grant(&body.grant),
         None,
         body.request,
         StatusCode::BAD_REQUEST,
@@ -2053,15 +2039,19 @@ async fn standard_mcp(
     // and a token mints an envelope with the token's scope. A token failure is a
     // pre-authentication refusal, so it goes to the denial log, never to the audit. Only a token
     // gives the forwarded lines a token id; a grant has no permanent record to name.
-    let (grant, token_id) = match bearer {
+    enum BearerAuth {
+        Grant(GrantEnvelope),
+        Token(crate::channels::TokenScope),
+    }
+    let (bearer_auth, token_id) = match bearer {
         crate::mcp::BearerKind::Grant(grant) => {
             if let Err(error) = verify_presented(&app, &device_id, &grant) {
                 return app.refuse(audit_id.as_deref(), error).await.into_response();
             }
-            (grant, None)
+            (BearerAuth::Grant(grant), None)
         }
-        crate::mcp::BearerKind::Token(token) => match mint_token_grant(&app, &device_id, &token) {
-            Ok(minted) => (minted.envelope, Some(minted.token_id)),
+        crate::mcp::BearerKind::Token(token) => match mint_token_scope(&app, &device_id, &token) {
+            Ok(minted) => (BearerAuth::Token(minted.scope), Some(minted.token_id)),
             Err(TokenRefusal::Unauthenticated(detail)) => {
                 return app
                     .refuse_as(audit_id.as_deref(), ApiError::unauthorized(), detail)
@@ -2079,6 +2069,10 @@ async fn standard_mcp(
                 return ApiError::unauthorized().into_response();
             }
         },
+    };
+    let auth = match &bearer_auth {
+        BearerAuth::Grant(grant) => RequestAuth::Grant(grant),
+        BearerAuth::Token(scope) => RequestAuth::Token(scope),
     };
     if let Err(error) = ensure_registered(&app, &device_id) {
         return app.deny(audit_id.as_deref(), error).await.into_response();
@@ -2147,11 +2141,11 @@ async fn standard_mcp(
             forward(
                 &app,
                 &device_id,
-                &grant,
+                &auth,
                 token_id.as_deref(),
                 request,
                 StatusCode::OK,
-                Some(&grant.grant.tools),
+                Some(auth.tools()),
             )
             .await
         }
@@ -2159,7 +2153,7 @@ async fn standard_mcp(
             forward(
                 &app,
                 &device_id,
-                &grant,
+                &auth,
                 token_id.as_deref(),
                 request,
                 StatusCode::OK,
@@ -2359,18 +2353,19 @@ async fn aggregate_mcp(State(app): State<AppState>, request: axum::extract::Requ
             let Some(device_id) = allowed.iter().find(|id| app.channels.online(id)).cloned() else {
                 return failure_for(RequestError::Offline).into_response();
             };
-            let granted = match mint_aggregate_grant(&app, &device_id, &token) {
+            let granted = match mint_aggregate_scope(&app, &device_id, &token) {
                 Ok(granted) => granted,
                 Err(refusal) => return refuse_token(&app, refusal).await,
             };
+            let auth = RequestAuth::Token(&granted.scope);
             match proxy_reply(
                 &app,
                 &device_id,
-                &granted.envelope,
+                &auth,
                 Some(&granted.token_id),
                 request,
                 StatusCode::OK,
-                Some(&record.tools),
+                Some(auth.tools()),
             )
             .await
             {
@@ -2414,14 +2409,15 @@ async fn aggregate_mcp(State(app): State<AppState>, request: axum::extract::Requ
                             .await
                             .into_response();
                     }
-                    let granted = match mint_aggregate_grant(&app, &device_id, &token) {
+                    let granted = match mint_aggregate_scope(&app, &device_id, &token) {
                         Ok(granted) => granted,
                         Err(refusal) => return refuse_token(&app, refusal).await,
                     };
+                    let auth = RequestAuth::Token(&granted.scope);
                     forward(
                         &app,
                         &device_id,
-                        &granted.envelope,
+                        &auth,
                         Some(&granted.token_id),
                         request,
                         StatusCode::OK,
