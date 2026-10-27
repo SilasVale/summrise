@@ -50,6 +50,14 @@ const MAX_LOG_LIMIT: usize = 1000;
 /// How long the console tells an operator's client to wait before retrying a reconnecting device.
 const RETRY_AFTER_MS: u64 = 1_000;
 
+/// How many sessions the store keeps.
+///
+/// One operator, a handful of browsers. The page also mints a session for an Access-verified request
+/// that carried no cookie, so without a cap a browser that refuses cookies would append one per page
+/// load and every request would scan the growing list. The oldest is dropped, which is the one a
+/// person is least likely to be using.
+const MAX_SESSIONS: usize = 32;
+
 /// The largest body the standard MCP endpoint buffers, after the grant has been verified.
 ///
 /// It matches the device's own `/mcp` cap: a body a client can send to one end must not be refused
@@ -988,6 +996,11 @@ fn new_session(app: &AppState) -> (Session, [u8; 32]) {
         let mut sessions = lock(&app.sessions);
         sessions.retain(|session| session.expires_at_ms > now);
         sessions.push(session.clone());
+        if sessions.len() > MAX_SESSIONS {
+            sessions.sort_by_key(|session| session.expires_at_ms);
+            let excess = sessions.len() - MAX_SESSIONS;
+            sessions.drain(..excess);
+        }
     }
     if let Err(error) = crate::auth::save_sessions(&app.data, &lock(&app.sessions)) {
         eprintln!("summrise-console: the sessions could not be persisted: {error}");
@@ -1058,8 +1071,14 @@ fn session_cookie(token: &[u8; 32], secure: bool) -> HeaderValue {
     HeaderValue::from_str(&cookie).expect("a valid Set-Cookie")
 }
 
-fn clear_session_cookie() -> HeaderValue {
-    HeaderValue::from_static("summrise_session=; Path=/next; HttpOnly; SameSite=Lax; Max-Age=0")
+/// The clear mirrors [`session_cookie`]'s attributes, `Secure` included: a clear that drops them is
+/// a different cookie in every browser that checks.
+fn clear_session_cookie(secure: bool) -> HeaderValue {
+    let mut cookie = format!("{SESSION_COOKIE}=; Path=/next; HttpOnly; SameSite=Lax; Max-Age=0");
+    if secure {
+        cookie.push_str("; Secure");
+    }
+    HeaderValue::from_str(&cookie).expect("a valid Set-Cookie")
 }
 
 #[derive(Deserialize)]
@@ -2848,36 +2867,37 @@ async fn next_logout(
     headers: HeaderMap,
     Form(form): Form<NextLogout>,
 ) -> Response {
-    let Some(session) = cookie_session(&app, &headers) else {
-        return Redirect::to("/next").into_response();
-    };
-    let Some(csrf) = form.csrf.as_deref().and_then(hex::decode_32) else {
-        return StatusCode::FORBIDDEN.into_response();
-    };
-    if !constant_time_eq(&csrf, &session.csrf) {
-        return StatusCode::FORBIDDEN.into_response();
-    }
-    {
-        let mut sessions = lock(&app.sessions);
-        sessions.retain(|entry| !constant_time_eq(&entry.token_hash, &session.token_hash));
-    }
-    if let Err(error) = crate::auth::save_sessions(&app.data, &lock(&app.sessions)) {
-        eprintln!("summrise-console: the sessions could not be persisted: {error}");
-    }
     // Ours is the cookie; the identity is Access's. Clearing only the cookie would be undone by the
     // next request the edge authenticates, so behind Access sign-out ends the edge's session too.
     // Without Access there is no edge to sign out of, and the card is the way back in.
-    let mut response = match app.access.as_ref().and_then(crate::access::Access::issuer) {
-        Some(issuer) => Redirect::to(&format!(
-            "{}/cdn-cgi/access/logout",
-            issuer.trim_end_matches('/')
-        ))
-        .into_response(),
-        None => Redirect::to("/next").into_response(),
+    let target = match app.access.as_ref().and_then(crate::access::Access::issuer) {
+        Some(issuer) => format!("{}/cdn-cgi/access/logout", issuer.trim_end_matches('/')),
+        None => "/next".to_owned(),
     };
-    response
-        .headers_mut()
-        .insert(header::SET_COOKIE, clear_session_cookie());
+    if let Some(session) = cookie_session(&app, &headers) {
+        let Some(csrf) = form.csrf.as_deref().and_then(hex::decode_32) else {
+            return StatusCode::FORBIDDEN.into_response();
+        };
+        if !constant_time_eq(&csrf, &session.csrf) {
+            return StatusCode::FORBIDDEN.into_response();
+        }
+        {
+            let mut sessions = lock(&app.sessions);
+            sessions.retain(|entry| !constant_time_eq(&entry.token_hash, &session.token_hash));
+        }
+        if let Err(error) = crate::auth::save_sessions(&app.data, &lock(&app.sessions)) {
+            eprintln!("summrise-console: the sessions could not be persisted: {error}");
+        }
+    }
+    // A tab whose cookie is already gone still gets to ask the edge to forget it — otherwise the
+    // button does nothing, because the next request would be signed straight back in. That path
+    // needs no CSRF value: ending a session is not a security boundary, and the edge's own logout
+    // is a URL anyone can send.
+    let mut response = Redirect::to(&target).into_response();
+    response.headers_mut().insert(
+        header::SET_COOKIE,
+        clear_session_cookie(secure_request(&headers)),
+    );
     response
 }
 

@@ -3450,6 +3450,138 @@ async fn the_card_is_quiet_on_a_direct_request_when_access_is_configured() {
     );
 }
 
+/// The page mints a session for an Access-verified request with no cookie, so a browser that refuses
+/// cookies would append one per page load. The file keeps the newest few, not everything since the
+/// first deploy.
+#[tokio::test]
+async fn the_session_store_keeps_at_most_thirty_two_sessions() {
+    let fixture = Fixture::new("session-cap");
+    let mut newest = String::new();
+    for _ in 0..=32 {
+        let (status, headers, _) = send_text(
+            fixture.app(),
+            post_form("/next/auth", &[("token", &hex(&OPERATOR_TOKEN))]),
+        )
+        .await;
+        assert_eq!(status, StatusCode::SEE_OTHER);
+        newest = headers
+            .get(header::SET_COOKIE)
+            .expect("a session cookie")
+            .to_str()
+            .expect("a cookie is ASCII")
+            .to_owned();
+    }
+
+    let text = fs::read_to_string(fixture.config.data.join("sessions.json"))
+        .expect("the sessions file is written");
+    let rows: Vec<Value> = serde_json::from_str(&text).expect("the file is JSON");
+    assert_eq!(rows.len(), 32, "the store is bounded");
+
+    let cookie = newest.split(';').next().expect("the name=value pair");
+    let (_, _, page) = send_text(fixture.app(), get_with_cookie("/next", cookie)).await;
+    assert!(
+        page.contains("New enrollment code"),
+        "the newest session is the one kept: {page}"
+    );
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn the_session_file_is_readable_only_by_its_owner() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let fixture = Fixture::new("session-mode");
+    let _ = page_cookie(&fixture).await;
+
+    let mode = fs::metadata(fixture.config.data.join("sessions.json"))
+        .expect("the sessions file exists")
+        .permissions()
+        .mode()
+        & 0o777;
+    assert_eq!(mode, 0o600, "a session hash is credential-grade");
+}
+
+/// Sign-out must mean something even in the tab whose cookie is gone: the edge's session is the one
+/// that would sign it straight back in.
+#[tokio::test]
+async fn signing_out_without_a_session_still_ends_the_access_session() {
+    let fixture = Fixture::with_access("access-sign-out-no-cookie");
+    let request = Request::builder()
+        .method("POST")
+        .uri("/next/logout")
+        .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+        .header("x-forwarded-proto", "https")
+        .body(Body::empty())
+        .expect("the request builds");
+
+    let (status, headers, _) = send_text(fixture.app(), request).await;
+
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert_eq!(
+        headers
+            .get(header::LOCATION)
+            .and_then(|value| value.to_str().ok()),
+        Some("https://test-team.cloudflareaccess.com/cdn-cgi/access/logout"),
+        "the edge's session outlives ours"
+    );
+    let cleared = headers
+        .get(header::SET_COOKIE)
+        .and_then(|value| value.to_str().ok());
+    assert!(
+        cleared.is_some_and(|cookie| cookie.contains("Secure")),
+        "the clear mirrors the cookie it clears: {cleared:?}"
+    );
+}
+
+/// Without an edge there is nothing to sign out of: the tab goes home.
+#[tokio::test]
+async fn signing_out_without_access_goes_home() {
+    let fixture = Fixture::new("sign-out-home");
+
+    let (status, headers, _) = send_text(fixture.app(), post_form("/next/logout", &[])).await;
+
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert_eq!(
+        headers
+            .get(header::LOCATION)
+            .and_then(|value| value.to_str().ok()),
+        Some("/next")
+    );
+}
+
+/// A one-time code must not outlive itself in the recovery copy: minting a second link must not
+/// leave the first code on disk, and spending one must clear a leftover copy from an older build.
+#[tokio::test]
+async fn a_login_code_leaves_no_recovery_copy() {
+    let fixture = Fixture::new("login-code-backup");
+    let data = &fixture.config.data;
+    let first = LoginCode {
+        code: "d".repeat(64),
+        expires_at_ms: fixture.now_ms() + MINUTE_MS,
+    };
+    let second = LoginCode {
+        code: "e".repeat(64),
+        expires_at_ms: fixture.now_ms() + MINUTE_MS,
+    };
+    summrise_console::write_login_code(data, &first).expect("the first code is written");
+    summrise_console::write_login_code(data, &second).expect("the second code is written");
+
+    let backup = data.join("login.json.bak");
+    assert!(
+        !backup.exists(),
+        "the previous code must not survive in a copy"
+    );
+
+    fs::write(&backup, "a leftover from an older build").expect("the leftover exists");
+    let (status, _, _) = send_text(
+        fixture.app(),
+        get(&format!("/next?code={}", second.code), None),
+    )
+    .await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert!(!backup.exists(), "spending the code removes the copy too");
+}
+
 /// `--login-link https://console.saisi.online` prints `<public-url>?code=…`. The bare root is the
 /// URL that command would be given, and its redirect to the page must carry the code, not drop it.
 #[tokio::test]

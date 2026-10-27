@@ -130,6 +130,11 @@ pub(crate) fn load_sessions(data: &Path, now_ms: u64) -> Vec<Session> {
 }
 
 /// Write the sessions, atomically, so a crash mid-write cannot leave a half file behind.
+///
+/// The file holds credential-grade material (a session token's hash is enough to present the
+/// cookie), so it is written by the store's credential writer: `0600` on Unix, and **no** recovery
+/// copy — a `.bak` would keep a signed-out session alive on disk, which is the same rule the token
+/// registry follows.
 pub(crate) fn save_sessions(data: &Path, sessions: &[Session]) -> std::io::Result<()> {
     let rows: Vec<StoredSession> = sessions
         .iter()
@@ -139,9 +144,5 @@ pub(crate) fn save_sessions(data: &Path, sessions: &[Session]) -> std::io::Resul
             expires_at_ms: session.expires_at_ms,
         })
         .collect();
-    let text = serde_json::to_string_pretty(&rows).unwrap_or_else(|_| "[]".to_owned());
-    let path = sessions_path(data);
-    let tmp = path.with_extension("json.tmp");
-    std::fs::write(&tmp, text)?;
-    std::fs::rename(&tmp, &path)
+    crate::store::write_json_atomic_without_backup(&sessions_path(data), &rows)
 }
