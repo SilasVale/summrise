@@ -113,7 +113,13 @@
         await new Promise((resolve) => setTimeout(resolve, 300));
         continue;
       }
-      if (answer.text) term.write(answer.text);
+      // `text` is the lossy reading; `data_base64` is the bytes, which is what keeps a multi-byte
+    // character intact when a poll boundary falls inside it.
+    if (answer.data_base64) {
+      term.write(Uint8Array.from(atob(answer.data_base64), (c) => c.charCodeAt(0)));
+    } else if (answer.text) {
+      term.write(answer.text);
+    }
       cursor = answer.cursor;
       await new Promise((resolve) => setTimeout(resolve, 150));
     }

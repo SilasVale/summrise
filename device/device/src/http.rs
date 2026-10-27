@@ -355,15 +355,10 @@ async fn local_panel(
         return error_response(StatusCode::FORBIDDEN, "loopback_only", None);
     }
 
-    Html(PANEL_PAGE.replace(PANEL_TOKEN_PLACEHOLDER, &app.panel_token)).into_response()
+    // The same page `/panel` renders, from the same facts: the HTML file is gone, and there is one
+    // place a panel section is written.
+    Html(panel::page(&panel_facts(&app)).into_string()).into_response()
 }
-
-/// The panel's page, compiled in: the device has no assets directory to lose.
-const PANEL_PAGE: &str = include_str!("panel.html");
-
-/// Where the served page gets this boot's panel token. The placeholder exists only in the source;
-/// every response carries the minted value, and the value appears nowhere else.
-const PANEL_TOKEN_PLACEHOLDER: &str = "__PANEL_TOKEN__";
 
 /// The header the panel's script sends the token in. A cross-site page cannot set a custom header
 /// without a CORS preflight, and this API never grants one.
@@ -1989,9 +1984,15 @@ mod tests {
                 .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)),
             "the token is lowercase hex: {token}"
         );
+        // The form is a plain POST now: the page carries the token in a hidden field because a form
+        // cannot set `x-summrise-panel`, and the answer is a redirect with the outcome.
         assert!(
-            html.contains("The device is restarting to connect"),
-            "the page explains the supervised restart, and keeps the manual sentence for a standalone start"
+            html.contains("action=\"/panel/enroll\""),
+            "the enroll form posts to the panel's own route"
+        );
+        assert!(
+            html.contains("name=\"panel_token\""),
+            "the form carries this boot's token in a field"
         );
         for id in [
             "enroll-console",
@@ -2017,8 +2018,8 @@ mod tests {
             "the status line is announced to a screen reader"
         );
         assert!(
-            html.contains("x-summrise-panel"),
-            "the page sends this boot's token in the header the endpoint requires"
+            html.contains(r#"src="/panel/panel-terminal.js""#),
+            "the terminal's glue is an asset now; the page no longer carries its own script"
         );
         assert!(
             html.contains("Use this machine"),
