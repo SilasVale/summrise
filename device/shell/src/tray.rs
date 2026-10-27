@@ -20,8 +20,16 @@ mod tests {
     #[test]
     fn a_new_icon_entry_is_promoted_beside_an_older_promoted_one() {
         let own = r"c:\summrise\summrise-shell.exe";
-        assert!(needs_promotion(own, r"C:\Summrise\summrise-shell.exe", false));
-        assert!(!needs_promotion(own, r"C:\Summrise\summrise-shell.exe", true));
+        assert!(needs_promotion(
+            own,
+            r"C:\Summrise\summrise-shell.exe",
+            false
+        ));
+        assert!(!needs_promotion(
+            own,
+            r"C:\Summrise\summrise-shell.exe",
+            true
+        ));
         assert!(!needs_promotion(own, r"C:\Other\thing.exe", false));
     }
 }
