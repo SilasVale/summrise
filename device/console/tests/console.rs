@@ -7679,3 +7679,44 @@ async fn the_fleet_shows_the_console_s_own_recent_activity() {
         "the enrollment is one of the lines: {body}"
     );
 }
+
+#[tokio::test]
+async fn the_audit_page_narrows_to_the_lines_the_filter_names() {
+    let fixture = Fixture::new("audit-filter");
+    let (cookie, csrf) = sign_in_to_the_page(&fixture).await;
+
+    // One enrollment is one audit line, and it is the only line this console has made.
+    let (status, _, _) = send_text(
+        fixture.app(),
+        post_form_cookie("/next/enroll", &[("csrf", &csrf)], &cookie),
+    )
+    .await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+
+    // No filter: the form and the line.
+    let (status, _, body) = send_text(fixture.app(), get_with_cookie("/next/audit", &cookie)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        body.contains("id=\"f-kind\""),
+        "the filter bar is on the page: {body}"
+    );
+    assert!(body.contains("enroll"), "{body}");
+
+    // A kind that is not in the log: the empty state, not the same table.
+    let (status, _, body) = send_text(
+        fixture.app(),
+        get_with_cookie("/next/audit?kind=tool", &cookie),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(body.contains("Nothing has been recorded yet"), "{body}");
+
+    // The tool filter reads the detail too, so a narrowed view is never a dead end.
+    let (status, _, body) = send_text(
+        fixture.app(),
+        get_with_cookie("/next/audit?kind=enroll", &cookie),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(body.contains("enroll"), "{body}");
+}

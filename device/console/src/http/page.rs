@@ -1011,17 +1011,103 @@ pub(super) fn dashboard(
 }
 
 /// A read-only log page: the audit or denial lines, newest first, bounded by the caller.
-pub(super) fn logs(rows: &[serde_json::Value], title: &str, csrf: &str, version: &str) -> Markup {
+/// What an operator narrowed the audit log to. Empty means "no filter".
+#[derive(Debug, Default)]
+pub(super) struct AuditFilter {
+    pub(super) device: String,
+    pub(super) kind: String,
+    /// `2`, `4` or `5`: the status class, not an exact code.
+    pub(super) status: String,
+    pub(super) tool: String,
+}
+
+impl AuditFilter {
+    /// Whether anything is narrowed, so the page can say "filtered" rather than imply the log is small.
+    pub(super) fn is_active(&self) -> bool {
+        !self.device.is_empty()
+            || !self.kind.is_empty()
+            || !self.status.is_empty()
+            || !self.tool.is_empty()
+    }
+}
+
+/// The audit page's filter bar: a GET form, so a narrowed view is a URL an operator can keep.
+pub(super) fn audit_filter(devices: &[(String, String)], filter: &AuditFilter) -> Markup {
+    html! {
+        section class="card" {
+            (card_head("Filter", Markup::default(), Markup::default()))
+            div class="card-body" {
+                form method="get" action="/next/audit" class="filter-form" {
+                    div class="field" {
+                        label for="f-device" { "Device" }
+                        select id="f-device" name="device" {
+                            option value="" { "All devices" }
+                            @for (id, label) in devices {
+                                option value=(id) selected[filter.device == *id] { (label) }
+                            }
+                        }
+                    }
+                    div class="field" {
+                        label for="f-kind" { "Kind" }
+                        select id="f-kind" name="kind" {
+                            option value="" { "Every kind" }
+                            @for kind in ["tool", "auth", "device", "denied"] {
+                                option value=(kind) selected[filter.kind == kind] { (kind) }
+                            }
+                        }
+                    }
+                    div class="field" {
+                        label for="f-status" { "Status" }
+                        select id="f-status" name="status" {
+                            option value="" { "Every status" }
+                            @for (value, label) in [("2", "2xx"), ("4", "4xx"), ("5", "5xx")] {
+                                option value=(value) selected[filter.status == value] { (label) }
+                            }
+                        }
+                    }
+                    div class="field" {
+                        label for="f-tool" { "Tool or detail" }
+                        input id="f-tool" name="tool" type="search" value=(filter.tool) placeholder="runs.exec, unknown_code";
+                    }
+                    div class="form-actions" {
+                        button type="submit" class="btn btn-primary btn-sm" { "Apply" }
+                        @if filter.is_active() {
+                            a class="btn btn-ghost btn-sm" href="/next/audit" { "Clear" }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+pub(super) fn logs(
+    rows: &[serde_json::Value],
+    title: &str,
+    total: usize,
+    filter: Option<Markup>,
+    csrf: &str,
+    version: &str,
+) -> Markup {
     let count = rows.len();
     let content = html! {
         p class="lead" {
             "The console's own record, newest first. Times are UTC; a device id is shortened here "
             "but named in full by the line's tooltip."
         }
+        @if let Some(filter) = filter {
+            (filter)
+        }
         section class="card" {
             (card_head(
                 title,
-                html! { span class="chip muted" { (count) } },
+                html! {
+                    @if total > count {
+                        span class="chip muted" { (count) " of " (total) }
+                    } @else {
+                        span class="chip muted" { (count) }
+                    }
+                },
                 html! { a class="btn btn-ghost btn-sm" href="/next" { "Fleet" } },
             ))
             @if rows.is_empty() {
@@ -2836,8 +2922,8 @@ mod tests {
                 "Fleet",
                 dashboard(std::slice::from_ref(device), "00", "0.1.0", None, None, &[]),
             ),
-            ("Fleet", logs(&[], "Audit", "00", "0.1.0")),
-            ("Fleet", logs(&[], "Denials", "00", "0.1.0")),
+            ("Fleet", logs(&[], "Audit", 0, None, "00", "0.1.0")),
+            ("Fleet", logs(&[], "Denials", 0, None, "00", "0.1.0")),
             ("Terminal", terminal(device, "00", "0.1.0", &[])),
             ("Files", files(device, "", &[], "00", "0.1.0", None)),
             (
@@ -3373,7 +3459,27 @@ mod tests {
                 ),
             ),
             ("vitals", vitals(&devices[0], &sample_vitals(), "csrf", "0.3.72")),
-            ("audit", logs(&log_rows, "Audit", "csrf", "0.3.72")),
+            (
+                "audit",
+                logs(
+                    &log_rows,
+                    "Audit",
+                    log_rows.len() + 3,
+                    Some(audit_filter(
+                        &[
+                            ("a".repeat(64), "DESKTOP-9VH92BJ".to_owned()),
+                            ("b".repeat(64), "DESKTOP-14RJCR8".to_owned()),
+                        ],
+                        &AuditFilter {
+                            kind: "tool".to_owned(),
+                            ..AuditFilter::default()
+                        },
+                    )),
+                    "csrf",
+                    "0.3.72",
+                ),
+            ),
+            ("audit-filtered", logs(&log_rows, "Audit", log_rows.len(), Some(audit_filter(&[], &AuditFilter::default())), "csrf", "0.3.72")),
             ("login", login(None)),
         ];
         for (name, markup) in pages {

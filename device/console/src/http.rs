@@ -1016,6 +1016,19 @@ struct NextLogout {
     csrf: Option<String>,
 }
 
+/// The audit page's filters, all optional: a GET form, so a narrowed view is a URL.
+#[derive(Deserialize)]
+struct AuditQuery {
+    device: Option<String>,
+    kind: Option<String>,
+    status: Option<String>,
+    tool: Option<String>,
+}
+
+/// How far back the audit filter looks before it applies itself: deeper than the page shows, shallow
+/// enough that one request does not read the whole file.
+const AUDIT_FILTER_WINDOW: usize = 500;
+
 /// `GET /next`: the login form without a live cookie, the page with one.
 #[derive(Deserialize, Default)]
 struct NextQuery {
@@ -1149,13 +1162,72 @@ async fn next_enroll(
 }
 
 /// `GET /next/audit`: the audit log, read-only, behind the page's cookie.
-async fn next_audit(State(app): State<AppState>, headers: HeaderMap) -> Response {
+async fn next_audit(
+    State(app): State<AppState>,
+    headers: HeaderMap,
+    Query(query): Query<AuditQuery>,
+) -> Response {
     let Some(session) = cookie_session(&app, &headers) else {
         return Html(page::login(None).into_string()).into_response();
     };
-    let rows = app.audit.newest(DEFAULT_LOG_LIMIT).await;
-    Html(page::logs(&rows, "Audit", &hex::encode(&session.csrf), &app.version).into_string())
-        .into_response()
+    // The filter is applied to a deeper read than the page shows, so narrowing never hides a line
+    // that is in the log: the page says "N of M" and M is what the console actually holds.
+    let total = app.audit.newest(AUDIT_FILTER_WINDOW).await;
+    let filter = page::AuditFilter {
+        device: query.device.unwrap_or_default(),
+        kind: query.kind.unwrap_or_default(),
+        status: query.status.unwrap_or_default(),
+        tool: query.tool.unwrap_or_default(),
+    };
+    let rows: Vec<Value> = total
+        .iter()
+        .filter(|row| {
+            let device_ok = filter.device.is_empty()
+                || row["device_id"].as_str() == Some(filter.device.as_str());
+            let kind_ok =
+                filter.kind.is_empty() || row["kind"].as_str() == Some(filter.kind.as_str());
+            let status_ok = match row["status"].as_u64() {
+                Some(status) if !filter.status.is_empty() => {
+                    status.to_string().starts_with(&filter.status)
+                }
+                _ => filter.status.is_empty(),
+            };
+            let needle = filter.tool.to_ascii_lowercase();
+            let tool_ok = needle.is_empty()
+                || row["tool"]
+                    .as_str()
+                    .is_some_and(|tool| tool.to_ascii_lowercase().contains(&needle))
+                || row["detail"]
+                    .as_str()
+                    .is_some_and(|detail| detail.to_ascii_lowercase().contains(&needle));
+            device_ok && kind_ok && status_ok && tool_ok
+        })
+        .take(DEFAULT_LOG_LIMIT)
+        .cloned()
+        .collect();
+    let devices: Vec<(String, String)> = device_views(&app)
+        .into_iter()
+        .map(|device| {
+            let label = device
+                .name
+                .clone()
+                .unwrap_or_else(|| device.id.chars().take(8).collect());
+            (device.id, label)
+        })
+        .collect();
+    let bar = page::audit_filter(&devices, &filter);
+    Html(
+        page::logs(
+            &rows,
+            "Audit",
+            total.len(),
+            Some(bar),
+            &hex::encode(&session.csrf),
+            &app.version,
+        )
+        .into_string(),
+    )
+    .into_response()
 }
 
 /// `GET /next/denials`: the unauthenticated-refusal log, read-only, behind the page's cookie.
@@ -1164,8 +1236,18 @@ async fn next_denials(State(app): State<AppState>, headers: HeaderMap) -> Respon
         return Html(page::login(None).into_string()).into_response();
     };
     let rows = app.denials.newest(DEFAULT_LOG_LIMIT).await;
-    Html(page::logs(&rows, "Denials", &hex::encode(&session.csrf), &app.version).into_string())
-        .into_response()
+    Html(
+        page::logs(
+            &rows,
+            "Denials",
+            rows.len(),
+            None,
+            &hex::encode(&session.csrf),
+            &app.version,
+        )
+        .into_string(),
+    )
+    .into_response()
 }
 
 /// The terminal page's request bodies. All three are small on purpose: the page sends a session id
