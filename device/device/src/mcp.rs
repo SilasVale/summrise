@@ -1055,6 +1055,22 @@ impl DeviceServer {
                 })
                 .to_string())
             }
+            Handler::BrowserCast => {
+                let arguments: BrowserTargetArgs = parse(arguments, name)?;
+                let frame = self
+                    .browser
+                    .cast(&arguments.target)
+                    .await
+                    .map_err(|error| refused(name, error))?;
+                Ok(json!({
+                    "format": "jpeg",
+                    "data": frame.data,
+                    "width": frame.width,
+                    "height": frame.height,
+                    "at_ms": frame.at_ms,
+                })
+                .to_string())
+            }
             Handler::BrowserClose => {
                 let arguments: BrowserTargetArgs = parse(arguments, name)?;
                 self.browser
@@ -1379,6 +1395,7 @@ enum Handler {
     BrowserNavigate,
     BrowserEval,
     BrowserScreenshot,
+    BrowserCast,
     BrowserClose,
     BrowserShutdown,
     MonitorAdd,
@@ -1427,6 +1444,7 @@ const HANDLERS: &[(&str, Handler)] = &[
     ("browser.navigate", Handler::BrowserNavigate),
     ("browser.eval", Handler::BrowserEval),
     ("browser.screenshot", Handler::BrowserScreenshot),
+    ("browser.cast", Handler::BrowserCast),
     ("browser.close", Handler::BrowserClose),
     ("browser.shutdown", Handler::BrowserShutdown),
     ("monitor.add", Handler::MonitorAdd),
@@ -1916,6 +1934,17 @@ fn input_schema(definition: &ToolDef) -> Value {
                 "target": {
                     "type": "string",
                     "description": "The target id browser.list or browser.open returned. The result is a base64 PNG of at most 8 MiB."
+                }
+            },
+            "required": ["target"],
+            "additionalProperties": false
+        }),
+        "browser.cast" => json!({
+            "type": "object",
+            "properties": {
+                "target": {
+                    "type": "string",
+                    "description": "The target id browser.list or browser.open returned. The result is the newest screencast frame as a base64 JPEG of at most 8 MiB; the stream stops itself after 60 s without a call."
                 }
             },
             "required": ["target"],
@@ -3268,6 +3297,7 @@ mod tests {
                 "browser.navigate",
                 "browser.eval",
                 "browser.screenshot",
+                "browser.cast",
                 "browser.close",
                 "browser.shutdown",
                 "monitor.add",

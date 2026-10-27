@@ -3443,11 +3443,11 @@ struct BrowserFrameQuery {
     target: String,
 }
 
-/// `GET /next/browser/:device/frame`: one capture, as JSON, for the pane's frame pump.
+/// `GET /next/browser/:device/frame`: the newest screencast frame, as JSON, for the pane's pump.
 ///
-/// The same `browser.screenshot` the page renders once is served here on demand, so the pane can
-/// replace its picture without re-rendering the page (and without the target list moving under the
-/// operator's cursor).
+/// This is the device's `browser.cast`, not a fresh screenshot: Chrome pushes frames to a live
+/// stream on the device, and each poll takes the newest one — so the device encodes once per painted
+/// frame instead of once per request, and a slow console loses frames rather than falling behind.
 async fn next_browser_frame(
     State(app): State<AppState>,
     Path(device_id): Path<String>,
@@ -3463,27 +3463,41 @@ async fn next_browser_frame(
     if query.target.trim().is_empty() {
         return StatusCode::BAD_REQUEST.into_response();
     }
-    match device_tool(
+    let target = query.target.trim().to_owned();
+    // The live stream is the better answer, but a device build older than `browser.cast` has to keep
+    // working: the pane then gets one screenshot per poll, which is what it had before.
+    let captured = match device_tool(
         &app,
         &device_id,
-        "browser.screenshot",
-        json!({ "target": query.target.trim() }),
+        "browser.cast",
+        json!({ "target": target }),
     )
     .await
     {
-        Ok(text) => {
-            let capture: Value = serde_json::from_str(&text).unwrap_or(Value::Null);
-            match capture["data"].as_str() {
-                Some(data) => Json(json!({
-                    "format": capture["format"].as_str().unwrap_or("png"),
-                    "data": data,
-                    "bytes": capture["bytes"],
-                }))
-                .into_response(),
-                None => StatusCode::BAD_GATEWAY.into_response(),
-            }
-        }
-        Err(response) => *response,
+        Ok(text) => text,
+        Err(_) => match device_tool(
+            &app,
+            &device_id,
+            "browser.screenshot",
+            json!({ "target": target }),
+        )
+        .await
+        {
+            Ok(text) => text,
+            Err(response) => return *response,
+        },
+    };
+    let capture: Value = serde_json::from_str(&captured).unwrap_or(Value::Null);
+    match capture["data"].as_str() {
+        Some(data) => Json(json!({
+            "format": capture["format"].as_str().unwrap_or("jpeg"),
+            "data": data,
+            "width": capture["width"],
+            "height": capture["height"],
+            "at_ms": capture["at_ms"],
+        }))
+        .into_response(),
+        None => StatusCode::BAD_GATEWAY.into_response(),
     }
 }
 

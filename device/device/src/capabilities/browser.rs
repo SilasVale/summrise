@@ -52,6 +52,7 @@ use std::io::{self, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use futures_util::{SinkExt, StreamExt};
@@ -75,6 +76,32 @@ pub const EVAL_MAX_BYTES: usize = 1024 * 1024;
 
 /// The largest screenshot `browser.screenshot` returns, as the decoded PNG's length.
 pub const SCREENSHOT_MAX_BYTES: usize = 8 * 1024 * 1024;
+
+/// The largest screencast frame `browser.cast` returns, as the base64 JPEG's length. Chrome's frames
+/// are smaller than its screenshots by construction (JPEG, one frame), but the cap is the same
+/// service: a frame is JSON the caller has to hold.
+pub const CAST_MAX_BYTES: usize = 8 * 1024 * 1024;
+
+/// How long `cast` waits for a frame after the screencast starts, and how often it looks.
+const CAST_WAIT_MS: u64 = 2_000;
+const CAST_POLL_MS: u64 = 20;
+
+/// How long a screencast may go unpolled before its task stops Chrome's stream: a console tab that
+/// was closed or navigated away should not leave Chrome encoding frames nobody reads.
+const CAST_IDLE_MS: u64 = 60_000;
+
+/// One screencast frame: a base64 JPEG Chrome produced for a page, with its size and arrival time.
+#[derive(Clone)]
+pub struct CastFrame {
+    /// The base64-encoded JPEG.
+    pub data: String,
+    /// The page's width in device pixels, as the frame's metadata reports it.
+    pub width: u64,
+    /// The page's height in device pixels.
+    pub height: u64,
+    /// When the device received the frame, in Unix milliseconds.
+    pub at_ms: u64,
+}
 
 /// How long one CDP command, one HTTP target-list read, or one CDP connect may take.
 pub const COMMAND_TIMEOUT_MS: u64 = 10_000;
@@ -898,7 +925,9 @@ impl Browser {
     }
 
     /// Connect to one page target's own endpoint.
-    async fn page_client(&mut self, target: &str) -> Result<CdpClient, BrowserError> {
+    /// The debugger endpoint of one page target, which is what both a command client and a
+    /// screencast connect to.
+    async fn page_url(&mut self, target: &str) -> Result<String, BrowserError> {
         let targets = self.targets().await?;
         let entry = targets
             .iter()
@@ -906,7 +935,12 @@ impl Browser {
                 entry.id == target && entry.kind == "page" && !entry.web_socket_url.is_empty()
             })
             .ok_or(BrowserError::UnknownTarget)?;
-        CdpClient::connect(&entry.web_socket_url).await
+        Ok(entry.web_socket_url.clone())
+    }
+
+    async fn page_client(&mut self, target: &str) -> Result<CdpClient, BrowserError> {
+        let url = self.page_url(target).await?;
+        CdpClient::connect(&url).await
     }
 
     /// Create a tab and wait for its document to be parsed.
@@ -1486,6 +1520,19 @@ pub struct BrowserRegistry {
     /// [`READINESS_TIMEOUT_MS`], a test can shorten it.
     readiness_timeout_ms: u64,
     browser: tokio::sync::Mutex<Option<Browser>>,
+    /// Screencasts by target id. Kept apart from `browser` so a running stream does not hold the
+    /// browser's lock while other tools use it.
+    casts: std::sync::Mutex<std::collections::HashMap<String, Cast>>,
+}
+
+/// One running screencast: the newest frame, the stop signal, and the task that reads Chrome.
+struct Cast {
+    latest: Arc<std::sync::Mutex<Option<CastFrame>>>,
+    stop: Arc<tokio::sync::Notify>,
+    /// When the console last asked for a frame, in Unix milliseconds. The task stops the stream
+    /// after [`CAST_IDLE_MS`] without an ask.
+    asked_at_ms: Arc<std::sync::atomic::AtomicU64>,
+    task: tokio::task::JoinHandle<()>,
 }
 
 impl BrowserRegistry {
@@ -1496,6 +1543,7 @@ impl BrowserRegistry {
             chrome: None,
             readiness_timeout_ms: READINESS_TIMEOUT_MS,
             browser: tokio::sync::Mutex::new(None),
+            casts: std::sync::Mutex::new(std::collections::HashMap::new()),
         }
     }
 
@@ -1507,6 +1555,7 @@ impl BrowserRegistry {
             chrome: Some(chrome),
             readiness_timeout_ms: READINESS_TIMEOUT_MS,
             browser: tokio::sync::Mutex::new(None),
+            casts: std::sync::Mutex::new(std::collections::HashMap::new()),
         }
     }
 
@@ -1522,6 +1571,7 @@ impl BrowserRegistry {
             chrome: Some(chrome),
             readiness_timeout_ms,
             browser: tokio::sync::Mutex::new(None),
+            casts: std::sync::Mutex::new(std::collections::HashMap::new()),
         }
     }
 
@@ -1584,11 +1634,105 @@ impl BrowserRegistry {
         browser.screenshot(target).await
     }
 
+    /// The newest frame of a screencast for `target`, starting one if none is running.
+    ///
+    /// Chrome pushes frames; this returns the newest one, so the caller's cadence is its own and a
+    /// slow reader loses frames instead of falling behind. A stream nobody asks for stops itself
+    /// after CAST_IDLE_MS.
+    pub async fn cast(&self, target: &str) -> Result<CastFrame, BrowserError> {
+        let (latest, asked_at_ms) = self.cast_slot(target).await?;
+        asked_at_ms.store(now_unix_ms(), Ordering::Relaxed);
+        let deadline = Instant::now() + Duration::from_millis(CAST_WAIT_MS);
+        loop {
+            if let Some(frame) = latest.lock().expect("the frame slot").clone() {
+                return Ok(frame);
+            }
+            if Instant::now() >= deadline {
+                return Err(BrowserError::Timeout {
+                    method: "browser.cast",
+                    timeout_ms: CAST_WAIT_MS,
+                });
+            }
+            tokio::time::sleep(Duration::from_millis(CAST_POLL_MS)).await;
+        }
+    }
+
+    /// Stop one screencast; `false` when none was running.
+    pub async fn cast_stop(&self, target: &str) -> bool {
+        let cast = self.casts.lock().expect("the cast table").remove(target);
+        match cast {
+            Some(cast) => {
+                cast.stop.notify_one();
+                let _ = cast.task.await;
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// The live slot for `target`, starting the reader task when there is none.
+    async fn cast_slot(
+        &self,
+        target: &str,
+    ) -> Result<(Arc<std::sync::Mutex<Option<CastFrame>>>, Arc<AtomicU64>), BrowserError> {
+        {
+            let casts = self.casts.lock().expect("the cast table");
+            if let Some(cast) = casts.get(target) {
+                if !cast.task.is_finished() {
+                    return Ok((cast.latest.clone(), cast.asked_at_ms.clone()));
+                }
+            }
+        }
+        // No live stream: resolve the page's endpoint through the browser, then spawn its reader.
+        let url = {
+            let mut slot = self.browser().await?;
+            let browser = slot.as_mut().expect("the registry just made it live");
+            browser.page_url(target).await?
+        };
+        let latest = Arc::new(std::sync::Mutex::new(None));
+        let stop = Arc::new(tokio::sync::Notify::new());
+        let asked_at_ms = Arc::new(AtomicU64::new(now_unix_ms()));
+        let task = tokio::spawn(run_cast(
+            url,
+            latest.clone(),
+            stop.clone(),
+            asked_at_ms.clone(),
+        ));
+        self.casts.lock().expect("the cast table").insert(
+            target.to_owned(),
+            Cast {
+                latest: latest.clone(),
+                stop,
+                asked_at_ms: asked_at_ms.clone(),
+                task,
+            },
+        );
+        Ok((latest, asked_at_ms))
+    }
+
+    /// Stop every screencast, waiting for each reader to finish.
+    async fn stop_all_casts(&self) {
+        let casts: Vec<Cast> = {
+            let mut table = self.casts.lock().expect("the cast table");
+            table.drain().map(|(_, cast)| cast).collect()
+        };
+        for cast in casts {
+            cast.stop.notify_one();
+            let _ = cast.task.await;
+        }
+    }
+
     /// Close one page; the browser keeps running (and any other tab stays).
     pub async fn close(&self, target: &str) -> Result<(), BrowserError> {
         let mut slot = self.browser().await?;
         let browser = slot.as_mut().expect("the registry just made it live");
-        browser.close(target).await
+        let closed = browser.close(target).await;
+        drop(slot);
+        // A closed tab cannot be watched, and its reader would wait on a dead endpoint.
+        if closed.is_ok() {
+            self.cast_stop(target).await;
+        }
+        closed
     }
 
     /// Stop the browser this registry started; returns whether one was running.
@@ -1596,6 +1740,8 @@ impl BrowserRegistry {
     /// This is not an error when nothing is running: `shutdown` is the action a client takes to be
     /// sure no browser is left, and "already stopped" is that state, not a failure.
     pub async fn shutdown(&self) -> bool {
+        // The streams end before the browser does: their readers hold a connection to it.
+        self.stop_all_casts().await;
         let stopped = self.browser.lock().await.take();
         stopped.is_some()
     }
@@ -1660,6 +1806,97 @@ static LAUNCH_GATE: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 #[cfg(all(test, target_os = "linux"))]
 pub(crate) async fn launch_gate() -> tokio::sync::MutexGuard<'static, ()> {
     LAUNCH_GATE.lock().await
+}
+
+/// Read frames for one page endpoint until the stream is stopped, the page goes away, or nobody has
+/// asked for `CAST_IDLE_MS`.
+///
+/// Chrome requires an ack for every frame; without one it stops sending, so the ack is part of the
+/// loop rather than a courtesy.
+async fn run_cast(
+    url: String,
+    latest: Arc<std::sync::Mutex<Option<CastFrame>>>,
+    stop: Arc<tokio::sync::Notify>,
+    asked_at_ms: Arc<AtomicU64>,
+) {
+    let Ok(mut client) = CdpClient::connect(&url).await else {
+        return;
+    };
+    if client.command("Page.enable", json!({})).await.is_err() {
+        return;
+    }
+    let started = client
+        .command(
+            "Page.startScreencast",
+            json!({
+                "format": "jpeg",
+                "quality": 60,
+                "maxWidth": 1280,
+                "maxHeight": 800,
+                "everyNthFrame": 1,
+            }),
+        )
+        .await;
+    if started.is_err() {
+        return;
+    }
+    loop {
+        tokio::select! {
+            _ = stop.notified() => break,
+            message = client.next_message() => {
+                let Ok(message) = message else { break };
+                if event_name(&message) == Some("Page.screencastFrame") {
+                    if let Some(frame) = frame_from(&message) {
+                        *latest.lock().expect("the frame slot") = Some(frame);
+                    }
+                    let session = message["params"]["sessionId"].as_i64().unwrap_or(0);
+                    // The ack keeps Chrome sending; a failed one ends the stream below.
+                    if client
+                        .command("Page.screencastFrameAck", json!({ "sessionId": session }))
+                        .await
+                        .is_err()
+                    {
+                        break;
+                    }
+                }
+            }
+        }
+        if now_unix_ms().saturating_sub(asked_at_ms.load(Ordering::Relaxed)) > CAST_IDLE_MS {
+            break;
+        }
+    }
+    let _ = client.command("Page.stopScreencast", json!({})).await;
+}
+
+/// One `Page.screencastFrame` event as a frame, or `None` when it is not one this build can hand to
+/// a caller (no data, not a JPEG, or larger than [`CAST_MAX_BYTES`]).
+fn frame_from(message: &Value) -> Option<CastFrame> {
+    let params = message.get("params")?;
+    let data = params.get("data")?.as_str()?;
+    // A JPEG's base64 starts with the three bytes FF D8 FF.
+    if data.len() > CAST_MAX_BYTES || !data.starts_with("/9j/") {
+        return None;
+    }
+    let metadata = params.get("metadata");
+    Some(CastFrame {
+        data: data.to_owned(),
+        width: metadata
+            .and_then(|meta| meta.get("deviceWidth"))
+            .and_then(Value::as_u64)
+            .unwrap_or(0),
+        height: metadata
+            .and_then(|meta| meta.get("deviceHeight"))
+            .and_then(Value::as_u64)
+            .unwrap_or(0),
+        at_ms: now_unix_ms(),
+    })
+}
+
+fn now_unix_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_millis() as u64)
+        .unwrap_or(0)
 }
 
 #[cfg(all(test, target_os = "linux"))]
@@ -1815,6 +2052,51 @@ mod tests {
             Vec::<String>::new(),
             "a graceful shutdown removes the profile directory it created"
         );
+    }
+
+    /// A screencast is Chrome pushing JPEG frames; the tool returns the newest one, and a stream
+    /// nobody asks for can be stopped without waiting for an idle timeout.
+    #[tokio::test]
+    async fn a_cast_delivers_the_newest_frame_and_stops() {
+        let _gate = launch_gate().await;
+        let Some((_dir, _data, registry)) = fixture("browser-cast") else {
+            return;
+        };
+
+        let target = registry
+            .open(&data_url(FIRST_TITLE))
+            .await
+            .expect("a data URL opens");
+        let first = registry.cast(&target).await.expect("a frame arrives");
+        assert!(
+            first.data.starts_with("/9j/"),
+            "a base64 JPEG starts with the JPEG magic: {:?}",
+            &first.data[..first.data.len().min(16)]
+        );
+        assert!(
+            first.data.len() > 100,
+            "a real frame is more than 100 bytes: {}",
+            first.data.len()
+        );
+        assert!(first.at_ms > 0, "the frame says when it arrived");
+
+        // A second ask is answered by the live stream, not by a new connect: same frame or newer.
+        let second = registry
+            .cast(&target)
+            .await
+            .expect("a second frame arrives");
+        assert!(second.at_ms >= first.at_ms);
+
+        // Stopping is prompt even though the stream is idle rather than finished.
+        assert!(registry.cast_stop(&target).await);
+        assert!(
+            !registry.cast_stop(&target).await,
+            "a stopped stream is not running"
+        );
+
+        // Closing the tab ends its stream, and the browser then goes away cleanly.
+        registry.close(&target).await.expect("the tab closes");
+        assert!(registry.shutdown().await, "the browser was running");
     }
 
     #[tokio::test]

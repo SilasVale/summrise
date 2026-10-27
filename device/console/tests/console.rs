@@ -8825,7 +8825,7 @@ async fn the_browser_pane_can_take_a_fresh_frame() {
     assert!(body.contains("data-target=\"target-1\""), "{body}");
     assert!(body.contains("/assets/browser.js"), "{body}");
 
-    // The frame route answers with the same capture, for the pump.
+    // The frame route takes the newest frame of the device's live stream, for the pump.
     let app = fixture.app();
     let request = get_with_cookie(
         &format!("/next/browser/{device_id}/frame?target=target-1"),
@@ -8835,7 +8835,7 @@ async fn the_browser_pane_can_take_a_fresh_frame() {
     let frame = next_json(&mut device).await;
     assert_eq!(
         frame["mcp"]["params"]["name"],
-        json!("browser.screenshot"),
+        json!("browser.cast"),
         "{frame}"
     );
     assert_eq!(
@@ -8845,14 +8845,15 @@ async fn the_browser_pane_can_take_a_fresh_frame() {
     answer(
         &mut device,
         &frame,
-        json!({ "jsonrpc": "2.0", "id": 1, "result": { "content": [{ "type": "text", "text": json!({ "format": "png", "data": "QUJD", "bytes": 3 }).to_string() }], "isError": false } }),
+        json!({ "jsonrpc": "2.0", "id": 1, "result": { "content": [{ "type": "text", "text": json!({ "format": "jpeg", "data": "/9j/AAAA", "width": 1280, "height": 800, "at_ms": 1_793_000_000_000u64 }).to_string() }], "isError": false } }),
     )
     .await;
     let (status, _, body) = frame_request.await.expect("the frame finishes");
     assert_eq!(status, StatusCode::OK, "{body}");
     let frame: Value = serde_json::from_str(&body).expect("a JSON frame");
-    assert_eq!(frame["format"], json!("png"));
-    assert_eq!(frame["data"], json!("QUJD"));
+    assert_eq!(frame["format"], json!("jpeg"));
+    assert_eq!(frame["data"], json!("/9j/AAAA"));
+    assert_eq!(frame["width"], json!(1280));
 
     // Without a session it refuses before touching the device.
     let request = get(
@@ -8861,6 +8862,58 @@ async fn the_browser_pane_can_take_a_fresh_frame() {
     );
     let (status, _, _) = send_text(fixture.app(), request).await;
     assert_eq!(status, StatusCode::UNAUTHORIZED);
+}
+
+/// A device older than `browser.cast` still fills the pane: the console falls back to one
+/// screenshot per poll rather than failing the frame.
+#[tokio::test]
+async fn the_frame_route_falls_back_to_a_screenshot_on_an_older_device() {
+    let fixture = Fixture::new("browser-frame-fallback");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xc8)).await;
+    let cookie = page_cookie(&fixture).await;
+
+    let app = fixture.app();
+    let request = get_with_cookie(
+        &format!("/next/browser/{device_id}/frame?target=target-1"),
+        &cookie,
+    );
+    let frame_request = tokio::spawn(async move { send_text(app, request).await });
+
+    // The old build has no browser.cast.
+    let frame = next_json(&mut device).await;
+    assert_eq!(
+        frame["mcp"]["params"]["name"],
+        json!("browser.cast"),
+        "{frame}"
+    );
+    answer_error(
+        &mut device,
+        &frame,
+        json!({ "jsonrpc": "2.0", "id": 1, "error": { "code": -32601, "message": "unknown tool: browser.cast" } }),
+    )
+    .await;
+
+    // The console asks for a screenshot instead.
+    let frame = next_json(&mut device).await;
+    assert_eq!(
+        frame["mcp"]["params"]["name"],
+        json!("browser.screenshot"),
+        "{frame}"
+    );
+    answer(
+        &mut device,
+        &frame,
+        json!({ "jsonrpc": "2.0", "id": 1, "result": { "content": [{ "type": "text", "text": json!({ "format": "png", "data": "QUJD", "bytes": 3 }).to_string() }], "isError": false } }),
+    )
+    .await;
+
+    let (status, _, body) = frame_request.await.expect("the frame finishes");
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let frame: Value = serde_json::from_str(&body).expect("a JSON frame");
+    assert_eq!(frame["format"], json!("png"));
+    assert_eq!(frame["data"], json!("QUJD"));
 }
 
 /// The install card is the device's own account of its generations and its last swap: the console
