@@ -8780,6 +8780,63 @@ async fn a_terminal_id_that_is_not_one_is_refused() {
     assert_eq!(status, StatusCode::BAD_REQUEST);
 }
 
+/// Open the vitals page once, answering its `host.facts` call with `facts`, and return the page.
+async fn visit_vitals(
+    fixture: &Fixture,
+    cookie: &str,
+    device_id: &str,
+    device: &mut DeviceSocket,
+    facts: &Value,
+) -> String {
+    let app = fixture.app();
+    let request = get_with_cookie(&format!("/next/vitals/{device_id}"), cookie);
+    let page = tokio::spawn(async move { send_text(app, request).await });
+    let frame = next_json(device).await;
+    assert_eq!(
+        frame["mcp"]["params"]["name"],
+        json!("host.facts"),
+        "{frame}"
+    );
+    answer(
+        device,
+        &frame,
+        json!({ "jsonrpc": "2.0", "id": 1, "result": { "content": [{ "type": "text", "text": facts.to_string() }], "isError": false } }),
+    )
+    .await;
+    page.await.expect("the page finishes").2
+}
+
+/// The vitals page keeps its own trend: one point per visit, in the console's memory, and it says
+/// so rather than implying a sampler runs behind it.
+#[tokio::test]
+async fn the_vitals_page_keeps_a_trend_from_its_own_visits() {
+    let fixture = Fixture::new("vitals-trend");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xd1)).await;
+    let cookie = page_cookie(&fixture).await;
+    let facts = json!({
+        "machine": "BOX",
+        "os": { "name": "Windows", "version": "11" },
+        "cpu": { "cores": 8 },
+        "uptime_s": 120,
+        "memory": { "total_bytes": 8_000_000_000u64, "available_bytes": 4_000_000_000u64 },
+        "disks": [{ "name": "C:\\", "total_bytes": 1_000u64, "free_bytes": 400u64 }],
+        "update": { "current": { "version": "0.3.1" } }
+    });
+
+    let first = visit_vitals(&fixture, &cookie, &device_id, &mut device, &facts).await;
+    assert!(first.contains("One point so far"), "{first}");
+
+    let second = visit_vitals(&fixture, &cookie, &device_id, &mut device, &facts).await;
+    assert!(
+        second.contains("class=\"spark\""),
+        "the second visit draws the line: {second}"
+    );
+    assert!(second.contains("2 samples"), "{second}");
+    assert!(second.contains("Not a sampler"), "{second}");
+}
+
 /// A destructive call a token did not consent to is held for the operator, and the request stays
 /// open while they decide. Approving re-sends it with consent for THIS call only.
 #[tokio::test]

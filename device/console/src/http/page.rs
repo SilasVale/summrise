@@ -350,6 +350,12 @@ body.login { margin:0; background:var(--bg); }
 .menu-panel input { min-height:28px; padding:3px 8px; font-size:12px; }
 .menu-panel .field { margin:0 0 7px; }
 .restart-panel { width:300px; padding:12px; }
+.trend-row { display:grid; grid-template-columns:120px 1fr 210px; gap:14px; align-items:center; margin:0 0 14px; }
+.trend-row:last-of-type { margin-bottom:6px; }
+.trend-label { display:flex; flex-direction:column; gap:2px; font:600 12px/1.4 var(--font); }
+.trend-values { color:var(--muted); font-size:11.5px; text-align:right; }
+.spark { display:block; width:100%; height:28px; }
+.spark polyline { fill:none; stroke:var(--accent); stroke-width:1.5; vector-effect:non-scaling-stroke; stroke-linejoin:round; }
 .facts { display:grid; grid-template-columns:max-content 1fr; gap:6px 18px; margin:0 0 12px; }
 .facts dt { color:var(--muted); font:11px/1.6 var(--font); text-transform:uppercase; letter-spacing:.04em; padding-top:2px; }
 .facts dd { margin:0; font:12px/1.6 var(--mono); overflow-wrap:anywhere; }
@@ -3250,8 +3256,17 @@ pub(super) struct VitalsDisk {
     pub(super) free: u64,
 }
 
-/// What the device reports about itself right now. The page is a sample, not a history: the
-/// console keeps no time series of its own.
+/// One point on the vitals trend: taken when this page is opened, kept in the console's memory, and
+/// drawn only where it can be honest about what it is.
+#[derive(Clone, PartialEq, Eq)]
+pub(super) struct VitalPoint {
+    pub(super) memory_pct: u64,
+    pub(super) disk_pct: u64,
+}
+
+/// What the device reports about itself right now, plus the points this console has collected by
+/// opening this page. The series is the page's own: one point per visit, console memory only, and
+/// the trend card says so rather than implying a sampler runs in the background.
 pub(super) struct Vitals {
     pub(super) machine: String,
     pub(super) os: String,
@@ -3262,6 +3277,7 @@ pub(super) struct Vitals {
     pub(super) disks: Vec<VitalsDisk>,
     pub(super) version: String,
     pub(super) channel: String,
+    pub(super) trend: Vec<VitalPoint>,
 }
 
 fn gib(bytes: u64) -> String {
@@ -3289,6 +3305,50 @@ fn uptime(seconds: u64) -> String {
     }
 }
 
+/// A 0–100 percentage series as an SVG polyline. Fixed scale on purpose: a self-scaling line makes a
+/// 2% wobble look like a cliff, and this chart is read at a glance.
+fn sparkline(points: &[VitalPoint], pick: impl Fn(&VitalPoint) -> u64) -> Markup {
+    let values: Vec<u64> = points.iter().map(|point| pick(point).min(100)).collect();
+    let last = (values.len().saturating_sub(1)) as f64;
+    let coordinates: Vec<String> = values
+        .iter()
+        .enumerate()
+        .map(|(index, value)| {
+            let x = if values.len() <= 1 {
+                0.0
+            } else {
+                index as f64 * 100.0 / last
+            };
+            let y = 28.0 - (*value as f64) * 28.0 / 100.0;
+            format!("{x:.1},{y:.1}")
+        })
+        .collect();
+    html! {
+        svg class="spark" viewBox="0 0 100 28" preserveAspectRatio="none" aria-hidden="true" {
+            polyline points=(coordinates.join(" ")) {}
+        }
+    }
+}
+
+fn trend_row(label: &str, points: &[VitalPoint], pick: impl Fn(&VitalPoint) -> u64) -> Markup {
+    let values: Vec<u64> = points.iter().map(&pick).collect();
+    let now = values.last().copied().unwrap_or(0);
+    let min = values.iter().copied().min().unwrap_or(0);
+    let max = values.iter().copied().max().unwrap_or(0);
+    html! {
+        div class="trend-row" {
+            div class="trend-label" {
+                span { (label) }
+                span class="usage-sub" { (points.len()) " samples" }
+            }
+            (sparkline(points, pick))
+            div class="trend-values mono" {
+                "now " (now) "% · min " (min) "% · max " (max) "%"
+            }
+        }
+    }
+}
+
 fn bar(used_pct: u64) -> Markup {
     html! {
         div class="bar" aria-hidden="true" {
@@ -3303,8 +3363,8 @@ pub(super) fn vitals(device: &DeviceView, sample: &Vitals, csrf: &str, version: 
     let memory_pct = percent(memory_used, sample.memory_total);
     let content = html! {
         p class="lead" {
-            "One sample, read from the device now. The console keeps no time series of its own: "
-            "what it cannot store it does not draw."
+            "One sample, read from the device now. The trend below is built from this page's own "
+            "visits and says so: the console does not sample in the background."
         }
         div class="stats" {
             div class="stat" {
@@ -3326,6 +3386,29 @@ pub(super) fn vitals(device: &DeviceView, sample: &Vitals, csrf: &str, version: 
             div class="stat" {
                 p class="label" { "Build" }
                 p class="value mono" { (sample.version) " (" (sample.channel) ")" }
+            }
+        }
+        section class="card" {
+            (card_head(
+                "Trend",
+                html! { span class="chip muted" { (sample.trend.len()) } },
+                Markup::default(),
+            ))
+            div class="card-body" {
+                @if sample.trend.len() < 2 {
+                    p class="lead" {
+                        "One point so far. The console takes a point each time this page is opened, "
+                        "keeps them in its own memory, and loses them when it restarts — there is no "
+                        "background sampler behind this line."
+                    }
+                } @else {
+                    (trend_row("Memory", &sample.trend, |point| point.memory_pct))
+                    (trend_row("Disks", &sample.trend, |point| point.disk_pct))
+                    p class="footnote" {
+                        "One point per time this page was opened; the console's memory only, lost on "
+                        "restart. Not a sampler."
+                    }
+                }
             }
         }
         section class="card" {
@@ -3481,6 +3564,32 @@ mod tests {
             ],
             version: "0.3.72".to_owned(),
             channel: "canary".to_owned(),
+            trend: vec![
+                VitalPoint {
+                    memory_pct: 42,
+                    disk_pct: 61,
+                },
+                VitalPoint {
+                    memory_pct: 46,
+                    disk_pct: 61,
+                },
+                VitalPoint {
+                    memory_pct: 51,
+                    disk_pct: 62,
+                },
+                VitalPoint {
+                    memory_pct: 58,
+                    disk_pct: 62,
+                },
+                VitalPoint {
+                    memory_pct: 53,
+                    disk_pct: 63,
+                },
+                VitalPoint {
+                    memory_pct: 50,
+                    disk_pct: 63,
+                },
+            ],
         }
     }
 

@@ -105,6 +105,8 @@ struct Inner {
     /// Calls a device refused because the credential did not consent to a destructive tool, held
     /// while the operator answers. Console memory only; a restart refuses them all at once.
     approvals: Mutex<HashMap<String, Pending>>,
+    /// Vitals points collected by opening the vitals page: one per visit, capped, memory only.
+    vitals: Mutex<HashMap<String, Vec<page::VitalPoint>>>,
     codes: Mutex<EnrollmentCodes>,
     channels: ChannelRegistry,
     audit: Audit,
@@ -190,6 +192,7 @@ impl Console {
                 connections: Mutex::new(connections),
                 last_evals: Mutex::new(HashMap::new()),
                 approvals: Mutex::new(HashMap::new()),
+                vitals: Mutex::new(HashMap::new()),
                 codes: Mutex::new(codes),
                 channels: ChannelRegistry::new(),
                 audit: Audit::new(&config.data, audit_max_bytes),
@@ -3737,6 +3740,14 @@ async fn next_token_revoke(
     Redirect::to(&format!("/next/tokens/{device_id}")).into_response()
 }
 
+/// A percentage, rounded, and zero rather than a division by zero when the device reported nothing.
+fn percent_of(used: u64, total: u64) -> u64 {
+    if total == 0 {
+        return 0;
+    }
+    ((used as f64 / total as f64) * 100.0).round() as u64
+}
+
 /// `GET /next/vitals/:device`: one sample of what the device reports about itself.
 async fn next_vitals_page(
     State(app): State<AppState>,
@@ -3769,6 +3780,44 @@ async fn next_vitals_page(
                 .collect()
         })
         .unwrap_or_default();
+    // One point per visit, capped: the trend card is the page's own history and says so. A full
+    // ring drops the oldest, which is the least relevant point on screen.
+    const MAX_TREND: usize = 60;
+    let memory_total = facts["memory"]["total_bytes"].as_u64().unwrap_or(0);
+    let memory_available = facts["memory"]["available_bytes"].as_u64().unwrap_or(0);
+    let memory_pct = percent_of(memory_total.saturating_sub(memory_available), memory_total);
+    let disk_total: u64 = facts["disks"]
+        .as_array()
+        .map(|disks| {
+            disks
+                .iter()
+                .filter_map(|disk| disk["total_bytes"].as_u64())
+                .sum()
+        })
+        .unwrap_or(0);
+    let disk_free: u64 = facts["disks"]
+        .as_array()
+        .map(|disks| {
+            disks
+                .iter()
+                .filter_map(|disk| disk["free_bytes"].as_u64())
+                .sum()
+        })
+        .unwrap_or(0);
+    let disk_pct = percent_of(disk_total.saturating_sub(disk_free), disk_total);
+    let trend = {
+        let mut trends = lock(&app.vitals);
+        let points = trends.entry(device_id.clone()).or_default();
+        points.push(page::VitalPoint {
+            memory_pct,
+            disk_pct,
+        });
+        if points.len() > MAX_TREND {
+            let excess = points.len() - MAX_TREND;
+            points.drain(..excess);
+        }
+        points.clone()
+    };
     let sample = page::Vitals {
         machine: facts["machine"].as_str().unwrap_or_default().to_owned(),
         os: format!(
@@ -3782,6 +3831,7 @@ async fn next_vitals_page(
         uptime_s: facts["uptime_s"].as_u64().unwrap_or(0),
         memory_total: facts["memory"]["total_bytes"].as_u64().unwrap_or(0),
         memory_available: facts["memory"]["available_bytes"].as_u64().unwrap_or(0),
+        trend,
         disks,
         version: facts["update"]["current"]["version"]
             .as_str()
