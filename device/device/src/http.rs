@@ -1607,11 +1607,15 @@ mod tests {
 
         let (status, html) = get_text(&client, &server.base_url).await;
         assert_eq!(status, StatusCode::OK);
-        assert!(html.contains("Terminal sessions"), "the panel has the terminal card");
+        assert!(
+            html.contains("Terminal sessions"),
+            "the panel has the terminal card"
+        );
 
         let (status, body) = get_text(&client, &format!("{}/api/terminal", server.base_url)).await;
         assert_eq!(status, StatusCode::OK);
-        let list: serde_json::Value = serde_json::from_str(&body).expect("the terminal list is JSON");
+        let list: serde_json::Value =
+            serde_json::from_str(&body).expect("the terminal list is JSON");
         assert_eq!(list["sessions"], serde_json::json!([]));
     }
 

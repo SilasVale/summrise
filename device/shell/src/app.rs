@@ -352,7 +352,10 @@ pub fn already_running() -> bool {
 mod tests {
     #[test]
     fn the_default_targets_are_the_product_surfaces() {
-        assert!(CONSOLE.contains(":19000"), "the product console, not the legacy SPA: {CONSOLE}");
+        assert!(
+            CONSOLE.contains(":19000"),
+            "the product console, not the legacy SPA: {CONSOLE}"
+        );
         assert!(!CONSOLE.contains("console.saisi.online"), "{CONSOLE}");
         assert!(PANEL.contains(":18090"), "the device's own panel: {PANEL}");
     }
