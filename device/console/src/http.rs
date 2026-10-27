@@ -10,9 +10,9 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use axum::extract::ws::WebSocketUpgrade;
-use axum::extract::{Path, Query, State};
+use axum::extract::{Form, Path, Query, State};
 use axum::http::{header, HeaderMap, HeaderValue, StatusCode};
-use axum::response::{Html, IntoResponse, Response};
+use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use ed25519_dalek::{Signature, SigningKey};
@@ -33,6 +33,8 @@ use crate::grants::{self, GrantEnvelope, GrantError, VerifyError};
 use crate::hex;
 use crate::mcp::DeviceRef;
 use crate::tokens::{Token, TokenError, TokenMeta, Tokens};
+
+mod page;
 
 /// How far a device's clock may be from the console's when it registers: five minutes.
 const REGISTRATION_SKEW_MS: u64 = 5 * 60 * 1000;
@@ -239,6 +241,9 @@ impl Console {
             )
             .route("/health", get(health))
             .route("/auth", post(authenticate))
+            .route("/next", get(next_page))
+            .route("/next/auth", post(next_login))
+            .route("/next/logout", post(next_logout))
             .route("/session", get(session_probe))
             .route("/logout", post(logout))
             .route("/enroll", post(enroll))
@@ -796,14 +801,14 @@ async fn logout(State(app): State<AppState>, _: OperatorSession, headers: Header
     StatusCode::NO_CONTENT
 }
 
-async fn authenticate(
-    State(app): State<AppState>,
-    Json(request): Json<AuthRequest>,
-) -> Result<Json<AuthResponse>, ApiError> {
-    // Two ways in, one outcome: a typed token, or a one-time code the operator printed on the host
-    // (`--login-link`). The code is short-lived and spent on first use, so a link that leaked into a
-    // chat log stops working as soon as it is used or after two minutes.
-    let accepted = if let Some(code) = request.code.as_deref() {
+/// Verify the operator's secret: a typed token, or a one-time login code. One outcome for both
+/// callers, `/auth` and the page's form, including the denial line.
+async fn operator_from_credentials(
+    app: &AppState,
+    code: Option<&str>,
+    token: Option<&str>,
+) -> Result<(), ApiError> {
+    let accepted = if let Some(code) = code {
         let now = (app.now)();
         match crate::store::spend_login_code(&app.data, code, now) {
             Ok(()) => true,
@@ -815,13 +820,10 @@ async fn authenticate(
             }
         }
     } else {
-        let presented = match request.token.as_deref().and_then(hex::decode_32) {
-            Some(presented) => presented,
-            None => {
-                return Err(app
-                    .refuse_as(None, ApiError::unauthorized(), "bad_operator_token")
-                    .await)
-            }
+        let Some(presented) = token.and_then(hex::decode_32) else {
+            return Err(app
+                .refuse_as(None, ApiError::unauthorized(), "bad_operator_token")
+                .await);
         };
         constant_time_eq(&presented, &app.operator_token)
     };
@@ -830,23 +832,154 @@ async fn authenticate(
             .refuse_as(None, ApiError::unauthorized(), "bad_operator_token")
             .await);
     }
+    Ok(())
+}
 
+/// Mint one session, drop the expired ones, and return it. The CSRF value is part of the session.
+fn new_session(app: &AppState) -> Session {
     let now = (app.now)();
-    let token = new_session_token();
-    let expires_at_ms = now.saturating_add(SESSION_LIFETIME_MS);
+    let session = Session {
+        token: new_session_token(),
+        expires_at_ms: now.saturating_add(SESSION_LIFETIME_MS),
+        csrf: random_32(),
+    };
+    let mut sessions = lock(&app.sessions);
+    sessions.retain(|session| session.expires_at_ms > now);
+    sessions.push(session.clone());
+    session
+}
+
+async fn authenticate(
+    State(app): State<AppState>,
+    Json(request): Json<AuthRequest>,
+) -> Result<Json<AuthResponse>, ApiError> {
+    operator_from_credentials(&app, request.code.as_deref(), request.token.as_deref()).await?;
+    let session = new_session(&app);
+    Ok(Json(AuthResponse {
+        token: hex::encode(&session.token),
+        expires_at_ms: session.expires_at_ms,
+    }))
+}
+
+/// The cookie name the page uses. A page cookie, not an API credential: nothing outside `/next`
+/// reads it.
+const SESSION_COOKIE: &str = "summrise_session";
+
+fn cookie_session(app: &AppState, headers: &HeaderMap) -> Option<Session> {
+    let presented = headers
+        .get(header::COOKIE)?
+        .to_str()
+        .ok()?
+        .split(';')
+        .filter_map(|part| part.trim().strip_prefix("summrise_session="))
+        .find_map(hex::decode_32)?;
+    let now = (app.now)();
+    let sessions = lock(&app.sessions);
+    sessions
+        .iter()
+        .find(|session| constant_time_eq(&session.token, &presented) && now < session.expires_at_ms)
+        .cloned()
+}
+
+fn secure_request(headers: &HeaderMap) -> bool {
+    headers
+        .get("x-forwarded-proto")
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| value.eq_ignore_ascii_case("https"))
+}
+
+fn session_cookie(token: &[u8; 32], secure: bool) -> HeaderValue {
+    let mut cookie = format!(
+        "{SESSION_COOKIE}={}; Path=/next; HttpOnly; SameSite=Strict; Max-Age={}",
+        hex::encode(token),
+        SESSION_LIFETIME_MS / 1000
+    );
+    if secure {
+        cookie.push_str("; Secure");
+    }
+    HeaderValue::from_str(&cookie).expect("a valid Set-Cookie")
+}
+
+fn clear_session_cookie() -> HeaderValue {
+    HeaderValue::from_static("summrise_session=; Path=/next; HttpOnly; SameSite=Strict; Max-Age=0")
+}
+
+#[derive(Deserialize)]
+struct NextLogin {
+    token: String,
+}
+
+#[derive(Deserialize)]
+struct NextLogout {
+    csrf: String,
+}
+
+/// `GET /next`: the login form without a live cookie, the page with one.
+async fn next_page(State(app): State<AppState>, headers: HeaderMap) -> Response {
+    let Some(session) = cookie_session(&app, &headers) else {
+        return Html(page::login(None).into_string()).into_response();
+    };
+    Html(
+        page::dashboard(
+            &device_views(&app),
+            &hex::encode(&session.csrf),
+            &app.version,
+        )
+        .into_string(),
+    )
+    .into_response()
+}
+
+/// `POST /next/auth`: the page's sign-in. The same operator secret as `/auth`, the same denial
+/// line; the answer is a cookie and a redirect, not JSON.
+async fn next_login(
+    State(app): State<AppState>,
+    headers: HeaderMap,
+    Form(form): Form<NextLogin>,
+) -> Response {
+    if operator_from_credentials(&app, None, Some(&form.token))
+        .await
+        .is_err()
+    {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Html(page::login(Some("That token was not accepted.")).into_string()),
+        )
+            .into_response();
+    }
+    let session = new_session(&app);
+    let mut response = Redirect::to("/next").into_response();
+    response.headers_mut().insert(
+        header::SET_COOKIE,
+        session_cookie(&session.token, secure_request(&headers)),
+    );
+    response
+}
+
+/// `POST /next/logout`: end the session the cookie names, if the form echoes its CSRF value.
+async fn next_logout(
+    State(app): State<AppState>,
+    headers: HeaderMap,
+    Form(form): Form<NextLogout>,
+) -> Response {
+    let Some(session) = cookie_session(&app, &headers) else {
+        return Redirect::to("/next").into_response();
+    };
+    let Some(csrf) = hex::decode_32(&form.csrf) else {
+        return StatusCode::FORBIDDEN.into_response();
+    };
+    if !constant_time_eq(&csrf, &session.csrf) {
+        return StatusCode::FORBIDDEN.into_response();
+    }
     {
         let mut sessions = lock(&app.sessions);
-        sessions.retain(|session| session.expires_at_ms > now);
-        sessions.push(Session {
-            token,
-            expires_at_ms,
-        });
+        sessions.retain(|entry| !constant_time_eq(&entry.token, &session.token));
     }
-
-    Ok(Json(AuthResponse {
-        token: hex::encode(&token),
-        expires_at_ms,
-    }))
+    let mut response = Redirect::to("/next").into_response();
+    response
+        .headers_mut()
+        .insert(header::SET_COOKIE, clear_session_cookie());
+    response
 }
 
 /// `POST /enroll`: the operator mints one one-time code for a device.
@@ -2444,9 +2577,9 @@ async fn device_mesh_readiness(
     }
 }
 
-async fn list_devices(State(app): State<AppState>, _: OperatorSession) -> Json<Vec<DeviceView>> {
-    let devices = lock(&app.devices).list();
-    let devices = devices
+fn device_views(app: &AppState) -> Vec<DeviceView> {
+    lock(&app.devices)
+        .list()
         .into_iter()
         .map(|device| DeviceView {
             online: app.channels.online(&device.id),
@@ -2464,8 +2597,11 @@ async fn list_devices(State(app): State<AppState>, _: OperatorSession) -> Json<V
             registered_at_ms: device.registered_at_ms,
             last_seen_ms: device.last_seen_ms,
         })
-        .collect();
-    Json(devices)
+        .collect()
+}
+
+async fn list_devices(State(app): State<AppState>, _: OperatorSession) -> Json<Vec<DeviceView>> {
+    Json(device_views(&app))
 }
 
 /// A registered device as the operator's list sees it: the registry's facts plus the channel's.

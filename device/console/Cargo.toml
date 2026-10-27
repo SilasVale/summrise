@@ -17,6 +17,9 @@ jsonwebtoken = "9"
 rand_core = { version = "0.6", features = ["getrandom"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# The page is rendered, not bundled: maud builds the HTML from the Rust that already owns the
+# data, and escapes every interpolated value by construction.
+maud = "0.26"
 # A device token is stored as a hash, never as the token itself.
 sha2 = "0.10"
 summrise-core = { path = "../core" }

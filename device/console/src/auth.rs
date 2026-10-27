@@ -21,6 +21,9 @@ pub(crate) struct Session {
     pub(crate) token: [u8; 32],
     /// When the session stops being valid, in Unix milliseconds.
     pub(crate) expires_at_ms: u64,
+    /// The value a server-rendered form echoes back. It lives in the session (server memory),
+    /// never in the cookie, so a cross-site request cannot read it.
+    pub(crate) csrf: [u8; 32],
 }
 
 /// A fresh session token from the OS CSPRNG.
