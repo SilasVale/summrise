@@ -660,6 +660,22 @@ async fn panel_terminal_resize(
     }
 }
 
+/// The panel's read answer: the lossy text, and the bytes a terminal replays.
+///
+/// Both are always present so a client chooses: `text` is what a person reads in a log, and
+/// `data_base64` is what an emulator must be fed, because a multi-byte character split by the
+/// cursor is two U+FFFD in the text and intact in the bytes.
+fn panel_read_answer(data: &[u8], cursor: u64) -> serde_json::Value {
+    serde_json::json!({
+        "text": String::from_utf8_lossy(data),
+        "data_base64": base64::Engine::encode(
+            &base64::engine::general_purpose::STANDARD,
+            data,
+        ),
+        "cursor": cursor,
+    })
+}
+
 async fn panel_terminal_read(
     State(app): State<AppState>,
     ConnectInfo(peer): ConnectInfo<SocketAddr>,
@@ -674,11 +690,7 @@ async fn panel_terminal_read(
         return error_response(StatusCode::BAD_REQUEST, "invalid_session", None);
     };
     match app.terminal.read(&id, query.cursor.unwrap_or(0)) {
-        Ok(answer) => Json(serde_json::json!({
-            "text": String::from_utf8_lossy(&answer.data),
-            "cursor": answer.cursor,
-        }))
-        .into_response(),
+        Ok(answer) => Json(panel_read_answer(&answer.data, answer.cursor)).into_response(),
         Err(error) => error_response(
             StatusCode::BAD_REQUEST,
             "terminal_read_refused",
@@ -2452,6 +2464,30 @@ mod tests {
             console.requests().is_empty(),
             "a non-loopback request never reaches the console"
         );
+    }
+
+    #[test]
+    fn a_split_character_survives_the_read_answer_as_bytes() {
+        // Two reads whose boundary falls inside one three-byte character. The text fields are
+        // lossy on purpose (an operator reading a log wants words, not bytes), and the base64
+        // fields are what a terminal replays: joined, they are the character again.
+        let character = "中".as_bytes();
+        let first = panel_read_answer(&character[..1], 1);
+        let second = panel_read_answer(&character[1..], 3);
+        assert!(
+            first["text"].as_str().expect("text").contains('\u{fffd}'),
+            "the split half is the replacement character in the text"
+        );
+        let mut joined = Vec::new();
+        for answer in [&first, &second] {
+            let encoded = answer["data_base64"].as_str().expect("the bytes");
+            joined.extend(
+                base64::Engine::decode(&base64::engine::general_purpose::STANDARD, encoded)
+                    .expect("valid base64"),
+            );
+        }
+        assert_eq!(joined, character, "the bytes rejoin into the character");
+        assert_eq!(second["cursor"].as_u64(), Some(3));
     }
 
     #[tokio::test]

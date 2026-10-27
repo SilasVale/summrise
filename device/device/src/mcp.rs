@@ -920,8 +920,12 @@ impl DeviceServer {
                 // `alive`, `exit_code` and `signal` are the session's end facts: an older client
                 // ignores them, and a client of an older device sees only `{data, cursor}` and must
                 // treat that as alive.
+                // `data` is the lossy text an older client reads, and `data_base64` is the bytes a
+                // terminal replays: a multi-byte character split by the cursor is two U+FFFD in the
+                // text and intact in the base64. Both are always present, so a client chooses.
                 Ok(json!({
                     "data": String::from_utf8_lossy(&answer.data),
+                    "data_base64": BASE64.encode(&answer.data),
                     "cursor": answer.cursor,
                     "alive": answer.alive,
                     "exit_code": answer.end.exit_code,
