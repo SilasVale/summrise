@@ -1584,8 +1584,9 @@ impl Fixture {
 
     /// What an installer does after a verified download: the `current` generation pair (the app
     /// binary plus its signed sidecar), the same bytes as the app, and the install token. `current`
-    /// is the only other copy of the app on disk (fix design F2), which is what makes the self-repair
-    /// step meaningful. `previous` is deliberately absent, as it is after a fresh install.
+    /// is the generation the self-repair trusts (fix design F2); the launcher's rotated copies
+    /// (previous, pending, staged) are not boot candidates. `previous` is deliberately absent, as it
+    /// is after a fresh install.
     fn prepare_baseline(&mut self) {
         let device = device_exe();
         let baseline = baseline_exe(&self.install);
