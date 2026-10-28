@@ -40,6 +40,12 @@ pub const CURRENT_DIR: &str = "current";
 pub const PREVIOUS_DIR: &str = "previous";
 /// The generation written by an adoption and not yet proven by a health probe.
 pub const PENDING_DIR: &str = "pending";
+/// Where a replacement is built and verified before it is rotated into `current`.
+///
+/// A name of its own, not `pending`: `pending` is an update's staging area and the supervisor
+/// discards it at start, while this one exists only inside an install running as root and is renamed
+/// into `current` by the same call that created it.
+pub const STAGING_DIR: &str = "replacing";
 
 /// `<install>/summrise-device.exe` — the one binary the app may never write.
 pub fn app_exe(install: &Path) -> PathBuf {
