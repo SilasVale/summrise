@@ -12,6 +12,45 @@ They share a version number because they are released together, but a *device* r
 *console*, and a console deploy does not touch a device. `verify-release.sh` is the tool that keeps those
 facts straight (see "Proving it landed").
 
+## Retiring the legacy runtime on a machine
+
+An older laptop can carry both runtimes at once: `summrise-device` (the new one, as a service) and the
+legacy `SummriseDesktop` / `SummriseAgent` pair, which live as **scheduled tasks**, not services. Two
+tray icons then sit in the notification area, and the old one sorts first because it was registered
+first — the new icon cannot take its place (Windows owns that order), so the way to have one Summrise
+icon is to stop the old ones.
+
+What the legacy pair is, observed on all three canaries (2026-10-28):
+
+| task | runs | what it is |
+|---|---|---|
+| `SummriseDesktop` | `D:\Summrise\scripts\summrise-launch.exe powershell ensure-desktop.ps1`, as the logged-in user | the Electron desktop app (`electron.exe`, 4–5 processes per session) — this is the old tray icon |
+| `SummriseAgent` | `summrise-agent.exe`, one in the user session (the tray) and one in session 0 | the legacy agent |
+
+```bat
+:: as SYSTEM / an elevated prompt; the tasks are per-machine, the processes per-session
+schtasks /end /tn SummriseDesktop
+schtasks /change /tn SummriseDesktop /disable
+schtasks /end /tn SummriseAgent
+schtasks /change /tn SummriseAgent /disable
+taskkill /F /IM electron.exe
+```
+
+The new runtime is untouched by this (its services are `SummriseLaunch` and `SummriseDevice`), and the
+new tray starts at logon from `HKLM\...\Run\SummriseShell`. Reversing it is one command per task:
+`schtasks /change /tn SummriseDesktop /enable` (and the same for `SummriseAgent`).
+
+If the new tray is not running in a session, start it there — a process started from a SYSTEM shell
+puts no icon on anyone's taskbar:
+
+```bat
+schtasks /create /tn SummriseShell /tr C:\<install>\summrise-shell.exe /sc once /st 00:00 /ru <user> /it /f
+schtasks /run /tn SummriseShell
+```
+
+On 2026-10-28 all three canaries ended with only the new runtime serving, the new tray running in the
+logged-in session, and every device answering `0.3.129` on the console's fleet page.
+
 ## The tray is installer-owned
 
 `summrise-shell.exe` — the tray and the window — is the one piece the canary update does **not** carry.
