@@ -137,6 +137,13 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
 
     register_with_the_device();
 
+    // THE TRAY HAS TO COME BACK WHEN THE OPERATOR DOES. A per-machine Run key fires at logon, and a
+    // session that was disconnected (an RDP session left open) reconnects without one — the tray
+    // simply is not there, and on 2026-10-28 Windows refused to start it from a task for that reason
+    // (`0x80070005`). Registering a task on the session-reconnection event, as the user this process
+    // already runs as, is what makes the next reconnect restore the icon.
+    ensure_reconnect_task();
+
     let mut last: Option<State> = None;
     event_loop.run(move |event, target, control_flow| {
         *control_flow = ControlFlow::Wait;
@@ -260,6 +267,62 @@ fn register_with_the_device() {
     });
 }
 
+/// Make sure a task starts this shell when the user reconnects to their session.
+///
+/// Best effort on purpose: a machine whose policy forbids scheduled tasks still gets a tray, and the
+/// only thing lost is the automatic return after a reconnect. The task is created as *this* user
+/// with an interactive token, so no password or elevation is involved, and it does nothing when it
+/// already exists (the check is what makes the "at every start" cost a `query` rather than a rewrite).
+#[cfg(windows)]
+fn ensure_reconnect_task() {
+    use std::process::{Command, Stdio};
+
+    std::thread::spawn(|| {
+        let exists = Command::new("schtasks")
+            .args(["/query", "/tn", "SummriseShellOnReconnect"])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .is_ok_and(|status| status.success());
+        if exists {
+            return;
+        }
+        let Ok(exe) = std::env::current_exe() else {
+            return;
+        };
+        let created = Command::new("schtasks")
+            .args([
+                "/create",
+                "/tn",
+                "SummriseShellOnReconnect",
+                "/tr",
+                &exe.to_string_lossy(),
+                "/sc",
+                "onevent",
+                "/ec",
+                "Microsoft-Windows-TerminalServices-LocalSessionManager/Operational",
+                "/mo",
+                "*[System[EventID=25]]",
+                "/f",
+            ])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+        match created {
+            Ok(status) if status.success() => crate::note("registered the session-reconnect task"),
+            Ok(status) => crate::note(&format!(
+                "could not register the session-reconnect task (schtasks exit {status})"
+            )),
+            Err(error) => crate::note(&format!(
+                "could not register the session-reconnect task: {error}"
+            )),
+        }
+    });
+}
+
+#[cfg(not(windows))]
+fn ensure_reconnect_task() {}
+
 /// The three items, with the ids the event handler matches.
 ///
 /// **THE IDS ARE EXPLICIT, AND THAT IS THE FIX FOR "THE MENU DOES NOTHING".** `MenuItem::new` with
@@ -298,7 +361,12 @@ fn open_console(
         }
     };
     match WebViewBuilder::new().with_url(CONSOLE).build(&window) {
-        Ok(view) => *ui = Some((window, view)),
+        Ok(view) => {
+            // A click that worked leaves a line too: without it, "the menu does nothing" and "the
+            // menu opened a window I closed" look the same from this side of the machine.
+            crate::note(&format!("console window built for {CONSOLE}"));
+            *ui = Some((window, view))
+        }
         Err(error) => {
             // WebView2 is part of Windows 10 and later, but a machine can have the runtime removed
             // or broken; without this line the window closes itself and the menu looks dead.
