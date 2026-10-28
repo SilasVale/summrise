@@ -332,11 +332,7 @@ fn cpu_percent() -> Option<u8> {
     Some((((total - idle) * 100 + total / 2) / total).min(100) as u8)
 }
 
-#[cfg(windows)]
-fn cpu_percent() -> Option<u8> {
-    summrise_winsys::cpu_percent()
-}
-
+#[cfg(not(windows))]
 fn platform_facts() -> serde_json::Value {
     use serde_json::json;
 

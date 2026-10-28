@@ -868,6 +868,7 @@ mod tests {
     #[cfg(unix)]
     /// A command line is bounded before anything is spawned: the history stores it, so an unbounded one
     /// is an unbounded row.
+    #[cfg(unix)]
     #[test]
     fn a_command_line_over_the_cap_is_refused_before_the_spawn() {
         let limits = Limits::default();
@@ -898,6 +899,7 @@ mod tests {
     }
 
     /// The history read keeps the newest rows when the file is larger than the window.
+    #[cfg(unix)]
     #[test]
     fn a_history_read_keeps_the_tail_when_the_file_exceeds_the_window() {
         let dir = TempDir::new("runs-history-window");
@@ -930,6 +932,7 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
     #[test]
     fn echo_hello_exits_zero_with_its_standard_output() {
         let (_dir, _data, _root, runs) = fixture("runs-echo");
