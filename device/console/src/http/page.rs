@@ -2774,7 +2774,15 @@ pub(super) fn system(
                     html! { span class="chip muted" { "json" } },
                     Markup::default(),
                 ))
-                pre class="file" tabindex="0" { (state) }
+                div class="card-body" {
+                    // The State page explained this document before it was merged here; the card
+                    // said nothing for a while after.
+                    p class="small muted" {
+                        "What the device believes: its health, the last ten events it recorded, the "
+                        "generation it booted, and how its last update ended."
+                    }
+                    pre class="file" tabindex="0" { (state) }
+                }
             }
         }
     };
