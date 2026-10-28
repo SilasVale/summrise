@@ -49,18 +49,24 @@ const browser = spawn(
     "--headless=new",
     "--disable-gpu",
     "--no-sandbox",
+    "--disable-dev-shm-usage",
     "--hide-scrollbars",
     "--remote-debugging-port=0",
     `--user-data-dir=${profile}`,
     "about:blank"
   ],
-  { stdio: "ignore" }
+  { stdio: ["ignore", "ignore", "pipe"] }
 );
+let browserError = "";
+browser.stderr.on("data", (chunk) => {
+  browserError += chunk.toString();
+  if (browserError.length > 4000) browserError = browserError.slice(-4000);
+});
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 async function debugPort() {
-  for (let attempt = 0; attempt < 50; attempt += 1) {
+  for (let attempt = 0; attempt < 150; attempt += 1) {
     try {
       const text = await import("node:fs").then((fs) =>
         fs.readFileSync(join(profile, "DevToolsActivePort"), "utf8")
@@ -70,7 +76,10 @@ async function debugPort() {
       await sleep(100);
     }
   }
-  throw new Error("the browser never opened its debugging port");
+  console.error("the browser never opened its debugging port");
+  console.error(`chrome: ${chrome} exit=${browser.exitCode ?? "running"}`);
+  if (browserError.trim()) console.error(browserError.trim().slice(-1500));
+  process.exit(2);
 }
 
 const port = await debugPort();
