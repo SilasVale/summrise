@@ -24,6 +24,18 @@ any tool that answers in milliseconds. A run that needs longer keeps running on 
 answers with its own 504 ("the device accepted the request and did not answer inside the console's bound;
 it may still be working on it") and the run is collected through `runs.list` / the Runs page.
 
+## Another automation on the operator's machine edits `C:\Windows\Temp`
+
+DESKTOP-14RJCR8 carries tasks this project did not create — `SummriseAgent`, `SummriseDSH`,
+`SummriseHop7738/7739/7801`, `SummriseTbCap`, `SummriseZssTunnel`, `SummriseSetup048…053` — and something
+there deletes `C:\Windows\Temp` scripts and `Summrise*` scheduled tasks. On 2026-10-28 an install script
+verified present (`dir` showed `1,134 i146c.cmd`) had vanished before its task ran, twice: the task reported
+`成功` and then the file it named was gone.
+
+What to do about it: name deployment tasks something other than `Summrise*` (a `Z` prefix survived), keep
+the script out of `C:\Windows\Temp` if the machine is that busy, and check the file still exists at the
+moment the task runs rather than at the moment it was written.
+
 ## A second instance is a request, not a mistake (2026-10-28)
 
 The tray is per-session, and Windows re-creates the notification area when a disconnected session comes
