@@ -2660,12 +2660,17 @@ mod tests {
             html.contains("pid "),
             "the build section prints the process: {html}"
         );
+        // The command is PowerShell on Windows and a shell on Linux; the test asks the same
+        // function the page asked instead of assuming the separator (this assertion is why the
+        // Windows job was red while every Linux suite passed).
+        let (token_file, command) = panel::token_facts(&fixture.config.data.display().to_string());
         assert!(
-            html.contains(&format!(
-                "cat &quot;{}/token&quot;",
-                fixture.config.data.display()
-            )),
-            "the read command names the token file: {html}"
+            html.contains(&command.replace('"', "&quot;")),
+            "the read command names the token file ({command}): {html}"
+        );
+        assert!(
+            html.contains(&token_file),
+            "the token path is printed: {html}"
         );
         assert!(html.contains(r#"action="/panel/enroll""#));
         assert!(html.contains(r#"name="panel_token""#));
