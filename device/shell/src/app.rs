@@ -44,6 +44,8 @@ enum Wake {
     Health(State),
     Tray(TrayIconEvent),
     Menu(MenuEvent),
+    /// The `--check-window` self-test's stop button.
+    Quit,
 }
 
 /// The brand mark, rendered from `brand/icon.png` at the two sizes the shell needs. The tray is 16 px
@@ -164,6 +166,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
                 ..
             })) => open_url(PANEL),
             Event::UserEvent(Wake::Tray(_)) => {}
+            Event::UserEvent(Wake::Quit) => *control_flow = ControlFlow::Exit,
             Event::UserEvent(Wake::Menu(event)) => match event.id.as_ref() {
                 OPEN_CONSOLE => open_console(target, &mut ui),
                 OPEN_PANEL => open_url(PANEL),
@@ -322,6 +325,93 @@ fn ensure_reconnect_task() {
 
 #[cfg(not(windows))]
 fn ensure_reconnect_task() {}
+
+/// Build the console window once, then exit — the menu's own code path without a menu.
+///
+/// Answers through the log (which a headless machine can be asked for) and through the exit code: 0
+/// means a window and a WebView2 view were created for [`CONSOLE`], 1 means one of the two failed and
+/// the log names which. The event loop runs for a moment because a tao window is only real once it is
+/// pumping messages.
+#[cfg(windows)]
+pub fn check_window() -> i32 {
+    // SESSION 0 HAS NO WINDOW STATION A GUI CAN USE. Run from a service context, the event loop never
+    // arrives at its first `NewEvents(Init)` and the process hangs; the answer is to refuse by name,
+    // not to wait. A caller that wants the real answer runs this in the operator's session.
+    match current_session_id() {
+        Some(0) => {
+            crate::note("check-window: this is session 0, which has no interactive desktop");
+            return 2;
+        }
+        None => {
+            crate::note("check-window: cannot read the session id");
+            return 2;
+        }
+        Some(_) => {}
+    }
+    // `build()` is not fallible in tao 0.34; the call can panic on a thread that already owns an
+    // event loop, which is a programming error this diagnostic cannot see from inside.
+    let event_loop = EventLoopBuilder::<Wake>::with_user_event().build();
+    let proxy = event_loop.create_proxy();
+    let mut built = false;
+    event_loop.run(move |event, target, control_flow| {
+        *control_flow = ControlFlow::Wait;
+        match event {
+            Event::NewEvents(StartCause::Init) => {
+                built = true;
+                let Ok(window) = WindowBuilder::new()
+                    .with_title("Summrise console")
+                    .with_window_icon(window_icon())
+                    .with_visible(true)
+                    .build(target)
+                else {
+                    crate::note("check-window: the window could not be built");
+                    std::process::exit(1);
+                };
+                match WebViewBuilder::new().with_url(CONSOLE).build(&window) {
+                    Ok(_view) => crate::note(&format!(
+                        "check-window: window and view built for {CONSOLE}"
+                    )),
+                    Err(error) => {
+                        crate::note(&format!("check-window: no WebView2 view: {error}"));
+                        std::process::exit(1);
+                    }
+                }
+                let proxy = proxy.clone();
+                std::thread::spawn(move || {
+                    std::thread::sleep(Duration::from_secs(3));
+                    let _ = proxy.send_event(Wake::Quit);
+                    // A DIAGNOSTIC MUST NOT BE ABLE TO HANG. On a session-0 desktop this process
+                    // blocked in the event loop after the window was created and never came back;
+                    // the hard stop is what turns "no answer" into an exit code.
+                    std::thread::sleep(Duration::from_secs(2));
+                    std::process::exit(0);
+                });
+            }
+            Event::UserEvent(Wake::Quit) => *control_flow = ControlFlow::Exit,
+            _ => {}
+        }
+    });
+    let _ = built;
+    0
+}
+
+#[cfg(not(windows))]
+pub fn check_window() -> i32 {
+    1
+}
+
+/// The session this process runs in, for the one diagnostic that can only run in a visible one.
+#[cfg(windows)]
+fn current_session_id() -> Option<u32> {
+    let mut session = 0u32;
+    let ok = unsafe {
+        windows_sys::Win32::System::RemoteDesktop::ProcessIdToSessionId(
+            std::process::id(),
+            &mut session,
+        )
+    };
+    (ok != 0).then_some(session)
+}
 
 /// The three items, with the ids the event handler matches.
 ///

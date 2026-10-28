@@ -52,6 +52,14 @@ pub fn note(line: &str) {
 
 #[cfg(windows)]
 fn main() {
+    // A DIAGNOSTIC THAT OPENS THE WINDOW AND EXITS. The tray menu is a click on a machine this project
+    // is often not sitting at, so "Open console does nothing" was reported twice without a way to
+    // separate the menu wiring from the window: `--check-window` builds the same window and WebView2
+    // view the menu builds, waits for the page to load, and answers on the log and the exit code.
+    if std::env::args().any(|argument| argument == "--check-window") {
+        let code = app::check_window();
+        std::process::exit(code);
+    }
     if app::already_running() {
         // The icon is already in the tray; a second one would be a second dot saying the same thing.
         return;
