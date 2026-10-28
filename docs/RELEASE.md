@@ -12,6 +12,23 @@ They share a version number because they are released together, but a *device* r
 *console*, and a console deploy does not touch a device. `verify-release.sh` is the tool that keeps those
 facts straight (see "Proving it landed").
 
+## Where to look when the console says the device did not answer
+
+Two logs, and the order matters.
+
+- **The device's `events.jsonl`** carries `begin` and `end` rows per call with `ts_ms` either side, the tool
+  name, and `ok`/`error_kind`. A call that looks slow in the console is usually milliseconds here
+  (measured: `terminal.screen` `begin` 1793180839310, `end` 1793180839312, `ok:false`, `error_kind:refused` —
+  2 ms). If the device answered, the console's thirty-second wait failed for a console-side reason: a channel
+  that was replaced mid-call, or a reply that never reached the waiter.
+- **The console's audit** (`/audit`, and the dashboard's Recent activity) has one row per proxied call with
+  `status` and `ts_ms`. A `denied 504` there is the console's own bound expiring — it is not Cloudflare's
+  504, which arrives as an HTML error page with a ray id.
+
+Filter by time before drawing a conclusion: a `504` in a window that starts before a deploy may be older
+than the fix you are testing. After 0.3.148 reached both machines, 22 audited calls in the first minutes had
+zero 504s, against four-in-six before it.
+
 ## Why a proxied call is cut at ninety seconds
 
 The operator's console is reached through Cloudflare Access, and Cloudflare gives the origin about a
