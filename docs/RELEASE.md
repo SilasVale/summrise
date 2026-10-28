@@ -12,6 +12,25 @@ They share a version number because they are released together, but a *device* r
 *console*, and a console deploy does not touch a device. `verify-release.sh` is the tool that keeps those
 facts straight (see "Proving it landed").
 
+## Catching a window that flashes on an operator's desktop
+
+"The screen blinks" has three plausible authors and only one of them is the product: a console child of a GUI
+process (see `CREATE_NO_WINDOW`), a deployment script (a download holds a window open for minutes), and any
+other automation on the machine. A sampler answers it in three minutes — a SYSTEM task running `wmic process` in
+a loop, one snapshot every ~400 ms, then `findstr` for the suspects:
+
+```bat
+for /L %%i in (1,1,120) do (
+  wmic process where "name='cmd.exe' or name='schtasks.exe' or name='powershell.exe'" get Name,ProcessId,ParentProcessId,CommandLine /format:csv
+  ping -n 1 -w 400 127.0.0.1 >nul
+)
+```
+
+Measured on DESKTOP-14RJCR8 over three minutes (2026-10-28, 19:00): **no** `schtasks` and **no** `powershell`
+process appeared, which is what retired the "the tray registers its reconnect task repeatedly" hypothesis after
+the `CREATE_NO_WINDOW` fix. The sampler's own `cmd.exe` dominates the `cmd.exe` rows — filter by command line,
+not by name.
+
 ## The console's stderr is a file now
 
 The console task used to run the binary with nothing attached, so its own diagnostics went nowhere: the two
