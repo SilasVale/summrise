@@ -350,6 +350,8 @@ body.login { margin:0; background:var(--bg); }
 .btn-quiet-danger { border-color:transparent; background:transparent; color:var(--muted); }
 .btn-quiet-danger:hover { border-color:transparent; background:var(--danger-soft); color:var(--danger); }
 .form-inline .grow { flex:1 1 260px; min-width:0; }
+/* A digest or an id has no break opportunity; a phone does not grow a card for it. */
+dd .mono { overflow-wrap:anywhere; }
 .file-name { display:inline-flex; align-items:center; min-height:24px; font-weight:500; }
 .cmd-line { white-space:pre-wrap; word-break:break-all; }
 .url { word-break:break-all; }
@@ -396,8 +398,18 @@ body.login { margin:0; background:var(--bg); }
      of full-width fields is what a person can actually use. */
   .filter-form { display:grid; grid-template-columns:1fr 1fr; gap:10px 12px; align-items:end; }
   .filter-form .field { min-width:0; margin:0; }
-  .filter-form input, .filter-form select { width:100%; }
+  .filter-form input, .filter-form select { width:100%; min-width:0; }
   .filter-form .form-actions { grid-column:1 / -1; display:flex; align-items:center; gap:10px; }
+  /* A filter form in a card head is a flex item sized to its content, so its two 1fr tracks were
+     laid out at the input's min-content width and the second one ran past the card. */
+  .card-head .actions { flex:1 1 100%; min-width:0; }
+  .card-head .actions .filter-form { flex:1 1 auto; min-width:0; }
+  .card-head .filter-form input { min-width:0; }
+  /* An inline form's fields take the row they need; at a phone's width the button waits below. */
+  .form-inline { align-items:stretch; }
+  .form-inline .field { flex:1 1 100%; }
+  .form-inline .field input, .form-inline .field select { width:100%; min-width:0; }
+  .form-inline .btn { flex:0 0 auto; }
   /* The trend row needs 362px before its first break; a 400px phone has 292. It stacks. */
   .trend-row { grid-template-columns:1fr; gap:6px; }
   .trend-row .trend-scale { justify-self:start; }

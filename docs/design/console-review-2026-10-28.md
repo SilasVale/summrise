@@ -111,3 +111,22 @@ Found by the same review, fixed in this round:
 Also fixed: the README's verify step used 18090; its `--data` default was the wrong store for an
 installed binary (the service reads `%ProgramData%\Summrise`); and two references pointed at
 `panel.html`, which no longer exists.
+
+## The layout gate (2026-10-28)
+
+The screenshots are read by an eye, and an eye missed four pages whose cards were wider than a
+phone: the memory filter's two columns, the system page's filter form and reachability row, and the
+vitals install card's sha256. Each showed a horizontal scrollbar inside its own card, which reads as
+"nothing here" until you look for it.
+
+`node scripts/console-layout.mjs <pages-dir> 390 800 1280` renders nothing itself — it drives headless
+Chrome over the pages `scripts/console-screenshots.bash` wrote and measures three things per page:
+
+- the document does not scroll sideways;
+- no element with `overflow:auto|scroll` has more scrollWidth than clientWidth (a card that
+  overflows raises that scrollbar; a table that scrolls by design is not an overflow);
+- no visible element is painted past its nearest clipping box (content that is cut, not scrollable).
+
+It also asserts one `<h1>` per page. Mutation: a 900px div in a dashboard card body →
+`FAIL dashboard.html @390: panes=section +586`, exit 1; the unmutated set exits 0 with
+`30 pages x 390/800/1280 -> 0 failure(s)`.
