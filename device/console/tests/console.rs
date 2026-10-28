@@ -1265,16 +1265,22 @@ async fn a_valid_grant_verifies_with_the_console_grant_key() {
         "the console returns the fact it signed"
     );
 
+    let nonce = body["grant"]["nonce"]
+        .as_str()
+        .expect("the grant carries the nonce it signed")
+        .to_owned();
+    assert_eq!(nonce.len(), 32, "sixteen bytes of hex: {nonce}");
     let canonical = summrise_console::canonical_message(&summrise_console::Grant {
         device_id: device_id.clone(),
         tools: tools.clone(),
         expires_at_ms: START_MS + 3_600_000,
         allow_destructive: true,
+        nonce: nonce.clone(),
     });
     assert_eq!(
         canonical,
         format!(
-            "grant\n{device_id}\n{}\n{}\ntrue",
+            "grant\n{device_id}\n{}\n{}\ntrue\n{nonce}",
             tools.join(","),
             START_MS + 3_600_000
         ),
@@ -1303,6 +1309,10 @@ async fn a_grant_that_does_not_ask_for_destruction_gets_false() {
         tools: vec!["files.read".to_owned()],
         expires_at_ms: START_MS + 60_000,
         allow_destructive: false,
+        nonce: grant["grant"]["nonce"]
+            .as_str()
+            .expect("the grant carries a nonce")
+            .to_owned(),
     });
     let signature = decode_signature(grant["signature"].as_str().expect("a hex signature"));
     SigningKey::from_bytes(&GRANT_SEED)
@@ -1320,6 +1330,7 @@ fn the_canonical_message_is_exactly_the_agreed_string() {
             tools,
             expires_at_ms: 1_700_000_000_000,
             allow_destructive: false,
+            nonce: String::new(),
         }),
         "grant\nabc123\nfiles.read,terminal.create\n1700000000000\nfalse"
     );
@@ -1820,9 +1831,13 @@ async fn the_forwarded_grant_reverifies_over_the_canonical_bytes() {
             .expect("the granted facts are an object");
         assert_eq!(
             facts.len(),
-            4,
-            "exactly the four canonical fields: {facts:?}"
+            5,
+            "exactly the five canonical fields: {facts:?}"
         );
+        let delivered_nonce = facts["nonce"]
+            .as_str()
+            .expect("a nonce in the forwarded grant")
+            .to_owned();
         let delivered_device = facts["device_id"]
             .as_str()
             .expect("a device id in the forwarded grant");
@@ -1844,7 +1859,7 @@ async fn the_forwarded_grant_reverifies_over_the_canonical_bytes() {
         assert!(delivered_consent, "the operator's consent is forwarded");
 
         let canonical = format!(
-            "grant\n{delivered_device}\n{}\n{delivered_expiry}\n{delivered_consent}",
+            "grant\n{delivered_device}\n{}\n{delivered_expiry}\n{delivered_consent}\n{delivered_nonce}",
             delivered_tools.join(",")
         );
         let signature = decode_signature(

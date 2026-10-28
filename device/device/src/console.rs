@@ -691,6 +691,7 @@ async fn handle_frame(
         key,
         crate::http::now_ms(),
         remote::Transport::Console,
+        server.nonces(),
     ) {
         Ok(admitted) => admitted,
         Err(refusal) => {
@@ -799,6 +800,9 @@ mod tests {
                 tools: tools.iter().map(|tool| (*tool).to_owned()).collect(),
                 expires_at_ms,
                 allow_destructive,
+                // One nonce per grant, as the console's signer does it: a frame built twice in a test
+                // must carry the same nonce for the replay check to have something to compare.
+                nonce: "5a5a".repeat(8),
             },
         )
     }
@@ -1334,6 +1338,52 @@ mod tests {
         handle.abort();
     }
 
+    /// A captured frame is one consent: the same signed grant sent twice runs once, and the second
+    /// arrival is refused by name. Without the nonce this is the call that ran twice.
+    #[tokio::test]
+    async fn the_same_signed_frame_twice_runs_once() {
+        let (server, config, _dir) = fixture("console-replay");
+        fs::write(config.files_root.join("notes.txt"), "read once")
+            .expect("the fixture file is written");
+        let mut console = FakeConsole::start().await;
+        let handle = spawn_with_key(
+            endpoint(&console.url),
+            server.clone(),
+            signing().verifying_key(),
+        );
+        let mut connection = console.next().await;
+        let frame = json!({
+            "id": 31,
+            "mcp": read_call(130, "notes.txt"),
+            "grant": grant(&["files.read"], now_ms() as u64 + 60_000),
+        });
+
+        send_frame(&mut connection.socket, frame.clone()).await;
+        let first = next_frame(&mut connection.socket).await;
+        assert_eq!(first["result"]["id"], 130, "{first}");
+
+        send_frame(&mut connection.socket, frame).await;
+        let second = next_frame(&mut connection.socket).await;
+        assert_eq!(
+            second["error"]["error"]["code"], -32001,
+            "the replayed frame is refused: {second}"
+        );
+        assert!(
+            second["error"]["error"]["message"]
+                .as_str()
+                .is_some_and(|message| message.contains("already been used")),
+            "{second}"
+        );
+
+        let lines = audit_lines(&config);
+        assert_eq!(lines.len(), 4, "two calls, two lines each: {lines:?}");
+        assert_eq!(lines[0]["decision"], "allow");
+        assert_eq!(lines[1]["ok"], true);
+        assert_eq!(lines[2]["decision"], "deny");
+        assert_eq!(lines[3]["error_kind"], "replay");
+        handle.abort();
+    }
+
     #[tokio::test]
     async fn a_console_call_is_audited_as_the_console_transport() {
         let (server, config, _dir) = fixture("console-audit-transport");
@@ -1702,6 +1752,7 @@ mod tests {
                 tools: vec!["files.read".to_owned()],
                 expires_at_ms: now_ms() as u64 + 60_000,
                 allow_destructive: false,
+                nonce: String::new(),
             },
         );
         send_frame(

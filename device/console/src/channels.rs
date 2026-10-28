@@ -640,6 +640,7 @@ mod tests {
                 tools: vec!["files.read".to_owned()],
                 expires_at_ms: u64::MAX,
                 allow_destructive: false,
+                nonce: String::new(),
             },
             signature: "00".repeat(64),
         }

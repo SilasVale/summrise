@@ -270,6 +270,7 @@ mod tests {
                 tools: vec!["files.read".to_owned(), "terminal.list".to_owned()],
                 expires_at_ms: 1_000,
                 allow_destructive: false,
+                nonce: String::new(),
             },
             signature: "cd".repeat(64),
         }

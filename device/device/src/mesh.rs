@@ -324,6 +324,7 @@ async fn answer(
         key,
         crate::http::now_ms(),
         remote::Transport::Mesh,
+        server.nonces(),
     ) {
         Ok(envelope) => envelope,
         Err(refusal) => {
@@ -666,6 +667,7 @@ mod tests {
                 tools: tools.iter().map(|tool| (*tool).to_owned()).collect(),
                 expires_at_ms,
                 allow_destructive: false,
+                nonce: String::new(),
             },
         )
     }
@@ -963,6 +965,7 @@ mod tests {
                 tools: vec!["state.get".to_owned()],
                 expires_at_ms: now_ms() + 60_000,
                 allow_destructive: false,
+                nonce: String::new(),
             },
         );
 

@@ -113,6 +113,8 @@ pub(crate) struct DeviceServer {
     runs: Arc<runs::Runs>,
     /// The per-call audit log; shared so concurrent sessions serialize their appends.
     audit: Arc<Audit>,
+    /// The grant nonces this device has admitted, so a captured frame cannot run twice.
+    nonces: crate::remote::NonceLog,
     /// Whether the launcher started this process (`Config.supervised`). Only then may
     /// `host.restart` ask for the hook: a standalone app that exits would not come back.
     supervised: bool,
@@ -328,6 +330,7 @@ impl DeviceServer {
             monitor: Arc::new(monitor::MonitorRegistry::new(&config.data)),
             runs: Arc::new(runs::Runs::new(&config.data, &config.files_root)),
             audit,
+            nonces: crate::remote::NonceLog::new(),
             supervised: config.supervised,
             restart: restart::none(),
         }
@@ -338,6 +341,11 @@ impl DeviceServer {
     pub(crate) fn with_restart(mut self, restart: restart::Hook) -> DeviceServer {
         self.restart = restart;
         self
+    }
+
+    /// The grant nonces this device has admitted.
+    pub(crate) fn nonces(&self) -> &crate::remote::NonceLog {
+        &self.nonces
     }
 
     /// Share the process's one audit with the panel, so a session the operator opens from the page
@@ -5452,6 +5460,7 @@ mod tests {
             tools: vec!["files.write".to_owned()],
             expires_at_ms: (crate::http::now_ms() + 60_000) as u64,
             allow_destructive: false,
+            nonce: String::new(),
         };
 
         let reply = server
@@ -5505,6 +5514,7 @@ mod tests {
             tools: vec!["files.write".to_owned()],
             expires_at_ms: (crate::http::now_ms() + 60_000) as u64,
             allow_destructive: true,
+            nonce: String::new(),
         };
 
         let reply = server

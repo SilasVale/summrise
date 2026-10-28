@@ -67,6 +67,9 @@ pub(crate) enum GrantRefusal {
     Expired,
     /// The grant is authentic and live, but does not cover the tool the request names.
     ToolNotCovered,
+    /// The grant is authentic and live, and this device has already admitted it. A captured frame
+    /// run twice is two side effects from one consent, which is what the nonce exists to stop.
+    Replay,
 }
 
 impl GrantRefusal {
@@ -78,6 +81,7 @@ impl GrantRefusal {
             GrantRefusal::DeviceMismatch => "grant_device_mismatch",
             GrantRefusal::Expired => "grant_expired",
             GrantRefusal::ToolNotCovered => "tool_not_covered",
+            GrantRefusal::Replay => "replay",
         }
     }
 
@@ -89,6 +93,7 @@ impl GrantRefusal {
             GrantRefusal::DeviceMismatch => "the console grant is for a different device",
             GrantRefusal::Expired => "the console grant has expired",
             GrantRefusal::ToolNotCovered => "tool not permitted by grant",
+            GrantRefusal::Replay => "this console grant has already been used on this device",
         }
     }
 }
@@ -116,6 +121,48 @@ impl PartialEq for Admitted<'_> {
     }
 }
 
+/// How many admitted nonces are remembered. One entry is 16 bytes plus a string, and the log is
+/// pruned by the grant's own expiry, so this is a ceiling on a burst, not a growing history.
+const NONCE_LOG_CAP: usize = 4096;
+
+/// The unexpired grant nonces this device has already admitted.
+///
+/// A grant is a bearer: anyone holding a frame can present it again, and the signature will verify
+/// just as it did the first time. The nonce is signed along with the rest of the grant, so the
+/// device can answer "I have seen this exact grant" and refuse the second arrival; a replayer cannot
+/// change the nonce without invalidating the signature.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct NonceLog {
+    /// Shared, so a cloned server (the MCP service clones one per session) sees one log.
+    seen: std::sync::Arc<std::sync::Mutex<std::collections::VecDeque<(String, u64)>>>,
+}
+
+impl NonceLog {
+    pub(crate) fn new() -> NonceLog {
+        NonceLog::default()
+    }
+
+    /// Record one nonce; `false` when it was already admitted and its grant is still live.
+    ///
+    /// `expires_at_ms` is the grant's own expiry: once it passes, an admission of that grant is no
+    /// longer something a replay could act on, so the entry is dropped and a nonce reused by a
+    /// later grant is a new grant.
+    pub(crate) fn first_use(&self, nonce: &str, expires_at_ms: u64, now_ms: i64) -> bool {
+        let now = now_ms.max(0) as u64;
+        let mut seen = self.seen.lock().expect("the nonce log");
+        // The same skew the expiry check allows: an entry stays until its grant could no longer run.
+        seen.retain(|(_, expires)| expires.saturating_add(CLOCK_SKEW_MS as u64) > now);
+        if seen.iter().any(|(known, _)| known == nonce) {
+            return false;
+        }
+        if seen.len() >= NONCE_LOG_CAP {
+            seen.pop_front();
+        }
+        seen.push_back((nonce.to_owned(), expires_at_ms));
+        true
+    }
+}
+
 /// Where a frame came from, which decides what may authorize it.
 ///
 /// A GRANT is self-authenticating: the console's key signed it, so it is admitted on any transport.
@@ -134,6 +181,7 @@ pub(crate) fn admit<'a>(
     key: &VerifyingKey,
     now_ms: i64,
     transport: Transport,
+    nonces: &NonceLog,
 ) -> Result<Admitted<'a>, GrantRefusal> {
     if let Some(scope) = frame.token.as_ref() {
         if transport != Transport::Console {
@@ -181,6 +229,13 @@ pub(crate) fn admit<'a>(
         if !envelope.grant.tools.iter().any(|allowed| allowed == tool) {
             return Err(GrantRefusal::ToolNotCovered);
         }
+    }
+    // A grant with an empty nonce came from a console that predates the field; refusing it would
+    // break a live console during a rolling update, so it is admitted exactly as before.
+    if !envelope.grant.nonce.is_empty()
+        && !nonces.first_use(&envelope.grant.nonce, envelope.grant.expires_at_ms, now_ms)
+    {
+        return Err(GrantRefusal::Replay);
     }
     Ok(Admitted::Grant(envelope))
 }
@@ -251,6 +306,7 @@ mod tests {
                 tools: tools.iter().map(|tool| (*tool).to_owned()).collect(),
                 expires_at_ms,
                 allow_destructive: false,
+                nonce: String::new(),
             },
         )
     }
@@ -284,7 +340,8 @@ mod tests {
                 &device_id(),
                 &signing().verifying_key(),
                 now_ms(),
-                Transport::Console
+                Transport::Console,
+                &NonceLog::new()
             ),
             Ok(Admitted::Grant(&grant))
         );
@@ -307,7 +364,7 @@ mod tests {
         };
         assert!(
             matches!(
-                admit(&frame, &device_id(), &signing().verifying_key(), now_ms(), Transport::Console),
+                admit(&frame, &device_id(), &signing().verifying_key(), now_ms(), Transport::Console, &NonceLog::new()),
                 Ok(Admitted::Token(scope)) if scope.token_id == "operator"
             ),
             "the operator scope is a wildcard, not the literal tool name `*`"
@@ -338,7 +395,8 @@ mod tests {
             &device_id(),
             &signing().verifying_key(),
             now_ms(),
-            Transport::Console
+            Transport::Console,
+            &NonceLog::new()
         )
         .is_ok());
         let outside = RemoteFrame {
@@ -353,9 +411,57 @@ mod tests {
                 &device_id(),
                 &signing().verifying_key(),
                 now_ms(),
-                Transport::Console
+                Transport::Console,
+                &NonceLog::new()
             ),
             Err(GrantRefusal::ToolNotCovered)
+        );
+    }
+
+    #[test]
+    fn a_nonce_is_admitted_once_and_forgotten_when_its_grant_expires() {
+        let log = NonceLog::new();
+        let expires = 10_000u64;
+        assert!(log.first_use("aa", expires, 1_000), "the first use is new");
+        assert!(
+            !log.first_use("aa", expires, 2_000),
+            "the same nonce inside its grant's life is a replay"
+        );
+        assert!(
+            log.first_use("bb", expires, 2_000),
+            "another nonce is another grant"
+        );
+
+        // Past the grant's expiry (plus the skew the expiry check allows), the entry is dropped: a
+        // replay of it could no longer run, so remembering it would only grow the log.
+        let later = expires + CLOCK_SKEW_MS as u64 + 1;
+        assert!(
+            log.first_use("aa", later, later as i64),
+            "an expired grant's nonce is forgotten"
+        );
+    }
+
+    #[test]
+    fn the_nonce_log_is_bounded() {
+        let log = NonceLog::new();
+        for index in 0..(super::NONCE_LOG_CAP + 10) {
+            let nonce = format!("{index:08x}");
+            assert!(log.first_use(&nonce, u64::MAX, 1_000), "{nonce}");
+        }
+        // The newest entries are still refused as replays; the oldest were evicted, which is the
+        // documented bound: 4096 live grants is more than one console can have in flight, and an
+        // evicted nonce could only be replayed by a holder of that grant inside its life.
+        assert!(
+            !log.first_use(
+                &format!("{:08x}", super::NONCE_LOG_CAP + 9),
+                u64::MAX,
+                1_000
+            ),
+            "the newest nonce is remembered"
+        );
+        assert!(
+            log.first_use(&format!("{:08x}", 5), u64::MAX, 1_000),
+            "the oldest was evicted at the cap"
         );
     }
 
@@ -369,7 +475,8 @@ mod tests {
                 &device_id(),
                 &signing().verifying_key(),
                 now_ms(),
-                Transport::Console
+                Transport::Console,
+                &NonceLog::new()
             ),
             Err(GrantRefusal::NoGrant)
         );
@@ -385,6 +492,7 @@ mod tests {
                 tools: vec!["state.get".to_owned()],
                 expires_at_ms: now_ms() as u64 + 60_000,
                 allow_destructive: false,
+                nonce: String::new(),
             },
         );
         let frame = remote_frame(call("state.get"), Some(grant));
@@ -395,7 +503,8 @@ mod tests {
                 &device_id(),
                 &signing().verifying_key(),
                 now_ms(),
-                Transport::Console
+                Transport::Console,
+                &NonceLog::new()
             ),
             Err(GrantRefusal::BadSignature)
         );
@@ -412,7 +521,8 @@ mod tests {
                 &device_id(),
                 &signing().verifying_key(),
                 now_ms(),
-                Transport::Console
+                Transport::Console,
+                &NonceLog::new()
             ),
             Err(GrantRefusal::DeviceMismatch)
         );
@@ -428,7 +538,8 @@ mod tests {
                 &device_id(),
                 &signing().verifying_key(),
                 now_ms(),
-                Transport::Console
+                Transport::Console,
+                &NonceLog::new()
             ),
             Err(GrantRefusal::Expired)
         );
@@ -444,7 +555,8 @@ mod tests {
                 &device_id(),
                 &signing().verifying_key(),
                 now_ms(),
-                Transport::Console
+                Transport::Console,
+                &NonceLog::new()
             )
             .is_ok(),
             "a minute past the stated expiry is inside the five-minute allowance"
@@ -462,7 +574,8 @@ mod tests {
                 &device_id(),
                 &signing().verifying_key(),
                 now_ms(),
-                Transport::Console
+                Transport::Console,
+                &NonceLog::new()
             ),
             Err(GrantRefusal::ToolNotCovered)
         );
@@ -482,7 +595,8 @@ mod tests {
                     &device_id(),
                     &signing().verifying_key(),
                     now_ms(),
-                    Transport::Console
+                    Transport::Console,
+                    &NonceLog::new()
                 )
                 .is_ok(),
                 "{mcp}"
