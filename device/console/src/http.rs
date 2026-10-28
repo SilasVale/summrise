@@ -3394,6 +3394,9 @@ async fn next_monitors_page(
                 target: format!("{host}:{port}"),
                 interval_ms: target["interval_ms"].as_u64().unwrap_or(0),
                 up_now: target["summary"]["up_now"].as_bool(),
+                // HOW LONG THE CURRENT STATE HAS LASTED is the question an operator asks first about a
+                // target that is down ("since when?"), and the device already answers it.
+                since_ms: target["summary"]["since_ms"].as_u64(),
                 up_pct: target["summary"]["up_pct"].as_u64(),
                 drops: target["summary"]["drops"].as_u64(),
                 last_status: target["summary"]["last_status"]
@@ -3408,6 +3411,7 @@ async fn next_monitors_page(
             &rows,
             &hex::encode(&session.csrf),
             &app.version,
+            (app.now)(),
             error.as_deref(),
         )
         .into_string(),

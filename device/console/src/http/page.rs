@@ -2700,6 +2700,8 @@ pub(super) struct MonitorRow {
     pub(super) target: String,
     pub(super) interval_ms: u64,
     pub(super) up_now: Option<bool>,
+    /// When the current run of identical probe results began, from the device's summary.
+    pub(super) since_ms: Option<u64>,
     pub(super) up_pct: Option<u64>,
     pub(super) drops: Option<u64>,
     pub(super) last_status: Option<u16>,
@@ -2711,6 +2713,7 @@ pub(super) fn monitors(
     rows: &[MonitorRow],
     csrf: &str,
     version: &str,
+    now_ms: u64,
     error: Option<&str>,
 ) -> Markup {
     let base = format!("/next/monitors/{}", device.id);
@@ -2762,6 +2765,17 @@ pub(super) fn monitors(
                                         Some(true) => { span class="chip online" { "up" } },
                                         Some(false) => { span class="chip failed" { "down" } },
                                         None => { span class="muted" { "—" } },
+                                    }
+                                    // "down" without "since when" is a state, not a story: the device's
+                                    // summary carries the moment the current run began.
+                                    @if let Some(since) = row.since_ms.filter(|since| *since > 0) {
+                                        // `ago` reads "6h ago"; a duration after "for" drops the "ago".
+                                        @let age = ago(now_ms, since);
+                                        @let lasted = age.strip_suffix(" ago").unwrap_or(&age).to_owned();
+                                        @let state = if row.up_now == Some(true) { "up" } else { "down" };
+                                        div class="sub mono" title=(format!("{state} since {}", stamp(since))) {
+                                            (state) " for " (lasted)
+                                        }
                                     }
                                 }
                                 td {
@@ -3859,7 +3873,10 @@ mod tests {
                 ),
             ),
             ("Screen", screen(device, None, "no screen", "00", "0.1.0")),
-            ("Monitors", monitors(device, &[], "00", "0.1.0", None)),
+            (
+                "Monitors",
+                monitors(device, &[], "00", "0.1.0", 1_791_000_000_000, None),
+            ),
             (
                 "Browser",
                 browser(device, &[], None, "00", "0.1.0", None, None),
@@ -4267,6 +4284,7 @@ mod tests {
                 target: "10.0.0.1:443".to_owned(),
                 interval_ms: 15_000,
                 up_now: Some(true),
+                since_ms: Some(1_791_000_000_000 - 6 * 3600 * 1000),
                 up_pct: Some(100),
                 drops: Some(0),
                 last_status: None,
@@ -4277,6 +4295,7 @@ mod tests {
                 target: "192.168.1.1:80".to_owned(),
                 interval_ms: 30_000,
                 up_now: Some(true),
+                since_ms: Some(1_791_000_000_000 - 40 * 60 * 1000),
                 up_pct: Some(95),
                 drops: Some(3),
                 last_status: Some(200),
@@ -4287,6 +4306,7 @@ mod tests {
                 target: "10.0.0.9:22".to_owned(),
                 interval_ms: 10_000,
                 up_now: Some(false),
+                since_ms: Some(1_791_000_000_000 - 12 * 60 * 1000),
                 up_pct: Some(41),
                 drops: Some(12),
                 last_status: None,
@@ -4523,11 +4543,11 @@ mod tests {
             ),
             (
                 "monitors",
-                monitors(&devices[0], &monitors_rows, "csrf", "0.3.72", None),
+                monitors(&devices[0], &monitors_rows, "csrf", "0.3.72", 1_791_000_000_000, None),
             ),
             (
                 "monitors-empty",
-                monitors(&devices[0], &[], "csrf", "0.3.72", None),
+                monitors(&devices[0], &[], "csrf", "0.3.72", 1_791_000_000_000, None),
             ),
             (
                 "browser",
@@ -4799,7 +4819,7 @@ mod tests {
                 "0.1.0",
                 None,
             ),
-            monitors(&device, &[], "00", "0.1.0", None),
+            monitors(&device, &[], "00", "0.1.0", 1_791_000_000_000, None),
             browser(&device, &[], None, "00", "0.1.0", None, None),
             tokens(&device, &[], "00", "0.1.0", None),
             vitals(&device, &sample_vitals(), "00", "0.1.0"),
