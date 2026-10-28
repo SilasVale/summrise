@@ -30,6 +30,10 @@ const COMPONENTS: &str = r##"  * { box-sizing: border-box; }
   /* The shared card carries a bottom margin; in a grid that owns the gap it doubled the space
      between siblings (16 + 20 = 36px). One owner of the gap. */
   main .card { margin-bottom: 0; }
+  /* A grid item refuses to shrink below its content unless told to; the cards are the items. */
+  main > * { min-width: 0; }
+  .term-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+  .term-controls input { width: 7rem; min-width: 0; }
   .lede { color: var(--ink-muted); margin: 0 0 4px; font-size: 14px; }
   header button {
     margin-left: auto; font: inherit; font-size: 13px; font-weight: 600;
@@ -395,7 +399,10 @@ fn render(facts: &PanelFacts, outcome: Option<&EnrollOutcome>) -> Markup {
                         p class="hint" {
                             "Open a pty or a serial line on this machine and type into it. Loopback only, the same registry the MCP's terminal.* tools use. A session does not survive a device restart."
                         }
-                        p {
+                        // Five controls in a plain <p> had no whitespace between them, so they formed
+                        // one unbreakable inline run and forced the whole grid column wider than the
+                        // window on a narrow screen. A wrapping row breaks between them.
+                        div class="term-controls" {
                             button id="term-pty" type="button" { "New pty" }
                             input id="term-port" type="text" placeholder="COM3" value="COM3";
                             input id="term-baud" type="number" placeholder="115200" value="115200";
