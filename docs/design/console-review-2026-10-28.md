@@ -127,6 +127,11 @@ Chrome over the pages `scripts/console-screenshots.bash` wrote and measures thre
   overflows raises that scrollbar; a table that scrolls by design is not an overflow);
 - no visible element is painted past its nearest clipping box (content that is cut, not scrollable).
 
-It also asserts one `<h1>` per page. Mutation: a 900px div in a dashboard card body →
+It also asserts one `<h1>` per page.
+
+The width floor is 360 (a common Android width); 320 was measured too, and one page fails there by six
+pixels — the fleet table's first cell is wider than the table at that width, which the dense-table
+scroll rule then hides behind a scrollbar. That is below the floor the product claims, and it is
+recorded here rather than left as a surprise. Mutation: a 900px div in a dashboard card body →
 `FAIL dashboard.html @390: panes=section +586`, exit 1; the unmutated set exits 0 with
 `30 pages x 390/800/1280 -> 0 failure(s)`.

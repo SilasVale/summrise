@@ -43,7 +43,7 @@ jobs:
           export SUMMRISE_PAGE_DIR="$RUNNER_TEMP/console-pages"
           mkdir -p "$SUMMRISE_PAGE_DIR"
           cargo test --quiet --manifest-path device/Cargo.toml -p summrise-console --lib -- --ignored render_pages_for_review
-          node scripts/layout-gate.mjs "$SUMMRISE_PAGE_DIR" 390 800 1280
+          node scripts/layout-gate.mjs "$SUMMRISE_PAGE_DIR" 360 390 800 1280
       # The panel is the device's own page, and it is the only surface a person sees without the
       # console; it gets the same measurement.
       - name: the device panel fits the window
