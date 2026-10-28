@@ -234,6 +234,7 @@ body.terminal .content { display:flex; flex-direction:column; min-height:0; over
 .kind-fields input#serial_port { width:170px; }
 .preset-count { margin-left:2px; color:var(--faint); font-variant-numeric:tabular-nums; }
 .preset-panel { width:min(340px, calc(100vw - 96px)); padding:12px; }
+.approval-say { margin:0 0 6px; font-size:13px; }
 .preset-list { list-style:none; margin:0 0 10px; padding:0; display:flex; flex-direction:column; }
 .preset-row { display:flex; align-items:center; gap:8px; padding:6px 0; border-bottom:1px solid var(--line); }
 .preset-row:last-child { border-bottom:0; }
@@ -953,6 +954,120 @@ pub(super) struct Notes<'a> {
     pub origin: Option<&'a str>,
 }
 
+/// A destructive call in one sentence, for the person deciding it.
+///
+/// The approval card showed only raw JSON. Ninety seconds is not enough time to parse a nested
+/// object on a phone, and the operator is being asked to accept a consequence, not to review a
+/// payload — the JSON stays underneath as the evidence. `None` means "this tool has no summary",
+/// which is honest; the JSON is still there.
+fn approval_sentence(tool: &str, arguments: &str) -> Option<String> {
+    fn cut(text: &str, limit: usize) -> String {
+        if text.chars().count() <= limit {
+            return text.to_owned();
+        }
+        let mut short: String = text.chars().take(limit.saturating_sub(1)).collect();
+        short.push('…');
+        short
+    }
+    let value: serde_json::Value = serde_json::from_str(arguments).ok()?;
+    let text = |key: &str| value.get(key).and_then(|v| v.as_str()).map(str::to_owned);
+    let number = |key: &str| value.get(key).and_then(|v| v.as_u64());
+    Some(match tool {
+        "terminal.create" => match text("kind").unwrap_or_default().as_str() {
+            "ssh" => {
+                let host = text("host").unwrap_or_else(|| "(no host)".to_owned());
+                let port = number("port").unwrap_or(22);
+                match text("user") {
+                    Some(user) => format!("Open an ssh session as {user}@{host}:{port}."),
+                    None => format!("Open an ssh session to {host}:{port}."),
+                }
+            }
+            "serial" => {
+                let port = text("port").unwrap_or_else(|| "(no port)".to_owned());
+                let baud = number("baud").unwrap_or(115200);
+                format!("Open the serial port {port} at {baud} baud.")
+            }
+            _ => "Start a pty session: a shell on the device.".to_owned(),
+        },
+        "terminal.write" => {
+            let id = text("id").unwrap_or_else(|| "?".to_owned());
+            let bytes = text("data")
+                .map(|data| data.len())
+                .or_else(|| text("data_base64").map(|data| data.len()))
+                .unwrap_or(0);
+            format!("Type {bytes} bytes into session {id}.")
+        }
+        "files.write" => {
+            let path = text("path").unwrap_or_else(|| "?".to_owned());
+            let bytes = text("content").map(|content| content.len()).unwrap_or(0);
+            format!("Write {bytes} bytes to {path}.")
+        }
+        "files.delete" => format!("Delete {}.", text("path").unwrap_or_else(|| "?".to_owned())),
+        "memory.append" => format!(
+            "Remember \u{201c}{}\u{201d}.",
+            cut(&text("text").unwrap_or_default(), 60)
+        ),
+        "memory.update" => format!(
+            "Rewrite memory entry {}.",
+            text("id").unwrap_or_else(|| "?".to_owned())
+        ),
+        "memory.delete" => format!(
+            "Forget memory entry {}.",
+            text("id").unwrap_or_else(|| "?".to_owned())
+        ),
+        "browser.open" => format!(
+            "Open {} in the device's browser.",
+            text("url").unwrap_or_else(|| "?".to_owned())
+        ),
+        "browser.navigate" => format!(
+            "Navigate the device's browser to {}.",
+            text("url").unwrap_or_else(|| "?".to_owned())
+        ),
+        "browser.eval" => format!(
+            "Run JavaScript in the device's browser: {}",
+            cut(&text("expression").unwrap_or_default(), 60)
+        ),
+        "browser.close" => format!(
+            "Close {}.",
+            text("target")
+                .or_else(|| text("id"))
+                .unwrap_or_else(|| "the page".to_owned())
+        ),
+        "runs.exec" => {
+            let command = text("command").unwrap_or_else(|| "?".to_owned());
+            let args = value
+                .get("args")
+                .and_then(|v| v.as_array())
+                .map(|args| {
+                    args.iter()
+                        .filter_map(|v| v.as_str())
+                        .collect::<Vec<_>>()
+                        .join(" ")
+                })
+                .unwrap_or_default();
+            let line = format!("{command} {args}").trim().to_owned();
+            match text("cwd") {
+                Some(cwd) => format!("Run {line} in {cwd}."),
+                None => format!("Run {line}."),
+            }
+        }
+        "system.process_kill" => {
+            if let Some(name) = text("name") {
+                format!("End every process named {name}.")
+            } else if let Some(pid) = number("pid") {
+                format!("End process {pid}.")
+            } else {
+                "End a process.".to_owned()
+            }
+        }
+        "monitor.remove" => format!(
+            "Stop watching {}.",
+            text("id").unwrap_or_else(|| "?".to_owned())
+        ),
+        _ => return None,
+    })
+}
+
 /// One call a device refused for lack of destructive consent, waiting for the operator.
 #[derive(Clone)]
 pub(super) struct ApprovalRow {
@@ -1010,7 +1125,12 @@ pub(super) fn dashboard(
                                 tr {
                                     td { code title=(row.device_id) { (row.device_id.chars().take(12).collect::<String>()) } }
                                     td { code { (row.tool) } }
-                                    td class="wrap" { pre class="code-block" { (row.arguments) } }
+                                    td class="wrap" {
+                                        @if let Some(sentence) = approval_sentence(&row.tool, &row.arguments) {
+                                            p class="approval-say" { (sentence) }
+                                        }
+                                        pre class="code-block" { (row.arguments) }
+                                    }
                                     td class="nowrap" { (stamp(row.created_ms)) }
                                     td class="num" {
                                         div class="form-inline" {
@@ -4250,6 +4370,57 @@ mod tests {
         }
         // The smoke test clicks `a:has-text("Files")`; the rail must not add a second text match.
         assert_eq!(page.matches(">Files</a>").count(), devices.len(), "{page}");
+    }
+
+    /// **A HELD CALL IS DECIDED IN NINETY SECONDS.** The card used to show raw JSON and nothing
+    /// else; the sentence says what the call does, and the JSON stays under it as the evidence.
+    #[test]
+    fn a_held_call_says_what_it_does_before_the_json() {
+        let cases = [
+            (
+                "terminal.create",
+                r#"{"kind":"pty"}"#,
+                Some("Start a pty session: a shell on the device."),
+            ),
+            (
+                "terminal.create",
+                r#"{"kind":"ssh","host":"10.0.0.5","port":2222,"user":"root"}"#,
+                Some("Open an ssh session as root@10.0.0.5:2222."),
+            ),
+            (
+                "terminal.create",
+                r#"{"kind":"serial","port":"COM3","baud":9600}"#,
+                Some("Open the serial port COM3 at 9600 baud."),
+            ),
+            (
+                "files.write",
+                r#"{"path":"notes.txt","content":"hi"}"#,
+                Some("Write 2 bytes to notes.txt."),
+            ),
+            (
+                "memory.delete",
+                r#"{"id":"m1"}"#,
+                Some("Forget memory entry m1."),
+            ),
+            (
+                "system.process_kill",
+                r#"{"pid":4242}"#,
+                Some("End process 4242."),
+            ),
+            (
+                "runs.exec",
+                r#"{"command":"cmd","args":["/c","dir"],"cwd":"work"}"#,
+                Some("Run cmd /c dir in work."),
+            ),
+            ("audit.export", "{}", None),
+        ];
+        for (tool, arguments, expected) in cases {
+            assert_eq!(
+                approval_sentence(tool, arguments).as_deref(),
+                expected,
+                "{tool} {arguments}"
+            );
+        }
     }
 
     /// **A DEVICE THAT DID NOT ANSWER IS NOT A DEVICE WITH NOTHING ON IT.** Four empty states said
