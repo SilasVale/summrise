@@ -350,9 +350,10 @@ console at each deploy.
 - **The device fleet still runs 0.3.152.** A canary 0.3.167 was built, signed and verified against a
   loopback mirror, and the publish is one command — but it moves the channel pointer for every
   device, which is the operator's call.
-- **Three navigational cuts are proposed, not made**: Audit + Denials into one `Records` page,
-  State into System, and Screen + Browser into one visual surface. Each removes a destination the
-  operator may have muscle memory for.
+- **Two navigational cuts are made, one is proposed**: Audit + Denials is one `Records` page with
+  Actions/Refusals segments, and the state document is a card on the System page (the old
+  `/next/state/…` address redirects there). Screen + Browser into one visual surface is still a
+  proposal — it would change the rail, which the other two did not.
 - **The public download still points at the newest published release (v0.3.12).** The page is
   honest about that ("latest published release"); closing the gap is a release decision, not a page
   edit.

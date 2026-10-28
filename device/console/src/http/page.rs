@@ -1396,7 +1396,6 @@ pub(super) fn dashboard(
                                             div class="menu-panel page-menu" {
                                                 a href=(format!("/next/runs/{}", device.id)) { "Runs" }
                                                 a href=(format!("/next/system/{}", device.id)) { "System" }
-                                                a href=(format!("/next/state/{}", device.id)) { "State" }
                                                 a href=(format!("/next/memory/{}", device.id)) { "Memory" }
                                                 a href=(format!("/next/monitors/{}", device.id)) { "Monitors" }
                                                 a href=(format!("/next/browser/{}", device.id)) { "Browser" }
@@ -2632,69 +2631,6 @@ pub(super) struct ProcessRow {
     pub(super) memory_kb: u64,
 }
 
-/// The device's own state document: health, readiness and the last events, as the device wrote it.
-pub(super) fn state_document(
-    device: &DeviceView,
-    pretty: &str,
-    csrf: &str,
-    version: &str,
-) -> Markup {
-    let content = html! {
-        p class="lead" {
-            "The document the device keeps: its health, and the last ten events it recorded."
-        }
-        section class="card" {
-            (card_head(
-                "State document",
-                html! { span class="chip muted" { "json" } },
-                html! { a class="btn btn-ghost btn-sm" href=(format!("/next/system/{}", device.id)) { "Processes" } },
-            ))
-            pre class="file" tabindex="0" { (pretty) }
-        }
-    };
-    let health = pretty
-        .lines()
-        .find_map(|line| line.trim().strip_prefix("\"health\": \""))
-        .and_then(|rest| rest.split('"').next())
-        .unwrap_or("unknown")
-        .to_owned();
-    let ready = pretty.contains("\"ready\": true");
-    let events = pretty.matches("\"kind\":").count();
-    let context = context_rail(
-        "Health",
-        html! { span class="chip" { (&health) } },
-        html! {
-            ul class="rail-list" {
-                li {
-                    span class="rail-line" { "Ready" }
-                    span class="rail-meta" {
-                        @if ready { span class="chip online" { "yes" } } @else { span class="chip offline" { "no" } }
-                    }
-                }
-                li {
-                    span class="rail-line" { "Events" }
-                    span class="rail-meta" { (events) " recorded in this document" }
-                }
-            }
-        },
-        Markup::default(),
-    );
-    page_with_rail(
-        Chrome {
-            active: Page::System,
-            device: Some(device),
-            title: "State",
-            version,
-            csrf,
-            status: device_status(device),
-        },
-        Markup::default(),
-        context,
-        content,
-    )
-}
-
-/// The system page: the process list, a kill form, and whatever the last action reported.
 pub(super) fn system(
     device: &DeviceView,
     processes: &[ProcessRow],
@@ -2702,6 +2638,7 @@ pub(super) fn system(
     csrf: &str,
     version: &str,
     notice: Option<&str>,
+    state: Option<&str>,
 ) -> Markup {
     let base = format!("/next/system/{}", device.id);
     let content = html! {
@@ -2813,6 +2750,19 @@ pub(super) fn system(
                     }
                     button type="submit" class="btn btn-danger" { "Kill" }
                 }
+            }
+        }
+        // **THE STATE DOCUMENT LIVES HERE.** It is the machine's own record — health, the last
+        // events, what it believes — and it answers the same question this page does; a separate
+        // destination for it was one more place to look for the same answer.
+        @if let Some(state) = state {
+            section class="card" {
+                (card_head(
+                    "Device state",
+                    html! { span class="chip muted" { "json" } },
+                    Markup::default(),
+                ))
+                pre class="file" tabindex="0" { (state) }
             }
         }
     };
@@ -4305,8 +4255,18 @@ mod tests {
             ),
             ("Runs", runs(device, &[], None, "00", "0.1.0", None)),
             ("Runs", run_result(device, "cmd", &run, "00", "0.1.0")),
-            ("System", state_document(device, "{}", "00", "0.1.0")),
-            ("System", system(device, &[], "", "00", "0.1.0", None)),
+            (
+                "System",
+                system(
+                    device,
+                    &[],
+                    "",
+                    "00",
+                    "0.1.0",
+                    None,
+                    Some("{\n  \"health\": \"ok\"\n}"),
+                ),
+            ),
             (
                 "Memory",
                 memory(
@@ -4483,9 +4443,10 @@ mod tests {
         for id in &ids {
             assert!(rows.contains(id), "every device has a row: {rows}");
         }
+        // "State" is not a destination any more: its document is a card on the System page.
         for label in [
-            "Terminal", "Files", "Runs", "System", "State", "Memory", "Screen", "Monitors",
-            "Browser", "Connect", "Vitals",
+            "Terminal", "Files", "Runs", "System", "Memory", "Screen", "Monitors", "Browser",
+            "Connect", "Vitals",
         ] {
             assert_eq!(
                 rows.matches(&format!(">{label}</a>")).count(),
@@ -4605,7 +4566,7 @@ mod tests {
             "{memory_page}"
         );
 
-        let system_page = system(&device, &[], "", "00", "0.1.0", failure).into_string();
+        let system_page = system(&device, &[], "", "00", "0.1.0", failure, None).into_string();
         assert!(
             !system_page.contains("The device listed no processes."),
             "{system_page}"
@@ -5107,15 +5068,19 @@ mod tests {
                     "csrf",
                     "0.3.72",
                     Some("Ended pwsh.exe (pid 1188)."),
+                    Some("{\n  \"health\": \"ok\",\n  \"ready\": true\n}"),
                 ),
             ),
             (
-                "state",
-                state_document(
+                "system",
+                system(
                     &devices[0],
-                    "{\n  \"health\": \"ok\",\n  \"ready\": true,\n  \"events\": [\n    { \"at\": \"12:00:01\", \"kind\": \"boot\" },\n    { \"at\": \"12:00:02\", \"kind\": \"channel_open\" }\n  ]\n}",
+                    &[],
+                    "",
                     "csrf",
                     "0.3.72",
+                    None,
+                    Some("{\n  \"health\": \"ok\",\n  \"ready\": true\n}"),
                 ),
             ),
             (
@@ -5448,7 +5413,7 @@ mod tests {
             ),
             files(&device, "", &[], "00", "0.1.0", None),
             runs(&device, &[], None, "00", "0.1.0", None),
-            system(&device, &[], "", "00", "0.1.0", None),
+            system(&device, &[], "", "00", "0.1.0", None, None),
             memory(
                 &device,
                 &[],

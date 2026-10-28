@@ -2866,35 +2866,21 @@ struct SystemKillForm {
     name: String,
 }
 
-/// `GET /next/state/:device`: the device's own state document, pretty-printed.
+/// `GET /next/state/:device`: the state document lives on the System page now; old links go there.
 async fn next_state_page(
     State(app): State<AppState>,
     Path(device_id): Path<String>,
     headers: HeaderMap,
 ) -> Response {
-    let Some(session) = cookie_session(&app, &headers) else {
+    if cookie_session(&app, &headers).is_none() {
         return login_card(&app, &headers).into_response();
-    };
-    let Some(device) = device_views(&app)
-        .into_iter()
-        .find(|device| device.id == device_id)
-    else {
-        return StatusCode::NOT_FOUND.into_response();
-    };
-    match device_tool(&app, &device_id, "state.get", json!({})).await {
-        Ok(text) => {
-            let pretty = serde_json::from_str::<Value>(&text)
-                .ok()
-                .and_then(|value| serde_json::to_string_pretty(&value).ok())
-                .unwrap_or(text);
-            Html(
-                page::state_document(&device, &pretty, &hex::encode(&session.csrf), &app.version)
-                    .into_string(),
-            )
-            .into_response()
-        }
-        Err(response) => *response,
     }
+    if !app.has_device(&device_id) {
+        return no_such_device(&app);
+    }
+    // The system page shows both the processes and this document, and the rail's State entry is
+    // gone; a bookmark to the old address lands where the document now lives.
+    Redirect::to(&format!("/next/system/{device_id}")).into_response()
 }
 
 /// `GET /next/system/:device`: the process list and the kill form.
@@ -2953,6 +2939,15 @@ async fn next_system_page(
     // A failure to list processes is a notice, and the renderer suppresses the "listed no
     // processes" empty state when a notice is present.
     let notice = load_error.map(str::to_owned).or(notice);
+    // The state document is part of this page now; a device that cannot answer it is a page
+    // without that card, not an error page (the processes already said whether it answered).
+    let state = match device_tool(&app, &device_id, "state.get", json!({})).await {
+        Ok(text) => serde_json::from_str::<Value>(&text)
+            .ok()
+            .and_then(|value| serde_json::to_string_pretty(&value).ok())
+            .or(Some(text)),
+        Err(_) => None,
+    };
     Html(
         page::system(
             &device,
@@ -2961,6 +2956,7 @@ async fn next_system_page(
             &hex::encode(&session.csrf),
             &app.version,
             notice.as_deref(),
+            state.as_deref(),
         )
         .into_string(),
     )

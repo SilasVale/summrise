@@ -7442,9 +7442,8 @@ async fn the_fleet_shows_only_the_pages_a_device_can_open() {
         .find("class=\"menu-panel page-menu\"")
         .expect("the more-pages disclosure is in the row");
     let menu = &fleet[menu_at..];
-    for page in [
-        "Runs", "System", "State", "Memory", "Monitors", "Browser", "Vitals",
-    ] {
+    // "State" is a card on the System page now, not a menu entry.
+    for page in ["Runs", "System", "Memory", "Monitors", "Browser", "Vitals"] {
         assert!(
             menu.contains(&format!(">{page}</a>")),
             "the {page} link is one click away: {fleet}"
@@ -8387,36 +8386,23 @@ async fn the_state_page_shows_the_devices_own_document() {
         connected_device(&fixture, &server, &signing_key(0xe9)).await;
     let (cookie, _csrf) = sign_in_to_the_page(&fixture).await;
 
+    // The document lives on the System page now: the old address redirects there, and the device
+    // is asked for nothing on the way.
     let app = fixture.app();
     let request = get_with_cookie(&format!("/next/state/{device_id}"), &cookie);
-    let page = tokio::spawn(async move { send_text(app, request).await });
-    let frame = next_json(&mut device).await;
-    assert_eq!(
-        frame["mcp"]["params"]["name"],
-        json!("state.get"),
-        "{frame}"
+    let (status, headers, _body) = send_text(app, request).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let location = headers
+        .get(header::LOCATION)
+        .and_then(|value| value.to_str().ok())
+        .expect("a location");
+    assert_eq!(location, format!("/next/system/{device_id}"));
+    assert!(
+        tokio::time::timeout(Duration::from_millis(200), next_json(&mut device))
+            .await
+            .is_err(),
+        "the redirect asks the device nothing"
     );
-    answer(
-        &mut device,
-        &frame,
-        json!({
-            "jsonrpc": "2.0",
-            "id": 1,
-            "result": {
-                "content": [{ "type": "text", "text": json!({
-                    "health": { "status": "ok" },
-                    "events": [{ "kind": "boot", "ts_ms": 1 }]
-                }).to_string() }],
-                "isError": false
-            }
-        }),
-    )
-    .await;
-    let (status, _, body) = page.await.expect("the state page finishes");
-    assert_eq!(status, StatusCode::OK);
-    // maud escapes the document's quotes, so the page is asserted on its words, not its JSON.
-    assert!(body.contains("health"), "{body}");
-    assert!(body.contains("boot"), "{body}");
 }
 
 #[tokio::test]
@@ -8446,6 +8432,26 @@ async fn the_system_page_lists_processes_and_forwards_a_kill() {
                 "content": [{ "type": "text", "text": json!([
                     { "pid": 4242, "name": "pwsh.exe", "memory_kb": 1024 }
                 ]).to_string() }],
+                "isError": false
+            }
+        }),
+    )
+    .await;
+    // The page then asks for the state document it prints below the process list.
+    let frame = next_json(&mut device).await;
+    assert_eq!(
+        frame["mcp"]["params"]["name"],
+        json!("state.get"),
+        "{frame}"
+    );
+    answer(
+        &mut device,
+        &frame,
+        json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {
+                "content": [{ "type": "text", "text": json!({ "health": { "status": "ok" } }).to_string() }],
                 "isError": false
             }
         }),
