@@ -356,6 +356,40 @@ What it produces:
 * `release-<channel>.json` — the **channel pointer**, the file a device's `update.json` names, always the
   newest document for that channel;
 
+### Where the keys actually are, and how to rehearse a publish
+
+Measured 2026-10-28 on the dev box: the three seed files are **not** in `~/.keys` (that directory does
+not exist) — they are in an archive directory:
+
+```
+/home/zss/canary-kit-archive-2026-10-22/keys/{launcher,release,console}.seed
+```
+
+The three public keys are derived from them, never typed from memory:
+
+```bash
+cargo build --release -p summrise-release
+target/release/summrise-release pubkey --key-file <seed>     # prints the hex public key
+```
+
+A rehearsal publishes to a temporary directory with a **loopback** mirror URL, so no channel pointer
+on a real mirror moves and no device sees it:
+
+```bash
+scripts/publish-canary.bash --version 0.3.167 --channel canary --port 18080     --mirror http://127.0.0.1:18111 --out /tmp/canary-rehearsal     --launcher-key "$K/launcher.seed" --release-key "$K/release.seed"
+
+python3 -m http.server 18111 --bind 127.0.0.1 --directory /tmp/canary-rehearsal &
+scripts/verify-release.sh 0.3.167 --mirror http://127.0.0.1:18111
+```
+
+Run 2026-10-28: the build produced `SummriseSetup-0.3.167.exe` (6 175 057 B),
+`summrise-device-0.3.167.exe` (15 967 232 B) and the signed documents; `verify-release` answered
+`ok` on the pointer, the artifact digest and the installer. A real publish is the same command with
+the real mirror and `--mirror-dir`, and it is the only step that moves `release-canary.json`.
+
+**The seeds are the product's signing identity.** Losing the archive means no future release can be
+signed for the devices already in the field; it should live somewhere backed up, not only in `/home`.
+
 ## Deploying the console
 
 ```powershell
