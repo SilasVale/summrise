@@ -16,14 +16,17 @@ use crate::console::RetryNote;
 /// The panel's own component rules; the tokens they read from are [`summrise_ui::TOKENS`], the same
 /// block the console renders, so a colour cannot mean two things on two surfaces.
 const COMPONENTS: &str = r##"  * { box-sizing: border-box; }
+  /* The panel is one column: a top bar, the content, a status strip. The console's shell is a row of
+     rail + column, so the direction belongs here and not in the shared block. */
+  body.app { flex-direction: column; }
   body {
-    margin: 0; padding: 1.5rem 1.25rem 3rem;
+    margin: 0; padding: 0;
     background: var(--bg); color: var(--ink);
     font: 0.9375rem / 1.55 var(--font);
     font-variant-numeric: tabular-nums;
     -webkit-font-smoothing: antialiased;
   }
-  main { max-width: 54rem; margin: 0 auto; display: grid; gap: 1rem; }
+  main { flex: 1; width: 100%; max-width: 54rem; margin: 0 auto; padding: 1.5rem 1.25rem 2.5rem; display: grid; gap: 1rem; }
   .lede { color: var(--ink-muted); margin: 0 0 0.25rem; font-size: 0.9rem; }
   header button {
     margin-left: auto; font: inherit; font-size: 0.82rem; font-weight: 550;

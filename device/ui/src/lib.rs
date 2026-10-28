@@ -92,8 +92,10 @@ pub const COMPONENTS: &str = r#"
 .card-body > :last-child { margin-bottom:0; }
 .empty p { max-width:48ch; }
 /* ---- the page shell's two fixed rows ---- */
-.app { display:flex; flex-direction:column; min-height:100vh; background:var(--bg); }
-.app main { flex:1; min-height:0; }
+/* THE DIRECTION IS THE SURFACE'S, NOT THE SHELL'S: the console puts a rail BESIDE its column and the
+   panel is a column on its own. A shared `flex-direction` here once stacked the console's rail above its
+   top bar, which is the layout bug the screenshots caught on 2026-10-28. */
+.app { display:flex; min-height:100vh; background:var(--bg); }
 .topbar { flex:none; display:flex; align-items:center; gap:12px; height:56px; padding:0 24px; background:var(--panel); border-bottom:1px solid var(--line); }
 .topbar h1 { margin:0; flex:none; font-size:18px; font-weight:600; letter-spacing:-.015em; white-space:nowrap; }
 .topbar .context { display:inline-flex; align-items:center; gap:7px; min-width:0; max-width:36ch; padding:3px 9px; border:1px solid var(--line); border-radius:999px; background:var(--panel-2); color:var(--muted); font-size:12px; }
