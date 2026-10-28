@@ -12,6 +12,19 @@ They share a version number because they are released together, but a *device* r
 *console*, and a console deploy does not touch a device. `verify-release.sh` is the tool that keeps those
 facts straight (see "Proving it landed").
 
+## The console's stderr is a file now
+
+The console task used to run the binary with nothing attached, so its own diagnostics went nowhere: the two
+lines that explain a missing answer — `device answered unknown request id N` and `device sent a malformed
+frame` — were written to a handle nobody could read. `C:\SummriseConsole\run-console.cmd` now appends the
+console's stdout and stderr to `C:\SummriseConsole\console.log`, rotating the previous run to `console.log.1`
+first. On the machine that hosts the console, that is the first file to open when a call is reported as
+"the device did not answer" (before it, only the device's `events.jsonl` could be read).
+
+The same directory had accumulated **seventy** `summrise-console.exe.bak-0.3.x` files — one per deploy, about
+half a gigabyte. Two are kept now (the two newest), and a deploy that keeps making them should delete the
+rest as part of the deploy.
+
 ## Where to look when the console says the device did not answer
 
 Two logs, and the order matters.
