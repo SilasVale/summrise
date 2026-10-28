@@ -12,6 +12,34 @@ They share a version number because they are released together, but a *device* r
 *console*, and a console deploy does not touch a device. `verify-release.sh` is the tool that keeps those
 facts straight (see "Proving it landed").
 
+## When an install leaves a machine with no runtime
+
+An install that fails after the old service was removed leaves a machine that cannot be reached at all
+— no device channel, no MCP, nothing to ask. This happened on DESKTOP-CPH4KB2 on 2026-10-28, with
+installer 0.3.130: the service was removed in `.onInit`, then `--install-service --replace-baseline`
+failed while rotating `baseline/current`, and the device went silent. The installer builds since 0.3.131
+keep the registration and kill the app before rotating, so the failure mode is closed; the recovery
+below is what works on a machine that is already in it.
+
+Two steps, in this order. The first one needs nothing but the launcher that is already installed:
+
+```bat
+:: 1. RECOVER: register and start the generation that is already there, without replacing it.
+::    ensure_baseline keeps `current` (it is consistent), so this is safe to run on a live install too.
+C:\<install>\summrise-launch.exe --install-service --install C:\<install> --data <data> ^
+    --seed-sidecar C:\<install>\summrise-device.sidecar.json --port 18090
+curl http://127.0.0.1:18090/api/health          :: the device answers again, at the old version
+```
+
+```powershell
+# 2. UPGRADE (only after step 1 answers): the installer replaces the files and the launcher.
+powershell -NoProfile -Command "iwr -UseBasicParsing http://<mirror>/SummriseSetup-<version>.exe -OutFile C:\Windows\Temp\s.exe; Start-Process C:\Windows\Temp\s.exe -ArgumentList '/S','/D=C:\<install>' -Wait; 'exit=' + $LASTEXITCODE"
+```
+
+If step 2 fails, `%TEMP%\summrise-setup.log` names the stage it reached — the file is appended by both
+`.onInit` and the install section. Step 1 is verified on a live machine: run against DESKTOP-9VH92BJ it
+answered `exit=0` and the health endpoint kept serving the same version throughout.
+
 ## Retiring the legacy runtime on a machine
 
 An older laptop can carry both runtimes at once: `summrise-device` (the new one, as a service) and the
