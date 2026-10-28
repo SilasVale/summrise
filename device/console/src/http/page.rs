@@ -2182,11 +2182,20 @@ pub(super) fn files(
                 },
             ))
             @if entries.is_empty() {
-                (empty_state(
-                    Page::Files,
-                    "This directory is empty.",
-                    html! { a class="btn btn-sm" href="#write" { "Write the first file" } },
-                ))
+                @if error.is_some() {
+                    // An empty list is a claim; a device that did not answer has not made it.
+                    (empty_state(
+                        Page::Files,
+                        "The device did not answer, so this directory's entries are unknown.",
+                        Markup::default(),
+                    ))
+                } @else {
+                    (empty_state(
+                        Page::Files,
+                        "This directory is empty.",
+                        html! { a class="btn btn-sm" href="#write" { "Write the first file" } },
+                    ))
+                }
             } @else {
                 table class="table reflow" {
                     caption class="visually-hidden" { "The directory's entries." }
@@ -2539,7 +2548,13 @@ pub(super) fn runs(
                 html! { span class="chip muted" { (rows.len()) } },
                 Markup::default(),
             ))
-            @if rows.is_empty() && error.is_none() {
+            @if rows.is_empty() && error.is_some() {
+                (empty_state(
+                    Page::Runs,
+                    "The device did not answer, so its history is unknown.",
+                    Markup::default(),
+                ))
+            } @else if rows.is_empty() {
                 (empty_state(Page::Runs, "No runs recorded yet.", Markup::default()))
             } @else {
                 table class="table reflow runs-table" {
@@ -3146,11 +3161,19 @@ pub(super) fn monitors(
                 Markup::default(),
             ))
             @if rows.is_empty() {
-                (empty_state(
-                    Page::Monitors,
-                    "No targets are watched yet.",
-                    html! { a class="btn btn-sm" href="#watch" { "Watch a target" } },
-                ))
+                @if error.is_some() {
+                    (empty_state(
+                        Page::Monitors,
+                        "The device did not answer, so the watched targets are unknown.",
+                        Markup::default(),
+                    ))
+                } @else {
+                    (empty_state(
+                        Page::Monitors,
+                        "No targets are watched yet.",
+                        html! { a class="btn btn-sm" href="#watch" { "Watch a target" } },
+                    ))
+                }
             } @else {
                 table class="table reflow monitors-table" {
                     caption class="visually-hidden" { "The targets this device watches." }
@@ -3390,11 +3413,19 @@ pub(super) fn browser(
                 },
             ))
             @if rows.is_empty() {
-                (empty_state(
-                    Page::Browser,
-                    "The device has no browser targets.",
-                    html! { a class="btn btn-sm" href="#open" { "Open a page" } },
-                ))
+                @if error.is_some() {
+                    (empty_state(
+                        Page::Browser,
+                        "The device did not answer, so its browser targets are unknown.",
+                        Markup::default(),
+                    ))
+                } @else {
+                    (empty_state(
+                        Page::Browser,
+                        "The device has no browser targets.",
+                        html! { a class="btn btn-sm" href="#open" { "Open a page" } },
+                    ))
+                }
             } @else {
                 table class="table reflow" {
                     caption class="visually-hidden" { "The browser's open targets." }
@@ -4435,6 +4466,79 @@ mod tests {
             assert!(
                 page.contains("class=\"topbar\""),
                 "{expected}: the top bar is missing: {page}"
+            );
+        }
+    }
+
+    /// **AN EMPTY LIST IS A CLAIM.** Four pages said "this directory is empty", "no runs recorded
+    /// yet", "no targets are watched yet" and "the device has no browser targets" when the device
+    /// had not answered at all — the error was printed above and the card contradicted it.
+    #[test]
+    fn a_failed_list_does_not_claim_emptiness() {
+        let device = view('5', Some("studio"), true);
+        let cases = [
+            (
+                files(
+                    &device,
+                    "",
+                    &[],
+                    "csrf",
+                    "0.1.0",
+                    Some("the device did not answer"),
+                )
+                .into_string(),
+                "This directory is empty.",
+                "entries are unknown",
+            ),
+            (
+                runs(
+                    &device,
+                    &[],
+                    None,
+                    "csrf",
+                    "0.1.0",
+                    Some("the device did not answer"),
+                )
+                .into_string(),
+                "No runs recorded yet.",
+                "history is unknown",
+            ),
+            (
+                monitors(
+                    &device,
+                    &[],
+                    "csrf",
+                    "0.1.0",
+                    0,
+                    Some("the device did not answer"),
+                )
+                .into_string(),
+                "No targets are watched yet.",
+                "watched targets are unknown",
+            ),
+            (
+                browser(
+                    &device,
+                    &[],
+                    None,
+                    "csrf",
+                    "0.1.0",
+                    Some("the device did not answer"),
+                    None,
+                )
+                .into_string(),
+                "The device has no browser targets.",
+                "browser targets are unknown",
+            ),
+        ];
+        for (page, claimed, unknown) in cases {
+            assert!(
+                !page.contains(claimed),
+                "the page claims emptiness: {claimed}\n{page}"
+            );
+            assert!(
+                page.contains(unknown),
+                "the page does not say what is unknown: {page}"
             );
         }
     }
