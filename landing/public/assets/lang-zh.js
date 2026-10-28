@@ -22,6 +22,8 @@ window.SUMMRISE_ZH = {
     "stats.auditK": "审计",
     "stats.audit": "今日 1 284 条",
 
+    "shot.caption": "一眼看清控制台：谁在线、每台机器在跑什么，以及那条<em>等你决定</em>的调用。",
+
     "cap.kicker": "能力",
     "cap.title": "机器能做的每件事，都隔着一道授权。",
     "cap.1t": "终端、SSH、串口",

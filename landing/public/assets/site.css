@@ -309,6 +309,17 @@ h2.big { text-wrap: balance;
 .pill.ok { border-color: rgba(29, 122, 60, 0.28); color: var(--ok); background: rgba(29, 122, 60, 0.05); }
 .pill.warn { border-color: rgba(168, 98, 10, 0.3); color: var(--warn); background: rgba(168, 98, 10, 0.06); }
 
+/* ---------- the product shot ---------- */
+.shot { padding: 0 0 24px; }
+.shot-frame {
+  max-width: 1080px; margin: 0 auto; overflow: hidden;
+  border: 1px solid var(--line-strong); border-radius: 14px; background: var(--card);
+  box-shadow: 0 30px 70px -40px rgba(23, 22, 26, .45);
+}
+.shot-frame img { width: 100%; height: auto; }
+.shot-caption { max-width: 1080px; margin: 14px auto 0; text-align: center; color: var(--faint); font-size: 13.5px; }
+.shot-caption em { font-style: normal; color: var(--accent); }
+
 /* ---------- two surfaces ---------- */
 
 .surfaces { display: grid; grid-template-columns: 1fr 1fr; gap: 44px; margin-top: 44px; }
