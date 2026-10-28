@@ -12,6 +12,18 @@ They share a version number because they are released together, but a *device* r
 *console*, and a console deploy does not touch a device. `verify-release.sh` is the tool that keeps those
 facts straight (see "Proving it landed").
 
+## Why a proxied call is cut at ninety seconds
+
+The operator's console is reached through Cloudflare Access, and Cloudflare gives the origin about a
+hundred seconds before it renders its own 504 page — with a ray id, not the console's message. On
+2026-10-28 two long calls came back that way (a `browser.eval` and a `runs.exec`), and the audit showed the
+console had never answered: the run proxy was allowed to wait the run's own ten minutes.
+
+`run_wait` now caps the wait at `RUNS_MAX_PROXY_WAIT` (90 s), which sits under the proxy's ceiling and over
+any tool that answers in milliseconds. A run that needs longer keeps running on the device; the console
+answers with its own 504 ("the device accepted the request and did not answer inside the console's bound;
+it may still be working on it") and the run is collected through `runs.list` / the Runs page.
+
 ## When an install leaves a machine with no runtime
 
 An install that fails after the old service was removed leaves a machine that cannot be reached at all

@@ -4750,11 +4750,20 @@ fn run_wait(request: &Value) -> Option<Duration> {
         .and_then(|timeout| timeout.as_u64())
         .unwrap_or(60_000);
     let clamped = requested.clamp(1, RUNS_MAX_TIMEOUT_MS);
-    Some(Duration::from_millis(clamped) + RUNS_WAIT_GRACE)
+    // **THE CONSOLE MUST ANSWER BEFORE THE PROXY IN FRONT OF IT GIVES UP.** The operator's console is
+    // reached through Cloudflare Access, whose origin timeout is about a hundred seconds: a run that
+    // is proxied for ten minutes is cut there and the operator sees Cloudflare's HTML error instead of
+    // this console's answer (measured 2026-10-28: two `browser.eval`/`runs.exec` calls, CF 504 pages
+    // with ray ids). Ninety seconds leaves room for the frame's round trip and the answer's write; a
+    // run that needs longer keeps running on the device and is collected through `runs.list`.
+    Some((Duration::from_millis(clamped) + RUNS_WAIT_GRACE).min(RUNS_MAX_PROXY_WAIT))
 }
 
 /// The device's own cap on `runs.exec`, mirrored so the wait cannot exceed it.
 const RUNS_MAX_TIMEOUT_MS: u64 = 10 * 60 * 1000;
+
+/// The longest a proxied call may hold the operator's HTTP request open.
+const RUNS_MAX_PROXY_WAIT: Duration = Duration::from_secs(90);
 
 /// The round-trip grace added to a run's wait: the channel gets this much longer than the run itself.
 const RUNS_WAIT_GRACE: Duration = Duration::from_secs(5);
@@ -6307,13 +6316,18 @@ mod tests {
             )),
             Some(Duration::from_secs(50))
         );
-        // The device's cap is mirrored: asking for a day waits ten minutes, not a day.
+        // A ten-minute run is NOT waited for end to end: the proxy in front of the console gives up
+        // at about a hundred seconds, so the console answers first and the run is collected later.
         assert_eq!(
             run_wait(&call(
                 "runs.exec",
                 json!({"command": "ver", "timeout_ms": 86_400_000})
             )),
-            Some(Duration::from_secs(605))
+            Some(RUNS_MAX_PROXY_WAIT)
+        );
+        assert!(
+            RUNS_MAX_PROXY_WAIT < Duration::from_secs(100),
+            "the bound must sit under the proxy's ceiling"
         );
         // Anything that is not a run, or is malformed, leaves the general bound alone.
         assert_eq!(run_wait(&call("memory.list", json!({}))), None);
