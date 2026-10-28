@@ -488,7 +488,7 @@ fn style_sheet() -> String {
 
 /// The rail's pages, in reading order: the console first, then the device surfaces a row links to.
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum Page {
+pub(super) enum Page {
     Fleet,
     Terminal,
     Files,
@@ -940,6 +940,43 @@ fn look_segments(device: &DeviceView, active: Page) -> Markup {
             a class="segment" href=(Page::Browser.href(Some(device))) aria-current=(current(Page::Browser)) { "Browser" }
         }
     }
+}
+
+/// **A FAILED ACTION IS A PAGE, NOT A JSON BODY.** A form or a link that the device refused used to
+/// answer `{"error":"…"}` — no chrome, no way back, on the screen of someone who pressed a button.
+pub(super) fn refusal(
+    device: &DeviceView,
+    sentence: &str,
+    back: &str,
+    back_label: &str,
+    active: Page,
+    csrf: &str,
+    version: &str,
+) -> Markup {
+    let content = html! {
+        section class="card" {
+            (card_head(
+                "Refused",
+                html! { span class="chip warn" { "device" } },
+                Markup::default(),
+            ))
+            div class="card-body" {
+                p class="lead" { (sentence) }
+                p { a class="btn btn-primary" href=(back) { (back_label) } }
+            }
+        }
+    };
+    page(
+        Chrome {
+            active,
+            device: Some(device),
+            title: "Refused",
+            version,
+            csrf,
+            status: device_status(device),
+        },
+        content,
+    )
 }
 
 /// The Records page's glyph: a line per recorded call. It is not a rail destination, so it is not a

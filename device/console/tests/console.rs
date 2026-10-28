@@ -8346,6 +8346,62 @@ async fn the_runs_page_lists_the_devices_history_and_a_run_is_forwarded() {
     assert!(body.contains("run-2"), "{body}");
 }
 
+/// **A REFUSED ACTION IS A PAGE.** The run form used to answer a device refusal with the raw
+/// `{"error":"…"}` body: no chrome, no navigation, on the screen of someone who pressed Run.
+#[tokio::test]
+async fn a_device_refusal_of_a_run_is_rendered_as_a_page() {
+    let fixture = Fixture::new("runs-refusal");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xda)).await;
+    let (cookie, csrf) = sign_in_to_the_page(&fixture).await;
+
+    let mut request = post_form(
+        &format!("/next/runs/{device_id}/exec"),
+        &[("csrf", &csrf), ("command", "pwsh"), ("args", "Get-Date")],
+    );
+    request
+        .headers_mut()
+        .insert(header::COOKIE, cookie.parse().expect("the cookie header"));
+    let run = tokio::spawn(async move { send_text(fixture.app(), request).await });
+    let frame = next_json(&mut device).await;
+    assert_eq!(
+        frame["mcp"]["params"]["name"],
+        json!("runs.exec"),
+        "{frame}"
+    );
+    // A JSON-RPC error frame, sent whole: `answer` wraps its argument in a `result`, which is how
+    // the console could not tell this test's refusal from a malformed run answer.
+    device
+        .send(WsMessage::Text(
+            json!({
+                "id": frame["id"].clone(),
+                "error": { "error": { "code": -32000, "message": "the device refused that command" } }
+            })
+            .to_string(),
+        ))
+        .await
+        .expect("the device refuses");
+    let (status, _, body) = run.await.expect("the run finishes");
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert!(
+        body.contains("Refused"),
+        "the page names what happened: {body}"
+    );
+    assert!(
+        body.contains("the device refused that command"),
+        "the device's sentence is on the page: {body}"
+    );
+    assert!(
+        body.contains(&format!("/next/runs/{device_id}")),
+        "the page offers the way back: {body}"
+    );
+    assert!(
+        !body.trim_start().starts_with('{'),
+        "the answer is a page, not a JSON body: {body}"
+    );
+}
+
 #[tokio::test]
 async fn a_run_without_the_page_csrf_is_refused_before_the_device_hears_of_it() {
     let fixture = Fixture::new("runs-csrf");

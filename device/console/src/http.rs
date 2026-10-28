@@ -1883,6 +1883,34 @@ fn terminal_refusal(status: StatusCode, message: &str) -> Response {
     (status, Json(json!({ "error": message }))).into_response()
 }
 
+/// The page a browser gets when a device call behind a form or a link fails: the sentence the device
+/// sent, the console's chrome, and the way back. The XHR endpoints (the terminal's five calls) keep
+/// their JSON on purpose — nothing renders a page from them.
+async fn refused_page(
+    app: &AppState,
+    device: &DeviceView,
+    session: &crate::auth::Session,
+    response: Response,
+    active: page::Page,
+    back: String,
+    back_label: &str,
+) -> Response {
+    let sentence = refusal_sentence(response).await;
+    Html(
+        page::refusal(
+            device,
+            &sentence,
+            &back,
+            back_label,
+            active,
+            &hex::encode(&session.csrf),
+            &app.version,
+        )
+        .into_string(),
+    )
+    .into_response()
+}
+
 /// The sentence a refused [`device_tool`] carried, for a page that renders sentences rather than JSON.
 async fn refusal_sentence(response: Response) -> String {
     let (_, body) = response.into_parts();
@@ -2551,7 +2579,18 @@ async fn next_files_read(
             .into_string(),
         )
         .into_response(),
-        Err(response) => *response,
+        Err(response) => {
+            refused_page(
+                &app,
+                &device,
+                &session,
+                *response,
+                page::Page::Files,
+                format!("/next/files/{device_id}"),
+                "Back to the files",
+            )
+            .await
+        }
     }
 }
 
@@ -2842,7 +2881,18 @@ async fn next_runs_exec(
             ))
             .into_response(),
         },
-        Err(response) => *response,
+        Err(response) => {
+            refused_page(
+                &app,
+                &device,
+                &session,
+                *response,
+                page::Page::Runs,
+                format!("/next/runs/{device_id}"),
+                "Back to the runs",
+            )
+            .await
+        }
     }
 }
 
@@ -3058,8 +3108,14 @@ async fn next_system_kill(
     headers: HeaderMap,
     Form(form): Form<SystemKillForm>,
 ) -> Response {
-    let Some(_session) = next_session(&app, &headers, Some(&form.csrf)) else {
+    let Some(session) = next_session(&app, &headers, Some(&form.csrf)) else {
         return StatusCode::FORBIDDEN.into_response();
+    };
+    let Some(device) = device_views(&app)
+        .into_iter()
+        .find(|device| device.id == device_id)
+    else {
+        return no_such_device(&app);
     };
     let name = form.name.trim();
     let mut arguments = json!({});
@@ -3087,7 +3143,18 @@ async fn next_system_kill(
             ))
             .into_response()
         }
-        Err(response) => *response,
+        Err(response) => {
+            refused_page(
+                &app,
+                &device,
+                &session,
+                *response,
+                page::Page::System,
+                format!("/next/system/{device_id}"),
+                "Back to the system page",
+            )
+            .await
+        }
     }
 }
 
@@ -3217,9 +3284,15 @@ async fn next_memory_update(
     headers: HeaderMap,
     Form(form): Form<MemoryAppendForm>,
 ) -> Response {
-    if next_session(&app, &headers, Some(&form.csrf)).is_none() {
+    let Some(session) = next_session(&app, &headers, Some(&form.csrf)) else {
         return StatusCode::FORBIDDEN.into_response();
-    }
+    };
+    let Some(device) = device_views(&app)
+        .into_iter()
+        .find(|device| device.id == device_id)
+    else {
+        return no_such_device(&app);
+    };
     let Some(id) = form.id.clone() else {
         return Redirect::to(&format!("/next/memory/{device_id}")).into_response();
     };
@@ -3256,7 +3329,18 @@ async fn next_memory_update(
             }
             Redirect::to(&format!("/next/memory/{device_id}?{query}")).into_response()
         }
-        Err(response) => *response,
+        Err(response) => {
+            refused_page(
+                &app,
+                &device,
+                &session,
+                *response,
+                page::Page::Memory,
+                format!("/next/memory/{device_id}"),
+                "Back to the memory",
+            )
+            .await
+        }
     }
 }
 
