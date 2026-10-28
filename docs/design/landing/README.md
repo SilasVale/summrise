@@ -69,6 +69,14 @@ what the operator picked.
 7. **Deletion is part of the design.** Cut from the mockups: the manifesto band, the three-step
    installer section, the pinned version and a second accent. Each was defensible; none was the product.
 
+## The one picture
+
+The page argued that the product is the hero and then showed no product. Since 2026-10-28 a single
+framed shot sits under the hero: `landing/public/assets/console-fleet.png`, cropped from the console's
+own review renderer (the sanitized fixture, so the devices are STUDIO-PC / LAB-PC / EDGE-PC and the
+ids are fabricated), and cut above the status strip so no build number is baked into a marketing
+asset. One picture, no carousel, no device mockup around it — the same rule as the terminal.
+
 ## What would make this page wrong
 
 If the download has to be hosted by the product instead of a releases page, or if a second audience
