@@ -931,6 +931,29 @@ mod tests {
         );
     }
 
+    /// Write the panel for a screenshot pass, the way the console's own review renderer does.
+    ///
+    /// Ignored by default — it writes files and exists to be looked at:
+    ///   SUMMRISE_PANEL_DIR=/tmp/panel cargo test -p summrise-device --bin summrise-device \
+    ///       -- --ignored render_panel_for_review
+    #[test]
+    #[ignore]
+    fn render_panel_for_review() {
+        let Some(dir) = std::env::var_os("SUMMRISE_PANEL_DIR") else {
+            return;
+        };
+        let dir = std::path::PathBuf::from(dir);
+        std::fs::create_dir_all(&dir).expect("the review directory");
+        std::fs::write(dir.join("panel.html"), page(&facts()).into_string())
+            .expect("the panel is written");
+        let mut empty = facts();
+        empty.sessions.clear();
+        empty.events.clear();
+        empty.state = None;
+        std::fs::write(dir.join("panel-empty.html"), page(&empty).into_string())
+            .expect("the empty panel is written");
+    }
+
     #[test]
     fn the_page_renders_every_section_from_the_facts() {
         let html = page(&facts()).into_string();
