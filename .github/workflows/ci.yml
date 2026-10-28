@@ -67,9 +67,10 @@ jobs:
       - name: the device workspace (unit tests, everything but the launcher)
         timeout-minutes: 20
         run: cargo test --manifest-path device/Cargo.toml --workspace --exclude summrise-launch
-      - name: the launcher's unit tests
-        timeout-minutes: 10
-        run: cargo test --manifest-path device/Cargo.toml -p summrise-launch --lib
+      # **THE LAUNCHER'S UNIT TESTS RUN UNKEYED, AT THE END.** They sign their fixtures with a
+      # fixed seed and verify against the key this build embedded; in a keyed build the fixture
+      # signature cannot match that key, so they belong to the placeholder build beside the
+      # fail-closed test. (They were run here and were red on Windows for exactly that reason.)
       # THE LIFECYCLE, IN ONE PROCESS. It hung here on 2026-10-21 after its first test printed
       # `ok`; the cause was `Command::output()` waiting for a pipe that a restored app inherited,
       # fixed on 2026-10-22 (`72e24bfe`). The shared-process run is green again (verified by the
@@ -107,6 +108,7 @@ jobs:
           unset SUMMRISE_LAUNCHER_PUBKEY SUMMRISE_RELEASE_PUBKEY
           cargo clean --manifest-path device/Cargo.toml -p summrise-launch -p summrise-device
           cargo build --manifest-path device/Cargo.toml --workspace
+          cargo test --manifest-path device/Cargo.toml -p summrise-launch --lib
           cargo test --manifest-path device/Cargo.toml -p summrise-launch --test windows_lifecycle -- --ignored --exact a_build_without_a_release_key_refuses_updates_by_name --nocapture
 
   landing:
