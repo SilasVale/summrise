@@ -43,9 +43,13 @@
     -webkit-user-select: none;
 }
 
+/* **THE TERMINAL IS FOCUSABLE; SHOW IT.** xterm's own stylesheet removes the outline because the
+   element that actually holds focus is an offscreen textarea, which leaves a keyboard user with no
+   visible focus target. The ring belongs on the pane, which is what receives the keys. */
 .xterm.focus,
 .xterm:focus {
-    outline: none;
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
 }
 
 .xterm .xterm-helpers {
