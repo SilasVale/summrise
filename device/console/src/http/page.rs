@@ -503,8 +503,9 @@ enum Page {
 }
 
 impl Page {
-    /// Every page the rail lists — one 40×40 anchor each, in this order.
-    const ALL: [Page; 11] = [
+    /// Every page the rail lists — one 40×40 anchor each, in this order. `Browser` is not one of
+    /// them: it is the Screen page's second view, and its own route still renders.
+    const ALL: [Page; 10] = [
         Page::Fleet,
         Page::Terminal,
         Page::Files,
@@ -513,7 +514,6 @@ impl Page {
         Page::Memory,
         Page::Screen,
         Page::Monitors,
-        Page::Browser,
         Page::Tokens,
         Page::Vitals,
     ];
@@ -930,6 +930,18 @@ fn context_rail(heading: &str, meta: Markup, body: Markup, action: Markup) -> Ma
 }
 
 /// The one empty state: a muted icon, a sentence, and at most one action.
+/// **TWO WAYS TO LOOK AT THE SAME MACHINE.** The desktop and the browser it runs are one
+/// destination with two views; the rail lists one of them, and each view names itself here.
+fn look_segments(device: &DeviceView, active: Page) -> Markup {
+    let current = |want: Page| if want == active { "page" } else { "false" };
+    html! {
+        nav class="segments" aria-label="Screen" {
+            a class="segment" href=(Page::Screen.href(Some(device))) aria-current=(current(Page::Screen)) { "Desktop" }
+            a class="segment" href=(Page::Browser.href(Some(device))) aria-current=(current(Page::Browser)) { "Browser" }
+        }
+    }
+}
+
 /// The Records page's glyph: a line per recorded call. It is not a rail destination, so it is not a
 /// `Page`; the page's empty state drew the fleet grid until it had its own.
 fn records_icon() -> Markup {
@@ -1408,7 +1420,7 @@ pub(super) fn dashboard(
                                     // links in a row read as a menu bar rather than a device: the row
                                     // carried every page the console has, so none of them looked like
                                     // the one to press. The four that answer the daily jobs stay; the
-                                    // other seven live behind `More`, still in the DOM and still
+                                    // other six live behind `More`, still in the DOM and still
                                     // reachable without JavaScript.
                                     nav class="page-links" aria-label=(format!("Pages for {}", device_label(device))) {
                                         a href=(format!("/next/terminal/{}", device.id)) { "Terminal" }
@@ -1425,7 +1437,6 @@ pub(super) fn dashboard(
                                                 a href=(format!("/next/system/{}", device.id)) { "System" }
                                                 a href=(format!("/next/memory/{}", device.id)) { "Memory" }
                                                 a href=(format!("/next/monitors/{}", device.id)) { "Monitors" }
-                                                a href=(format!("/next/browser/{}", device.id)) { "Browser" }
                                                 a href=(format!("/next/vitals/{}", device.id)) { "Vitals" }
                                             }
                                         }
@@ -3062,6 +3073,7 @@ pub(super) fn screen(
         Markup::default()
     };
     let content = html! {
+        (look_segments(device, Page::Screen))
         p class="lead" { (detail) }
         section class="card" {
             (card_head("Screen", meta, action))
@@ -3323,6 +3335,7 @@ pub(super) fn browser(
 ) -> Markup {
     let base = format!("/next/browser/{}", device.id);
     let content = html! {
+        (look_segments(device, Page::Browser))
         p class="lead" {
             "The browser the device runs for you — headless by default, in the user's session only "
             "when SUMMRISE_BROWSER_VISIBLE is set and the helper is there. The capture is the first "
@@ -3510,9 +3523,9 @@ pub(super) fn browser(
     let context = context_rail("Targets", meta, body, Markup::default());
     page_with_rail(
         Chrome {
-            active: Page::Browser,
+            active: Page::Screen,
             device: Some(device),
-            title: "Browser",
+            title: "Screen",
             version,
             csrf,
             status: device_status(device),
@@ -4089,33 +4102,33 @@ mod tests {
     use super::*;
 
     /// The rail's labels, in order, as a reader sees them.
-    const LABELS: [&str; 11] = [
-        "Fleet", "Terminal", "Files", "Runs", "System", "Memory", "Screen", "Monitors", "Browser",
-        "Connect", "Vitals",
+    /// The rail's destinations. `Browser` is not one: it is the Screen page's second view.
+    const LABELS: [&str; 10] = [
+        "Fleet", "Terminal", "Files", "Runs", "System", "Memory", "Screen", "Monitors", "Connect",
+        "Vitals",
     ];
 
     /// A stand-in capture for the review renderer, so the screen and browser cards have pixels.
     const CAPTURE: &str = concat!(
         "data:image/svg+xml;base64,",
-        "PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI5NjAiIGhlaWdodD0iNjAwIiB2aWV3Qm94",
-        "PSIwIDAgOTYwIDYwMCI+CiAgPGRlZnM+CiAgICA8bGluZWFyR3JhZGllbnQgaWQ9ImJnIiB4MT0iMCIgeTE9IjAiIHgyPSIx",
-        "IiB5Mj0iMSI+CiAgICAgIDxzdG9wIG9mZnNldD0iMCIgc3RvcC1jb2xvcj0iIzFjMjczMyIvPgogICAgICA8c3RvcCBvZmZz",
-        "ZXQ9IjEiIHN0b3AtY29sb3I9IiMyYTFjMTgiLz4KICAgIDwvbGluZWFyR3JhZGllbnQ+CiAgPC9kZWZzPgogIDxyZWN0IHdp",
-        "ZHRoPSI5NjAiIGhlaWdodD0iNjAwIiBmaWxsPSJ1cmwoI2JnKSIvPgogIDxyZWN0IHg9IjQ4IiB5PSI0MCIgd2lkdGg9Ijg2",
-        "NCIgaGVpZ2h0PSI1MjAiIHJ4PSIxMCIgZmlsbD0iIzBkMTExNyIgc3Ryb2tlPSIjMzAzNjNkIi8+CiAgPGNpcmNsZSBjeD0i",
-        "NzYiIGN5PSI2OCIgcj0iNSIgZmlsbD0iI2ZmNWY1NiIvPgogIDxjaXJjbGUgY3g9Ijk0IiBjeT0iNjgiIHI9IjUiIGZpbGw9",
-        "IiNmZmJkMmUiLz4KICA8Y2lyY2xlIGN4PSIxMTIiIGN5PSI2OCIgcj0iNSIgZmlsbD0iIzI3YzkzZiIvPgogIDx0ZXh0IHg9",
-        "IjQ4IiB5PSI5OCIgZmlsbD0iIzhiOTQ5ZSIgZm9udC1mYW1pbHk9Im1vbm9zcGFjZSIgZm9udC1zaXplPSIxMSIgbGV0dGVy",
-        "LXNwYWNpbmc9IjIiPkRFU0tUT1AtOVZIOTJCSiDCtyBQT1dFUlNIRUxMPC90ZXh0PgogIDx0ZXh0IHg9Ijc2IiB5PSIxNTAi",
-        "IGZpbGw9IiNjOWQxZDkiIGZvbnQtZmFtaWx5PSJtb25vc3BhY2UiIGZvbnQtc2l6ZT0iMTciPlBTIEM6XFVzZXJzXG9wZXJh",
-        "dG9yJmd0OyBHZXQtRGF0ZTwvdGV4dD4KICA8dGV4dCB4PSI3NiIgeT0iMTgyIiBmaWxsPSIjOGI5NDllIiBmb250LWZhbWls",
-        "eT0ibW9ub3NwYWNlIiBmb250LXNpemU9IjE3Ij5Nb25kYXksIDI3IE9jdG9iZXIgMjAyNiAxMjowMDowMDwvdGV4dD4KICA8",
-        "dGV4dCB4PSI3NiIgeT0iMjMwIiBmaWxsPSIjYzlkMWQ5IiBmb250LWZhbWlseT0ibW9ub3NwYWNlIiBmb250LXNpemU9IjE3",
-        "Ij5QUyBDOlxVc2Vyc1xvcGVyYXRvciZndDsgR2V0LVNlcnZpY2UgU3Bvb2xlcjwvdGV4dD4KICA8dGV4dCB4PSI3NiIgeT0i",
-        "MjYyIiBmaWxsPSIjOGI5NDllIiBmb250LWZhbWlseT0ibW9ub3NwYWNlIiBmb250LXNpemU9IjE3Ij5SdW5uaW5nICAgU3Bv",
-        "b2xlciAgIFByaW50IFNwb29sZXI8L3RleHQ+CiAgPHRleHQgeD0iNzYiIHk9IjMxMCIgZmlsbD0iI2M5ZDFkOSIgZm9udC1m",
-        "YW1pbHk9Im1vbm9zcGFjZSIgZm9udC1zaXplPSIxNyI+UFMgQzpcVXNlcnNcb3BlcmF0b3ImZ3Q7IF88L3RleHQ+Cjwvc3Zn",
-        "Pgo=",
+        "PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI5NjAiIGhlaWdodD0iNjAwIiB2aWV3Qm94PSIw",
+        "IDAgOTYwIDYwMCI+CiAgPGRlZnM+CiAgICA8bGluZWFyR3JhZGllbnQgaWQ9ImJnIiB4MT0iMCIgeTE9IjAiIHgyPSIxIiB5Mj0i",
+        "MSI+CiAgICAgIDxzdG9wIG9mZnNldD0iMCIgc3RvcC1jb2xvcj0iIzFjMjczMyIvPgogICAgICA8c3RvcCBvZmZzZXQ9IjEiIHN0",
+        "b3AtY29sb3I9IiMyYTFjMTgiLz4KICAgIDwvbGluZWFyR3JhZGllbnQ+CiAgPC9kZWZzPgogIDxyZWN0IHdpZHRoPSI5NjAiIGhl",
+        "aWdodD0iNjAwIiBmaWxsPSJ1cmwoI2JnKSIvPgogIDxyZWN0IHg9IjQ4IiB5PSI0MCIgd2lkdGg9Ijg2NCIgaGVpZ2h0PSI1MjAi",
+        "IHJ4PSIxMCIgZmlsbD0iIzBkMTExNyIgc3Ryb2tlPSIjMzAzNjNkIi8+CiAgPGNpcmNsZSBjeD0iNzYiIGN5PSI2OCIgcj0iNSIg",
+        "ZmlsbD0iI2ZmNWY1NiIvPgogIDxjaXJjbGUgY3g9Ijk0IiBjeT0iNjgiIHI9IjUiIGZpbGw9IiNmZmJkMmUiLz4KICA8Y2lyY2xl",
+        "IGN4PSIxMTIiIGN5PSI2OCIgcj0iNSIgZmlsbD0iIzI3YzkzZiIvPgogIDx0ZXh0IHg9IjQ4IiB5PSI5OCIgZmlsbD0iIzhiOTQ5",
+        "ZSIgZm9udC1mYW1pbHk9Im1vbm9zcGFjZSIgZm9udC1zaXplPSIxMSIgbGV0dGVyLXNwYWNpbmc9IjIiPlNUVURJTy1QQyDCtyBQ",
+        "T1dFUlNIRUxMPC90ZXh0PgogIDx0ZXh0IHg9Ijc2IiB5PSIxNTAiIGZpbGw9IiNjOWQxZDkiIGZvbnQtZmFtaWx5PSJtb25vc3Bh",
+        "Y2UiIGZvbnQtc2l6ZT0iMTciPlBTIEM6XFVzZXJzXG9wZXJhdG9yJmd0OyBHZXQtRGF0ZTwvdGV4dD4KICA8dGV4dCB4PSI3NiIg",
+        "eT0iMTgyIiBmaWxsPSIjOGI5NDllIiBmb250LWZhbWlseT0ibW9ub3NwYWNlIiBmb250LXNpemU9IjE3Ij5Nb25kYXksIDI3IE9j",
+        "dG9iZXIgMjAyNiAxMjowMDowMDwvdGV4dD4KICA8dGV4dCB4PSI3NiIgeT0iMjMwIiBmaWxsPSIjYzlkMWQ5IiBmb250LWZhbWls",
+        "eT0ibW9ub3NwYWNlIiBmb250LXNpemU9IjE3Ij5QUyBDOlxVc2Vyc1xvcGVyYXRvciZndDsgR2V0LVNlcnZpY2UgU3Bvb2xlcjwv",
+        "dGV4dD4KICA8dGV4dCB4PSI3NiIgeT0iMjYyIiBmaWxsPSIjOGI5NDllIiBmb250LWZhbWlseT0ibW9ub3NwYWNlIiBmb250LXNp",
+        "emU9IjE3Ij5SdW5uaW5nICAgU3Bvb2xlciAgIFByaW50IFNwb29sZXI8L3RleHQ+CiAgPHRleHQgeD0iNzYiIHk9IjMxMCIgZmls",
+        "bD0iI2M5ZDFkOSIgZm9udC1mYW1pbHk9Im1vbm9zcGFjZSIgZm9udC1zaXplPSIxNyI+UFMgQzpcVXNlcnNcb3BlcmF0b3ImZ3Q7",
+        "IF88L3RleHQ+Cjwvc3ZnPgo=",
     );
 
     fn view(tag: char, name: Option<&str>, online: bool) -> DeviceView {
@@ -4393,12 +4406,18 @@ mod tests {
                 1,
                 "{expected}: exactly one rail item is current: {page}"
             );
+            // The browser view is the Screen destination's second segment: its rail marks Screen.
+            let marked = if expected == "Browser" {
+                "Screen"
+            } else {
+                expected
+            };
             let item = Page::ALL
                 .into_iter()
-                .find(|page_kind| page_kind.label() == expected)
+                .find(|page_kind| page_kind.label() == marked)
                 .expect("the expected label names a rail page");
             let current = format!(
-                "href=\"{}\" title=\"{expected}\" aria-label=\"{expected}\" aria-current=\"page\"",
+                "href=\"{}\" title=\"{marked}\" aria-label=\"{marked}\" aria-current=\"page\"",
                 item.href(Some(&device))
             );
             assert!(
@@ -4488,8 +4507,8 @@ mod tests {
         }
         // "State" is not a destination any more: its document is a card on the System page.
         for label in [
-            "Terminal", "Files", "Runs", "System", "Memory", "Screen", "Monitors", "Browser",
-            "Connect", "Vitals",
+            "Terminal", "Files", "Runs", "System", "Memory", "Screen", "Monitors", "Connect",
+            "Vitals",
         ] {
             assert_eq!(
                 rows.matches(&format!(">{label}</a>")).count(),

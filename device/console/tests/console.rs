@@ -7442,8 +7442,8 @@ async fn the_fleet_shows_only_the_pages_a_device_can_open() {
         .find("class=\"menu-panel page-menu\"")
         .expect("the more-pages disclosure is in the row");
     let menu = &fleet[menu_at..];
-    // "State" is a card on the System page now, not a menu entry.
-    for page in ["Runs", "System", "Memory", "Monitors", "Browser", "Vitals"] {
+    // "State" is a card on the System page now, and "Browser" is the Screen page's second view.
+    for page in ["Runs", "System", "Memory", "Monitors", "Vitals"] {
         assert!(
             menu.contains(&format!(">{page}</a>")),
             "the {page} link is one click away: {fleet}"
@@ -7487,8 +7487,8 @@ async fn the_fleet_shows_only_the_pages_a_device_can_open() {
     assert_eq!(status, StatusCode::OK);
     assert_eq!(
         body.matches("class=\"rail-item").count(),
-        11,
-        "a device page lists every page: {body}"
+        10,
+        "a device page lists every rail destination: {body}"
     );
 }
 
