@@ -70,9 +70,10 @@ SUMMRISE_PAGE_DIR="$pages" cargo test --quiet \
     -p summrise-console --lib -- --ignored render_pages_for_review >/dev/null
 
 # The dark theme is a `prefers-color-scheme` media query, which headless Chrome does not switch on
-# demand, so the same declarations are re-emitted as plain CSS for the dark pass.
+# demand, so the same declarations are re-emitted as plain CSS for the dark pass. They live in
+# `summrise-ui` now — the console page has no `:root` of its own — so that is the file to read.
 dark_css="$out/dark.css"
-python3 - "$root/device/console/src/http/page.rs" "$dark_css" <<'PY'
+python3 - "$root/device/ui/src/lib.rs" "$dark_css" <<'PY'
 import sys
 
 source = open(sys.argv[1]).read()
