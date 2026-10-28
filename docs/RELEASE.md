@@ -24,6 +24,31 @@ any tool that answers in milliseconds. A run that needs longer keeps running on 
 answers with its own 504 ("the device accepted the request and did not answer inside the console's bound;
 it may still be working on it") and the run is collected through `runs.list` / the Runs page.
 
+## The seed path, exercised (2026-10-28)
+
+Every install until now replaced an existing `baseline/current`; the path a machine with NO generations
+takes — the one an uninstall followed by an install, or a genuinely new machine, goes through — had never
+run. It does now, on DESKTOP-14RJCR8:
+
+```
+uninstall exit 0
+install exit 0
+STATE : 4  RUNNING
+{"status":"ok","version":"0.3.145"}
+baseline\current: baseline.json summrise-device.exe
+baseline\         current            <- no `previous`, which is what a seed means
+```
+
+Two facts worth keeping:
+
+- **the uninstaller does not kill the running shell**; only the installer's `.onInit` does. A shell started
+  from an image that the uninstall has since deleted keeps running and keeps the single-instance mutex, so
+  the install's "start the shell" step exits quietly ("another instance owns the tray; exiting") and the
+  operator is left with the old icon. Kill `summrise-shell.exe` after an uninstall/install cycle before
+  starting the new one.
+- **`baseline/previous` absent is the signature of a seed.** A replace always rotates the old generation
+  into `previous`; a first generation has nothing to rotate.
+
 ## Two traps in driving a silent install from a batch file
 
 Both cost a round on 2026-10-28, and both are cmd's, not the installer's.
