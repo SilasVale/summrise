@@ -131,7 +131,7 @@ input::placeholder, textarea::placeholder { color:var(--faint); }
 .form-grid .span-2 { grid-column:1 / -1; }
 .form-grid .field { margin-bottom:16px; }
 .form-actions { display:flex; flex-wrap:wrap; align-items:center; gap:10px; }
-label.check { display:flex; align-items:center; gap:8px; margin:0 0 14px; color:var(--ink); font-size:13px; font-weight:400; }
+label.check { display:flex; align-items:center; gap:8px; min-height:24px; margin:0 0 14px; color:var(--ink); font-size:13px; font-weight:400; }
 .form-inline { display:flex; flex-wrap:wrap; align-items:center; gap:8px; }
 .form-inline .field { margin:0; }
 .input-sm { min-height:28px; padding:3px 8px; font-size:12px; }
@@ -345,7 +345,7 @@ body.login { margin:0; background:var(--bg); }
 .btn-quiet-danger { border-color:transparent; background:transparent; color:var(--muted); }
 .btn-quiet-danger:hover { border-color:transparent; background:var(--danger-soft); color:var(--danger); }
 .form-inline .grow { flex:1 1 260px; min-width:0; }
-.file-name { font-weight:500; }
+.file-name { display:inline-flex; align-items:center; min-height:24px; font-weight:500; }
 .cmd-line { white-space:pre-wrap; word-break:break-all; }
 .url { word-break:break-all; }
 .mini-usage { display:flex; align-items:center; gap:8px; min-width:104px; font-size:12px; }
