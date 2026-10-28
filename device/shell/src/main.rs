@@ -61,10 +61,13 @@ fn main() {
         std::process::exit(code);
     }
     if app::already_running() {
-        // The icon is already in the tray; a second one would be a second dot saying the same thing.
-        // The line matters: the session-reconnect task starts this binary, and without it "the tray
-        // did not come back" and "a second instance exited quietly" look identical in the log.
-        note("another instance owns the tray; exiting");
+        // A second instance is the session-reconnect task asking for the icon back, not a user
+        // double-clicking: signal the running instance to re-add the tray, and only then exit.
+        if app::signal_wake() {
+            note("another instance owns the tray; asked it to re-add the icon");
+        } else {
+            note("another instance owns the tray and did not answer the wake signal");
+        }
         return;
     }
     note("starting");

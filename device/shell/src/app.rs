@@ -46,6 +46,8 @@ enum Wake {
     Menu(MenuEvent),
     /// The `--check-window` self-test's stop button.
     Quit,
+    /// Another instance asked this one to put its icon back (see `signal_wake`).
+    Repaint,
 }
 
 /// The brand mark, rendered from `brand/icon.png` at the two sizes the shell needs. The tray is 16 px
@@ -73,13 +75,6 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     let event_loop = EventLoopBuilder::<Wake>::with_user_event().build();
     crate::note("event loop built");
 
-    let (console_item, panel_item, quit_item) = menu_items();
-    let menu = Menu::with_items(&[
-        &console_item,
-        &panel_item,
-        &PredefinedMenuItem::separator(),
-        &quit_item,
-    ])?;
 
     // The window is created the first time the operator asks for it, and again after they close it:
     // `tao` 0.34 destroys a window on its close request and offers no way to veto that, so the tray
@@ -93,6 +88,24 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
 
     // Armed before the build, disarmed after it: a build that hangs leaves a line that names the
     // stage and an exit the operator can see in the log, rather than a process with no icon.
+    // A SECOND INSTANCE IS A REQUEST, NOT A MISTAKE. The session-reconnect task starts this binary
+    // when the operator comes back; the first instance holds the mutex and, before this, the second
+    // one simply exited and the icon stayed missing. It now signals this event instead, and the
+    // listener below re-adds the tray.
+    if let Some(event) = wake_event() {
+        let proxy = event_loop.create_proxy();
+        std::thread::spawn(move || loop {
+            // SAFETY: `event` is a valid handle for this process's lifetime and INFINITE is a constant.
+            let waited = unsafe {
+                windows_sys::Win32::System::Threading::WaitForSingleObject(event, 0xFFFF_FFFF)
+            };
+            if waited != 0 {
+                return;
+            }
+            let _ = proxy.send_event(Wake::Repaint);
+        });
+    }
+
     let tray_ready = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     {
         let tray_ready = tray_ready.clone();
@@ -114,11 +127,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         });
     }
 
-    let tray = TrayIconBuilder::new()
-        .with_menu(Box::new(menu))
-        .with_icon(tray_icon(UNKNOWN)?)
-        .with_tooltip("Summrise: checking this device…")
-        .build()?;
+    let mut tray = build_tray("Summrise: checking this device…")?;
     crate::note(&format!("tray built: pid={}", std::process::id()));
     tray_ready.store(true, std::sync::atomic::Ordering::SeqCst);
     // THE SHELL DOES NOT ASK FOR A PLACE IN THE TASKBAR. Windows' default for a new tray icon is the
@@ -174,6 +183,23 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
                 ..
             })) => open_url(PANEL),
             Event::UserEvent(Wake::Tray(_)) => {}
+            Event::UserEvent(Wake::Repaint) => {
+                // A second instance (the session-reconnect task) asked for the icon to be added
+                // again: Windows re-creates the notification area on reconnect, and an icon added
+                // before that is not there afterwards. Rebuilding the tray is the only re-add the
+                // tray crate offers.
+                let tooltip = last
+                    .as_ref()
+                    .map(|state| describe(state).1)
+                    .unwrap_or_else(|| "Summrise: checking this device…".to_owned());
+                match build_tray(&tooltip) {
+                    Ok(fresh) => {
+                        tray = fresh;
+                        crate::note("tray re-added after a wake signal");
+                    }
+                    Err(error) => crate::note(&format!("cannot re-add the tray: {error}")),
+                }
+            }
             Event::UserEvent(Wake::Quit) => *control_flow = ControlFlow::Exit,
             Event::UserEvent(Wake::Menu(event)) => match event.id.as_ref() {
                 OPEN_CONSOLE => open_console(target, &mut ui, &mut profile),
@@ -303,12 +329,12 @@ pub fn check_window() -> i32 {
     // event loop, which is a programming error this diagnostic cannot see from inside.
     let event_loop = EventLoopBuilder::<Wake>::with_user_event().build();
     let proxy = event_loop.create_proxy();
-    let mut built = false;
+    // `run` never returns: every exit this diagnostic has is a `process::exit` in an arm, so there is
+    // no success value to carry out of it.
     event_loop.run(move |event, target, control_flow| {
         *control_flow = ControlFlow::Wait;
         match event {
             Event::NewEvents(StartCause::Init) => {
-                built = true;
                 let Ok(window) = WindowBuilder::new()
                     .with_title("Summrise console")
                     .with_window_icon(window_icon())
@@ -351,9 +377,7 @@ pub fn check_window() -> i32 {
             Event::UserEvent(Wake::Quit) => *control_flow = ControlFlow::Exit,
             _ => {}
         }
-    });
-    let _ = built;
-    0
+    })
 }
 
 #[cfg(not(windows))]
@@ -563,6 +587,69 @@ pub fn already_running() -> bool {
     // SAFETY: no arguments.
     let last = unsafe { windows_sys::Win32::Foundation::GetLastError() };
     last == windows_sys::Win32::Foundation::ERROR_ALREADY_EXISTS
+}
+
+/// The tray, built from scratch: the menu, the icon and the tooltip.
+///
+/// It is a function rather than three lines in `run` because a re-add after a reconnect needs a
+/// SECOND tray object, and a tray without its menu is a tray whose items do nothing.
+fn build_tray(tooltip: &str) -> Result<tray_icon::TrayIcon, Box<dyn std::error::Error>> {
+    let (console_item, panel_item, quit_item) = menu_items();
+    let menu = Menu::with_items(&[
+        &console_item,
+        &panel_item,
+        &PredefinedMenuItem::separator(),
+        &quit_item,
+    ])?;
+    Ok(TrayIconBuilder::new()
+        .with_menu(Box::new(menu))
+        .with_icon(tray_icon(UNKNOWN)?)
+        .with_tooltip(tooltip)
+        .build()?)
+}
+
+/// The name of the event a second instance signals.
+fn wake_name() -> Vec<u16> {
+    use std::ffi::OsStr;
+    use std::os::windows::ffi::OsStrExt;
+    OsStr::new("Local\\SummriseShell.Wake")
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect()
+}
+
+/// Create (or open) this session's wake event and return its handle for the listener thread.
+fn wake_event() -> Option<windows_sys::Win32::Foundation::HANDLE> {
+    let name = wake_name();
+    // SAFETY: a NUL-terminated name and a null security descriptor; the handle is a real handle or 0.
+    let handle = unsafe {
+        windows_sys::Win32::System::Threading::CreateEventW(
+            std::ptr::null_mut(),
+            0,
+            0,
+            name.as_ptr(),
+        )
+    };
+    (handle != 0).then_some(handle)
+}
+
+/// Tell the running instance to put its icon back; returns false when there is none to tell.
+pub fn signal_wake() -> bool {
+    let name = wake_name();
+    // SAFETY: `EVENT_MODIFY_STATE` is the minimal access for `SetEvent`; the handle is closed here.
+    let handle = unsafe {
+        windows_sys::Win32::System::Threading::OpenEventW(
+            windows_sys::Win32::System::Threading::EVENT_MODIFY_STATE,
+            0,
+            name.as_ptr(),
+        )
+    };
+    if handle == 0 {
+        return false;
+    }
+    let signalled = unsafe { windows_sys::Win32::System::Threading::SetEvent(handle) } != 0;
+    unsafe { windows_sys::Win32::Foundation::CloseHandle(handle) };
+    signalled
 }
 
 #[cfg(test)]

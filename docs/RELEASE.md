@@ -24,6 +24,25 @@ any tool that answers in milliseconds. A run that needs longer keeps running on 
 answers with its own 504 ("the device accepted the request and did not answer inside the console's bound;
 it may still be working on it") and the run is collected through `runs.list` / the Runs page.
 
+## A second instance is a request, not a mistake (2026-10-28)
+
+The tray is per-session, and Windows re-creates the notification area when a disconnected session comes
+back; an icon added before that is simply not there afterwards. The session-reconnect task starts this
+binary again for exactly that reason — but the running instance holds the `Local\SummriseShell` mutex, so
+the new one used to exit at the check, before its first log line, and the icon stayed missing.
+
+The mutex is now a hand-off. The running instance creates `Local\SummriseShell.Wake` and waits on it; a
+second instance opens it, sets it, and exits. The waiter posts a `Repaint` event and the loop rebuilds the
+tray (menu, icon, tooltip, in that order — a tray without its menu is a tray whose items do nothing).
+
+Measured on DESKTOP-14RJCR8, running a second copy in the same session:
+
+```
+tray built: pid=20168
+another instance owns the tray; asked it to re-add the icon
+tray re-added after a wake signal
+```
+
 ## The seed path, exercised (2026-10-28)
 
 Every install until now replaced an existing `baseline/current`; the path a machine with NO generations
