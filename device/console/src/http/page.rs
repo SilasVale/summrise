@@ -2654,9 +2654,11 @@ pub(super) fn system(
 ) -> Markup {
     let base = format!("/next/system/{}", device.id);
     let content = html! {
+        // The page had one card when this sentence was written; it answers five questions now, and
+        // the detail about the process sample belongs to the process card.
         p class="lead" {
-            "The processes this device is running now. It is one sample, not a history; the filter "
-            "matches an executable name and asks the device for the list again."
+            "What this machine answers about itself: the processes it is running, whether it can "
+            "reach a host, how to restart it, how to end one process, and the document it keeps."
         }
         @if let Some(notice) = notice {
             p class="alert notice" { (notice) }
@@ -2676,6 +2678,12 @@ pub(super) fn system(
                     }
                 },
             ))
+            div class="card-body" {
+                p class="small muted" {
+                    "One sample, not a history. The filter matches an executable name and asks the "
+                    "device for the list again."
+                }
+            }
             @if processes.is_empty() && notice.is_none() {
                 (empty_state(Page::System, "The device listed no processes.", Markup::default()))
             } @else {
