@@ -6,6 +6,22 @@
 > architecture, and the first week of canary work. The plan is ordered by what an operator loses
 > first, not by what is cheapest to build.
 
+## 0. Where this plan stands now (2026-10-28)
+
+Written when the plan was new; kept because a plan that is silently rewritten cannot be judged.
+
+- **Fleet**: three devices on the console (two online, one offline since an installer run of 0.3.130).
+  Both online machines run 0.3.146 with the launcher and shell the installer now ships.
+- **The plan's §2 workspace gaps are closed**: terminal (sessions, presets, attach, resize), files,
+  memory, monitors, runs, audit, approvals, tokens, channels — each with its own page and its own
+  handler, and the UI they share lives in `device/ui` (tokens, chips, cards, the page shell).
+- **The runtime is proven in every install shape**: replace (twice), seed (once, from an emptied
+  directory), uninstall, the repair task after a deleted service, and the canary's own device update.
+- **What is NOT proven**: the session-reconnect path end to end (the hand-off is measured, the
+  Windows-side trigger is not), a fresh machine enrolling through the console's code flow, and
+  DESKTOP-CPH4KB2's recovery — that machine has been offline since an install left it with no runtime,
+  and the installer/repair discipline above is the answer it is waiting for.
+
 ## 1. Where the project stands
 
 Proven on the canary (device 0.3.29, console 0.3.32, helper in the user's session):
