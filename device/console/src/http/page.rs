@@ -26,7 +26,7 @@ use super::DeviceView;
 /// Both surfaces render `summrise_ui::style(...)`, so a colour can only be defined once.
 const COMPONENTS: &str = r#"* { box-sizing:border-box; }
 html { height:100%; }
-body { margin:0; min-height:100%; background:var(--bg); color:var(--ink); font:14px/1.5 var(--font); -webkit-font-smoothing:antialiased; }
+body { margin:0; min-height:100%; background:var(--bg); color:var(--ink); font-family:var(--font); font-size:14px; line-height:1.5; -webkit-font-smoothing:antialiased; }
 a { color:var(--accent); text-decoration:none; }
 a:hover { text-decoration:underline; }
 :focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
@@ -52,7 +52,6 @@ body.app { display:flex; height:100vh; overflow:hidden; }
 .shell { flex:1; min-width:0; min-height:0; display:flex; flex-direction:column; height:100vh; }
 .topbar .context .name { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .topbar .spacer { flex:1; }
-.topbar .build { color:var(--faint); font:11.5px var(--mono); white-space:nowrap; }
 .topbar form { flex:none; }
 .content { flex:1; min-height:0; overflow:auto; padding:24px max(24px, calc((100% - 1180px) / 2)) 48px; }
 .content > :first-child { margin-top:0; }
@@ -122,7 +121,7 @@ form { margin:0; }
 label { color:var(--muted); font-size:12px; font-weight:600; }
 input, select, textarea { width:100%; min-height:34px; padding:6px 10px; border:1px solid var(--line-strong); border-radius:var(--radius-xs); background:var(--panel); color:var(--ink); font:inherit; font-size:13px; }
 select { appearance:none; padding-right:30px; background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238b8c96' stroke-width='2.2' stroke-linecap='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E"); background-repeat:no-repeat; background-position:right 10px center; }
-textarea { min-height:82px; font:12.5px/1.6 var(--mono); resize:vertical; }
+textarea { min-height:82px; font-family:var(--mono); font-size:13px; line-height:1.6; resize:vertical; }
 input[type=checkbox] { width:auto; min-height:0; accent-color:var(--accent-solid); }
 input:focus-visible, select:focus-visible, textarea:focus-visible { border-color:var(--accent); outline:2px solid var(--accent); outline-offset:1px; }
 input::placeholder, textarea::placeholder { color:var(--faint); }
@@ -173,11 +172,11 @@ label.check { display:flex; align-items:center; gap:8px; margin:0 0 14px; color:
 /* ---- empty states and pre ---- */
 pre, code { font-family:var(--mono); }
 code { padding:1px 5px; border-radius:var(--radius-xs); background:var(--panel-2); color:var(--muted); font-size:13px; }
-pre.file { margin:0; padding:16px 18px; border:0; background:var(--panel); color:var(--ink); font:12.5px/1.65 var(--mono); white-space:pre-wrap; word-break:break-word; overflow:auto; }
-pre.out { margin:0; padding:14px 16px; background:#0f1014; color:#d9d5ce; font:12px/1.6 var(--mono); white-space:pre-wrap; word-break:break-word; overflow:auto; max-height:520px; }
+pre.file { margin:0; padding:16px 18px; border:0; background:var(--panel); color:var(--ink); font-family:var(--mono); font-size:13px; line-height:1.65; white-space:pre-wrap; word-break:break-word; overflow:auto; }
+pre.out { margin:0; padding:14px 16px; background:#0f1014; color:#d9d5ce; font-family:var(--mono); font-size:12px; line-height:1.6; white-space:pre-wrap; word-break:break-word; overflow:auto; max-height:520px; }
 pre.out.stderr { color:#ffb4ad; }
-pre.secret { margin:0; padding:16px 18px; background:#0f1014; color:#ffd8c4; font:13px/1.6 var(--mono); letter-spacing:.02em; white-space:pre-wrap; word-break:break-all; }
-.cmd { display:block; padding:10px 14px; border:1px solid var(--line); border-radius:var(--radius-xs); background:var(--panel-2); color:var(--ink); font:12.5px/1.6 var(--mono); white-space:pre-wrap; word-break:break-all; }
+pre.secret { margin:0; padding:16px 18px; background:#0f1014; color:#ffd8c4; font-family:var(--mono); font-size:13px; line-height:1.6; letter-spacing:.02em; white-space:pre-wrap; word-break:break-all; }
+.cmd { display:block; padding:10px 14px; border:1px solid var(--line); border-radius:var(--radius-xs); background:var(--panel-2); color:var(--ink); font-family:var(--mono); font-size:13px; line-height:1.6; white-space:pre-wrap; word-break:break-all; }
 
 /* ---- toolbars ---- */
 .toolbar { display:flex; flex-wrap:wrap; align-items:center; gap:10px; margin:0 0 16px; }
@@ -240,7 +239,7 @@ body.terminal .content { display:flex; flex-direction:column; min-height:0; over
 .preset-row:last-child { border-bottom:0; }
 .preset-ident { flex:1; min-width:0; display:flex; flex-direction:column; gap:1px; }
 .preset-name { overflow:hidden; font-size:13px; font-weight:600; text-overflow:ellipsis; white-space:nowrap; }
-.preset-target { overflow:hidden; color:var(--muted); font:11px var(--mono); text-overflow:ellipsis; white-space:nowrap; }
+.preset-target { overflow:hidden; color:var(--muted); font-family:var(--mono); font-size:11px; text-overflow:ellipsis; white-space:nowrap; }
 .preset-actions { flex:none; display:flex; align-items:center; gap:4px; }
 .preset-add { display:grid; gap:6px; margin-top:8px; padding-top:8px; border-top:1px solid var(--line); }
 .preset-add .field { margin:0; }
@@ -252,7 +251,7 @@ body.terminal .content { display:flex; flex-direction:column; min-height:0; over
 .terminal-tabbar:has(#terminal-tabs:empty):has(#terminal-status:empty) { display:none; }
 .tabs { display:flex; flex:1; flex-wrap:wrap; align-items:center; gap:4px; }
 .tabs:empty { display:none; }
-#terminal-status { min-width:0; margin:0; padding:5px 0; overflow:hidden; color:var(--faint); font:11px var(--mono); text-overflow:ellipsis; white-space:nowrap; }
+#terminal-status { min-width:0; margin:0; padding:5px 0; overflow:hidden; color:var(--faint); font-family:var(--mono); font-size:11px; text-overflow:ellipsis; white-space:nowrap; }
 .tab { display:inline-flex; align-items:center; gap:6px; width:auto; min-height:28px; margin:4px 0; padding:3px 8px; border:1px solid transparent; border-radius:var(--radius-xs); background:transparent; color:var(--muted); font-size:12px; }
 .tab:hover { background:var(--panel); color:var(--ink); }
 .tab.active { border-color:var(--line); background:var(--panel); color:var(--ink); box-shadow:0 1px 2px rgba(24,24,27,.05); }
@@ -287,7 +286,7 @@ body.login { margin:0; background:var(--bg); }
 .device-cell { min-width:250px; }
 .device-identity { display:flex; flex-wrap:wrap; align-items:center; gap:8px; }
 .device-name { font-size:15px; font-weight:600; letter-spacing:-.01em; }
-.device-version { color:var(--faint); font:11.5px var(--mono); }
+.device-version { color:var(--faint); font-family:var(--mono); font-size:12px; }
 .device-meta { display:flex; flex-wrap:wrap; align-items:center; gap:7px; margin-top:4px; color:var(--muted); font-size:12px; }
 .device-id { padding:0; background:none; color:var(--muted); font-size:12px; }
 .meta-sep { color:var(--faint); }
@@ -333,9 +332,9 @@ body.login { margin:0; background:var(--bg); }
 .spark { display:block; width:100%; height:28px; }
 .spark polyline { fill:none; stroke:var(--accent); stroke-width:1.5; vector-effect:non-scaling-stroke; stroke-linejoin:round; }
 .facts { display:grid; grid-template-columns:max-content 1fr; gap:6px 18px; margin:0 0 12px; }
-.facts dt { color:var(--muted); font:11px/1.6 var(--font); text-transform:uppercase; letter-spacing:.04em; padding-top:2px; }
-.facts dd { margin:0; font:12px/1.6 var(--mono); overflow-wrap:anywhere; }
-.code-block { margin:0 0 12px; padding:12px 16px; border:1px solid var(--line); border-radius:var(--radius-xs); background:var(--panel-2); color:var(--ink); font:12px/1.5 var(--mono); white-space:pre-wrap; overflow-wrap:anywhere; max-height:280px; overflow:auto; }
+.facts dt { color:var(--muted); font-family:var(--font); font-size:11px; line-height:1.6; text-transform:uppercase; letter-spacing:.04em; padding-top:2px; }
+.facts dd { margin:0; font-family:var(--mono); font-size:12px; line-height:1.6; overflow-wrap:anywhere; }
+.code-block { margin:0 0 12px; padding:12px 16px; border:1px solid var(--line); border-radius:var(--radius-xs); background:var(--panel-2); color:var(--ink); font-family:var(--mono); font-size:12px; line-height:1.5; white-space:pre-wrap; overflow-wrap:anywhere; max-height:280px; overflow:auto; }
 .restart-panel p { margin:0 0 10px; }
 
 /* ---- small additions to the component set ---- */
@@ -377,7 +376,7 @@ body.login { margin:0; background:var(--bg); }
 }
 @media (max-width: 720px) {
   .topbar { height:52px; padding:0 12px; gap:8px; }
-  .topbar .context, .topbar .build { display:none; }
+  .topbar .context { display:none; }
   .content { padding:16px 14px 32px; }
   .stats { grid-template-columns:repeat(2, minmax(0, 1fr)); }
   .form-grid { grid-template-columns:1fr; }
@@ -743,8 +742,8 @@ fn status_chip(online: bool) -> Markup {
     }
 }
 
-/// The top bar: where this page is, which device it acts on, the build, and the way out.
-fn topbar(title: &str, device: Option<&DeviceView>, version: &str, csrf: &str) -> Markup {
+/// The top bar: where this page is, which device it acts on, and the way out.
+fn topbar(title: &str, device: Option<&DeviceView>, csrf: &str) -> Markup {
     html! {
         header class="topbar" {
             h1 { (title) }
@@ -756,7 +755,8 @@ fn topbar(title: &str, device: Option<&DeviceView>, version: &str, csrf: &str) -
             }
             span class="spacer" {}
             a class="badge-approvals" id="approvals-badge" href="/next" hidden {}
-            span class="build" { "console " (version) }
+            // The console's build is in the status strip. Printing it here as well was the same
+            // fact twice on one screen; the strip is where chrome facts belong.
             form method="post" action="/next/logout" {
                 input type="hidden" name="csrf" value=(csrf);
                 button type="submit" class="btn btn-ghost btn-sm" { "Sign out" }
@@ -803,7 +803,7 @@ fn page_with_rail(chrome: Chrome<'_>, extra: Markup, context: Markup, content: M
                 a class="skip-link" href="#content" { "Skip to content" }
                 (rail(chrome.active, chrome.device))
                 div class="shell" {
-                    (topbar(chrome.title, chrome.device, chrome.version, chrome.csrf))
+                    (topbar(chrome.title, chrome.device, chrome.csrf))
                     div class="body-row" {
                         (context)
                         main id="content" class="content" tabindex="-1" { (content) }
@@ -5085,6 +5085,36 @@ mod tests {
                 ALLOWED.contains(&size.as_str()),
                 "font-size:{size}px is not on the scale {ALLOWED:?}"
             );
+        }
+
+        // **THE SHORTHAND IS THE SAME SCALE.** The first version of this gate read only
+        // `font-size:`; thirteen `font:<n>px/… var(--mono)` shorthands kept 11.5px and 12.5px
+        // alive through four rounds of "the scale is eight sizes". Every sized shorthand is a
+        // longhand now, and this half refuses to let one back in.
+        let mut rest = css.as_str();
+        while let Some(at) = rest.find("font:") {
+            let after = &rest[at + "font:".len()..];
+            let end = after.find([';', '}']).unwrap_or(after.len());
+            let value = after[..end].trim();
+            if let Some(px) = value.find("px") {
+                let size: String = value[..px]
+                    .chars()
+                    .rev()
+                    .take_while(|c| c.is_ascii_digit() || *c == '.')
+                    .collect::<Vec<_>>()
+                    .into_iter()
+                    .rev()
+                    .collect();
+                assert!(
+                    !size.is_empty(),
+                    "font:{value} has a pixel size with no number"
+                );
+                assert!(
+                    ALLOWED.contains(&size.as_str()),
+                    "font:{value} carries {size}px, off the scale {ALLOWED:?}"
+                );
+            }
+            rest = &after[end..];
         }
     }
 
