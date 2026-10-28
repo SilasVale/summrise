@@ -5562,6 +5562,35 @@ async fn an_aggregate_token_is_created_and_listed_without_a_secret() {
     assert!(list[0].get("token").is_none());
 }
 
+/// Removing a device takes the tokens that could reach it — including an aggregate token that
+/// merely LISTS it, which its per-device page never shows, so nobody could revoke it by hand.
+#[tokio::test]
+async fn removing_a_device_revokes_the_aggregate_tokens_that_list_it() {
+    let fixture = Fixture::new("aggregate-token-device-removal");
+    let session = fixture.authenticate().await;
+    let (a, _) = fixture.register(&signing_key(0x73)).await;
+    let (b, _) = fixture.register(&signing_key(0x74)).await;
+    let (status, created) = fixture
+        .create_aggregate_token(&session, "all", &[a.clone(), b.clone()], &["files.read"])
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{created}");
+
+    let request = Request::builder()
+        .method("DELETE")
+        .uri(format!("/fleet/{a}"))
+        .header(header::AUTHORIZATION, format!("Bearer {session}"))
+        .body(Body::empty())
+        .expect("the request builds");
+    let (status, _) = send(fixture.app(), request).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+
+    let (_, list) = send(fixture.app(), get("/tokens", Some(&session))).await;
+    assert!(
+        list.as_array().expect("a list").is_empty(),
+        "the aggregate token went with the device it could reach: {list}"
+    );
+}
+
 #[tokio::test]
 async fn a_token_create_requires_exactly_one_scope() {
     let fixture = Fixture::new("aggregate-token-scope");
@@ -9597,6 +9626,101 @@ async fn a_destructive_token_call_is_held_and_runs_when_approved() {
     assert!(
         location.contains("no%20longer%20waiting"),
         "the second press says the call is gone: {location}"
+    );
+}
+
+/// An approval is consent for a credential that exists NOW: the ninety seconds the operator had to
+/// decide is long enough for a token to be revoked, and the device cannot know about a revocation
+/// (it can only check an expiry). The approved call is refused, not re-sent.
+#[tokio::test]
+async fn an_approved_call_whose_token_was_revoked_is_refused() {
+    let fixture = Fixture::new("approval-token-revoked");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xd9)).await;
+    let session = fixture.authenticate().await;
+    let (status, created) = fixture
+        .create_token(
+            &session,
+            &device_id,
+            "cautious",
+            &["terminal.create"],
+            false,
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{created}");
+    let plaintext = created["token"].as_str().expect("the token").to_owned();
+    let token_id = created["id"]
+        .as_str()
+        .or_else(|| created["token_meta"]["id"].as_str())
+        .expect("the created token's id")
+        .to_owned();
+    let call = json!({
+        "jsonrpc": "2.0",
+        "id": 41,
+        "method": "tools/call",
+        "params": { "name": "terminal.create", "arguments": { "kind": "pty" } },
+    });
+    let http = send(
+        fixture.app(),
+        post_token(&device_id, &plaintext, call.clone()),
+    );
+
+    let device_side = async {
+        let frame = next_json(&mut device).await;
+        answer_error(
+            &mut device,
+            &frame,
+            json!({ "jsonrpc": "2.0", "id": 41, "error": { "code": -32002, "message": "'terminal.create' is destructive and needs approval" } }),
+        )
+        .await;
+        // Nothing is re-sent: the token is gone by the time the operator approves.
+        let silent = tokio::time::timeout(
+            std::time::Duration::from_millis(400),
+            next_json(&mut device),
+        )
+        .await;
+        assert!(
+            silent.is_err(),
+            "a revoked token's approval must not reach the device"
+        );
+    };
+
+    let (cookie, csrf) = sign_in_to_the_page(&fixture).await;
+    let operator = async {
+        let id = wait_for_approval(&fixture, &cookie).await;
+        let request = Request::builder()
+            .method("DELETE")
+            .uri(format!("/tokens/{token_id}"))
+            .header(header::AUTHORIZATION, format!("Bearer {session}"))
+            .body(Body::empty())
+            .expect("the request builds");
+        let (status, _) = send(fixture.app(), request).await;
+        assert_eq!(status, StatusCode::NO_CONTENT, "the token is revoked");
+        let (status, _, _) = send_text(
+            fixture.app(),
+            post_form_cookie(
+                &format!("/next/approvals/{id}/approve"),
+                &[("csrf", &csrf)],
+                &cookie,
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::SEE_OTHER);
+    };
+
+    let ((status, body), (), ()) = tokio::join!(http, device_side, operator);
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(
+        body["code"],
+        json!(-32001),
+        "the approval is refused with its own sentence: {body}"
+    );
+    assert!(
+        body["message"]
+            .as_str()
+            .is_some_and(|message| message.contains("no longer valid")),
+        "{body}"
     );
 }
 

@@ -1048,6 +1048,25 @@ async fn session_probe(State(app): State<AppState>, headers: HeaderMap) -> Json<
     }
 }
 
+/// Remove the session whose token hash is `token_hash`, persisting the removal before adopting it.
+///
+/// A session that cannot be written out must stay live: adopting the removal in memory and only
+/// logging a failed save leaves the signed-out token in `sessions.json`, where the next start
+/// re-admits it — a cookie accepted after logout.
+fn end_session(app: &AppState, token_hash: &[u8; 32]) -> Result<(), String> {
+    let next: Vec<crate::auth::Session> = {
+        let sessions = lock(&app.sessions);
+        sessions
+            .iter()
+            .filter(|session| !constant_time_eq(&session.token_hash, token_hash))
+            .cloned()
+            .collect()
+    };
+    crate::auth::save_sessions(&app.data, &next).map_err(|error| error.to_string())?;
+    *lock(&app.sessions) = next;
+    Ok(())
+}
+
 /// `POST /logout`: end the operator session this request presents.
 ///
 /// The session list is memory, like the session itself, so removing the matching token is the whole
@@ -1058,10 +1077,9 @@ async fn session_probe(State(app): State<AppState>, headers: HeaderMap) -> Json<
 async fn logout(State(app): State<AppState>, _: OperatorSession, headers: HeaderMap) -> StatusCode {
     if let Some(presented) = bearer_secret(&headers) {
         let token_hash = hash_of(&presented);
-        let mut sessions = lock(&app.sessions);
-        sessions.retain(|session| !constant_time_eq(&session.token_hash, &token_hash));
-        if let Err(error) = crate::auth::save_sessions(&app.data, &sessions) {
+        if let Err(error) = end_session(&app, &token_hash) {
             eprintln!("summrise-console: the sessions could not be persisted: {error}");
+            return StatusCode::INTERNAL_SERVER_ERROR;
         }
     }
     StatusCode::NO_CONTENT
@@ -4144,12 +4162,10 @@ async fn next_logout(
         if !constant_time_eq(&csrf, &session.csrf) {
             return StatusCode::FORBIDDEN.into_response();
         }
-        {
-            let mut sessions = lock(&app.sessions);
-            sessions.retain(|entry| !constant_time_eq(&entry.token_hash, &session.token_hash));
-        }
-        if let Err(error) = crate::auth::save_sessions(&app.data, &lock(&app.sessions)) {
+        if let Err(error) = end_session(&app, &session.token_hash) {
+            // Keep the cookie: the session is still live, so clearing it would lie.
             eprintln!("summrise-console: the sessions could not be persisted: {error}");
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
         }
     }
     // A tab whose cookie is already gone still gets to ask the edge to forget it — otherwise the
@@ -5041,6 +5057,34 @@ async fn proxy_reply(
                             .await;
                             // The consent is for THIS call, held in the console, and it is not
                             // written anywhere: the token keeps saying no to the next one.
+                            //
+                            // The credential is re-read, not remembered: the 90 s the operator had
+                            // to decide is long enough for a token to be revoked or to expire, and
+                            // the device cannot know about a revocation — it only checks expiry. A
+                            // consent to a credential that no longer exists is not a consent.
+                            let still_live = lock(&app.tokens)
+                                .find_by_id(&consenting.token_id)
+                                .is_some_and(|record| {
+                                    record
+                                        .expires_at_ms
+                                        .is_none_or(|expires| (app.now)() < expires)
+                                });
+                            if !still_live {
+                                app.record_facts(AuditFacts {
+                                    kind: "approval",
+                                    device_id: audit_id.as_deref(),
+                                    status: StatusCode::UNAUTHORIZED,
+                                    detail: Some("token gone"),
+                                    tool: tool.as_deref(),
+                                    token_id,
+                                })
+                                .await;
+                                reply = Reply::Error(json!({
+                                    "code": -32001,
+                                    "message": "this call was approved, but the token that asked for it is no longer valid: it was refused, not run.",
+                                }));
+                                return Ok(reply);
+                            }
                             //
                             // The bound is the first dispatch's, not the general one: a run holds
                             // its request for the command's own timeout, and approving one must not
