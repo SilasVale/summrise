@@ -281,6 +281,7 @@ body.login { margin:0; background:var(--bg); }
 .login-brand { display:grid; place-items:center; width:44px; height:44px; margin-bottom:20px; border-radius:var(--radius); background:var(--accent-solid); color:#fff; box-shadow:0 8px 20px -12px rgba(176,58,10,.8); }
 .login-card h1 { margin:0 0 6px; font-size:22px; font-weight:600; letter-spacing:-.02em; }
 .login-card h1 span { color:var(--muted); font-weight:500; }
+.login-card p.small { margin:10px 0 16px; }
 .login-card .lead { margin:0 0 22px; font-size:13px; }
 .login-card .field { margin-bottom:16px; }
 .login-card .btn { width:100%; min-height:36px; }
