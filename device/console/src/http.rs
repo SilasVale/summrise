@@ -1670,18 +1670,19 @@ async fn next_audit(
         page::AUDIT_KINDS.as_slice(),
     );
     Html(
-        page::logs(
-            &rows,
-            "Audit",
-            total.len(),
-            Some(bar),
-            &hex::encode(&session.csrf),
-            &app.version,
-            "The console's own record, newest first. Times are UTC; a device id is shortened here but \
-             named in full by the line's tooltip.",
-            "The console's own audit lines.",
-            filter.is_active(),
-        )
+        page::logs(page::Logs {
+            rows: &rows,
+            title: "Audit",
+            total: total.len(),
+            filter: Some(bar),
+            csrf: &hex::encode(&session.csrf),
+            version: &app.version,
+            lead:
+                "The console's own record, newest first. Times are UTC; a device id is shortened \
+                   here but named in full by the line's tooltip.",
+            caption: "The console's own audit lines.",
+            filtered: filter.is_active(),
+        })
         .into_string(),
     )
     .into_response()
@@ -1729,19 +1730,20 @@ async fn next_denials(
     // filter (the audit's twelve-option list offered eleven that could never match).
     let bar = page::audit_filter("/next/denials", &[], &filter, false, &[]);
     Html(
-        page::logs(
-            &rows,
-            "Denials",
-            total.len(),
-            Some(bar),
-            &hex::encode(&session.csrf),
-            &app.version,
-            "Every request the console refused before authentication: a missing session, an unknown \
-             token, an unauthenticated probe. The first hundred in a minute are listed; the rest are \
-             counted. A refusal is not a device call, and the arguments it carried are not stored.",
-            "Refusals recorded before authentication.",
-            filter.is_active(),
-        )
+        page::logs(page::Logs {
+            rows: &rows,
+            title: "Denials",
+            total: total.len(),
+            filter: Some(bar),
+            csrf: &hex::encode(&session.csrf),
+            version: &app.version,
+            lead: "Every request the console refused before authentication: a missing session, an \
+                   unknown token, an unauthenticated probe. The first hundred in a minute are \
+                   listed; the rest are counted. A refusal is not a device call, and the arguments \
+                   it carried are not stored.",
+            caption: "Refusals recorded before authentication.",
+            filtered: filter.is_active(),
+        })
         .into_string(),
     )
     .into_response()

@@ -1587,17 +1587,33 @@ pub(super) fn audit_filter(
     }
 }
 
-pub(super) fn logs(
-    rows: &[serde_json::Value],
-    title: &str,
-    total: usize,
-    filter: Option<Markup>,
-    csrf: &str,
-    version: &str,
-    lead: &str,
-    caption: &str,
-    filtered: bool,
-) -> Markup {
+/// One log page's facts, grouped so the renderer has one argument rather than nine (the workspace
+/// clippy denies `too_many_arguments`, and a page with nine positionals is a call site waiting to be
+/// read wrong).
+pub(super) struct Logs<'a> {
+    pub rows: &'a [serde_json::Value],
+    pub title: &'a str,
+    pub total: usize,
+    pub filter: Option<Markup>,
+    pub csrf: &'a str,
+    pub version: &'a str,
+    pub lead: &'a str,
+    pub caption: &'a str,
+    pub filtered: bool,
+}
+
+pub(super) fn logs(view: Logs<'_>) -> Markup {
+    let Logs {
+        rows,
+        title,
+        total,
+        filter,
+        csrf,
+        version,
+        lead,
+        caption,
+        filtered,
+    } = view;
     let count = rows.len();
     let content = html! {
         p class="lead" { (lead) }
@@ -4220,31 +4236,31 @@ mod tests {
             ),
             (
                 "Fleet",
-                logs(
-                    &[],
-                    "Audit",
-                    0,
-                    None,
-                    "00",
-                    "0.1.0",
-                    "The console's own record, newest first. Times are UTC; a device id is shortened here but named in full by the line's tooltip.",
-                    "The console's own audit lines.",
-                    true,
-                ),
+                logs(Logs {
+                    rows: &[],
+                    title: "Audit",
+                    total: 0,
+                    filter: None,
+                    csrf: "00",
+                    version: "0.1.0",
+                    lead: "The console's own record, newest first. Times are UTC; a device id is shortened here but named in full by the line's tooltip.",
+                    caption: "The console's own audit lines.",
+                    filtered: true,
+                }),
             ),
             (
                 "Fleet",
-                logs(
-                    &[],
-                    "Denials",
-                    0,
-                    None,
-                    "00",
-                    "0.1.0",
-                    "Every request the console refused before authentication: a missing session, an unknown token, an unauthenticated probe. A refusal is not a device call, and the arguments it carried are not stored.",
-                    "Refusals recorded before authentication.",
-                    false,
-                ),
+                logs(Logs {
+                    rows: &[],
+                    title: "Denials",
+                    total: 0,
+                    filter: None,
+                    csrf: "00",
+                    version: "0.1.0",
+                    lead: "Every request the console refused before authentication: a missing session, an unknown token, an unauthenticated probe. A refusal is not a device call, and the arguments it carried are not stored.",
+                    caption: "Refusals recorded before authentication.",
+                    filtered: false,
+                }),
             ),
             (
                 "Terminal",
@@ -5120,11 +5136,11 @@ mod tests {
             ("vitals", vitals(&devices[0], &sample_vitals(), "csrf", "0.3.72")),
             (
                 "audit",
-                logs(
-                    &log_rows,
-                    "Audit",
-                    log_rows.len() + 3,
-                    Some(audit_filter(
+                logs(Logs {
+                    rows: &log_rows,
+                    title: "Audit",
+                    total: log_rows.len() + 3,
+                    filter: Some(audit_filter(
                         "/next/audit",
                         &[
                             ("a".repeat(64), "STUDIO-PC".to_owned()),
@@ -5137,28 +5153,35 @@ mod tests {
                         true,
                         AUDIT_KINDS.as_slice(),
                     )),
-                    "csrf",
-                    "0.3.72",
-                    "The console's own record, newest first. Times are UTC; a device id is shortened here but named in full by the line's tooltip.",
-                    "The console's own audit lines.",
-                    true,
-                ),
+                    csrf: "csrf",
+                    version: "0.3.72",
+                    lead: "The console's own record, newest first. Times are UTC; a device id is shortened here but named in full by the line's tooltip.",
+                    caption: "The console's own audit lines.",
+                    filtered: true,
+                }),
             ),
-            ("audit-filtered", logs(&log_rows, "Audit", log_rows.len(), Some(audit_filter("/next/audit", &[], &AuditFilter::default(), true, AUDIT_KINDS.as_slice())), "csrf", "0.3.72", "The console's own record, newest first. Times are UTC; a device id is shortened here but named in full by the line's tooltip.", "The console's own audit lines.", false)),
-            (
-                "denials",
-                logs(
-                    &[],
-                    "Denials",
-                    0,
-                    Some(audit_filter("/next/denials", &[], &AuditFilter::default(), false, &[])),
-                    "csrf",
-                    "0.3.72",
-                    "Every request the console refused before authentication: a missing session, an unknown token, an unauthenticated probe. A refusal is not a device call, and the arguments it carried are not stored.",
-                    "Refusals recorded before authentication.",
-                    false,
-                ),
-            ),
+            ("audit-filtered", logs(Logs {
+                rows: &log_rows,
+                title: "Audit",
+                total: log_rows.len(),
+                filter: Some(audit_filter("/next/audit", &[], &AuditFilter::default(), true, AUDIT_KINDS.as_slice())),
+                csrf: "csrf",
+                version: "0.3.72",
+                lead: "The console's own record, newest first. Times are UTC; a device id is shortened here but named in full by the line's tooltip.",
+                caption: "The console's own audit lines.",
+                filtered: false,
+            })),
+            ("denials", logs(Logs {
+                rows: &[],
+                title: "Denials",
+                total: 0,
+                filter: Some(audit_filter("/next/denials", &[], &AuditFilter::default(), false, &[])),
+                csrf: "csrf",
+                version: "0.3.72",
+                lead: "Every request the console refused before authentication: a missing session, an unknown token, an unauthenticated probe. A refusal is not a device call, and the arguments it carried are not stored.",
+                caption: "Refusals recorded before authentication.",
+                filtered: false,
+            })),
             ("login", login(None, None)),
             ("not-found", not_found("0.3.72")),
         ];
