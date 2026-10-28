@@ -8,7 +8,7 @@
 //
 // Exits 1 when a page overflows or does not have exactly one <h1>.
 import { readdirSync } from "node:fs";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -20,7 +20,26 @@ if (!pagesDir || widths.length === 0) {
   process.exit(2);
 }
 
-const chrome = process.env.CHROME || "google-chrome";
+// The browser is whichever Chromium this machine has; CI's runner ships `google-chrome` and a
+// developer's box may ship `chromium`, so the gate asks instead of assuming.
+const which = (name) => {
+  const attempt = spawnSync(name, ["--version"], { stdio: "ignore" });
+  return attempt.status === 0 ? name : null;
+};
+const chrome = [
+  process.env.CHROME,
+  "google-chrome",
+  "google-chrome-stable",
+  "chromium",
+  "chromium-browser"
+]
+  .filter(Boolean)
+  .map(which)
+  .find(Boolean);
+if (!chrome) {
+  console.error("no Chromium found (set CHROME=/path/to/chrome)");
+  process.exit(2);
+}
 const profile = mkdtempSync(join(tmpdir(), "console-layout-"));
 const browser = spawn(
   chrome,

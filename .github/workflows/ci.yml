@@ -34,6 +34,17 @@ jobs:
       - name: the device workspace is clippy-clean
         run: cargo clippy --manifest-path device/Cargo.toml -p summrise-core -p summrise-device -p summrise-launch -p summrise-mesh -p summrise-release -p summrise-console -p summrise-winsec -p summrise-winsys -p summrise-shell --all-targets -- -D warnings
 
+      # **THE LAYOUT GATE.** The console's own review harness writes every page; headless Chrome
+      # measures each one at three widths and fails on a card that hides a horizontal scrollbar, an
+      # element painted past its clipping box, or a page without exactly one h1. It has already
+      # caught four pages whose cards were wider than a phone.
+      - name: every console page fits the window
+        run: |
+          export SUMMRISE_PAGE_DIR="$RUNNER_TEMP/console-pages"
+          mkdir -p "$SUMMRISE_PAGE_DIR"
+          cargo test --quiet --manifest-path device/Cargo.toml -p summrise-console --lib -- --ignored render_pages_for_review
+          node scripts/console-layout.mjs "$SUMMRISE_PAGE_DIR" 390 800 1280
+
   device-windows:
     name: device (the Windows lifecycle)
     runs-on: windows-latest
