@@ -191,7 +191,13 @@ Three canaries, one runtime each, the legacy desktop/agent retired from all thre
 | DESKTOP-14RJCR8 | 0.3.130, online | running | its console link is a tailnet address, which is why the plaintext rule had to learn that private links are private |
 | DESKTOP-CPH4KB2 | 0.3.129, **offline** | not running | installer 0.3.130 removed its service and then failed; the recovery is in RELEASE.md and needs one command at the machine |
 
-**The installer has now been exercised end to end (2026-10-28, DESKTOP-14RJCR8, 0.3.139):** silent,
+**Second install, DESKTOP-9VH92BJ, 0.3.141:** hash `a121f922…` verified before it ran, `install exit 0`,
+launcher `61c0931e…` and shell `bdb026fb…` installed, `repair.cmd` now writes `repair-task.log` (the rename
+reaches a machine for the first time), `SummriseRepair` registered, device answered `0.3.141` with a new pid
+nine seconds after the task started, dead-man deleted. Both installs were driven from a scheduled task with
+a hash check, so a partial download cannot reach NSIS again.
+
+**The installer was first exercised end to end (2026-10-28, DESKTOP-14RJCR8, 0.3.139):** silent,
 hash-verified, `install exit 0`; the launcher was replaced (`7b50ac60…` → `61c0931e…`), the tray binary
 (`bdb026fb…`), `repair.cmd` and the `SummriseRepair` task were installed, the baseline was rotated by the
 new staged path (`replaced baseline/current from the installer's pair`), and the device answered
