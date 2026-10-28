@@ -2801,21 +2801,25 @@ pub(super) fn system(
         // **THE STATE DOCUMENT LIVES HERE.** It is the machine's own record — health, the last
         // events, what it believes — and it answers the same question this page does; a separate
         // destination for it was one more place to look for the same answer.
-        @if let Some(state) = state {
-            section class="card" {
-                (card_head(
-                    "Device state",
-                    html! { span class="chip muted" { "json" } },
-                    Markup::default(),
-                ))
-                div class="card-body" {
-                    // The State page explained this document before it was merged here; the card
-                    // said nothing for a while after.
-                    p class="small muted" {
-                        "What the device believes: its health, the last ten events it recorded, the "
-                        "generation it booted, and how its last update ended."
-                    }
+        section class="card" {
+            (card_head(
+                "Device state",
+                html! { span class="chip muted" { "json" } },
+                Markup::default(),
+            ))
+            div class="card-body" {
+                // The State page explained this document before it was merged here; the card
+                // said nothing for a while after.
+                p class="small muted" {
+                    "What the device believes: its health, the last ten events it recorded, the "
+                    "generation it booted, and how its last update ended."
+                }
+                @if let Some(state) = state {
                     pre class="file" tabindex="0" { (state) }
+                } @else {
+                    // A card that silently disappears reads as "this device has no state"; it has
+                    // one, and the console could not read it.
+                    p class="small muted" { "The device did not return its state document." }
                 }
             }
         }
@@ -4433,6 +4437,24 @@ mod tests {
                 "{expected}: the top bar is missing: {page}"
             );
         }
+    }
+
+    /// **A MISSING CARD IS A CLAIM.** When `state.get` did not answer, the System page used to
+    /// render no Device state card at all, which reads as "this device keeps no state". The card
+    /// stays, and says what did not arrive.
+    #[test]
+    fn the_state_card_says_when_the_document_did_not_arrive() {
+        let device = view('4', Some("studio"), true);
+        let page = system(&device, &[], "", "csrf", "0.1.0", None, None).into_string();
+        assert!(page.contains("Device state"), "{page}");
+        assert!(
+            page.contains("The device did not return its state document."),
+            "{page}"
+        );
+        assert!(
+            !page.contains("tabindex=\"0\">{"),
+            "no document is printed: {page}"
+        );
     }
 
     /// An offline device says WHY in the row, because the reason is already on the wire and the logs
