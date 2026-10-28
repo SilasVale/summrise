@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Summrise — a real machine under your AI</title>
+<meta name="description" content="Summrise turns a Windows machine into an AI-operable workspace: terminal, SSH, serial, browser and files over MCP — with one console to watch, approve and take back control from anywhere.">
+<meta name="theme-color" content="#f7f4ee">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Summrise">
+<meta property="og:title" content="Summrise — a real machine under your AI">
+<meta property="og:description" content="A Windows box your agent can actually drive — terminal, SSH, serial, browser, files — through one console that keeps the audit, the grants and the off switch.">
+<meta property="og:url" content="https://summrise.saisi.online/">
+<meta property="og:image" content="https://summrise.saisi.online/assets/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+
+<link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="assets/site.css">
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"SoftwareApplication","name":"Summrise","operatingSystem":"Windows 10, Windows 11","applicationCategory":"DeveloperApplication","downloadUrl":"https://github.com/SilasVale/summrise/releases","description":"A Windows runtime that makes a real machine an AI-operable workspace over MCP, with a console for watching, approving and taking back control."}
+</script>
+</head>
+<body>
+<a class="skip" href="#main" data-i18n="a11y.skip">Skip to content</a>
+<div class="wrap">
+
+  <nav id="nav">
+    <a class="brand" href="#" aria-label="Summrise home">
+      <svg viewBox="0 0 48 48" aria-hidden="true"><defs>
+        <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#f59f00"/><stop offset="1" stop-color="#e8590c"/></linearGradient>
+        <radialGradient id="glowg" cx=".5" cy=".5" r=".5"><stop offset="0" stop-color="#fff8e1" stop-opacity=".55"/><stop offset="1" stop-color="#ffe8a3" stop-opacity="0"/></radialGradient>
+        <linearGradient id="sheen" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".25"/><stop offset=".45" stop-color="#fff" stop-opacity="0"/><stop offset="1" stop-color="#7c2d12" stop-opacity=".10"/></linearGradient>
+      </defs><rect width="48" height="48" rx="11" fill="url(#sky)"/><circle cx="21" cy="14" r="7.5" fill="url(#glowg)"/><circle cx="21" cy="14" r="4" fill="#fff8e1"/><path fill="#fff" opacity=".78" d="M14 41Q26 16 44 41Z"/><path fill="#fff" d="M2 41Q12 20 24 41Z"/><rect width="48" height="48" rx="11" fill="url(#sheen)"/></svg>
+      Summrise
+    </a>
+    <div class="links">
+      <a href="#capabilities" data-i18n="nav.product">Product</a>
+      <a href="https://github.com/SilasVale/summrise/tree/main/docs" data-i18n="nav.docs">Docs</a>
+      <a href="https://console.saisi.online" data-i18n="nav.console">Console</a>
+      <a href="#surfaces" data-i18n="nav.security">Security</a>
+    </div>
+    <div class="spacer"></div>
+    <button class="lang" id="lang-toggle" type="button" aria-pressed="false" aria-label="切换到中文">
+      <svg class="globe" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3.6 3 14.4 0 18M12 3c-3 3.6-3 14.4 0 18"/></svg>
+      <span id="lang-label">中文</span>
+    </button>
+    <a class="btn btn-dark" href="#download" data-i18n="nav.download">Download</a>
+  </nav>
+
+  <header>
+    <div class="glow" aria-hidden="true"></div>
+    <div class="grid-lines" aria-hidden="true"></div>
+    <div class="hero-grid">
+      <div>
+        <div class="eyebrow"><span class="bar"></span> <span data-i18n="hero.eyebrow">The Windows runtime for AI agents</span></div>
+        <h1 data-i18n="hero.title">Your AI.<br>A real machine<br><span class="sun">under it.</span></h1>
+        <p class="sub" data-i18n="hero.sub">A Windows box your agent can actually drive — terminal, SSH, serial, browser, files — reached through one console that keeps the audit, the grants and the off switch.</p>
+        <div class="cta">
+          <a class="btn btn-accent" href="#download"><span data-i18n="hero.cta1">Download for Windows</span> <span aria-hidden="true">↓</span></a>
+          <a class="btn btn-ghost" href="https://github.com/SilasVale/summrise/tree/main/docs" data-i18n="hero.cta2">Read the docs</a>
+        </div>
+        <div class="meta" data-i18n="hero.meta">WINDOWS 10/11 · X64 · MCP-NATIVE · SIGNED UPDATES</div>
+      </div>
+      <div>
+        <div class="terminal" role="img" aria-label="A terminal on the device enrolling it with the console, then an MCP client listing its tools">
+          <div class="bar"><i></i><i></i><i></i><span class="t">summrise — powershell</span></div>
+          <div class="body">
+            <div><span class="p">PS&gt;</span> summrise-device --enroll <span class="c">https://console.saisi.online</span> <span class="b">AB12-CD34</span></div>
+            <div class="cmt">  enrolled 9f3c1a2b4d&hellip; <span class="badge">online</span></div>
+            <div><span class="p">PS&gt;</span> curl -s http://127.0.0.1:18080/api/health</div>
+            <div class="c">  {"status":"ok","version":"0.3.152","sessions":2}</div>
+            <div><span class="p">PS&gt;</span> <span class="cmt"># from any MCP client</span></div>
+            <div><span class="cmt">POST</span> https://console.saisi.online/mcp/9f3c1a2b4d&hellip;</div>
+            <div><span class="cmt">Authorization:</span> Bearer srm_<span class="cmt">&hellip;</span></div>
+            <div class="g">  &rarr; tools: terminal · browser · files · mesh · runs</div>
+            <div><span class="p">PS&gt;</span> <span class="cursor"></span></div>
+          </div>
+        </div>
+        <div class="float">
+          <div class="fcard"><div class="k" data-i18n="stats.devicesK">Devices</div><div class="v"><span class="dot"></span><span data-i18n="stats.devices">2 online · 1 offline</span></div></div>
+          <div class="fcard"><div class="k" data-i18n="stats.sessionsK">Sessions</div><div class="v" data-i18n="stats.sessions">4 live · 1 waiting</div></div>
+          <div class="fcard"><div class="k" data-i18n="stats.auditK">Audit</div><div class="v" data-i18n="stats.audit">1 284 rows today</div></div>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <main id="main">
+    <section id="capabilities">
+      <div class="kicker" data-i18n="cap.kicker">Capabilities</div>
+      <h2 class="big" data-i18n="cap.title">Everything the machine can do, one authorization check away.</h2>
+      <div class="feat">
+        <div class="item"><div class="num" data-i18n="cap.n1">01 / SESSIONS</div><h3 data-i18n="cap.1t">Terminal, SSH, serial</h3><p data-i18n="cap.1b">Real PTYs with attach, resize and scrollback; SSH to the boxes behind it; serial for the hardware that never got a network stack.</p></div>
+        <div class="item"><div class="num" data-i18n="cap.n2">02 / BROWSER</div><h3 data-i18n="cap.2t">Headless by default</h3><p data-i18n="cap.2b">Chrome runs on the device&rsquo;s network and its own sessions. Visible windows only when an operator asks to watch — automation should not flash across someone&rsquo;s desktop.</p></div>
+        <div class="item"><div class="num" data-i18n="cap.n3">03 / CONTROL</div><h3 data-i18n="cap.3t">Approvals and audit</h3><p data-i18n="cap.3b">Destructive tools are refused unless the token allows them. Every call lands in an audit row with who, what, when — and the console can hold the keyboard.</p></div>
+        <div class="item"><div class="num" data-i18n="cap.n4">04 / OPERATIONS</div><h3 data-i18n="cap.4t">Self-supervising</h3><p data-i18n="cap.4b">The launcher owns the app binary, verifies it at boot, repairs it when it is gone, and swaps only on a signed release. Nothing to babysit at 3 a.m.</p></div>
+      </div>
+      <div class="strip">
+        <div class="head"><b>Fleet</b><span>console.saisi.online</span><span class="right" data-i18n="fleet.meta">2 online · 1 offline</span></div>
+        <div class="rows">
+          <div class="row"><div class="name"><span class="dot"></span>STUDIO-PC</div><div class="sub2" data-i18n="fleet.d1s">d1 · Windows 11 · 3 sessions</div><div class="facts2"><span class="pill ok">0.3.152</span><span class="pill" data-i18n="fleet.busy">busy</span></div></div>
+          <div class="row"><div class="name"><span class="dot"></span>LAB-PC</div><div class="sub2" data-i18n="fleet.d14s">d14 · Windows 11 · 1 session</div><div class="facts2"><span class="pill ok">0.3.152</span><span class="pill" data-i18n="fleet.idle">idle</span></div></div>
+          <div class="row"><div class="name"><span class="dot off"></span>EDGE-PC</div><div class="sub2" data-i18n="fleet.lastseen">last seen 6 h ago</div><div class="facts2"><span class="pill warn" data-i18n="fleet.offline">offline</span><span class="pill">0.3.130</span></div></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="surfaces">
+      <div class="kicker" data-i18n="surf.kicker">Two surfaces, one product</div>
+      <h2 class="big" data-i18n="surf.title">The console watches the fleet. The panel knows the machine.</h2>
+      <div class="surfaces">
+        <div class="surface">
+          <div class="tag">console.saisi.online</div>
+          <h3 data-i18n="surf.ct">From anywhere</h3>
+          <p data-i18n="surf.cb">Devices dial out over one WebSocket; no inbound port and no per-device tunnel. Access in front, operator token behind, fleet and sessions and audit inside.</p>
+          <ul>
+            <li><b data-i18n="surf.c1k">Fleet</b><span data-i18n="surf.c1v">who is online, what they run, and why the offline one is offline</span></li>
+            <li><b data-i18n="surf.c2k">Sessions</b><span data-i18n="surf.c2v">terminal, browser, files, runs, audit, approvals</span></li>
+            <li><b data-i18n="surf.c3k">Grants</b><span data-i18n="surf.c3v">signed, scoped, revoked in one click</span></li>
+          </ul>
+        </div>
+        <div class="surface">
+          <div class="tag">127.0.0.1:18090</div>
+          <h3 data-i18n="surf.pt">On the box</h3>
+          <p data-i18n="surf.pb">Loopback only, no login. The surface that still works when the console does not — and the only one that can say why the channel is down.</p>
+          <ul>
+            <li><b data-i18n="surf.p1k">State</b><span data-i18n="surf.p1v">sessions, CPU, monitors, channel health</span></li>
+            <li><b data-i18n="surf.p2k">Enrol</b><span data-i18n="surf.p2v">paste the code, replace a lost enrolment</span></li>
+            <li><b data-i18n="surf.p3k">Repair</b><span data-i18n="surf.p3v">start, stop, update, read the last failure</span></li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section id="download" style="padding-top:96px">
+      <div class="dl">
+        <div>
+          <div class="kicker" data-i18n="dl.kicker">Download</div>
+          <h2 data-i18n="dl.title">Run it on the machine you already have.</h2>
+          <p data-i18n="dl.body">Windows 10/11 · x64. The installer puts the service in place; the signed release document means the device can update itself and still prove where the bytes came from.</p>
+          <div class="row2">
+            <a class="btn btn-accent" id="dl-installer" href="https://github.com/SilasVale/summrise/releases"><span data-i18n="dl.cta1">Download for Windows</span> <span aria-hidden="true">↓</span></a>
+            <a class="btn btn-ghost" id="dl-notes" href="https://github.com/SilasVale/summrise/releases" data-i18n="dl.cta2">Release notes</a>
+          </div>
+          <div class="note"><span data-i18n="dl.noteLabel">Latest published release</span>: <span id="release-tag">see the releases page</span></div>
+        </div>
+        <div>
+          <div class="art"><div><div class="nm">SummriseSetup-&lt;version&gt;.exe</div><div class="sz" data-i18n="dl.a1s">installer · x64 · signed</div></div><a class="get" id="art-installer" href="https://github.com/SilasVale/summrise/releases" data-i18n="dl.get">Download</a></div>
+          <div class="art"><div><div class="nm">release-&lt;version&gt;.json</div><div class="sz" data-i18n="dl.a2s">the document the updater verifies</div></div><a class="get" id="art-doc" href="https://github.com/SilasVale/summrise/releases" data-i18n="dl.get2">Download</a></div>
+          <div class="art"><div><div class="nm">SHA256SUMS</div><div class="sz" data-i18n="dl.a3s">check the bytes yourself</div></div><a class="get" id="art-sums" href="https://github.com/SilasVale/summrise/releases" data-i18n="dl.get3">Download</a></div>
+          <div class="art"><div><div class="nm" data-i18n="dl.a4n">Quick start</div><div class="sz" data-i18n="dl.a4s">five minutes to a connected client</div></div><a class="get" href="https://github.com/SilasVale/summrise/blob/main/docs/QUICKSTART.md" data-i18n="dl.read">Read</a></div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="brand">
+      <svg viewBox="0 0 48 48" style="width:19px;height:19px" aria-hidden="true"><rect width="48" height="48" rx="11" fill="url(#sky)"/><circle cx="21" cy="14" r="4" fill="#fff8e1"/><path fill="#fff" d="M14 41Q26 16 44 41Z" opacity=".78"/><path fill="#fff" d="M2 41Q12 20 24 41Z"/></svg>
+      Summrise
+    </div>
+    <span data-i18n="footer.copy">© 2026 Summrise</span>
+    <div class="spacer"></div>
+    <a href="https://github.com/SilasVale/summrise/tree/main/docs" data-i18n="footer.docs">Docs</a>
+    <a href="https://console.saisi.online" data-i18n="footer.console">Console</a>
+    <a href="https://github.com/SilasVale/summrise/blob/main/LICENSE" data-i18n="footer.license">License</a>
+  </footer>
+</div>
+<script src="assets/lang-zh.js"></script>
+<script src="assets/site.js"></script>
+</body>
+</html>

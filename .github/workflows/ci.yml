@@ -108,3 +108,15 @@ jobs:
           cargo clean --manifest-path device/Cargo.toml -p summrise-launch -p summrise-device
           cargo build --manifest-path device/Cargo.toml --workspace
           cargo test --manifest-path device/Cargo.toml -p summrise-launch --test windows_lifecycle -- --ignored --exact a_build_without_a_release_key_refuses_updates_by_name --nocapture
+
+  landing:
+    name: landing (one page, two languages, measured contrast)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      # NO `setup-node`: the page's gate uses only `node:` builtins, and the runner's own Node is
+      # enough. The command below is the same one a person runs locally — a local check that is not
+      # CI's check is not the same check.
+      - name: the page, its two languages, its contrast and its social card
+        run: node landing/check.mjs
