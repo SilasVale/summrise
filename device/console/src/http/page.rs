@@ -390,6 +390,25 @@ body.login { margin:0; background:var(--bg); }
   .filter-form input, .filter-form select { width:100%; }
   .filter-form .form-actions { grid-column:1 / -1; display:flex; align-items:center; gap:10px; }
   .statusbar .side { display:none; }
+  /* **A ROW IS NOT A TABLE ON A PHONE.** At 390px the pages column was squeezed to forty pixels —
+     four links stacked vertically — and the row menu was cut off past the right edge. The row
+     becomes a card: identity, then the pages on one wrapping line, then the menu. */
+  .fleet-table thead { display:none; }
+  .fleet-table, .fleet-table tbody, .fleet-table tr, .fleet-table td { display:block; width:auto; }
+  .fleet-table tr { padding:12px 0; border-bottom:1px solid var(--line); }
+  .fleet-table tr:last-child { border-bottom:0; }
+  .fleet-table td { border:0; padding:2px 0; }
+  .fleet-table td.pages-cell { padding-top:8px; }
+  .fleet-table td.actions-cell { padding-top:4px; }
+  /* The same reflow for the approval queue: the arguments block is wider than a phone, and clipped
+     JSON is the one thing an approver must be able to read in full. */
+  .approvals-table thead { display:none; }
+  .approvals-table, .approvals-table tbody, .approvals-table tr, .approvals-table td { display:block; width:auto; }
+  .approvals-table tr { padding:12px 0; border-bottom:1px solid var(--line); }
+  .approvals-table tr:last-child { border-bottom:0; }
+  .approvals-table td { border:0; padding:2px 0; }
+  .approvals-table td + td { padding-top:6px; }
+  .approvals-table pre.code-block { max-height:none; }
   body.terminal .content { padding:10px; }
   .kind-fields input { width:120px; }
 }
@@ -899,6 +918,9 @@ pub(super) struct Notes<'a> {
     pub signer: Option<&'a str>,
     pub enroll: Option<&'a str>,
     pub error: Option<&'a str>,
+    /// The address the operator reached this console on. A new device must be able to reach the same
+    /// one, so the enrollment card prints it instead of making the reader guess.
+    pub origin: Option<&'a str>,
 }
 
 /// One call a device refused for lack of destructive consent, waiting for the operator.
@@ -942,7 +964,7 @@ pub(super) fn dashboard(
                         "is held here — the request is still open — and an unanswered question is "
                         "refused after ninety seconds, never run."
                     }
-                    table class="table" {
+                    table class="table approvals-table" {
                         caption class="visually-hidden" { "Calls waiting for an answer." }
                         thead {
                             tr {
@@ -980,7 +1002,7 @@ pub(super) fn dashboard(
             }
         }
         p class="lead" {
-            "Every device this console has enrolled, and the pages that open on it."
+            "Every device this console has enrolled, and the pages that act on it."
         }
         // Who opened this page. An operator who was shown a token box for a secret they never had
         // deserves to see that Cloudflare Access, not a token, signed them in.
@@ -992,9 +1014,20 @@ pub(super) fn dashboard(
         }
         @if let Some(code) = notes.enroll {
             div class="callout" {
-                span class="label" { "Enrollment code:" }
-                strong { (code) }
-                span class="note" { "Single use · valid for 15 minutes." }
+                p {
+                    span class="label" { "Enrollment code:" }
+                    strong { (code) }
+                    span class="note" { " · single use, valid for 15 minutes" }
+                }
+                p class="small muted" {
+                    "Spend it at the machine: open " code { "http://127.0.0.1:18080/" } ", choose "
+                    "Console link → Enrol this machine, and paste the code. Or, from an elevated "
+                    "prompt on that machine:"
+                }
+                pre class="code-block" { "summrise-device.exe --enroll " (notes.origin.unwrap_or("<console-url>")) " " (code) " --data C:\\ProgramData\\Summrise" }
+                p class="small muted" {
+                    "The first enrollment spends the code; if the window closes, mint another."
+                }
             }
         }
         @if let Some(error) = notes.error {
@@ -1025,11 +1058,12 @@ pub(super) fn dashboard(
             @if devices.is_empty() {
                 (empty_state(
                     Page::Fleet,
-                    "No devices have registered yet. Mint an enrollment code and run it on the machine.",
+                    "No device has enrolled yet. Mint an enrollment code and spend it at the machine — \
+                     the card shows the exact command.",
                     enroll,
                 ))
             } @else {
-                table class="table" {
+                table class="table fleet-table" {
                     caption class="visually-hidden" { "Every device this console has enrolled, and the pages that act on it." }
                     thead {
                         tr {

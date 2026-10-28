@@ -1306,10 +1306,28 @@ async fn next_page(
     // for a secret that lives in a file on the host, and the dashboard is where that gets answered.
     let (operator, _) = app.identity(&headers);
     let signer = operator.and_then(|operator| operator.email);
+    // The address the operator reached this console on — the one a new device must be able to reach.
+    let origin = headers
+        .get(header::HOST)
+        .and_then(|host| host.to_str().ok())
+        .map(|host| {
+            let scheme = headers
+                .get("x-forwarded-proto")
+                .and_then(|value| value.to_str().ok())
+                .unwrap_or_else(|| {
+                    if host.starts_with("127.0.0.1") || host.starts_with("localhost") {
+                        "http"
+                    } else {
+                        "https"
+                    }
+                });
+            format!("{scheme}://{host}")
+        });
     let notes = page::Notes {
         signer: signer.as_deref(),
         enroll: query.enroll.as_deref(),
         error: query.error.as_deref(),
+        origin: origin.as_deref(),
     };
     let approvals = live_approvals(&app);
     Html(
