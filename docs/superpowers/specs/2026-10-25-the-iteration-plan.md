@@ -17,13 +17,14 @@ Written when the plan was new; kept because a plan that is silently rewritten ca
   handler, and the UI they share lives in `device/ui` (tokens, chips, cards, the page shell).
 - **The runtime is proven in every install shape**: replace (twice), seed (once, from an emptied
   directory), uninstall, the repair task after a deleted service, and the canary's own device update.
-- **Enrollment**: the console's half of "a brand-new machine" is measured — a one-time code (`POST
-  /enroll`), a fresh Ed25519 key signing `register\n{id}\n{code}\n{ts_ms}`, `POST /devices` accepted it
-  (200, id = public key), the fleet showed it offline (no channel), and `DELETE /fleet/:id` removed it
-  (204, fleet back to three). The device's own CLI (`summrise-device enroll …`, which also writes
-  `console.json` and the token) has not run against a real console yet.
+- **Enrollment is proven on both sides.** The console's half: a one-time code (`POST /enroll`), a fresh
+  Ed25519 key signing `register\n{id}\n{code}\n{ts_ms}`, `POST /devices` accepted it (200, id = public
+  key), the fleet showed it offline, `DELETE /fleet/:id` removed it. The device's half, on a scratch data
+  directory against the real console: `summrise-device --enroll http://127.0.0.1:19000 <code> --data …
+  --allow-plaintext --force` printed `enrolled 1deb3887…`, wrote `console.json`, `console-token.json` and
+  `identity.key`, and the id it printed was in the fleet (removed afterwards, 204).
 - **What is NOT proven**: the session-reconnect path end to end (the hand-off is measured, the
-  Windows-side trigger is not), the device-side enrollment CLI on a machine, and DESKTOP-CPH4KB2's
+  Windows-side trigger is not), and DESKTOP-CPH4KB2's
   recovery — that machine has been offline since an install left it with no runtime, and the
   installer/repair discipline above is the answer it is waiting for.
 
