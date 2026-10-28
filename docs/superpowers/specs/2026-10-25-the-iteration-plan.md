@@ -11,9 +11,10 @@
 Written when the plan was new; kept because a plan that is silently rewritten cannot be judged.
 
 - **Fleet**: three devices on the console (two online, one offline since an installer run of 0.3.130).
-  Both online machines run 0.3.149 with the launcher and shell the installer now ships, and the console
-  runs 0.3.144 with its stderr going to `console.log` (a 504 is diagnosable now; before, its own two
-  diagnostic lines went to a handle nobody could read).
+  Both online machines run **0.3.152** with the launcher and shell the installer ships (`fc3f22ef…`), and the
+  console runs **0.3.145** with its stderr going to `console.log` (a 504 is diagnosable now; before, its own two
+  diagnostic lines went to a handle nobody could read). `browser.*` serves every call from the service's own
+  headless Chrome; `SUMMRISE_BROWSER_VISIBLE=1` asks for the visible one.
 - **The plan's §2 workspace gaps are closed**: terminal (sessions, presets, attach, resize), files,
   memory, monitors, runs, audit, approvals, tokens, channels — each with its own page and its own
   handler, and the UI they share lives in `device/ui` (tokens, chips, cards, the page shell).
