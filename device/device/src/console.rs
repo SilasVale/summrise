@@ -239,12 +239,30 @@ fn host_of(rest: &str) -> &str {
     authority.split(':').next().unwrap_or(authority)
 }
 
-/// Whether `host` names this machine, where a plaintext channel never leaves the box.
+/// Whether `host` is this machine or a link that is already private: loopback, a private network,
+/// a link-local address, the CGNAT range a tailnet uses, or an IPv6 unique-local address.
+///
+/// Those are the links an operator runs without TLS on purpose — a WireGuard tailnet, a lab LAN —
+/// and the token crossing them is not the leak the rule exists for. Everything else (a public
+/// address or a host name) needs `"allow_plaintext": true`, because there the wire is the internet.
 fn is_loopback_host(host: &str) -> bool {
-    matches!(
-        host.to_ascii_lowercase().as_str(),
-        "127.0.0.1" | "localhost" | "[::1]" | "::1"
-    )
+    let bare = host.trim_start_matches('[').trim_end_matches(']');
+    if matches!(bare.to_ascii_lowercase().as_str(), "localhost" | "::1") {
+        return true;
+    }
+    let Ok(address) = bare.parse::<std::net::IpAddr>() else {
+        return false;
+    };
+    match address {
+        std::net::IpAddr::V4(v4) => {
+            v4.is_loopback() || v4.is_private() || v4.is_link_local() ||
+            // 100.64.0.0/10: the range Tailscale and other CGNAT overlays hand out.
+            (v4.octets()[0] == 100 && (64..=127).contains(&v4.octets()[1]))
+        }
+        std::net::IpAddr::V6(v6) => {
+            v6.is_loopback() || v6.is_unique_local() || v6.is_unicast_link_local()
+        }
+    }
 }
 
 /// Parse the file registration produced.
@@ -1099,6 +1117,13 @@ mod tests {
             "http://127.0.0.1:19000/console",
             "ws://localhost:19000",
             "ws://[::1]:19000",
+            // A tailnet / LAN link is private transport, so it needs no allowance: the deployed
+            // device reaches its console this way (100.74.250.98), and refusing it rolled a working
+            // install back once.
+            "ws://100.74.250.98:19000",
+            "ws://10.1.2.3:19000",
+            "ws://192.168.1.5:19000",
+            "ws://[fd7a:115c:a1e0::1]:19000",
             "https://console.example.test",
             "wss://console.example.test",
         ] {
@@ -1109,9 +1134,9 @@ mod tests {
         }
 
         for base in [
-            "ws://10.1.2.3:19000",
+            "ws://8.8.8.8:19000",
             "http://console.example.test",
-            "ws://100.85.163.159:19000",
+            "ws://203.0.113.10:19000",
         ] {
             let error = channel_url(base, "ab", "0.0.0-test", None, false)
                 .expect_err("plaintext off this machine is refused by default");
@@ -1127,10 +1152,10 @@ mod tests {
             );
         }
 
-        let error = channel_url("ws://10.1.2.3:19000", "ab", "0.0.0-test", None, false)
+        let error = channel_url("ws://8.8.8.8:19000", "ab", "0.0.0-test", None, false)
             .expect_err("refused");
         assert!(
-            error.to_string().contains("10.1.2.3"),
+            error.to_string().contains("8.8.8.8"),
             "the refusal names the host: {error}"
         );
     }
