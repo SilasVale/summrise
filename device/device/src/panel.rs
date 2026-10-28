@@ -103,6 +103,10 @@ const COMPONENTS: &str = r##"  * { box-sizing: border-box; }
     padding: 6px 8px; border: 1px solid var(--line-strong); border-radius: var(--radius-xs);
     background: var(--surface-recessed); color: var(--ink);
   }
+  /* The session list lives under the canvas now, so it reads as part of the terminal rather than a
+     second card that claims the terminal is somewhere else. */
+  .term-sessions { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--line); }
+  .term-sessions dl { grid-template-columns: 4rem 1fr; gap: 2px 8px; }
   .term-host { height: 20rem; background: var(--term-canvas); border: 1px solid var(--line); border-radius: var(--radius-xs); padding: 6px; }
   .xterm .xterm-viewport { background-color: var(--term-canvas); }
   .config {
@@ -385,7 +389,7 @@ fn render(facts: &PanelFacts, outcome: Option<&EnrollOutcome>) -> Markup {
 
                     (summrise_ui::card(
                         "Terminal",
-                        Markup::default(),
+                        html! { span class="chip muted" { (facts.sessions.len()) } },
                         Markup::default(),
                         html! {
                         p class="hint" {
@@ -400,20 +404,13 @@ fn render(facts: &PanelFacts, outcome: Option<&EnrollOutcome>) -> Markup {
                         }
                         div id="term-host" class="term-host" {}
                         p class="hint" id="term-status" role="status" { "choose a session above" }
-                        }
-                    ))
-
-                    (summrise_ui::card(
-                        "Terminal sessions",
-                        Markup::default(),
-                        Markup::default(),
-                        html! {
-                        p class="hint" {
-                            "The same sessions an MCP client created on this machine, live. The interactive terminal lives in the console; this list is what an operator standing here can check without it."
-                        }
-                        div id="terminal-sessions" class="hint" {
+                        // **ONE CARD ABOUT THE TERMINAL, NOT TWO.** The list used to sit in a second
+                        // card whose own sentence said the interactive terminal was elsewhere — a
+                        // denial printed directly beneath the terminal. The count is in the head now
+                        // and the live rows are here, where the sessions are opened.
+                        div id="terminal-sessions" class="term-sessions hint" {
                             @if facts.sessions.is_empty() {
-                                "No live terminal sessions."
+                                "No live session on this machine."
                             } @else {
                                 dl {
                                     @for session in &facts.sessions {
@@ -941,7 +938,6 @@ mod tests {
         for fact in [
             "Use this machine",
             "Terminal",
-            "Terminal sessions",
             "Build",
             "Console link",
             "State",
@@ -1027,7 +1023,7 @@ mod tests {
 
         let html = page(&facts).into_string();
 
-        assert!(html.contains("No live terminal sessions."));
+        assert!(html.contains("No live session on this machine."));
         assert!(html.contains("No event has been recorded on this device."));
         assert!(
             !html.contains(r#"id="no-events" hidden"#),

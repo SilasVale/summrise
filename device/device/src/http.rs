@@ -2152,8 +2152,8 @@ mod tests {
         let (status, html) = get_text(&client, &server.base_url).await;
         assert_eq!(status, StatusCode::OK);
         assert!(
-            html.contains("Terminal sessions"),
-            "the panel has the terminal card"
+            html.contains("id=\"terminal-sessions\""),
+            "the panel's terminal card carries the live list"
         );
 
         let (status, body) = get_text(&client, &format!("{}/api/terminal", server.base_url)).await;
@@ -2689,8 +2689,8 @@ mod tests {
         let (status, html) = get_text(&client, &format!("{}/panel", server.base_url)).await;
         assert_eq!(status, StatusCode::OK);
         let start = html
-            .find("Terminal sessions")
-            .expect("the sessions section");
+            .find("id=\"terminal-sessions\"")
+            .expect("the sessions list");
         let end = start + html[start..].find("Build").expect("the build section");
         let sessions = &html[start..end];
         assert!(
