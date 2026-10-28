@@ -71,9 +71,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     let event_loop = EventLoopBuilder::<Wake>::with_user_event().build();
     crate::note("event loop built");
 
-    let console_item = MenuItem::new("Open console", true, None);
-    let panel_item = MenuItem::new("Open local panel", true, None);
-    let quit_item = MenuItem::new("Quit", true, None);
+    let (console_item, panel_item, quit_item) = menu_items();
     let menu = Menu::with_items(&[
         &console_item,
         &panel_item,
@@ -262,6 +260,20 @@ fn register_with_the_device() {
     });
 }
 
+/// The three items, with the ids the event handler matches.
+///
+/// **THE IDS ARE EXPLICIT, AND THAT IS THE FIX FOR "THE MENU DOES NOTHING".** `MenuItem::new` with
+/// `None` mints an id of its own, so the handler compared `open-console` against a generated string
+/// and no item — Quit included — ever ran. A menu item without the id the handler matches is a
+/// button wired to nothing, so the wiring is a function that a test can read.
+fn menu_items() -> (MenuItem, MenuItem, MenuItem) {
+    (
+        MenuItem::with_id(OPEN_CONSOLE, "Open console", true, None),
+        MenuItem::with_id(OPEN_PANEL, "Open local panel", true, None),
+        MenuItem::with_id(QUIT, "Quit", true, None),
+    )
+}
+
 /// Show the console window, building it if this is the first time (or the last one was closed).
 fn open_console(
     target: &tao::event_loop::EventLoopWindowTarget<Wake>,
@@ -272,17 +284,29 @@ fn open_console(
         window.set_focus();
         return;
     }
-    let Ok(window) = WindowBuilder::new()
+    let window = match WindowBuilder::new()
         .with_title("Summrise console")
         .with_window_icon(window_icon())
         .with_visible(true)
         .build(target)
-    else {
-        return;
+    {
+        Ok(window) => window,
+        Err(error) => {
+            // A menu click that does nothing is a dead button; the log is where it says why.
+            crate::note(&format!("cannot build the console window: {error}"));
+            return;
+        }
     };
     match WebViewBuilder::new().with_url(CONSOLE).build(&window) {
         Ok(view) => *ui = Some((window, view)),
-        Err(_) => window.set_visible(false),
+        Err(error) => {
+            // WebView2 is part of Windows 10 and later, but a machine can have the runtime removed
+            // or broken; without this line the window closes itself and the menu looks dead.
+            crate::note(&format!(
+                "cannot build the WebView2 view for {CONSOLE}: {error}"
+            ));
+            window.set_visible(false);
+        }
     }
 }
 
@@ -429,5 +453,21 @@ mod tests {
         let (colour, tooltip) = describe(&State::Down("connection refused".to_owned()));
         assert_eq!(colour, BAD);
         assert!(tooltip.contains("connection refused"), "{tooltip}");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The bug this pins: an item built with a generated id never matches the handler, and the menu
+    /// becomes three dead buttons. The ids are compared as strings because that is what the event
+    /// carries.
+    #[test]
+    fn every_menu_item_carries_the_id_its_handler_matches() {
+        let (console, panel, quit) = menu_items();
+        assert_eq!(console.id().as_ref(), OPEN_CONSOLE);
+        assert_eq!(panel.id().as_ref(), OPEN_PANEL);
+        assert_eq!(quit.id().as_ref(), QUIT);
     }
 }
