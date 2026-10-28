@@ -3392,7 +3392,7 @@ async fn a_login_link_code_signs_the_page_in_exactly_once() {
     let (status, headers, page) = send_text(fixture.app(), get(&uri, None)).await;
     assert_eq!(status, StatusCode::OK);
     assert!(
-        page.contains("expired or was already used"),
+        page.contains("not accepted"),
         "the card explains the dead link: {page}"
     );
     assert!(headers.get(header::SET_COOKIE).is_none());
@@ -4285,7 +4285,7 @@ async fn the_dashboard_says_the_token_signed_in_without_access() {
     let (status, _, page) = send_text(fixture.app(), get_with_cookie("/next", &cookie)).await;
 
     assert_eq!(status, StatusCode::OK);
-    assert!(page.contains("Signed in with the operator token"), "{page}");
+    assert!(page.contains("Signed in with this browser's session"), "{page}");
 }
 
 /// The explanation is not the landing page's privilege: a bookmarked deep link that lands signed out
@@ -8452,7 +8452,7 @@ async fn the_system_page_lists_processes_and_forwards_a_kill() {
             "jsonrpc": "2.0",
             "id": 1,
             "result": {
-                "content": [{ "type": "text", "text": json!({ "killed": 1, "failed": [] }).to_string() }],
+                "content": [{ "type": "text", "text": json!({ "killed": [4242], "failed": [] }).to_string() }],
                 "isError": false
             }
         }),
@@ -10750,8 +10750,12 @@ async fn a_minted_token_is_only_destructive_when_asked_for() {
         "the ticked box is recorded on the row: {listed}"
     );
     assert!(
-        listed.contains("held for approval"),
-        "the page says how the consent is enforced — a hold, not an outright refusal: {listed}"
+        listed.contains("holds the question for ninety seconds"),
+        "the page says where the ninety-second hold lives — this page, not the device: {listed}"
+    );
+    assert!(
+        listed.contains("refused by the device"),
+        "the device refuses without consent; the page only holds the question: {listed}"
     );
 }
 

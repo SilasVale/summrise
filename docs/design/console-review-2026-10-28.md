@@ -45,6 +45,31 @@ ink), the dashboard pages by more (the rail and the row). The baseline was updat
 | a filter's Apply is no longer the filled button | System's Filter and Memory's Search were plain, so the same job looked primary on one page and secondary on two | written down beside the rule |
 | the audit filter stacks in two columns below 720px | the global `select{width:100%}` met a shrinking flex item and every select collapsed to its caret at 390px | the 420px screenshot |
 
+## The copy audit: what the console said that was not true
+
+A second read of every explanatory sentence against the code found ten more. The three that
+mattered, all fixed here:
+
+- **"read-only"** described a token with `allow_destructive` unset. It means "no destructive tools":
+  without that consent the token still calls `files.mkdir` and `terminal.close`. The chip now says
+  what it means.
+- **"until the launcher brings it back"** promised recovery on a page whose Restart control is used
+  exactly when a device is wedged — and the launcher gives up after three consecutive restarts. Both
+  the menu and the post-restart notice now say so.
+- **"the device ended {killed} process(es)"** read `killed` as a number; the device answers with an
+  array of pids, so a successful kill always rendered "ended 0". The fixture faked the number shape,
+  which is why the test passed.
+
+Also corrected: the browser runs headless unless `SUMMRISE_BROWSER_VISIBLE` is set (the page said
+"in the user's session when the helper is there"); the ninety-second hold belongs to the console,
+not the device (the device refuses immediately); a minted token's scope is this form's choice, not
+"every tool"; the denials log caps at a hundred a minute; "signed in with the operator token" is
+really "this browser's session"; a held call also disappears when the client stops waiting.
+
+Still open, and larger: four empty states say "nothing there" when the device did not answer, and
+"Nothing has been recorded yet" is shown when a filter matched nothing. Those need the failure to
+travel into the renderer, not a new sentence.
+
 ## What the audits found and this round did NOT do
 
 Ranked by what an operator loses, not by what is cheapest.

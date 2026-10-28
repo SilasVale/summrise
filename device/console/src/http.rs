@@ -1403,14 +1403,14 @@ async fn next_approval_decide(
                 Ok(()) => Redirect::to("/next").into_response(),
                 Err(_) => Redirect::to(&format!(
                     "/next?error={}",
-                    page::encode("That call is no longer waiting: it was answered or it expired.")
+                    page::encode("That call is no longer waiting: it was answered, it expired, or the client stopped waiting.")
                 ))
                 .into_response(),
             }
         }
         None => Redirect::to(&format!(
             "/next?error={}",
-            page::encode("That call is no longer waiting: it was answered or it expired.")
+            page::encode("That call is no longer waiting: it was answered, it expired, or the client stopped waiting.")
         ))
         .into_response(),
     }
@@ -1426,11 +1426,7 @@ async fn login_with_code(app: &AppState, headers: &HeaderMap, code: &str) -> Res
         let (_, access) = app.identity(headers);
         let note = access_note(&access, headers);
         return Html(
-            page::login(
-                note.as_deref(),
-                Some("That sign-in link has expired or was already used."),
-            )
-            .into_string(),
+            page::login(note.as_deref(), Some("That sign-in link was not accepted.")).into_string(),
         )
         .into_response();
     }
@@ -1690,8 +1686,8 @@ async fn next_denials(
             &hex::encode(&session.csrf),
             &app.version,
             "Every request the console refused before authentication: a missing session, an unknown \
-             token, an unauthenticated probe. A refusal is not a device call, and the arguments it \
-             carried are not stored.",
+             token, an unauthenticated probe. The first hundred in a minute are listed; the rest are \
+             counted. A refusal is not a device call, and the arguments it carried are not stored.",
             "Refusals recorded before authentication.",
         )
         .into_string(),
@@ -2879,8 +2875,9 @@ async fn next_system_page(
     .or_else(|| query.net.clone())
     .or_else(|| {
         query.restart.as_deref().map(|restart| match restart {
-            "asked" => "The device is restarting: it reports itself offline until the launcher \
-                            brings it back."
+            "asked" => "The device is restarting: it reports itself offline while the launcher \
+                            brings it back. After three consecutive restarts the launcher gives up \
+                            and it stays down."
                 .to_owned(),
             sentence => sentence.to_owned(),
         })
@@ -3009,7 +3006,11 @@ async fn next_system_kill(
     match device_tool(&app, &device_id, "system.process_kill", arguments).await {
         Ok(text) => {
             let answer: Value = serde_json::from_str(&text).unwrap_or(Value::Null);
-            let killed = answer["killed"].as_u64().unwrap_or(0);
+            // The device answers `killed` as a list of pids (`KillReport.killed: Vec<u32>`); reading it
+            // as a number made every successful kill render "ended 0 process(es)".
+            let killed = answer["killed"]
+                .as_array()
+                .map_or(0, |pids| pids.len() as u64);
             let failed = answer["failed"]
                 .as_array()
                 .map(|failed| failed.len())

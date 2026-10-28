@@ -988,7 +988,7 @@ pub(super) fn dashboard(
             Some(email) => p class="small muted" {
                 "Signed in through Cloudflare Access as " strong { (email) } "."
             },
-            None => p class="small muted" { "Signed in with the operator token." },
+            None => p class="small muted" { "Signed in with this browser's session." },
         }
         @if let Some(code) = notes.enroll {
             div class="callout" {
@@ -2442,7 +2442,8 @@ pub(super) fn system(
                     div class="menu-panel restart-panel" {
                         p class="small muted" {
                             "Every terminal session ends, watches pause, and this page will show the "
-                            "device offline until the launcher brings it back."
+                            "device offline while the launcher brings it back — but after three "
+                            "consecutive restarts the launcher gives up, and the device stays down."
                         }
                         form method="post" action=(format!("{base}/restart")) {
                             input type="hidden" name="csrf" value=(csrf);
@@ -2988,8 +2989,9 @@ pub(super) fn browser(
     let base = format!("/next/browser/{}", device.id);
     let content = html! {
         p class="lead" {
-            "The browser the device runs for you — in the user's session when the helper is "
-            "there, headless otherwise. The capture is the first target in the device's list."
+            "The browser the device runs for you — headless by default, in the user's session only "
+            "when SUMMRISE_BROWSER_VISIBLE is set and the helper is there. The capture is the first "
+            "target in the device's list."
         }
         @if let Some(error) = error {
             p class="alert error" { (error) }
@@ -3208,11 +3210,11 @@ pub(super) fn tokens(
             ))
             div class="card-body" {
                 p class="lead" {
-                    "A permanent token is one credential for this device: every tool the console "
-                    "knows. A destructive call without this token's consent is held for approval — "
-                    "ninety seconds, then refused, never run — and the device enforces that, not the "
-                    "page. The secret is shown once; the console keeps only its hash. The client "
-                    "connects to this endpoint with an Authorization: Bearer header."
+                    "A token minted here is one credential for this device and names every tool the "
+                    "console knows. A destructive call without its consent is refused by the device; "
+                    "this page holds the question for ninety seconds and then refuses it, never run. "
+                    "The secret is shown once; the console keeps only its hash. The client connects "
+                    "to this endpoint with an Authorization: Bearer header."
                 }
                 div class="endpoint" {
                     span class="label" { "Endpoint" }
@@ -3268,7 +3270,7 @@ pub(super) fn tokens(
                                     @if row.destructive {
                                         span class="chip brand" { "destructive allowed" }
                                     } @else {
-                                        span class="chip muted" { "read-only" }
+                                        span class="chip muted" { "no destructive tools" }
                                     }
                                 }
                                 td class="nowrap" { (stamp(row.created_ms)) }
