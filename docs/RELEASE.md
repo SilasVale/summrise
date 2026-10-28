@@ -356,6 +356,32 @@ What it produces:
 * `release-<channel>.json` — the **channel pointer**, the file a device's `update.json` names, always the
   newest document for that channel;
 
+### If a device build goes wrong
+
+The launcher's swap is the safety net, and it is worth knowing exactly how far it reaches before
+publishing (all of this is `device/launch/src/lib.rs`, not a hope):
+
+1. **The update is staged, probed twice, then committed.** `pending` is written and flushed to disk,
+   the app is replaced from it, and **two consecutive** build-bound health probes must pass — the
+   answer must name the *expected version* and the *expected pid*. Only then do `current` and
+   `previous` rotate. A build that cannot answer `/api/health` with its own version is discarded and
+   the old generation stays current: the update fails closed.
+2. **A build that passes the probes but misbehaves is the operator's call.** The probes prove it
+   boots and reports itself, not that it is good. There is no automatic revert for that case, and the
+   updater only moves forward — so the fix is a **new higher version** (the previous code re-published
+   as `0.3.N+1`), or a manual reinstall of the previous signed installer on the affected machine.
+3. **A crash loop is bounded.** At most three *consecutive* restarts; a child that stays up for the
+   launcher's stability window resets the budget. After three it gives up — which is why the console's
+   Restart copy now says "after three consecutive restarts the launcher gives up".
+4. **Startup self-repairs from a trusted generation.** Every start verifies the app's hash against
+   `current`, then `previous`, then a human; a mismatch is copied back from the trusted generation
+   and recorded in `repair.log`.
+
+So a bad publish that fails to start is contained by the device; a bad publish that starts is
+contained by the next version. What the release must never do is ship a binary whose version string
+disagrees with the document — that build fails its own probe and the device quietly stays on the old
+one, which looks exactly like "the update did not arrive".
+
 ### Where the keys actually are, and how to rehearse a publish
 
 Measured 2026-10-28 on the dev box: the three seed files are **not** in `~/.keys` (that directory does
