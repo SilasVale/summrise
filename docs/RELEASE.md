@@ -36,6 +36,14 @@ curl http://127.0.0.1:18090/api/health          :: the device answers again, at 
 powershell -NoProfile -Command "iwr -UseBasicParsing http://<mirror>/SummriseSetup-<version>.exe -OutFile C:\Windows\Temp\s.exe; Start-Process C:\Windows\Temp\s.exe -ArgumentList '/S','/D=C:\<install>' -Wait; 'exit=' + $LASTEXITCODE"
 ```
 
+Installers from 0.3.132 on also leave a boot-time repair task, `SummriseRepair`, which re-registers the
+service when it is missing — the one failure a machine cannot leave from inside, because the process
+that would rebuild the service IS the service. Its script and its log are `repair.cmd` / `repair.log`
+in the install directory, and the uninstaller deletes both along with the task.
+
+```powershell
+```
+
 If step 2 fails, `%TEMP%\summrise-setup.log` names the stage it reached — the file is appended by both
 `.onInit` and the install section. Step 1 is verified on a live machine: run against DESKTOP-9VH92BJ it
 answered `exit=0` and the health endpoint kept serving the same version throughout.

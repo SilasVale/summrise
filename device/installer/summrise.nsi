@@ -154,6 +154,26 @@ Section "Summrise runtime" SecRuntime
   ; logged-in user's session at every login, with no elevation and no second credential.
   WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Run" "SummriseShell" '"$INSTDIR\summrise-shell.exe"' 
 
+  ; A BOOT-TIME REPAIR, because losing the service is a state nothing inside the machine can leave:
+  ; the process that would rebuild it IS the service. A failed install removed it once and left the
+  ; device unreachable until someone walked to it (DESKTOP-CPH4KB2, 2026-10-28). The task runs at
+  ; start, does nothing when the service is registered, and re-registers it when it is gone; it is
+  ; created by the installer and deleted by the uninstaller, so a deliberate uninstall stays undone.
+  FileOpen $9 "$INSTDIR\repair.cmd" w
+  FileWrite $9 "@echo off$\r$\n"
+  FileWrite $9 "rem Created by the Summrise installer: re-register the service when it is missing.$\r$\n"
+  FileWrite $9 "sc query ${SERVICE} >nul 2>&1$\r$\n"
+  FileWrite $9 "if not errorlevel 1 exit /b 0$\r$\n"
+  FileWrite $9 "echo %DATE% %TIME% the ${SERVICE} service is missing; re-registering >> $\"$INSTDIR\repair.log$\"$\r$\n"
+  FileWrite $9 "$\"$INSTDIR\summrise-launch.exe$\" --install-service --install $\"$INSTDIR$\" --data $\"${DATA_DIR}$\" --seed-sidecar $\"$INSTDIR\summrise-device.sidecar.json$\" --port ${PORT} >> $\"$INSTDIR\repair.log$\" 2>&1$\r$\n"
+  FileWrite $9 "echo %DATE% %TIME% repair exit %ERRORLEVEL% >> $\"$INSTDIR\repair.log$\"$\r$\n"
+  FileClose $9
+  nsExec::Exec 'schtasks /create /tn SummriseRepair /tr "$INSTDIR\repair.cmd" /sc onstart /ru SYSTEM /rl HIGHEST /f'
+  Pop $0
+  FileOpen $6 "$TEMP\summrise-setup.log" a
+  FileWrite $6 "repair task: exit $0$\r$\n"
+  FileClose $6
+
   WriteRegStr HKLM "${UNINST_KEY}" "DisplayName" "${PRODUCT}"
   WriteRegStr HKLM "${UNINST_KEY}" "DisplayVersion" "${VERSION}"
   WriteRegStr HKLM "${UNINST_KEY}" "Publisher" "${COMPANY}"
@@ -260,6 +280,9 @@ Section "Uninstall"
   Pop $1
 
   DeleteRegValue HKLM "Software\Microsoft\Windows\CurrentVersion\Run" "SummriseShell"
+  ; The repair task would re-register the service the operator just uninstalled.
+  nsExec::Exec 'schtasks /delete /tn SummriseRepair /f'
+  Delete "$INSTDIR\repair.cmd"
   Delete "$INSTDIR\summrise-launch.exe"
   Delete "$INSTDIR\summrise-shell.exe"
   Delete "$INSTDIR\summrise-device.exe"
