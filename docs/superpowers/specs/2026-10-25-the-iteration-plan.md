@@ -30,6 +30,24 @@ Written when the plan was new; kept because a plan that is silently rewritten ca
   recovery — that machine has been offline since an install left it with no runtime, and the
   installer/repair discipline above is the answer it is waiting for.
 
+## 0a. What is left, and how to start
+
+Four operator-visible gaps against the legacy panel remain, in the order they were judged to hurt:
+
+1. **Session replay** — legacy could reopen a finished session's command-by-command trail with output and exit
+   codes; the device keeps `runs.jsonl` rows without output and the console says so. This needs a device-side
+   decision (what to retain, for how long) before any page.
+2. **Settings** — buffer size, start-on-logon, memory caps, gateway URL: a device tool plus a console page.
+   The registry has no settings tools, so this is a new capability, not a page.
+3. **Update check/apply** — the device reports `current`/`previous`/`pending` and the launcher owns the swap;
+   nothing asks it to check a channel or to apply, and the console has no route for either.
+4. **Remote workspaces** — the legacy panel could browse and edit another machine over SSH; the files page
+   here is the device's own `files_root`.
+
+Two things need a human, not code: DESKTOP-CPH4KB2's recovery (one elevated `recover.cmd` on that machine), and
+one real RDP disconnect to prove the reconnect trigger fires (the hand-off itself is measured; the tasks'
+"last run" is still 1999).
+
 ## 1. Where the project stands
 
 Proven on the canary (device 0.3.29, console 0.3.32, helper in the user's session):
