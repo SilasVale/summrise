@@ -59,11 +59,13 @@ const UNKNOWN: [u8; 4] = [0x9a, 0x9a, 0x9a, 0xff];
 
 /// How long the tray may take to appear before the process gives up and says so.
 ///
-/// A tray the user cannot see is a process the user cannot quit, and on 2026-10-28 one started by a
-/// scheduled task logged `starting` and never `tray built` — alive, invisible, and silent. The
-/// watchdog turns that state into a logged failure with a non-zero exit, which the logon entry
-/// retries at the next logon instead of leaving a ghost process behind.
-const TRAY_WATCHDOG: Duration = Duration::from_secs(15);
+/// A tray the user cannot see is a process the user cannot quit. On 2026-10-28 a shell started by a
+/// scheduled task logged `starting` and showed nothing for at least forty seconds; the same process
+/// then logged `tray built` some minutes later, so a first build in a fresh session is SLOW rather
+/// than reliably hung. Three minutes is the line between slow and never: long enough not to kill a
+/// working tray, short enough that a process which will never draw one exits and is retried at the
+/// next logon instead of lingering invisibly.
+const TRAY_WATCHDOG: Duration = Duration::from_secs(180);
 
 pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     let event_loop = EventLoopBuilder::<Wake>::with_user_event().build();
