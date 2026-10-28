@@ -22,15 +22,18 @@ const COMPONENTS: &str = r##"  * { box-sizing: border-box; }
   body {
     margin: 0; padding: 0;
     background: var(--bg); color: var(--ink);
-    font: 0.9375rem / 1.55 var(--font);
+    font-family: var(--font); font-size: 14px; line-height: 1.55;
     font-variant-numeric: tabular-nums;
     -webkit-font-smoothing: antialiased;
   }
-  main { flex: 1; width: 100%; max-width: 54rem; margin: 0 auto; padding: 1.5rem 1.25rem 2.5rem; display: grid; gap: 1rem; }
-  .lede { color: var(--ink-muted); margin: 0 0 0.25rem; font-size: 0.9rem; }
+  main { flex: 1; width: 100%; max-width: 54rem; margin: 0 auto; padding: 24px 16px 32px; display: grid; gap: 16px; }
+  /* The shared card carries a bottom margin; in a grid that owns the gap it doubled the space
+     between siblings (16 + 20 = 36px). One owner of the gap. */
+  main .card { margin-bottom: 0; }
+  .lede { color: var(--ink-muted); margin: 0 0 4px; font-size: 14px; }
   header button {
-    margin-left: auto; font: inherit; font-size: 0.82rem; font-weight: 550;
-    padding: 0.3rem 0.65rem; border-radius: 8px; cursor: pointer;
+    margin-left: auto; font: inherit; font-size: 13px; font-weight: 600;
+    padding: 4px 12px; border-radius: var(--radius-xs); cursor: pointer;
     border: 1px solid var(--line-strong); background: var(--surface); color: var(--ink);
   }
   header button:hover { border-color: var(--accent); }
@@ -38,47 +41,47 @@ const COMPONENTS: &str = r##"  * { box-sizing: border-box; }
 
   /* A section is a card from `summrise_ui`: the container, the heading row and the body are the shared
      rules, so this page no longer styles sections at all. Only the spacing inside a body is local. */
-  .card .card-body > * + * { margin-top: 0.7rem; }
-  dl { display: grid; grid-template-columns: 11rem 1fr; gap: 0.3rem 1rem; margin: 0; }
-  dt { color: var(--ink-muted); font-size: 0.88rem; }
-  dd { margin: 0; overflow-wrap: anywhere; font-size: 0.88rem; }
-  .mono { font-family: var(--font-mono); font-size: 0.78rem; }
+  .card .card-body > * + * { margin-top: 12px; }
+  dl { display: grid; grid-template-columns: 11rem 1fr; gap: 4px 16px; margin: 0; }
+  dt { color: var(--ink-muted); font-size: 14px; }
+  dd { margin: 0; overflow-wrap: anywhere; font-size: 14px; }
+  .mono { font-family: var(--font-mono); font-size: 12px; }
 
 
   table { width: 100%; border-collapse: collapse; }
-  th, td { text-align: left; padding: 0.35rem 0.45rem; border-bottom: 1px solid var(--line); font-size: 0.85rem; }
-  th { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--ink-faint); font-weight: 600; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); font-size: 13px; }
+  th { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--ink-faint); font-weight: 600; }
   tr:last-child td { border-bottom: 0; }
   td.kind { color: var(--ink-muted); }
-  .none { color: var(--ink-muted); font-size: 0.88rem; }
+  .none { color: var(--ink-muted); font-size: 14px; }
 
   /* The enroll form: the same fields and vocabulary as the console's "Add a device", because the
      person pastes the code from there into here. Field and button rules only; the tokens above are
      the panel's. */
   form {
-    display: grid; gap: 0.45rem; margin-top: 0.9rem; padding-top: 0.9rem;
+    display: grid; gap: 8px; margin-top: 16px; padding-top: 16px;
     border-top: 1px solid var(--line);
   }
-  form h3 { font-size: 0.9rem; font-weight: 650; margin: 0 0 0.1rem; }
-  form label { font-size: 0.85rem; color: var(--ink-muted); }
+  form h3 { font-size: 14px; font-weight: 600; margin: 0 0 4px; }
+  form label { font-size: 13px; color: var(--ink-muted); }
   form input[type="text"] {
-    font: inherit; font-size: 0.88rem; color: var(--ink);
+    font: inherit; font-size: 14px; color: var(--ink);
     background: var(--surface-recessed); border: 1px solid var(--line-strong);
-    border-radius: 8px; padding: 0.4rem 0.6rem; min-width: 0;
+    border-radius: var(--radius-xs); padding: 6px 8px; min-width: 0;
   }
-  form .check { display: flex; align-items: flex-start; gap: 0.45rem; color: var(--ink); }
+  form .check { display: flex; align-items: flex-start; gap: 8px; color: var(--ink); }
   form .check input { margin: 0.25rem 0 0; }
-  form .hint { margin: 0; color: var(--ink-faint); font-size: 0.8rem; }
+  form .hint { margin: 0; color: var(--ink-faint); font-size: 12px; }
   form button {
-    justify-self: start; font: inherit; font-size: 0.85rem; font-weight: 600;
-    padding: 0.4rem 0.9rem; border-radius: 8px; cursor: pointer;
-    border: 1px solid transparent; background: var(--accent); color: #fff;
+    justify-self: start; font: inherit; font-size: 13px; font-weight: 600;
+    padding: 6px 12px; border-radius: var(--radius-xs); cursor: pointer;
+    /* `--accent` is a FOREGROUND in the dark theme (#ffa36b); as a fill it put white on it at 1.96:1.
+       `--accent-solid`/`--accent-fg` is the pair the tokens were measured for. */
+    border: 1px solid transparent; background: var(--accent-solid); color: var(--accent-fg);
   }
-  form button:disabled { opacity: 0.6; cursor: progress; }
-  form input:focus-visible, form button:focus-visible {
-    outline: 2px solid var(--accent); outline-offset: 1px;
-  }
-  .enroll-status { margin: 0; min-height: 1.35em; font-size: 0.85rem; color: var(--ink-muted); }
+  form button:disabled { background: var(--panel-2); color: var(--faint); border-color: var(--line); cursor: progress; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .enroll-status { margin: 0; min-height: 1.35em; font-size: 13px; color: var(--ink-muted); }
   .enroll-status.ok { color: var(--ok); }
   .enroll-status.error { color: var(--error); }
 
@@ -86,27 +89,41 @@ const COMPONENTS: &str = r##"  * { box-sizing: border-box; }
      button, while the token itself is named by file and never printed. */
   /* The terminal canvas, the same token the console uses: white in the light theme, near-black in the
      dark one. A black block inside a light page is what made the two surfaces read as two products. */
-  .term-host { height: 20rem; background: var(--term-canvas); border: 1px solid var(--line); border-radius: 8px; padding: 6px; }
+  /* **FIVE CONTROLS USED TO BE THE BROWSER'S, NOT OURS.** `#term-pty`, `#term-port`, `#term-baud`,
+     `#term-serial` and `#term-close` matched no selector (they are not inside a form), so they drew
+     at the UA's 13.33px/2px radius — the one place the type scale visibly broke. */
+  #term-pty, #term-serial, #term-close {
+    font-family: var(--font); font-size: 13px; font-weight: 600;
+    padding: 6px 12px; border: 1px solid var(--line-strong); border-radius: var(--radius-xs);
+    background: var(--panel); color: var(--ink); cursor: pointer;
+  }
+  #term-pty:hover, #term-serial:hover, #term-close:hover { background: var(--panel-2); }
+  #term-port, #term-baud {
+    font-family: var(--font); font-size: 13px; width: 7rem;
+    padding: 6px 8px; border: 1px solid var(--line-strong); border-radius: var(--radius-xs);
+    background: var(--surface-recessed); color: var(--ink);
+  }
+  .term-host { height: 20rem; background: var(--term-canvas); border: 1px solid var(--line); border-radius: var(--radius-xs); padding: 6px; }
   .xterm .xterm-viewport { background-color: var(--term-canvas); }
   .config {
-    margin: 0.5rem 0 0.6rem; padding: 0.7rem 0.8rem; overflow-x: auto;
-    background: var(--surface-recessed); border: 1px solid var(--line); border-radius: 8px;
-    font-family: var(--font-mono); font-size: 0.78rem; line-height: 1.5; color: var(--ink);
+    margin: 8px 0; padding: 12px; overflow-x: auto;
+    background: var(--surface-recessed); border: 1px solid var(--line); border-radius: var(--radius-xs);
+    font-family: var(--font-mono); font-size: 12px; line-height: 1.5; color: var(--ink);
   }
   #copy-local {
-    font: inherit; font-size: 0.85rem; font-weight: 600; padding: 0.35rem 0.8rem;
-    border-radius: 8px; border: 1px solid var(--line-strong);
+    font: inherit; font-size: 13px; font-weight: 600; padding: 6px 12px;
+    border-radius: var(--radius-xs); border: 1px solid var(--line-strong);
     background: var(--surface); color: var(--ink); cursor: pointer;
   }
   #copy-local.copied { border-color: var(--ok); color: var(--ok); }
-  code { font-family: var(--font-mono); font-size: 0.82rem; }
+  code { font-family: var(--font-mono); font-size: 13px; }
 
   /* A phone, or a console window dragged narrow: an 11 rem label column leaves the value column about
      ten characters wide, so the two stack instead. */
   @media (max-width: 40rem) {
-    body { padding: 1rem 0.85rem 2rem; }
-    dl { grid-template-columns: 1fr; gap: 0.1rem; }
-    dt { margin-top: 0.5rem; }
+    body { padding: 16px 12px 32px; }
+    dl { grid-template-columns: 1fr; gap: 4px; }
+    dt { margin-top: 8px; }
     header { flex-wrap: wrap; }
     header button { margin-left: 0; }
   }
@@ -292,10 +309,13 @@ fn render(facts: &PanelFacts, outcome: Option<&EnrollOutcome>) -> Markup {
     let digest_short: String = digest.chars().take(16).collect();
     let chip = match attempt {
         Some(note) => html! {
-            span id="console-chip" class="chip warn" { "reconnected after " (note.attempts) }
+            span id="console-chip" class="chip warn" { "retried after " (note.attempts) }
         },
+        // **`None` IS NOT "CONNECTED".** A note is recorded at the START of each attempt, so no
+        // note means either "this process never tried" or "it was refused and will not retry" —
+        // and a green "connected" was shown for both. Neutral is the honest colour.
         None => html! {
-            span id="console-chip" class="chip ok" { "connected" }
+            span id="console-chip" class="chip muted" { "no failed attempt recorded" }
         },
     };
     let state_rows = state_rows(facts.state.as_ref());
@@ -373,8 +393,8 @@ fn render(facts: &PanelFacts, outcome: Option<&EnrollOutcome>) -> Markup {
                         }
                         p {
                             button id="term-pty" type="button" { "New pty" }
-                            input id="term-port" type="text" placeholder="COM3" value="COM3" style="width:7rem";
-                            input id="term-baud" type="number" placeholder="115200" value="115200" style="width:7rem";
+                            input id="term-port" type="text" placeholder="COM3" value="COM3";
+                            input id="term-baud" type="number" placeholder="115200" value="115200";
                             button id="term-serial" type="button" { "New serial" }
                             button id="term-close" type="button" { "Close" }
                         }
@@ -433,7 +453,7 @@ fn render(facts: &PanelFacts, outcome: Option<&EnrollOutcome>) -> Markup {
                             @if let Some(note) = attempt {
                                 dt { "Link" }
                                 dd {
-                                    "reconnected after " (note.attempts) " " (failure_noun(note.attempts))
+                                    "retried after " (note.attempts) " " (failure_noun(note.attempts))
                                 }
                                 dt { "Reason" }
                                 dd {
@@ -445,7 +465,7 @@ fn render(facts: &PanelFacts, outcome: Option<&EnrollOutcome>) -> Markup {
                                 }
                             } @else {
                                 dt { "Link" }
-                                dd { "connected on the first try" }
+                                dd { "no failed attempt since this process started" }
                             }
                         }
                         form id="enroll-form" method="post" action="/panel/enroll" autocomplete="off" {
@@ -745,13 +765,13 @@ fn diagnostics(facts: &PanelFacts) -> String {
                 note.reason.as_str()
             };
             lines.push(format!(
-                "console link: reconnected after {} {} — {}",
+                "console link: retried after {} {} — {}",
                 note.attempts,
                 failure_noun(note.attempts),
                 reason
             ));
         }
-        None => lines.push("console link: connected on the first try".to_owned()),
+        None => lines.push("console link: no failed attempt recorded".to_owned()),
     }
 
     if let Some(verdict) = facts
@@ -853,6 +873,67 @@ mod tests {
         }
     }
 
+    /// **THE PANEL IS ON THE SAME TYPE SCALE.** Eighteen declarations resolved to seven sizes no
+    /// reader could rank, because the panel used `rem` while the console used `px` and no gate read
+    /// either. The scale is the console's: 9, 11, 12, 13, 14, 15, 18, 22.
+    #[test]
+    fn the_panel_uses_the_shared_type_scale() {
+        const ALLOWED: [&str; 8] = ["9", "11", "12", "13", "14", "15", "18", "22"];
+        let mut rest = COMPONENTS;
+        let mut seen = std::collections::BTreeSet::new();
+        while let Some(at) = rest.find("font-size:") {
+            let after = &rest[at + "font-size:".len()..];
+            let end = after.find([';', '}']).unwrap_or(after.len());
+            let value = after[..end].trim();
+            if let Some(px) = value.find("px") {
+                let size = &value[..px];
+                seen.insert(size.to_owned());
+                assert!(
+                    ALLOWED.contains(&size),
+                    "font-size:{value} is off the shared scale {ALLOWED:?}"
+                );
+            }
+            rest = &after[end..];
+        }
+        assert!(!seen.is_empty(), "the panel declares no font sizes at all");
+    }
+
+    /// The panel's primary action and its console chip were the two places the surface claimed
+    /// something the tokens or the process could not back up.
+    #[test]
+    fn the_primary_action_and_the_console_chip_tell_the_truth() {
+        let css = COMPONENTS;
+        assert!(
+            css.contains("background: var(--accent-solid); color: var(--accent-fg)"),
+            "the submit button must be the measured pair: --accent is a foreground in the dark theme"
+        );
+        assert!(
+            !css.contains("background: var(--accent); color: #fff"),
+            "white on the dark --accent measured 1.96:1"
+        );
+        assert!(
+            css.contains("#term-pty, #term-serial, #term-close"),
+            "the terminal's five controls must not fall back to UA defaults"
+        );
+        let html = page(&facts()).into_string();
+        assert!(
+            html.contains("retried after 2 failed attempts"),
+            "a recorded failure is named: {html}"
+        );
+
+        let mut first = facts();
+        first.console_attempt = None;
+        let html = page(&first).into_string();
+        assert!(
+            html.contains("no failed attempt recorded"),
+            "no note is not 'connected': {html}"
+        );
+        assert!(
+            !html.contains("class=\"chip ok\" id=\"console-chip\""),
+            "the chip must not be green when nothing was observed: {html}"
+        );
+    }
+
     #[test]
     fn the_page_renders_every_section_from_the_facts() {
         let html = page(&facts()).into_string();
@@ -874,7 +955,7 @@ mod tests {
             "cat &quot;/var/lib/summrise/token&quot;",
             "lastVerdict",
             "verified",
-            "reconnected after 2 failed attempts",
+            "retried after 2 failed attempts",
             "the tunnel was down",
             "pty",
             "bash",
@@ -953,8 +1034,11 @@ mod tests {
             "the empty-state line is visible when there is no event"
         );
         assert!(html.contains("unreadable"));
-        assert!(html.contains("connected on the first try"));
-        assert!(html.contains(r#"<span id="console-chip" class="chip ok">"#));
+        assert!(html.contains("no failed attempt since this process started"));
+        // **THE OLD TEST PINNED THE LIE**: it asserted a green "connected" chip for a page whose
+        // facts carry no attempt at all. No note means nothing was observed, not that the link works.
+        assert!(html.contains(r#"<span id="console-chip" class="chip muted">"#));
+        assert!(!html.contains(r#"<span id="console-chip" class="chip ok">"#));
     }
 
     #[test]
@@ -992,8 +1076,9 @@ mod tests {
             text.contains("version 2.0.3  channel canary  sha256 b1946ac92492d2347c6235b4d2611184")
         );
         assert!(text.contains("pid 4242"));
-        assert!(text
-            .contains("console link: reconnected after 2 failed attempts — the tunnel was down"));
+        assert!(
+            text.contains("console link: retried after 2 failed attempts — the tunnel was down")
+        );
         assert!(text.contains("last verdict: verified the baseline booted at 2026-10-27T11:00:00Z"));
         assert!(text.contains("terminal.create allow → ok"));
         assert!(text.contains("  repair"));
