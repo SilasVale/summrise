@@ -471,7 +471,7 @@ impl Page {
             Page::Screen => "Screen",
             Page::Monitors => "Monitors",
             Page::Browser => "Browser",
-            Page::Tokens => "Tokens",
+            Page::Tokens => "Connect",
             Page::Vitals => "Vitals",
         }
     }
@@ -3565,7 +3565,7 @@ pub(super) fn tokens(
         Chrome {
             active: Page::Tokens,
             device: Some(device),
-            title: "Tokens",
+            title: "Connect",
             version,
             csrf,
             status: device_status(device),
@@ -3585,7 +3585,7 @@ pub(super) fn token_created(
 ) -> Markup {
     let base = format!("/next/tokens/{}", device.id);
     let content = html! {
-        (breadcrumb(&[("Tokens".to_owned(), base)], "new token"))
+        (breadcrumb(&[("Connect".to_owned(), base)], "new token"))
         section class="card" {
             (card_head(
                 "Token",
@@ -4021,7 +4021,7 @@ mod tests {
     /// The rail's labels, in order, as a reader sees them.
     const LABELS: [&str; 11] = [
         "Fleet", "Terminal", "Files", "Runs", "System", "Memory", "Screen", "Monitors", "Browser",
-        "Tokens", "Vitals",
+        "Connect", "Vitals",
     ];
 
     /// A stand-in capture for the review renderer, so the screen and browser cards have pixels.
@@ -4252,9 +4252,9 @@ mod tests {
                 "Browser",
                 browser(device, &[], None, "00", "0.1.0", None, None),
             ),
-            ("Tokens", tokens(device, &[], "00", "0.1.0", None)),
+            ("Connect", tokens(device, &[], "00", "0.1.0", None)),
             (
-                "Tokens",
+                "Connect",
                 token_created(device, "dsh", "srm_secret", "config", "00", "0.1.0"),
             ),
             ("Vitals", vitals(device, sample, "00", "0.1.0")),
@@ -5120,8 +5120,18 @@ mod tests {
             ("login", login(None, None)),
             ("not-found", not_found("0.3.72")),
         ];
+        // Two fixtures can share a page name (a page and its post-submit variant); the file name
+        // must not be one of them, or the second silently overwrites the first in the review set.
+        let mut seen: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
         for (name, markup) in pages {
-            std::fs::write(dir.join(format!("{name}.html")), markup.into_string())
+            let count = seen.entry(name.to_owned()).or_insert(0);
+            *count += 1;
+            let file = if *count == 1 {
+                name.to_owned()
+            } else {
+                format!("{name}-{count}")
+            };
+            std::fs::write(dir.join(format!("{file}.html")), markup.into_string())
                 .expect("the page is written");
         }
     }
