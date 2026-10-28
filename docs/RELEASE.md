@@ -48,6 +48,34 @@ If step 2 fails, `%TEMP%\summrise-setup.log` names the stage it reached — the 
 `.onInit` and the install section. Step 1 is verified on a live machine: run against DESKTOP-9VH92BJ it
 answered `exit=0` and the health endpoint kept serving the same version throughout.
 
+## The notification icon: what an app can ask for, and what it cannot
+
+The shell draws a tray icon and the operator has asked, repeatedly, why it does not sit where another
+application's does. The answers are Windows' and were measured on DESKTOP-14RJCR8 on 2026-10-28:
+
+- **An application cannot choose its position in the overflow flyout.** The order lives in
+  `HKCU\Control Panel\NotifyIconSettings\UIOrderList`, a binary list Explorer owns; a new icon is
+  appended, so it lands in the last row of the grid (five per row) no matter what the app does.
+- **`IsPromoted` is a request, not a placement.** It is the only per-icon value an app may write, and it
+  asks for the icon to be shown in the taskbar instead of the flyout. On this machine the shell's single
+  entry had `IsPromoted = 1` and the icon still sat in the flyout; a `UIOrderList` the icon is not in
+  wins over the flag.
+- **A force-killed shell leaves a ghost icon.** `taskkill /F` gives the process no chance to remove its
+  icon, and Explorer keeps drawing it until it is restarted. Restarting Explorer (`taskkill /f /im
+  explorer.exe` from a task in the user's own session, then `start explorer.exe`) removed the duplicate
+  and brought the desktop back in about three seconds; doing it from a SYSTEM context would kill the
+  shell and start the replacement in session 0, which is why the restart is scheduled as the user.
+- **The tray is per-session, and a disconnected session has none.** Windows refuses to start an
+  interactive process in a disconnected session at all: `schtasks /run` for a `/IT` task answered
+  `0x80070005` on DESKTOP-9VH92BJ. The shell now registers `SummriseShellOnReconnect`, triggered by the
+  TerminalServices session-reconnection event (25), as the user it runs as, so the icon returns when the
+  operator does.
+
+What follows for support: if the icon is in the flyout and the operator wants it in the taskbar, the
+only dependable route is to drag it out once (Windows remembers), because the flag is advisory. If there
+are two icons, one is a ghost: restart Explorer. If there is none, check the session is connected before
+blaming the shell.
+
 ## Retiring the legacy runtime on a machine
 
 An older laptop can carry both runtimes at once: `summrise-device` (the new one, as a service) and the
