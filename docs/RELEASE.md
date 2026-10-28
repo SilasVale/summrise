@@ -259,9 +259,9 @@ schtasks /change /tn SummriseAgent /disable
 taskkill /F /IM electron.exe
 ```
 
-The new runtime is untouched by this (its services are `SummriseLaunch` and `SummriseDevice`), and the
-new tray starts at logon from `HKLM\...\Run\SummriseShell`. Reversing it is one command per task:
-`schtasks /change /tn SummriseDesktop /enable` (and the same for `SummriseAgent`).
+The new runtime is untouched by this (its service is `SummriseLaunch`, which runs `summrise-device` as
+its child), and the new tray starts at logon from `HKLM\...\Run\SummriseShell`. Reversing it is one
+command per task: `schtasks /change /tn SummriseDesktop /enable` (and the same for `SummriseAgent`).
 
 If the new tray is not running in a session, start it there — a process started from a SYSTEM shell
 puts no icon on anyone's taskbar:

@@ -11132,9 +11132,16 @@ async fn the_denials_page_narrows_with_the_same_filter() {
     let (status, _, body) =
         send_text(fixture.app(), get_with_cookie("/next/denials", &cookie)).await;
     assert_eq!(status, StatusCode::OK);
+    // **ONE KIND, SO NO KIND FILTER.** The audit's twelve-option list used to appear here too,
+    // offering eleven choices that cannot match a store whose every row is `denied`; the page
+    // says what it is instead. The test that pinned the old selector is what let the lie ship.
     assert!(
-        body.contains("id=\"f-kind\""),
-        "the filter bar is on the page: {body}"
+        !body.contains("id=\"f-kind\""),
+        "denials has one kind, so it must not offer a kind filter: {body}"
+    );
+    assert!(
+        body.contains("refused before authentication"),
+        "the page says which log it is: {body}"
     );
     assert!(
         body.contains("action=\"/next/denials\""),
@@ -11143,6 +11150,15 @@ async fn the_denials_page_narrows_with_the_same_filter() {
     assert!(
         !body.contains("id=\"f-device\""),
         "a denial has no device to filter by: {body}"
+    );
+
+    // The audit keeps the full kind list: it is the log with many kinds.
+    let (status, _, audit) =
+        send_text(fixture.app(), get_with_cookie("/next/audit", &cookie)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        audit.contains("id=\"f-kind\""),
+        "the audit still filters by kind: {audit}"
     );
 
     // A status class that cannot be in the log gives the empty state.

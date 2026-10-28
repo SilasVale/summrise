@@ -79,7 +79,7 @@ one real RDP disconnect to prove the reconnect trigger fires (the hand-off itsel
 Proven on the canary (device 0.3.29, console 0.3.32, helper in the user's session):
 
 - **The runtime**: `summrise-launch` (SCM service, sole writer of the app binary) supervises
-  `summrise-device` (38 tools in 10 capabilities); the console is the only control plane and every
+  `summrise-device` (40 tools in 10 capabilities); the console is the only control plane and every
   action is a signed grant plus an audit row.
 - **The face**: a web console with five pages (Devices, Terminal, Browser, Memory, Audit) that an operator
   reaches through Cloudflare Access or the operator token; the device's own panel at
@@ -160,7 +160,7 @@ and workspace UI, not device capabilities.
 ### P2 — Memory, and the two tools nobody chose — **done 2026-10-25**
 
 Landed as `memory.update` / `memory.delete` with entry ids and a journal store, and the console's Memory
-page (`memory.jsonl` replay, compaction, 38 tools / 10 capabilities). Evidence:
+page (`memory.jsonl` replay, compaction, 40 tools / 10 capabilities). Evidence:
 `2026-10-25-memory-entries-get-ids-design.md` § "Verified on the canary".
 
 **Goal**: the memory store is browsable, and an entry can be corrected or retired.

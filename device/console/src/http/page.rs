@@ -101,6 +101,11 @@ body.app { display:flex; height:100vh; overflow:hidden; }
 .btn { display:inline-flex; align-items:center; justify-content:center; gap:6px; min-height:30px; padding:0 12px; border:1px solid var(--line-strong); border-radius:var(--radius-xs); background:var(--panel); color:var(--ink); font:inherit; font-size:12.5px; font-weight:600; line-height:1; text-decoration:none; white-space:nowrap; cursor:pointer; }
 .btn:hover { background:var(--panel-2); text-decoration:none; }
 .btn:focus-visible { outline-offset:2px; }
+/* A pressed button and a disabled one were the two states the sheet never drew: every control
+   looked identical under the finger and while a request was in flight. */
+.btn:active { filter:brightness(.96); }
+.btn:disabled, .btn[aria-disabled="true"] { border-color:var(--line); background:var(--panel-2); color:var(--faint); cursor:not-allowed; box-shadow:none; }
+.btn-danger:disabled, .btn-danger[aria-disabled="true"] { border-color:var(--line); background:var(--panel-2); color:var(--faint); }
 .btn-primary { border-color:var(--accent-solid); background:var(--accent-solid); color:var(--accent-fg); }
 .btn-primary:hover { border-color:var(--accent-hover); background:var(--accent-hover); }
 .btn-ghost { border-color:transparent; background:transparent; color:var(--muted); }
@@ -304,6 +309,9 @@ body.login { margin:0; background:var(--bg); }
 .row-menu summary::-webkit-details-marker { display:none; }
 .row-menu summary .caret { margin-left:2px; color:var(--faint); font-size:9px; }
 .row-menu[open] summary { background:var(--panel-2); color:var(--ink); }
+/* An open "Restart" disclosure keeps its danger colour: the open state must not repaint a
+   destructive control neutral while it is armed. */
+.row-menu[open] summary.btn-danger { border-color:var(--danger); background:var(--danger-soft); color:var(--danger); }
 .menu-panel { position:absolute; right:0; top:calc(100% + 6px); z-index:20; width:236px; padding:10px; border:1px solid var(--line); border-radius:var(--radius-xs); background:var(--panel); box-shadow:0 1px 2px rgba(24,24,27,.06), 0 18px 40px -20px rgba(24,24,27,.5); text-align:left; white-space:normal; }
 .menu-panel form + form { margin-top:8px; padding-top:8px; border-top:1px solid var(--line); }
 .menu-panel label { display:block; margin:0 0 4px; color:var(--muted); font-size:10.5px; font-weight:600; letter-spacing:.06em; text-transform:uppercase; }
@@ -665,7 +673,7 @@ fn fleet_status(devices: &[DeviceView]) -> Markup {
 /// Every kind the console writes, newest subsystems included. The list is what the audit filter
 /// offers, and it was written before approvals, installs and the log's own events existed: a line
 /// with a kind missing here could be found by text but never selected.
-const AUDIT_KINDS: [&str; 12] = [
+pub(super) const AUDIT_KINDS: [&str; 12] = [
     "approval",
     "auth",
     "denied",
@@ -1213,6 +1221,7 @@ pub(super) fn audit_filter(
     devices: &[(String, String)],
     filter: &AuditFilter,
     show_device: bool,
+    kinds: &[&str],
 ) -> Markup {
     html! {
         section class="card" {
@@ -1230,12 +1239,18 @@ pub(super) fn audit_filter(
                             }
                         }
                     }
-                    div class="field" {
-                        label for="f-kind" { "Kind" }
-                        select id="f-kind" name="kind" {
-                            option value="" { "Every kind" }
-                            @for kind in AUDIT_KINDS {
-                                option value=(kind) selected[filter.kind == kind] { (kind) }
+                    /* **NO KIND SELECT WHEN THERE IS ONE KIND.** Denials holds exactly `denied`
+                       rows, so the audit's twelve-option list offered eleven choices that could
+                       never match and made a filter look broken. An empty slice means "this log
+                       has no other kind", not "show every kind". */
+                    @if !kinds.is_empty() {
+                        div class="field" {
+                            label for="f-kind" { "Kind" }
+                            select id="f-kind" name="kind" {
+                                option value="" { "Every kind" }
+                                @for kind in kinds {
+                                    option value=(kind) selected[filter.kind == *kind] { (kind) }
+                                }
                             }
                         }
                     }
@@ -1271,13 +1286,12 @@ pub(super) fn logs(
     filter: Option<Markup>,
     csrf: &str,
     version: &str,
+    lead: &str,
+    caption: &str,
 ) -> Markup {
     let count = rows.len();
     let content = html! {
-        p class="lead" {
-            "The console's own record, newest first. Times are UTC; a device id is shortened here "
-            "but named in full by the line's tooltip."
-        }
+        p class="lead" { (lead) }
         @if let Some(filter) = filter {
             (filter)
         }
@@ -1297,7 +1311,7 @@ pub(super) fn logs(
                 (empty_state(Page::Fleet, "Nothing has been recorded yet.", Markup::default()))
             } @else {
                 table class="table" {
-                    caption class="visually-hidden" { "The console's own audit lines." }
+                    caption class="visually-hidden" { (caption) }
                     thead {
                         tr {
                             th { "When" }
@@ -1452,7 +1466,7 @@ pub(super) fn terminal(
                         }
                     }
                 }
-                a class="btn btn-ghost btn-sm rail-action" href="/next/audit" { "Open the audit log" }
+
             }
         }
     };
@@ -1601,6 +1615,11 @@ pub(super) fn terminal(
                     }
                 }
                 span class="spacer" {}
+                // **THE WAY OUT OF THE TERMINAL IS IN THE TOOLBAR, NOT THE CONTEXT RAIL.** The rail
+                // is hidden below 1000px, so a navigation link that lives only there disappears on
+                // a tablet; and a "Refresh" anchor pointed at this same page, which is what the
+                // browser's own refresh already does.
+                a class="btn btn-ghost btn-sm" href="/next/audit" { "Audit" }
             }
             div class="terminal-tabbar" {
                 div id="terminal-tabs" class="tabs" {}
@@ -3870,8 +3889,32 @@ mod tests {
                     1_791_000_000_000,
                 ),
             ),
-            ("Fleet", logs(&[], "Audit", 0, None, "00", "0.1.0")),
-            ("Fleet", logs(&[], "Denials", 0, None, "00", "0.1.0")),
+            (
+                "Fleet",
+                logs(
+                    &[],
+                    "Audit",
+                    0,
+                    None,
+                    "00",
+                    "0.1.0",
+                    "The console's own record, newest first. Times are UTC; a device id is shortened here but named in full by the line's tooltip.",
+                    "The console's own audit lines.",
+                ),
+            ),
+            (
+                "Fleet",
+                logs(
+                    &[],
+                    "Denials",
+                    0,
+                    None,
+                    "00",
+                    "0.1.0",
+                    "Every request the console refused before authentication: a missing session, an unknown token, an unauthenticated probe. A refusal is not a device call, and the arguments it carried are not stored.",
+                    "Refusals recorded before authentication.",
+                ),
+            ),
             (
                 "Terminal",
                 terminal(
@@ -4638,20 +4681,36 @@ mod tests {
                     Some(audit_filter(
                         "/next/audit",
                         &[
-                            ("a".repeat(64), "DESKTOP-9VH92BJ".to_owned()),
-                            ("b".repeat(64), "DESKTOP-14RJCR8".to_owned()),
+                            ("a".repeat(64), "STUDIO-PC".to_owned()),
+                            ("b".repeat(64), "LAB-PC".to_owned()),
                         ],
                         &AuditFilter {
                             kind: "tool".to_owned(),
                             ..AuditFilter::default()
                         },
                         true,
+                        AUDIT_KINDS.as_slice(),
                     )),
                     "csrf",
                     "0.3.72",
+                    "The console's own record, newest first. Times are UTC; a device id is shortened here but named in full by the line's tooltip.",
+                    "The console's own audit lines.",
                 ),
             ),
-            ("audit-filtered", logs(&log_rows, "Audit", log_rows.len(), Some(audit_filter("/next/audit", &[], &AuditFilter::default(), true)), "csrf", "0.3.72")),
+            ("audit-filtered", logs(&log_rows, "Audit", log_rows.len(), Some(audit_filter("/next/audit", &[], &AuditFilter::default(), true, AUDIT_KINDS.as_slice())), "csrf", "0.3.72", "The console's own record, newest first. Times are UTC; a device id is shortened here but named in full by the line's tooltip.", "The console's own audit lines.")),
+            (
+                "denials",
+                logs(
+                    &[],
+                    "Denials",
+                    0,
+                    Some(audit_filter("/next/denials", &[], &AuditFilter::default(), false, &[])),
+                    "csrf",
+                    "0.3.72",
+                    "Every request the console refused before authentication: a missing session, an unknown token, an unauthenticated probe. A refusal is not a device call, and the arguments it carried are not stored.",
+                    "Refusals recorded before authentication.",
+                ),
+            ),
             ("login", login(None, None)),
         ];
         for (name, markup) in pages {
@@ -4928,9 +4987,12 @@ mod tests {
             page.contains("terminal.write"),
             "the operation is named: {page}"
         );
-        assert!(
-            page.contains("Open the audit log"),
-            "the rail points at the record: {page}"
+        // The audit link is in the toolbar, which survives the 1000px breakpoint that hides the
+        // context rail; the rail no longer carries navigation.
+        assert_eq!(
+            page.matches("href=\"/next/audit\"").count(),
+            1,
+            "exactly one audit link, and it is in the toolbar: {page}"
         );
 
         // Without activity the rail says only that there is no session.
@@ -4947,7 +5009,11 @@ mod tests {
             },
         )
         .into_string();
-        assert!(!bare.contains("Open the audit log"), "{bare}");
+        assert_eq!(
+            bare.matches("href=\"/next/audit\"").count(),
+            1,
+            "the audit link does not depend on activity: {bare}"
+        );
     }
 
     /// **A TOKEN THAT REFERENCES ITSELF IS NOT A TOKEN.** `--ok-soft:var(--ok-soft)` computed to the

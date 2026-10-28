@@ -174,7 +174,8 @@ What the page gained since the first record, each with a test that can fail:
 - **trend** — the vitals page's own visits, labelled "Not a sampler" so nobody reads it as a
   background series.
 - **browser** — a frame pump at 1 fps, single-flight and paused while hidden, replacing one static
-  capture. Not the CDP screencast the plan's P6 acceptance asked for; that remains the open build.
+  capture. The CDP screencast the plan's P6 acceptance asked for shipped as `browser.cast`; the plan
+  records it met on canary 0.3.124.
 - **audit** — the filter offers every kind the log can hold, not the four it started with.
 | the browser smoke (`scripts/console-smoke.mjs --terminal`) | `terminal ok — session session-4 · powershell.exe, 2 tabs` |
 

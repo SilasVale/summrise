@@ -1616,7 +1616,13 @@ async fn next_audit(
             (device.id, label)
         })
         .collect();
-    let bar = page::audit_filter("/next/audit", &devices, &filter, true);
+    let bar = page::audit_filter(
+        "/next/audit",
+        &devices,
+        &filter,
+        true,
+        page::AUDIT_KINDS.as_slice(),
+    );
     Html(
         page::logs(
             &rows,
@@ -1625,6 +1631,9 @@ async fn next_audit(
             Some(bar),
             &hex::encode(&session.csrf),
             &app.version,
+            "The console's own record, newest first. Times are UTC; a device id is shortened here but \
+             named in full by the line's tooltip.",
+            "The console's own audit lines.",
         )
         .into_string(),
     )
@@ -1668,7 +1677,10 @@ async fn next_denials(
         .take(DEFAULT_LOG_LIMIT)
         .cloned()
         .collect();
-    let bar = page::audit_filter("/next/denials", &[], &filter, false);
+    // Denials is not the audit: it is the refusals the console made BEFORE authentication, from
+    // its own store, and every row in it has kind `denied`. So it gets its own lead and no kind
+    // filter (the audit's twelve-option list offered eleven that could never match).
+    let bar = page::audit_filter("/next/denials", &[], &filter, false, &[]);
     Html(
         page::logs(
             &rows,
@@ -1677,6 +1689,10 @@ async fn next_denials(
             Some(bar),
             &hex::encode(&session.csrf),
             &app.version,
+            "Every request the console refused before authentication: a missing session, an unknown \
+             token, an unauthenticated probe. A refusal is not a device call, and the arguments it \
+             carried are not stored.",
+            "Refusals recorded before authentication.",
         )
         .into_string(),
     )
