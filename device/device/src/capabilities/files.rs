@@ -25,7 +25,7 @@
 
 use std::fmt;
 use std::fs;
-use std::io;
+use std::io::{self, Write};
 use std::path::{Component, Path, PathBuf};
 
 /// The most entries [`list`] returns; a larger directory is [`FilesError::TooManyEntries`].
@@ -279,7 +279,20 @@ pub fn write(root: &Path, rel: &Path, bytes: &[u8], max_bytes: usize) -> Result<
         Err(error) => return Err(FilesError::Io(error)),
     }
 
-    fs::write(&destination, bytes).map_err(FilesError::Io)
+    // **THE BYTES GO TO A SIBLING THE CALLER CANNOT PREDICT, THEN THE NAME IS REPLACED.** The checks
+    // above prove the destination is inside the root, and then `fs::write` would reopen it — so a link
+    // planted between the check and the write would take the bytes outside the root. `rename` replaces
+    // a link rather than following it, which is what makes the check hold.
+    let (temporary, mut file) =
+        crate::fsutil::create_new_sibling(&destination).map_err(FilesError::Io)?;
+    let written = file.write_all(bytes).map_err(FilesError::Io);
+    drop(file);
+    let renamed =
+        written.and_then(|()| fs::rename(&temporary, &destination).map_err(FilesError::Io));
+    if renamed.is_err() {
+        let _ = fs::remove_file(&temporary);
+    }
+    renamed
 }
 
 /// Create one directory `rel` below `root`.
@@ -441,6 +454,40 @@ mod tests {
         let root = dir.join("root");
         fs::create_dir_all(&root).expect("the root is creatable");
         (dir, root)
+    }
+
+    /// **A WRITE REPLACES A LINK, IT DOES NOT FOLLOW ONE.** The destination is checked and then
+    /// written; if the write reopened the path, a link planted between the two would take the bytes
+    /// somewhere else. The sibling-and-rename discipline is what makes the check hold, and this pins
+    /// the observable half of it: after a write to a name that is a symlink, the name is a regular
+    /// file and the thing it used to point at is untouched.
+    #[cfg(unix)]
+    #[test]
+    fn a_write_replaces_a_symlink_instead_of_writing_through_it() {
+        let (_dir, root) = rooted("files-write-replaces-link");
+        fs::create_dir(root.join("notes")).expect("the subdirectory is creatable");
+        let untouched = root.join("notes/untouched.txt");
+        fs::write(&untouched, b"original").expect("the target is writable");
+        std::os::unix::fs::symlink(&untouched, root.join("notes/link.txt"))
+            .expect("the link is creatable");
+
+        write(&root, Path::new("notes/link.txt"), b"replaced", 1024)
+            .expect("a write inside the root succeeds");
+
+        assert_eq!(
+            fs::read(&untouched).expect("the old target still reads"),
+            b"original",
+            "the link's target must not be written through"
+        );
+        let metadata = fs::symlink_metadata(root.join("notes/link.txt")).expect("the name exists");
+        assert!(
+            !metadata.file_type().is_symlink(),
+            "the name is a regular file after the rename, not a link"
+        );
+        assert_eq!(
+            fs::read(root.join("notes/link.txt")).expect("the new file reads"),
+            b"replaced"
+        );
     }
 
     #[test]
