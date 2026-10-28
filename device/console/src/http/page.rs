@@ -70,6 +70,10 @@ body.app { display:flex; height:100vh; overflow:hidden; }
 .alert { display:flex; align-items:flex-start; gap:8px; margin:0 0 16px; padding:12px 16px; border:1px solid transparent; border-radius:var(--radius-sm); background:var(--panel); box-shadow:var(--shadow); color:var(--ink); font-size:13px; }
 .alert.error { background:var(--danger-soft); color:var(--danger); }
 .alert.notice { border-color:var(--line); background:var(--panel-2); color:var(--muted); }
+.segments { display:flex; gap:4px; margin:0 0 14px; }
+.segment { display:inline-flex; align-items:center; min-height:28px; padding:4px 12px; border:1px solid var(--line); border-radius:var(--radius-xs); color:var(--muted); font-size:13px; font-weight:500; }
+.segment:hover { color:var(--ink); border-color:var(--line-strong); }
+.segment[aria-current="page"] { background:var(--panel); border-color:var(--line-strong); color:var(--ink); box-shadow:0 1px 2px rgba(24,24,27,.05); }
 .callout { display:flex; flex-wrap:wrap; align-items:baseline; gap:6px 10px; margin:0 0 16px; padding:12px 16px; border:1px solid color-mix(in srgb, var(--accent) 28%, var(--line)); border-radius:var(--radius-sm); background:var(--accent-soft); color:var(--ink); font-size:13px; }
 .callout .label { color:var(--accent); font-size:11px; font-weight:600; letter-spacing:.08em; text-transform:uppercase; }
 .callout strong { font-family:var(--mono); font-size:14px; letter-spacing:.03em; word-break:break-all; }
@@ -1479,9 +1483,9 @@ pub(super) fn dashboard(
                 }
             }
         }
+        // One destination for the console's own record; the page it opens has the two views.
         nav class="toolbar" aria-label="Records" {
-            a class="btn btn-ghost btn-sm" href="/next/audit" { "Audit" }
-            a class="btn btn-ghost btn-sm" href="/next/denials" { "Denials" }
+            a class="btn btn-ghost btn-sm" href="/next/audit" { "Records" }
         }
     };
     page(
@@ -1590,6 +1594,13 @@ pub(super) fn audit_filter(
 /// One log page's facts, grouped so the renderer has one argument rather than nine (the workspace
 /// clippy denies `too_many_arguments`, and a page with nine positionals is a call site waiting to be
 /// read wrong).
+/// Which log the Records page is showing. One destination, two views.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum LogSegment {
+    Actions,
+    Refusals,
+}
+
 pub(super) struct Logs<'a> {
     pub rows: &'a [serde_json::Value],
     pub title: &'a str,
@@ -1600,6 +1611,7 @@ pub(super) struct Logs<'a> {
     pub lead: &'a str,
     pub caption: &'a str,
     pub filtered: bool,
+    pub segment: LogSegment,
 }
 
 pub(super) fn logs(view: Logs<'_>) -> Markup {
@@ -1613,9 +1625,15 @@ pub(super) fn logs(view: Logs<'_>) -> Markup {
         lead,
         caption,
         filtered,
+        segment,
     } = view;
+    let current = |want: LogSegment| if want == segment { "page" } else { "false" };
     let count = rows.len();
     let content = html! {
+        nav class="segments" aria-label="Records" {
+            a class="segment" href="/next/audit" aria-current=(current(LogSegment::Actions)) { "Actions" }
+            a class="segment" href="/next/denials" aria-current=(current(LogSegment::Refusals)) { "Refusals" }
+        }
         p class="lead" { (lead) }
         @if let Some(filter) = filter {
             (filter)
@@ -1702,7 +1720,8 @@ pub(super) fn logs(view: Logs<'_>) -> Markup {
         Chrome {
             active: Page::Fleet,
             device: None,
-            title,
+            // One destination: the heading is the destination, the card is the view.
+            title: "Records",
             version,
             csrf,
             status: html! { (count) " lines" },
@@ -4238,7 +4257,8 @@ mod tests {
                 "Fleet",
                 logs(Logs {
                     rows: &[],
-                    title: "Audit",
+                    title: "Actions",
+                    segment: LogSegment::Actions,
                     total: 0,
                     filter: None,
                     csrf: "00",
@@ -4252,7 +4272,8 @@ mod tests {
                 "Fleet",
                 logs(Logs {
                     rows: &[],
-                    title: "Denials",
+                    title: "Refusals",
+                    segment: LogSegment::Refusals,
                     total: 0,
                     filter: None,
                     csrf: "00",
@@ -4363,7 +4384,9 @@ mod tests {
                 );
             }
             assert_eq!(
-                page.matches("aria-current=\"page\"").count(),
+                // The rail marks itself with `rail-item active`; the log pages also carry an
+                // `aria-current` on their segment control, which is not a rail item.
+                page.matches("class=\"rail-item active\"").count(),
                 1,
                 "{expected}: exactly one rail item is current: {page}"
             );
@@ -4472,6 +4495,29 @@ mod tests {
         }
         // The smoke test clicks `a:has-text("Files")`; the rail must not add a second text match.
         assert_eq!(page.matches(">Files</a>").count(), devices.len(), "{page}");
+    }
+
+    /// **ONE DESTINATION FOR THE CONSOLE'S RECORD.** The fleet footer offered two bare links
+    /// (Audit, Denials); the two views live behind one `Records` link and a segment control now.
+    #[test]
+    fn the_fleet_links_one_records_destination() {
+        let device = view('a', Some("studio"), true);
+        let html = dashboard(
+            &[device],
+            "csrf",
+            "0.1.0",
+            Notes::default(),
+            &[],
+            &[],
+            1_791_000_000_000,
+        )
+        .into_string();
+        assert_eq!(html.matches(">Records</a>").count(), 1, "{html}");
+        assert!(!html.contains(">Audit</a>"), "the old link is gone: {html}");
+        assert!(
+            !html.contains(">Denials</a>"),
+            "the old link is gone: {html}"
+        );
     }
 
     /// **A HELD CALL IS DECIDED IN NINETY SECONDS.** The card used to show raw JSON and nothing
@@ -5138,7 +5184,8 @@ mod tests {
                 "audit",
                 logs(Logs {
                     rows: &log_rows,
-                    title: "Audit",
+                    title: "Actions",
+                    segment: LogSegment::Actions,
                     total: log_rows.len() + 3,
                     filter: Some(audit_filter(
                         "/next/audit",
@@ -5162,7 +5209,8 @@ mod tests {
             ),
             ("audit-filtered", logs(Logs {
                 rows: &log_rows,
-                title: "Audit",
+                title: "Actions",
+                segment: LogSegment::Actions,
                 total: log_rows.len(),
                 filter: Some(audit_filter("/next/audit", &[], &AuditFilter::default(), true, AUDIT_KINDS.as_slice())),
                 csrf: "csrf",
@@ -5173,7 +5221,8 @@ mod tests {
             })),
             ("denials", logs(Logs {
                 rows: &[],
-                title: "Denials",
+                title: "Refusals",
+                segment: LogSegment::Refusals,
                 total: 0,
                 filter: Some(audit_filter("/next/denials", &[], &AuditFilter::default(), false, &[])),
                 csrf: "csrf",

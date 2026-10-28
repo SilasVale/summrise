@@ -1672,7 +1672,7 @@ async fn next_audit(
     Html(
         page::logs(page::Logs {
             rows: &rows,
-            title: "Audit",
+            title: "Actions",
             total: total.len(),
             filter: Some(bar),
             csrf: &hex::encode(&session.csrf),
@@ -1682,6 +1682,7 @@ async fn next_audit(
                    here but named in full by the line's tooltip.",
             caption: "The console's own audit lines.",
             filtered: filter.is_active(),
+            segment: page::LogSegment::Actions,
         })
         .into_string(),
     )
@@ -1732,7 +1733,7 @@ async fn next_denials(
     Html(
         page::logs(page::Logs {
             rows: &rows,
-            title: "Denials",
+            title: "Refusals",
             total: total.len(),
             filter: Some(bar),
             csrf: &hex::encode(&session.csrf),
@@ -1743,6 +1744,7 @@ async fn next_denials(
                    it carried are not stored.",
             caption: "Refusals recorded before authentication.",
             filtered: filter.is_active(),
+            segment: page::LogSegment::Refusals,
         })
         .into_string(),
     )
