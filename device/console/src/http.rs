@@ -452,6 +452,7 @@ impl Console {
             // The same read as `/audit`, over the unauthenticated-refusal log. Operator-only: the
             // log holds what probing looks like, and it is surfaced read-only.
             .route("/denials", get(list_denials))
+            .fallback(page_not_found)
             .layer(axum::middleware::from_fn(no_store))
             .layer(axum::middleware::from_fn_with_state(
                 self.inner.clone(),
@@ -459,6 +460,25 @@ impl Console {
             ))
             .with_state(self.inner.clone())
     }
+}
+
+/// A page route whose device is gone: the same card the fallback serves, so a stale link is never a
+/// blank page.
+fn no_such_device(app: &AppState) -> Response {
+    (
+        StatusCode::NOT_FOUND,
+        Html(page::not_found(&app.version).into_string()),
+    )
+        .into_response()
+}
+
+/// Any path the router does not own: a 404 in the product's own card, with a way back.
+async fn page_not_found(State(app): State<AppState>) -> Response {
+    (
+        StatusCode::NOT_FOUND,
+        Html(page::not_found(&app.version).into_string()),
+    )
+        .into_response()
 }
 
 /// The facts one audit line names. One shape, named at the call site: the three `Option`s are
@@ -2073,7 +2093,7 @@ async fn next_terminal_end(
         return StatusCode::FORBIDDEN.into_response();
     }
     if !app.has_device(&device_id) {
-        return StatusCode::NOT_FOUND.into_response();
+        return no_such_device(&app);
     }
     let uri = format!("/next/terminal/{device_id}");
     match terminal_tool(
@@ -2103,7 +2123,7 @@ async fn next_terminal_preset_save(
         return StatusCode::FORBIDDEN.into_response();
     }
     if !app.has_device(&device_id) {
-        return StatusCode::NOT_FOUND.into_response();
+        return no_such_device(&app);
     }
     let uri = format!("/next/terminal/{device_id}");
     let refuse = |sentence: &str| {
@@ -2136,7 +2156,7 @@ async fn next_terminal_preset_remove(
         return StatusCode::FORBIDDEN.into_response();
     }
     if !app.has_device(&device_id) {
-        return StatusCode::NOT_FOUND.into_response();
+        return no_such_device(&app);
     }
     let uri = format!("/next/terminal/{device_id}");
     match lock(&app.connections).remove(&device_id, &id) {
@@ -2166,7 +2186,7 @@ async fn next_terminal_preset_connect(
         return StatusCode::FORBIDDEN.into_response();
     }
     if !app.has_device(&device_id) {
-        return StatusCode::NOT_FOUND.into_response();
+        return no_such_device(&app);
     }
     let uri = format!("/next/terminal/{device_id}");
     let refuse = |sentence: &str| {
@@ -2552,7 +2572,7 @@ async fn next_files_mkdir(
         return StatusCode::FORBIDDEN.into_response();
     }
     if !app.has_device(&device_id) {
-        return StatusCode::NOT_FOUND.into_response();
+        return no_such_device(&app);
     }
     let mut target = format!("/next/files/{device_id}");
     let current = form.current.trim_matches('/');
@@ -2964,7 +2984,7 @@ async fn next_system_net_test(
         return StatusCode::FORBIDDEN.into_response();
     }
     if !app.has_device(&device_id) {
-        return StatusCode::NOT_FOUND.into_response();
+        return no_such_device(&app);
     }
     let host = form.host.trim().to_owned();
     let uri = format!("/next/system/{device_id}");
@@ -3019,7 +3039,7 @@ async fn next_system_restart(
         return StatusCode::FORBIDDEN.into_response();
     }
     if !app.has_device(&device_id) {
-        return StatusCode::NOT_FOUND.into_response();
+        return no_such_device(&app);
     }
     let uri = format!("/next/system/{device_id}");
     match device_tool(&app, &device_id, "host.restart", json!({})).await {
@@ -3250,7 +3270,7 @@ async fn next_memory_export(
         return login_card(&app, &headers).into_response();
     };
     if !app.has_device(&device_id) {
-        return StatusCode::NOT_FOUND.into_response();
+        return no_such_device(&app);
     }
     match device_tool(&app, &device_id, "memory.export", json!({})).await {
         Ok(text) => {
@@ -3359,7 +3379,7 @@ async fn next_monitor_probe(
         return StatusCode::FORBIDDEN.into_response();
     }
     if !app.has_device(&device_id) {
-        return StatusCode::NOT_FOUND.into_response();
+        return no_such_device(&app);
     }
     let uri = format!("/next/monitors/{device_id}");
     match device_tool(&app, &device_id, "monitor.probe", json!({ "id": form.id })).await {
@@ -3578,7 +3598,7 @@ async fn next_browser_frame(
         return StatusCode::UNAUTHORIZED.into_response();
     }
     if !app.has_device(&device_id) {
-        return StatusCode::NOT_FOUND.into_response();
+        return no_such_device(&app);
     }
     if query.target.trim().is_empty() {
         return StatusCode::BAD_REQUEST.into_response();
@@ -3757,7 +3777,7 @@ async fn next_browser_navigate(
         return StatusCode::FORBIDDEN.into_response();
     }
     if !app.has_device(&device_id) {
-        return StatusCode::NOT_FOUND.into_response();
+        return no_such_device(&app);
     }
     let uri = format!("/next/browser/{device_id}");
     let url = form.url.trim().to_owned();
@@ -3792,7 +3812,7 @@ async fn next_browser_shutdown(
         return StatusCode::FORBIDDEN.into_response();
     }
     if !app.has_device(&device_id) {
-        return StatusCode::NOT_FOUND.into_response();
+        return no_such_device(&app);
     }
     let uri = format!("/next/browser/{device_id}");
     match device_tool(&app, &device_id, "browser.shutdown", json!({})).await {
@@ -3823,7 +3843,7 @@ async fn next_browser_eval(
         return StatusCode::FORBIDDEN.into_response();
     }
     if !app.has_device(&device_id) {
-        return StatusCode::NOT_FOUND.into_response();
+        return no_such_device(&app);
     }
     let uri = format!("/next/browser/{device_id}");
     let expression = form.expression.trim().to_owned();

@@ -937,6 +937,39 @@ pub(super) fn login(note: Option<&str>, error: Option<&str>) -> Markup {
     }
 }
 
+/// A wrong address, answered in the product's own clothes.
+///
+/// Every unmatched path used to be an empty `404` with no link, no brand and no way back — the one
+/// screen in the console that did not look like the console. A mistyped URL and a link to a device
+/// that was removed both land here.
+pub(super) fn not_found(version: &str) -> Markup {
+    html! {
+        (DOCTYPE)
+        html lang="en" {
+            head {
+                meta charset="utf-8";
+                meta name="viewport" content="width=device-width, initial-scale=1";
+                title { "Not here — Summrise console" }
+                style { (PreEscaped(style_sheet())) }
+            }
+            body class="login" {
+                div class="login-shell" {
+                    main class="login-card" {
+                        div class="login-brand" aria-hidden="true" { (brand_icon()) }
+                        h1 { "Not here" }
+                        p class="lead" {
+                            "That address is not part of this console. A link from an older build "
+                            "and a device that was removed both land here."
+                        }
+                        p { a class="btn btn-primary" href="/next" { "Back to the fleet" } }
+                        p class="small muted" { "Summrise console " (version) }
+                    }
+                }
+            }
+        }
+    }
+}
+
 /// The signed-in page: the fleet, its summary, and the phase-2 mutations. Each device is one row:
 /// who it is, the pages that act on it, and the two mutations folded into a disclosure.
 /// The optional lines the dashboard can carry, grouped so the renderer stays inside the argument
@@ -5074,6 +5107,7 @@ mod tests {
                 ),
             ),
             ("login", login(None, None)),
+            ("not-found", not_found("0.3.72")),
         ];
         for (name, markup) in pages {
             std::fs::write(dir.join(format!("{name}.html")), markup.into_string())

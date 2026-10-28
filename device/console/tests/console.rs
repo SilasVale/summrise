@@ -3357,6 +3357,29 @@ async fn signing_out_behind_access_ends_the_access_session() {
 /// `--login-link` prints `<page>?code=…` and promises two minutes' way in. The page has to spend
 /// that code, or the only recovery left when Access misbehaves is a secret in a file on the host.
 #[tokio::test]
+async fn an_unknown_path_is_a_page_with_a_way_back() {
+    let fixture = Fixture::new("not-found");
+    // Unauthenticated: the 404 is the same page whoever asks, so a typo never becomes a login wall.
+    let (status, headers, body) = send_text(fixture.app(), get("/next/no-such-page", None)).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert_eq!(
+        headers
+            .get(header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok()),
+        Some("text/html; charset=utf-8")
+    );
+    assert!(body.contains("Not here"), "{body}");
+    assert!(
+        body.contains("href=\"/next\""),
+        "the page has a way back: {body}"
+    );
+    assert!(
+        !body.contains("no-such-page"),
+        "the path is not echoed: {body}"
+    );
+}
+
+#[tokio::test]
 async fn a_login_link_code_signs_the_page_in_exactly_once() {
     let fixture = Fixture::new("login-link");
     let code = LoginCode {
