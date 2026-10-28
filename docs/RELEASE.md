@@ -5,7 +5,7 @@ Three version streams ship from this repository and none of them is deployed by 
 | stream | what it is | how it reaches a machine |
 |---|---|---|
 | **device runtime** | `summrise-launch` + `summrise-device`, the Windows service | the installer, or the device's own update check against the mirror |
-| **console** | `summrise-console`, the operator's surface | copied to the console host and restarted |
+| **console** | `summrise-console`, the operator's surface | built here, fetched by the host and swapped by `scripts/stage-console-deploy.bash` (see `docs/console-deploy.md`) |
 | **console page** | Rust handlers in `console/src/http/page.rs`, rendered per request | inside the console binary — no separate deploy, no npm |
 
 They share a version number because they are released together, but a *device* release does not redeploy a
