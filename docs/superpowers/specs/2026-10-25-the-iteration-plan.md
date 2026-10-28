@@ -181,6 +181,23 @@ from the acceptance text above". The deviations are the point of this section.
 | P6 restarts | **met, observed** | the device journals each boot (when, from which release and digest, pid) in `<data>/restarts.jsonl`, bounded at 50 records, and `host.facts` carries the last ten; the Vitals page's Install card lists them under **Restarts**, beside the launcher's swap outcome and repairs. Observed on canary 0.3.128 (2026-10-28): after the update both DESKTOP-9VH92BJ and DESKTOP-14RJCR8 answer `/api/health` 0.3.128 and their Vitals pages render the card with the boot that the upgrade wrote (`{"at_ms":1793156311919,"version":"0.3.128","pid":14824}` on 14RJCR8); a device still on an older runtime renders no card, which is the honest answer |
 | P6 browser live view | **met, observed** | `browser.cast` is a real CDP `Page.startScreencast` stream: a reader per tab, newest frame returned, every frame acked, idle stop after 60 s, closed with the tab. The pane polls at 5 fps while a stream serves it and falls back to 1 fps screenshots on a device without the tool. Observed on canary 0.3.124 (9vh92bj, 2026-10-28): the frame route answered `200 format=jpeg stream=true 764×485` in 27 ms; ten polls 200 ms apart while scrolling returned **ten distinct frames** at 9–13 ms each, and the same ten polls on a still page returned **one** frame — the stream serves the newest paint instead of forcing captures |
 
+### The fleet at the end of the session (2026-10-28)
+
+Three canaries, one runtime each, the legacy desktop/agent retired from all three (see RELEASE.md):
+
+| device | runtime | tray | notes |
+|---|---|---|---|
+| DESKTOP-9VH92BJ | 0.3.130, online | running (session 2, user 13122) | also runs the console at `C:\SummriseConsole` and the canary mirror |
+| DESKTOP-14RJCR8 | 0.3.130, online | running | its console link is a tailnet address, which is why the plaintext rule had to learn that private links are private |
+| DESKTOP-CPH4KB2 | 0.3.129, **offline** | not running | installer 0.3.130 removed its service and then failed; the recovery is in RELEASE.md and needs one command at the machine |
+
+The installer is the only stream that had not been exercised end to end before that attempt, and the
+attempt is what found the ordering bug (service removed before the replacement was ready) and the
+missing step (the app was not killed before its image was rotated). Since 0.3.131 the registration is
+kept and the app is killed first; since 0.3.132 a boot-time `SummriseRepair` task re-registers a
+missing service. Neither has run on a machine yet: CPH4KB2 is the next test, and the other two are
+deliberately not touched until it passes.
+
 ### The inbound authorization findings (2026-10-28)
 
 A read-only review of the device's inbound path and of the console's credential core found nine
