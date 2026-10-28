@@ -309,3 +309,50 @@ Two decisions made during those rounds belong beside the phases:
 - **A held call cannot outlive its request**: a `Held` guard removes the approval row when the
   holding future drops, and the client is told the outcome is unknown (504) rather than "needs
   approval" when the re-send fails — a retry after that answer could run the command twice.
+
+### Phase 2 outcome: the console, the panel and the front door (2026-10-28)
+
+What the design pass changed, measured rather than described:
+
+- **The console's information architecture.** The rail shows one page until a device is chosen; a
+  fleet row offers `Terminal · Screen · Files · Connect` with the other seven behind `More`; the
+  token page is "Connect" at the door, in the rail and on the page. A wrong address — or a device
+  that was removed — answers a card with a way back instead of an empty 404.
+- **One of each scale, gated.** Eight type sizes, seven radii, a 4/8/12/16/24/32 spacing rhythm, one
+  filled action per surface. Two gates parse the stylesheet and fail on a literal; both were
+  mutation-tested, and the first version of one of them was vacuous and said so in a follow-up
+  commit.
+- **The copy says what the code does.** Ten sentences changed after an audit compared every
+  explanatory line with its implementation: "read-only" became "no destructive tools", the
+  launcher's three-restart limit is printed where Restart is pressed, and a kill renders the pids
+  the device returned (it had always said "0").
+- **The approval card is decided in ninety seconds.** One sentence says what the call does
+  (`Start a pty session…`, `End process 4242.`, `Run cmd /c dir in work.`), the JSON stays as
+  evidence, and the decision is announced after the redirect.
+- **Accessibility.** xterm reads with `screenReaderMode`, every repeated destructive button names
+  its row, the approvals badge announces through a live region, the menus close on Escape, the
+  terminal has a visible focus ring, and every reflowed table keeps its captions and headers.
+- **The device panel**, which had never been rendered for review: the submit button uses the
+  measured `--accent-solid` pair (it was 1.96:1), the panel is on the console's type scale, the
+  browser-drawn terminal controls are styled, the "connected" chip no longer claims a connection it
+  did not observe, and the two terminal cards became one.
+- **The front door.** The landing page shows the product (its own renderer, sanitized devices), its
+  hero states the enrollment command that actually works, and the page no longer runs 20px wider than
+  a phone at 390px.
+
+Verification for all of it: the Linux CI job run locally (1329 tests passed, 0 failed; fmt and
+clippy clean across nine crates), the landing's own gate (78 bilingual strings, 14 contrast pairs),
+the console's 30-page screenshot set at 390/800/1280, the panel's new review renderer, and the live
+console at each deploy.
+
+### What is deliberately not done
+
+- **The device fleet still runs 0.3.152.** A canary 0.3.167 was built, signed and verified against a
+  loopback mirror, and the publish is one command — but it moves the channel pointer for every
+  device, which is the operator's call.
+- **Three navigational cuts are proposed, not made**: Audit + Denials into one `Records` page,
+  State into System, and Screen + Browser into one visual surface. Each removes a destination the
+  operator may have muscle memory for.
+- **The public download still points at the newest published release (v0.3.12).** The page is
+  honest about that ("latest published release"); closing the gap is a release decision, not a page
+  edit.
