@@ -531,17 +531,26 @@ fn open_url(url: &str) {
             .chain(std::iter::once(0))
             .collect()
     };
-    // SAFETY: both strings are NUL-terminated and outlive the call; the return value is only a
-    // success hint and is deliberately ignored (a failure to open a browser must not stop the tray).
-    unsafe {
+    let url = wide(url);
+    let verb = wide("open");
+    // SAFETY: both strings are NUL-terminated and outlive the call.
+    let answer = unsafe {
         windows_sys::Win32::UI::Shell::ShellExecuteW(
             0,
-            wide("open").as_ptr(),
-            wide(url).as_ptr(),
+            verb.as_ptr(),
+            url.as_ptr(),
             std::ptr::null(),
             std::ptr::null(),
             windows_sys::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL,
-        );
+        )
+    };
+    // The return is an HINSTANCE whose value above 32 means "started". A failure here used to be
+    // invisible — the menu item simply did nothing, which is exactly the report it produced — so the
+    // log now carries the code, and the tray boot is unaffected either way.
+    if answer as usize <= 32 {
+        crate::note(&format!(
+            "cannot open {url:?} in the browser (ShellExecuteW answered {answer:?})"
+        ));
     }
 }
 
