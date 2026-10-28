@@ -425,7 +425,13 @@ pub(crate) async fn enroll(invocation: &EnrollInvocation) -> Result<Enrollment, 
     .map_err(|error| EnrollError::BadResponse {
         detail: format!("cannot encode the registration response: {error}"),
     })?;
-    let link_bytes = merge_console_link(link, &invocation.console_url, &token_path, &console_path)?;
+    let link_bytes = merge_console_link(
+        link,
+        &invocation.console_url,
+        invocation.allow_plaintext,
+        &token_path,
+        &console_path,
+    )?;
     write_private(&token_path, &token_bytes)?;
     write_private(&console_path, &link_bytes)?;
 
@@ -548,6 +554,7 @@ fn read_console_link(path: &Path) -> Result<Map<String, Value>, EnrollError> {
 fn merge_console_link(
     mut link: Map<String, Value>,
     console_url: &str,
+    allow_plaintext: bool,
     token_path: &Path,
     path: &Path,
 ) -> Result<Vec<u8>, EnrollError> {
@@ -555,6 +562,11 @@ fn merge_console_link(
         "url".to_owned(),
         Value::String(console_url.trim().to_owned()),
     );
+    // The runtime refuses a plaintext channel to another machine unless the file says so; the flag
+    // the operator gave enrollment is the one that carries over, not a second decision.
+    if allow_plaintext {
+        link.insert("allow_plaintext".to_owned(), Value::Bool(true));
+    }
     link.insert(
         "token_file".to_owned(),
         Value::String(token_path.to_string_lossy().into_owned()),
@@ -1343,6 +1355,53 @@ mod tests {
         assert_eq!(
             link["mesh_stun"], "203.0.113.10:3478",
             "the mesh STUN reflector survives the console merge"
+        );
+    }
+
+    /// The runtime refuses a plaintext channel to another machine unless the file says so, and the
+    /// flag the operator gave enrollment is what must carry over — a second decision in the file
+    /// would be one the operator cannot see.
+    #[tokio::test]
+    async fn an_enrollment_over_plaintext_records_the_allowance() {
+        let console = FakeConsole::start(None).await;
+        let dir = TempDir::new("enroll-plaintext");
+        let data = dir.join("data");
+
+        let invocation = EnrollInvocation {
+            console_url: console.base_url.clone(),
+            code: "e".repeat(64),
+            data: data.clone(),
+            force: false,
+            allow_plaintext: true,
+        };
+        enroll(&invocation).await.expect("the registration enrols");
+        let link: Value = serde_json::from_slice(
+            &fs::read(data.join("console.json")).expect("the link is on disk"),
+        )
+        .expect("the link is JSON");
+        assert_eq!(link["allow_plaintext"], json!(true), "{link}");
+
+        // Without the flag the field is absent: a file written by an https enrollment must not
+        // grant a plaintext channel it never needed.
+        let second = TempDir::new("enroll-plaintext-off");
+        let data = second.join("data");
+        let invocation = EnrollInvocation {
+            console_url: console.base_url.clone(),
+            code: "d".repeat(64),
+            data: data.clone(),
+            force: false,
+            allow_plaintext: false,
+        };
+        enroll(&invocation)
+            .await
+            .expect("the second registration enrols");
+        let link: Value = serde_json::from_slice(
+            &fs::read(data.join("console.json")).expect("the link is on disk"),
+        )
+        .expect("the link is JSON");
+        assert!(
+            link.get("allow_plaintext").is_none(),
+            "no flag, no allowance in the file: {link}"
         );
     }
 

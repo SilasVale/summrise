@@ -1218,6 +1218,7 @@ mod tests {
             supervised: release_sha.is_some(),
             console_url: None,
             console_token_file: None,
+            console_allow_plaintext: false,
             mesh_broker: None,
             mesh_relay: None,
             mesh_stun: None,

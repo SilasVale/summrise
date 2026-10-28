@@ -503,6 +503,7 @@ mod tests {
             supervised: false,
             console_url: None,
             console_token_file: None,
+            console_allow_plaintext: false,
             mesh_broker: broker.map(str::to_owned),
             mesh_relay: relay.map(str::to_owned),
             mesh_stun: None,

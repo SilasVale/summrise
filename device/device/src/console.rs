@@ -78,6 +78,12 @@ pub(crate) enum ConsoleError {
     },
     /// The URL is not an absolute `ws`, `wss`, `http` or `https` URL.
     BadUrl(String),
+    /// A plaintext `ws://` channel to a host that is not this machine, without the operator's
+    /// explicit `allow_plaintext` in `console.json`.
+    PlaintextChannel {
+        /// The host the URL named.
+        host: String,
+    },
     /// Windows read the token file's DACL and it allows more than SYSTEM and Administrators.
     #[cfg(windows)]
     Insecure {
@@ -113,6 +119,13 @@ impl std::fmt::Display for ConsoleError {
                     "{CONSOLE_URL_FLAG}: '{url}' is not a ws:// or wss:// URL"
                 )
             }
+            ConsoleError::PlaintextChannel { host } => write!(
+                f,
+                "{CONSOLE_URL_FLAG}: refusing a plaintext ws:// channel to '{host}': the \
+                 registration token would cross the network in the clear. Use https:// (wss), or \
+                 set \"allow_plaintext\": true in {} for a console on a trusted network.",
+                crate::config::CONSOLE_FILE
+            ),
             #[cfg(windows)]
             ConsoleError::Insecure { path, detail } => write!(
                 f,
@@ -198,13 +211,40 @@ impl ConsoleEndpoint {
             .release_version
             .clone()
             .unwrap_or_else(|| env!("CARGO_PKG_VERSION").to_owned());
-        let channel_url = channel_url(url, &device_id, &version, None)?;
+        let channel_url = channel_url(
+            url,
+            &device_id,
+            &version,
+            None,
+            config.console_allow_plaintext,
+        )?;
         Ok(Some(ConsoleEndpoint {
             channel_url,
             device_id,
             token,
         }))
     }
+}
+
+/// The host part of a `host[:port]/path` remainder: what a certificate or a refusal names.
+fn host_of(rest: &str) -> &str {
+    let authority = rest.split('/').next().unwrap_or(rest);
+    // A bracketed IPv6 literal keeps its brackets; strip the port after them.
+    if authority.starts_with('[') {
+        return authority
+            .split_once(']')
+            .map(|(host, _)| &authority[..=host.len()])
+            .unwrap_or(authority);
+    }
+    authority.split(':').next().unwrap_or(authority)
+}
+
+/// Whether `host` names this machine, where a plaintext channel never leaves the box.
+fn is_loopback_host(host: &str) -> bool {
+    matches!(
+        host.to_ascii_lowercase().as_str(),
+        "127.0.0.1" | "localhost" | "[::1]" | "::1"
+    )
 }
 
 /// Parse the file registration produced.
@@ -249,6 +289,7 @@ fn channel_url(
     device_id: &str,
     version: &str,
     retry: Option<&RetryNote>,
+    allow_plaintext: bool,
 ) -> Result<String, ConsoleError> {
     let base = base.trim().trim_end_matches('/');
     let (scheme, rest) = base
@@ -259,6 +300,14 @@ fn channel_url(
         "wss" | "https" => "wss",
         _ => return Err(ConsoleError::BadUrl(base.to_owned())),
     };
+    if scheme == "ws" && !allow_plaintext {
+        let host = host_of(rest);
+        if !is_loopback_host(host) {
+            return Err(ConsoleError::PlaintextChannel {
+                host: host.to_owned(),
+            });
+        }
+    }
     if rest.is_empty()
         || rest.contains(char::is_whitespace)
         || rest.contains('?')
@@ -783,6 +832,7 @@ mod tests {
             supervised: false,
             console_url: Some("ws://unused".to_owned()),
             console_token_file: Some(dir.join("console")),
+            console_allow_plaintext: true,
             mesh_broker: None,
             mesh_relay: None,
             mesh_stun: None,
@@ -1010,7 +1060,7 @@ mod tests {
                 "wss://console.example.test/console/devices/ab/channel?v=0.0.0-test",
             ),
         ] {
-            let actual = channel_url(base, "ab", "0.0.0-test", None).expect(base);
+            let actual = channel_url(base, "ab", "0.0.0-test", None, true).expect(base);
             assert!(actual.starts_with(expected), "{base}: {actual}");
             // The machine's own name follows the version, encoded so a space or `&` survives.
             if let Some(name) = host_name() {
@@ -1030,10 +1080,55 @@ mod tests {
             "ws://host/a b",
         ] {
             assert!(
-                channel_url(bad, "ab", "0.0.0-test", None).is_err(),
+                channel_url(bad, "ab", "0.0.0-test", None, true).is_err(),
                 "{bad:?} must be refused"
             );
         }
+    }
+
+    /// Plaintext to another machine carries the registration token in the clear; to this machine it
+    /// never crosses a wire. The operator's `allow_plaintext` is the only way past the rule.
+    #[test]
+    fn a_plaintext_channel_is_loopback_or_explicitly_allowed() {
+        for base in [
+            "ws://127.0.0.1:19000",
+            "http://127.0.0.1:19000/console",
+            "ws://localhost:19000",
+            "ws://[::1]:19000",
+            "https://console.example.test",
+            "wss://console.example.test",
+        ] {
+            assert!(
+                channel_url(base, "ab", "0.0.0-test", None, false).is_ok(),
+                "{base:?} must be accepted without an allowance"
+            );
+        }
+
+        for base in [
+            "ws://10.1.2.3:19000",
+            "http://console.example.test",
+            "ws://100.85.163.159:19000",
+        ] {
+            let error = channel_url(base, "ab", "0.0.0-test", None, false)
+                .expect_err("plaintext off this machine is refused by default");
+            assert!(
+                matches!(error, ConsoleError::PlaintextChannel { .. }),
+                "{base}: {error:?}"
+            );
+            let allowed = channel_url(base, "ab", "0.0.0-test", None, true)
+                .expect("an explicit allowance is honoured");
+            assert!(
+                allowed.starts_with("ws://"),
+                "{base}: an allowed plaintext base still becomes a ws channel: {allowed}"
+            );
+        }
+
+        let error = channel_url("ws://10.1.2.3:19000", "ab", "0.0.0-test", None, false)
+            .expect_err("refused");
+        assert!(
+            error.to_string().contains("10.1.2.3"),
+            "the refusal names the host: {error}"
+        );
     }
 
     #[test]
@@ -1093,6 +1188,7 @@ mod tests {
             supervised: false,
             console_url: Some("https://console.example.test".to_owned()),
             console_token_file: Some(token_file),
+            console_allow_plaintext: true,
             mesh_broker: None,
             mesh_relay: None,
             mesh_stun: None,
