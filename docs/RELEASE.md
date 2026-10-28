@@ -51,7 +51,11 @@ If step 2 fails, `%TEMP%\summrise-setup.log` names the stage it reached — the 
 health endpoint kept serving the same version throughout, and on 2026-10-28 the service was removed
 outright (`--uninstall-service`) and the same command brought the device back — `/api/health` answered
 `0.3.139` and the fleet page showed it online again. That is the command the `SummriseRepair` boot task
-runs, so the repair path is proven even though the boot trigger itself has not fired yet.
+runs; the task itself was then exercised end to end on DESKTOP-9VH92BJ on 2026-10-28 — the service was
+removed by a scheduled task (not by the device's shell, which dies with it), `SummriseRepair` was run, and
+its log reads `… the SummriseLaunch service is missing; re-registering` / `service SummriseLaunch is
+installed` / `repair exit 0`, with `/api/health` answering again 1.2 s later. The boot TRIGGER is the one
+part still unexercised, and it is a Windows guarantee rather than this project's code.
 
 A rehearsal that REMOVES the service cannot be driven from the device's own shell: the shell dies with
 the service (its process tree goes too), so the step that would run the repair never executes. Run it from
