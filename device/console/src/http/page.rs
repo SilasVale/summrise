@@ -1025,6 +1025,15 @@ pub(super) fn dashboard(
                     "prompt on that machine:"
                 }
                 pre class="code-block" { "summrise-device.exe --enroll " (notes.origin.unwrap_or("<console-url>")) " " (code) " --data C:\\ProgramData\\Summrise" }
+                @if let Some(origin) = notes.origin {
+                    @if origin.contains("127.0.0.1") || origin.contains("localhost") {
+                        p class="small muted" {
+                            "That address only reaches this machine. A device on another machine "
+                            "needs the console's own hostname instead — open the console on that "
+                            "name and mint the code again."
+                        }
+                    }
+                }
                 p class="small muted" {
                     "The first enrollment spends the code; if the window closes, mint another."
                 }
@@ -4619,6 +4628,7 @@ mod tests {
                     "0.3.72",
                     Notes {
                         enroll: Some(&"9f".repeat(32)),
+                        origin: Some("http://127.0.0.1:19000"),
                         ..Notes::default()
                     },
                     &[],
