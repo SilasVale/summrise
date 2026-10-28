@@ -68,8 +68,17 @@ fn router_with(
     // The MCP service and the panel share one terminal registry, so a session an MCP client opened
     // is the session the panel lists. `/mcp` is the same secret as `/api/state`: the gate runs before
     // the MCP service sees the request, so an unauthenticated caller cannot even start a handshake.
-    let (mcp_service, terminal) =
-        crate::mcp::service_with_terminal(config, limits, console, mesh, restart.clone());
+    // One audit for the process: the MCP service writes it, and the panel shares it so a session
+    // opened from the device's own page is in the same file as a call an AI client made.
+    let audit = std::sync::Arc::new(crate::mcp::Audit::new(&config.data));
+    let (mcp_service, terminal) = crate::mcp::service_with_terminal(
+        config,
+        limits,
+        audit.clone(),
+        console,
+        mesh,
+        restart.clone(),
+    );
     let state = AppState {
         token: load_token(&config.token_file),
         store,
@@ -78,6 +87,7 @@ fn router_with(
         data: config.data.clone(),
         port: config.port,
         panel_token: mint_panel_token(),
+        audit,
         supervised: config.supervised,
         restart,
         terminal,
@@ -258,6 +268,8 @@ struct AppState {
     /// This boot's panel token: 64 lowercase hex, minted once when the router is built. It is served
     /// only in the panel's HTML (a meta tag) and never in `/api/panel`, an error body, or a log line.
     panel_token: String,
+    /// The process's one audit, shared with the MCP service: panel operations are recorded there.
+    audit: std::sync::Arc<crate::mcp::Audit>,
     /// Whether the launcher started this process with a verified digest. Only then may a panel
     /// enrollment or `host.restart` restart it: a standalone app that exits would not come back.
     supervised: bool,
@@ -549,6 +561,51 @@ fn panel_terminal_allowed(app: &AppState, peer: SocketAddr, headers: &HeaderMap)
     peer.ip().is_loopback() && app.panel_authorized(headers)
 }
 
+/// Begin an audited panel operation; `None` means its authorization line could not be written and
+/// the operation must not run (the same rule the MCP path follows).
+async fn panel_call_begin(app: &AppState, tool: &'static str) -> Option<u64> {
+    let id = app.audit.next_id();
+    app.audit
+        .begin(
+            id,
+            now_ms(),
+            tool,
+            "allow",
+            crate::mcp::Arrival::Panel,
+            None,
+            None,
+        )
+        .await
+        .then_some(id)
+}
+
+/// Record how a panel operation ended. `error_kind` is a closed set of names, never a message.
+async fn panel_call_end(app: &AppState, id: u64, error_kind: Option<&'static str>) {
+    app.audit
+        .end(
+            id,
+            now_ms(),
+            error_kind.is_none(),
+            error_kind,
+            crate::mcp::Arrival::Panel,
+            None,
+            None,
+        )
+        .await;
+}
+
+/// What a panel handler answers when its own audit line cannot be written: the operation did not
+/// run, and the refusal says why without pretending the device is broken.
+fn panel_not_audited() -> Response {
+    error_response(
+        StatusCode::INTERNAL_SERVER_ERROR,
+        "audit_unwritable",
+        Some(
+            "the device's event log could not be written, so the operation was not run".to_owned(),
+        ),
+    )
+}
+
 async fn panel_terminal_create(
     State(app): State<AppState>,
     ConnectInfo(peer): ConnectInfo<SocketAddr>,
@@ -594,17 +651,26 @@ async fn panel_terminal_create(
             )
         }
     };
+    let Some(call) = panel_call_begin(&app, "terminal.create").await else {
+        return panel_not_audited();
+    };
     match app.terminal.create(target, 24, 80).await {
-        Ok(id) => Json(serde_json::json!({
-            "id": id.as_str(),
-            "kind": kind.as_str(),
-        }))
-        .into_response(),
-        Err(error) => error_response(
-            StatusCode::BAD_REQUEST,
-            "terminal_create_refused",
-            Some(error.to_string()),
-        ),
+        Ok(id) => {
+            panel_call_end(&app, call, None).await;
+            Json(serde_json::json!({
+                "id": id.as_str(),
+                "kind": kind.as_str(),
+            }))
+            .into_response()
+        }
+        Err(error) => {
+            panel_call_end(&app, call, Some("refused")).await;
+            error_response(
+                StatusCode::BAD_REQUEST,
+                "terminal_create_refused",
+                Some(error.to_string()),
+            )
+        }
     }
 }
 
@@ -621,13 +687,22 @@ async fn panel_terminal_write(
     let Some(id) = terminal::SessionId::parse(&id) else {
         return error_response(StatusCode::BAD_REQUEST, "invalid_session", None);
     };
+    let Some(call) = panel_call_begin(&app, "terminal.write").await else {
+        return panel_not_audited();
+    };
     match app.terminal.write(&id, body.data.as_bytes()).await {
-        Ok(written) => Json(serde_json::json!({ "written": written })).into_response(),
-        Err(error) => error_response(
-            StatusCode::BAD_REQUEST,
-            "terminal_write_refused",
-            Some(error.to_string()),
-        ),
+        Ok(written) => {
+            panel_call_end(&app, call, None).await;
+            Json(serde_json::json!({ "written": written })).into_response()
+        }
+        Err(error) => {
+            panel_call_end(&app, call, Some("refused")).await;
+            error_response(
+                StatusCode::BAD_REQUEST,
+                "terminal_write_refused",
+                Some(error.to_string()),
+            )
+        }
     }
 }
 
@@ -645,13 +720,22 @@ async fn panel_terminal_resize(
     let Some(id) = terminal::SessionId::parse(&id) else {
         return error_response(StatusCode::BAD_REQUEST, "invalid_session", None);
     };
+    let Some(call) = panel_call_begin(&app, "terminal.resize").await else {
+        return panel_not_audited();
+    };
     match app.terminal.resize(&id, body.rows, body.cols).await {
-        Ok(()) => Json(serde_json::json!({ "resized": true })).into_response(),
-        Err(error) => error_response(
-            StatusCode::BAD_REQUEST,
-            "terminal_resize_refused",
-            Some(error.to_string()),
-        ),
+        Ok(()) => {
+            panel_call_end(&app, call, None).await;
+            Json(serde_json::json!({ "resized": true })).into_response()
+        }
+        Err(error) => {
+            panel_call_end(&app, call, Some("refused")).await;
+            error_response(
+                StatusCode::BAD_REQUEST,
+                "terminal_resize_refused",
+                Some(error.to_string()),
+            )
+        }
     }
 }
 
@@ -684,13 +768,22 @@ async fn panel_terminal_read(
     let Some(id) = terminal::SessionId::parse(&id) else {
         return error_response(StatusCode::BAD_REQUEST, "invalid_session", None);
     };
+    let Some(call) = panel_call_begin(&app, "terminal.read").await else {
+        return panel_not_audited();
+    };
     match app.terminal.read(&id, query.cursor.unwrap_or(0)) {
-        Ok(answer) => Json(panel_read_answer(&answer.data, answer.cursor)).into_response(),
-        Err(error) => error_response(
-            StatusCode::BAD_REQUEST,
-            "terminal_read_refused",
-            Some(error.to_string()),
-        ),
+        Ok(answer) => {
+            panel_call_end(&app, call, None).await;
+            Json(panel_read_answer(&answer.data, answer.cursor)).into_response()
+        }
+        Err(error) => {
+            panel_call_end(&app, call, Some("refused")).await;
+            error_response(
+                StatusCode::BAD_REQUEST,
+                "terminal_read_refused",
+                Some(error.to_string()),
+            )
+        }
     }
 }
 
@@ -706,13 +799,22 @@ async fn panel_terminal_close(
     let Some(id) = terminal::SessionId::parse(&id) else {
         return error_response(StatusCode::BAD_REQUEST, "invalid_session", None);
     };
+    let Some(call) = panel_call_begin(&app, "terminal.close").await else {
+        return panel_not_audited();
+    };
     match app.terminal.close(&id).await {
-        Ok(()) => Json(serde_json::json!({ "closed": true })).into_response(),
-        Err(error) => error_response(
-            StatusCode::BAD_REQUEST,
-            "terminal_close_refused",
-            Some(error.to_string()),
-        ),
+        Ok(()) => {
+            panel_call_end(&app, call, None).await;
+            Json(serde_json::json!({ "closed": true })).into_response()
+        }
+        Err(error) => {
+            panel_call_end(&app, call, Some("refused")).await;
+            error_response(
+                StatusCode::BAD_REQUEST,
+                "terminal_close_refused",
+                Some(error.to_string()),
+            )
+        }
     }
 }
 
@@ -2123,6 +2225,32 @@ mod tests {
                 .expect("the device answers");
             assert_eq!(response.status(), StatusCode::OK, "{method} {path}");
         }
+
+        // The panel's terminal operations are audited like an MCP call: a session opened at the
+        // device's own page must be findable in events.jsonl, or the log answers "what ran here"
+        // with everything except what the person standing at the machine did.
+        let lines: Vec<Value> = std::fs::read_to_string(fixture.config.data.join("events.jsonl"))
+            .unwrap_or_default()
+            .lines()
+            .map(|line| serde_json::from_str(line).expect("an audit line is JSON"))
+            .collect();
+        let panel_ops: Vec<&Value> = lines
+            .iter()
+            .filter(|line| line["transport"] == "panel" && line["decision"] == "allow")
+            .collect();
+        assert_eq!(
+            panel_ops.len(),
+            4,
+            "create, write, read and close each wrote their authorization line: {lines:?}"
+        );
+        assert_eq!(panel_ops[0]["tool"], "terminal.create", "{lines:?}");
+        assert_eq!(panel_ops[1]["tool"], "terminal.write", "{lines:?}");
+        assert_eq!(panel_ops[2]["tool"], "terminal.read", "{lines:?}");
+        assert_eq!(panel_ops[3]["tool"], "terminal.close", "{lines:?}");
+        assert!(
+            lines.iter().all(|line| line["token_id"].is_null()),
+            "a panel call carries no token id: {lines:?}"
+        );
     }
 
     #[tokio::test]

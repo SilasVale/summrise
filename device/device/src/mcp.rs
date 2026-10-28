@@ -170,6 +170,10 @@ pub(crate) enum Caller<'a> {
 pub(crate) enum Arrival {
     /// The loopback HTTP surface, with the install token.
     Loopback,
+    /// The device's own page on loopback, with this boot's panel token. The operator standing at
+    /// the machine, which is the same trust as `Loopback` but a different door: a terminal session
+    /// opened from the page must be findable in the log as one.
+    Panel,
     /// The console's outbound WebSocket.
     Console,
     /// A mesh channel: a peer reached this device directly or through the relay.
@@ -181,6 +185,7 @@ impl Arrival {
     fn as_str(self) -> &'static str {
         match self {
             Arrival::Loopback => "loopback",
+            Arrival::Panel => "panel",
             Arrival::Console => "console",
             Arrival::Mesh => "mesh",
         }
@@ -189,7 +194,8 @@ impl Arrival {
     /// How `core`'s authorization reads this arrival.
     fn transport(self) -> Transport {
         match self {
-            Arrival::Loopback => Transport::Loopback,
+            // The panel is this machine's operator, exactly as the install-token surface is.
+            Arrival::Loopback | Arrival::Panel => Transport::Loopback,
             Arrival::Console => Transport::Console,
             // A mesh peer is remote however it was reached, so an absent grant is `NoGrant` rather
             // than the loopback default deny.
@@ -231,6 +237,7 @@ impl<'a> Caller<'a> {
 pub(crate) fn service_with_terminal(
     config: &Config,
     limits: terminal::Limits,
+    audit: Arc<Audit>,
     console: Option<crate::console::ConsoleEndpoint>,
     mesh: Option<crate::mesh::MeshLink>,
     restart: restart::Hook,
@@ -238,7 +245,9 @@ pub(crate) fn service_with_terminal(
     StreamableHttpService<DeviceServer, LocalSessionManager>,
     Arc<terminal::PtyRegistry>,
 ) {
-    let server = DeviceServer::new(config, limits).with_restart(restart);
+    let server = DeviceServer::new(config, limits)
+        .with_restart(restart)
+        .with_audit(audit);
     let terminal = Arc::clone(&server.terminal);
     // The sweeper is the device's, not a client's: it holds a weak reference, so the children are
     // closed when the service (and its registry) is dropped.
@@ -328,6 +337,13 @@ impl DeviceServer {
     /// without a router (a test, a console handler fixture) is safe by default.
     pub(crate) fn with_restart(mut self, restart: restart::Hook) -> DeviceServer {
         self.restart = restart;
+        self
+    }
+
+    /// Share the process's one audit with the panel, so a session the operator opens from the page
+    /// lands in the same file as the calls an AI client makes.
+    pub(crate) fn with_audit(mut self, audit: Arc<Audit>) -> DeviceServer {
+        self.audit = audit;
         self
     }
 
@@ -2589,7 +2605,7 @@ struct AuditEnd<'a> {
 /// growing audit is a worse warning than a missing one. A failed `begin` returns `false` and the
 /// caller refuses the call; a failed `end` is reported and the call still returns, because after
 /// dispatch the capability has already run.
-struct Audit {
+pub(crate) struct Audit {
     path: PathBuf,
     rotated: PathBuf,
     max_bytes: u64,
@@ -2599,7 +2615,7 @@ struct Audit {
 }
 
 impl Audit {
-    fn new(data: &Path) -> Audit {
+    pub(crate) fn new(data: &Path) -> Audit {
         Audit::with_cap(data.join("events.jsonl"), AUDIT_MAX_BYTES)
     }
 
@@ -2618,13 +2634,13 @@ impl Audit {
         Arc::clone(&self.append)
     }
 
-    fn next_id(&self) -> u64 {
+    pub(crate) fn next_id(&self) -> u64 {
         self.next_id.fetch_add(1, Ordering::Relaxed)
     }
 
     /// Write the authorization line. `false` means no line was written.
     #[allow(clippy::too_many_arguments)]
-    async fn begin(
+    pub(crate) async fn begin(
         &self,
         id: u64,
         ts_ms: i64,
@@ -2648,7 +2664,7 @@ impl Audit {
     }
 
     #[allow(clippy::too_many_arguments)]
-    async fn end(
+    pub(crate) async fn end(
         &self,
         id: u64,
         ts_ms: i64,
