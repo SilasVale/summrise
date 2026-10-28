@@ -42,6 +42,26 @@ process appeared, which is what retired the "the tray registers its reconnect ta
 the `CREATE_NO_WINDOW` fix. The sampler's own `cmd.exe` dominates the `cmd.exe` rows — filter by command line,
 not by name.
 
+## The public download and the current build
+
+The landing page (`landing/`, live at `https://summrise.saisi.online`) reads the newest **published**
+GitHub release at load and links to it. Measured 2026-10-28:
+
+| what | reading |
+|---|---|
+| newest published release | `v0.3.12` (prerelease, 2026-10-23) |
+| what the fleet runs | `0.3.152`, and the console `0.3.153` |
+| what the canary mirror serves | `0.3.152`, verified: the signed pointer names it, the artifact matches its digest, the installer is served (`scripts/verify-release.sh 0.3.152 --mirror http://127.0.0.1:18100` -> ok) |
+
+So the page is truthful ("latest published release") and the product is newer than its front door.
+Closing that gap is a **release decision**, not a page change:
+
+- the installer workflow (`.github/workflows/installer.yml`) runs on a `v*` tag or
+  `workflow_dispatch`, and builds whatever commit it is given;
+- this branch is **226 commits ahead of `origin/main`**, so tagging it would publish unmerged work;
+- the correct order is merge to main (or an explicit canary release from this branch), then tag, then
+  the page picks the new release up on its own — it never hardcodes a version.
+
 ## The console's stderr is a file now
 
 The console task used to run the binary with nothing attached, so its own diagnostics went nowhere: the two
