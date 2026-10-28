@@ -423,6 +423,21 @@ body.login { margin:0; background:var(--bg); }
   .logs-table tr:last-child { border-bottom:0; }
   .logs-table td { display:inline-block; border:0; padding:2px 8px 2px 0; }
   .logs-table td.wrap { display:block; width:100%; color:var(--muted); }
+  /* One row-card rule for the dense tables that have no bespoke layout: files, runs, processes,
+     memory, monitors and the browser's targets. The first cell is the row's subject and gets its
+     own line; the rest flow and wrap. */
+  .reflow thead { position:absolute; width:1px; height:1px; margin:-1px; padding:0; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; border:0; }
+  .reflow, .reflow tbody, .reflow tr { display:block; width:auto; }
+  .reflow tr { padding:8px 0; border-bottom:1px solid var(--line); }
+  .reflow tr:last-child { border-bottom:0; }
+  .reflow td { display:inline-block; max-width:100%; border:0; padding:2px 8px 2px 0; }
+  .reflow td:first-child { display:block; }
+  .reflow td.wrap { display:block; width:100%; color:var(--muted); }
+  /* Two tables end in bare numbers; with the header hidden, the number needs its word. */
+  .runs-table td:nth-child(3)::before { content:"took "; color:var(--faint); }
+  .runs-table td:nth-child(4)::before { content:"exit "; color:var(--faint); }
+  .monitors-table td:nth-child(4)::before { content:"drops "; color:var(--faint); }
+  .monitors-table td:nth-child(5)::before { content:"last "; color:var(--faint); }
   /* **A ROW IS NOT A TABLE ON A PHONE.** At 390px the pages column was squeezed to forty pixels —
      four links stacked vertically — and the row menu was cut off past the right edge. The row
      becomes a card: identity, then the pages on one wrapping line, then the menu. */
@@ -2100,7 +2115,7 @@ pub(super) fn files(
                     html! { a class="btn btn-sm" href="#write" { "Write the first file" } },
                 ))
             } @else {
-                table class="table" {
+                table class="table reflow" {
                     caption class="visually-hidden" { "The directory's entries." }
                     thead {
                         tr {
@@ -2454,7 +2469,7 @@ pub(super) fn runs(
             @if rows.is_empty() && error.is_none() {
                 (empty_state(Page::Runs, "No runs recorded yet.", Markup::default()))
             } @else {
-                table class="table" {
+                table class="table reflow runs-table" {
                     caption class="visually-hidden" { "Runs the device has completed, newest first." }
                     thead {
                         tr {
@@ -2679,7 +2694,7 @@ pub(super) fn system(
             @if processes.is_empty() && notice.is_none() {
                 (empty_state(Page::System, "The device listed no processes.", Markup::default()))
             } @else {
-                table class="table" {
+                table class="table reflow" {
                     caption class="visually-hidden" { "Processes running on the device." }
                     thead {
                         tr {
@@ -2873,7 +2888,7 @@ pub(super) fn memory(
                     html! { a class="btn btn-sm" href="#remember" { "Remember the first fact" } },
                 ))
             } @else {
-                table class="table" {
+                table class="table reflow" {
                     caption class="visually-hidden" { "What this device remembers." }
                     thead {
                         tr {
@@ -3092,7 +3107,7 @@ pub(super) fn monitors(
                     html! { a class="btn btn-sm" href="#watch" { "Watch a target" } },
                 ))
             } @else {
-                table class="table" {
+                table class="table reflow monitors-table" {
                     caption class="visually-hidden" { "The targets this device watches." }
                     thead {
                         tr {
@@ -3335,7 +3350,7 @@ pub(super) fn browser(
                     html! { a class="btn btn-sm" href="#open" { "Open a page" } },
                 ))
             } @else {
-                table class="table" {
+                table class="table reflow" {
                     caption class="visually-hidden" { "The browser's open targets." }
                     thead {
                         tr {
