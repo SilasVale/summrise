@@ -13,58 +13,9 @@ use crate::console::RetryNote;
 ///
 /// Rendered through `PreEscaped` because a `<style>` element is raw text in HTML: escaping the
 /// quotes in the font stacks would put literal `&quot;` into the CSS.
-const STYLE: &str = r##"
-  :root {
-    color-scheme: light dark;
-    --accent: #bf3a0a;
-    --accent-soft: #ffefe5;
-    --bg: #fafafa;
-    --surface: #ffffff;
-    --surface-recessed: #fafafa;
-    --surface-chip: #f4f4f5;
-    --ink: #18181b;
-    --ink-muted: #71717a;
-    --ink-faint: #a1a1aa;
-    --line: #e4e4e7;
-    --line-strong: #d4d4d8;
-    --ok: #128a4b;
-    --ok-soft: #e7f6ee;
-    --warn: #a8620a;
-    --warn-soft: #fff4e5;
-    --error: #c02a1b;
-    --radius: 10px;
-    --radius-lg: 14px;
-    --term-canvas: #ffffff; --term-selection: rgba(191,58,10,.18);
-    --term-red: #b3261e; --term-green: #1d7a3c; --term-yellow: #a8620a;
-    --term-blue: #1f5fbf; --term-magenta: #8a3ffc; --term-cyan: #0e7490;
-    --font: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
-    --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
-    --shadow: 0 1px 2px rgba(16, 23, 33, .06);
-  }
-  @media (prefers-color-scheme: dark) {
-    :root {
-      --accent-soft: #2a1c12;
-      --term-canvas: #131418; --term-selection: rgba(255,163,107,.24);
-      --term-red: #ff8b84; --term-green: #6edc8b; --term-yellow: #e0a44a;
-      --term-blue: #7fb0ff; --term-magenta: #c9a3ff; --term-cyan: #6fd3e6;
-      --bg: #0c1014;
-      --surface: #121820;
-      --surface-recessed: #0e1319;
-      --surface-chip: #1a222c;
-      --ink: #e7edf4;
-      --ink-muted: #98a5b4;
-      --ink-faint: #7b8794;
-      --line: #222c37;
-      --line-strong: #2e3a47;
-      --ok: #3fcf7f;
-      --ok-soft: #10261a;
-      --warn: #e0a44a;
-      --warn-soft: #2a1e0b;
-      --error: #ff8b7e;
-      --shadow: 0 1px 2px rgba(0, 0, 0, .4);
-    }
-  }
-  * { box-sizing: border-box; }
+/// The panel's own component rules; the tokens they read from are [`summrise_ui::TOKENS`], the same
+/// block the console renders, so a colour cannot mean two things on two surfaces.
+const COMPONENTS: &str = r##"  * { box-sizing: border-box; }
   body {
     margin: 0; padding: 1.5rem 1.25rem 3rem;
     background: var(--bg); color: var(--ink);
@@ -174,6 +125,11 @@ const STYLE: &str = r##"
     header button { margin-left: 0; }
   }
 "##;
+
+/// The panel's stylesheet: the shared tokens, then its own component rules.
+fn style_sheet() -> String {
+    summrise_ui::style(COMPONENTS)
+}
 
 /// The brand mark, the same SVG every surface of the product shows. It is markup, not data.
 const BRAND_MARK: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48">
@@ -369,7 +325,7 @@ fn render(facts: &PanelFacts, outcome: Option<&EnrollOutcome>) -> Markup {
                 meta name="summrise-panel" content=(facts.panel_token);
                 title { "Summrise — this machine" }
                 link rel="stylesheet" href="/panel/xterm.css";
-                style { (PreEscaped(STYLE)) }
+                style { (PreEscaped(style_sheet())) }
             }
             body {
                 main {
@@ -929,8 +885,8 @@ mod tests {
             "a recorded event hides the empty-state line"
         );
         assert!(
-            html.contains("--accent: #bf3a0a;"),
-            "the page keeps the panel's existing style"
+            html.contains(summrise_ui::TOKENS),
+            "the page renders the shared tokens, so its palette is the console's"
         );
         assert!(
             html.contains("&lt;contents of /var/lib/summrise/token&gt;"),

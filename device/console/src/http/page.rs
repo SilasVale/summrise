@@ -20,46 +20,10 @@ use super::DeviceView;
 /// Every colour is a token, and every token has a dark value: the operator reads this page on a
 /// desktop that follows the system theme, and a surface that only got a light value would keep it in
 /// the dark (`--panel` on `--ink` is the measured way that goes wrong).
-const STYLE: &str = r#":root {
-  color-scheme: light dark;
-  --bg:#f6f6f7; --panel:#ffffff; --panel-2:#f4f4f5; --panel-3:#ececef;
-  --ink:#18181b; --muted:#5d5e67; --faint:#74757f;
-  --line:#e6e6e9; --line-strong:#d5d5da;
-  --accent:#bf3a0a; --accent-solid:#b03a0a; --accent-hover:#963008;
-  --accent-soft:#fff0e6; --accent-fg:#ffffff;
-  --ok:#1d7a3c; --warn:#a8620a; --ok-soft:#e7f6ec;
-  --danger:#b3261e; --danger-soft:#fdecea;
-  --rail:#17181c; --rail-line:rgba(255,255,255,.08); --rail-ink:#9a9ba4;
-  --rail-ink-hover:#f4f4f5; --rail-focus:#ffb86b;
-  --shadow:0 1px 2px rgba(24,24,27,.04), 0 10px 30px -24px rgba(24,24,27,.30);
-  --radius:12px; --radius-sm:10px; --radius-xs:8px;
-  --font:-apple-system,"SF Pro Text","PingFang SC","Hiragino Sans GB","Microsoft YaHei","Segoe UI",Roboto,sans-serif;
-  --mono:"SF Mono",ui-monospace,"JetBrains Mono",Consolas,"Cascadia Mono",monospace;
-  /* The terminal is a canvas that follows the page, the way summrise-legacy's does (`--term-canvas-bg`).
-     An ANSI palette tuned for a light canvas is not the dark one with the colours swapped: these are
-     the legacy's, so a `ls` or a `git status` reads the same in both products. */
-  --term-canvas:#ffffff; --term-selection:rgba(191,58,10,.18);
-  --term-red:#b3261e; --term-green:#1d7a3c; --term-yellow:#a8620a;
-  --term-blue:#1f5fbf; --term-magenta:#8a3ffc; --term-cyan:#0e7490;
-}
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg:#101115; --panel:#191a1f; --panel-2:#212228; --panel-3:#2a2b32;
-    --ink:#ececf0; --muted:#a6a7b1; --faint:#8e909a;
-    --line:rgba(255,255,255,.08); --line-strong:rgba(255,255,255,.15);
-    --accent:#ffa36b; --accent-solid:#b03a0a; --accent-hover:#c2410c;
-    --accent-soft:#33211a; --accent-fg:#ffffff;
-    --ok:#6edc8b; --warn:#e0a44a; --ok-soft:rgba(46,160,73,.16);
-    --danger:#ff8b84; --danger-soft:rgba(190,40,30,.18);
-    --rail:#0b0c0e; --rail-line:rgba(255,255,255,.07); --rail-ink:#8f9099;
-    --rail-ink-hover:#ffffff; --rail-focus:#ffb86b;
-    --shadow:0 1px 2px rgba(0,0,0,.45), 0 16px 36px -26px rgba(0,0,0,.9);
-    --term-canvas:#131418; --term-selection:rgba(255,163,107,.24);
-    --term-red:#ff8b84; --term-green:#6edc8b; --term-yellow:#e0a44a;
-    --term-blue:#7fb0ff; --term-magenta:#c9a3ff; --term-cyan:#6fd3e6;
-  }
-}
-* { box-sizing:border-box; }
+/// The console's own component rules; the tokens they read from are [`summrise_ui::TOKENS`].
+///
+/// Both surfaces render `summrise_ui::style(...)`, so a colour can only be defined once.
+const COMPONENTS: &str = r#"* { box-sizing:border-box; }
 html { height:100%; }
 body { margin:0; min-height:100%; background:var(--bg); color:var(--ink); font:14px/1.5 var(--font); -webkit-font-smoothing:antialiased; }
 a { color:var(--accent); text-decoration:none; }
@@ -432,6 +396,11 @@ body.login { margin:0; background:var(--bg); }
 }
 "#;
 
+/// The console's whole stylesheet: the shared tokens, then its own component rules.
+fn style_sheet() -> String {
+    summrise_ui::style(COMPONENTS)
+}
+
 /// The rail's pages, in reading order: the console first, then the device surfaces a row links to.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Page {
@@ -727,7 +696,7 @@ fn head(title: &str, extra: Markup) -> Markup {
             title { (title) " — Summrise console" }
             (extra)
             script src="/assets/approvals.js" defer {}
-            style { (PreEscaped(STYLE)) }
+            style { (PreEscaped(style_sheet())) }
         }
     }
 }
@@ -896,7 +865,7 @@ pub(super) fn login(note: Option<&str>, error: Option<&str>) -> Markup {
                 meta charset="utf-8";
                 meta name="viewport" content="width=device-width, initial-scale=1";
                 title { "Summrise console" }
-                style { (PreEscaped(STYLE)) }
+                style { (PreEscaped(style_sheet())) }
             }
             body class="login" {
                 // The shell owns the centring, so a node another script adds to <body> cannot move
@@ -4860,13 +4829,23 @@ mod tests {
         // The design system's promise, measured the way a browser would: WCAG 2.1 AA for normal
         // text is 4.5:1. A token that fails this test is a token nobody can read in one of the two
         // themes, and the page's look is not a matter of taste once that is true.
-        let light = theme_tokens(STYLE, STYLE.find(":root {").expect("the light block") + 6);
-        let dark_block = STYLE
+        let light = theme_tokens(
+            summrise_ui::TOKENS,
+            summrise_ui::TOKENS
+                .find(":root {")
+                .expect("the light block")
+                + 6,
+        );
+        let dark_block = summrise_ui::TOKENS
             .find("@media (prefers-color-scheme: dark)")
             .expect("the dark block");
         let dark = theme_tokens(
-            STYLE,
-            STYLE[dark_block..].find(":root {").expect("its root") + dark_block + 6,
+            summrise_ui::TOKENS,
+            summrise_ui::TOKENS[dark_block..]
+                .find(":root {")
+                .expect("its root")
+                + dark_block
+                + 6,
         );
 
         for (theme, tokens) in [("light", &light), ("dark", &dark)] {

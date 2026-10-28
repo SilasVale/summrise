@@ -6,6 +6,7 @@ edition.workspace = true
 publish.workspace = true
 
 [dependencies]
+summrise-ui = { path = "../ui" }
 # `ws` is the device channel: the device dials the console, and the console forwards the operator's
 # MCP exchange over that socket.
 axum = { version = "0.7", features = ["ws"] }
