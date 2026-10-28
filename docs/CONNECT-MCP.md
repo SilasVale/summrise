@@ -246,6 +246,16 @@ A loopback or tunnel deployment without Access needs no dashboard step.
   `401`.
 - **HTTPS only.** The bearer is a secret in a header; never put it in a URL, a shell history, a
   repository or a screenshot.
+- **A frame runs once.** Every grant carries a signed nonce; the device remembers the ones it has
+  admitted and refuses a repeat (`error_kind:"replay"`), so a captured frame cannot re-run a call.
+  A grant signed before this existed (no nonce) is still accepted.
+- **The device checks, in order:** the grant's signature against the console's key, that the grant
+  names this device, the expiry (with five minutes of clock skew), the tool against the grant's list,
+  and the nonce. A failure in any of them is a JSON-RPC `-32001` and a `deny` line in
+  `events.jsonl`; none of them reaches the capability.
+- **The device's audit names the credential.** A console-channel call authorized by a permanent token
+  records that token's `id` (never the secret); calls through the device's own page record
+  `transport:"panel"`; a mesh peer records its public key.
 
 ## Limits
 

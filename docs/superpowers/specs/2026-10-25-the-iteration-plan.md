@@ -181,6 +181,28 @@ from the acceptance text above". The deviations are the point of this section.
 | P6 restarts | partial | the launcher's swap outcome and repairs are shown; a per-restart history is still not exposed by any tool |
 | P6 browser live view | **met, observed** | `browser.cast` is a real CDP `Page.startScreencast` stream: a reader per tab, newest frame returned, every frame acked, idle stop after 60 s, closed with the tab. The pane polls at 5 fps while a stream serves it and falls back to 1 fps screenshots on a device without the tool. Observed on canary 0.3.124 (9vh92bj, 2026-10-28): the frame route answered `200 format=jpeg stream=true 764×485` in 27 ms; ten polls 200 ms apart while scrolling returned **ten distinct frames** at 9–13 ms each, and the same ten polls on a still page returned **one** frame — the stream serves the newest paint instead of forcing captures |
 
+### The inbound authorization findings (2026-10-28)
+
+A read-only review of the device's inbound path and of the console's credential core found nine
+defects; all nine are fixed, tested, and on the canary (0.3.127). The two that mattered most:
+
+- **A mesh peer could authorize itself.** A token scope (`{"token":{...}}`) carries no signature —
+  the console's authenticated channel is what stands behind it — and `admit` accepted one on every
+  wire. Any joined peer could send `scopes:["*"]`, `allow_destructive:true` and run anything here.
+  `admit` now takes the transport, and a scope is admitted only over the console channel.
+- **A captured frame ran twice.** Grants had no one-shot property: the same signed frame replayed
+  into the device ran again, and the audit showed two ordinary `allow` lines. A grant now carries a
+  signed nonce; the device keeps the ones it admitted (pruned by the grant's expiry + skew, capped)
+  and refuses a repeat with `error_kind:"replay"`. A grant without a nonce (an older console) is
+  still admitted, so a rollout cannot strand a live console.
+
+The rest: plaintext `ws://` to a public host needs `"allow_plaintext": true` (private links — LAN,
+tailnet, ULA — do not, which a rollback taught us: refusing the tailnet address stopped the app from
+starting on DESKTOP-14RJCR8 and the launcher reverted to the previous generation by itself), the
+device's audit lines name the token that authorized a call, panel terminal operations are audited as
+their own transport, logout persists before adopting, removing a device revokes the aggregate tokens
+that list it, and an approved call re-reads the token before it is re-sent.
+
 Two decisions made during those rounds belong beside the phases:
 
 - **The pages stay static except two scripts** (`assets/approvals.js` badge poll, `assets/browser.js`
