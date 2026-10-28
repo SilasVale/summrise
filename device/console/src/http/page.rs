@@ -111,13 +111,6 @@ body.app { display:flex; height:100vh; overflow:hidden; }
 .stat .sub .up { color:var(--ok); font-weight:600; }
 
 /* ---- chips ---- */
-.chip { display:inline-flex; align-items:center; gap:6px; height:21px; padding:0 8px; border:1px solid transparent; border-radius:999px; background:var(--panel-2); color:var(--muted); font-size:11.5px; font-weight:600; white-space:nowrap; }
-.chip .dot { width:6px; height:6px; border-radius:50%; background:currentColor; }
-.chip.online { background:var(--ok-soft); color:var(--ok); }
-.chip.offline { background:var(--panel-2); color:var(--muted); }
-.chip.muted { background:var(--panel-2); color:var(--muted); }
-.chip.brand { background:var(--accent-soft); color:var(--accent); }
-.chip.plain { padding:0; background:none; color:var(--muted); }
 
 /* ---- buttons ---- */
 .btn { display:inline-flex; align-items:center; justify-content:center; gap:6px; min-height:30px; padding:0 12px; border:1px solid var(--line-strong); border-radius:var(--radius-xs); background:var(--panel); color:var(--ink); font:inherit; font-size:12.5px; font-weight:600; line-height:1; text-decoration:none; white-space:nowrap; cursor:pointer; }
@@ -344,7 +337,6 @@ body.login { margin:0; background:var(--bg); }
 .restart-panel p { margin:0 0 10px; }
 
 /* ---- small additions to the component set ---- */
-.chip.failed { background:var(--danger-soft); color:var(--danger); }
 .btn-quiet-danger { border-color:transparent; background:transparent; color:var(--muted); }
 .btn-quiet-danger:hover { border-color:transparent; background:var(--danger-soft); color:var(--danger); }
 .form-inline .grow { flex:1 1 260px; min-width:0; }

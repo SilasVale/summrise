@@ -51,13 +51,6 @@ const COMPONENTS: &str = r##"  * { box-sizing: border-box; }
   dd { margin: 0; overflow-wrap: anywhere; font-size: 0.88rem; }
   .mono { font-family: var(--font-mono); font-size: 0.78rem; }
 
-  .chip {
-    display: inline-block; padding: 0.05rem 0.5rem; border-radius: 999px;
-    font-size: 0.75rem; font-weight: 600; line-height: 1.6; white-space: nowrap;
-  }
-  .chip-ok { background: var(--ok-soft); color: var(--ok); }
-  .chip-warn { background: var(--warn-soft); color: var(--warn); }
-  .chip-off { background: var(--surface-chip); color: var(--ink-muted); }
 
   table { width: 100%; border-collapse: collapse; }
   th, td { text-align: left; padding: 0.35rem 0.45rem; border-bottom: 1px solid var(--line); font-size: 0.85rem; }
@@ -306,10 +299,10 @@ fn render(facts: &PanelFacts, outcome: Option<&EnrollOutcome>) -> Markup {
     let digest_short: String = digest.chars().take(16).collect();
     let chip = match attempt {
         Some(note) => html! {
-            span id="console-chip" class="chip chip-warn" { "reconnected after " (note.attempts) }
+            span id="console-chip" class="chip warn" { "reconnected after " (note.attempts) }
         },
         None => html! {
-            span id="console-chip" class="chip chip-ok" { "connected" }
+            span id="console-chip" class="chip ok" { "connected" }
         },
     };
     let state_rows = state_rows(facts.state.as_ref());
@@ -924,7 +917,7 @@ mod tests {
         );
         assert!(html.contains("unreadable"));
         assert!(html.contains("connected on the first try"));
-        assert!(html.contains(r#"<span id="console-chip" class="chip chip-ok">"#));
+        assert!(html.contains(r#"<span id="console-chip" class="chip ok">"#));
     }
 
     #[test]

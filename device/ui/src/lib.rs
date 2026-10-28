@@ -59,10 +59,89 @@ pub const TOKENS: &str = r#":root {
 }
 "#;
 
+/// The rules for the components this crate renders, so the two surfaces draw them the same way.
+///
+/// A component whose markup lives here but whose CSS lived in each surface would drift exactly the way
+/// the palettes did; the pair travels together.
+pub const COMPONENTS: &str = r#"
+/* ---- chips: a status pill, the same shape on every surface ---- */
+.chip { display:inline-flex; align-items:center; gap:6px; height:21px; padding:0 8px; border:1px solid transparent; border-radius:999px; background:var(--panel-2); color:var(--muted); font-size:11.5px; font-weight:600; white-space:nowrap; }
+.chip .dot { width:6px; height:6px; border-radius:50%; background:currentColor; }
+.chip.ok { background:var(--ok-soft); color:var(--ok); }
+.chip.warn { background:var(--warn-soft); color:var(--warn); }
+.chip.off { background:var(--panel-2); color:var(--muted); }
+.chip.alert { background:var(--danger-soft); color:var(--danger); }
+.chip.brand { background:var(--accent-soft); color:var(--accent); }
+/* The console's historical names for the same tones. They stay as aliases while its pages move to the
+   canonical classes above; a rename that breaks sixty call sites is not a design-system improvement. */
+.chip.online { background:var(--ok-soft); color:var(--ok); }
+.chip.offline { background:var(--panel-2); color:var(--muted); }
+.chip.muted { background:var(--panel-2); color:var(--muted); }
+.chip.failed { background:var(--danger-soft); color:var(--danger); }
+.chip.plain { padding:0; background:none; color:var(--muted); }
+"#;
+
+/// What a chip is saying.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Tone {
+    /// Serving, connected, healthy.
+    Ok,
+    /// Up but degraded, or a note worth reading.
+    Warn,
+    /// Not connected; not an error.
+    Off,
+    /// A failure the operator must see.
+    Alert,
+    /// The product's own accent: a count, a new thing.
+    Brand,
+}
+
+impl Tone {
+    /// The class this tone renders as — `.chip.<class>`.
+    pub fn class(self) -> &'static str {
+        match self {
+            Tone::Ok => "ok",
+            Tone::Warn => "warn",
+            Tone::Off => "off",
+            Tone::Alert => "alert",
+            Tone::Brand => "brand",
+        }
+    }
+}
+
+/// A status pill: a dot and a label.
+pub fn chip(tone: Tone, label: &str) -> String {
+    format!(
+        r#"<span class="chip {class}"><span class="dot" aria-hidden="true"></span>{label}</span>"#,
+        class = tone.class(),
+        label = escape(label)
+    )
+}
+
+/// A sentence of HTML text with the five characters that matter escaped.
+///
+/// This crate has no markup engine on purpose: the console and the panel both build strings, and a
+/// dependency here would be a dependency in both.
+fn escape(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for ch in text.chars() {
+        match ch {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '"' => out.push_str("&quot;"),
+            '\'' => out.push_str("&#39;"),
+            other => out.push(other),
+        }
+    }
+    out
+}
+
 /// The tokens followed by a surface's own component rules.
 pub fn style(components: &str) -> String {
-    let mut css = String::with_capacity(TOKENS.len() + components.len() + 1);
+    let mut css = String::with_capacity(TOKENS.len() + COMPONENTS.len() + components.len() + 1);
     css.push_str(TOKENS);
+    css.push_str(COMPONENTS);
     css.push_str(components);
     css
 }
