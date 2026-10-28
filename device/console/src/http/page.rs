@@ -415,6 +415,14 @@ body.login { margin:0; background:var(--bg); }
   .tokens-table td { display:inline-block; border:0; padding:2px 10px 2px 0; }
   .tokens-table td:first-child { display:block; font-weight:600; }
   .tokens-table td:last-child { padding-right:0; }
+  /* Six columns cannot fit 390; the row becomes one wrapped line per record, which keeps the tool
+     and the detail readable instead of scrolling for them. */
+  .logs-table thead { position:absolute; width:1px; height:1px; margin:-1px; padding:0; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; border:0; }
+  .logs-table, .logs-table tbody, .logs-table tr { display:block; width:auto; }
+  .logs-table tr { padding:8px 0; border-bottom:1px solid var(--line); }
+  .logs-table tr:last-child { border-bottom:0; }
+  .logs-table td { display:inline-block; border:0; padding:2px 8px 2px 0; }
+  .logs-table td.wrap { display:block; width:100%; color:var(--muted); }
   /* **A ROW IS NOT A TABLE ON A PHONE.** At 390px the pages column was squeezed to forty pixels —
      four links stacked vertically — and the row menu was cut off past the right edge. The row
      becomes a card: identity, then the pages on one wrapping line, then the menu. */
@@ -1599,7 +1607,7 @@ pub(super) fn logs(
                     (empty_state(Page::Fleet, "Nothing has been recorded yet.", Markup::default()))
                 }
             } @else {
-                table class="table" {
+                table class="table logs-table" {
                     caption class="visually-hidden" { (caption) }
                     thead {
                         tr {
