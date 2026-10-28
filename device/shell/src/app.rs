@@ -219,6 +219,22 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     });
 }
 
+/// Run a console program without giving it a window.
+///
+/// **THIS PROCESS IS A GUI SUBSYSTEM BINARY, SO A CONSOLE CHILD GETS A VISIBLE WINDOW.** `schtasks` is a
+/// console program: every call from the tray opened a black window for as long as it ran, which the
+/// operator reported on 2026-10-28 as "something black flashing" after the shell learned to register its
+/// reconnect task on each start.
+fn hidden(command: &mut std::process::Command) -> &mut std::process::Command {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
+    command
+}
+
 /// The name of the task that starts a tray after a session reconnects.
 const RECONNECT_TASK: &str = "SummriseShellOnReconnect";
 
@@ -303,7 +319,7 @@ fn ensure_reconnect_task() {
         // leaves the old action pointing at a path that no longer exists, and a reconnection would then
         // start nothing. `/f` makes the registration idempotent, and the cost is one `schtasks` call at
         // startup.
-        let existed = Command::new("schtasks")
+        let existed = hidden(&mut Command::new("schtasks"))
             .args(["/query", "/tn", RECONNECT_TASK])
             .stdout(Stdio::null())
             .stderr(Stdio::null())
@@ -312,7 +328,7 @@ fn ensure_reconnect_task() {
         let Ok(exe) = std::env::current_exe() else {
             return;
         };
-        let created = Command::new("schtasks")
+        let created = hidden(&mut Command::new("schtasks"))
             .args(reconnect_task_args(&exe.to_string_lossy()))
             .stdout(Stdio::null())
             .stderr(Stdio::null())
