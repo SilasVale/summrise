@@ -219,6 +219,34 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     });
 }
 
+/// The name of the task that starts a tray after a session reconnects.
+const RECONNECT_TASK: &str = "SummriseShellOnReconnect";
+
+/// The `schtasks` arguments that register the reconnect task for `exe`.
+///
+/// A function so the wiring can be read and tested: the trigger is Windows' own *session reconnection*
+/// event (TerminalServices-LocalSessionManager, id 25), because a reconnected session has no logon for the
+/// Run key to fire on, and "run only when the user is logged on" is what puts the icon in that session.
+fn reconnect_task_args(exe: &str) -> Vec<String> {
+    [
+        "/create",
+        "/tn",
+        RECONNECT_TASK,
+        "/tr",
+        exe,
+        "/sc",
+        "onevent",
+        "/ec",
+        "Microsoft-Windows-TerminalServices-LocalSessionManager/Operational",
+        "/mo",
+        "*[System[EventID=25]]",
+        "/f",
+    ]
+    .iter()
+    .map(|argument| (*argument).to_owned())
+    .collect()
+}
+
 /// Keep this process registered with the device.
 ///
 /// The device mints a token each boot and writes it to `ProgramData`; this thread reads it, serves the
@@ -271,38 +299,29 @@ fn ensure_reconnect_task() {
     use std::process::{Command, Stdio};
 
     std::thread::spawn(|| {
-        let exists = Command::new("schtasks")
-            .args(["/query", "/tn", "SummriseShellOnReconnect"])
+        // The task is RECREATED rather than kept when it exists: an install that moved this binary
+        // leaves the old action pointing at a path that no longer exists, and a reconnection would then
+        // start nothing. `/f` makes the registration idempotent, and the cost is one `schtasks` call at
+        // startup.
+        let existed = Command::new("schtasks")
+            .args(["/query", "/tn", RECONNECT_TASK])
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .status()
             .is_ok_and(|status| status.success());
-        if exists {
-            return;
-        }
         let Ok(exe) = std::env::current_exe() else {
             return;
         };
         let created = Command::new("schtasks")
-            .args([
-                "/create",
-                "/tn",
-                "SummriseShellOnReconnect",
-                "/tr",
-                &exe.to_string_lossy(),
-                "/sc",
-                "onevent",
-                "/ec",
-                "Microsoft-Windows-TerminalServices-LocalSessionManager/Operational",
-                "/mo",
-                "*[System[EventID=25]]",
-                "/f",
-            ])
+            .args(reconnect_task_args(&exe.to_string_lossy()))
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .status();
         match created {
-            Ok(status) if status.success() => crate::note("registered the session-reconnect task"),
+            Ok(status) if status.success() && !existed => {
+                crate::note("registered the session-reconnect task")
+            }
+            Ok(status) if status.success() => {}
             Ok(status) => crate::note(&format!(
                 "could not register the session-reconnect task (schtasks exit {status})"
             )),
@@ -671,6 +690,41 @@ pub fn signal_wake() -> bool {
 
 #[cfg(test)]
 mod tests {
+
+    /// **A RECONNECTED SESSION HAS NO LOGON, SO THE RUN KEY NEVER FIRES FOR IT.** The task this process
+    /// registers is the answer, and its trigger is the part that makes it work: Windows' session
+    /// reconnection event, not a logon, not a schedule.
+    #[test]
+    fn the_reconnect_task_listens_for_the_session_reconnection_event() {
+        let args = reconnect_task_args("C:\\SummriseCanary\\summrise-shell.exe");
+        let joined = args.join(" ");
+
+        assert_eq!(args[0], "/create", "it creates the task: {joined}");
+        assert!(
+            joined.contains(RECONNECT_TASK),
+            "it names the task: {joined}"
+        );
+        assert!(
+            joined.contains("C:\\SummriseCanary\\summrise-shell.exe"),
+            "it names this binary: {joined}"
+        );
+        assert!(
+            joined.contains("/sc onevent"),
+            "it is event-driven, not scheduled: {joined}"
+        );
+        assert!(
+            joined.contains("Microsoft-Windows-TerminalServices-LocalSessionManager/Operational"),
+            "the session manager's own log: {joined}"
+        );
+        assert!(
+            joined.contains("*[System[EventID=25]]"),
+            "session reconnection is event 25: {joined}"
+        );
+        assert!(
+            args.contains(&"/f".to_owned()),
+            "a re-registration replaces the old action instead of failing: {joined}"
+        );
+    }
     #[test]
     fn the_default_targets_are_the_product_surfaces() {
         assert!(
