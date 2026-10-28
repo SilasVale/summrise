@@ -16,6 +16,8 @@ device/
   mesh/      pinned-QUIC sessions, the broker and relay, STUN candidates
   release/   signed release documents, channels, revocation lists, the signer
   console/   the control plane: operator sessions, enrollment codes, grants, the device channel, audit
+  shell/     the tray process in the user's session: the icon, the console window, launch and screenshot
+  ui/        the styling the console and the device's own panel share: tokens, chips, cards, page shell
   winsec/    the Windows security helpers (protected DACLs), shared by launch and device
   winsys/    the Windows calls safe crates cannot make: process listing and termination
 ```
@@ -28,6 +30,9 @@ Two runtimes, one control plane:
   over loopback, the console channel, and the mesh with one authorization check.
 - **`summrise-console`** brokers: it enrolls devices, signs grants offline-verifiable by the device,
   and carries operator traffic without being able to forge a device's answer.
+- **`summrise-shell`** is the only process in the user's session: a tray icon with three verbs, a
+  WebView2 window on the console page (one profile, so the operator signs in once), and the helper the
+  device calls to launch Chrome or capture that session's screen. It holds no credential.
 
 ## Build and test
 
