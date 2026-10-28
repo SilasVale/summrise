@@ -37,15 +37,9 @@ const COMPONENTS: &str = r##"  * { box-sizing: border-box; }
   header button:hover { border-color: var(--accent); }
   header button.copied { border-color: var(--ok); color: var(--ok); }
 
-  section {
-    background: var(--surface); border: 1px solid var(--line);
-    border-radius: var(--radius-lg); padding: 1rem 1.1rem; box-shadow: var(--shadow);
-  }
-  section h2 {
-    font-size: 0.95rem; font-weight: 650; margin: 0 0 0.7rem;
-    display: flex; align-items: center; gap: 0.5rem;
-  }
-  section h2 .chip { margin-left: auto; }
+  /* A section is a card from `summrise_ui`: the container, the heading row and the body are the shared
+     rules, so this page no longer styles sections at all. Only the spacing inside a body is local. */
+  .card .card-body > * + * { margin-top: 0.7rem; }
   dl { display: grid; grid-template-columns: 11rem 1fr; gap: 0.3rem 1rem; margin: 0; }
   dt { color: var(--ink-muted); font-size: 0.88rem; }
   dd { margin: 0; overflow-wrap: anywhere; font-size: 0.88rem; }
@@ -334,8 +328,11 @@ fn render(facts: &PanelFacts, outcome: Option<&EnrollOutcome>) -> Markup {
                         "The device's own panel. Loopback only, no login: if you can read this, you are on the box."
                     }
 
-                    section {
-                        h2 { "Use this machine" }
+                    (summrise_ui::card(
+                        "Use this machine",
+                        Markup::default(),
+                        Markup::default(),
+                        html! {
                         p class="hint" {
                             "A client on this machine reaches the device's MCP endpoint with the install token. Nothing below leaves the machine, and the token is not printed here: the page is served to anyone on loopback, while the token file is protected to the service account and administrators. Read it yourself and paste it into the config."
                         }
@@ -360,10 +357,14 @@ fn render(facts: &PanelFacts, outcome: Option<&EnrollOutcome>) -> Markup {
                             "Copy local MCP config"
                         }
                         p class="hint" id="local-copy-status" role="status" {}
-                    }
+                        }
+                    ))
 
-                    section {
-                        h2 { "Terminal" }
+                    (summrise_ui::card(
+                        "Terminal",
+                        Markup::default(),
+                        Markup::default(),
+                        html! {
                         p class="hint" {
                             "Open a pty or a serial line on this machine and type into it. Loopback only, the same registry the MCP's terminal.* tools use. A session does not survive a device restart."
                         }
@@ -376,10 +377,14 @@ fn render(facts: &PanelFacts, outcome: Option<&EnrollOutcome>) -> Markup {
                         }
                         div id="term-host" class="term-host" {}
                         p class="hint" id="term-status" role="status" { "choose a session above" }
-                    }
+                        }
+                    ))
 
-                    section {
-                        h2 { "Terminal sessions" }
+                    (summrise_ui::card(
+                        "Terminal sessions",
+                        Markup::default(),
+                        Markup::default(),
+                        html! {
                         p class="hint" {
                             "The same sessions an MCP client created on this machine, live. The interactive terminal lives in the console; this list is what an operator standing here can check without it."
                         }
@@ -395,10 +400,14 @@ fn render(facts: &PanelFacts, outcome: Option<&EnrollOutcome>) -> Markup {
                                 }
                             }
                         }
-                    }
+                        }
+                    ))
 
-                    section {
-                        h2 { "Build" }
+                    (summrise_ui::card(
+                        "Build",
+                        Markup::default(),
+                        Markup::default(),
+                        html! {
                         dl id="build" {
                             dt { "Version" }
                             dd { (facts.version) }
@@ -409,10 +418,14 @@ fn render(facts: &PanelFacts, outcome: Option<&EnrollOutcome>) -> Markup {
                             dt { "Process" }
                             dd { "pid " (facts.pid) }
                         }
-                    }
+                        }
+                    ))
 
-                    section {
-                        h2 { "Console link " (chip) }
+                    (summrise_ui::card(
+                        "Console link",
+                        chip,
+                        Markup::default(),
+                        html! {
                         dl id="console" {
                             @if let Some(note) = attempt {
                                 dt { "Link" }
@@ -475,10 +488,14 @@ fn render(facts: &PanelFacts, outcome: Option<&EnrollOutcome>) -> Markup {
                                 p id="enroll-status" role="status" {}
                             }
                         }
-                    }
+                        }
+                    ))
 
-                    section {
-                        h2 { "State" }
+                    (summrise_ui::card(
+                        "State",
+                        Markup::default(),
+                        Markup::default(),
+                        html! {
                         dl id="state" {
                             @for (key, value, mono) in &state_rows {
                                 dt { (key) }
@@ -489,10 +506,14 @@ fn render(facts: &PanelFacts, outcome: Option<&EnrollOutcome>) -> Markup {
                                 }
                             }
                         }
-                    }
+                        }
+                    ))
 
-                    section {
-                        h2 { "Recent events" }
+                    (summrise_ui::card(
+                        "Recent events",
+                        Markup::default(),
+                        Markup::default(),
+                        html! {
                         table {
                             thead {
                                 tr {
@@ -517,7 +538,8 @@ fn render(facts: &PanelFacts, outcome: Option<&EnrollOutcome>) -> Markup {
                         p class="none" id="no-events" hidden[!facts.events.is_empty()] {
                             "No event has been recorded on this device."
                         }
-                    }
+                        }
+                    ))
                 }
                 // The diagnostics text is rendered here so the clipboard button copies a fact, not a
                 // second reading of the API; it is the same report the inline script used to build.

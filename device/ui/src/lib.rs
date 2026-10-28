@@ -146,6 +146,20 @@ pub fn card_head(title: &str, meta: Markup, actions: Markup) -> Markup {
     }
 }
 
+/// A whole card: the container, its heading row, and a body.
+///
+/// The body is markup, not a string, and the caller writes it inline — a section that only has a body
+/// is `card(title, Markup::default(), Markup::default(), html! { … })`, and a page that has seven of
+/// them reads as seven cards because that is what it renders.
+pub fn card(title: &str, meta: Markup, actions: Markup, body: Markup) -> Markup {
+    html! {
+        section class="card" {
+            (card_head(title, meta, actions))
+            div class="card-body" { (body) }
+        }
+    }
+}
+
 /// The one empty state: a muted icon, a sentence, and at most one action.
 pub fn empty_state(icon: Markup, message: &str, action: Markup) -> Markup {
     html! {
