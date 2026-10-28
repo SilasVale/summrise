@@ -191,6 +191,14 @@ Three canaries, one runtime each, the legacy desktop/agent retired from all thre
 | DESKTOP-14RJCR8 | 0.3.130, online | running | its console link is a tailnet address, which is why the plaintext rule had to learn that private links are private |
 | DESKTOP-CPH4KB2 | 0.3.129, **offline** | not running | installer 0.3.130 removed its service and then failed; the recovery is in RELEASE.md and needs one command at the machine |
 
+**The installer has now been exercised end to end (2026-10-28, DESKTOP-14RJCR8, 0.3.139):** silent,
+hash-verified, `install exit 0`; the launcher was replaced (`7b50ac60…` → `61c0931e…`), the tray binary
+(`bdb026fb…`), `repair.cmd` and the `SummriseRepair` task were installed, the baseline was rotated by the
+new staged path (`replaced baseline/current from the installer's pair`), and the device answered
+`/api/health` with a new pid. That machine is the first in the fleet running the fixed launcher. One
+known gap: the installer it used predates the log rename, so its `repair.cmd` still appends to
+`repair.log`; the next install carries `repair-task.log`.
+
 The installer is the only stream that had not been exercised end to end before that attempt, and the
 attempt is what found the ordering bug (service removed before the replacement was ready) and the
 missing step (the app was not killed before its image was rotated). Since 0.3.131 the registration is
