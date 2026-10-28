@@ -140,6 +140,9 @@ function activate(id) {
     const on = other === id;
     session.pane.hidden = !on;
     session.tab.classList.toggle("active", on);
+    // **THE ACTIVE TAB IS A STATE, NOT ONLY A COLOUR.** Without it assistive technology hears a row
+    // of identical buttons and cannot tell which session is on screen.
+    session.tab.setAttribute("aria-pressed", on ? "true" : "false");
     if (on) {
       // Never let a fit failure take the whole activation with it: the pane still has to be shown
       // and focused, or the operator is left with a dead terminal.
@@ -159,34 +162,43 @@ function addSession(created, label) {
   pane.className = "pane";
   panes.append(pane);
 
+  // **A BUTTON INSIDE A BUTTON IS NOT A TAB.** The close glyph was nested in the tab, so it was
+  // invalid markup, every tab's name was just the session kind, and its title was ignored. The two
+  // are siblings in a small wrapper now, each with its own name.
+  const item = document.createElement("div");
+  item.className = "tab-item";
+
   const tab = document.createElement("button");
   tab.type = "button";
   tab.className = "tab";
   tab.textContent = label;
+  tab.setAttribute("aria-pressed", "false");
   tab.addEventListener("click", () => activate(id));
-  tabs.append(tab);
 
   const close = document.createElement("button");
   close.type = "button";
   close.className = "tab-close";
   close.textContent = "×";
-  close.title = "close this session";
+  close.setAttribute("aria-label", "Close session " + label);
   close.addEventListener("click", (event) => {
     event.stopPropagation();
     void closeSession(id);
   });
-  tab.append(close);
+  item.append(tab, close);
+  tabs.append(item);
 
   // THE TERMINAL FOLLOWS THE PAGE, NOT A PICTURE OF A TERMINAL. summrise-legacy's canvas is white in
   // the light theme (`--term-canvas-bg: #ffffff`) and near-black in the dark one, and the operator's
   // review asked for that: a black pane inside a light page reads as a different product. The colours
   // come from the same tokens as the rest of the console, so a theme change needs no code here.
+  // A blinking caret is motion the reader did not ask for; the solid caret still shows where it is.
+  const still = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   const term = new Terminal({
     // **THE OUTPUT IS CANVAS-ONLY WITHOUT THIS.** xterm draws glyphs into a canvas, so without the
     // screen-reader mode the terminal is silent to assistive technology; the page's own live region
     // reports session status, not what the session printed.
     screenReaderMode: true,
-    cursorBlink: true,
+    cursorBlink: !still,
     fontSize: 13,
     scrollback: 5000,
     theme: terminalTheme()
@@ -194,7 +206,7 @@ function addSession(created, label) {
   const fit = new FitAddon.FitAddon();
   term.loadAddon(fit);
 
-  const session = { id, term, fit, pane, tab, cursor: 0, closed: false };
+  const session = { id, term, fit, pane, tab, item, label, cursor: 0, closed: false };
   sessions.set(id, session);
   // WIRE THE INPUT BEFORE ANYTHING THAT CAN THROW. `activate` fits and focuses every terminal it
   // knows, and a terminal whose `open` has not run has no element to fit — a throw there used to abort
@@ -230,7 +242,14 @@ async function closeSession(id) {
   session.closed = true;
   sessions.delete(id);
   session.pane.remove();
-  session.tab.remove();
+  session.item.remove();
+  // The focused close button just left the document; focus the next tab, or the form that starts one.
+  const next = sessions.keys().next();
+  if (!next.done) {
+    sessions.get(next.value).tab.focus();
+  } else if (kind) {
+    kind.focus();
+  }
   try {
     await call(base(id) + "/close", "POST");
   } catch {

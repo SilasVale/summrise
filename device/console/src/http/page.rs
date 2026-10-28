@@ -212,7 +212,7 @@ body.terminal .content { display:flex; flex-direction:column; min-height:0; over
 .session-list a:hover { background:var(--hover); }
 .session-row { display:flex; align-items:center; gap:2px; }
 .session-row > a { flex:1; min-width:0; }
-.rail-close { display:grid; place-items:center; flex:none; width:22px; height:22px; padding:0; border:0; border-radius:var(--radius-xs); background:transparent; color:var(--faint); font-size:15px; line-height:1; cursor:pointer; }
+.rail-close { display:grid; place-items:center; flex:none; width:24px; height:24px; padding:0; border:0; border-radius:var(--radius-xs); background:transparent; color:var(--faint); font-size:15px; line-height:1; cursor:pointer; }
 .rail-close:hover { background:var(--danger-soft); color:var(--danger); }
 .rail-close:focus-visible { outline:2px solid var(--accent); outline-offset:1px; }
 .session-body { display:flex; flex-direction:column; min-width:0; }
@@ -233,7 +233,7 @@ body.terminal .content { display:flex; flex-direction:column; min-height:0; over
 .kind-fields input { width:130px; min-height:28px; padding:3px 8px; font-size:12px; }
 .kind-fields input#serial_port { width:170px; }
 .preset-count { margin-left:2px; color:var(--faint); font-variant-numeric:tabular-nums; }
-.preset-panel { width:340px; padding:12px; }
+.preset-panel { width:min(340px, calc(100vw - 96px)); padding:12px; }
 .preset-list { list-style:none; margin:0 0 10px; padding:0; display:flex; flex-direction:column; }
 .preset-row { display:flex; align-items:center; gap:8px; padding:6px 0; border-bottom:1px solid var(--line); }
 .preset-row:last-child { border-bottom:0; }
@@ -255,8 +255,11 @@ body.terminal .content { display:flex; flex-direction:column; min-height:0; over
 .tab { display:inline-flex; align-items:center; gap:6px; width:auto; min-height:28px; margin:4px 0; padding:3px 8px; border:1px solid transparent; border-radius:var(--radius-xs); background:transparent; color:var(--muted); font-size:12px; }
 .tab:hover { background:var(--panel); color:var(--ink); }
 .tab.active { border-color:var(--line); background:var(--panel); color:var(--ink); box-shadow:0 1px 2px rgba(24,24,27,.05); }
-.tab-close { width:auto; min-height:0; margin:0; padding:0 2px; border:0; background:transparent; color:var(--faint); font-size:14px; line-height:1; }
-.tab-close:hover { color:var(--danger); }
+.tab-item { display:inline-flex; align-items:center; gap:2px; margin:4px 0; }
+.tab-item .tab { margin:0; }
+/* A 24px target: the glyph is 14px, the hit area is not. */
+.tab-close { display:inline-flex; align-items:center; justify-content:center; width:24px; height:24px; min-width:24px; min-height:24px; padding:0; border:0; border-radius:var(--radius-xs); background:transparent; color:var(--faint); font-size:14px; line-height:1; }
+.tab-close:hover { color:var(--danger); background:var(--panel-2); }
 .panes { position:relative; flex:1; min-height:0; display:flex; gap:0; padding:0; background:var(--term-canvas); }
 .pane { flex:1; min-height:0; display:flex; overflow:hidden; }
 .pane .xterm { padding:10px 12px; background:var(--term-canvas); }
@@ -292,13 +295,13 @@ body.login { margin:0; background:var(--bg); }
 .meta-sep { color:var(--faint); }
 .pages-cell { width:100%; }
 .page-links { display:flex; flex-wrap:wrap; align-items:center; gap:2px 0; }
-.page-links a { padding:2px 0; color:var(--muted); font-size:12px; font-weight:500; white-space:nowrap; }
+.page-links a { display:inline-flex; align-items:center; min-height:24px; padding:2px 0; color:var(--muted); font-size:12px; font-weight:500; white-space:nowrap; }
 .page-links a:hover { color:var(--accent); }
 .page-links a + a::before { content:"·"; margin:0 7px; color:var(--faint); font-weight:400; }
 /* The row's seventh-to-eleventh destinations, behind one disclosure: a menu that says "More" is
    quieter than five more words in a table cell, and `details` keeps it working without JavaScript. */
 .page-links .more-pages { position:relative; display:inline-block; }
-.page-links .page-more { cursor:pointer; list-style:none; padding:2px 0; color:var(--muted); font-size:12px; font-weight:500; white-space:nowrap; }
+.page-links .page-more { display:inline-flex; align-items:center; min-height:24px; cursor:pointer; list-style:none; padding:2px 0; color:var(--muted); font-size:12px; font-weight:500; white-space:nowrap; }
 .page-links .page-more::before { content:"·"; margin:0 7px; color:var(--faint); font-weight:400; }
 .page-links .page-more::-webkit-details-marker { display:none; }
 .page-links .page-more:hover, .page-links .more-pages[open] .page-more { color:var(--accent); }
@@ -635,6 +638,16 @@ fn human_kb(kb: u64) -> String {
 
 /// How an uptime share reads: a watch that never misses is green, one that misses now and then is
 /// amber, and anything under 95% is a target that is not being watched so much as hoped for.
+fn uptime_tone(pct: u64) -> &'static str {
+    if pct >= 99 {
+        "reachable"
+    } else if pct >= 95 {
+        "degraded"
+    } else {
+        "unstable"
+    }
+}
+
 fn uptime_class(pct: u64) -> &'static str {
     if pct >= 99 {
         "ok"
@@ -914,7 +927,7 @@ pub(super) fn login(note: Option<&str>, error: Option<&str>) -> Markup {
                         button type="submit" class="btn btn-primary" { "Sign in" }
                     }
                         @if let Some(error) = error {
-                            p class="alert error" { (error) }
+                            p class="alert error" role="alert" { (error) }
                         }
                     }
                 }
@@ -1033,7 +1046,7 @@ pub(super) fn dashboard(
             None => p class="small muted" { "Signed in with this browser's session." },
         }
         @if let Some(code) = notes.enroll {
-            div class="callout" {
+            div class="callout" role="status" {
                 p {
                     span class="label" { "Enrollment code:" }
                     strong { (code) }
@@ -1390,7 +1403,7 @@ pub(super) fn logs(
                 title,
                 html! {
                     @if total > count {
-                        span class="chip muted" { (count) " of " (total) }
+                        span class="chip muted" role="status" { (count) " of " (total) }
                     } @else {
                         span class="chip muted" { (count) }
                     }
@@ -2935,7 +2948,7 @@ pub(super) fn monitors(
                                             span class="mini-bar" aria-hidden="true" {
                                                 span class="bar-fill" style=(format!("width:{pct}%")) {}
                                             }
-                                            span class=(format!("mono status {}", uptime_class(pct))) { (pct) "%" }
+                                            span class=(format!("mono status {}", uptime_class(pct))) { (pct) "%" span class="visually-hidden" { " " (uptime_tone(pct)) } }
                                         }
                                     } @else {
                                         span class="muted" { "—" }
@@ -3097,6 +3110,11 @@ pub(super) fn browser(
                             data-device=(device.id) data-target=(first.id);
                     } @else {
                         img class="capture thumb" src=(shot) alt="the device's browser";
+                    }
+                    p class="small muted" {
+                        a class="btn btn-ghost btn-sm" href=(format!("/next/browser/{}", device.id)) { "Refresh the capture" }
+                        " One frame a second while this tab is visible. With reduced motion on, the "
+                        "capture stays still and this link loads a new one."
                     }
                 }
             }

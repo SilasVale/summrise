@@ -8,6 +8,13 @@
   const target = img.dataset.target;
   if (!device || !target) return;
 
+  // **MOTION THE READER DID NOT ASK FOR.** The pump replaces the image every 200 ms–1 s; with
+  // `prefers-reduced-motion` the page keeps its server-rendered frame and the "Refresh the capture"
+  // link loads another one.
+  if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    return;
+  }
+
   let stopped = false;
   let timer = null;
   // A device with a live stream is polled five times a second; one without (a build older than
