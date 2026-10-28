@@ -812,6 +812,19 @@ struct Browser {
     socket: Option<CdpClient>,
 }
 
+/// Whether the operator asked for the visible, user-session browser.
+fn visible_by_request() -> bool {
+    visible_from(std::env::var_os("SUMMRISE_BROWSER_VISIBLE").as_deref())
+}
+
+/// The flag's value as a decision: set and not "0" means yes, absent means headless.
+fn visible_from(value: Option<&std::ffi::OsStr>) -> bool {
+    match value {
+        Some(value) => value != "0",
+        None => false,
+    }
+}
+
 impl Browser {
     /// Start Chrome under `data`'s profile and wait for its DevTools endpoint.
     ///
@@ -823,12 +836,17 @@ impl Browser {
         chrome: Option<&Path>,
         readiness_timeout_ms: u64,
     ) -> Result<Browser, BrowserError> {
-        // The user-session browser first: it is the one the person at the machine can see and take
-        // over, and the only one that runs with their profile and GPU. If the helper is absent or
-        // cannot start it, the service's own headless browser is the fallback — the feature degrades,
-        // it does not fail.
-        if let Some(browser) = launch_in_the_user_session(readiness_timeout_ms).await {
-            return Ok(browser);
+        // **HEADLESS UNLESS SOMEONE ASKED TO WATCH.** The user-session browser is the one the person at
+        // the machine can see, take over, and whose profile has their cookies — which is exactly why it
+        // is the wrong default for automation: it opens windows on their desktop, needs an unlocked
+        // session, and lets any page the tool visits read their signed-in state. `SUMMRISE_BROWSER_VISIBLE`
+        // asks for it; without that the service's own headless Chrome serves every call and nobody's
+        // screen changes. If the flag is set and the helper cannot start it, the headless path below is
+        // still there: the feature degrades, it does not fail.
+        if visible_by_request() {
+            if let Some(browser) = launch_in_the_user_session(readiness_timeout_ms).await {
+                return Ok(browser);
+            }
         }
         let executable = match chrome {
             Some(path) => path.to_owned(),
@@ -2000,6 +2018,20 @@ fn now_unix_ms() -> u64 {
 
 #[cfg(all(test, target_os = "linux"))]
 mod tests {
+
+    /// The visible browser is opt-in: absent means headless, `0` means headless, anything else means the
+    /// operator wants to watch.
+    #[test]
+    fn the_visible_browser_is_asked_for_by_name() {
+        let os = |text: &str| std::ffi::OsString::from(text);
+        assert!(!visible_from(None), "absent means headless");
+        assert!(!visible_from(Some(&os("0"))), "0 means headless");
+        assert!(visible_from(Some(&os("1"))), "1 asks for the window");
+        assert!(
+            visible_from(Some(&os("yes"))),
+            "any other value asks for it"
+        );
+    }
     use std::fs;
     use std::path::{Path, PathBuf};
     use std::time::{Duration, Instant};

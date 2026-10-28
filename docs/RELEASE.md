@@ -12,6 +12,17 @@ They share a version number because they are released together, but a *device* r
 *console*, and a console deploy does not touch a device. `verify-release.sh` is the tool that keeps those
 facts straight (see "Proving it landed").
 
+## The browser is headless unless someone asks to watch
+
+`browser.*` used to launch Chrome in the operator's session first, headless only as a fallback: the visible
+browser has their profile and GPU, and the person at the machine can take it over. For automation that default is
+backwards — windows open on their desktop, an unlocked session is required, and any page the tool visits can read
+their signed-in cookies.
+
+The order is now the other way round. `SUMMRISE_BROWSER_VISIBLE=1` (any value except `0`) asks for the visible
+browser and falls back to headless if the helper cannot start it; without the variable every call is served by the
+service's own headless Chrome and nobody's screen changes.
+
 ## Catching a window that flashes on an operator's desktop
 
 "The screen blinks" has three plausible authors and only one of them is the product: a console child of a GUI
