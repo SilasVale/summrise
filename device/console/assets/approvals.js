@@ -6,6 +6,22 @@
 // while the tab is hidden.
 (() => {
   const badge = document.getElementById("approvals-badge");
+  const announce = document.getElementById("approvals-announce");
+  // **THE MENUS CLOSE THE WAY MENUS DO.** None of the page's disclosures had an Escape or an
+  // outside click, so a keyboard user could open a row menu and leave it open over the next row's
+  // controls. One delegated handler, no per-menu state.
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") return;
+    const open = document.querySelectorAll("details[open]");
+    if (open.length === 0) return;
+    open.forEach((details) => details.removeAttribute("open"));
+    if (open[open.length - 1].querySelector("summary")) open[open.length - 1].querySelector("summary").focus();
+  });
+  document.addEventListener("pointerdown", (event) => {
+    document.querySelectorAll("details.row-menu[open]").forEach((details) => {
+      if (!details.contains(event.target)) details.removeAttribute("open");
+    });
+  });
   if (!badge) return;
   const baseTitle = document.title;
   let waiting = -1;
@@ -17,9 +33,14 @@
       badge.textContent = pending + (pending === 1 ? " call waiting" : " calls waiting");
       badge.hidden = false;
       document.title = "(" + pending + ") " + baseTitle;
+      if (announce) {
+        announce.textContent =
+          pending + (pending === 1 ? " call is waiting" : " calls are waiting") + " for your approval";
+      }
     } else {
       badge.hidden = true;
       document.title = baseTitle;
+      if (announce) announce.textContent = "";
     }
   };
 

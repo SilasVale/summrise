@@ -1262,6 +1262,9 @@ struct NextQuery {
     /// The enrollment code `POST /next/enroll` hands back once, to display.
     enroll: Option<String>,
     error: Option<String>,
+    /// What the last decision did ("Approved — …"), so the page says it instead of the row
+    /// silently vanishing.
+    notice: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -1327,6 +1330,7 @@ async fn next_page(
         signer: signer.as_deref(),
         enroll: query.enroll.as_deref(),
         error: query.error.as_deref(),
+        notice: query.notice.as_deref(),
         origin: origin.as_deref(),
     };
     let approvals = live_approvals(&app);
@@ -1418,7 +1422,15 @@ async fn next_approval_decide(
             // that lands after the hold resolved (or on a row whose client has gone) would
             // otherwise be reported as done while nothing happened.
             match pending.decide.send(approve) {
-                Ok(()) => Redirect::to("/next").into_response(),
+                // **THE DECISION IS ANNOUNCED.** A bare `/next` reload makes the row vanish with no
+                // sentence; a screen reader heard only "Fleet" again, and the operator had to infer
+                // that the approval had been recorded.
+                Ok(()) => Redirect::to(if approve {
+                    "/next?notice=Approved%20%E2%80%94%20the%20client%27s%20call%20may%20now%20run."
+                } else {
+                    "/next?notice=Refused%20%E2%80%94%20the%20call%20will%20not%20run."
+                })
+                .into_response(),
                 Err(_) => Redirect::to(&format!(
                     "/next?error={}",
                     page::encode("That call is no longer waiting: it was answered, it expired, or the client stopped waiting.")

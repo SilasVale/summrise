@@ -135,7 +135,7 @@ label.check { display:flex; align-items:center; gap:8px; margin:0 0 14px; color:
 .form-inline { display:flex; flex-wrap:wrap; align-items:center; gap:8px; }
 .form-inline .field { margin:0; }
 .input-sm { min-height:28px; padding:3px 8px; font-size:12px; }
-.filter-form { display:flex; align-items:center; gap:8px; }
+.filter-form { display:flex; flex-wrap:wrap; align-items:center; gap:8px; }
 .filter-form input { min-height:28px; padding:3px 8px; font-size:12px; width:180px; }
 
 /* ---- spacing: 4, 8, 12, 16, 24, 32. A new value that is not one of those is a mistake the
@@ -389,6 +389,9 @@ body.login { margin:0; background:var(--bg); }
   .filter-form .field { min-width:0; margin:0; }
   .filter-form input, .filter-form select { width:100%; }
   .filter-form .form-actions { grid-column:1 / -1; display:flex; align-items:center; gap:10px; }
+  /* The trend row needs 362px before its first break; a 400px phone has 292. It stacks. */
+  .trend-row { grid-template-columns:1fr; gap:6px; }
+  .trend-row .trend-scale { justify-self:start; }
   .statusbar .side { display:none; }
   /* **A ROW IS NOT A TABLE ON A PHONE.** At 390px the pages column was squeezed to forty pixels —
      four links stacked vertically — and the row menu was cut off past the right edge. The row
@@ -767,7 +770,7 @@ fn status_chip(online: bool) -> Markup {
 fn topbar(title: &str, device: Option<&DeviceView>, csrf: &str) -> Markup {
     html! {
         header class="topbar" {
-            h1 { (title) }
+            h1 id="page-title" { (title) }
             @if let Some(device) = device {
                 span class=(if device.online { "context" } else { "context offline" }) title=(device.id) {
                     span class="dot" aria-hidden="true" {}
@@ -775,7 +778,11 @@ fn topbar(title: &str, device: Option<&DeviceView>, csrf: &str) -> Markup {
                 }
             }
             span class="spacer" {}
-            a class="badge-approvals" id="approvals-badge" href="/next" role="status" aria-live="polite" hidden {}
+            a class="badge-approvals" id="approvals-badge" href="/next" hidden {}
+            // **AN ANCHOR IS NOT A LIVE REGION.** `role="status"` on the link removed its link role,
+            // and a region that starts hidden may not announce its first change. The announcement
+            // lives in an always-present hidden span instead.
+            span id="approvals-announce" class="visually-hidden" role="status" aria-live="polite" {}
             // The console's build is in the status strip. Printing it here as well was the same
             // fact twice on one screen; the strip is where chrome facts belong.
             form method="post" action="/next/logout" {
@@ -827,7 +834,7 @@ fn page_with_rail(chrome: Chrome<'_>, extra: Markup, context: Markup, content: M
                     (topbar(chrome.title, chrome.device, chrome.csrf))
                     div class="body-row" {
                         (context)
-                        main id="content" class="content" tabindex="-1" { (content) }
+                        main id="content" class="content" tabindex="-1" aria-labelledby="page-title" { (content) }
                     }
                     (statusbar(chrome.version, chrome.status))
                 }
@@ -926,6 +933,8 @@ pub(super) struct Notes<'a> {
     pub signer: Option<&'a str>,
     pub enroll: Option<&'a str>,
     pub error: Option<&'a str>,
+    /// What the last approve/refuse did, announced rather than inferred.
+    pub notice: Option<&'a str>,
     /// The address the operator reached this console on. A new device must be able to reach the same
     /// one, so the enrollment card prints it instead of making the reader guess.
     pub origin: Option<&'a str>,
@@ -976,11 +985,11 @@ pub(super) fn dashboard(
                         caption class="visually-hidden" { "Calls waiting for an answer." }
                         thead {
                             tr {
-                                th { "Device" }
-                                th { "Tool" }
-                                th { "Arguments" }
-                                th { "Waiting since" }
-                                th class="num" { "" }
+                                th scope="col" { "Device" }
+                                th scope="col" { "Tool" }
+                                th scope="col" { "Arguments" }
+                                th scope="col" { "Waiting since" }
+                                th class="num" scope="col" { span class="visually-hidden" { "Actions" } }
                             }
                         }
                         tbody {
@@ -1053,6 +1062,9 @@ pub(super) fn dashboard(
         @if let Some(error) = notes.error {
             p class="alert error" { "That change was not applied: " (error) }
         }
+        @if let Some(notice) = notes.notice {
+            p class="alert notice" role="status" { (notice) }
+        }
         @if !devices.is_empty() {
             div class="stats" {
                 div class="stat" {
@@ -1097,9 +1109,9 @@ pub(super) fn dashboard(
                     caption class="visually-hidden" { "Every device this console has enrolled, and the pages that act on it." }
                     thead {
                         tr {
-                            th { "Device" }
-                            th { "Pages" }
-                            th class="num" { "" }
+                            th scope="col" { "Device" }
+                            th scope="col" { "Pages" }
+                            th class="num" scope="col" { span class="visually-hidden" { "Actions" } }
                         }
                     }
                     tbody {
@@ -1183,11 +1195,11 @@ pub(super) fn dashboard(
                                                     label for=(format!("rename-{}", short_id(&device.id))) { "Rename device" }
                                                     input id=(format!("rename-{}", short_id(&device.id))) name="name" type="text" maxlength="64" placeholder="New name";
                                                 }
-                                                button type="submit" class="btn btn-sm" { "Rename" }
+                                                button type="submit" class="btn btn-sm" aria-label=(format!("Rename {}", device_label(device))) { "Rename" }
                                             }
                                             form method="post" action=(format!("/next/fleet/{}/remove", device.id)) {
                                                 input type="hidden" name="csrf" value=(csrf);
-                                                button type="submit" class="btn btn-sm btn-danger" { "Remove" }
+                                                button type="submit" class="btn btn-sm btn-danger" aria-label=(format!("Remove {}", device_label(device))) { "Remove" }
                                             }
                                         }
                                     }
@@ -1210,10 +1222,10 @@ pub(super) fn dashboard(
                     caption class="visually-hidden" { "What the console did most recently." }
                     thead {
                         tr {
-                            th { "When" }
-                            th { "Kind" }
-                            th { "Tool" }
-                            th class="num" { "Status" }
+                            th scope="col" { "When" }
+                            th scope="col" { "Kind" }
+                            th scope="col" { "Tool" }
+                            th class="num" scope="col" { "Status" }
                         }
                     }
                     tbody {
@@ -1396,12 +1408,12 @@ pub(super) fn logs(
                     caption class="visually-hidden" { (caption) }
                     thead {
                         tr {
-                            th { "When" }
-                            th { "Kind" }
-                            th class="num" { "Status" }
-                            th { "Device" }
-                            th { "Tool" }
-                            th { "Detail" }
+                            th scope="col" { "When" }
+                            th scope="col" { "Kind" }
+                            th class="num" scope="col" { "Status" }
+                            th scope="col" { "Device" }
+                            th scope="col" { "Tool" }
+                            th scope="col" { "Detail" }
                         }
                     }
                     tbody {
@@ -1667,12 +1679,12 @@ pub(super) fn terminal(
                                             } @else {
                                                 form method="post" action=(format!("/next/terminal/{}/connections/{}/connect", device.id, encode(&preset.id))) {
                                                     input type="hidden" name="csrf" value=(csrf);
-                                                    button type="submit" class="btn btn-sm" { "Connect" }
+                                                    button type="submit" class="btn btn-sm" aria-label=(format!("Connect {}", preset.name)) { "Connect" }
                                                 }
                                             }
                                             form method="post" action=(format!("/next/terminal/{}/connections/{}/remove", device.id, encode(&preset.id))) {
                                                 input type="hidden" name="csrf" value=(csrf);
-                                                button type="submit" class="btn btn-quiet-danger btn-sm" { "Forget" }
+                                                button type="submit" class="btn btn-quiet-danger btn-sm" aria-label=(format!("Forget {}", preset.name)) { "Forget" }
                                             }
                                         }
                                     }
@@ -1889,9 +1901,9 @@ pub(super) fn files(
                     caption class="visually-hidden" { "The directory's entries." }
                     thead {
                         tr {
-                            th { "Name" }
-                            th { "Kind" }
-                            th class="num" { "Bytes" }
+                            th scope="col" { "Name" }
+                            th scope="col" { "Kind" }
+                            th class="num" scope="col" { "Bytes" }
                         }
                     }
                     tbody {
@@ -2243,10 +2255,10 @@ pub(super) fn runs(
                     caption class="visually-hidden" { "Runs the device has completed, newest first." }
                     thead {
                         tr {
-                            th { "When" }
-                            th { "Command" }
-                            th class="num" { "Took" }
-                            th { "Exit" }
+                            th scope="col" { "When" }
+                            th scope="col" { "Command" }
+                            th class="num" scope="col" { "Took" }
+                            th scope="col" { "Exit" }
                         }
                     }
                     tbody {
@@ -2468,9 +2480,9 @@ pub(super) fn system(
                     caption class="visually-hidden" { "Processes running on the device." }
                     thead {
                         tr {
-                            th class="num pid" { "PID" }
-                            th { "Name" }
-                            th class="num" { "Memory" }
+                            th class="num pid" scope="col" { "PID" }
+                            th scope="col" { "Name" }
+                            th class="num" scope="col" { "Memory" }
                         }
                     }
                     tbody {
@@ -2662,9 +2674,9 @@ pub(super) fn memory(
                     caption class="visually-hidden" { "What this device remembers." }
                     thead {
                         tr {
-                            th { "Text" }
-                            th { "Tags" }
-                            th class="num" { "" }
+                            th scope="col" { "Text" }
+                            th scope="col" { "Tags" }
+                            th class="num" scope="col" { span class="visually-hidden" { "Actions" } }
                         }
                     }
                     tbody {
@@ -2683,7 +2695,7 @@ pub(super) fn memory(
                                         form method="post" action=(format!("{base}/delete")) {
                                             input type="hidden" name="csrf" value=(csrf);
                                             input type="hidden" name="id" value=(entry.id);
-                                            button type="submit" class="btn btn-sm btn-quiet-danger" { "Delete" }
+                                            button type="submit" class="btn btn-sm btn-quiet-danger" aria-label=(format!("Delete the memory entry \"{}\"", entry.text.chars().take(60).collect::<String>())) { "Delete" }
                                         }
                                     }
                                 }
@@ -2881,12 +2893,12 @@ pub(super) fn monitors(
                     caption class="visually-hidden" { "The targets this device watches." }
                     thead {
                         tr {
-                            th { "Target" }
-                            th { "Now" }
-                            th { "Last 60" }
-                            th class="num" { "Drops" }
-                            th class="num" { "Status" }
-                            th class="num" { "" }
+                            th scope="col" { "Target" }
+                            th scope="col" { "Now" }
+                            th scope="col" { "Last 60" }
+                            th class="num" scope="col" { "Drops" }
+                            th class="num" scope="col" { "Status" }
+                            th class="num" scope="col" { span class="visually-hidden" { "Actions" } }
                         }
                     }
                     tbody {
@@ -2941,7 +2953,7 @@ pub(super) fn monitors(
                                         form method="post" action=(format!("{base}/remove")) {
                                             input type="hidden" name="csrf" value=(csrf);
                                             input type="hidden" name="id" value=(row.id);
-                                            button type="submit" class="btn btn-sm btn-quiet-danger" { "Remove" }
+                                            button type="submit" class="btn btn-sm btn-quiet-danger" aria-label=(format!("Stop watching {}", row.id)) { "Remove" }
                                         }
                                     }
                                 }
@@ -3119,10 +3131,10 @@ pub(super) fn browser(
                     caption class="visually-hidden" { "The browser's open targets." }
                     thead {
                         tr {
-                            th { "Title" }
-                            th { "URL" }
-                            th { "Type" }
-                            th class="num" { "" }
+                            th scope="col" { "Title" }
+                            th scope="col" { "URL" }
+                            th scope="col" { "Type" }
+                            th class="num" scope="col" { span class="visually-hidden" { "Actions" } }
                         }
                     }
                     tbody {
@@ -3135,7 +3147,7 @@ pub(super) fn browser(
                                     form method="post" action=(format!("{base}/close")) {
                                         input type="hidden" name="csrf" value=(csrf);
                                         input type="hidden" name="target" value=(row.id);
-                                        button type="submit" class="btn btn-sm btn-quiet-danger" { "Close" }
+                                        button type="submit" class="btn btn-sm btn-quiet-danger" aria-label=(format!("Close {}", row.title)) { "Close" }
                                     }
                                 }
                             }
@@ -3330,11 +3342,11 @@ pub(super) fn tokens(
                     caption class="visually-hidden" { "The tokens that name this device." }
                     thead {
                         tr {
-                            th { "Name" }
-                            th class="num" { "Tools" }
-                            th { "Access" }
-                            th { "Created" }
-                            th class="num" { "" }
+                            th scope="col" { "Name" }
+                            th class="num" scope="col" { "Tools" }
+                            th scope="col" { "Access" }
+                            th scope="col" { "Created" }
+                            th class="num" scope="col" { span class="visually-hidden" { "Actions" } }
                         }
                     }
                     tbody {
@@ -3354,7 +3366,7 @@ pub(super) fn tokens(
                                     form method="post" action=(format!("{base}/revoke")) {
                                         input type="hidden" name="csrf" value=(csrf);
                                         input type="hidden" name="id" value=(row.id);
-                                        button type="submit" class="btn btn-sm btn-quiet-danger" { "Revoke" }
+                                        button type="submit" class="btn btn-sm btn-quiet-danger" aria-label=(format!("Revoke the token {}", row.name)) { "Revoke" }
                                     }
                                 }
                             }
