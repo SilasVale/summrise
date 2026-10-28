@@ -55,7 +55,7 @@ const COMPONENTS: &str = r##"  * { box-sizing: border-box; }
   td.kind { color: var(--ink-muted); }
   .none { color: var(--ink-muted); font-size: 14px; }
 
-  /* The enroll form: the same fields and vocabulary as the console's "Add a device", because the
+  /* The enroll form: the same fields and vocabulary as the console's "New enrollment code", because the
      person pastes the code from there into here. Field and button rules only; the tokens above are
      the panel's. */
   form {
@@ -472,7 +472,7 @@ fn render(facts: &PanelFacts, outcome: Option<&EnrollOutcome>) -> Markup {
                             input type="hidden" name="panel_token" value=(facts.panel_token);
                             h3 { "Enrol this machine" }
                             p class="hint" {
-                                "Paste the console URL and the one-time code from the console's “Add a device”."
+                                "Paste the console URL and the one-time code from the console's “New enrollment code”."
                             }
                             label for="enroll-console" { "Console URL" }
                             input

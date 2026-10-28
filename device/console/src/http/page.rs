@@ -400,6 +400,7 @@ body.login { margin:0; background:var(--bg); }
   .fleet-table td { border:0; padding:2px 0; }
   .fleet-table td.pages-cell { padding-top:8px; }
   .fleet-table td.actions-cell { padding-top:4px; }
+  .fleet-note { margin:12px 0 4px; }
   /* The same reflow for the approval queue: the arguments block is wider than a phone, and clipped
      JSON is the one thing an approver must be able to read in full. */
   .approvals-table thead { display:none; }
@@ -888,6 +889,12 @@ pub(super) fn login(note: Option<&str>, error: Option<&str>) -> Markup {
                     p class="lead" {
                         "The operator token opens a session for this browser. It is not stored by the page."
                     }
+                    p class="small muted" {
+                        "The token is the 64-hex secret in the file the console's "
+                        code { "--operator-token-file" } " names, on the console host. With access to "
+                        "that host, " code { "summrise-console --login-link <url> --data <dir>" }
+                        " prints a two-minute link instead."
+                    }
                         @if let Some(note) = note {
                             p class="alert notice" { (note) }
                         }
@@ -1072,6 +1079,16 @@ pub(super) fn dashboard(
                     enroll,
                 ))
             } @else {
+                @if devices.iter().any(|device| !device.online && device.version.is_none() && device.last_attempt.is_none()) {
+                    // The CLI enrollment writes the link, but the running service read it at boot.
+                    // Without this line the first row an operator ever sees says "offline" and
+                    // nothing tells them the one command that fixes it.
+                    p class="fleet-note small muted" {
+                        "A device that just enrolled reads offline until its service restarts: "
+                        code { "sc stop SummriseLaunch && sc start SummriseLaunch" }
+                        ", then reload this page."
+                    }
+                }
                 table class="table fleet-table" {
                     caption class="visually-hidden" { "Every device this console has enrolled, and the pages that act on it." }
                     thead {

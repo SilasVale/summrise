@@ -132,7 +132,7 @@ list, and the supervisor rolls back to the previous generation if the new one fa
 
 ## Onboarding a machine
 
-The console's **Add a device** mints a one-time code for this machine. Either path spends that code
+The console's **New enrollment code** mints a one-time code for this machine. Either path spends that code
 once and writes `console.json` and `console-token.json` under the data directory; the running app
 builds its console link at boot, so restart the `SummriseLaunch` service afterwards.
 

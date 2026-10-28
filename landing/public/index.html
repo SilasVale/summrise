@@ -67,8 +67,10 @@
         <div class="terminal" role="img" aria-label="A terminal on the device enrolling it with the console, then an MCP client listing its tools">
           <div class="bar"><i></i><i></i><i></i><span class="t">summrise — powershell</span></div>
           <div class="body">
-            <div><span class="p">PS&gt;</span> summrise-device --enroll <span class="c">https://console.saisi.online</span> <span class="b">AB12-CD34</span></div>
-            <div class="cmt">  enrolled 9f3c1a2b4d&hellip; <span class="badge">online</span></div>
+            <div><span class="p">PS&gt;</span> summrise-device.exe --enroll <span class="c">https://console.saisi.online</span> <span class="b">9f2c&hellip;e1</span> --data <span class="c">C:\ProgramData\Summrise</span></div>
+            <div class="cmt">  enrolled &middot; restart the service to go online</div>
+            <div><span class="p">PS&gt;</span> sc stop SummriseLaunch &amp;&amp; sc start SummriseLaunch</div>
+            <div class="cmt">  online <span class="badge">online</span></div>
             <div><span class="p">PS&gt;</span> curl -s http://127.0.0.1:18080/api/health</div>
             <div class="c">  {"status":"ok","version":"0.3.152","sessions":2}</div>
             <div><span class="p">PS&gt;</span> <span class="cmt"># from any MCP client</span></div>
