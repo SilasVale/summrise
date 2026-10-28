@@ -10,6 +10,7 @@
 //! already enforces.
 
 use maud::{html, Markup, PreEscaped, DOCTYPE};
+use summrise_ui::card_head;
 
 use crate::connections::Connection;
 
@@ -178,10 +179,6 @@ label.check { display:flex; align-items:center; gap:8px; margin:0 0 14px; color:
 .usage-value strong { display:block; color:var(--ink); font-size:12.5px; }
 
 /* ---- empty states and pre ---- */
-.empty { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:10px; padding:40px 20px; color:var(--muted); font-size:13px; text-align:center; }
-.empty-icon { display:grid; place-items:center; width:38px; height:38px; border-radius:var(--radius-sm); background:var(--panel-2); color:var(--faint); }
-.empty p { max-width:48ch; }
-.empty .btn { margin-top:2px; }
 pre, code { font-family:var(--mono); }
 code { padding:1px 5px; border-radius:6px; background:var(--panel-2); color:var(--muted); font-size:12.5px; }
 pre.file { margin:0; padding:16px 18px; border:0; background:var(--panel); color:var(--ink); font:12.5px/1.65 var(--mono); white-space:pre-wrap; word-break:break-word; overflow:auto; }
@@ -812,26 +809,9 @@ fn context_rail(heading: &str, meta: Markup, body: Markup, action: Markup) -> Ma
     }
 }
 
-/// A card's header: a muted section title on the left, optional metadata, an action on the right.
-fn card_head(title: &str, meta: Markup, actions: Markup) -> Markup {
-    html! {
-        div class="card-head" {
-            h2 { (title) }
-            (meta)
-            div class="actions" { (actions) }
-        }
-    }
-}
-
 /// The one empty state: a muted icon, a sentence, and at most one action.
 fn empty_state(icon: Page, message: &str, action: Markup) -> Markup {
-    html! {
-        div class="empty" {
-            div class="empty-icon" aria-hidden="true" { (icon.icon()) }
-            p { (message) }
-            (action)
-        }
-    }
+    summrise_ui::empty_state(icon.icon(), message, action)
 }
 
 /// A breadcrumb: a short trail of links and the name of the thing being read.

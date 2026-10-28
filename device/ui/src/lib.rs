@@ -10,6 +10,8 @@
 //! with only a light value would keep its surface light in the dark. ``every_text_colour_reads_on_the
 //! _surface_it_sits_on`` in the console measures the contrast of these tokens as a browser would.
 
+use maud::{html, Markup};
+
 /// The token block: `:root` for the light theme and the same names again inside the dark media query.
 pub const TOKENS: &str = r#":root {
   color-scheme: light dark;
@@ -79,6 +81,14 @@ pub const COMPONENTS: &str = r#"
 .chip.muted { background:var(--panel-2); color:var(--muted); }
 .chip.failed { background:var(--danger-soft); color:var(--danger); }
 .chip.plain { padding:0; background:none; color:var(--muted); }
+/* ---- a card's heading row and the one empty state ---- */
+.card-head { display:flex; align-items:center; gap:10px; padding:12px 16px; border-bottom:1px solid var(--line); }
+.card-head h2 { margin:0; font-size:13px; font-weight:650; }
+.card-head .actions { margin-left:auto; display:flex; gap:6px; }
+.empty { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:10px; padding:40px 20px; color:var(--muted); font-size:13px; text-align:center; }
+.empty-icon { display:grid; place-items:center; width:38px; height:38px; border-radius:var(--radius-sm); background:var(--panel-2); color:var(--faint); }
+.empty p { max-width:48ch; }
+.empty .btn { margin-top:2px; }
 "#;
 
 /// What a chip is saying.
@@ -109,32 +119,39 @@ impl Tone {
     }
 }
 
-/// A status pill: a dot and a label.
-pub fn chip(tone: Tone, label: &str) -> String {
-    format!(
-        r#"<span class="chip {class}"><span class="dot" aria-hidden="true"></span>{label}</span>"#,
-        class = tone.class(),
-        label = escape(label)
-    )
-}
-
-/// A sentence of HTML text with the five characters that matter escaped.
-///
-/// This crate has no markup engine on purpose: the console and the panel both build strings, and a
-/// dependency here would be a dependency in both.
-fn escape(text: &str) -> String {
-    let mut out = String::with_capacity(text.len());
-    for ch in text.chars() {
-        match ch {
-            '&' => out.push_str("&amp;"),
-            '<' => out.push_str("&lt;"),
-            '>' => out.push_str("&gt;"),
-            '"' => out.push_str("&quot;"),
-            '\'' => out.push_str("&#39;"),
-            other => out.push(other),
+/// A status pill: a dot and a label, escaped by construction.
+pub fn chip(tone: Tone, label: &str) -> Markup {
+    html! {
+        span class=(format!("chip {}", tone.class())) {
+            span class="dot" aria-hidden="true" {}
+            (label)
         }
     }
-    out
+}
+
+/// A card's heading row: a title, whatever belongs beside it, and its actions.
+///
+/// The three parts are separate arguments because the console puts a counter chip and a button in that
+/// row, and the panel puts only a chip; a component that took one bucket would be a layout nobody owns.
+pub fn card_head(title: &str, meta: Markup, actions: Markup) -> Markup {
+    html! {
+        div class="card-head" {
+            h2 { (title) }
+            (meta)
+            div class="actions" { (actions) }
+        }
+    }
+}
+
+/// The one empty state: a muted icon, a sentence, and at most one action.
+pub fn empty_state(icon: Markup, message: &str, action: Markup) -> Markup {
+    html! {
+        div class="empty" {
+            div class="empty-icon" aria-hidden="true" { (icon) }
+            p { (message) }
+            (action)
+        }
+    }
 }
 
 /// The tokens followed by a surface's own component rules.

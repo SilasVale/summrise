@@ -5,3 +5,6 @@ edition = "2021"
 description = "The design tokens both surfaces render through, so the console and the device's own panel cannot drift apart"
 
 [dependencies]
+# The components are typed markup, not strings: a shared component that takes pre-escaped HTML
+# would move the escaping question into every caller.
+maud = "0.26"

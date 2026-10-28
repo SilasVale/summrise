@@ -4933,6 +4933,9 @@ dependencies = [
 [[package]]
 name = "summrise-ui"
 version = "0.1.0"
+dependencies = [
+ "maud",
+]
 
 [[package]]
 name = "summrise-winsec"
