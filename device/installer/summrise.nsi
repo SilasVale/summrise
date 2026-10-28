@@ -89,12 +89,31 @@ Function .onInit
     ${EndIf}
   ${LoopUntil} $7 == "1"
   FileWrite $6 "onInit: launcher waited out after $2 attempt(s)$\r$\n"
-  ; `--install-service`/`--uninstall-service` always act on the launcher's default service name;
-  ; only `service --service-name` selects another one for the SCM's own argv.
-  nsExec::ExecToStack '"$INSTDIR\summrise-launch.exe" --uninstall-service'
-  Pop $0
-  Pop $1
-  FileWrite $6 "onInit: uninstall-service exit $0$\r$\n"
+  ; THE APP IS A CHILD OF THE LAUNCHER, BUT ITS IMAGE IS THE ONE BEING REPLACED. A supervisor that
+  ; exited does not guarantee the app did (a failed job assignment, or a stop the app ignored), and a
+  ; running `summrise-device.exe` holds `baseline\current\summrise-device.exe` open — the rotation
+  ; then fails with a sharing violation *after* the service was removed, which is a machine with no
+  ; runtime. Kill it and wait for it, like the launcher above.
+  nsExec::Exec 'taskkill /F /IM summrise-device.exe'
+  StrCpy $2 0
+  StrCpy $7 "0"
+  ${Do}
+    IntOp $2 $2 + 1
+    nsExec::ExecToStack 'cmd /c tasklist /FI "IMAGENAME eq summrise-device.exe" | findstr /I summrise-device'
+    Pop $0
+    Pop $1
+    ${If} $0 != "0"
+      StrCpy $7 "1"
+    ${ElseIf} $2 >= 15
+      StrCpy $7 "1"
+    ${Else}
+      Sleep 1000
+    ${EndIf}
+  ${LoopUntil} $7 == "1"
+  FileWrite $6 "onInit: app waited out after $2 attempt(s)$\r$\n"
+  ; The registration is NOT removed here. `--install-service` reconfigures an existing service, and a
+  ; machine whose install step fails must still have one: removing it first is what turned a failed
+  ; rotation into a device that could not be reached at all.
   ; The tray is a per-user process, not the service: close it before its image is replaced, and the
   ; login Run entry below starts the new one next time.
   nsExec::Exec 'taskkill /F /IM summrise-shell.exe'
@@ -164,6 +183,12 @@ Section "Summrise runtime" SecRuntime
   Pop $1
   FileWrite $6 "install-service: exit $0$\r$\n$1$\r$\n"
   ${If} $0 != "0"
+    ; Leave the machine serving if it can: the registration is still there (onInit no longer removes
+    ; it), so starting it runs whatever generation is consistent rather than nothing at all.
+    nsExec::ExecToStack 'sc.exe start ${SERVICE}'
+    Pop $0
+    Pop $1
+    FileWrite $6 "install-service failed; sc start says $0 $1$\r$\n"
     FileClose $6
     ${If} ${Silent}
       SetErrorLevel 1
