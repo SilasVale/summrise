@@ -87,15 +87,9 @@ body.app { display:flex; height:100vh; overflow:hidden; }
 .callout .note { color:var(--muted); font-size:12px; }
 
 /* ---- cards ---- */
-.card { margin:0 0 20px; border:1px solid var(--line); border-radius:var(--radius); background:var(--panel); box-shadow:var(--shadow); }
-.card-head { display:flex; align-items:center; gap:10px; min-height:46px; padding:10px 16px; border-bottom:1px solid var(--line); }
-.card-head h2 { color:var(--muted); font-size:13px; font-weight:600; letter-spacing:.07em; text-transform:uppercase; }
-.card-head .actions { flex:none; display:flex; align-items:center; gap:8px; margin-left:auto; }
 .card-head .spacer { flex:1; }
-.card-body { padding:16px; }
 .card-body .lead { margin-bottom:14px; }
 .card-body .alert { box-shadow:none; }
-.card-body > :last-child { margin-bottom:0; }
 .card > .table { border-radius:0 0 var(--radius) var(--radius); }
 .card > .table tbody tr:last-child td:first-child { border-bottom-left-radius:calc(var(--radius) - 1px); }
 .card > .table tbody tr:last-child td:last-child { border-bottom-right-radius:calc(var(--radius) - 1px); }

@@ -82,11 +82,14 @@ pub const COMPONENTS: &str = r#"
 .chip.failed { background:var(--danger-soft); color:var(--danger); }
 .chip.plain { padding:0; background:none; color:var(--muted); }
 /* ---- a card's heading row and the one empty state ---- */
-.card-head { display:flex; align-items:center; gap:10px; padding:12px 16px; border-bottom:1px solid var(--line); }
-.card-head h2 { margin:0; font-size:13px; font-weight:650; }
-.card-head .actions { margin-left:auto; display:flex; gap:6px; }
+.card { margin:0 0 20px; border:1px solid var(--line); border-radius:var(--radius); background:var(--panel); box-shadow:var(--shadow); }
+.card-head { display:flex; align-items:center; gap:10px; min-height:46px; padding:10px 16px; border-bottom:1px solid var(--line); }
+.card-head h2 { margin:0; color:var(--muted); font-size:13px; font-weight:600; letter-spacing:.07em; text-transform:uppercase; }
+.card-head .actions { flex:none; display:flex; align-items:center; gap:8px; margin-left:auto; }
 .empty { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:10px; padding:40px 20px; color:var(--muted); font-size:13px; text-align:center; }
 .empty-icon { display:grid; place-items:center; width:38px; height:38px; border-radius:var(--radius-sm); background:var(--panel-2); color:var(--faint); }
+.card-body { padding:16px; }
+.card-body > :last-child { margin-bottom:0; }
 .empty p { max-width:48ch; }
 .empty .btn { margin-top:2px; }
 "#;
