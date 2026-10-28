@@ -1156,7 +1156,18 @@ pub(super) fn dashboard(
                         tbody {
                             @for row in approvals {
                                 tr {
-                                    td { code title=(row.device_id) { (row.device_id.chars().take(12).collect::<String>()) } }
+                                    td {
+                                        @match devices.iter().find(|device| device.id == row.device_id) {
+                                            Some(device) => {
+                                                strong class="device-name" { (device_label(device)) }
+                                                " "
+                                                code class="device-id" title=(row.device_id) { (row.device_id.chars().take(12).collect::<String>()) }
+                                            }
+                                            None => {
+                                                code title=(row.device_id) { (row.device_id.chars().take(12).collect::<String>()) }
+                                            }
+                                        }
+                                    }
                                     td { code { (row.tool) } }
                                     td class="wrap" {
                                         @if let Some(sentence) = approval_sentence(&row.tool, &row.arguments) {
@@ -4053,7 +4064,7 @@ mod tests {
 
     fn sample_vitals() -> Vitals {
         Vitals {
-            machine: "DESKTOP-9VH92BJ".to_owned(),
+            machine: "STUDIO-PC".to_owned(),
             os: "Windows 11 10.0.22631".to_owned(),
             cores: 16,
             cpu_percent: Some(37),
@@ -4636,8 +4647,8 @@ mod tests {
         let dir = std::path::Path::new(&out);
         std::fs::create_dir_all(dir).expect("the review directory");
         let mut devices = vec![
-            view('a', Some("DESKTOP-9VH92BJ"), true),
-            view('b', Some("DESKTOP-14RJCR8"), true),
+            view('a', Some("STUDIO-PC"), true),
+            view('b', Some("LAB-PC"), true),
             view('c', None, false),
         ];
         devices[0].last_seen_ms = 1_791_000_000_000 - 6 * 60 * 1000;
@@ -4966,7 +4977,7 @@ mod tests {
                 file_text(
                     &devices[0],
                     "logs/agent.log",
-                    "2026-10-27T12:00:01Z  INFO  channel opened from DESKTOP-9VH92BJ\n2026-10-27T12:00:02Z  INFO  host.facts answered in 12 ms\n2026-10-27T12:00:04Z  WARN  update channel canary is one build behind\n",
+                    "2026-10-27T12:00:01Z  INFO  channel opened from STUDIO-PC\n2026-10-27T12:00:02Z  INFO  host.facts answered in 12 ms\n2026-10-27T12:00:04Z  WARN  update channel canary is one build behind\n",
                     "csrf",
                     "0.3.72",
                 ),

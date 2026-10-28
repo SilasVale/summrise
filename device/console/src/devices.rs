@@ -198,7 +198,7 @@ impl DeviceRegistry {
     /// Give a device the name the operator knows it by, or clear it.
     ///
     /// The name is the console's label, not the device's claim: a machine that announces
-    /// `DESKTOP-14RJCR8` can be recorded as `studio`. `None` clears it, which lets the announced name
+    /// `STUDIO-PC` can be recorded as `studio`. `None` clears it, which lets the announced name
     /// show through again. The write happens before the in-memory list changes, so a failed write
     /// leaves the registry serving what is still on disk.
     pub(crate) fn rename(
