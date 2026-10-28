@@ -930,6 +930,21 @@ fn context_rail(heading: &str, meta: Markup, body: Markup, action: Markup) -> Ma
 }
 
 /// The one empty state: a muted icon, a sentence, and at most one action.
+/// The Records page's glyph: a line per recorded call. It is not a rail destination, so it is not a
+/// `Page`; the page's empty state drew the fleet grid until it had its own.
+fn records_icon() -> Markup {
+    html! {
+        svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" {
+            circle cx="6" cy="7" r="1.2" {}
+            line x1="10" y1="7" x2="20" y2="7" {}
+            circle cx="6" cy="12" r="1.2" {}
+            line x1="10" y1="12" x2="20" y2="12" {}
+            circle cx="6" cy="17" r="1.2" {}
+            line x1="10" y1="17" x2="20" y2="17" {}
+        }
+    }
+}
+
 fn empty_state(icon: Page, message: &str, action: Markup) -> Markup {
     summrise_ui::empty_state(icon.icon(), message, action)
 }
@@ -1663,9 +1678,9 @@ pub(super) fn logs(view: Logs<'_>) -> Markup {
             ))
             @if rows.is_empty() {
                 @if filtered {
-                    (empty_state(Page::Fleet, "No line matches this filter.", Markup::default()))
+                    (summrise_ui::empty_state(records_icon(), "No line matches this filter.", Markup::default()))
                 } @else {
-                    (empty_state(Page::Fleet, "Nothing has been recorded yet.", Markup::default()))
+                    (summrise_ui::empty_state(records_icon(), "Nothing has been recorded yet.", Markup::default()))
                 }
             } @else {
                 table class="table logs-table" {
