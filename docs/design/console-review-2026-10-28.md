@@ -1,6 +1,6 @@
 # The console, measured: what to delete and what to fix
 
-> **Status: one round of fixes landed, the rest is a plan for the owner, 2026-10-28.** Three
+> **Status: two rounds of fixes landed, the rest is a plan for the owner, 2026-10-28.** Three
 > read-only audits produced this: information architecture, visual consistency, and whether the
 > product's documents still tell the truth. Line numbers were taken at `edc28a8`.
 
@@ -34,6 +34,16 @@
 The measured gate went from 10 colour pairs to 14, and from "no pair may fail" to "a token may not
 reference itself". The screenshots moved exactly where expected: every page by 0.03–0.56% (the faint
 ink), the dashboard pages by more (the rail and the row). The baseline was updated after review.
+
+## The second round: the scales
+
+| change | why | gate |
+|---|---|---|
+| fourteen font sizes → eight (9, 11, 12, 13, 14, 15, 18, 22) | 10/10.5 and 11.5/12 and 12.5/13 were the same role drawn three ways; the two `font:` shorthands became longhands so the scale is readable | a test parses every `font-size:` and fails off-scale |
+| seven radius literals → tokens | 5, 6, 7 and 8px drew the same kind of small control | a test admits only `var(--radius*)`, `999px`, `50%` |
+| the card family snapped to 4/8/12/16/24/32 | card heads, stats, alerts, code blocks, fields, table cells and breadcrumbs each had their own step | reviewed in the 29 screenshots at 1280 and 420 |
+| a filter's Apply is no longer the filled button | System's Filter and Memory's Search were plain, so the same job looked primary on one page and secondary on two | written down beside the rule |
+| the audit filter stacks in two columns below 720px | the global `select{width:100%}` met a shrinking flex item and every select collapsed to its caret at 390px | the 420px screenshot |
 
 ## What the audits found and this round did NOT do
 

@@ -90,7 +90,7 @@ pub const COMPONENTS: &str = r#"
 .chip.plain { padding:0; background:none; color:var(--muted); }
 /* ---- a card's heading row and the one empty state ---- */
 .card { margin:0 0 20px; border:1px solid var(--line); border-radius:var(--radius); background:var(--panel); box-shadow:var(--shadow); }
-.card-head { display:flex; align-items:center; gap:10px; min-height:46px; padding:10px 16px; border-bottom:1px solid var(--line); }
+.card-head { display:flex; align-items:center; gap:8px; min-height:46px; padding:12px 16px; border-bottom:1px solid var(--line); }
 .card-head h2 { margin:0; color:var(--muted); font-size:13px; font-weight:600; letter-spacing:.07em; text-transform:uppercase; }
 .card-head .actions { flex:none; display:flex; align-items:center; gap:8px; margin-left:auto; }
 .empty { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:10px; padding:40px 20px; color:var(--muted); font-size:13px; text-align:center; }
