@@ -397,6 +397,24 @@ body.login { margin:0; background:var(--bg); }
   .trend-row { grid-template-columns:1fr; gap:6px; }
   .trend-row .trend-scale { justify-self:start; }
   .statusbar .side { display:none; }
+  /* **A DENSE TABLE SCROLLS BEFORE IT CLIPS.** The fleet, approvals and activity tables become row
+     cards; the others (tokens, monitors, memory, runs) keep their columns and scroll inside the card
+     rather than running past the phone's edge. */
+  .table { display:block; overflow-x:auto; }
+  .activity-table thead { position:absolute; width:1px; height:1px; margin:-1px; padding:0; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; border:0; }
+  .activity-table, .activity-table tbody, .activity-table tr, .activity-table td { display:block; width:auto; }
+  .activity-table tr { padding:8px 0; border-bottom:1px solid var(--line); }
+  .activity-table tr:last-child { border-bottom:0; }
+  .activity-table td { display:inline-block; border:0; padding:2px 8px 2px 0; }
+  /* A token row is a name, two facts and the one action that matters; at 390 the five columns ran
+     past the card and the Revoke button was the part you could not see. */
+  .tokens-table thead { position:absolute; width:1px; height:1px; margin:-1px; padding:0; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; border:0; }
+  .tokens-table, .tokens-table tbody, .tokens-table tr { display:block; width:auto; }
+  .tokens-table tr { padding:10px 0; border-bottom:1px solid var(--line); }
+  .tokens-table tr:last-child { border-bottom:0; }
+  .tokens-table td { display:inline-block; border:0; padding:2px 10px 2px 0; }
+  .tokens-table td:first-child { display:block; font-weight:600; }
+  .tokens-table td:last-child { padding-right:0; }
   /* **A ROW IS NOT A TABLE ON A PHONE.** At 390px the pages column was squeezed to forty pixels —
      four links stacked vertically — and the row menu was cut off past the right edge. The row
      becomes a card: identity, then the pages on one wrapping line, then the menu. */
@@ -1395,7 +1413,7 @@ pub(super) fn dashboard(
                     html! { span class="chip muted" { (recent.len()) } },
                     Markup::default(),
                 ))
-                table class="table" {
+                table class="table activity-table" {
                     caption class="visually-hidden" { "What the console did most recently." }
                     thead {
                         tr {
@@ -3520,7 +3538,7 @@ pub(super) fn tokens(
                     Markup::default(),
                 ))
             } @else {
-                table class="table" {
+                table class="table tokens-table" {
                     caption class="visually-hidden" { "The tokens that name this device." }
                     thead {
                         tr {
