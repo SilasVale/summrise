@@ -1086,6 +1086,24 @@ pub(super) fn dashboard(
                                         }
                                         span class="meta-sep" aria-hidden="true" { "·" }
                                         span class="device-seen" { (ago(now_ms, device.last_seen_ms)) }
+                                        @if !device.online {
+                                            @if let Some(retry) = &device.last_attempt {
+                                                // WHY IT IS NOT CONNECTED, in the place the operator looks: "offline"
+                                                // with no reason sends them to the logs, and the reason is already
+                                                // on the wire (the device reports how its own attempt ended).
+                                                span class="meta-sep" aria-hidden="true" { "·" }
+                                                span class="device-retry" title=(retry.reason) {
+                                                    "last try " (retry.attempts) "× failed: "
+                                                    (if retry.reason.chars().count() > 60 {
+                                                        let mut cut: String = retry.reason.chars().take(59).collect();
+                                                        cut.push('…');
+                                                        cut
+                                                    } else {
+                                                        retry.reason.clone()
+                                                    })
+                                                }
+                                            }
+                                        }
                                     }
                                 }
                                 td class="pages-cell" {
@@ -3943,6 +3961,46 @@ mod tests {
                 "{expected}: the top bar is missing: {page}"
             );
         }
+    }
+
+    /// An offline device says WHY in the row, because the reason is already on the wire and the logs
+    /// are where "offline" alone sends the operator.
+    #[test]
+    fn an_offline_device_shows_how_its_last_attempt_ended() {
+        let mut offline = view('3', Some("workshop"), false);
+        offline.last_attempt = Some(super::super::RetryView {
+            attempts: 3,
+            reason: "the console accepted the channel and then dropped it".to_owned(),
+        });
+        let mut online = view('4', Some("studio"), true);
+        online.last_attempt = Some(super::super::RetryView {
+            attempts: 7,
+            reason: "a stale note from before it connected".to_owned(),
+        });
+        let devices = [offline, online];
+        let page = dashboard(
+            &devices,
+            "00",
+            "0.1.0",
+            Notes::default(),
+            &[],
+            &[],
+            1_791_000_000_000,
+        )
+        .into_string();
+
+        assert!(
+            page.contains("last try 3×"),
+            "the row says how many attempts ended badly: {page}"
+        );
+        assert!(
+            page.contains("accepted the channel and then dropped it"),
+            "the row says how the attempt ended: {page}"
+        );
+        assert!(
+            !page.contains("stale note"),
+            "a device that is online does not report an old failure: {page}"
+        );
     }
 
     #[test]
