@@ -1630,6 +1630,7 @@ async fn next_audit(
             "The console's own record, newest first. Times are UTC; a device id is shortened here but \
              named in full by the line's tooltip.",
             "The console's own audit lines.",
+            filter.is_active(),
         )
         .into_string(),
     )
@@ -1689,6 +1690,7 @@ async fn next_denials(
              token, an unauthenticated probe. The first hundred in a minute are listed; the rest are \
              counted. A refusal is not a device call, and the arguments it carried are not stored.",
             "Refusals recorded before authentication.",
+            filter.is_active(),
         )
         .into_string(),
     )
@@ -1957,25 +1959,29 @@ async fn next_terminal_page(
         return StatusCode::NOT_FOUND.into_response();
     };
     // The rail's sessions are a snapshot: the page is server-rendered, and a reload is the refresh.
-    // A device that cannot answer gets an empty rail rather than an error page — the terminal itself
-    // reports the failure when the operator starts a session.
-    let sessions: Vec<page::TerminalSession> =
+    // **AN UNREACHABLE DEVICE IS NOT AN IDLE ONE.** The rail used to say "No live session on this
+    // device" when the call had failed, which is how a machine that is down reads as a machine with
+    // nothing to do. The failure travels into the renderer as an error and suppresses that sentence.
+    let (sessions, load_error): (Vec<page::TerminalSession>, Option<&str>) =
         match device_tool(&app, &device_id, "terminal.list", json!({})).await {
-            Ok(text) => serde_json::from_str::<Value>(&text)
-                .ok()
-                .and_then(|value| {
-                    value.as_array().map(|rows| {
-                        rows.iter()
-                            .map(|row| page::TerminalSession {
-                                id: row["id"].as_str().unwrap_or_default().to_owned(),
-                                kind: row["kind"].as_str().unwrap_or_default().to_owned(),
-                                started_at_ms: row["started_at_ms"].as_u64().unwrap_or(0),
-                            })
-                            .collect()
+            Ok(text) => (
+                serde_json::from_str::<Value>(&text)
+                    .ok()
+                    .and_then(|value| {
+                        value.as_array().map(|rows| {
+                            rows.iter()
+                                .map(|row| page::TerminalSession {
+                                    id: row["id"].as_str().unwrap_or_default().to_owned(),
+                                    kind: row["kind"].as_str().unwrap_or_default().to_owned(),
+                                    started_at_ms: row["started_at_ms"].as_u64().unwrap_or(0),
+                                })
+                                .collect()
+                        })
                     })
-                })
-                .unwrap_or_default(),
-            Err(_) => Vec::new(),
+                    .unwrap_or_default(),
+                None,
+            ),
+            Err(_) => (Vec::new(), Some("The device did not answer.")),
         };
     // WHAT THE CONSOLE DID ON THIS DEVICE LATELY, from the audit log. Sessions do not survive a device
     // restart (today's installs restarted two of them), and an operator who used to watch a session
@@ -2015,7 +2021,7 @@ async fn next_terminal_page(
                 presets: &presets,
                 preset,
                 activity: &activity,
-                error: query.error.as_deref(),
+                error: query.error.as_deref().or(load_error),
             },
         )
         .into_string(),
@@ -2634,10 +2640,14 @@ async fn next_runs_page(
     else {
         return StatusCode::NOT_FOUND.into_response();
     };
-    let rows = match device_tool(&app, &device_id, "runs.list", json!({ "limit": 20 })).await {
-        Ok(text) => serde_json::from_str::<Vec<Value>>(&text).unwrap_or_default(),
-        Err(_) => Vec::new(),
-    };
+    let (rows, load_error): (Vec<Value>, Option<&str>) =
+        match device_tool(&app, &device_id, "runs.list", json!({ "limit": 20 })).await {
+            Ok(text) => (
+                serde_json::from_str::<Vec<Value>>(&text).unwrap_or_default(),
+                None,
+            ),
+            Err(_) => (Vec::new(), Some("The device did not answer.")),
+        };
     let rows: Vec<page::RunRow> = rows
         .iter()
         .map(|row| {
@@ -2702,7 +2712,7 @@ async fn next_runs_page(
             detail.as_ref(),
             &hex::encode(&session.csrf),
             &app.version,
-            error.as_deref(),
+            error.as_deref().or(load_error),
         )
         .into_string(),
     )
@@ -2854,10 +2864,14 @@ async fn next_system_page(
     if !name.is_empty() {
         arguments["name"] = json!(name);
     }
-    let processes = match device_tool(&app, &device_id, "system.process_list", arguments).await {
-        Ok(text) => serde_json::from_str::<Vec<Value>>(&text).unwrap_or_default(),
-        Err(_) => Vec::new(),
-    };
+    let (processes, load_error): (Vec<Value>, Option<&str>) =
+        match device_tool(&app, &device_id, "system.process_list", arguments).await {
+            Ok(text) => (
+                serde_json::from_str::<Vec<Value>>(&text).unwrap_or_default(),
+                None,
+            ),
+            Err(_) => (Vec::new(), Some("The device did not answer.")),
+        };
     let processes: Vec<page::ProcessRow> = processes
         .iter()
         .map(|process| page::ProcessRow {
@@ -2882,6 +2896,9 @@ async fn next_system_page(
             sentence => sentence.to_owned(),
         })
     });
+    // A failure to list processes is a notice, and the renderer suppresses the "listed no
+    // processes" empty state when a notice is present.
+    let notice = load_error.map(str::to_owned).or(notice);
     Html(
         page::system(
             &device,
@@ -3077,14 +3094,17 @@ async fn next_memory_page(
     };
     let tag = query.tag.trim().to_owned();
     let search = query.q.trim().to_owned();
-    let entries = if search.is_empty() {
+    let (entries, load_error): (Vec<Value>, Option<&str>) = if search.is_empty() {
         let mut arguments = json!({ "limit": 50 });
         if !tag.is_empty() {
             arguments["tag"] = json!(tag);
         }
         match device_tool(&app, &device_id, "memory.list", arguments).await {
-            Ok(text) => serde_json::from_str::<Vec<Value>>(&text).unwrap_or_default(),
-            Err(_) => Vec::new(),
+            Ok(text) => (
+                serde_json::from_str::<Vec<Value>>(&text).unwrap_or_default(),
+                None,
+            ),
+            Err(_) => (Vec::new(), Some("The device did not answer.")),
         }
     } else {
         match device_tool(
@@ -3095,8 +3115,11 @@ async fn next_memory_page(
         )
         .await
         {
-            Ok(text) => serde_json::from_str::<Vec<Value>>(&text).unwrap_or_default(),
-            Err(_) => Vec::new(),
+            Ok(text) => (
+                serde_json::from_str::<Vec<Value>>(&text).unwrap_or_default(),
+                None,
+            ),
+            Err(_) => (Vec::new(), Some("The device did not answer.")),
         }
     };
     let entries: Vec<page::MemoryRow> = entries
@@ -3130,7 +3153,7 @@ async fn next_memory_page(
             },
             &hex::encode(&session.csrf),
             &app.version,
-            query.notice.as_deref(),
+            query.notice.as_deref().or(load_error),
         )
         .into_string(),
     )

@@ -1301,6 +1301,7 @@ pub(super) fn logs(
     version: &str,
     lead: &str,
     caption: &str,
+    filtered: bool,
 ) -> Markup {
     let count = rows.len();
     let content = html! {
@@ -1321,7 +1322,11 @@ pub(super) fn logs(
                 html! { a class="btn btn-ghost btn-sm" href="/next" { "Fleet" } },
             ))
             @if rows.is_empty() {
-                (empty_state(Page::Fleet, "Nothing has been recorded yet.", Markup::default()))
+                @if filtered {
+                    (empty_state(Page::Fleet, "No line matches this filter.", Markup::default()))
+                } @else {
+                    (empty_state(Page::Fleet, "Nothing has been recorded yet.", Markup::default()))
+                }
             } @else {
                 table class="table" {
                     caption class="visually-hidden" { (caption) }
@@ -1484,7 +1489,14 @@ pub(super) fn terminal(
         }
     };
     let body = if sessions.is_empty() {
-        html! { (recent) p class="rail-note" { "No live session on this device." } }
+        html! {
+            (recent)
+            @if view.error.is_some() {
+                p class="rail-note" { "The device did not answer." }
+            } @else {
+                p class="rail-note" { "No live session on this device." }
+            }
+        }
     } else {
         html! {
             ul class="session-list" {
@@ -2160,7 +2172,7 @@ pub(super) fn runs(
                 html! { span class="chip muted" { (rows.len()) } },
                 Markup::default(),
             ))
-            @if rows.is_empty() {
+            @if rows.is_empty() && error.is_none() {
                 (empty_state(Page::Runs, "No runs recorded yet.", Markup::default()))
             } @else {
                 table class="table" {
@@ -2385,7 +2397,7 @@ pub(super) fn system(
                     }
                 },
             ))
-            @if processes.is_empty() {
+            @if processes.is_empty() && notice.is_none() {
                 (empty_state(Page::System, "The device listed no processes.", Markup::default()))
             } @else {
                 table class="table" {
@@ -2575,7 +2587,7 @@ pub(super) fn memory(
                     }
                 },
             ))
-            @if entries.is_empty() {
+            @if entries.is_empty() && notice.is_none() {
                 (empty_state(
                     Page::Memory,
                     "Nothing is remembered yet.",
@@ -3917,6 +3929,7 @@ mod tests {
                     "0.1.0",
                     "The console's own record, newest first. Times are UTC; a device id is shortened here but named in full by the line's tooltip.",
                     "The console's own audit lines.",
+                    true,
                 ),
             ),
             (
@@ -3930,6 +3943,7 @@ mod tests {
                     "0.1.0",
                     "Every request the console refused before authentication: a missing session, an unknown token, an unauthenticated probe. A refusal is not a device call, and the arguments it carried are not stored.",
                     "Refusals recorded before authentication.",
+                    false,
                 ),
             ),
             (
@@ -4142,6 +4156,69 @@ mod tests {
         }
         // The smoke test clicks `a:has-text("Files")`; the rail must not add a second text match.
         assert_eq!(page.matches(">Files</a>").count(), devices.len(), "{page}");
+    }
+
+    /// **A DEVICE THAT DID NOT ANSWER IS NOT A DEVICE WITH NOTHING ON IT.** Four empty states said
+    /// "no sessions", "no runs", "nothing remembered", "no processes" when the call had failed —
+    /// the copy audit's remaining finding. The error suppresses the empty sentence, and the
+    /// operator's own message (a refusal, a kill result) still wins over the list failure.
+    #[test]
+    fn an_unanswered_device_is_not_an_empty_one() {
+        let device = view('1', Some("studio"), true);
+        let failure = Some("The device did not answer.");
+
+        let runs_page = runs(&device, &[], None, "00", "0.1.0", failure).into_string();
+        assert!(
+            runs_page.contains("The device did not answer."),
+            "{runs_page}"
+        );
+        assert!(!runs_page.contains("No runs recorded yet."), "{runs_page}");
+
+        let memory_page = memory(
+            &device,
+            &[],
+            MemoryLook {
+                tag: "",
+                query: "",
+                editing: None,
+            },
+            "00",
+            "0.1.0",
+            failure,
+        )
+        .into_string();
+        assert!(
+            !memory_page.contains("Nothing is remembered yet."),
+            "{memory_page}"
+        );
+
+        let system_page = system(&device, &[], "", "00", "0.1.0", failure).into_string();
+        assert!(
+            !system_page.contains("The device listed no processes."),
+            "{system_page}"
+        );
+
+        let terminal_page = terminal(
+            &device,
+            "00",
+            "0.1.0",
+            TerminalView {
+                sessions: &[],
+                presets: &[],
+                preset: None,
+                activity: &[],
+                error: failure,
+            },
+        )
+        .into_string();
+        assert!(
+            terminal_page.contains("The device did not answer."),
+            "{terminal_page}"
+        );
+        assert!(
+            !terminal_page.contains("No live session on this device."),
+            "{terminal_page}"
+        );
     }
 
     #[test]
@@ -4712,9 +4789,10 @@ mod tests {
                     "0.3.72",
                     "The console's own record, newest first. Times are UTC; a device id is shortened here but named in full by the line's tooltip.",
                     "The console's own audit lines.",
+                    true,
                 ),
             ),
-            ("audit-filtered", logs(&log_rows, "Audit", log_rows.len(), Some(audit_filter("/next/audit", &[], &AuditFilter::default(), true, AUDIT_KINDS.as_slice())), "csrf", "0.3.72", "The console's own record, newest first. Times are UTC; a device id is shortened here but named in full by the line's tooltip.", "The console's own audit lines.")),
+            ("audit-filtered", logs(&log_rows, "Audit", log_rows.len(), Some(audit_filter("/next/audit", &[], &AuditFilter::default(), true, AUDIT_KINDS.as_slice())), "csrf", "0.3.72", "The console's own record, newest first. Times are UTC; a device id is shortened here but named in full by the line's tooltip.", "The console's own audit lines.", false)),
             (
                 "denials",
                 logs(
@@ -4726,6 +4804,7 @@ mod tests {
                     "0.3.72",
                     "Every request the console refused before authentication: a missing session, an unknown token, an unauthenticated probe. A refusal is not a device call, and the arguments it carried are not stored.",
                     "Refusals recorded before authentication.",
+                    false,
                 ),
             ),
             ("login", login(None, None)),

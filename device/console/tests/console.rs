@@ -4285,7 +4285,10 @@ async fn the_dashboard_says_the_token_signed_in_without_access() {
     let (status, _, page) = send_text(fixture.app(), get_with_cookie("/next", &cookie)).await;
 
     assert_eq!(status, StatusCode::OK);
-    assert!(page.contains("Signed in with this browser's session"), "{page}");
+    assert!(
+        page.contains("Signed in with this browser's session"),
+        "{page}"
+    );
 }
 
 /// The explanation is not the landing page's privilege: a bookmarked deep link that lands signed out
@@ -11070,7 +11073,7 @@ async fn the_audit_page_narrows_to_the_lines_the_filter_names() {
     )
     .await;
     assert_eq!(status, StatusCode::OK);
-    assert!(body.contains("Nothing has been recorded yet"), "{body}");
+    assert!(body.contains("No line matches this filter"), "{body}");
 
     // The tool filter reads the detail too, so a narrowed view is never a dead end.
     let (status, _, body) = send_text(
@@ -11176,5 +11179,5 @@ async fn the_denials_page_narrows_with_the_same_filter() {
     )
     .await;
     assert_eq!(status, StatusCode::OK);
-    assert!(body.contains("Nothing has been recorded yet"), "{body}");
+    assert!(body.contains("No line matches this filter"), "{body}");
 }

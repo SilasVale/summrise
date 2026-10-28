@@ -66,9 +66,10 @@ not the device (the device refuses immediately); a minted token's scope is this 
 "every tool"; the denials log caps at a hundred a minute; "signed in with the operator token" is
 really "this browser's session"; a held call also disappears when the client stops waiting.
 
-Still open, and larger: four empty states say "nothing there" when the device did not answer, and
-"Nothing has been recorded yet" is shown when a filter matched nothing. Those need the failure to
-travel into the renderer, not a new sentence.
+Also closed: the four empty states that said "nothing there" when the device had not answered
+(terminal sessions, runs, memory, processes) now carry the failure into the renderer and suppress
+the empty sentence; a filtered log with no matches says "No line matches this filter." A refusal or
+a kill result still wins over the list failure, because the operator's own message is the news.
 
 ## What the audits found and this round did NOT do
 
