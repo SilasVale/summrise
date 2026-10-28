@@ -182,6 +182,10 @@ function addSession(created, label) {
   // review asked for that: a black pane inside a light page reads as a different product. The colours
   // come from the same tokens as the rest of the console, so a theme change needs no code here.
   const term = new Terminal({
+    // **THE OUTPUT IS CANVAS-ONLY WITHOUT THIS.** xterm draws glyphs into a canvas, so without the
+    // screen-reader mode the terminal is silent to assistive technology; the page's own live region
+    // reports session status, not what the session printed.
+    screenReaderMode: true,
     cursorBlink: true,
     fontSize: 13,
     scrollback: 5000,

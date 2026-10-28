@@ -393,7 +393,8 @@ body.login { margin:0; background:var(--bg); }
   /* **A ROW IS NOT A TABLE ON A PHONE.** At 390px the pages column was squeezed to forty pixels —
      four links stacked vertically — and the row menu was cut off past the right edge. The row
      becomes a card: identity, then the pages on one wrapping line, then the menu. */
-  .fleet-table thead { display:none; }
+  /* Visually hidden, not removed: a screen reader still hears the column names. */
+  .fleet-table thead { position:absolute; width:1px; height:1px; margin:-1px; padding:0; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; border:0; }
   .fleet-table, .fleet-table tbody, .fleet-table tr, .fleet-table td { display:block; width:auto; }
   .fleet-table tr { padding:12px 0; border-bottom:1px solid var(--line); }
   .fleet-table tr:last-child { border-bottom:0; }
@@ -403,7 +404,7 @@ body.login { margin:0; background:var(--bg); }
   .fleet-note { margin:12px 0 4px; }
   /* The same reflow for the approval queue: the arguments block is wider than a phone, and clipped
      JSON is the one thing an approver must be able to read in full. */
-  .approvals-table thead { display:none; }
+  .approvals-table thead { position:absolute; width:1px; height:1px; margin:-1px; padding:0; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; border:0; }
   .approvals-table, .approvals-table tbody, .approvals-table tr, .approvals-table td { display:block; width:auto; }
   .approvals-table tr { padding:12px 0; border-bottom:1px solid var(--line); }
   .approvals-table tr:last-child { border-bottom:0; }
@@ -774,7 +775,7 @@ fn topbar(title: &str, device: Option<&DeviceView>, csrf: &str) -> Markup {
                 }
             }
             span class="spacer" {}
-            a class="badge-approvals" id="approvals-badge" href="/next" hidden {}
+            a class="badge-approvals" id="approvals-badge" href="/next" role="status" aria-live="polite" hidden {}
             // The console's build is in the status strip. Printing it here as well was the same
             // fact twice on one screen; the strip is where chrome facts belong.
             form method="post" action="/next/logout" {
@@ -991,13 +992,16 @@ pub(super) fn dashboard(
                                     td class="nowrap" { (stamp(row.created_ms)) }
                                     td class="num" {
                                         div class="form-inline" {
+                                            // **"APPROVE" WITH NO CONTEXT IS THE WRONG BUTTON.** A screen
+                                            // reader hears "Approve, button" once per row; the label
+                                            // names the tool and the device.
                                             form method="post" action=(format!("/next/approvals/{}/approve", encode(&row.id))) {
                                                 input type="hidden" name="csrf" value=(csrf);
-                                                button type="submit" class="btn btn-primary btn-sm" { "Approve" }
+                                                button type="submit" class="btn btn-primary btn-sm" aria-label=(format!("Approve {} for {}", row.tool, short_id(&row.device_id))) { "Approve" }
                                             }
                                             form method="post" action=(format!("/next/approvals/{}/refuse", encode(&row.id))) {
                                                 input type="hidden" name="csrf" value=(csrf);
-                                                button type="submit" class="btn btn-quiet-danger btn-sm" { "Refuse" }
+                                                button type="submit" class="btn btn-quiet-danger btn-sm" aria-label=(format!("Refuse {} for {}", row.tool, short_id(&row.device_id))) { "Refuse" }
                                             }
                                         }
                                     }
