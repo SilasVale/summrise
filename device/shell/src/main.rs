@@ -62,6 +62,9 @@ fn main() {
     }
     if app::already_running() {
         // The icon is already in the tray; a second one would be a second dot saying the same thing.
+        // The line matters: the session-reconnect task starts this binary, and without it "the tray
+        // did not come back" and "a second instance exited quietly" look identical in the log.
+        note("another instance owns the tray; exiting");
         return;
     }
     note("starting");

@@ -84,7 +84,10 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     // The window is created the first time the operator asks for it, and again after they close it:
     // `tao` 0.34 destroys a window on its close request and offers no way to veto that, so the tray
     // outlives the window and the window is rebuilt on demand.
+    // The WebView2 profile context outlives the view, so it is owned here rather than in the builder:
+    // a context dropped after `build` takes the cookies with it.
     let mut ui: Option<(tao::window::Window, wry::WebView)> = None;
+    let mut profile: Option<wry::WebContext> = None;
 
     crate::note("menu built");
 
@@ -173,7 +176,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             Event::UserEvent(Wake::Tray(_)) => {}
             Event::UserEvent(Wake::Quit) => *control_flow = ControlFlow::Exit,
             Event::UserEvent(Wake::Menu(event)) => match event.id.as_ref() {
-                OPEN_CONSOLE => open_console(target, &mut ui),
+                OPEN_CONSOLE => open_console(target, &mut ui, &mut profile),
                 OPEN_PANEL => open_url(PANEL),
                 QUIT => *control_flow = ControlFlow::Exit,
                 _ => {}
@@ -318,11 +321,14 @@ pub fn check_window() -> i32 {
                 // A PERSISTENT PROFILE, so the operator signs in once. The default is a per-process temporary
                 // directory: every "Open console" was a new, logged-out browser, and the console's token page was
                 // what the window showed every time.
-                let mut context = wry::WebContext::new(Some(profile_dir()));
-                match WebViewBuilder::new_with_web_context(&mut context)
-                    .with_url(CONSOLE)
-                    .build(&window)
-                {
+                let mut context = profile_dir().map(|dir| wry::WebContext::new(Some(dir)));
+                let built = match context.as_mut() {
+                    Some(context) => WebViewBuilder::new_with_web_context(context)
+                        .with_url(CONSOLE)
+                        .build(&window),
+                    None => WebViewBuilder::new().with_url(CONSOLE).build(&window),
+                };
+                match built {
                     Ok(_view) => crate::note(&format!(
                         "check-window: window and view built for {CONSOLE}"
                     )),
@@ -357,13 +363,14 @@ pub fn check_window() -> i32 {
 
 /// Where the console window keeps its profile — cookies, storage, the signed-in session.
 #[cfg(windows)]
-fn profile_dir() -> std::path::PathBuf {
-    let base = std::env::var_os("LOCALAPPDATA")
-        .map(std::path::PathBuf::from)
-        .unwrap_or_else(std::env::temp_dir);
+fn profile_dir() -> Option<std::path::PathBuf> {
+    // `%LOCALAPPDATA%\Summrise` is the per-user directory this process owns; when the environment does
+    // not name one, a signed-in browser profile in `%TEMP%` is a cookie jar other local users can read,
+    // so the answer is "no persistent profile" rather than "somewhere else".
+    let base = std::path::PathBuf::from(std::env::var_os("LOCALAPPDATA")?);
     let dir = base.join("Summrise").join("webview");
-    let _ = std::fs::create_dir_all(&dir);
-    dir
+    std::fs::create_dir_all(&dir).ok()?;
+    Some(dir)
 }
 
 /// The session this process runs in, for the one diagnostic that can only run in a visible one.
@@ -397,8 +404,13 @@ fn menu_items() -> (MenuItem, MenuItem, MenuItem) {
 fn open_console(
     target: &tao::event_loop::EventLoopWindowTarget<Wake>,
     ui: &mut Option<(tao::window::Window, wry::WebView)>,
+    profile: &mut Option<wry::WebContext>,
 ) {
     if let Some((window, _)) = ui.as_ref() {
+        // **A MINIMIZED WINDOW IGNORES `set_visible(true)` AND `set_focus()`.** tao's `apply_diff`
+        // returns early when no flag changed, and its `set_focus` skips activating a minimized window,
+        // so a click on "Open console" with the window minimized looked exactly like a dead menu item.
+        window.set_minimized(false);
         window.set_visible(true);
         window.set_focus();
         return;
@@ -416,7 +428,18 @@ fn open_console(
             return;
         }
     };
-    match WebViewBuilder::new().with_url(CONSOLE).build(&window) {
+    // THE PROFILE IS THE POINT: without it every "Open console" is a new, logged-out browser and the
+    // console's token page is what the operator sees each time.
+    let built = match profile_dir() {
+        Some(dir) => {
+            let context = profile.get_or_insert_with(|| wry::WebContext::new(Some(dir)));
+            WebViewBuilder::new_with_web_context(context)
+                .with_url(CONSOLE)
+                .build(&window)
+        }
+        None => WebViewBuilder::new().with_url(CONSOLE).build(&window),
+    };
+    match built {
         Ok(view) => {
             // A click that worked leaves a line too: without it, "the menu does nothing" and "the
             // menu opened a window I closed" look the same from this side of the machine.
@@ -587,15 +610,7 @@ mod tests {
         assert_eq!(colour, BAD);
         assert!(tooltip.contains("connection refused"), "{tooltip}");
     }
-}
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// The bug this pins: an item built with a generated id never matches the handler, and the menu
-    /// becomes three dead buttons. The ids are compared as strings because that is what the event
-    /// carries.
     #[test]
     fn every_menu_item_carries_the_id_its_handler_matches() {
         let (console, panel, quit) = menu_items();
