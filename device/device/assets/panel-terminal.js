@@ -2,11 +2,45 @@
 // else on the page is server-rendered, so this file only moves bytes between xterm and
 // /api/terminal/*; the token in the page's meta tag is what proves the requests came from it.
 (function () {
-  const term = new Terminal({
+  /// The xterm palette, from the panel's tokens (which mirror the console's).
+function panelTerminalTheme() {
+  const css = getComputedStyle(document.documentElement);
+  const token = (name, fallback) => (css.getPropertyValue(name).trim() || fallback);
+  const ink = token("--ink", "#18181b");
+  const canvas = token("--term-canvas", token("--surface", "#ffffff"));
+  return {
+    background: canvas,
+    foreground: ink,
+    cursor: token("--accent", "#bf3a0a"),
+    cursorAccent: canvas,
+    selectionBackground: token("--term-selection", "rgba(191,58,10,.18)"),
+    black: ink,
+    red: token("--term-red", "#b3261e"),
+    green: token("--term-green", "#1d7a3c"),
+    yellow: token("--term-yellow", "#a8620a"),
+    blue: token("--term-blue", "#1f5fbf"),
+    magenta: token("--term-magenta", "#8a3ffc"),
+    cyan: token("--term-cyan", "#0e7490"),
+    white: token("--ink-muted", "#71717a"),
+    brightBlack: token("--ink-faint", "#a1a1aa"),
+    brightRed: token("--error", "#c02a1b"),
+    brightGreen: token("--ok", "#128a4b"),
+    brightYellow: token("--warn", "#a8620a"),
+    brightBlue: "#2563eb",
+    brightMagenta: "#a855f7",
+    brightCyan: "#0891b2",
+    brightWhite: ink
+  };
+}
+
+const term = new Terminal({
     cursorBlink: true,
     fontSize: 13,
     scrollback: 5000,
-    theme: { background: "#000000", foreground: "#d8d4cd", cursor: "#e07a4a" },
+    // THE SAME CANVAS AS THE CONSOLE'S TERMINAL (the operator's point, 2026-10-28: the two surfaces
+    // are one product). Read from the page's tokens so the light theme gets the white canvas
+    // summrise-legacy uses and the dark theme gets its near-black one.
+    theme: panelTerminalTheme(),
   });
   const fit = new FitAddon.FitAddon();
   term.loadAddon(fit);

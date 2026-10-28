@@ -34,6 +34,9 @@ const STYLE: &str = r##"
     --error: #c02a1b;
     --radius: 10px;
     --radius-lg: 14px;
+    --term-canvas: #ffffff; --term-selection: rgba(191,58,10,.18);
+    --term-red: #b3261e; --term-green: #1d7a3c; --term-yellow: #a8620a;
+    --term-blue: #1f5fbf; --term-magenta: #8a3ffc; --term-cyan: #0e7490;
     --font: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
     --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
     --shadow: 0 1px 2px rgba(16, 23, 33, .06);
@@ -41,6 +44,9 @@ const STYLE: &str = r##"
   @media (prefers-color-scheme: dark) {
     :root {
       --accent-soft: #2a1c12;
+      --term-canvas: #131418; --term-selection: rgba(255,163,107,.24);
+      --term-red: #ff8b84; --term-green: #6edc8b; --term-yellow: #e0a44a;
+      --term-blue: #7fb0ff; --term-magenta: #c9a3ff; --term-cyan: #6fd3e6;
       --bg: #0c1014;
       --surface: #121820;
       --surface-recessed: #0e1319;
@@ -141,7 +147,10 @@ const STYLE: &str = r##"
 
   /* The local MCP instructions: the config is the thing to copy, so it gets the free space and a
      button, while the token itself is named by file and never printed. */
-  .term-host { height: 20rem; background: #000; border-radius: 8px; padding: 6px; }
+  /* The terminal canvas, the same token the console uses: white in the light theme, near-black in the
+     dark one. A black block inside a light page is what made the two surfaces read as two products. */
+  .term-host { height: 20rem; background: var(--term-canvas); border: 1px solid var(--line); border-radius: 8px; padding: 6px; }
+  .xterm .xterm-viewport { background-color: var(--term-canvas); }
   .config {
     margin: 0.5rem 0 0.6rem; padding: 0.7rem 0.8rem; overflow-x: auto;
     background: var(--surface-recessed); border: 1px solid var(--line); border-radius: 8px;

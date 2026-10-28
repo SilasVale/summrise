@@ -35,6 +35,12 @@ const STYLE: &str = r#":root {
   --radius:12px; --radius-sm:10px; --radius-xs:8px;
   --font:-apple-system,"SF Pro Text","PingFang SC","Hiragino Sans GB","Microsoft YaHei","Segoe UI",Roboto,sans-serif;
   --mono:"SF Mono",ui-monospace,"JetBrains Mono",Consolas,"Cascadia Mono",monospace;
+  /* The terminal is a canvas that follows the page, the way summrise-legacy's does (`--term-canvas-bg`).
+     An ANSI palette tuned for a light canvas is not the dark one with the colours swapped: these are
+     the legacy's, so a `ls` or a `git status` reads the same in both products. */
+  --term-canvas:#ffffff; --term-selection:rgba(191,58,10,.18);
+  --term-red:#b3261e; --term-green:#1d7a3c; --term-yellow:#a8620a;
+  --term-blue:#1f5fbf; --term-magenta:#8a3ffc; --term-cyan:#0e7490;
 }
 @media (prefers-color-scheme: dark) {
   :root {
@@ -48,6 +54,9 @@ const STYLE: &str = r#":root {
     --rail:#0b0c0e; --rail-line:rgba(255,255,255,.07); --rail-ink:#8f9099;
     --rail-ink-hover:#ffffff; --rail-focus:#ffb86b;
     --shadow:0 1px 2px rgba(0,0,0,.45), 0 16px 36px -26px rgba(0,0,0,.9);
+    --term-canvas:#131418; --term-selection:rgba(255,163,107,.24);
+    --term-red:#ff8b84; --term-green:#6edc8b; --term-yellow:#e0a44a;
+    --term-blue:#7fb0ff; --term-magenta:#c9a3ff; --term-cyan:#6fd3e6;
   }
 }
 * { box-sizing:border-box; }
@@ -303,9 +312,10 @@ body.terminal .content { display:flex; flex-direction:column; min-height:0; over
 .tab.active { border-color:var(--line); background:var(--panel); color:var(--ink); box-shadow:0 1px 2px rgba(24,24,27,.05); }
 .tab-close { width:auto; min-height:0; margin:0; padding:0 2px; border:0; background:transparent; color:var(--faint); font-size:14px; line-height:1; }
 .tab-close:hover { color:var(--danger); }
-.panes { position:relative; flex:1; min-height:0; display:flex; gap:0; padding:0; background:#0b0c0f; }
+.panes { position:relative; flex:1; min-height:0; display:flex; gap:0; padding:0; background:var(--term-canvas); }
 .pane { flex:1; min-height:0; display:flex; overflow:hidden; }
-.pane .xterm { padding:10px 12px; background:#000; }
+.pane .xterm { padding:10px 12px; background:var(--term-canvas); }
+.xterm .xterm-viewport { background-color:var(--term-canvas); }
 .pane[hidden] { display:none; }
 .terminal-empty { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:12px; color:#a2a6b0; font-size:13.5px; text-align:center; }
 .terminal-empty .empty-icon { width:48px; height:48px; border-radius:12px; background:rgba(255,255,255,.05); color:#ffa36b; }

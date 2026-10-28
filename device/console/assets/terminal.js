@@ -21,6 +21,39 @@ let active = null;
 
 // The id comes from the device, so it is encoded before it becomes a path: an id that contains a
 // slash must not be able to address another device's session.
+/// The xterm palette, read from the page's tokens (light or dark), with a legible ANSI set.
+function terminalTheme() {
+  const css = getComputedStyle(document.documentElement);
+  const token = (name, fallback) => (css.getPropertyValue(name).trim() || fallback);
+  const ink = token("--ink", "#18181b");
+  const canvas = token("--term-canvas", token("--panel", "#ffffff"));
+  const accent = token("--accent", "#bf3a0a");
+  const dim = token("--muted", "#5d5e67");
+  return {
+    background: canvas,
+    foreground: ink,
+    cursor: accent,
+    cursorAccent: canvas,
+    selectionBackground: token("--term-selection", "rgba(191,58,10,.18)"),
+    black: ink,
+    red: token("--term-red", "#b3261e"),
+    green: token("--term-green", "#1d7a3c"),
+    yellow: token("--term-yellow", "#a8620a"),
+    blue: token("--term-blue", "#1f5fbf"),
+    magenta: token("--term-magenta", "#8a3ffc"),
+    cyan: token("--term-cyan", "#0e7490"),
+    white: dim,
+    brightBlack: token("--faint", "#74757f"),
+    brightRed: token("--danger", "#b3261e"),
+    brightGreen: token("--ok", "#1d7a3c"),
+    brightYellow: token("--warn", "#a8620a"),
+    brightBlue: "#2563eb",
+    brightMagenta: "#a855f7",
+    brightCyan: "#0891b2",
+    brightWhite: ink
+  };
+}
+
 const base = (id) => `/next/terminal/${device}/${encodeURIComponent(id)}`;
 const say = (text) => {
   status.textContent = text;
@@ -138,11 +171,15 @@ function addSession(created, label) {
   });
   tab.append(close);
 
+  // THE TERMINAL FOLLOWS THE PAGE, NOT A PICTURE OF A TERMINAL. summrise-legacy's canvas is white in
+  // the light theme (`--term-canvas-bg: #ffffff`) and near-black in the dark one, and the operator's
+  // review asked for that: a black pane inside a light page reads as a different product. The colours
+  // come from the same tokens as the rest of the console, so a theme change needs no code here.
   const term = new Terminal({
     cursorBlink: true,
     fontSize: 13,
     scrollback: 5000,
-    theme: { background: "#000000", foreground: "#d8d4cd", cursor: "#e07a4a" }
+    theme: terminalTheme()
   });
   const fit = new FitAddon.FitAddon();
   term.loadAddon(fit);

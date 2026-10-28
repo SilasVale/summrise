@@ -1198,21 +1198,35 @@ pub fn resolve_baseline(install: &Path) -> BaselineChoice {
     // The baseline directory is the supervisor's own; an unkeyed build cannot check a signature at
     // all and says so by shipping the placeholder, which no real sidecar was signed with. The
     // hash-consistent check is then the whole answer, exactly as before this seam existed.
-    if LAUNCHER_PUBKEY_HEX == PLACEHOLDER_PUBKEY_HEX {
+    if LAUNCHER_PUBKEY_HEX == PLACEHOLDER_PUBKEY_HEX && RELEASE_PUBKEY_HEX == PLACEHOLDER_PUBKEY_HEX
+    {
         resolve_baseline_hash_only(install)
     } else {
-        resolve_baseline_signed(install, LAUNCHER_PUBKEY_HEX)
+        resolve_baseline_signed(install)
     }
 }
 
-/// [`resolve_baseline`] for a build that carries a launcher key: a generation boots only when its
-/// sidecar verifies against that key.
-pub fn resolve_baseline_signed(install: &Path, pubkey_hex: &str) -> BaselineChoice {
+/// [`resolve_baseline`] for a keyed build: a generation boots only when its sidecar verifies.
+///
+/// **TWO KEYS OWN THE BASELINE, NOT ONE.** The first generation is seeded by the installer and signed
+/// with the launcher key; every generation after it is promoted from `summrise-device.new.json`, which
+/// the *release* key signed and the supervisor verified at staging time. Checking only the launcher key
+/// here (as the first version of this function did) made a committed update unbootable: at the next
+/// supervisor start the new generation was called untrusted, the old one was restored over it, and a
+/// second update in the same supervisor lifetime left both generations release-signed and nothing
+/// bootable at all. Either key is this build's; a sidecar signed by neither is not.
+pub fn resolve_baseline_signed(install: &Path) -> BaselineChoice {
+    resolve_baseline_signed_with(install, &[LAUNCHER_PUBKEY_HEX, RELEASE_PUBKEY_HEX])
+}
+
+/// [`resolve_baseline_signed`] against an explicit list of keys — the test seam, and the form a build
+/// with only one key embedded still works through.
+pub fn resolve_baseline_signed_with(install: &Path, pubkeys_hex: &[&str]) -> BaselineChoice {
     let inspect = |generation: Generation| -> Result<Baseline, String> {
         let baseline = inspect_generation(install, generation)?;
-        verify_seed_signature(&baseline.sidecar, pubkey_hex).map_err(|error| {
+        verify_any_signature(&baseline.sidecar, pubkeys_hex).map_err(|error| {
             format!(
-                "the {} baseline is not launcher-signed: {error}",
+                "the {} baseline is not signed by this build: {error}",
                 generation.label()
             )
         })?;
@@ -1265,6 +1279,21 @@ pub enum BaselineInstall {
     Seeded,
     /// `baseline/current` was replaced by the installer's pair; the old generation is `previous`.
     Replaced,
+}
+
+/// Whether any of `pubkeys_hex` signed `sidecar`, reporting the last refusal when none did.
+fn verify_any_signature(sidecar: &Sidecar, pubkeys_hex: &[&str]) -> Result<(), String> {
+    let mut last = String::from("no key is embedded in this build");
+    for key in pubkeys_hex {
+        if *key == PLACEHOLDER_PUBKEY_HEX {
+            continue;
+        }
+        match verify_seed_signature(sidecar, key) {
+            Ok(()) => return Ok(()),
+            Err(error) => last = error,
+        }
+    }
+    Err(last)
 }
 
 /// The one place the first-generation signature is checked, named for the failure it prevents (C1).
@@ -2771,7 +2800,7 @@ mod tests {
 
         assert!(
             matches!(
-                resolve_baseline_signed(&install, &test_pubkey_hex()),
+                resolve_baseline_signed_with(&install, &[&test_pubkey_hex()]),
                 BaselineChoice::Current(_)
             ),
             "the launcher's own signature is bootable"
@@ -2786,13 +2815,56 @@ mod tests {
                     hex.push_str(&format!("{byte:02x}"));
                     hex
                 });
-        match resolve_baseline_signed(&install, &other_hex) {
+        match resolve_baseline_signed_with(&install, &[&other_hex]) {
             BaselineChoice::NeedsHuman(reason) => assert!(
-                reason.contains("not launcher-signed"),
+                reason.contains("not signed by this build"),
                 "the refusal says why: {reason}"
             ),
             other => panic!("an unsigned generation must not boot: {other:?}"),
         }
+    }
+
+    /// A COMMITTED UPDATE IS RELEASE-SIGNED, AND IT MUST STILL BOOT. The first version of the boot
+    /// check only accepted the launcher key, so the generation a successful update promoted was called
+    /// untrusted at the next start, the old one was restored over it, and two updates in one supervisor
+    /// lifetime left nothing bootable. Both keys are this build's.
+    #[test]
+    fn a_release_signed_generation_boots_like_the_launcher_signed_one() {
+        let tmp = TempDir::new("two-key-baseline");
+        let install = install_dir(&tmp, "install");
+        fs::create_dir_all(baseline_dir(&install)).unwrap();
+        fs::write(flat_exe(&install), b"seed bytes").unwrap();
+        let seed = sidecar_for("1.0.0", b"seed bytes", &signing_key());
+        save_sidecar(&flat_sidecar(&install), &seed).unwrap();
+        ensure_baseline(&install, None, &test_pubkey_hex(), false).expect("the launcher seeds");
+
+        // The update: a pair signed with the release key, promoted into `baseline/current` exactly as
+        // `commit_pending` does after the probe.
+        let release_key = SigningKey::from_bytes(&[0x5a; 32]);
+        let release_hex =
+            release_key
+                .verifying_key()
+                .as_bytes()
+                .iter()
+                .fold(String::new(), |mut hex, byte| {
+                    hex.push_str(&format!("{byte:02x}"));
+                    hex
+                });
+        fs::write(app_exe(&install), b"updated bytes").unwrap();
+        let updated = sidecar_for("2.0.0", b"updated bytes", &release_key);
+        install_generation_pair(&install, &app_exe(&install), &updated)
+            .expect("the promoted pair is written");
+
+        let launcher_hex = test_pubkey_hex();
+        match resolve_baseline_signed_with(&install, &[&launcher_hex, &release_hex]) {
+            BaselineChoice::Current(current) => assert_eq!(current.sidecar.version, "2.0.0"),
+            other => panic!("a release-signed generation must boot: {other:?}"),
+        }
+        // And the bug it pins: the launcher key alone does not accept it.
+        assert!(matches!(
+            resolve_baseline_signed_with(&install, &[&launcher_hex]),
+            BaselineChoice::NeedsHuman(_)
+        ));
     }
 
     /// The staged sidecar and the swap request are app-writable; the supervisor must not read
