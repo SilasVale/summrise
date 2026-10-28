@@ -10749,6 +10749,10 @@ async fn a_minted_token_is_only_destructive_when_asked_for() {
         listed.contains("destructive allowed"),
         "the ticked box is recorded on the row: {listed}"
     );
+    assert!(
+        listed.contains("held for approval"),
+        "the page says how the consent is enforced — a hold, not an outright refusal: {listed}"
+    );
 }
 
 #[tokio::test]

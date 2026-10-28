@@ -74,7 +74,7 @@ pub const TOKENS: &str = r#":root {
 /// the palettes did; the pair travels together.
 pub const COMPONENTS: &str = r#"
 /* ---- chips: a status pill, the same shape on every surface ---- */
-.chip { display:inline-flex; align-items:center; gap:6px; height:21px; padding:0 8px; border:1px solid transparent; border-radius:999px; background:var(--panel-2); color:var(--muted); font-size:11.5px; font-weight:600; white-space:nowrap; }
+.chip { display:inline-flex; align-items:center; gap:6px; height:21px; padding:0 8px; border:1px solid transparent; border-radius:999px; background:var(--panel-2); color:var(--muted); font-size:12px; font-weight:600; white-space:nowrap; }
 .chip .dot { width:6px; height:6px; border-radius:50%; background:currentColor; }
 .chip.ok { background:var(--ok-soft); color:var(--ok); }
 .chip.warn { background:var(--warn-soft); color:var(--warn); }
@@ -109,11 +109,11 @@ pub const COMPONENTS: &str = r#"
 .topbar .context .dot { flex:none; width:6px; height:6px; border-radius:50%; background:var(--ok); }
 .topbar .context.offline .dot { background:var(--faint); }
 .topbar .spacer { flex:1; }
-.statusbar { flex:none; display:flex; align-items:center; gap:8px; height:28px; padding:0 18px; background:var(--panel); border-top:1px solid var(--line); color:var(--faint); font-size:11.5px; white-space:nowrap; }
+.statusbar { flex:none; display:flex; align-items:center; gap:8px; height:28px; padding:0 18px; background:var(--panel); border-top:1px solid var(--line); color:var(--faint); font-size:12px; white-space:nowrap; }
 .statusbar .middle { min-width:0; overflow:hidden; text-overflow:ellipsis; color:var(--muted); }
 .statusbar .spacer { flex:1; }
 .statusbar .sep { opacity:.55; }
-.statusbar .side { color:var(--faint); text-transform:uppercase; letter-spacing:.1em; font-size:10.5px; }
+.statusbar .side { color:var(--faint); text-transform:uppercase; letter-spacing:.1em; font-size:11px; }
 .empty .btn { margin-top:2px; }
 "#;
 
