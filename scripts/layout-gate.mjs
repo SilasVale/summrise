@@ -1,12 +1,14 @@
-// The console's layout gate: every rendered page, at every width, must fit the window.
+// The layout gate: every page in a directory, at every width, must fit the window.
 //
-// The review renderer writes the pages; this drives headless Chrome over the DevTools protocol to
-// measure what the screenshots only show to an eye. A page wider than the window is the failure
-// this catches — it has been found three times by looking, and looking is not a gate.
+// Two callers: the console's review pages (rendered by `render_pages_for_review`) and the landing
+// page in `landing/public`. It drives headless Chrome over the DevTools protocol to measure what a
+// screenshot only shows to an eye — a card hiding a horizontal scrollbar, content painted past its
+// clipping box, a page without one h1.
 //
-//   node scripts/console-layout.mjs /tmp/console-shots/pages 390 800 1280
+//   node scripts/layout-gate.mjs /tmp/console-shots/pages 390 800 1280
+//   node scripts/layout-gate.mjs landing/public 390 768 1280
 //
-// Exits 1 when a page overflows or does not have exactly one <h1>.
+// Exits 1 on a failure, 2 when no Chromium is found.
 import { readdirSync } from "node:fs";
 import { spawn, spawnSync } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -16,7 +18,7 @@ import { join } from "node:path";
 const pagesDir = process.argv[2];
 const widths = process.argv.slice(3).map(Number).filter(Boolean);
 if (!pagesDir || widths.length === 0) {
-  console.error("usage: node scripts/console-layout.mjs <pages-dir> [width ...]");
+  console.error("usage: node scripts/layout-gate.mjs <pages-dir> [width ...]");
   process.exit(2);
 }
 

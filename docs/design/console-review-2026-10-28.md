@@ -119,7 +119,7 @@ phone: the memory filter's two columns, the system page's filter form and reacha
 vitals install card's sha256. Each showed a horizontal scrollbar inside its own card, which reads as
 "nothing here" until you look for it.
 
-`node scripts/console-layout.mjs <pages-dir> 390 800 1280` renders nothing itself — it drives headless
+`node scripts/layout-gate.mjs <pages-dir> 390 800 1280` renders nothing itself — it drives headless
 Chrome over the pages `scripts/console-screenshots.bash` wrote and measures three things per page:
 
 - the document does not scroll sideways;
