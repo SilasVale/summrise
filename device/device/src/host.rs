@@ -70,7 +70,31 @@ pub fn facts(data: &std::path::Path) -> serde_json::Value {
             "repairs": [],
         }),
     };
+    // The tray half's file, as this install has it. The canary update does NOT carry the shell, so
+    // its digest is the one fact that tells an operator whether the icon on the machine is the build
+    // they think it is; without it, "the tray is old" is indistinguishable from "the tray is right"
+    // until someone reports a missing menu entry.
+    document["shell"] = match install.as_deref() {
+        Some(install) => shell_state(install),
+        None => serde_json::json!({ "present": false }),
+    };
     document
+}
+
+/// The installed `summrise-shell.exe`'s digest and size, for the console to show beside the app's own
+/// release facts. Absent on a machine whose tray was never installed.
+fn shell_state(install: &Path) -> serde_json::Value {
+    let path = install.join("summrise-shell.exe");
+    let Ok(bytes) = std::fs::read(&path) else {
+        return serde_json::json!({ "present": false });
+    };
+    use sha2::{Digest, Sha256};
+    let digest = Sha256::digest(&bytes);
+    serde_json::json!({
+        "present": true,
+        "sha256": digest.iter().map(|byte| format!("{byte:02x}")).collect::<String>(),
+        "bytes": bytes.len(),
+    })
 }
 
 /// The frame the device sends on its channel: the console reads `host` and stores it per device.
@@ -626,6 +650,33 @@ mod tests {
                 { "at_ms": 1700000000300_u64, "from": "previous", "sha256": "cc" },
             ])
         );
+    }
+
+    #[test]
+    fn the_facts_report_the_installed_shell_and_its_digest() {
+        let dir = std::env::temp_dir().join(format!("summrise-shell-facts-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("the fixture install is creatable");
+
+        // No shell beside the app: the fact says so rather than naming an empty digest.
+        let absent = shell_state(&dir);
+        assert_eq!(absent["present"], serde_json::json!(false), "{absent}");
+
+        std::fs::write(dir.join("summrise-shell.exe"), b"a tray binary")
+            .expect("the fixture shell is writable");
+        let present = shell_state(&dir);
+        assert_eq!(present["present"], serde_json::json!(true), "{present}");
+        assert_eq!(
+            present["bytes"],
+            serde_json::json!(13),
+            "the size is the file's: {present}"
+        );
+        assert_eq!(
+            present["sha256"].as_str().map(str::len),
+            Some(64),
+            "a digest, in the same hex the release documents use: {present}"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

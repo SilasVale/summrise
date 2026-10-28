@@ -4079,6 +4079,13 @@ async fn next_vitals_page(
                 .collect()
         })
         .unwrap_or_default();
+    let shell = facts["shell"]
+        .get("sha256")
+        .and_then(Value::as_str)
+        .map(|digest| page::ShellView {
+            sha256: digest.to_owned(),
+            bytes: facts["shell"]["bytes"].as_u64().unwrap_or(0),
+        });
     let install = page::InstallView {
         current: generation("current"),
         previous: generation("previous"),
@@ -4086,6 +4093,7 @@ async fn next_vitals_page(
         swap,
         repairs,
         restarts,
+        shell,
     };
     let sample = page::Vitals {
         machine: facts["machine"].as_str().unwrap_or_default().to_owned(),

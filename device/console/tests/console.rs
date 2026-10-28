@@ -9066,6 +9066,7 @@ async fn the_vitals_page_shows_the_install_it_reads() {
             },
             "repairs": [{ "from": "previous", "at_ms": 1_790_990_300_000u64 }]
         },
+        "shell": { "present": true, "sha256": "cd".repeat(32), "bytes": 1411072 },
         "restarts": [
             { "at_ms": 1_790_991_000_000u64, "version": "0.3.112", "channel": "canary", "pid": 4242 },
             { "at_ms": 1_790_990_000_000u64, "version": "0.3.111", "channel": "canary", "pid": 1111 }
@@ -9090,6 +9091,10 @@ async fn the_vitals_page_shows_the_install_it_reads() {
     assert!(
         page.contains("no generation"),
         "an absent pending says so: {page}"
+    );
+    assert!(
+        page.contains("Tray") && page.contains(&"cd".repeat(32)),
+        "the tray's digest is on the card, because the canary update does not carry it: {page}"
     );
     assert!(
         page.contains("Restarts"),

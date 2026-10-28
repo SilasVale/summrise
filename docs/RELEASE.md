@@ -12,6 +12,31 @@ They share a version number because they are released together, but a *device* r
 *console*, and a console deploy does not touch a device. `verify-release.sh` is the tool that keeps those
 facts straight (see "Proving it landed").
 
+## The tray is installer-owned
+
+`summrise-shell.exe` — the tray and the window — is the one piece the canary update does **not** carry.
+The update path stages and swaps `summrise-device.exe`; the shell is installed by `SummriseSetup`, started
+at logon from `HKLM\...\Run\SummriseShell`, and replaced only by running a newer installer. A shell change
+therefore reaches a machine through the installer, never through a canary document; `verify-release.sh`
+reports whether the publish even has one, because a publish without NSIS (`makensis`) can update the app
+and silently leave every tray behind.
+
+Repairing a tray by hand, when an install cannot be run right now (the exact procedure this was learned
+with, on DESKTOP-14RJCR8 in October 2026):
+
+```bat
+:: from an elevated prompt, with the console's operator token and a mirror that serves the shell
+copy /Y C:\<install>\summrise-shell.exe C:\<install>\summrise-shell.exe.bak-old
+curl -f -o C:\<install>\summrise-shell.exe.new http://<mirror>/summrise-shell-<version>.exe
+certutil -hashfile C:\<install>\summrise-shell.exe.new SHA256   :: compare with the build's digest
+move /Y C:\<install>\summrise-shell.exe.new C:\<install>\summrise-shell.exe
+```
+
+A shell started by a service or a scheduled task with `/IT` runs in the user's session, which is where the
+tray belongs; starting it from a SYSTEM shell does not put an icon on anyone's taskbar. After a start, read
+`%LOCALAPPDATA%\Summrise\shell.log`: it records `starting`, `event loop built`, `menu built`, `tray built`,
+and a 15 s watchdog turns "never built" into a logged non-zero exit rather than a ghost process.
+
 ## Before anything
 
 * The three public keys are compile-time: `SUMMRISE_LAUNCHER_PUBKEY`, `SUMMRISE_RELEASE_PUBKEY`,

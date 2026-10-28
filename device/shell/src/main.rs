@@ -3,6 +3,11 @@
 //! A Windows user's eye-level view of one device: a dot that says whether the app is serving, and one
 //! click to the operator's console (or, when the console is unreachable, the device's own panel).
 //!
+//! **This binary is installer-owned.** The canary update swaps `summrise-device.exe` and nothing else, so
+//! a change here reaches a machine through `SummriseSetup`, not through a release document; docs/RELEASE.md
+//! carries the procedure and the reason. Its startup lines go to `%LOCALAPPDATA%\Summrise\shell.log`,
+//! because a tray that does not appear is otherwise a process with no message.
+//!
 //! The device itself is two runtimes with no UI: `summrise-launch` supervises `summrise-device`, and
 //! every action is granted and audited by the console. This binary is deliberately outside that
 //! boundary — it holds no credential and can do nothing but read a loopback health document and open

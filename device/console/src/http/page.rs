@@ -3320,6 +3320,13 @@ pub(super) struct RepairView {
     pub(super) at_ms: u64,
 }
 
+/// The tray binary this install has: present, its digest, and its size.
+#[derive(Clone)]
+pub(super) struct ShellView {
+    pub(super) sha256: String,
+    pub(super) bytes: u64,
+}
+
 /// One boot the device journaled: when, and from which release.
 #[derive(Clone)]
 pub(super) struct RestartView {
@@ -3339,6 +3346,9 @@ pub(super) struct InstallView {
     /// This app's own recent boots, newest first. The launcher says why a generation changed; this
     /// says when the device last came up, which is how a restart loop becomes visible.
     pub(super) restarts: Vec<RestartView>,
+    /// The installed tray binary, when the machine has one. Its digest is what tells an operator
+    /// whether the icon is the build they shipped: the canary update does not carry the shell.
+    pub(super) shell: Option<ShellView>,
 }
 
 /// What the device reports about itself right now, plus the points this console has collected by
@@ -3547,6 +3557,13 @@ pub(super) fn vitals(device: &DeviceView, sample: &Vitals, csrf: &str, version: 
                         }
                     }
                 }
+                @if let Some(shell) = &sample.install.shell {
+                    dt { "Tray" }
+                    dd {
+                        span class="mono small" { (shell.sha256) }
+                        span class="muted small" { " · " (shell.bytes) " bytes" }
+                    }
+                }
                 @if !sample.install.restarts.is_empty() {
                     p class="small muted" { "Restarts" }
                     ul class="rail-list" {
@@ -3740,6 +3757,10 @@ mod tests {
                     from: "previous".to_owned(),
                     at_ms: 1_790_990_300_000,
                 }],
+                shell: Some(ShellView {
+                    sha256: "ab".repeat(32),
+                    bytes: 1_411_072,
+                }),
                 restarts: vec![
                     RestartView {
                         at_ms: 1_790_991_000_000,
