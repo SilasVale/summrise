@@ -631,11 +631,31 @@ fn capture(mut stream: impl Read, cap: usize) -> Captured {
     captured
 }
 
-/// Join a capture thread, treating a panicked reader as an empty stream.
-fn join_capture(handle: Option<thread::JoinHandle<Captured>>) -> Captured {
-    handle
-        .and_then(|handle| handle.join().ok())
-        .unwrap_or_default()
+/// How long a capture thread may keep the call after the child has been reaped.
+///
+/// A child can exit while a DESCENDANT still holds the write end of its stdout — `daemon &` under
+/// `shell: true`, a `nohup`ed helper — and then the reader sits in `read` forever. An unbounded join
+/// therefore turns one background process into a call that never returns, holding the blocking pool and
+/// the console's request with it. Two seconds is longer than any real flush and shorter than the
+/// console's own bound.
+const CAPTURE_GRACE: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// Join a capture thread, treating a panicked or stuck reader as what it captured so far.
+fn join_capture(handle: Option<std::thread::JoinHandle<Captured>>) -> Captured {
+    let Some(handle) = handle else {
+        return Captured::default();
+    };
+    let deadline = std::time::Instant::now() + CAPTURE_GRACE;
+    while !handle.is_finished() {
+        if std::time::Instant::now() >= deadline {
+            // Detached on purpose: the thread is blocked in a `read` this process cannot interrupt, and
+            // leaking it is better than never answering the operator. Its buffer is already shared with
+            // the ring the run reports, so the bytes captured so far are not lost.
+            return Captured::default();
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    handle.join().unwrap_or_default()
 }
 
 /// The rows of one history file, newest first.

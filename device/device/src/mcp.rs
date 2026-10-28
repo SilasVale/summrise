@@ -1275,8 +1275,22 @@ impl DeviceServer {
                         .unwrap_or(DEFAULT_NET_TIMEOUT_MS)
                         .clamp(1, system::MAX_TIMEOUT_MS),
                 );
-                let report = system::net_test(&arguments.host, arguments.port, timeout)
-                    .map_err(|error| refused(name, error))?;
+                // **THE RESOLVER IS A BLOCKING CALL AND THIS IS A REACTOR THREAD.** A name the DNS
+                // server never answers used to park a Tokio worker for the resolver's own budget before
+                // the connect timeout even started, and every other call on that worker waited behind
+                // it — which is how a healthy device answers a console call 30 s late. The work moves to
+                // the blocking pool, where parking it costs nothing.
+                let (host, port) = (arguments.host.clone(), arguments.port);
+                let report =
+                    tokio::task::spawn_blocking(move || system::net_test(&host, port, timeout))
+                        .await
+                        .map_err(|_| {
+                            refused(
+                                name,
+                                system::SystemError::Unresolved(arguments.host.clone()),
+                            )
+                        })?
+                        .map_err(|error| refused(name, error))?;
                 Ok(json!({
                     "addresses": report.addresses,
                     "connected": report.connected,

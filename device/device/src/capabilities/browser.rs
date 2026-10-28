@@ -1594,6 +1594,12 @@ impl BrowserRegistry {
         let mut slot = self.browser.lock().await;
         let running = slot.as_mut().map(Browser::alive).unwrap_or(false);
         if !running {
+            // A FRESH BROWSER CANNOT BE WATCHED BY THE OLD READERS. Their tabs died with the process
+            // that hosted them, so each entry is an 8 MiB last frame plus a task handle that nothing
+            // would ever collect; aborting them here is what keeps the table bounded across crashes.
+            for (_, cast) in self.casts.lock().expect("the cast table").drain() {
+                cast.task.abort();
+            }
             // A fresh launch is a new life for streams too.
             self.closed.store(false, Ordering::SeqCst);
             // Drop a crashed browser before replacing it: its Drop waits for the process.
@@ -1749,9 +1755,12 @@ impl BrowserRegistry {
 
     /// The live cast for `target`, if its reader has not ended.
     fn live_cast(&self, target: &str) -> Option<CastSlot> {
-        let casts = self.casts.lock().expect("the cast table");
+        let mut casts = self.casts.lock().expect("the cast table");
         let cast = casts.get(target)?;
         if cast.task.is_finished() {
+            // The reader ended on its own: its last frame and its handle have no owner now, and a
+            // table that only grows is how a long-running device runs out of memory.
+            casts.remove(target);
             return None;
         }
         Some((
