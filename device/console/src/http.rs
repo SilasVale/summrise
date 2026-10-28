@@ -2650,8 +2650,14 @@ async fn next_files_write(
     headers: HeaderMap,
     Form(form): Form<FilesWriteForm>,
 ) -> Response {
-    let Some(_session) = next_session(&app, &headers, Some(&form.csrf)) else {
+    let Some(session) = next_session(&app, &headers, Some(&form.csrf)) else {
         return StatusCode::FORBIDDEN.into_response();
+    };
+    let Some(device) = device_views(&app)
+        .into_iter()
+        .find(|device| device.id == device_id)
+    else {
+        return no_such_device(&app);
     };
     let path = match page_path(&form.path) {
         Ok(path) => path,
@@ -2682,7 +2688,18 @@ async fn next_files_write(
             ))
             .into_response()
         }
-        Err(response) => *response,
+        Err(response) => {
+            refused_page(
+                &app,
+                &device,
+                &session,
+                *response,
+                page::Page::Files,
+                format!("/next/files/{device_id}"),
+                "Back to the files",
+            )
+            .await
+        }
     }
 }
 
@@ -3390,8 +3407,14 @@ async fn next_memory_append(
     headers: HeaderMap,
     Form(form): Form<MemoryAppendForm>,
 ) -> Response {
-    let Some(_session) = next_session(&app, &headers, Some(&form.csrf)) else {
+    let Some(session) = next_session(&app, &headers, Some(&form.csrf)) else {
         return StatusCode::FORBIDDEN.into_response();
+    };
+    let Some(device) = device_views(&app)
+        .into_iter()
+        .find(|device| device.id == device_id)
+    else {
+        return no_such_device(&app);
     };
     let text = form.text.trim().to_owned();
     if text.is_empty() {
@@ -3413,7 +3436,18 @@ async fn next_memory_append(
     .await
     {
         Ok(_) => Redirect::to(&format!("/next/memory/{device_id}")).into_response(),
-        Err(response) => *response,
+        Err(response) => {
+            refused_page(
+                &app,
+                &device,
+                &session,
+                *response,
+                page::Page::Memory,
+                format!("/next/memory/{device_id}"),
+                "Back to the memory",
+            )
+            .await
+        }
     }
 }
 
@@ -3424,12 +3458,29 @@ async fn next_memory_delete(
     headers: HeaderMap,
     Form(form): Form<MemoryDeleteForm>,
 ) -> Response {
-    let Some(_session) = next_session(&app, &headers, Some(&form.csrf)) else {
+    let Some(session) = next_session(&app, &headers, Some(&form.csrf)) else {
         return StatusCode::FORBIDDEN.into_response();
+    };
+    let Some(device) = device_views(&app)
+        .into_iter()
+        .find(|device| device.id == device_id)
+    else {
+        return no_such_device(&app);
     };
     match device_tool(&app, &device_id, "memory.delete", json!({ "id": form.id })).await {
         Ok(_) => Redirect::to(&format!("/next/memory/{device_id}")).into_response(),
-        Err(response) => *response,
+        Err(response) => {
+            refused_page(
+                &app,
+                &device,
+                &session,
+                *response,
+                page::Page::Memory,
+                format!("/next/memory/{device_id}"),
+                "Back to the memory",
+            )
+            .await
+        }
     }
 }
 
@@ -3600,8 +3651,14 @@ async fn next_monitor_add(
     headers: HeaderMap,
     Form(form): Form<MonitorAddForm>,
 ) -> Response {
-    let Some(_session) = next_session(&app, &headers, Some(&form.csrf)) else {
+    let Some(session) = next_session(&app, &headers, Some(&form.csrf)) else {
         return StatusCode::FORBIDDEN.into_response();
+    };
+    let Some(device) = device_views(&app)
+        .into_iter()
+        .find(|device| device.id == device_id)
+    else {
+        return no_such_device(&app);
     };
     let kind = form.kind.trim();
     if kind != "tcp" && kind != "http" {
@@ -3625,7 +3682,18 @@ async fn next_monitor_add(
     }
     match device_tool(&app, &device_id, "monitor.add", arguments).await {
         Ok(_) => Redirect::to(&format!("/next/monitors/{device_id}")).into_response(),
-        Err(response) => *response,
+        Err(response) => {
+            refused_page(
+                &app,
+                &device,
+                &session,
+                *response,
+                page::Page::Monitors,
+                format!("/next/monitors/{device_id}"),
+                "Back to the monitors",
+            )
+            .await
+        }
     }
 }
 
@@ -3636,12 +3704,29 @@ async fn next_monitor_remove(
     headers: HeaderMap,
     Form(form): Form<MonitorRemoveForm>,
 ) -> Response {
-    let Some(_session) = next_session(&app, &headers, Some(&form.csrf)) else {
+    let Some(session) = next_session(&app, &headers, Some(&form.csrf)) else {
         return StatusCode::FORBIDDEN.into_response();
+    };
+    let Some(device) = device_views(&app)
+        .into_iter()
+        .find(|device| device.id == device_id)
+    else {
+        return no_such_device(&app);
     };
     match device_tool(&app, &device_id, "monitor.remove", json!({ "id": form.id })).await {
         Ok(_) => Redirect::to(&format!("/next/monitors/{device_id}")).into_response(),
-        Err(response) => *response,
+        Err(response) => {
+            refused_page(
+                &app,
+                &device,
+                &session,
+                *response,
+                page::Page::Monitors,
+                format!("/next/monitors/{device_id}"),
+                "Back to the monitors",
+            )
+            .await
+        }
     }
 }
 
@@ -3827,8 +3912,14 @@ async fn next_browser_open(
     headers: HeaderMap,
     Form(form): Form<BrowserUrlForm>,
 ) -> Response {
-    let Some(_session) = next_session(&app, &headers, Some(&form.csrf)) else {
+    let Some(session) = next_session(&app, &headers, Some(&form.csrf)) else {
         return StatusCode::FORBIDDEN.into_response();
+    };
+    let Some(device) = device_views(&app)
+        .into_iter()
+        .find(|device| device.id == device_id)
+    else {
+        return no_such_device(&app);
     };
     match device_tool(
         &app,
@@ -3839,7 +3930,18 @@ async fn next_browser_open(
     .await
     {
         Ok(_) => Redirect::to(&format!("/next/browser/{device_id}")).into_response(),
-        Err(response) => *response,
+        Err(response) => {
+            refused_page(
+                &app,
+                &device,
+                &session,
+                *response,
+                page::Page::Screen,
+                format!("/next/browser/{device_id}"),
+                "Back to the screen",
+            )
+            .await
+        }
     }
 }
 
@@ -3978,8 +4080,14 @@ async fn next_browser_close(
     headers: HeaderMap,
     Form(form): Form<BrowserTargetForm>,
 ) -> Response {
-    let Some(_session) = next_session(&app, &headers, Some(&form.csrf)) else {
+    let Some(session) = next_session(&app, &headers, Some(&form.csrf)) else {
         return StatusCode::FORBIDDEN.into_response();
+    };
+    let Some(device) = device_views(&app)
+        .into_iter()
+        .find(|device| device.id == device_id)
+    else {
+        return no_such_device(&app);
     };
     match device_tool(
         &app,
@@ -3990,7 +4098,18 @@ async fn next_browser_close(
     .await
     {
         Ok(_) => Redirect::to(&format!("/next/browser/{device_id}")).into_response(),
-        Err(response) => *response,
+        Err(response) => {
+            refused_page(
+                &app,
+                &device,
+                &session,
+                *response,
+                page::Page::Screen,
+                format!("/next/browser/{device_id}"),
+                "Back to the screen",
+            )
+            .await
+        }
     }
 }
 

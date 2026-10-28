@@ -8402,6 +8402,48 @@ async fn a_device_refusal_of_a_run_is_rendered_as_a_page() {
     );
 }
 
+/// The same shape, one handler further: a refused write is a page too, and it offers the files page
+/// back rather than a JSON body with no way home.
+#[tokio::test]
+async fn a_device_refusal_of_a_write_is_rendered_as_a_page() {
+    let fixture = Fixture::new("files-write-refusal");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xdb)).await;
+    let (cookie, csrf) = sign_in_to_the_page(&fixture).await;
+
+    let mut request = post_form(
+        &format!("/next/files/{device_id}/write"),
+        &[("csrf", &csrf), ("path", "notes.txt"), ("content", "hello")],
+    );
+    request
+        .headers_mut()
+        .insert(header::COOKIE, cookie.parse().expect("the cookie header"));
+    let write = tokio::spawn(async move { send_text(fixture.app(), request).await });
+    let frame = next_json(&mut device).await;
+    assert_eq!(
+        frame["mcp"]["params"]["name"],
+        json!("files.write"),
+        "{frame}"
+    );
+    device
+        .send(WsMessage::Text(
+            json!({
+                "id": frame["id"].clone(),
+                "error": { "error": { "code": -32000, "message": "the file is read-only" } }
+            })
+            .to_string(),
+        ))
+        .await
+        .expect("the device refuses");
+    let (status, _, body) = write.await.expect("the write finishes");
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert!(body.contains("Refused"), "{body}");
+    assert!(body.contains("the file is read-only"), "{body}");
+    assert!(body.contains(&format!("/next/files/{device_id}")), "{body}");
+    assert!(!body.trim_start().starts_with('{'), "{body}");
+}
+
 #[tokio::test]
 async fn a_run_without_the_page_csrf_is_refused_before_the_device_hears_of_it() {
     let fixture = Fixture::new("runs-csrf");
