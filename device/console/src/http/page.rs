@@ -955,8 +955,9 @@ pub(super) fn refusal(
 ) -> Markup {
     let content = html! {
         section class="card" {
+            // The heading is the page's own; the card says what the sentence is.
             (card_head(
-                "Refused",
+                "What happened",
                 html! { span class="chip warn" { "device" } },
                 Markup::default(),
             ))
@@ -5421,6 +5422,18 @@ mod tests {
                 caption: "Refusals recorded before authentication.",
                 filtered: false,
             })),
+            (
+                "refused",
+                refusal(
+                    &devices[0],
+                    "the device refused that command: no such process",
+                    "/next/runs/1111111111111111111111111111111111111111111111111111111111111111",
+                    "Back to the runs",
+                    Page::Runs,
+                    "csrf",
+                    "0.3.72",
+                ),
+            ),
             ("login", login(None, None)),
             ("not-found", not_found("0.3.72")),
         ];

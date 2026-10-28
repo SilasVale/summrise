@@ -1895,20 +1895,26 @@ async fn refused_page(
     back: String,
     back_label: &str,
 ) -> Response {
+    // The status the refusal carried (a device failure is a 502) is kept: a page that reads well
+    // and answers 200 tells the log a different story than the device did.
+    let status = response.status();
     let sentence = refusal_sentence(response).await;
-    Html(
-        page::refusal(
-            device,
-            &sentence,
-            &back,
-            back_label,
-            active,
-            &hex::encode(&session.csrf),
-            &app.version,
-        )
-        .into_string(),
+    (
+        status,
+        Html(
+            page::refusal(
+                device,
+                &sentence,
+                &back,
+                back_label,
+                active,
+                &hex::encode(&session.csrf),
+                &app.version,
+            )
+            .into_string(),
+        ),
     )
-    .into_response()
+        .into_response()
 }
 
 /// The sentence a refused [`device_tool`] carried, for a page that renders sentences rather than JSON.

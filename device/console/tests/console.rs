@@ -8383,7 +8383,7 @@ async fn a_device_refusal_of_a_run_is_rendered_as_a_page() {
         .await
         .expect("the device refuses");
     let (status, _, body) = run.await.expect("the run finishes");
-    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(status, StatusCode::BAD_GATEWAY, "{body}");
     assert!(
         body.contains("Refused"),
         "the page names what happened: {body}"
@@ -8437,7 +8437,7 @@ async fn a_device_refusal_of_a_write_is_rendered_as_a_page() {
         .await
         .expect("the device refuses");
     let (status, _, body) = write.await.expect("the write finishes");
-    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(status, StatusCode::BAD_GATEWAY, "{body}");
     assert!(body.contains("Refused"), "{body}");
     assert!(body.contains("the file is read-only"), "{body}");
     assert!(body.contains(&format!("/next/files/{device_id}")), "{body}");
