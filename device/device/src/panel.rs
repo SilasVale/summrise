@@ -24,10 +24,6 @@ const COMPONENTS: &str = r##"  * { box-sizing: border-box; }
     -webkit-font-smoothing: antialiased;
   }
   main { max-width: 54rem; margin: 0 auto; display: grid; gap: 1rem; }
-  header { display: flex; align-items: center; gap: 0.6rem; margin-bottom: 0.25rem; }
-  header img { display: block; }
-  h1 { font-size: 1.15rem; font-weight: 650; margin: 0; letter-spacing: -0.012em; }
-  header span { color: var(--ink-faint); font-size: 0.85rem; }
   .lede { color: var(--ink-muted); margin: 0 0 0.25rem; font-size: 0.9rem; }
   header button {
     margin-left: auto; font: inherit; font-size: 0.82rem; font-weight: 550;
@@ -314,16 +310,20 @@ fn render(facts: &PanelFacts, outcome: Option<&EnrollOutcome>) -> Markup {
                 link rel="stylesheet" href="/panel/xterm.css";
                 style { (PreEscaped(style_sheet())) }
             }
-            body {
-                main {
-                    header {
-                        (PreEscaped(BRAND_MARK))
-                        h1 { "Summrise" }
-                        span { "this machine" }
-                        button id="copy" type="button" data-copy="diagnostics" data-label="Copy diagnostics" {
-                            "Copy diagnostics"
-                        }
+            body class="app" {
+                header class="topbar" {
+                    (PreEscaped(BRAND_MARK))
+                    h1 { "Summrise" }
+                    span class="context" {
+                        span class="dot" aria-hidden="true" {}
+                        "this machine"
                     }
+                    span class="spacer" {}
+                    button id="copy" type="button" data-copy="diagnostics" data-label="Copy diagnostics" {
+                        "Copy diagnostics"
+                    }
+                }
+                main id="content" {
                     p class="lede" {
                         "The device's own panel. Loopback only, no login: if you can read this, you are on the box."
                     }
@@ -543,6 +543,13 @@ fn render(facts: &PanelFacts, outcome: Option<&EnrollOutcome>) -> Markup {
                 }
                 // The diagnostics text is rendered here so the clipboard button copies a fact, not a
                 // second reading of the API; it is the same report the inline script used to build.
+                footer class="statusbar" {
+                    span { "v" (facts.version) }
+                    span class="sep" { "·" }
+                    span class="middle" { (facts.channel) }
+                    span class="spacer" {}
+                    span class="side" { "panel" }
+                }
                 pre id="diagnostics" hidden { (diagnostics(facts)) }
                 script src="/panel/xterm.js" {}
                 script src="/panel/addon-fit.js" {}
@@ -902,6 +909,11 @@ mod tests {
         assert!(
             html.contains(summrise_ui::TOKENS),
             "the page renders the shared tokens, so its palette is the console's"
+        );
+        assert!(
+            html.contains(r#"<header class="topbar">"#)
+                && html.contains(r#"<footer class="statusbar">"#),
+            "the page shell is the console's: a top bar and a status strip"
         );
         assert!(
             html.contains("&lt;contents of /var/lib/summrise/token&gt;"),

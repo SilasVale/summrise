@@ -91,6 +91,20 @@ pub const COMPONENTS: &str = r#"
 .card-body { padding:16px; }
 .card-body > :last-child { margin-bottom:0; }
 .empty p { max-width:48ch; }
+/* ---- the page shell's two fixed rows ---- */
+.app { display:flex; flex-direction:column; min-height:100vh; background:var(--bg); }
+.app main { flex:1; min-height:0; }
+.topbar { flex:none; display:flex; align-items:center; gap:12px; height:56px; padding:0 24px; background:var(--panel); border-bottom:1px solid var(--line); }
+.topbar h1 { margin:0; flex:none; font-size:18px; font-weight:600; letter-spacing:-.015em; white-space:nowrap; }
+.topbar .context { display:inline-flex; align-items:center; gap:7px; min-width:0; max-width:36ch; padding:3px 9px; border:1px solid var(--line); border-radius:999px; background:var(--panel-2); color:var(--muted); font-size:12px; }
+.topbar .context .dot { flex:none; width:6px; height:6px; border-radius:50%; background:var(--ok); }
+.topbar .context.offline .dot { background:var(--faint); }
+.topbar .spacer { flex:1; }
+.statusbar { flex:none; display:flex; align-items:center; gap:8px; height:28px; padding:0 18px; background:var(--panel); border-top:1px solid var(--line); color:var(--faint); font-size:11.5px; white-space:nowrap; }
+.statusbar .middle { min-width:0; overflow:hidden; text-overflow:ellipsis; color:var(--muted); }
+.statusbar .spacer { flex:1; }
+.statusbar .sep { opacity:.55; }
+.statusbar .side { color:var(--faint); text-transform:uppercase; letter-spacing:.1em; font-size:10.5px; }
 .empty .btn { margin-top:2px; }
 "#;
 

@@ -50,20 +50,10 @@ body.app { display:flex; height:100vh; overflow:hidden; }
 .rail .brand { margin-bottom:10px; color:var(--rail-focus); }
 .rail .brand:hover { background:transparent; color:#fff; }
 .shell { flex:1; min-width:0; min-height:0; display:flex; flex-direction:column; height:100vh; }
-.topbar { flex:none; display:flex; align-items:center; gap:12px; height:56px; padding:0 24px; background:var(--panel); border-bottom:1px solid var(--line); }
-.topbar h1 { flex:none; font-size:18px; font-weight:600; letter-spacing:-.015em; white-space:nowrap; }
-.topbar .context { display:inline-flex; align-items:center; gap:7px; min-width:0; max-width:36ch; padding:3px 9px; border:1px solid var(--line); border-radius:999px; background:var(--panel-2); color:var(--muted); font-size:12px; }
-.topbar .context .dot { flex:none; width:6px; height:6px; border-radius:50%; background:var(--ok); }
-.topbar .context.offline .dot { background:var(--faint); }
 .topbar .context .name { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .topbar .spacer { flex:1; }
 .topbar .build { color:var(--faint); font:11.5px var(--mono); white-space:nowrap; }
 .topbar form { flex:none; }
-.statusbar { flex:none; display:flex; align-items:center; gap:8px; height:28px; padding:0 18px; background:var(--panel); border-top:1px solid var(--line); color:var(--faint); font-size:11.5px; white-space:nowrap; }
-.statusbar .middle { min-width:0; overflow:hidden; text-overflow:ellipsis; color:var(--muted); }
-.statusbar .spacer { flex:1; }
-.statusbar .sep { opacity:.55; }
-.statusbar .side { color:var(--faint); text-transform:uppercase; letter-spacing:.1em; font-size:10.5px; }
 .content { flex:1; min-height:0; overflow:auto; padding:24px max(24px, calc((100% - 1180px) / 2)) 48px; }
 .content > :first-child { margin-top:0; }
 .content > :last-child { margin-bottom:0; }
