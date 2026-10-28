@@ -1,0 +1,77 @@
+# The console, measured: what to delete and what to fix
+
+> **Status: one round of fixes landed, the rest is a plan for the owner, 2026-10-28.** Three
+> read-only audits produced this: information architecture, visual consistency, and whether the
+> product's documents still tell the truth. Line numbers were taken at `edc28a8`.
+
+## What the page actually offered
+
+- **Ten of the eleven rail icons led back to the page the reader was on.** A device page's href is
+  built from a device id, and on the fleet there is none, so every one of them fell back to `/next`.
+- **A fleet row printed eleven page links** — `Terminal · Files · Runs · System · State · Memory ·
+  Screen · Monitors · Browser · Connect · Vitals` — so the four links that answer a daily job looked
+  exactly like the seven that do not. With three devices the table carried 33 links.
+- The device's own name was not a link; the only ways into a machine were those eleven links and
+  `Manage`.
+- One link (`State`) was not even a rail page; it renders the state document and marks the rail's
+  `System` as current.
+
+## What this round changed
+
+| change | why | evidence |
+|---|---|---|
+| the rail shows only Fleet until a device is chosen | ten dead links removed; progressive disclosure (PRODUCT.md rule 5) | `rail()` in `device/console/src/http/page.rs`; the test pins 1 anchor on the fleet and 11 on a device page |
+| a fleet row shows `Terminal · Screen · Files · Connect · More` | the four daily destinations stay; the other seven live in a `details` disclosure and stay ordinary anchors | same file, the row's `page-links` nav; the test asserts all seven are still in the markup |
+| deleted the Files rail's `Up one level` | it built `/next/files/{id}{parent}` — no `?path=`, no separator — and 404ed on every nested directory; the card-head control is correct and stays | the card-head control at the same file |
+| deleted the terminal's `Close all` | it was an `<a>` to the page itself: it reloaded and left every session running | the test now asserts it is gone |
+| `--ok-soft` no longer references itself | `--ok-soft:var(--ok-soft)` computed to nothing, so the light "online" chip lost its fill; no contrast pair could see a transparent pair | new test: no token references itself |
+| dark `--warn-soft` exists | the dark warn chip inherited the light cream and measured **2.02:1** | token block; the contrast test now names `warn` on `warn-soft` |
+| `--faint` moved `#74757f` → `#696a74` | it measured **4.23:1** on the canvas and **4.16:1** on the context rail, at 10.5–11.5px | the contrast test now names `faint` on `bg` and on `panel-2` |
+| input focus ring is the accent, not `accent-soft` | the soft ring measured **1.11:1** on the panel — an outline nobody can see | new assertion in the same test |
+| `--hover` is declared | two rules referenced a token that did not exist, so the hover computed to nothing | token block |
+| the terminal empty state uses tokens | it hard-coded `#a2a6b0` (**2.44:1**) and `#ffa36b` (**1.96:1** as a graphic) | same file, `.terminal-empty` |
+
+The measured gate went from 10 colour pairs to 14, and from "no pair may fail" to "a token may not
+reference itself". The screenshots moved exactly where expected: every page by 0.03–0.56% (the faint
+ink), the dashboard pages by more (the rail and the row). The baseline was updated after review.
+
+## What the audits found and this round did NOT do
+
+Ranked by what an operator loses, not by what is cheapest.
+
+| candidate | cost | risk | who decides |
+|---|---|---|---|
+| Fleet row leads to **one device**, not a list of tools | one click to a tool | markup + tests + smoke; the name is still a `strong` | owner: which destination (a device home vs Terminal) |
+| merge `State` into `System` | one click through System | redirect + two tests; the content has a job (poisoned state) | owner: the page was deliberate (`16a0378`) |
+| one **Records** page for Audit and Denials | one extra click to switch | two stores, two filters; medium | owner: a security surface |
+| move System's ad-hoc reachability card to **Monitors** | none | markup; the route stays | owner, one line |
+| merge `Screen` and `Browser` | browser tools one tab deeper | high: two routes, JS, tests | owner: one job or two |
+| delete the Vitals trend card | lose a visit-only sparkline | markup + dead store | owner: visible feature, weak job |
+| one name per thing (`Tokens`/`Connect`, `System`/`Processes`), stop printing the build twice | none | strings + CSS | owner picks the word |
+| Files page: delete the "Read a file" card | — | markup | **not taken**: it is the only way to read a path that is not in the listing, and Write has the same field. Deleting it would remove a capability, not a duplicate |
+| Denials: hide the 11 impossible kind options and use its own lead | none | one call-site argument | safe next round |
+
+## What must not be cut
+
+The fleet and enrollment (the only way a device enters the registry), the approvals card and badge
+(the human half of the brake), Audit and Denials (merge the page if you like; never the stores),
+Tokens (the only credential mint/revoke surface), restart/kill and the install journal (the only
+remote recovery controls), rename/remove, and the device-local panel (it is a different surface and
+must keep working when the console does not).
+
+## The documents were telling three lies
+
+Found by the same review, fixed in this round:
+
+1. The page said grants are "revoked in one click". A grant is valid until it expires; only tokens
+   and device removal are one-click revocations.
+2. The page said destructive tools "are refused unless the token allows them". The device answers
+   `Ask`; the console holds the call for ninety seconds and refuses it if nobody answers. The same
+   sentence was in `QUICKSTART.md` and `CONNECT-MCP.md`.
+3. The page put the panel at `127.0.0.1:18090` and described State/Repair as controls the panel does
+   not have. The default install is `18080`; the panel shows sessions, install, verdict and channel
+   health, and it cannot start, stop or update anything.
+
+Also fixed: the README's verify step used 18090; its `--data` default was the wrong store for an
+installed binary (the service reads `%ProgramData%\Summrise`); and two references pointed at
+`panel.html`, which no longer exists.

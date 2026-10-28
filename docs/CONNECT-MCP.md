@@ -61,8 +61,9 @@ console's answer for a client whose configuration must stay fixed: the console i
 client sends it on every request, and the console turns it into a short grant each time.
 
 Create it in the console page: the device's **Connect an AI client** page (rail: **Tokens**). Name
-it, tick the destructive consent (the same `allow_destructive` a grant carries — unticked means
-destructive calls are refused), and press **Mint a token**. The token is `srm_` followed by 64 lowercase hex characters (68
+it, tick the destructive consent (the same `allow_destructive` a grant carries — unticked means a
+destructive call is held for approval and refused if nobody answers within ninety seconds), and press
+**Mint a token**. The token is `srm_` followed by 64 lowercase hex characters (68
 in all), returned once at creation:
 
 ```

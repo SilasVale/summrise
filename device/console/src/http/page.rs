@@ -119,7 +119,7 @@ input, select, textarea { width:100%; min-height:34px; padding:6px 10px; border:
 select { appearance:none; padding-right:30px; background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238b8c96' stroke-width='2.2' stroke-linecap='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E"); background-repeat:no-repeat; background-position:right 10px center; }
 textarea { min-height:82px; font:12.5px/1.6 var(--mono); resize:vertical; }
 input[type=checkbox] { width:auto; min-height:0; accent-color:var(--accent-solid); }
-input:focus-visible, select:focus-visible, textarea:focus-visible { border-color:var(--accent); outline:2px solid var(--accent-soft); outline-offset:0; }
+input:focus-visible, select:focus-visible, textarea:focus-visible { border-color:var(--accent); outline:2px solid var(--accent); outline-offset:1px; }
 input::placeholder, textarea::placeholder { color:var(--faint); }
 .field { margin:0 0 14px; }
 .field > label, .field-label { display:block; margin:0 0 5px; }
@@ -255,8 +255,8 @@ body.terminal .content { display:flex; flex-direction:column; min-height:0; over
 .pane .xterm { padding:10px 12px; background:var(--term-canvas); }
 .xterm .xterm-viewport { background-color:var(--term-canvas); }
 .pane[hidden] { display:none; }
-.terminal-empty { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:12px; color:#a2a6b0; font-size:13.5px; text-align:center; }
-.terminal-empty .empty-icon { width:48px; height:48px; border-radius:12px; background:rgba(255,255,255,.05); color:#ffa36b; }
+.terminal-empty { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:12px; color:var(--muted); font-size:13px; text-align:center; }
+.terminal-empty .empty-icon { width:48px; height:48px; border-radius:12px; background:var(--panel-2); color:var(--faint); }
 .terminal-empty .empty-icon svg { width:22px; height:22px; }
 .terminal-empty p { max-width:44ch; }
 #terminal-panes:has(.pane) .terminal-empty { display:none; }
@@ -288,6 +288,16 @@ body.login { margin:0; background:var(--bg); }
 .page-links a { padding:2px 0; color:var(--muted); font-size:12px; font-weight:500; white-space:nowrap; }
 .page-links a:hover { color:var(--accent); }
 .page-links a + a::before { content:"·"; margin:0 7px; color:var(--faint); font-weight:400; }
+/* The row's seventh-to-eleventh destinations, behind one disclosure: a menu that says "More" is
+   quieter than five more words in a table cell, and `details` keeps it working without JavaScript. */
+.page-links .more-pages { position:relative; display:inline-block; }
+.page-links .page-more { cursor:pointer; list-style:none; padding:2px 0; color:var(--muted); font-size:12px; font-weight:500; white-space:nowrap; }
+.page-links .page-more::before { content:"·"; margin:0 7px; color:var(--faint); font-weight:400; }
+.page-links .page-more::-webkit-details-marker { display:none; }
+.page-links .page-more:hover, .page-links .more-pages[open] .page-more { color:var(--accent); }
+.page-menu { left:0; right:auto; width:168px; display:flex; flex-direction:column; gap:1px; padding:6px; }
+.page-menu a { padding:6px 9px; border-radius:6px; color:var(--muted); font-size:12.5px; font-weight:500; }
+.page-menu a:hover { background:var(--panel-2); color:var(--ink); }
 .actions-cell { width:1%; text-align:right; white-space:nowrap; }
 .row-menu { position:relative; display:inline-block; }
 .row-menu summary { cursor:pointer; list-style:none; }
@@ -336,6 +346,7 @@ body.login { margin:0; background:var(--bg); }
      wrapped line: drop them and let the spacing do the separating. */
   .page-links { gap:4px 12px; }
   .page-links a + a::before { content:none; }
+  .page-links .page-more::before { content:none; }
 }
 @media (max-width: 1000px) {
   /* The canvas keeps its width first: the context rail is context, not navigation, so it is the
@@ -534,14 +545,23 @@ fn rail_item(item: Page, active: Page, device: Option<&DeviceView>) -> Markup {
 }
 
 /// The 52px rail: the brand, then one anchor per page, the current one marked for a screen reader.
+///
+/// **THE DEVICE PAGES APPEAR WITH A DEVICE.** Their hrefs need a device id, so on the fleet every one
+/// of them would fall back to `/next` — ten icons that all navigate back to the page the reader is
+/// already on. The fleet therefore lists its own entry, and choosing a device turns the rail into the
+/// device's pages. This is progressive disclosure with a dead link removed, not a shorter menu.
 fn rail(active: Page, device: Option<&DeviceView>) -> Markup {
     html! {
         nav class="rail" aria-label="Pages" {
             a class="brand" href="/next" title="Summrise console" aria-label="Summrise console" {
                 (brand_icon())
             }
-            @for page in Page::ALL {
-                (rail_item(page, active, device))
+            @if device.is_some() {
+                @for page in Page::ALL {
+                    (rail_item(page, active, device))
+                }
+            } @else {
+                (rail_item(Page::Fleet, active, device))
             }
         }
     }
@@ -1042,18 +1062,32 @@ pub(super) fn dashboard(
                                     }
                                 }
                                 td class="pages-cell" {
+                                    // **FOUR PLACES A PERSON GOES, AND THE REST ONE CLICK AWAY.** Eleven
+                                    // links in a row read as a menu bar rather than a device: the row
+                                    // carried every page the console has, so none of them looked like
+                                    // the one to press. The four that answer the daily jobs stay; the
+                                    // other seven live behind `More`, still in the DOM and still
+                                    // reachable without JavaScript.
                                     nav class="page-links" aria-label=(format!("Pages for {}", device_label(device))) {
                                         a href=(format!("/next/terminal/{}", device.id)) { "Terminal" }
-                                        a href=(format!("/next/files/{}", device.id)) { "Files" }
-                                        a href=(format!("/next/runs/{}", device.id)) { "Runs" }
-                                        a href=(format!("/next/system/{}", device.id)) { "System" }
-                                        a href=(format!("/next/state/{}", device.id)) { "State" }
-                                        a href=(format!("/next/memory/{}", device.id)) { "Memory" }
                                         a href=(format!("/next/screen/{}", device.id)) { "Screen" }
-                                        a href=(format!("/next/monitors/{}", device.id)) { "Monitors" }
-                                        a href=(format!("/next/browser/{}", device.id)) { "Browser" }
+                                        a href=(format!("/next/files/{}", device.id)) { "Files" }
                                         a href=(format!("/next/tokens/{}", device.id)) { "Connect" }
-                                        a href=(format!("/next/vitals/{}", device.id)) { "Vitals" }
+                                        details class="row-menu more-pages" {
+                                            summary class="page-more" aria-label=(format!("More pages for {}", device_label(device))) {
+                                                "More"
+                                                span class="caret" aria-hidden="true" { "▾" }
+                                            }
+                                            div class="menu-panel page-menu" {
+                                                a href=(format!("/next/runs/{}", device.id)) { "Runs" }
+                                                a href=(format!("/next/system/{}", device.id)) { "System" }
+                                                a href=(format!("/next/state/{}", device.id)) { "State" }
+                                                a href=(format!("/next/memory/{}", device.id)) { "Memory" }
+                                                a href=(format!("/next/monitors/{}", device.id)) { "Monitors" }
+                                                a href=(format!("/next/browser/{}", device.id)) { "Browser" }
+                                                a href=(format!("/next/vitals/{}", device.id)) { "Vitals" }
+                                            }
+                                        }
                                     }
                                 }
                                 td class="actions-cell" {
@@ -1567,7 +1601,6 @@ pub(super) fn terminal(
                     }
                 }
                 span class="spacer" {}
-                a class="btn btn-ghost btn-sm" href=(format!("/next/terminal/{}", device.id)) title="Close every session in this page" { "Close all" }
             }
             div class="terminal-tabbar" {
                 div id="terminal-tabs" class="tabs" {}
@@ -1820,7 +1853,7 @@ pub(super) fn files(
             }
         }
     };
-    // The rail is the directory itself: how much is in it, and the two ways out of it.
+    // The rail is the directory itself: how much is in it, and the way back to the root.
     let dirs = entries
         .iter()
         .filter(|entry| entry.kind == "directory")
@@ -1828,11 +1861,6 @@ pub(super) fn files(
     let bytes: u64 = entries.iter().map(|entry| entry.len).sum();
     // The root is "" in a URL and "/" to a reader; the rail always speaks to the reader.
     let display_path = if path.is_empty() { "/" } else { path };
-    let parent = display_path.trim_end_matches('/');
-    let parent = match parent.rfind('/') {
-        Some(index) => parent[..index].to_owned() + "/",
-        None => "/".to_owned(),
-    };
     let context = context_rail(
         "This directory",
         html! { span class="chip muted" { (entries.len()) } },
@@ -1854,9 +1882,9 @@ pub(super) fn files(
         },
         html! {
             div class="rail-actions" {
-                @if display_path != "/" {
-                    a class="btn btn-ghost btn-sm" href=(format!("/next/files/{}{}", device.id, encode(&parent))) { "Up one level" }
-                }
+                // "Up one level" lives in the card head, where it builds `?path=` correctly. The copy
+                // that used to be here concatenated the parent onto the device id and 404ed on every
+                // nested directory; a second control for one job is not redundancy, it is a bug.
                 a class="btn btn-ghost btn-sm" href=(format!("/next/files/{}", device.id)) { "Root" }
             }
         },
@@ -3925,11 +3953,20 @@ mod tests {
                 page.contains("class=\"rail\""),
                 "{expected}: the rail is missing: {page}"
             );
+            // Fleet, Audit and Denials are the device-less pages: their rail is the fleet alone,
+            // because a device page's href has no device to name. Every other page lists them all.
+            let device_less = expected == "Fleet";
+            let want = if device_less { 1 } else { LABELS.len() };
             assert!(
-                page.matches("<a class=\"rail-item").count() == LABELS.len(),
-                "{expected}: one anchor per rail page: {page}"
+                page.matches("<a class=\"rail-item").count() == want,
+                "{expected}: {want} anchor(s) in the rail: {page}"
             );
-            for label in LABELS {
+            let labels: &[&str] = if device_less {
+                &["Fleet"]
+            } else {
+                LABELS.as_slice()
+            };
+            for label in labels {
                 assert!(
                     page.contains(&format!("title=\"{label}\"")),
                     "{expected}: the {label} anchor is missing: {page}"
@@ -4699,7 +4736,7 @@ mod tests {
             "the empty state sits inside the terminal area: {page}"
         );
         assert!(
-            page.contains(">Close all</a>"),
+            !page.contains("Close all"),
             "the toolbar closes every session: {page}"
         );
         let form = between(&page, "<form id=\"terminal-form\"", "</form>");
@@ -4913,6 +4950,37 @@ mod tests {
         assert!(!bare.contains("Open the audit log"), "{bare}");
     }
 
+    /// **A TOKEN THAT REFERENCES ITSELF IS NOT A TOKEN.** `--ok-soft:var(--ok-soft)` computed to the
+    /// guaranteed-invalid value, so the light "online" chip silently lost its fill, and no contrast
+    /// pair could see it because the pair it would check was transparent. The class is what this pins.
+    /// The second half is the focus ring: an accent-SOFT outline measured 1.11:1 on the panel, which
+    /// is an outline nobody can see.
+    #[test]
+    fn no_token_references_itself_and_the_focus_ring_is_the_accent() {
+        for block in [summrise_ui::TOKENS, summrise_ui::COMPONENTS] {
+            for line in block.lines() {
+                let line = line.trim();
+                let Some(rest) = line.strip_prefix("--") else {
+                    continue;
+                };
+                let Some((name, value)) = rest.split_once(':') else {
+                    continue;
+                };
+                let name = name.trim();
+                assert!(
+                    !value.trim().starts_with(&format!("var(--{name})")),
+                    "--{name} references itself, which computes to nothing"
+                );
+            }
+        }
+        let sheet = style_sheet();
+        assert!(
+            sheet.contains("outline:2px solid var(--accent)")
+                && !sheet.contains("outline:2px solid var(--accent-soft)"),
+            "the input focus ring must be the accent, not accent-soft (1.11:1 on the panel)"
+        );
+    }
+
     #[test]
     fn every_text_colour_reads_on_the_surface_it_sits_on() {
         // The design system's promise, measured the way a browser would: WCAG 2.1 AA for normal
@@ -4944,9 +5012,16 @@ mod tests {
                 ("muted", "bg"),
                 ("muted", "panel"),
                 ("faint", "panel"),
+                // The two surfaces `--faint` was measured against and failed: the page itself
+                // (footnotes) and the context rail (4.16:1 before it moved to #696a74).
+                ("faint", "bg"),
+                ("faint", "panel-2"),
                 ("accent", "panel"),
                 ("ok", "panel"),
                 ("warn", "panel"),
+                // The soft surface the warn chip is actually drawn on — dark `--warn-soft` did not
+                // exist, so the dark chip inherited the light cream and measured 2.02:1.
+                ("warn", "warn-soft"),
                 ("danger", "panel"),
                 // The icon rail is dark in both themes, so its ink is checked against its own
                 // background rather than the page's.

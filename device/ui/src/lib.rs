@@ -16,11 +16,11 @@ use maud::{html, Markup};
 pub const TOKENS: &str = r#":root {
   color-scheme: light dark;
   --bg:#f6f6f7; --panel:#ffffff; --panel-2:#f4f4f5; --panel-3:#ececef;
-  --ink:#18181b; --muted:#5d5e67; --faint:#74757f;
+  --ink:#18181b; --muted:#5d5e67; --faint:#696a74;
   --line:#e6e6e9; --line-strong:#d5d5da;
   --accent:#bf3a0a; --accent-solid:#b03a0a; --accent-hover:#963008;
   --accent-soft:#fff0e6; --accent-fg:#ffffff;
-  --ok:#1d7a3c; --warn:#a8620a; --ok-soft:#e7f6ec;
+  --ok:#1d7a3c; --warn:#a05d08; --ok-soft:#e7f6ec;
   --danger:#b3261e; --danger-soft:#fdecea;
   --rail:#17181c; --rail-line:rgba(255,255,255,.08); --rail-ink:#9a9ba4;
   --rail-ink-hover:#f4f4f5; --rail-focus:#ffb86b;
@@ -39,7 +39,10 @@ pub const TOKENS: &str = r#":root {
      They are aliases now rather than a second palette: a token defined twice is a token that drifts. */
   --surface:var(--panel); --surface-recessed:var(--panel-2); --surface-chip:var(--panel-3);
   --ink-muted:var(--muted); --ink-faint:var(--faint); --error:var(--danger);
-  --error-soft:var(--danger-soft); --warn-soft:#fff4e5; --ok-soft:var(--ok-soft);
+  --error-soft:var(--danger-soft); --warn-soft:#fff4e5;
+  /* A hover wash that pages actually reference. `--hover` was used by two rules and declared
+     nowhere, so the rule computed to nothing; a token that exists only at the call site is not a token. */
+  --hover:var(--panel-2);
   --font-mono:var(--mono); --radius-lg:16px;
 }
 @media (prefers-color-scheme: dark) {
@@ -50,10 +53,14 @@ pub const TOKENS: &str = r#":root {
     --accent:#ffa36b; --accent-solid:#b03a0a; --accent-hover:#c2410c;
     --accent-soft:#33211a; --accent-fg:#ffffff;
     --ok:#6edc8b; --warn:#e0a44a; --ok-soft:rgba(46,160,73,.16);
+    /* The dark warning surface, which the light block's #fff4e5 cannot serve: without this line
+       `.chip.warn` drew #e0a44a on cream and measured 2.02:1. */
+    --warn-soft:#3a2a14;
     --danger:#ff8b84; --danger-soft:rgba(190,40,30,.18);
     --rail:#0b0c0e; --rail-line:rgba(255,255,255,.07); --rail-ink:#8f9099;
     --rail-ink-hover:#ffffff; --rail-focus:#ffb86b;
     --shadow:0 1px 2px rgba(0,0,0,.45), 0 16px 36px -26px rgba(0,0,0,.9);
+    --hover:#2a2b32;
     --term-canvas:#131418; --term-selection:rgba(255,163,107,.24);
     --term-red:#ff8b84; --term-green:#6edc8b; --term-yellow:#e0a44a;
     --term-blue:#7fb0ff; --term-magenta:#c9a3ff; --term-cyan:#6fd3e6;

@@ -1,74 +1,33 @@
-# The product story, and the landing page it implies
+# The landing page: decisions and design record
 
-> **Status: decided and shipped, 2026-10-28.** The operator chose the light, product-page direction
+> **Status: decided and shipped, 2026-10-28.** The operator chose the light product-page direction
 > (`b-light`): English by default with a Chinese switch. It is built in `landing/` and deployed at
 > **https://summrise.saisi.online**. The four directions in this directory stay as the record of
 > what was rejected and why; each is a self-contained HTML file, so the record costs no binaries.
 
-## One sentence
+## The story the page tells
 
-> **Summrise turns a Windows machine into an AI-operable workspace — and gives its owner one console to
-> see, approve, and take back control from anywhere.**
+The page expresses the product statement that lives in **[`docs/PRODUCT.md`](../../PRODUCT.md)** — the
+one sentence, the four nouns and the four pillars. That file is the single source; this one records the
+page's own decisions and must not restate the product.
 
-The second clause is not decoration. Every product in this space can give an agent a shell; the thing this
-one sells is that handing the machine over stays a **decision**, not a leap of faith.
+Two things follow from the pillars for this page specifically:
 
-## The four nouns
-
-Everything the product does is one of these. If a feature cannot be stated as one of them, it is a
-delivery detail.
-
-| noun | what it is | what it replaces | the cost when it is wrong |
-|---|---|---|---|
-| **Device** | a real Windows machine running the runtime: one SCM service (`summrise-launch`) supervising one app (`summrise-device`) | a sandbox/container that is not the machine the work belongs to | an update that cannot be recalled, or a machine that cannot repair itself |
-| **Session** | something the AI can drive: terminal, SSH, serial, browser, files, monitors, runs | a transcript that claims work happened | "it said it ran it" with no evidence |
-| **Grant** | the signed, scoped, revocable permission behind every call | an API key with ambient authority | an agent doing something nobody can attribute |
-| **Reachability** | how an operator gets to the device: the console from anywhere, the panel from the machine itself | a per-device tunnel and a public hostname | a device that is unreachable exactly when it is wanted |
-
-## The value ladder
-
-Four rungs, in the order an operator feels them.
-
-1. **Hands.** The agent operates the real box — its network, its signed-in browser, its COM ports — not a
-   lookalike. This is the capability no chat window has.
-2. **Brake.** Each call is a grant and an audit row; destructive tools are refused unless the token allows
-   them; the operator can hold the keyboard and the agent waits; revocation is one action. This is what
-   turns "an agent with hands" into something a person will actually allow.
-3. **Operations.** The launcher owns the app binary: it verifies at boot, repairs what is missing or
-   corrupt, and swaps only against a signed release document. A bad network is a design input, not an
-   exception.
-4. **Distance.** The device dials out; nothing listens inbound. One console sees the fleet from anywhere.
-   The panel at `127.0.0.1` still works when the console does not — and it is the only surface that can say
-   *why* the console cannot.
-
-## What it is not
-
-- Not a cloud IDE or a sandbox: the work happens on the machine the work belongs to.
-- Not remote desktop: a person does not watch a person; an agent works and a person can intervene.
-- Not multi-tenant SaaS: one operator, a handful of machines, each enrolled deliberately.
-- Not a per-device public hostname: the tunnel-per-device shape is what this replaces.
-- Not an Electron/npm stack: one launcher, one app, one console, Rust throughout.
-
-## Proof points the page may cite
-
-Only numbers that come from somewhere. A landing page that hardcodes a count is a page that drifts.
-
-- two online machines on `0.3.152`, console on `0.3.145`, all updates signed and verified;
-- enrollment proven on both sides (console protocol and the device's own CLI);
-- every console page is Rust-rendered and render-compared (28 pages, light and dark) on every UI change;
-- the device's panel is loopback-only and has no login; the console is behind Cloudflare Access or an
-  operator token;
-- 504 rate after the proxy fixes: 1 in 78, attributable to a deploy window (before: 4 in 6).
+- the **brake** is the buying objection, so "approvals and audit" is a capability section, not a
+  footnote — a page that only says "give your agent a shell" is every competitor's page;
+- the **distance** pillar is why the console and the panel are shown as two surfaces with different
+  jobs, rather than as one app with two windows.
 
 ## What the page has to do
 
-1. **Say what it is in ten seconds** — hero, one sentence, one real screenshot of the console.
-2. **Answer "is it safe to hand over"** — the control/audit section is the buying objection, not a
-   footnote. This is where the product differs from every "give your agent a shell" page.
-3. **Get to a download in one click** — installer, checksums, release document, and a five-minute quick
-   start. The download is the conversion; everything else supports it.
+1. **Say what it is in ten seconds** — hero, one sentence, one product shot.
+2. **Answer "is it safe to hand over"** — grants, approvals, audit, the keyboard hand-back.
+3. **Get to a download in one click** — installer, checksums, release document, and a quick start.
 
-## The three directions
+Only numbers that come from somewhere. The version and the download links are fetched from the newest
+**published** release at load; nothing is typed twice.
+
+## The four directions
 
 | file | the argument it makes | shape |
 |---|---|---|
@@ -77,12 +36,41 @@ Only numbers that come from somewhere. A landing page that hardcodes a count is 
 | `c-controlroom.html` | control is the product; the page should feel like the console | warm paper, orange, the console bleeding off the right edge, "watch it work / take it back" |
 | `b-light.html` | **chosen** — the product page in daylight: the terminal is the proof, the fleet strip is the scope | warm off-white, dark terminal card, two-column capability grid |
 
-## Open decisions (the operator's)
+`c-controlroom`'s headline ("Watch it work. Then take it back.") was the strongest single line of the
+four and was carried into the decision conversation, but not into the shipped page: the chosen layout's
+headline ("Your AI. A real machine under it.") states the product rather than the argument, which is
+what the operator picked.
 
-1. **Direction** — which of the three (or which combination) becomes the page.
-2. **Language** — the repository is English; the operator is Chinese. A Chinese page and an English page
-   are different products to different audiences; this needs an answer, not a default.
-3. **Where it lives** — its own hostname, a public route on the console, or a replacement for the old
-   `agent.saisi.online` landing page.
-4. **Download channel** — GitHub Releases (what the installer workflow uploads today) or the console's own
-   mirror, which is what a device uses to update.
+## The decisions
+
+| decision | taken | what it cost |
+|---|---|---|
+| direction | `b-light`: light product page, terminal demo, fleet strip | the C mock's "why it exists" band was dropped — the page argues with product, not with a manifesto |
+| language | English in the markup, Chinese in one dictionary, a persisted switch | two strings per element; `check.mjs` fails if either side is missing |
+| host | `summrise.saisi.online`, a Workers static-assets site | `workers.dev` is poisoned on this network, so the custom domain is not cosmetic — it is the only reachable door |
+| download | the newest *published* GitHub release, fetched at load | the newest published release is `v0.3.12` while the fleet runs `0.3.152`; the page must not claim otherwise |
+
+## Apple's register, applied to this page
+
+`docs/PRODUCT.md` carries the rules. What they changed here, concretely:
+
+1. **The product is the hero.** No diagram, no illustrated metaphor: a terminal that enrolled a device
+   and an MCP client listing its tools, then the fleet strip.
+2. **One accent, one job.** Orange is the action. One filled button per region; the nav button is dark,
+   everything else is ghost or text.
+3. **Type does the hierarchy.** One scale, tight tracking on display sizes, 1.6–1.7 leading, balanced
+   headings. No second colour to make a heading louder.
+4. **One spacing rhythm.** Sections step on the same padding; the only exception is the hero, which is
+   allowed to breathe more because it is the first screen.
+5. **Motion explains change.** The terminal cursor and a 1px button lift; `prefers-reduced-motion`
+   removes both without removing information.
+6. **Measured, not argued.** Contrast is a gate (14 pairs at AA). `--faint` measured 3.31:1 and moved to
+   `#6f6a60` (4.90:1); the gate names the pair, so taste cannot move it back.
+7. **Deletion is part of the design.** Cut from the mockups: the manifesto band, the three-step
+   installer section, the pinned version and a second accent. Each was defensible; none was the product.
+
+## What would make this page wrong
+
+If the download has to be hosted by the product instead of a releases page, or if a second audience
+needs its own page (a Chinese-only site, a developer docs portal), the single-page shape stops holding
+and this becomes two pages rather than one page with more sections.

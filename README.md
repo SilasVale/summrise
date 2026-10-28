@@ -3,6 +3,9 @@
 The Summrise device runtime: a Windows agent that supervises itself, updates from signed releases,
 and offers its capabilities to a local operator, a mesh peer, or a console session.
 
+**What the product is for — the one sentence, the four nouns and the design rules — is
+[`docs/PRODUCT.md`](docs/PRODUCT.md).** Everything else in this repository serves that statement.
+
 This repository is the clean start for the runtime that replaces the pre-1.3 `agent/`. The old tree
 lives in `summrise-legacy`; nothing here depends on it.
 
@@ -68,8 +71,8 @@ compares against the baseline (`--baseline`, default `$XDG_CACHE_HOME/summrise-c
 `--update-baseline` replaces with the run just made — so a styling change is two commands on a fresh
 checkout: `--update-baseline` once, `--diff` after every change.
 
-The only JavaScript left is vendored xterm and the two terminal pages' glue
-(`device/console/assets/`, `device/device/src/panel.html`). `scripts/console-smoke.mjs` drives the
+The only JavaScript left is vendored xterm and four pieces of page glue
+(`device/console/assets/`: approvals, browser, terminal; `device/device/assets/panel-terminal.js`). `scripts/console-smoke.mjs` drives the
 console in a browser — the fleet table, every device link, and a real shell typed into — and needs
 a machine where a browser can start (a signed-in desktop session, not the device service):
 
@@ -107,7 +110,7 @@ A release carries the installer, the app binary and the signed release document:
 SummriseSetup-0.3.7.exe /S /D=C:\SummriseInstall
 
 :: verify
-curl http://127.0.0.1:18090/api/health
+curl http://127.0.0.1:18080/api/health
 summrise-launch.exe --self-check C:\SummriseInstall --data C:\ProgramData\Summrise
 ```
 
@@ -146,8 +149,9 @@ builds its console link at boot, so restart the `SummriseLaunch` service afterwa
   ```
 
   Add `--force` to replace an existing registration, and `--allow-plaintext` only for a console on a
-  trusted plaintext tunnel. `--data` defaults to `<install>\data`, so an installed binary needs only
-  the URL and the code.
+  trusted plaintext tunnel. `--data` defaults to the running executable's parent plus `data`, which
+  on an installed binary is **not** the service's store — so pass `--data C:\ProgramData\Summrise`,
+  as above.
 
 ## Cutting a release
 
@@ -182,5 +186,5 @@ The design is a record, not a wiki page: each document states a decision and wha
 * `docs/RELEASE.md` — how a release is published, deployed and **verified against the world**.
 * `docs/superpowers/specs/` — the designs and decisions, including the ones that were reversed.
 * `device/console/src/http/page.rs` — the console page's Rust renderers (maud), compiled into the
-  binary; `assets/` holds its two scripts and the vendored terminal.
-* `device/device/src/panel.html` — the device's own panel (hand-written, same design tokens).
+  binary; `assets/` holds its three scripts and the vendored terminal.
+* `device/device/src/panel.rs` — the device's own panel, rendered in Rust from the same design tokens.

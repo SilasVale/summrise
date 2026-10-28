@@ -7384,6 +7384,89 @@ async fn the_rust_page_lists_the_registered_fleet() {
     assert!(!body.contains("No devices have registered yet."), "{body}");
 }
 
+/// **PROGRESSIVE DISCLOSURE, MEASURED.** On the fleet the rail used to list ten device pages whose
+/// hrefs all fall back to `/next` — icons that navigate to the page the reader is already on — and a
+/// fleet row printed all eleven pages as one run of words, so the four that answer a daily job looked
+/// exactly like the seven that do not. This pins both halves: one rail entry before a device is
+/// chosen and eleven after, four links plus one disclosure in the row, and the other seven still
+/// ordinary anchors inside it, so the page works with scripting off.
+#[tokio::test]
+async fn the_fleet_shows_only_the_pages_a_device_can_open() {
+    let fixture = Fixture::new("fleet-progressive-disclosure");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xb5)).await;
+    let cookie = page_cookie(&fixture).await;
+
+    let (status, _, fleet) = send_text(fixture.app(), get_with_cookie("/next", &cookie)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        fleet.matches("class=\"rail-item").count(),
+        1,
+        "the fleet's rail is the fleet, not ten links back to itself: {fleet}"
+    );
+    assert!(fleet.contains("class=\"row-menu more-pages\""), "{fleet}");
+    for page in ["Terminal", "Screen", "Files", "Connect"] {
+        assert!(
+            fleet.contains(&format!(">{page}</a>")),
+            "the {page} link is in the row: {fleet}"
+        );
+    }
+    let menu_at = fleet
+        .find("class=\"menu-panel page-menu\"")
+        .expect("the more-pages disclosure is in the row");
+    let menu = &fleet[menu_at..];
+    for page in [
+        "Runs", "System", "State", "Memory", "Monitors", "Browser", "Vitals",
+    ] {
+        assert!(
+            menu.contains(&format!(">{page}</a>")),
+            "the {page} link is one click away: {fleet}"
+        );
+    }
+
+    // The pages appear with the device: a device page keeps the whole rail.
+    let app = fixture.app();
+    let request = get_with_cookie(&format!("/next/vitals/{device_id}"), &cookie);
+    let page = tokio::spawn(async move { send_text(app, request).await });
+    let frame = next_json(&mut device).await;
+    assert_eq!(
+        frame["mcp"]["params"]["name"],
+        json!("host.facts"),
+        "{frame}"
+    );
+    let facts = json!({
+        "machine": "BOX",
+        "os": { "name": "Windows", "version": "11" },
+        "cpu": { "cores": 8 },
+        "uptime_s": 120,
+        "memory": { "total_bytes": 8_000_000_000u64, "available_bytes": 4_000_000_000u64 },
+        "disks": [],
+        "update": {
+            "current": { "version": "0.3.112", "channel": "canary" },
+            "previous": null,
+            "pending": null,
+            "last_swap": null,
+            "repairs": []
+        },
+        "shell": { "present": false, "sha256": "", "bytes": 0 },
+        "restarts": []
+    });
+    answer(
+        &mut device,
+        &frame,
+        json!({ "jsonrpc": "2.0", "id": 1, "result": { "content": [{ "type": "text", "text": facts.to_string() }], "isError": false } }),
+    )
+    .await;
+    let (status, _, body) = page.await.expect("the page finishes");
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        body.matches("class=\"rail-item").count(),
+        11,
+        "a device page lists every page: {body}"
+    );
+}
+
 #[tokio::test]
 async fn the_rust_page_hides_the_fleet_after_the_session_expires() {
     let fixture = Fixture::new("rust-page-expiry");

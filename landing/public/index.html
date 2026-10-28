@@ -74,7 +74,7 @@
             <div><span class="p">PS&gt;</span> <span class="cmt"># from any MCP client</span></div>
             <div><span class="cmt">POST</span> https://console.saisi.online/mcp/9f3c1a2b4d&hellip;</div>
             <div><span class="cmt">Authorization:</span> Bearer srm_<span class="cmt">&hellip;</span></div>
-            <div class="g">  &rarr; tools: terminal · browser · files · mesh · runs</div>
+            <div class="g">  &rarr; tools: terminal · browser · files · serial · runs</div>
             <div><span class="p">PS&gt;</span> <span class="cursor"></span></div>
           </div>
         </div>
@@ -94,7 +94,7 @@
       <div class="feat">
         <div class="item"><div class="num" data-i18n="cap.n1">01 / SESSIONS</div><h3 data-i18n="cap.1t">Terminal, SSH, serial</h3><p data-i18n="cap.1b">Real PTYs with attach, resize and scrollback; SSH to the boxes behind it; serial for the hardware that never got a network stack.</p></div>
         <div class="item"><div class="num" data-i18n="cap.n2">02 / BROWSER</div><h3 data-i18n="cap.2t">Headless by default</h3><p data-i18n="cap.2b">Chrome runs on the device&rsquo;s network and its own sessions. Visible windows only when an operator asks to watch — automation should not flash across someone&rsquo;s desktop.</p></div>
-        <div class="item"><div class="num" data-i18n="cap.n3">03 / CONTROL</div><h3 data-i18n="cap.3t">Approvals and audit</h3><p data-i18n="cap.3b">Destructive tools are refused unless the token allows them. Every call lands in an audit row with who, what, when — and the console can hold the keyboard.</p></div>
+        <div class="item"><div class="num" data-i18n="cap.n3">03 / CONTROL</div><h3 data-i18n="cap.3t">Approvals and audit</h3><p data-i18n="cap.3b">A destructive call without token consent is held for approval — ninety seconds, then refused, never run. Every tool call lands in an audit row with who, what, when — and the console can hold the keyboard.</p></div>
         <div class="item"><div class="num" data-i18n="cap.n4">04 / OPERATIONS</div><h3 data-i18n="cap.4t">Self-supervising</h3><p data-i18n="cap.4b">The launcher owns the app binary, verifies it at boot, repairs it when it is gone, and swaps only on a signed release. Nothing to babysit at 3 a.m.</p></div>
       </div>
       <div class="strip">
@@ -114,21 +114,21 @@
         <div class="surface">
           <div class="tag">console.saisi.online</div>
           <h3 data-i18n="surf.ct">From anywhere</h3>
-          <p data-i18n="surf.cb">Devices dial out over one WebSocket; no inbound port and no per-device tunnel. Access in front, operator token behind, fleet and sessions and audit inside.</p>
+          <p data-i18n="surf.cb">Devices dial out over one WebSocket; nothing listens inbound by default, and there is no per-device tunnel. Access in front, operator token behind, fleet and sessions and audit inside.</p>
           <ul>
             <li><b data-i18n="surf.c1k">Fleet</b><span data-i18n="surf.c1v">who is online, what they run, and why the offline one is offline</span></li>
             <li><b data-i18n="surf.c2k">Sessions</b><span data-i18n="surf.c2v">terminal, browser, files, runs, audit, approvals</span></li>
-            <li><b data-i18n="surf.c3k">Grants</b><span data-i18n="surf.c3v">signed, scoped, revoked in one click</span></li>
+            <li><b data-i18n="surf.c3k">Grants</b><span data-i18n="surf.c3v">signed, scoped, expiring; a token revoked in one click</span></li>
           </ul>
         </div>
         <div class="surface">
-          <div class="tag">127.0.0.1:18090</div>
+          <div class="tag">127.0.0.1:18080</div>
           <h3 data-i18n="surf.pt">On the box</h3>
           <p data-i18n="surf.pb">Loopback only, no login. The surface that still works when the console does not — and the only one that can say why the channel is down.</p>
           <ul>
-            <li><b data-i18n="surf.p1k">State</b><span data-i18n="surf.p1v">sessions, CPU, monitors, channel health</span></li>
+            <li><b data-i18n="surf.p1k">State</b><span data-i18n="surf.p1v">sessions, install, last verdict, channel health</span></li>
             <li><b data-i18n="surf.p2k">Enrol</b><span data-i18n="surf.p2v">paste the code, replace a lost enrolment</span></li>
-            <li><b data-i18n="surf.p3k">Repair</b><span data-i18n="surf.p3v">start, stop, update, read the last failure</span></li>
+            <li><b data-i18n="surf.p3k">Repair</b><span data-i18n="surf.p3v">read the last failure, and why the channel is down</span></li>
           </ul>
         </div>
       </div>
@@ -147,7 +147,7 @@
           <div class="note"><span data-i18n="dl.noteLabel">Latest published release</span>: <span id="release-tag">see the releases page</span></div>
         </div>
         <div>
-          <div class="art"><div><div class="nm">SummriseSetup-&lt;version&gt;.exe</div><div class="sz" data-i18n="dl.a1s">installer · x64 · signed</div></div><a class="get" id="art-installer" href="https://github.com/SilasVale/summrise/releases" data-i18n="dl.get">Download</a></div>
+          <div class="art"><div><div class="nm">SummriseSetup-&lt;version&gt;.exe</div><div class="sz" data-i18n="dl.a1s">installer · x64 · updates are signed</div></div><a class="get" id="art-installer" href="https://github.com/SilasVale/summrise/releases" data-i18n="dl.get">Download</a></div>
           <div class="art"><div><div class="nm">release-&lt;version&gt;.json</div><div class="sz" data-i18n="dl.a2s">the document the updater verifies</div></div><a class="get" id="art-doc" href="https://github.com/SilasVale/summrise/releases" data-i18n="dl.get2">Download</a></div>
           <div class="art"><div><div class="nm">SHA256SUMS</div><div class="sz" data-i18n="dl.a3s">check the bytes yourself</div></div><a class="get" id="art-sums" href="https://github.com/SilasVale/summrise/releases" data-i18n="dl.get3">Download</a></div>
           <div class="art"><div><div class="nm" data-i18n="dl.a4n">Quick start</div><div class="sz" data-i18n="dl.a4s">five minutes to a connected client</div></div><a class="get" href="https://github.com/SilasVale/summrise/blob/main/docs/QUICKSTART.md" data-i18n="dl.read">Read</a></div>

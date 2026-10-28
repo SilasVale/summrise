@@ -48,7 +48,8 @@ sc start SummriseLaunch
 
 In the console, open the device's **Connect an AI client** page (the fleet row's **Connect** link, or
 the rail's **Tokens**). Name the token, decide whether destructive tools are allowed (unticked means
-they are refused), and press **Mint a token**.
+a destructive call is held for approval, and refused if nobody answers within ninety seconds), and
+press **Mint a token**.
 
 The value is `srm_` plus 64 lowercase hex characters, shown once and stored only as a hash: neither the
 list nor the audit can produce it again, so keep it in a secret, not a repository or a screenshot. It
