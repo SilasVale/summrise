@@ -164,9 +164,11 @@ Section "Summrise runtime" SecRuntime
   FileWrite $9 "rem Created by the Summrise installer: re-register the service when it is missing.$\r$\n"
   FileWrite $9 "sc query ${SERVICE} >nul 2>&1$\r$\n"
   FileWrite $9 "if not errorlevel 1 exit /b 0$\r$\n"
-  FileWrite $9 "echo %DATE% %TIME% the ${SERVICE} service is missing; re-registering >> $\"$INSTDIR\repair.log$\"$\r$\n"
-  FileWrite $9 "$\"$INSTDIR\summrise-launch.exe$\" --install-service --install $\"$INSTDIR$\" --data $\"${DATA_DIR}$\" --seed-sidecar $\"$INSTDIR\summrise-device.sidecar.json$\" --port ${PORT} >> $\"$INSTDIR\repair.log$\" 2>&1$\r$\n"
-  FileWrite $9 "echo %DATE% %TIME% repair exit %ERRORLEVEL% >> $\"$INSTDIR\repair.log$\"$\r$\n"
+  ; ITS OWN LOG, NOT `repair.log`: the launcher writes that file as a JSON repair journal of the
+  ; generations it restored, and appending human lines to it corrupts a record an operator reads.
+  FileWrite $9 "echo %DATE% %TIME% the ${SERVICE} service is missing; re-registering >> $\"$INSTDIR\repair-task.log$\"$\r$\n"
+  FileWrite $9 "$\"$INSTDIR\summrise-launch.exe$\" --install-service --install $\"$INSTDIR$\" --data $\"${DATA_DIR}$\" --seed-sidecar $\"$INSTDIR\summrise-device.sidecar.json$\" --port ${PORT} >> $\"$INSTDIR\repair-task.log$\" 2>&1$\r\n"
+  FileWrite $9 "echo %DATE% %TIME% repair exit %ERRORLEVEL% >> $\"$INSTDIR\repair-task.log$\"$\r$\n"
   FileClose $9
   nsExec::Exec 'schtasks /create /tn SummriseRepair /tr "$INSTDIR\repair.cmd" /sc onstart /ru SYSTEM /rl HIGHEST /f'
   Pop $0

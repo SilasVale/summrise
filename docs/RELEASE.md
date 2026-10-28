@@ -38,15 +38,25 @@ powershell -NoProfile -Command "iwr -UseBasicParsing http://<mirror>/SummriseSet
 
 Installers from 0.3.132 on also leave a boot-time repair task, `SummriseRepair`, which re-registers the
 service when it is missing — the one failure a machine cannot leave from inside, because the process
-that would rebuild the service IS the service. Its script and its log are `repair.cmd` / `repair.log`
-in the install directory, and the uninstaller deletes both along with the task.
+that would rebuild the service IS the service. Its script is `repair.cmd` and its log is
+`repair-task.log` in the install directory (NOT `repair.log`: the launcher writes that one as a JSON
+journal of the generations it restored, and the 2026-10-28 rehearsal proved the two collide), and the
+uninstaller deletes both along with the task.
 
 ```powershell
 ```
 
 If step 2 fails, `%TEMP%\summrise-setup.log` names the stage it reached — the file is appended by both
-`.onInit` and the install section. Step 1 is verified on a live machine: run against DESKTOP-9VH92BJ it
-answered `exit=0` and the health endpoint kept serving the same version throughout.
+`.onInit` and the install section. Step 1 is verified on a live machine, twice: run against DESKTOP-9VH92BJ it answered `exit=0` and the
+health endpoint kept serving the same version throughout, and on 2026-10-28 the service was removed
+outright (`--uninstall-service`) and the same command brought the device back — `/api/health` answered
+`0.3.139` and the fleet page showed it online again. That is the command the `SummriseRepair` boot task
+runs, so the repair path is proven even though the boot trigger itself has not fired yet.
+
+A rehearsal that REMOVES the service cannot be driven from the device's own shell: the shell dies with
+the service (its process tree goes too), so the step that would run the repair never executes. Run it from
+a scheduled task with a repeating dead-man switch — `schtasks /sc minute /mo 5` running the step-1
+command — and delete that task once the device answers.
 
 ## The notification icon: what an app can ask for, and what it cannot
 
