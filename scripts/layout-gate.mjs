@@ -9,7 +9,7 @@
 //   node scripts/layout-gate.mjs landing/public 390 768 1280
 //
 // Exits 1 on a failure, 2 when no Chromium is found.
-import { readdirSync } from "node:fs";
+import { mkdirSync, readdirSync, writeFileSync } from "node:fs";
 import { spawn, spawnSync } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -164,6 +164,8 @@ const probe = `(() => {
 })()`;
 
 await send("Page.enable");
+const shots = process.env.LAYOUT_SHOTS || "";
+if (shots) mkdirSync(shots, { recursive: true });
 const pages = readdirSync(pagesDir)
   .filter((name) => name.endsWith(".html"))
   .sort();
@@ -198,6 +200,13 @@ for (const width of widths) {
     });
     const answer = await send("Runtime.evaluate", { expression: probe, returnByValue: true });
     const result = JSON.parse(answer.result.result.value);
+    if (shots) {
+      const picture = await send("Page.captureScreenshot", { format: "png" });
+      writeFileSync(
+        join(shots, `${name.replace(/\.html$/, "")}-${width}.png`),
+        Buffer.from(picture.result.data, "base64")
+      );
+    }
     const ok = !result.overflow && result.h1 === 1;
     if (!ok) failures += 1;
     if (process.env.LAYOUT_EVAL && name === process.env.LAYOUT_PAGE) {

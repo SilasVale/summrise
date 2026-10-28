@@ -115,6 +115,9 @@ const COMPONENTS: &str = r##"  * { box-sizing: border-box; }
   .xterm .xterm-viewport { background-color: var(--term-canvas); }
   .config {
     margin: 8px 0; padding: 12px; overflow-x: auto;
+    /* The config is one long JSON line and the button copies all of it; a phone should not have to
+       scroll sideways to read what it is about to paste. */
+    white-space: pre-wrap; overflow-wrap: anywhere;
     background: var(--surface-recessed); border: 1px solid var(--line); border-radius: var(--radius-xs);
     font-family: var(--font-mono); font-size: 12px; line-height: 1.5; color: var(--ink);
   }
