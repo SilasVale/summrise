@@ -633,7 +633,7 @@ async fn serve(
     loop {
         tokio::select! {
             _ = host.tick() => {
-                if let Err(error) = socket.send(Message::text(crate::host::frame())).await {
+                if let Err(error) = socket.send(Message::text(crate::host::frame(server.store().data_dir()))).await {
                     eprintln!("summrise-device: the host report could not be sent: {error}");
                     break;
                 }

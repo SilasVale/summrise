@@ -28,8 +28,20 @@ const BASELINE_SIDECAR: &str = "baseline.json";
 const RECENT_REPAIRS: usize = 5;
 
 /// The machine facts, as the wire sees them.
-pub fn facts() -> serde_json::Value {
+pub fn facts(data: &std::path::Path) -> serde_json::Value {
     let mut document = platform_facts();
+    // This app's own boots, newest first: the half of "why did it restart" the launcher does not
+    // keep. An unreadable journal contributes an empty list rather than failing the facts.
+    document["restarts"] =
+        serde_json::json!(crate::restarts::recent(data, crate::restarts::IN_FACTS)
+            .into_iter()
+            .map(|entry| serde_json::json!({
+                "at_ms": entry.at_ms,
+                "version": entry.version,
+                "channel": entry.channel,
+                "pid": entry.pid,
+            }))
+            .collect::<Vec<_>>());
     if let Some(helper) = crate::helper::current() {
         let pid = helper.pid();
         let registered = helper.port().is_some();
@@ -62,8 +74,8 @@ pub fn facts() -> serde_json::Value {
 }
 
 /// The frame the device sends on its channel: the console reads `host` and stores it per device.
-pub fn frame() -> String {
-    serde_json::json!({ "host": facts() }).to_string()
+pub fn frame(data: &std::path::Path) -> String {
+    serde_json::json!({ "host": facts(data) }).to_string()
 }
 
 /// What the launcher's records say, for display.
@@ -618,7 +630,8 @@ mod tests {
 
     #[test]
     fn the_facts_report_the_update_state() {
-        let facts = facts();
+        let dir = std::env::temp_dir().join(format!("summrise-facts-{}", std::process::id()));
+        let facts = facts(&dir);
         let update = &facts["update"];
         assert!(update.is_object(), "{facts}");
         for generation in ["current", "previous", "pending"] {
@@ -641,7 +654,7 @@ mod tests {
 
     #[test]
     fn the_facts_are_a_document_a_console_can_render() {
-        let facts = facts();
+        let facts = facts(&std::env::temp_dir());
         assert!(facts["os"]["name"].is_string(), "{facts}");
         assert!(facts["os"]["arch"].is_string(), "{facts}");
         assert!(facts["uptime_s"].is_u64(), "{facts}");
@@ -655,13 +668,14 @@ mod tests {
 
     #[test]
     fn the_frame_carries_the_facts_under_host() {
-        let frame: serde_json::Value = serde_json::from_str(&frame()).expect("the frame is JSON");
+        let frame: serde_json::Value =
+            serde_json::from_str(&frame(&std::env::temp_dir())).expect("the frame is JSON");
         assert!(frame["host"]["os"]["name"].is_string(), "{frame}");
     }
 
     #[test]
     fn the_uptime_is_a_positive_number_on_any_real_machine() {
-        let facts = facts();
+        let facts = facts(&std::env::temp_dir());
         let uptime = facts["uptime_s"].as_u64().unwrap_or(0);
         assert!(uptime > 0, "{facts}");
     }

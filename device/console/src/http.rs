@@ -4064,12 +4064,28 @@ async fn next_vitals_page(
                 .collect()
         })
         .unwrap_or_default();
+    let restarts = facts["restarts"]
+        .as_array()
+        .map(|restarts| {
+            restarts
+                .iter()
+                .filter_map(|restart| {
+                    Some(page::RestartView {
+                        at_ms: restart["at_ms"].as_u64()?,
+                        version: restart["version"].as_str()?.to_owned(),
+                        channel: restart["channel"].as_str().unwrap_or_default().to_owned(),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
     let install = page::InstallView {
         current: generation("current"),
         previous: generation("previous"),
         pending: generation("pending"),
         swap,
         repairs,
+        restarts,
     };
     let sample = page::Vitals {
         machine: facts["machine"].as_str().unwrap_or_default().to_owned(),

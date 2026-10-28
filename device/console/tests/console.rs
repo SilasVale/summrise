@@ -9065,7 +9065,11 @@ async fn the_vitals_page_shows_the_install_it_reads() {
                 "reason": "the new build did not answer /health"
             },
             "repairs": [{ "from": "previous", "at_ms": 1_790_990_300_000u64 }]
-        }
+        },
+        "restarts": [
+            { "at_ms": 1_790_991_000_000u64, "version": "0.3.112", "channel": "canary", "pid": 4242 },
+            { "at_ms": 1_790_990_000_000u64, "version": "0.3.111", "channel": "canary", "pid": 1111 }
+        ]
     });
 
     let page = visit_vitals(&fixture, &cookie, &device_id, &mut device, &facts).await;
@@ -9086,6 +9090,14 @@ async fn the_vitals_page_shows_the_install_it_reads() {
     assert!(
         page.contains("no generation"),
         "an absent pending says so: {page}"
+    );
+    assert!(
+        page.contains("Restarts"),
+        "the boot journal is on the card: {page}"
+    );
+    assert!(
+        page.contains("0.3.112") && page.contains("canary"),
+        "a restart row names its release: {page}"
     );
 }
 

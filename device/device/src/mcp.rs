@@ -343,6 +343,11 @@ impl DeviceServer {
         self
     }
 
+    /// The store, whose data directory holds what the facts report (the boot journal, the swap files).
+    pub(crate) fn store(&self) -> &Store {
+        &self.store
+    }
+
     /// The grant nonces this device has admitted.
     pub(crate) fn nonces(&self) -> &crate::remote::NonceLog {
         &self.nonces
@@ -1283,7 +1288,7 @@ impl DeviceServer {
             Handler::HostFacts => {
                 // Read-only, and the one tool an operator can call without minting a grant: knowing
                 // what machine a device is is context for every decision that follows.
-                Ok(crate::host::facts().to_string())
+                Ok(crate::host::facts(self.store.data_dir()).to_string())
             }
             Handler::HostRestart => {
                 let _arguments: EmptyArgs = parse(arguments, name)?;

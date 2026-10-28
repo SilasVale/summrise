@@ -3320,6 +3320,14 @@ pub(super) struct RepairView {
     pub(super) at_ms: u64,
 }
 
+/// One boot the device journaled: when, and from which release.
+#[derive(Clone)]
+pub(super) struct RestartView {
+    pub(super) at_ms: u64,
+    pub(super) version: String,
+    pub(super) channel: String,
+}
+
 /// The install's generations and the launcher's last answers. The console reads them from
 /// `host.facts`; it keeps no copy of its own.
 pub(super) struct InstallView {
@@ -3328,6 +3336,9 @@ pub(super) struct InstallView {
     pub(super) pending: Option<Generation>,
     pub(super) swap: Option<SwapView>,
     pub(super) repairs: Vec<RepairView>,
+    /// This app's own recent boots, newest first. The launcher says why a generation changed; this
+    /// says when the device last came up, which is how a restart loop becomes visible.
+    pub(super) restarts: Vec<RestartView>,
 }
 
 /// What the device reports about itself right now, plus the points this console has collected by
@@ -3536,9 +3547,23 @@ pub(super) fn vitals(device: &DeviceView, sample: &Vitals, csrf: &str, version: 
                         }
                     }
                 }
+                @if !sample.install.restarts.is_empty() {
+                    p class="small muted" { "Restarts" }
+                    ul class="rail-list" {
+                        @for restart in &sample.install.restarts {
+                            li {
+                                span class="rail-line mono" {
+                                    (restart.version) " (" (restart.channel) ")"
+                                }
+                                span class="rail-meta" { (stamp(restart.at_ms)) }
+                            }
+                        }
+                    }
+                }
                 p class="footnote" {
-                    "Read from the device's install sidecars: what it has, what it last tried, and "
-                    "what the launcher repaired. The console keeps no copy."
+                    "Read from the device's install sidecars and its own boot journal: what it has, "
+                    "what it last tried, what the launcher repaired, and when it last came up. The "
+                    "console keeps no copy."
                 }
             }
         }
@@ -3715,6 +3740,18 @@ mod tests {
                     from: "previous".to_owned(),
                     at_ms: 1_790_990_300_000,
                 }],
+                restarts: vec![
+                    RestartView {
+                        at_ms: 1_790_991_000_000,
+                        version: "0.3.72".to_owned(),
+                        channel: "stable".to_owned(),
+                    },
+                    RestartView {
+                        at_ms: 1_790_990_000_000,
+                        version: "0.3.71".to_owned(),
+                        channel: "stable".to_owned(),
+                    },
+                ],
             },
             trend: vec![
                 VitalPoint {
