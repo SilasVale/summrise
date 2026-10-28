@@ -4617,6 +4617,9 @@ async fn device_channel(
                 .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '+'));
         if plausible {
             app.channels.announce_version(&device_id, version);
+            // The channel is live memory; the registry is what survives a restart, and an offline
+            // device is read from the registry.
+            let _ = lock(&app.devices).record_version(&device_id, version);
         }
     }
     // How the attempt before this one ended. A device cannot report a failure over the connection that
@@ -6017,7 +6020,11 @@ fn device_views(app: &AppState) -> Vec<DeviceView> {
         .into_iter()
         .map(|device| DeviceView {
             online: app.channels.online(&device.id),
-            version: app.channels.version(&device.id),
+            // The live channel wins; the registry's last announced version is the offline answer.
+            version: app
+                .channels
+                .version(&device.id)
+                .or_else(|| device.last_version.clone()),
             host: app.channels.host(&device.id),
             last_attempt: app.channels.retry(&device.id).map(|note| RetryView {
                 attempts: note.attempts,
