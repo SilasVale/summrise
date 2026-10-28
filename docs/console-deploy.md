@@ -74,6 +74,24 @@ on the host; no bytes pass through an AI context.
    and the fleet page's markup carries the current UI (`rail_items=1`, `more_pages=True` were the
    markers for the 0.3.153 change).
 
+## Checking the UI as a signed-in operator, without the token entering a log
+
+The console's session is an HttpOnly cookie, so a browser check needs a session, and the operator
+token must not be quoted into a shell, an MCP call, or a document. A one-shot loopback hop sets the
+cookie without ever printing it:
+
+1. On the console host, a short PowerShell script reads `operator.token`, POSTs `/next/auth`, and
+   starts an `HttpListener` on `127.0.0.1:18099` that answers exactly one request with
+   `302 Location: /next` and the session cookie's `Set-Cookie` header.
+2. Point a headless browser at `http://127.0.0.1:18099/` once; it lands on `/next` signed in and the
+   listener exits.
+3. Drive the page with the device's browser tools (`browser_open`/`browser_eval`) and close the tab.
+
+The token stays inside the script; the cookie stays inside that browser profile. Measured
+2026-10-28 on `0.3.160`: the terminal page created a session, the tab carried `aria-pressed="true"`,
+the close control was named "Close session powershell.exe" with no button nested in a button, and
+closing it returned focus to the kind selector.
+
 ## Rollback
 
 The previous binary is beside the live one. Rollback is the same three steps with the backup:
