@@ -315,7 +315,14 @@ pub fn check_window() -> i32 {
                     crate::note("check-window: the window could not be built");
                     std::process::exit(1);
                 };
-                match WebViewBuilder::new().with_url(CONSOLE).build(&window) {
+                // A PERSISTENT PROFILE, so the operator signs in once. The default is a per-process temporary
+                // directory: every "Open console" was a new, logged-out browser, and the console's token page was
+                // what the window showed every time.
+                let mut context = wry::WebContext::new(Some(profile_dir()));
+                match WebViewBuilder::new_with_web_context(&mut context)
+                    .with_url(CONSOLE)
+                    .build(&window)
+                {
                     Ok(_view) => crate::note(&format!(
                         "check-window: window and view built for {CONSOLE}"
                     )),
@@ -346,6 +353,17 @@ pub fn check_window() -> i32 {
 #[cfg(not(windows))]
 pub fn check_window() -> i32 {
     1
+}
+
+/// Where the console window keeps its profile — cookies, storage, the signed-in session.
+#[cfg(windows)]
+fn profile_dir() -> std::path::PathBuf {
+    let base = std::env::var_os("LOCALAPPDATA")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(std::env::temp_dir);
+    let dir = base.join("Summrise").join("webview");
+    let _ = std::fs::create_dir_all(&dir);
+    dir
 }
 
 /// The session this process runs in, for the one diagnostic that can only run in a visible one.
