@@ -4133,6 +4133,7 @@ async fn next_vitals_page(
         .trim()
         .to_owned(),
         cores: facts["cpu"]["cores"].as_u64().unwrap_or(0),
+        cpu_percent: facts["cpu"]["percent_used"].as_u64(),
         uptime_s: facts["uptime_s"].as_u64().unwrap_or(0),
         memory_total: facts["memory"]["total_bytes"].as_u64().unwrap_or(0),
         memory_available: facts["memory"]["available_bytes"].as_u64().unwrap_or(0),

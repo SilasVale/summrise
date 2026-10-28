@@ -3361,6 +3361,8 @@ pub(super) struct Vitals {
     pub(super) machine: String,
     pub(super) os: String,
     pub(super) cores: u64,
+    /// The device's CPU busy share when it reported one; the page omits the row rather than guessing.
+    pub(super) cpu_percent: Option<u64>,
     pub(super) uptime_s: u64,
     pub(super) memory_total: u64,
     pub(super) memory_available: u64,
@@ -3480,6 +3482,14 @@ pub(super) fn vitals(device: &DeviceView, sample: &Vitals, csrf: &str, version: 
             div class="stat" {
                 p class="label" { "Cores" }
                 p class="value" { (sample.cores) }
+            }
+            @if let Some(cpu) = sample.cpu_percent {
+                div class="stat" {
+                    p class="label" { "CPU busy" }
+                    // A share of a short sample, said as one: "37%" is the answer to "is this machine
+                    // working", and the title says what it is measured over.
+                    p class="value" title="busy share over the device's last short sample" { (cpu) "%" }
+                }
             }
             div class="stat" {
                 p class="label" { "Uptime" }
@@ -3723,6 +3733,7 @@ mod tests {
             machine: "DESKTOP-9VH92BJ".to_owned(),
             os: "Windows 11 10.0.22631".to_owned(),
             cores: 16,
+            cpu_percent: Some(37),
             uptime_s: 3 * 86_400 + 14 * 3_600,
             memory_total: 8 * 1024 * 1024 * 1024,
             memory_available: 4 * 1024 * 1024 * 1024,
@@ -4704,8 +4715,12 @@ mod tests {
         let page = vitals(&device, &sample_vitals(), "00", "0.1.0").into_string();
         assert_eq!(
             page.matches("class=\"stat\"").count(),
-            5,
-            "five facts, five cards: {page}"
+            6,
+            "six facts, six cards — the CPU share joined them: {page}"
+        );
+        assert!(
+            page.contains("CPU busy") && page.contains("37%"),
+            "the device's CPU share is shown: {page}"
         );
         assert!(page.contains("4.0 GiB used of 8.0 GiB"), "{page}");
         assert!(page.contains("width:50%"), "the memory bar is half: {page}");

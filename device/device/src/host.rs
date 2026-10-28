@@ -271,7 +271,12 @@ fn platform_facts() -> serde_json::Value {
             },
             "machine": facts.machine,
             "uptime_s": facts.uptime_s,
-            "cpu": { "cores": std::thread::available_parallelism().map(|n| n.get()).unwrap_or(0) },
+            "cpu": {
+                "cores": std::thread::available_parallelism().map(|n| n.get()).unwrap_or(0),
+                // Sampled over a short interval: a count of cores says what the machine has, this says
+                // what it is doing, which is the question an operator asks before trusting a slow call.
+                "percent_used": facts.cpu_percent,
+            },
             "memory": {
                 "total_bytes": facts.memory_total_bytes,
                 "available_bytes": facts.memory_available_bytes,
@@ -294,6 +299,44 @@ fn platform_facts() -> serde_json::Value {
 /// The same document where `/proc` is the only source. It exists so the shape and the tool can be
 /// tested on the machines CI runs on; the device only ships on Windows.
 #[cfg(not(windows))]
+/// The CPU busy share over [`CPU_SAMPLE_MS`] from `/proc/stat`, or `None` when it cannot be read.
+///
+/// The first `cpu` line holds the counters in jiffies since boot: user, nice, system, idle, iowait,
+/// irq, softirq, steal. Busy is everything except idle and iowait, which is the same definition the
+/// Windows sampler uses (kernel time minus idle).
+#[cfg(not(windows))]
+fn cpu_percent() -> Option<u8> {
+    fn sample() -> Option<(u64, u64)> {
+        let text = std::fs::read_to_string("/proc/stat").ok()?;
+        let line = text.lines().next()?;
+        let mut fields = line.split_whitespace();
+        if fields.next()? != "cpu" {
+            return None;
+        }
+        let values: Vec<u64> = fields.filter_map(|value| value.parse().ok()).collect();
+        if values.len() < 4 {
+            return None;
+        }
+        let idle = values[3] + values.get(4).copied().unwrap_or(0);
+        Some((values.iter().sum::<u64>(), idle))
+    }
+
+    let (total_before, idle_before) = sample()?;
+    std::thread::sleep(std::time::Duration::from_millis(200));
+    let (total_after, idle_after) = sample()?;
+    let total = total_after.saturating_sub(total_before);
+    let idle = idle_after.saturating_sub(idle_before);
+    if total == 0 {
+        return None;
+    }
+    Some((((total - idle) * 100 + total / 2) / total).min(100) as u8)
+}
+
+#[cfg(windows)]
+fn cpu_percent() -> Option<u8> {
+    summrise_winsys::cpu_percent()
+}
+
 fn platform_facts() -> serde_json::Value {
     use serde_json::json;
 
@@ -325,7 +368,10 @@ fn platform_facts() -> serde_json::Value {
             .map(|text| text.trim().to_owned())
             .unwrap_or_default(),
         "uptime_s": uptime,
-        "cpu": { "cores": std::thread::available_parallelism().map(|n| n.get()).unwrap_or(0) },
+        "cpu": {
+            "cores": std::thread::available_parallelism().map(|n| n.get()).unwrap_or(0),
+            "percent_used": cpu_percent(),
+        },
         "memory": {
             "total_bytes": memory.map(|(total, _)| total).unwrap_or(0),
             "available_bytes": memory.map(|(_, available)| available).unwrap_or(0),
@@ -337,6 +383,14 @@ fn platform_facts() -> serde_json::Value {
 
 #[cfg(test)]
 mod tests {
+
+    /// The CPU sampler answers on a machine that has a `/proc/stat`, and the value is a percentage.
+    #[cfg(not(windows))]
+    #[test]
+    fn the_cpu_sample_is_a_percentage_of_a_real_machine() {
+        let percent = cpu_percent().expect("this machine has /proc/stat");
+        assert!(percent <= 100, "a share cannot exceed the whole: {percent}");
+    }
     use super::*;
 
     use crate::test_support::TempDir;
