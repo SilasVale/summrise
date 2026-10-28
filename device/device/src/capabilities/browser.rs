@@ -108,9 +108,11 @@ pub const COMMAND_TIMEOUT_MS: u64 = 10_000;
 
 /// How long Chrome may take to answer its DevTools HTTP endpoint before an attempt fails.
 ///
-/// Cold CI runners are slow; 30 s is deliberately generous, and this is a launch bound rather than
-/// a command bound. The capability's tests shorten it through the registry.
-const READINESS_TIMEOUT_MS: u64 = 30_000;
+/// This is a launch bound, not a command bound, and it is generous on purpose: on 2026-10-28 a CI
+/// runner started Chrome, Chrome printed "DevTools listening", and its HTTP endpoint did not answer
+/// for the whole 30 s under load — the re-run passed. The bound is 60 s now; a browser that has
+/// genuinely failed still exits and is caught by `try_wait` long before it.
+const READINESS_TIMEOUT_MS: u64 = 60_000;
 
 /// How many launch attempts a port taken between choosing it and Chrome binding it may cost.
 const MAX_LAUNCH_ATTEMPTS: u8 = 3;
