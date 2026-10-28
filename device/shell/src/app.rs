@@ -57,8 +57,17 @@ const OK: [u8; 4] = [0x2f, 0xbf, 0x6f, 0xff];
 const BAD: [u8; 4] = [0xd7, 0x3a, 0x2a, 0xff];
 const UNKNOWN: [u8; 4] = [0x9a, 0x9a, 0x9a, 0xff];
 
+/// How long the tray may take to appear before the process gives up and says so.
+///
+/// A tray the user cannot see is a process the user cannot quit, and on 2026-10-28 one started by a
+/// scheduled task logged `starting` and never `tray built` — alive, invisible, and silent. The
+/// watchdog turns that state into a logged failure with a non-zero exit, which the logon entry
+/// retries at the next logon instead of leaving a ghost process behind.
+const TRAY_WATCHDOG: Duration = Duration::from_secs(15);
+
 pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     let event_loop = EventLoopBuilder::<Wake>::with_user_event().build();
+    crate::note("event loop built");
 
     let console_item = MenuItem::new("Open console", true, None);
     let panel_item = MenuItem::new("Open local panel", true, None);
@@ -75,12 +84,38 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     // outlives the window and the window is rebuilt on demand.
     let mut ui: Option<(tao::window::Window, wry::WebView)> = None;
 
+    crate::note("menu built");
+
+    // Armed before the build, disarmed after it: a build that hangs leaves a line that names the
+    // stage and an exit the operator can see in the log, rather than a process with no icon.
+    let tray_ready = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    {
+        let tray_ready = tray_ready.clone();
+        std::thread::spawn(move || {
+            let deadline = std::time::Instant::now() + TRAY_WATCHDOG;
+            while std::time::Instant::now() < deadline {
+                if tray_ready.load(std::sync::atomic::Ordering::SeqCst) {
+                    return;
+                }
+                std::thread::sleep(Duration::from_millis(100));
+            }
+            if !tray_ready.load(std::sync::atomic::Ordering::SeqCst) {
+                crate::note(&format!(
+                    "the tray was not built within {} s (stopped before 'tray built'); exiting",
+                    TRAY_WATCHDOG.as_secs()
+                ));
+                std::process::exit(1);
+            }
+        });
+    }
+
     let tray = TrayIconBuilder::new()
         .with_menu(Box::new(menu))
         .with_icon(tray_icon(UNKNOWN)?)
         .with_tooltip("Summrise: checking this device…")
         .build()?;
     crate::note(&format!("tray built: pid={}", std::process::id()));
+    tray_ready.store(true, std::sync::atomic::Ordering::SeqCst);
     promote_own_icon();
 
     // The tray and its menu report through channels, not through tao's event enum. Connecting each
