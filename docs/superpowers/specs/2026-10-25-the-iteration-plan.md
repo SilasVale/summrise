@@ -30,6 +30,31 @@ Written when the plan was new; kept because a plan that is silently rewritten ca
   recovery — that machine has been offline since an install left it with no runtime, and the
   installer/repair discipline above is the answer it is waiting for.
 
+## 0b. What 2026-10-27/28 delivered
+
+The two days' work, in the shape a reader can check against `git log` (144 commits, all under
+`device/`):
+
+- **The runtime's install discipline**: every shape exercised on real machines — replace, seed (from an
+  emptied directory), uninstall, the repair task after a deleted service, and the canary's own device
+  update. The installer now kills the app before rotating the baseline, registers a repair task, and
+  runs its own log under a name that does not collide with the launcher's.
+- **The launcher's five crash bugs** (`--apply` indexing, the swap wait's clock, `stop_started`, the
+  rollback message, the boot check's key set) and the release-signed generation it now accepts.
+- **The shell**: menu ids that match their handler, one WebView2 profile (sign in once), a minimized
+  window that comes back, a wake hand-off so a reconnection can re-add the tray, a reconnect task that
+  repairs its own action, and no visible console window for its `schtasks` children.
+- **The console**: a shared `summrise-ui` crate (tokens, chips, cards, the page shell) so the device's
+  panel and the console cannot drift; 28 pages rendered and compared on every UI change; a ninety-second
+  proxy bound under Cloudflare's ceiling; its own stderr in a file; sessions that say what happened while
+  they were gone; CPU share and monitor state duration on the pages.
+- **The device**: six capability fixes from a review (write-through-rename, bounded capture join,
+  `net_test` off the reactor, bounded history reads, pty reaping, bounded cast table), and a Windows test
+  target that compiles for the first time because three tests were gated to Unix.
+- **The measures**: enrollment proven on both sides (console protocol + the device's own CLI), a
+  ninety-second proxy answer timed end to end, and the 504 rate after the fixes (1 in 78, attributable to
+  a deploy window; before, 4 in 6).
+
 ## 0a. What is left, and how to start
 
 Four operator-visible gaps against the legacy panel remain, in the order they were judged to hurt:
