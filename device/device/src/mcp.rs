@@ -356,6 +356,7 @@ impl DeviceServer {
     /// The caller awaits this before `dispatch`; a session close or process stop after dispatch but
     /// before the `end` line leaves this line on disk, which is the honest record. `false` means the
     /// line could not be written, and an allowed call must not run without it.
+    #[allow(clippy::too_many_arguments)]
     async fn audit_begin(
         &self,
         id: u64,
@@ -364,13 +365,15 @@ impl DeviceServer {
         decision: &str,
         arrival: Arrival,
         peer: Option<&str>,
+        token_id: Option<&str>,
     ) -> bool {
         self.audit
-            .begin(id, ts_ms, tool, decision, arrival, peer)
+            .begin(id, ts_ms, tool, decision, arrival, peer, token_id)
             .await
     }
 
     /// Log the outcome half of a call, with a machine-readable kind and no argument value.
+    #[allow(clippy::too_many_arguments)]
     async fn audit_end(
         &self,
         id: u64,
@@ -378,9 +381,18 @@ impl DeviceServer {
         error_kind: Option<&'static str>,
         arrival: Arrival,
         peer: Option<&str>,
+        token_id: Option<&str>,
     ) {
         self.audit
-            .end(id, crate::http::now_ms(), ok, error_kind, arrival, peer)
+            .end(
+                id,
+                crate::http::now_ms(),
+                ok,
+                error_kind,
+                arrival,
+                peer,
+                token_id,
+            )
             .await;
     }
 
@@ -399,9 +411,9 @@ impl DeviceServer {
     ) {
         let id = self.next_call_id();
         let now_ms = crate::http::now_ms();
-        self.audit_begin(id, now_ms, tool, "deny", arrival, peer)
+        self.audit_begin(id, now_ms, tool, "deny", arrival, peer, None)
             .await;
-        self.audit_end(id, false, Some(error_kind), arrival, peer)
+        self.audit_end(id, false, Some(error_kind), arrival, peer, None)
             .await;
     }
 
@@ -496,10 +508,17 @@ impl DeviceServer {
         let id = self.next_call_id();
         let arrival = caller.arrival();
         let peer = caller.peer();
+        // The record id of the permanent token that authenticated this call, when one did. It is
+        // what an operator revokes and what the console's own audit names; without it a token call
+        // is indistinguishable from a console-signed grant in the device's log.
+        let token_id = match &caller {
+            Caller::Console { token_id, .. } => Some(*token_id),
+            Caller::Owner | Caller::Granted { .. } => None,
+        };
         let Some(definition) = registry::tool(name) else {
-            self.audit_begin(id, now_ms, name, "deny", arrival, peer)
+            self.audit_begin(id, now_ms, name, "deny", arrival, peer, token_id)
                 .await;
-            self.audit_end(id, false, Some("unknown_tool"), arrival, peer)
+            self.audit_end(id, false, Some("unknown_tool"), arrival, peer, token_id)
                 .await;
             return Err(CallFailure::Arguments(format!("unknown tool: {name}")));
         };
@@ -562,17 +581,24 @@ impl DeviceServer {
             Decision::Allow => {}
             Decision::Deny { reason } => {
                 let detail = reason.to_string();
-                self.audit_begin(id, now_ms, name, "deny", arrival, peer)
+                self.audit_begin(id, now_ms, name, "deny", arrival, peer, token_id)
                     .await;
-                self.audit_end(id, false, Some("denied"), arrival, peer)
+                self.audit_end(id, false, Some("denied"), arrival, peer, token_id)
                     .await;
                 return Err(CallFailure::Denied(detail));
             }
             Decision::Ask { prompt } => {
-                self.audit_begin(id, now_ms, name, "ask", arrival, peer)
+                self.audit_begin(id, now_ms, name, "ask", arrival, peer, token_id)
                     .await;
-                self.audit_end(id, false, Some("approval_required"), arrival, peer)
-                    .await;
+                self.audit_end(
+                    id,
+                    false,
+                    Some("approval_required"),
+                    arrival,
+                    peer,
+                    token_id,
+                )
+                .await;
                 // Through the console there is no interactive approval yet, so the only way to
                 // consent is the signature. Say that in the refusal rather than leaving the
                 // operator with a prompt no surface can answer.
@@ -596,7 +622,7 @@ impl DeviceServer {
         // what the audit keeps; it says the call was allowed, not that it failed. An unwritable log
         // refuses the call before dispatch: no side effect runs without its authorization line.
         if !self
-            .audit_begin(id, now_ms, name, "allow", arrival, peer)
+            .audit_begin(id, now_ms, name, "allow", arrival, peer, token_id)
             .await
         {
             return Err(CallFailure::Internal(
@@ -606,21 +632,22 @@ impl DeviceServer {
 
         match self.dispatch(name, arguments).await {
             Ok(text) => {
-                self.audit_end(id, true, None, arrival, peer).await;
+                self.audit_end(id, true, None, arrival, peer, token_id)
+                    .await;
                 Ok(CallToolResult::success(vec![ContentBlock::text(text)]))
             }
             Err(ToolError::Arguments(message)) => {
-                self.audit_end(id, false, Some("arguments"), arrival, peer)
+                self.audit_end(id, false, Some("arguments"), arrival, peer, token_id)
                     .await;
                 Err(CallFailure::Arguments(message))
             }
             Err(ToolError::Refused(message)) => {
-                self.audit_end(id, false, Some("refused"), arrival, peer)
+                self.audit_end(id, false, Some("refused"), arrival, peer, token_id)
                     .await;
                 Err(CallFailure::Refused(message))
             }
             Err(ToolError::Internal(message)) => {
-                self.audit_end(id, false, Some("internal"), arrival, peer)
+                self.audit_end(id, false, Some("internal"), arrival, peer, token_id)
                     .await;
                 Err(CallFailure::Internal(message))
             }
@@ -2516,6 +2543,12 @@ struct AuditBegin<'a> {
     /// authenticates the console or the local owner rather than a peer.
     #[serde(skip_serializing_if = "Option::is_none")]
     peer: Option<&'a str>,
+    /// The permanent token's record id, when one authenticated the call. Absent on the owner's
+    /// loopback calls and on console-signed grants (a grant names no token); present on console
+    /// channel calls, where the token is the permission and the record id is what the operator
+    /// revokes. Never the `srm_` secret.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    token_id: Option<&'a str>,
 }
 
 /// One `end` line: the call returned. `error_kind` is a closed set of names, never a message and
@@ -2532,6 +2565,9 @@ struct AuditEnd<'a> {
     /// The mesh caller's pinned public key in hex; absent on the console and loopback wires.
     #[serde(skip_serializing_if = "Option::is_none")]
     peer: Option<&'a str>,
+    /// The permanent token's record id, when one authenticated the call; see `AuditBegin`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    token_id: Option<&'a str>,
 }
 
 /// The append-only event log at `<data>/events.jsonl`.
@@ -2587,6 +2623,7 @@ impl Audit {
     }
 
     /// Write the authorization line. `false` means no line was written.
+    #[allow(clippy::too_many_arguments)]
     async fn begin(
         &self,
         id: u64,
@@ -2595,6 +2632,7 @@ impl Audit {
         decision: &str,
         arrival: Arrival,
         peer: Option<&str>,
+        token_id: Option<&str>,
     ) -> bool {
         self.append_line(&AuditBegin {
             id,
@@ -2604,10 +2642,12 @@ impl Audit {
             decision,
             transport: arrival.as_str(),
             peer,
+            token_id,
         })
         .await
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn end(
         &self,
         id: u64,
@@ -2616,6 +2656,7 @@ impl Audit {
         error_kind: Option<&str>,
         arrival: Arrival,
         peer: Option<&str>,
+        token_id: Option<&str>,
     ) {
         let _written = self
             .append_line(&AuditEnd {
@@ -2626,6 +2667,7 @@ impl Audit {
                 error_kind,
                 transport: arrival.as_str(),
                 peer,
+                token_id,
             })
             .await;
     }
@@ -2950,6 +2992,18 @@ mod tests {
         message["result"]["content"][0]["text"]
             .as_str()
             .unwrap_or_else(|| panic!("a text result: {message}"))
+    }
+
+    /// The audit lines written under one config's data directory.
+    fn audit_lines_of(config: &crate::config::Config) -> Vec<Value> {
+        match fs::read_to_string(config.data.join("events.jsonl")) {
+            Ok(contents) => contents
+                .lines()
+                .map(|line| serde_json::from_str(line).expect("an audit line is JSON"))
+                .collect(),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+            Err(error) => panic!("the audit log is readable: {error}"),
+        }
     }
 
     fn audit_lines(device: &Device) -> Vec<Value> {
@@ -4916,6 +4970,7 @@ mod tests {
                 "allow",
                 super::Arrival::Loopback,
                 None,
+                None,
             )
             .await;
 
@@ -4938,7 +4993,7 @@ mod tests {
 
         assert!(
             !audit
-            .begin(1, 1, "files.write", "allow", super::Arrival::Loopback, None)
+            .begin(1, 1, "files.write", "allow", super::Arrival::Loopback, None, None)
             .await,
             "the caller must be able to refuse the call when its authorization line cannot be written"
         );
@@ -4958,10 +5013,19 @@ mod tests {
                     "allow",
                     super::Arrival::Loopback,
                     None,
+                    None,
                 )
                 .await;
             audit
-                .end(id, id as i64, true, None, super::Arrival::Loopback, None)
+                .end(
+                    id,
+                    id as i64,
+                    true,
+                    None,
+                    super::Arrival::Loopback,
+                    None,
+                    None,
+                )
                 .await;
         }
 
@@ -5297,7 +5361,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_console_token_scope_authorizes_without_a_grant() {
-        let (server, _config, _dir) = console_server("console-token");
+        let (server, config, _dir) = console_server("console-token");
         let scopes: Vec<String> = Vec::new();
         let caller = super::Caller::Console {
             token_id: "tok-1",
@@ -5326,6 +5390,42 @@ mod tests {
                 .contains("does not cover"),
             "{reply}"
         );
+        // The refusal names the record an operator can act on: a token id is what `/tokens` shows
+        // and what revocation takes, and without it the line cannot be tied to a credential.
+        let lines = audit_lines_of(&config);
+        assert_eq!(lines[0]["token_id"], "tok-1", "{lines:?}");
+        assert_eq!(lines[1]["token_id"], "tok-1", "{lines:?}");
+    }
+
+    #[tokio::test]
+    async fn a_console_token_call_records_its_token_id_on_the_allow_line() {
+        let (server, config, _dir) = console_server("console-token-allow");
+        let scopes = vec!["files.read".to_owned()];
+        let caller = super::Caller::Console {
+            token_id: "tok-9",
+            scopes: &scopes,
+            allow_destructive: false,
+            arrival: super::Arrival::Console,
+        };
+        let reply = server
+            .handle(
+                &json!({
+                    "jsonrpc": "2.0",
+                    "id": 6,
+                    "method": "tools/call",
+                    "params": { "name": "files.read", "arguments": { "path": "missing" } }
+                }),
+                caller,
+            )
+            .await;
+        assert!(
+            reply["result"].is_object(),
+            "the scoped token reaches the capability: {reply}"
+        );
+        let lines = audit_lines_of(&config);
+        assert_eq!(lines[0]["decision"], "allow", "{lines:?}");
+        assert_eq!(lines[0]["token_id"], "tok-9", "{lines:?}");
+        assert_eq!(lines[1]["token_id"], "tok-9", "{lines:?}");
     }
 
     #[tokio::test]
