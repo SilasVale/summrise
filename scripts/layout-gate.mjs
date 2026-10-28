@@ -9,15 +9,18 @@
 //   node scripts/layout-gate.mjs landing/public 390 768 1280
 //
 // Exits 1 on a failure, 2 when no Chromium is found.
-import { mkdirSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, realpathSync, writeFileSync } from "node:fs";
 import { spawn, spawnSync } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 
-const pagesDir = process.argv[2];
+// Absolute, always: `file://landing/public/index.html` is not a URL a browser can open, and Chrome
+// answers it with its own error page — which passed every measurement until this line existed.
+const pagesDir = resolve(process.argv[2] ?? "");
 const widths = process.argv.slice(3).map(Number).filter(Boolean);
-if (!pagesDir || widths.length === 0) {
+if (!process.argv[2] || widths.length === 0) {
   console.error("usage: node scripts/layout-gate.mjs <pages-dir> [width ...]");
   process.exit(2);
 }
@@ -119,7 +122,13 @@ const probe = `(() => {
     if (cs.display === "none" || cs.visibility === "hidden") return;
     if (cs.overflowX !== "auto" && cs.overflowX !== "scroll") return;
     const over = el.scrollWidth - el.clientWidth;
-    if (over > 1) panes.push((el.id ? "#" + el.id : el.tagName.toLowerCase()) + " +" + over);
+    if (over > 1) {
+      const name =
+        el.tagName.toLowerCase() +
+        (el.id ? "#" + el.id : "") +
+        (el.className ? "." + String(el.className).split(" ")[0] : "");
+      panes.push(name + " +" + over);
+    }
   });
   // An element that neither the window nor any scroll box can reach is clipped content.
   const clipped = [];
@@ -166,9 +175,17 @@ const probe = `(() => {
 await send("Page.enable");
 const shots = process.env.LAYOUT_SHOTS || "";
 if (shots) mkdirSync(shots, { recursive: true });
+if (!existsSync(pagesDir)) {
+  console.error(`no such directory: ${pagesDir}`);
+  process.exit(2);
+}
 const pages = readdirSync(pagesDir)
   .filter((name) => name.endsWith(".html"))
   .sort();
+if (pages.length === 0) {
+  console.error(`no pages in ${pagesDir}`);
+  process.exit(2);
+}
 let failures = 0;
 for (const width of widths) {
   for (const name of pages) {
@@ -183,7 +200,14 @@ for (const width of widths) {
       // it asked for.
       mobile: false
     });
-    await send("Page.navigate", { url: `file://${join(pagesDir, name)}` });
+    const url = pathToFileURL(join(realpathSync(pagesDir), name)).href;
+    const navigation = await send("Page.navigate", { url });
+    // A navigation Chrome refused is not a page that fits: it is Chrome's own error document.
+    if (navigation.result && navigation.result.errorText) {
+      failures += 1;
+      console.log(`FAIL ${name} @${width}: ${navigation.result.errorText} (${url})`);
+      continue;
+    }
     // The evaluation must land in the new document, after layout: a fixed sleep raced the load and
     // measured the previous page's viewport.
     for (let attempt = 0; attempt < 40; attempt += 1) {

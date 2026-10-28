@@ -219,7 +219,10 @@ h1 .sun {
   font-size: 11.5px;
   line-height: 1.9;
   color: #cfcdc6;
-  overflow-x: auto;
+  /* A line that does not fit wraps instead of raising a scrollbar: at 390 the longest command was
+     two pixels past the box, which a phone shows as a scrollbar on a decorative mock. */
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 .terminal .p { color: #ffa36b; }
 .terminal .c { color: #8a8c92; }
