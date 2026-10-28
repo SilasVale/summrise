@@ -75,7 +75,6 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     let event_loop = EventLoopBuilder::<Wake>::with_user_event().build();
     crate::note("event loop built");
 
-
     // The window is created the first time the operator asks for it, and again after they close it:
     // `tao` 0.34 destroys a window on its close request and offers no way to veto that, so the tray
     // outlives the window and the window is rebuilt on demand.
@@ -229,6 +228,10 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
 fn register_with_the_device() {
     std::thread::spawn(|| {
         let mut current: Option<(String, helper::Server)> = None;
+        // The last failure, so a permanent 401 is said ONCE instead of every thirty seconds or not at
+        // all: the registration is what lets the device launch Chrome for the operator, and a silent
+        // failure there is a feature that quietly stops working.
+        let mut last_error: Option<String> = None;
         loop {
             if let Some(token) = helper::read_token() {
                 let unchanged = current.as_ref().is_some_and(|(known, _)| known == &token);
@@ -238,8 +241,18 @@ fn register_with_the_device() {
                         .map(|server| (token.clone(), server));
                 }
                 if let Some((token, server)) = current.as_ref() {
-                    let _ =
+                    let outcome =
                         helper::register(helper::DEVICE, token, server.port(), std::process::id());
+                    let failure = outcome.err().map(|error| error.to_string());
+                    if failure != last_error {
+                        match &failure {
+                            Some(reason) => crate::note(&format!(
+                                "the device did not accept the helper registration: {reason}"
+                            )),
+                            None => crate::note("the device accepted the helper registration"),
+                        }
+                        last_error = failure;
+                    }
                 }
             }
             std::thread::sleep(Duration::from_secs(30));
@@ -544,6 +557,9 @@ fn open_url(url: &str) {
             .chain(std::iter::once(0))
             .collect()
     };
+    // Kept as text for the failure line: the UTF-16 buffer below is what goes to the shell, and
+    // printing that buffer wrote code units into the log instead of the address that failed.
+    let shown = url.to_owned();
     let url = wide(url);
     let verb = wide("open");
     // SAFETY: both strings are NUL-terminated and outlive the call.
@@ -562,7 +578,8 @@ fn open_url(url: &str) {
     // log now carries the code, and the tray boot is unaffected either way.
     if answer as usize <= 32 {
         crate::note(&format!(
-            "cannot open {url:?} in the browser (ShellExecuteW answered {answer:?})"
+            "cannot open {shown} in the browser (ShellExecuteW answered {})",
+            answer as usize
         ));
     }
 }
