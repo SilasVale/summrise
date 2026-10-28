@@ -142,6 +142,12 @@ struct PairReply {
 /// that cannot be paired retries or falls back exactly as it does on a timeout.
 pub const MAX_CONCURRENT_PAIRS: usize = 256;
 
+/// How long a freshly accepted socket may take to send its first pairing message.
+///
+/// The pairing permit is taken when the socket is accepted, so this bound is what keeps a host that
+/// opens connections and says nothing from holding every permit for the whole pairing timeout.
+pub const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(5);
+
 /// One relay process: a listener and the sessions it is pairing.
 pub struct RelayServer {
     listener: TcpListener,
@@ -255,7 +261,14 @@ impl RelayServer {
         loop {
             let (stream, from) = match self.listener.accept().await {
                 Ok(pair) => pair,
-                Err(_) => continue,
+                Err(error) => {
+                    // A LISTENER THAT KEEPS FAILING IS NOT A REASON TO SPIN: accept errors that
+                    // persist (EMFILE, a firewall change) would otherwise make this the busiest
+                    // thread on the host while serving nobody.
+                    eprintln!("[summrise-relay] accept failed: {error}; backing off 100 ms");
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                    continue;
+                }
             };
             // THE PERMIT IS TAKEN BEFORE THE SOCKET IS READ, so a connection that cannot be served is
             // closed instead of holding a task and a socket while it waits for a pairing that will not

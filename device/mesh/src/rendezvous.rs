@@ -185,6 +185,29 @@ impl Registration {
     }
 }
 
+/// The exact bytes a poll signature covers.
+///
+/// `poll\n{peer_id}\n{now_ms}`. The peer is the only party that can produce it, so the broker hands
+/// an inbox to its owner instead of to whoever knows the key (which is public).
+pub fn poll_message(peer_id: &str, now_ms: u64) -> Vec<u8> {
+    format!("poll\n{peer_id}\n{now_ms}").into_bytes()
+}
+
+/// How far a poll's timestamp may differ from the broker's clock.
+///
+/// The signature is replayable inside this window (the URL carries it), which is the price of a GET;
+/// the queue is drained once, so a replayed poll finds it empty. Two minutes is generous for clock
+/// drift between two machines on the same tailnet, and short enough that a captured URL is not useful
+/// for long.
+pub const POLL_SKEW_MS: u64 = 2 * 60 * 1000;
+
+/// How many candidates one lookup may contribute to a dial.
+///
+/// The list is written by a peer; the dialer pays a QUIC handshake per address it tries. A device
+/// publishes a handful (its observed address, a local fallback, maybe a note's), so eight is generous
+/// and bounds what one hostile registration can cost a punch.
+pub const MAX_CANDIDATES: usize = 8;
+
 /// What a lookup returns: the fresh candidates and the freshness stamp.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LookupResponse {
@@ -424,7 +447,14 @@ pub async fn lookup_candidates(
         200 => {
             let answer: LookupResponse = serde_json::from_slice(&body)
                 .map_err(|error| RendezvousError::Malformed(error.to_string()))?;
-            Ok(answer.candidates)
+            // THE LIST COMES FROM ANOTHER PEER, through the broker. A registration may name a
+            // thousand addresses (the broker's body cap allows it), and every one of them is a QUIC
+            // handshake the dialer would pay for; a handful is what a real device publishes.
+            let mut candidates = answer.candidates;
+            if candidates.len() > MAX_CANDIDATES {
+                candidates.truncate(MAX_CANDIDATES);
+            }
+            Ok(candidates)
         }
         404 => Err(RendezvousError::UnknownPeer(peer_id)),
         status => Err(RendezvousError::Refused {
@@ -580,7 +610,16 @@ impl Rendezvous {
         peer_id: &str,
     ) -> Result<Vec<ConnectRequest>, RendezvousError> {
         let peer_id = canonical_peer(peer_id)?;
-        let path = format!("/requests/{peer_id}?now_ms={}", (self.clock)());
+        // The poll's stamp is wall time, not the registration clock a test injects: the broker
+        // compares it with its own wall clock, and a test clock is a knob for ttl, not for freshness.
+        let polled_at_ms = now_ms();
+        // The broker verifies this against the key its registration names: knowing a peer's public
+        // key is not the same as being that peer, and the inbox is the peer's own.
+        let signature = self.identity.sign(&poll_message(&peer_id, polled_at_ms));
+        let path = format!(
+            "/requests/{peer_id}?now_ms={polled_at_ms}&sig={}",
+            keys::hex_encode(&signature)
+        );
         let (status, body) = request(broker_url, "GET", &path, None, self.request_timeout).await?;
         match status {
             200 => {
