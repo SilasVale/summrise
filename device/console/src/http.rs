@@ -1965,6 +1965,29 @@ async fn next_terminal_page(
                 .unwrap_or_default(),
             Err(_) => Vec::new(),
         };
+    // WHAT THE CONSOLE DID ON THIS DEVICE LATELY, from the audit log. Sessions do not survive a device
+    // restart (today's installs restarted two of them), and an operator who used to watch a session
+    // disappear looks at an empty rail and concludes the work is invisible. The last few terminal
+    // operations are the record that outlives the session.
+    let activity: Vec<page::TerminalActivity> = app
+        .audit
+        .newest(200)
+        .await
+        .into_iter()
+        .filter(|line| line["device_id"].as_str() == Some(device_id.as_str()))
+        .filter(|line| {
+            line["tool"]
+                .as_str()
+                .is_some_and(|tool| tool.starts_with("terminal."))
+        })
+        .take(5)
+        .map(|line| page::TerminalActivity {
+            at_ms: line["ts_ms"].as_u64().unwrap_or(0),
+            tool: line["tool"].as_str().unwrap_or_default().to_owned(),
+            status: line["status"].as_u64().unwrap_or(0),
+            arrival: line["arrival"].as_str().unwrap_or_default().to_owned(),
+        })
+        .collect();
     let presets = lock(&app.connections).list(&device_id);
     let preset = query
         .preset
@@ -1979,6 +2002,7 @@ async fn next_terminal_page(
                 sessions: &sessions,
                 presets: &presets,
                 preset,
+                activity: &activity,
                 error: query.error.as_deref(),
             },
         )

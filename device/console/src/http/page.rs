@@ -1361,7 +1361,18 @@ pub(super) struct TerminalView<'a> {
     pub sessions: &'a [TerminalSession],
     pub presets: &'a [Connection],
     pub preset: Option<&'a Connection>,
+    /// The console's last terminal operations on this device, from the audit log.
+    pub activity: &'a [TerminalActivity],
     pub error: Option<&'a str>,
+}
+
+/// One audited terminal operation: what the console (or an AI through it) did, and when.
+pub(super) struct TerminalActivity {
+    pub at_ms: u64,
+    pub tool: String,
+    pub status: u64,
+    /// How it arrived: `console`, `panel`, `loopback`, `mesh`.
+    pub arrival: String,
 }
 
 pub(super) fn terminal(
@@ -1397,8 +1408,32 @@ pub(super) fn terminal(
     } else {
         html! { span class="chip" { (sessions.len()) } }
     };
+    let recent = if view.activity.is_empty() {
+        Markup::default()
+    } else {
+        html! {
+            div class="rail-history" {
+                p class="rail-note" {
+                    "Sessions do not survive a device restart. These are the console's last terminal "
+                    "operations on this device, from the audit log."
+                }
+                ul class="session-list" {
+                    @for line in view.activity {
+                        li class="session-row" {
+                            span class="session-kind" { (&line.arrival) }
+                            span class="session-body" {
+                                code { (&line.tool) }
+                                span class="session-age" { (stamp(line.at_ms)) " · " (line.status) }
+                            }
+                        }
+                    }
+                }
+                a class="btn btn-ghost btn-sm rail-action" href="/next/audit" { "Open the audit log" }
+            }
+        }
+    };
     let body = if sessions.is_empty() {
-        html! { p class="rail-note" { "No live session on this device." } }
+        html! { (recent) p class="rail-note" { "No live session on this device." } }
     } else {
         html! {
             ul class="session-list" {
@@ -1420,6 +1455,7 @@ pub(super) fn terminal(
                     }
                 }
             }
+            (recent)
         }
     };
     let context = context_rail(
@@ -3803,6 +3839,7 @@ mod tests {
                         sessions: &[],
                         presets: &[],
                         preset: None,
+                        activity: &[],
                         error: None,
                     },
                 ),
@@ -4015,6 +4052,7 @@ mod tests {
                 sessions: &sessions,
                 presets: &[],
                 preset: None,
+                activity: &[],
                 error: None,
             },
         )
@@ -4036,6 +4074,7 @@ mod tests {
                 sessions: &[],
                 presets: &[],
                 preset: None,
+                activity: &[],
                 error: None,
             },
         )
@@ -4055,6 +4094,7 @@ mod tests {
                 sessions: &[],
                 presets: &[],
                 preset: None,
+                activity: &[],
                 error: None,
             },
         )
@@ -4381,7 +4421,7 @@ mod tests {
                         },
                         ],
                         presets: &[],
-                        preset: None,
+                        preset: None, activity: &[],
                         error: None,
                     },
                 ),
@@ -4396,6 +4436,7 @@ mod tests {
                         sessions: &[],
                         presets: std::slice::from_ref(&preset),
                         preset: Some(&preset),
+                        activity: &[],
                         error: None,
                     },
                 ),
@@ -4409,7 +4450,7 @@ mod tests {
                     TerminalView {
                         sessions: &[],
                         presets: std::slice::from_ref(&preset),
-                        preset: None,
+                        preset: None, activity: &[],
                         error: Some("That preset is not on this device."),
                     },
                 ),
@@ -4623,6 +4664,7 @@ mod tests {
                 sessions: &[],
                 presets: &[],
                 preset: None,
+                activity: &[],
                 error: None,
             },
         )
@@ -4748,6 +4790,7 @@ mod tests {
                     sessions: &[],
                     presets: &[],
                     preset: None,
+                    activity: &[],
                     error: None,
                 },
             ),
@@ -4788,6 +4831,61 @@ mod tests {
                 "every table is captioned: {tables} vs {captions}"
             );
         }
+    }
+
+    /// A device that restarted has no live sessions, and the rail must still say what the console did
+    /// there: the audit log outlives the sessions.
+    #[test]
+    fn the_terminal_rail_shows_the_last_audited_operations() {
+        let devices = [view('1', Some("studio"), true)];
+        let activity = [TerminalActivity {
+            at_ms: 1_791_000_000_000,
+            tool: "terminal.write".to_owned(),
+            status: 200,
+            arrival: "console".to_owned(),
+        }];
+        let page = terminal(
+            &devices[0],
+            "csrf",
+            "0.3.72",
+            TerminalView {
+                sessions: &[],
+                presets: &[],
+                preset: None,
+                activity: &activity,
+                error: None,
+            },
+        )
+        .into_string();
+
+        assert!(
+            page.contains("Sessions do not survive a device restart"),
+            "the rail explains why it is empty: {page}"
+        );
+        assert!(
+            page.contains("terminal.write"),
+            "the operation is named: {page}"
+        );
+        assert!(
+            page.contains("Open the audit log"),
+            "the rail points at the record: {page}"
+        );
+
+        // Without activity the rail says only that there is no session.
+        let bare = terminal(
+            &devices[0],
+            "csrf",
+            "0.3.72",
+            TerminalView {
+                sessions: &[],
+                presets: &[],
+                preset: None,
+                activity: &[],
+                error: None,
+            },
+        )
+        .into_string();
+        assert!(!bare.contains("Open the audit log"), "{bare}");
     }
 
     #[test]

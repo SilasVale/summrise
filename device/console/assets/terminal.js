@@ -141,7 +141,13 @@ function activate(id) {
     session.pane.hidden = !on;
     session.tab.classList.toggle("active", on);
     if (on) {
-      session.fit.fit();
+      // Never let a fit failure take the whole activation with it: the pane still has to be shown
+      // and focused, or the operator is left with a dead terminal.
+      try {
+        session.fit.fit();
+      } catch {
+        /* the window resize handler fits it again */
+      }
       session.term.focus();
     }
   }
@@ -186,11 +192,24 @@ function addSession(created, label) {
 
   const session = { id, term, fit, pane, tab, cursor: 0, closed: false };
   sessions.set(id, session);
-  activate(id);
+  // WIRE THE INPUT BEFORE ANYTHING THAT CAN THROW. `activate` fits and focuses every terminal it
+  // knows, and a terminal whose `open` has not run has no element to fit — a throw there used to abort
+  // this function before `onData` was registered, which is a pane that shows output and ignores every
+  // keystroke (reported by the operator on 2026-10-28).
   term.open(pane);
-  fit.fit();
-  term.focus();
   term.onData(makeWriter(session));
+  // A CLICK INSIDE THE PANE IS THE OPERATOR SAYING "TYPE HERE". xterm's textarea keeps focus on its
+  // own only once it has been focused; clicking the pane is the gesture that should do it, and it did
+  // not.
+  pane.addEventListener("click", () => term.focus());
+  try {
+    fit.fit();
+  } catch (error) {
+    // A pane that is not laid out yet cannot be fitted; the resize handler fits it again.
+    say("the terminal could not be sized yet; resizing the window fixes it");
+  }
+  activate(id);
+  term.focus();
   term.onResize((size) => {
     if (session.closed) return;
     call(base(id) + "/resize", "POST", { rows: size.rows, cols: size.cols }).catch(() => {});
