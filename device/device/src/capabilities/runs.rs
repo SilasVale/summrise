@@ -617,12 +617,18 @@ fn kill_group(pid: u32, child: &mut Child) {
     {
         // A new Windows process group does not give a kill-tree; `taskkill /T` is the platform's
         // own answer. The direct kill below is the fallback when the process already ended.
-        let _ = Command::new("taskkill")
-            .args(["/F", "/T", "/PID", &pid.to_string()])
+        // `CREATE_NO_WINDOW`: the app normally runs under the service, where there is no desktop, but a
+        // `--enroll` or a debugging run from a console session would otherwise flash a taskkill window
+        // for every timed-out run.
+        let mut command = Command::new("taskkill");
+        command.args(["/F", "/T", "/PID", &pid.to_string()]);
+        command
             .stdin(Stdio::null())
             .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status();
+            .stderr(Stdio::null());
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        command.creation_flags(CREATE_NO_WINDOW);
+        let _ = command.status();
     }
     #[cfg(not(any(unix, windows)))]
     let _ = pid;
