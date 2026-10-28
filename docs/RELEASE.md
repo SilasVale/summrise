@@ -24,6 +24,19 @@ any tool that answers in milliseconds. A run that needs longer keeps running on 
 answers with its own 504 ("the device accepted the request and did not answer inside the console's bound;
 it may still be working on it") and the run is collected through `runs.list` / the Runs page.
 
+## Two traps in driving a silent install from a batch file
+
+Both cost a round on 2026-10-28, and both are cmd's, not the installer's.
+
+- **`start /wait setup.exe /S /D=C:\path` does not pass `/D` to the installer.** `start` has its own
+  `/D <dir>` (the startup directory), so it eats the switch and the installer runs with `/S` alone — a
+  silent install into the default directory, or a dialog with nobody to click it. Call the installer
+  directly; cmd waits for it anyway.
+- **`curl` to this build box is not fast from every device.** The same 6 MB installer took 8 s to
+  DESKTOP-9VH92BJ and 5 min 35 s to DESKTOP-14RJCR8 (~18 KB/s, a relayed tailnet path). A script that
+  downloads with no progress line looks hung; write a line before and after the download, and do not
+  diagnose a slow link as a stuck installer.
+
 ## When an install leaves a machine with no runtime
 
 An install that fails after the old service was removed leaves a machine that cannot be reached at all
