@@ -1470,6 +1470,7 @@ async fn health_reports_status_device_count_and_uptime_without_auth() {
     assert_eq!(status, StatusCode::OK);
     assert_eq!(body["status"], json!("ok"));
     assert_eq!(body["devices"], json!(0));
+    assert_eq!(body["online"], json!(0), "nothing is connected yet: {body}");
     assert_eq!(
         body["version"],
         json!(env!("CARGO_PKG_VERSION")),
@@ -1484,6 +1485,9 @@ async fn health_reports_status_device_count_and_uptime_without_auth() {
     let (status, body) = send(fixture.app(), get("/health", None)).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(body["devices"], json!(1));
+    // Registered is not connected: the count that answers "is anything up" stays 0 until a channel
+    // opens, which is the distinction a known-device count cannot make.
+    assert_eq!(body["online"], json!(0), "{body}");
 }
 
 #[tokio::test]

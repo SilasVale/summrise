@@ -863,6 +863,11 @@ struct RegisterResponse {
 struct Health {
     status: &'static str,
     devices: usize,
+    /// The devices whose channel is open right now. `devices` is how many the console knows; the
+    /// difference is the answer to "is anything connected", which a count of known devices cannot
+    /// give — on 2026-10-29 this field said 3 while the one device an agent talked to had been
+    /// reconnecting for twenty minutes.
+    online: usize,
     uptime_s: u64,
     /// Whether Cloudflare Access is configured as an operator identity. The first thing to check when
     /// the page asks for a token: with this false, it always will.
@@ -1003,9 +1008,16 @@ async fn access_sign_in(
 /// `GET /health`: unauthenticated, and deliberately so — a supervisor and a human need one route
 /// that answers before any credential has been presented. It reads only counts, never a secret.
 async fn health(State(app): State<AppState>) -> Json<Health> {
+    let devices = lock(&app.devices);
+    let online = devices
+        .list()
+        .iter()
+        .filter(|device| app.channels.online(&device.id))
+        .count();
     Json(Health {
         status: "ok",
-        devices: lock(&app.devices).len(),
+        devices: devices.len(),
+        online,
         uptime_s: app.started.elapsed().as_secs(),
         access_configured: app.access.is_some(),
         max_queued_frames: app.channels.peak_queued_frames(),
