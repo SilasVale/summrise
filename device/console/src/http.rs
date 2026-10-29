@@ -70,14 +70,47 @@ struct Pending {
 /// A client that hangs up drops the proxy's future, and with it the waiter the timeout lived in. An
 /// entry left behind would sit on the dashboard forever and, worse, answer a call nobody is waiting
 /// for. The guard is what makes the map's size follow the requests that exist.
+///
+/// **A HANG-UP STILL HAS TO CLOSE THE RECORD.** A client that goes away never reaches an `approval`
+/// line — the handler is cancelled where it stands — so the audit showed a question that was asked
+/// and then nothing, which reads exactly like a console that lost the answer. When the guard is
+/// dropped without a decision it writes the missing line (`client left`) from a task of its own,
+/// because `Drop` cannot await.
 struct Held<'a> {
     app: &'a AppState,
     id: String,
+    /// The facts the closing line needs: the handler's locals are gone by the time `Drop` runs.
+    device_id: Option<String>,
+    tool: Option<String>,
+    token_id: Option<String>,
+    /// Set by every path that ends the ask on purpose: approved, refused, timed out.
+    resolved: bool,
 }
 
 impl Drop for Held<'_> {
     fn drop(&mut self) {
         lock(&self.app.approvals).remove(&self.id);
+        if self.resolved {
+            return;
+        }
+        if tokio::runtime::Handle::try_current().is_err() {
+            return;
+        }
+        let app = self.app.clone();
+        let device_id = self.device_id.clone();
+        let tool = self.tool.clone();
+        let token_id = self.token_id.clone();
+        tokio::spawn(async move {
+            app.record_facts(AuditFacts {
+                kind: "approval",
+                device_id: device_id.as_deref(),
+                status: StatusCode::OK,
+                detail: Some("client left"),
+                tool: tool.as_deref(),
+                token_id: token_id.as_deref(),
+            })
+            .await;
+        });
     }
 }
 
@@ -5452,9 +5485,13 @@ async fn proxy_reply(
                     };
                     let id = hex::encode(&random_32()[..8]);
                     let (decide, answer) = tokio::sync::oneshot::channel();
-                    let registration = Held {
+                    let mut registration = Held {
                         app,
                         id: id.clone(),
+                        device_id: audit_id.clone(),
+                        tool: tool.clone(),
+                        token_id: token_id.map(str::to_owned),
+                        resolved: false,
                     };
                     lock(&app.approvals).insert(
                         id.clone(),
@@ -5480,6 +5517,7 @@ async fn proxy_reply(
                     .await;
                     match tokio::time::timeout(APPROVAL_TTL, answer).await {
                         Ok(Ok(true)) => {
+                            registration.resolved = true;
                             app.record_facts(AuditFacts {
                                 kind: "approval",
                                 device_id: audit_id.as_deref(),
@@ -5559,6 +5597,7 @@ async fn proxy_reply(
                             }
                         }
                         Ok(_) => {
+                            registration.resolved = true;
                             app.record_facts(AuditFacts {
                                 kind: "approval",
                                 device_id: audit_id.as_deref(),
@@ -5570,6 +5609,7 @@ async fn proxy_reply(
                             .await;
                         }
                         Err(_) => {
+                            registration.resolved = true;
                             app.record_facts(AuditFacts {
                                 kind: "approval",
                                 device_id: audit_id.as_deref(),

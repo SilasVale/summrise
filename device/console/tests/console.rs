@@ -9778,6 +9778,27 @@ async fn a_held_call_leaves_when_its_client_hangs_up() {
         json!(0),
         "the hung-up call is not waiting for anyone"
     );
+
+    // **AND THE RECORD CLOSES.** The ask was written when it started; a client that leaves without
+    // an answer is not a refusal and must not read as one, but a question with no closing line is
+    // indistinguishable from a console that lost the answer.
+    let mut closing = None;
+    for _ in 0..200 {
+        closing = audit_lines(&fixture).into_iter().find(|line| {
+            line["kind"] == json!("approval") && line["detail"] == json!("client left")
+        });
+        if closing.is_some() {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+    }
+    let closing = closing.expect("the ask that was abandoned leaves a closing line");
+    assert_eq!(closing["status"], json!(200));
+    assert_eq!(closing["tool"], json!("terminal.create"));
+    assert!(
+        closing["token_id"].is_string(),
+        "the closing line names the token: {closing}"
+    );
 }
 
 /// Nobody answers: the gate's deadline ends the call, and the client gets the device's refusal.
