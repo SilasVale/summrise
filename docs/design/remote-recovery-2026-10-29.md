@@ -37,7 +37,24 @@ person standing at it can bring back.**
 3. **An out-of-band relay.** The tailnet already exists on this box (`docs/DERP.md` in the sibling
    repository), and the operator can reach the machine through it. That is a person, not the product.
 
-## What this note recommends
+## What was built (2026-10-29, after the machine came back)
+
+Option 2, the watchdog, is in the installer: `SummriseRepair` runs **every five minutes** instead of
+only at start, and `repair.cmd` does one more thing — when the service is registered but not running,
+it starts it. The script's logic was run against a live Windows service before it shipped: a running
+service exits 0 untouched; a stopped one (tested on BITS, which is safe to stop) is started and the
+exit code is 0.
+
+The generated `repair.cmd` was also installed by hand on DESKTOP-9VH92BJ — the machine this note is
+about — with the task recreated at five minutes; it ran once with result 0. The other two machines
+keep the start-only task until the next install, so the fleet is deliberately uneven for now and the
+installer is the thing that makes it even.
+
+A deliberate stop is undone within five minutes. Someone taking a machine down on purpose disables
+the task first (`schtasks /change /tn SummriseRepair /disable`) and re-enables it afterwards; the
+script says so in its own first lines, where the person reading it later will find it.
+
+## What this note recommended
 
 Option 2 first — a watchdog is smaller, has no authentication surface, and covers the case that
 happened (the app was not running; the launcher was not there to notice). Option 1 second, gated to

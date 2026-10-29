@@ -154,23 +154,42 @@ Section "Summrise runtime" SecRuntime
   ; logged-in user's session at every login, with no elevation and no second credential.
   WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Run" "SummriseShell" '"$INSTDIR\summrise-shell.exe"' 
 
-  ; A BOOT-TIME REPAIR, because losing the service is a state nothing inside the machine can leave:
-  ; the process that would rebuild it IS the service. A failed install removed it once and left the
-  ; device unreachable until someone walked to it (DESKTOP-CPH4KB2, 2026-10-28). The task runs at
-  ; start, does nothing when the service is registered, and re-registers it when it is gone; it is
-  ; created by the installer and deleted by the uninstaller, so a deliberate uninstall stays undone.
+  ; A PERIODIC REPAIR, because losing the service is a state nothing inside the machine can leave:
+  ; the process that would rebuild it IS the service. Two incidents made this: a failed install
+  ; removed it once and left the device unreachable until someone walked to it (DESKTOP-CPH4KB2,
+  ; 2026-10-28), and on 2026-10-29 the service sat stopped for four hours while the console answered
+  ; `device reconnecting` — Windows restarts a service that FAILS three times and then stops trying,
+  ; and a service that stopped without failing is not restarted at all. The task runs every five
+  ; minutes: it starts the service when it is registered but not running, and re-registers it when
+  ; it is gone.
+  ;
+  ; THE COST IS STATED WHERE IT IS FELT: a deliberate stop is undone within five minutes. Someone
+  ; taking the machine down on purpose disables the task first —
+  ; `schtasks /change /tn SummriseRepair /disable` — and re-enables it afterwards.
   FileOpen $9 "$INSTDIR\repair.cmd" w
   FileWrite $9 "@echo off$\r$\n"
-  FileWrite $9 "rem Created by the Summrise installer: re-register the service when it is missing.$\r$\n"
-  FileWrite $9 "sc query ${SERVICE} >nul 2>&1$\r$\n"
+  FileWrite $9 "rem Created by the Summrise installer: keep the ${SERVICE} service registered and running.$\r$\n"
+  FileWrite $9 "rem Runs every five minutes. A deliberate stop is undone by it: disable the task first$\r$\n"
+  FileWrite $9 "rem (schtasks /change /tn SummriseRepair /disable) to keep this machine down on purpose.$\r$\n"
+  FileWrite $9 "sc query ${SERVICE} | find $\"RUNNING$\" >nul 2>&1$\r$\n"
   FileWrite $9 "if not errorlevel 1 exit /b 0$\r$\n"
+  FileWrite $9 "sc query ${SERVICE} >nul 2>&1$\r$\n"
+  FileWrite $9 "if errorlevel 1 goto missing$\r$\n"
   ; ITS OWN LOG, NOT `repair.log`: the launcher writes that file as a JSON repair journal of the
   ; generations it restored, and appending human lines to it corrupts a record an operator reads.
+  FileWrite $9 "echo %DATE% %TIME% the ${SERVICE} service is not running; starting it >> $\"$INSTDIR\repair-task.log$\"$\r$\n"
+  FileWrite $9 "sc start ${SERVICE} >> $\"$INSTDIR\repair-task.log$\" 2>&1$\r$\n"
+  FileWrite $9 "set RC=%ERRORLEVEL%$\r$\n"
+  FileWrite $9 "echo %DATE% %TIME% start exit %RC% >> $\"$INSTDIR\repair-task.log$\"$\r$\n"
+  FileWrite $9 "exit /b %RC%$\r$\n"
+  FileWrite $9 ":missing$\r$\n"
   FileWrite $9 "echo %DATE% %TIME% the ${SERVICE} service is missing; re-registering >> $\"$INSTDIR\repair-task.log$\"$\r$\n"
   FileWrite $9 "$\"$INSTDIR\summrise-launch.exe$\" --install-service --install $\"$INSTDIR$\" --data $\"${DATA_DIR}$\" --seed-sidecar $\"$INSTDIR\summrise-device.sidecar.json$\" --port ${PORT} >> $\"$INSTDIR\repair-task.log$\" 2>&1$\r\n"
-  FileWrite $9 "echo %DATE% %TIME% repair exit %ERRORLEVEL% >> $\"$INSTDIR\repair-task.log$\"$\r$\n"
+  FileWrite $9 "set RC=%ERRORLEVEL%$\r$\n"
+  FileWrite $9 "echo %DATE% %TIME% repair exit %RC% >> $\"$INSTDIR\repair-task.log$\"$\r$\n"
+  FileWrite $9 "exit /b %RC%$\r$\n"
   FileClose $9
-  nsExec::Exec 'schtasks /create /tn SummriseRepair /tr "$INSTDIR\repair.cmd" /sc onstart /ru SYSTEM /rl HIGHEST /f'
+  nsExec::Exec 'schtasks /create /tn SummriseRepair /tr "$INSTDIR\repair.cmd" /sc minute /mo 5 /ru SYSTEM /rl HIGHEST /f'
   Pop $0
   FileOpen $6 "$TEMP\summrise-setup.log" a
   FileWrite $6 "repair task: exit $0$\r$\n"
