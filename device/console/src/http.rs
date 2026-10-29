@@ -1738,6 +1738,13 @@ async fn next_audit(
         true,
         page::AUDIT_KINDS.as_slice(),
     );
+    // The token store is the only place a token id becomes a name a person recognises; a revoked
+    // token is simply absent, and the row falls back to its short id.
+    let tokens: Vec<(String, String)> = lock(&app.tokens)
+        .list()
+        .into_iter()
+        .map(|token| (token.id, token.name))
+        .collect();
     Html(
         page::logs(page::Logs {
             rows: &rows,
@@ -1753,6 +1760,7 @@ async fn next_audit(
             caption: "The console's own audit lines.",
             filtered: filter.is_active(),
             segment: page::LogSegment::Actions,
+            tokens: &tokens,
         })
         .into_string(),
     )
@@ -1815,6 +1823,8 @@ async fn next_denials(
             caption: "Refusals recorded before authentication.",
             filtered: filter.is_active(),
             segment: page::LogSegment::Refusals,
+            // A refusal happens before any token was accepted, so there is no credential to name.
+            tokens: &[],
         })
         .into_string(),
     )

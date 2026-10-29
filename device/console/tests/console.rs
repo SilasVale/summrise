@@ -6737,6 +6737,14 @@ async fn a_token_call_moves_last_used_and_names_the_token_in_the_audit() {
         page.contains("01-01 00:16:46 UTC"),
         "the Connect list dates the last use: {page}"
     );
+
+    // The record names the credential too: the audit row said `mcp / files.read` and left the
+    // question "whose token?" to a JSONL field no page drew.
+    let (_, _, records) = send_text(fixture.app(), get_with_cookie("/next/audit", &cookie)).await;
+    assert!(
+        records.contains("via laptop-dsh"),
+        "the audit line names the token by the operator's label: {records}"
+    );
 }
 
 /// A grant-authenticated call has no token record to name, so its audit line carries no token_id.

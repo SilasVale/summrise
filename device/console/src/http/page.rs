@@ -1816,6 +1816,10 @@ pub(super) struct Logs<'a> {
     pub caption: &'a str,
     pub filtered: bool,
     pub segment: LogSegment,
+    /// The tokens the console still knows, id to the name its operator gave it. An audit line
+    /// carries only the id, and the id is not drawn anywhere else — "via dsh" is what turns a
+    /// record into an attribution.
+    pub tokens: &'a [(String, String)],
 }
 
 pub(super) fn logs(view: Logs<'_>) -> Markup {
@@ -1830,6 +1834,7 @@ pub(super) fn logs(view: Logs<'_>) -> Markup {
         caption,
         filtered,
         segment,
+        tokens,
     } = view;
     let current = |want: LogSegment| if want == segment { "page" } else { "false" };
     let count = rows.len();
@@ -1904,6 +1909,20 @@ pub(super) fn logs(view: Logs<'_>) -> Markup {
                                         code { (tool) }
                                     } @else {
                                         span class="muted" { "—" }
+                                    }
+                                    // **THE LINE SAYS WHICH CREDENTIAL.** The JSONL has carried
+                                    // `token_id` since tokens existed and the page never drew it, so
+                                    // two tokens on one device left identical rows. The id is
+                                    // resolved to the name here; a token that is gone shows its
+                                    // short id, because the line is still true.
+                                    @if let Some(token) = row["token_id"].as_str().filter(|id| !id.is_empty()) {
+                                        span class="sub" {
+                                            "via " (tokens
+                                                .iter()
+                                                .find(|(id, _)| id == token)
+                                                .map(|(_, name)| name.clone())
+                                                .unwrap_or_else(|| short_id(token)))
+                                        }
                                     }
                                 }
                                 td class="wrap" {
@@ -4816,6 +4835,7 @@ mod tests {
                     lead: "The console's own record, newest first: the call, its outcome, and a note when one exists. Times are UTC; a device id is shortened here but named in full by the line's tooltip. Arguments are not recorded — neither here nor in the device's own audit.",
                     caption: "The console's own audit lines.",
                     filtered: true,
+                    tokens: &[],
                 }),
             ),
             (
@@ -4831,6 +4851,7 @@ mod tests {
                     lead: "Every request the console refused before authentication: a missing session, an unknown token, an unauthenticated probe. A refusal is not a device call, and the arguments it carried are not stored.",
                     caption: "Refusals recorded before authentication.",
                     filtered: false,
+                    tokens: &[],
                 }),
             ),
             (
@@ -5914,13 +5935,17 @@ mod tests {
         // ("pwsh -NoProfile Get-Date") showed a reviewer a column the product never fills: a line
         // records the call and its outcome, never its arguments, and these are the kinds and
         // details the code actually produces.
+        // **THE LINES NAME THE CREDENTIAL.** A `token_id` is what the JSONL has always carried; the
+        // fixture has to carry it too, or the review shot cannot show the attribution line.
+        let audit_token = "9f2c".to_owned() + &"0".repeat(60);
+        let audit_tokens = vec![(audit_token.clone(), "dsh".to_owned())];
         let log_rows = vec![
-            serde_json::json!({"ts_ms": 1_793_059_200_000u64, "kind": "mcp", "status": 200, "device_id": id, "tool": "runs.exec", "detail": null}),
-            serde_json::json!({"ts_ms": 1_793_058_700_000u64, "kind": "mcp", "status": 200, "device_id": id, "tool": "files.read", "detail": null}),
+            serde_json::json!({"ts_ms": 1_793_059_200_000u64, "kind": "mcp", "status": 200, "device_id": id, "tool": "runs.exec", "detail": null, "token_id": audit_token}),
+            serde_json::json!({"ts_ms": 1_793_058_700_000u64, "kind": "mcp", "status": 200, "device_id": id, "tool": "files.read", "detail": null, "token_id": audit_token}),
             serde_json::json!({"ts_ms": 1_793_058_300_000u64, "kind": "auth", "status": 200, "device_id": id, "tool": "", "detail": "token"}),
             serde_json::json!({"ts_ms": 1_793_057_900_000u64, "kind": "denied", "status": 403, "device_id": id, "tool": "system.process_kill", "detail": "tool_not_permitted"}),
             serde_json::json!({"ts_ms": 1_793_057_500_000u64, "kind": "device", "status": 0, "device_id": id, "tool": "", "detail": "channel open"}),
-            serde_json::json!({"ts_ms": 1_793_056_100_000u64, "kind": "approval", "status": 200, "device_id": id, "tool": "terminal.create", "detail": "approved"}),
+            serde_json::json!({"ts_ms": 1_793_056_100_000u64, "kind": "approval", "status": 200, "device_id": id, "tool": "terminal.create", "detail": "approved", "token_id": audit_token}),
             serde_json::json!({"ts_ms": 1_793_055_000_000u64, "kind": "mcp", "status": 502, "device_id": id, "tool": "browser.open", "detail": "jsonrpc error -32000"}),
         ];
         let preset = Connection {
@@ -6189,6 +6214,7 @@ mod tests {
                     lead: "The console's own record, newest first: the call, its outcome, and a note when one exists. Times are UTC; a device id is shortened here but named in full by the line's tooltip. Arguments are not recorded — neither here nor in the device's own audit.",
                     caption: "The console's own audit lines.",
                     filtered: true,
+                    tokens: &audit_tokens,
                 }),
             ),
             ("audit-filtered", logs(Logs {
@@ -6202,6 +6228,7 @@ mod tests {
                 lead: "The console's own record, newest first: the call, its outcome, and a note when one exists. Times are UTC; a device id is shortened here but named in full by the line's tooltip. Arguments are not recorded — neither here nor in the device's own audit.",
                 caption: "The console's own audit lines.",
                 filtered: false,
+                tokens: &audit_tokens,
             })),
             ("denials", logs(Logs {
                 rows: &[],
@@ -6214,6 +6241,7 @@ mod tests {
                 lead: "Every request the console refused before authentication: a missing session, an unknown token, an unauthenticated probe. A refusal is not a device call, and the arguments it carried are not stored.",
                 caption: "Refusals recorded before authentication.",
                 filtered: false,
+                tokens: &[],
             })),
             (
                 "refused",
@@ -6340,6 +6368,63 @@ mod tests {
     /// **THE SCOPE THE CONSOLE COULD ONLY MINT WITH CURL.** An aggregate token names a list of
     /// devices and is used on `/mcp/all`; the page has to show which machines a token reaches, by
     /// the names their operator gave them, and offer exactly the registry as the scope.
+    /// **A RECORD THAT CANNOT NAME ITS CREDENTIAL IS NOT AN ATTRIBUTION.** The audit JSONL has
+    /// carried `token_id` since tokens existed and the page drew six columns without it, so two
+    /// tokens on one device left identical rows. The id resolves to the operator's name while the
+    /// token exists, and falls back to its short id when it does not — the line is still true.
+    #[test]
+    fn an_audit_line_names_the_credential_that_called() {
+        let device_id = "a".repeat(64);
+        let token_id = "b".repeat(64);
+        let row = serde_json::json!({
+            "ts_ms": 1_793_059_200_000u64,
+            "kind": "mcp",
+            "status": 200,
+            "device_id": device_id,
+            "tool": "files.read",
+            "detail": null,
+            "token_id": token_id,
+        });
+        let tokens = vec![(token_id.clone(), "dsh".to_owned())];
+        let named = logs(Logs {
+            rows: std::slice::from_ref(&row),
+            title: "Actions",
+            segment: LogSegment::Actions,
+            total: 1,
+            filter: None,
+            csrf: "00",
+            version: "0.1.0",
+            lead: "lead",
+            caption: "caption",
+            filtered: false,
+            tokens: &tokens,
+        })
+        .into_string();
+        assert!(
+            named.contains("via dsh"),
+            "the line names the token: {named}"
+        );
+
+        let revoked = logs(Logs {
+            rows: std::slice::from_ref(&row),
+            title: "Actions",
+            segment: LogSegment::Actions,
+            total: 1,
+            filter: None,
+            csrf: "00",
+            version: "0.1.0",
+            lead: "lead",
+            caption: "caption",
+            filtered: false,
+            tokens: &[],
+        })
+        .into_string();
+        assert!(
+            revoked.contains("via bbbbbbbb…"),
+            "a token the console no longer holds shows its short id: {revoked}"
+        );
+    }
+
     #[test]
     fn the_fleet_token_page_names_the_scope_and_offers_the_registry() {
         let studio_id = view('1', Some("STUDIO-PC"), true).id;
