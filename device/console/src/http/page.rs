@@ -5248,7 +5248,10 @@ mod tests {
         let mut devices = vec![
             view('a', Some("STUDIO-PC"), true),
             view('b', Some("LAB-PC"), true),
-            view('c', None, false),
+            // The third machine is named: this fixture is also the landing page's picture, and
+            // "Unnamed device" in a marketing shot reads as an unfinished product. The unnamed
+            // fallback has its own test.
+            view('c', Some("EDGE-PC"), false),
         ];
         devices[0].last_seen_ms = 1_791_000_000_000 - 6 * 60 * 1000;
         devices[1].last_seen_ms = 1_791_000_000_000 - 3 * 3600 * 1000;
@@ -6287,6 +6290,24 @@ mod tests {
         // is not "in the future".
         assert_eq!(ago(now, 0), "never seen");
         assert_eq!(ago(now, now + 60_000), "just now");
+    }
+
+    /// A device nobody named reads as a sentence, not as a hex string — and this is the only test
+    /// that says so now that the review fixture names all three machines.
+    #[test]
+    fn a_device_nobody_named_says_so() {
+        let device = view('d', None, true);
+        let page = dashboard(
+            &[device],
+            "00",
+            "0.1.0",
+            Notes::default(),
+            &[],
+            &[],
+            1_791_000_000_000,
+        )
+        .into_string();
+        assert!(page.contains("Unnamed device"), "{page}");
     }
 
     #[test]
