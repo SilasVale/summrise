@@ -4410,7 +4410,12 @@ async fn next_vitals_page(
                     Some(page::RepairView {
                         from: repair["from"].as_str()?.to_owned(),
                         at_ms: repair["at_ms"].as_u64().unwrap_or(0),
-                        sha256: repair["sha256"].as_str().map(str::to_owned),
+                        // An empty string is not a digest: it rendered a separator with nothing
+                        // after it on the live page.
+                        sha256: repair["sha256"]
+                            .as_str()
+                            .filter(|digest| !digest.is_empty())
+                            .map(str::to_owned),
                     })
                 })
                 .collect()
