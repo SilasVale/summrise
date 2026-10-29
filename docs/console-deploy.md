@@ -1,8 +1,10 @@
 # Deploying the console
 
-> **Status: verified, 2026-10-28 — `0.3.153` deployed to `DESKTOP-9VH92BJ` with this runbook.**
-> The console is the operator's control plane; a deploy restarts it. Everything below is measured on
-> that host, not assumed.
+> **Status: verified, 2026-10-29 — `0.3.201` deployed to `DESKTOP-9VH92BJ` with this runbook.**
+> The digest matched, the script backed up `0.3.200`, `/health` reported `0.3.201` twelve seconds
+> after the restart, and three devices were back online inside a minute. The console is the
+> operator's control plane; a deploy restarts it. Everything below is measured on that host, not
+> assumed.
 
 ## Why the console deploys differently from a device
 
