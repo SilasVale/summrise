@@ -380,6 +380,28 @@ resolving a page endpoint, and `page_url` calls `targets()`), so a wedged resolv
 `list` wait behind it. That is the next thing to instrument — with timings inside the device, not
 guesses from outside it.
 
+### Incident, 2026-10-29 02:26 UTC: the device channel went away and stayed away
+
+The console on DESKTOP-9VH92BJ stayed healthy throughout — `/health` answered 200 with
+`{"status":"ok","devices":3,…}` — while every tool call that needed the device answered
+`device reconnecting`. The channel has not come back in the forty minutes observed.
+
+Two things this made visible:
+
+- **`devices` is not `online`.** The health document counted the registry, so "three known" and
+  "three up" were the same number; an agent or supervisor reading it could not tell the difference.
+  `/health` answers `online` now, and a test asserts a registered device with no channel is
+  `devices: 1, online: 0`.
+- **There is no remote path back.** The machine's SSH port is closed, the panel binds loopback, and
+  the console's own "Restart the device" needs the channel that is down. The launcher is the last
+  line of self-healing; if it has given up, only a person at the machine can start the agent again
+  (`sc stop SummriseLaunch && sc start SummriseLaunch`). The fleet row is where the reason would be
+  read, and it cannot be read without a device to render it — the console's own pages for a device
+  are rendered by the console, not the device, but the session that reaches them is established
+  through it.
+
+The deploy of the `online` change waits for the device; the commit is pushed and CI is green.
+
 ### What is deliberately not done
 
 - **The device fleet still runs 0.3.152.** A canary 0.3.167 was built, signed and verified against a
