@@ -216,14 +216,14 @@ body.terminal .content { display:flex; flex-direction:column; min-height:0; over
 .session-list a { display:flex; align-items:center; gap:10px; padding:8px 9px; border-radius:var(--radius-xs); text-decoration:none; color:var(--ink); }
 .session-list a:hover { background:var(--hover); }
 .session-row { display:flex; align-items:center; gap:2px; }
-.session-row > a { flex:1; min-width:0; }
+.session-row > a { flex:1; min-width:0; display:flex; flex-direction:column; gap:2px; }
 .rail-close { display:grid; place-items:center; flex:none; width:24px; height:24px; padding:0; border:0; border-radius:var(--radius-xs); background:transparent; color:var(--faint); font-size:15px; line-height:1; cursor:pointer; }
 .rail-close:hover { background:var(--danger-soft); color:var(--danger); }
 .rail-close:focus-visible { outline:2px solid var(--accent); outline-offset:1px; }
-.session-body { display:flex; flex-direction:column; min-width:0; }
+.session-head { display:flex; align-items:center; gap:6px; min-width:0; }
 .session-kind { flex:none; font-size:11px; text-transform:uppercase; letter-spacing:0.07em; color:var(--muted); background:var(--surface-chip); border-radius:var(--radius-xs); padding:2px 5px; }
-.session-body code { font-size:13px; background:none; padding:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.session-age { font-size:12px; color:var(--faint); }
+.session-head code { font-size:13px; background:none; padding:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.session-age { display:block; font-size:12px; color:var(--faint); white-space:nowrap; }
 .rail-action { margin-top:auto; }
 .terminal-card { flex:1; min-height:0; display:flex; flex-direction:column; overflow:hidden; border:1px solid var(--line); border-radius:var(--radius); background:var(--panel); box-shadow:var(--shadow); }
 .terminal-toolbar { flex:none; display:flex; flex-wrap:wrap; align-items:center; gap:8px; padding:8px 10px; border-bottom:1px solid var(--line); background:var(--panel); }
@@ -2043,11 +2043,15 @@ pub(super) fn terminal(
                 @for session in sessions {
                     li class="session-row" {
                         a href=(format!("?attach={}", encode(&session.id))) title=(format!("open {} · started {}", session.id, stamp(session.started_at_ms))) {
-                            span class="session-kind" { (&session.kind) }
-                            span class="session-body" {
+                            // **THE AGE GETS ITS OWN LINE.** Rendered beside the kind chip it had
+                            // ~150 px and the full stamp wrapped, leaving `UTC` alone on a third
+                            // line; a session can live for days, so the date cannot be dropped to
+                            // make it fit. Two lines: who the session is, then since when.
+                            span class="session-head" {
+                                span class="session-kind" { (&session.kind) }
                                 code { (&session.id) }
-                                span class="session-age" { "since " (clock(session.started_at_ms)) }
                             }
+                            span class="session-age" { "since " (stamp(session.started_at_ms)) }
                         }
                         // A session another browser left behind can be ended here, without opening
                         // it: the rail is the only list of them the operator has.
@@ -2247,14 +2251,6 @@ pub(super) fn encode_segment(value: &str) -> String {
 /// Percent-encode a query value. `/` stays readable because a path is the value most of the time.
 /// The time of day a rail row shows: UTC, no date, because the rail is about "since when" rather
 /// than "which day". The full stamp is in the row's tooltip.
-fn clock(ms: u64) -> String {
-    let stamp = stamp(ms);
-    match stamp.split_once(' ') {
-        Some((_, rest)) => rest.to_owned(),
-        None => stamp,
-    }
-}
-
 /// One preset, in the line an operator recognises it by.
 fn preset_summary(preset: &Connection) -> String {
     match preset.kind.as_str() {
@@ -2797,7 +2793,7 @@ pub(super) fn runs(
                     li {
                         span class="rail-line mono" { (row.command_line) }
                         span class="rail-meta" {
-                            (clock(row.started_at_ms))
+                            (stamp(row.started_at_ms))
                             " · "
                             (exit_chip(row.exit_code, row.timed_out))
                         }
@@ -5305,6 +5301,13 @@ mod tests {
         );
         assert!(page.contains("?attach=session-7"), "{page}");
         assert!(page.contains(">pty<") && page.contains(">ssh<"), "{page}");
+        // **THE AGE CARRIES ITS DAY.** A bare time is what made the rail read out of order across
+        // midnight, and a session can live for days; the console has one absolute format and this
+        // is it. The helper that stripped the date has no callers left.
+        assert!(
+            page.contains("since 10-03 04:00:00 UTC"),
+            "the rail's age carries the date: {page}"
+        );
 
         // An empty device says so rather than showing an empty rail.
         let empty = terminal(
