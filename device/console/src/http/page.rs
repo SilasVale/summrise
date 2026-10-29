@@ -1410,6 +1410,19 @@ pub(super) fn dashboard(
                         ", then reload this page."
                     }
                 }
+                @if devices.iter().any(|device| !device.online && device.last_attempt.as_ref().is_some_and(|attempt| attempt.attempts >= 3)) {
+                    // **THE LAUNCHER GIVES UP AFTER THREE.** Its restart history is the device's own
+                    // report, so this is not a guess: a device whose last attempt was the third one
+                    // has nothing behind it, and the row's "last try 3× failed" is the only warning
+                    // without this line. The console cannot restart it (that needs the channel that
+                    // died); a person at the machine can.
+                    p class="fleet-note small muted" {
+                        "A device whose launcher gave up restarting stays offline until someone at "
+                        "that machine runs "
+                        code { "sc stop SummriseLaunch && sc start SummriseLaunch" }
+                        "."
+                    }
+                }
                 table class="table fleet-table" {
                     caption class="visually-hidden" { "Every device this console has enrolled, and the pages that act on it." }
                     thead {
@@ -4680,6 +4693,56 @@ mod tests {
     /// **AN OFFLINE ROW ANSWERS "SINCE WHEN".** The fleet row printed `51m ago` — when the device was
     /// last heard from — for a device that is not connected, which is a different question. On the
     /// incident of 2026-10-29 the console knew the answer and did not print it.
+    /// **A LAUNCHER THAT GAVE UP NAMES THE COMMAND.** The row said "last try 3× failed" and stopped
+    /// there; the person reading it needs the one command that brings the device back, and the
+    /// console cannot run it — the channel it would use is the one that is down.
+    #[test]
+    fn a_device_whose_launcher_gave_up_names_the_recovery_command() {
+        let mut given_up = view('6', Some("workshop"), false);
+        given_up.last_attempt = Some(super::super::RetryView {
+            attempts: 3,
+            reason: "the launcher gave up".to_owned(),
+        });
+        let mut trying = view('7', Some("studio"), false);
+        trying.last_attempt = Some(super::super::RetryView {
+            attempts: 1,
+            reason: "one attempt so far".to_owned(),
+        });
+        let page = dashboard(
+            &[given_up],
+            "00",
+            "0.1.0",
+            Notes::default(),
+            &[],
+            &[],
+            1_791_000_000_000,
+        )
+        .into_string();
+        assert!(
+            page.contains("launcher gave up restarting"),
+            "the note is printed: {page}"
+        );
+        // maud escapes `&&` inside the code block; the two halves are the assertion.
+        assert!(
+            page.contains("sc stop SummriseLaunch") && page.contains("sc start SummriseLaunch"),
+            "and names the command: {page}"
+        );
+        let page = dashboard(
+            &[trying],
+            "00",
+            "0.1.0",
+            Notes::default(),
+            &[],
+            &[],
+            1_791_000_000_000,
+        )
+        .into_string();
+        assert!(
+            !page.contains("launcher gave up restarting"),
+            "a device still being retried does not get the note: {page}"
+        );
+    }
+
     #[test]
     fn an_offline_row_says_since_when_it_has_been_offline() {
         let mut offline = view('5', Some("workshop"), false);
