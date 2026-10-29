@@ -135,3 +135,27 @@ scroll rule then hides behind a scrollbar. That is below the floor the product c
 recorded here rather than left as a surprise. Mutation: a 900px div in a dashboard card body →
 `FAIL dashboard.html @390: panes=section +586`, exit 1; the unmutated set exits 0 with
 `30 pages x 390/800/1280 -> 0 failure(s)`.
+
+## What the review proposed, and what shipped (2026-10-28, later)
+
+The review's navigational recommendations were three merges. All three shipped, each keeping its old
+addresses alive:
+
+| proposed | shipped | old URLs |
+| --- | --- | --- |
+| Audit + Denials as one page | one **Records** page, `Actions` / `Refusals` segments; the fleet footer links it once | both routes render the same page |
+| State as part of System | the state document is a card under the System page's actions | `/next/state/…` redirects to `/next/system/…` |
+| Screen + Browser as one surface | one **Screen** page, `Desktop` / `Browser` segments; the rail lists ten destinations | `/next/browser/…` renders on its own |
+
+Two things the review did not ask for and the work found:
+
+- **A refused action is a page.** Reading, writing, running, killing, saving, watching and browser
+  actions used to answer a device refusal as `{"error":"…"}`. They render the sentence, the rail and
+  the way back now, under the status the device's failure carried (a 502). The terminal's five calls
+  stay JSON on purpose — their client draws the error in the terminal.
+- **An empty list is a claim.** Files, Runs, Monitors and Browser said "none" whenever their list was
+  empty, including when the device had not answered. With an error they say what is unknown; the
+  "none" sentence is kept for a device that answered.
+
+Coverage at the end of it: 120 unit + 255 integration tests, clippy over nine crates, and the layout
+gate measuring 31 console pages (plus the panel's two and the landing page) at 360/390/800/1280 in CI.
