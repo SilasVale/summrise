@@ -4370,7 +4370,7 @@ mod tests {
                     filter: None,
                     csrf: "00",
                     version: "0.1.0",
-                    lead: "The console's own record, newest first. Times are UTC; a device id is shortened here but named in full by the line's tooltip.",
+                    lead: "The console's own record, newest first: the call, its outcome, and a note when one exists. Times are UTC; a device id is shortened here but named in full by the line's tooltip. Arguments are not recorded — neither here nor in the device's own audit.",
                     caption: "The console's own audit lines.",
                     filtered: true,
                 }),
@@ -5160,13 +5160,18 @@ mod tests {
             "{{\n  \"mcpServers\": {{\n    \"desk\": {{\n      \"url\": \"http://127.0.0.1:19000/mcp/{}\",\n      \"headers\": {{ \"Authorization\": \"Bearer {}\" }}\n    }}\n  }}\n}}",
             id, secret
         );
+        // **THE ROWS ARE THE SHAPE THE CONSOLE WRITES.** A fixture that invented details
+        // ("pwsh -NoProfile Get-Date") showed a reviewer a column the product never fills: a line
+        // records the call and its outcome, never its arguments, and these are the kinds and
+        // details the code actually produces.
         let log_rows = vec![
-            serde_json::json!({"ts_ms": 1_793_059_200_000u64, "kind": "tool", "status": 200, "device_id": id, "tool": "runs.exec", "detail": "pwsh -NoProfile Get-Date"}),
-            serde_json::json!({"ts_ms": 1_793_058_700_000u64, "kind": "tool", "status": 200, "device_id": id, "tool": "files.list", "detail": "logs"}),
-            serde_json::json!({"ts_ms": 1_793_058_300_000u64, "kind": "auth", "status": 200, "device_id": id, "tool": "", "detail": "operator session opened"}),
-            serde_json::json!({"ts_ms": 1_793_057_900_000u64, "kind": "tool", "status": 403, "device_id": id, "tool": "system.kill", "detail": "not permitted for this grant"}),
+            serde_json::json!({"ts_ms": 1_793_059_200_000u64, "kind": "mcp", "status": 200, "device_id": id, "tool": "runs.exec", "detail": null}),
+            serde_json::json!({"ts_ms": 1_793_058_700_000u64, "kind": "mcp", "status": 200, "device_id": id, "tool": "files.read", "detail": null}),
+            serde_json::json!({"ts_ms": 1_793_058_300_000u64, "kind": "auth", "status": 200, "device_id": id, "tool": "", "detail": "token"}),
+            serde_json::json!({"ts_ms": 1_793_057_900_000u64, "kind": "denied", "status": 403, "device_id": id, "tool": "system.process_kill", "detail": "tool_not_permitted"}),
             serde_json::json!({"ts_ms": 1_793_057_500_000u64, "kind": "device", "status": 0, "device_id": id, "tool": "", "detail": "channel open"}),
-            serde_json::json!({"ts_ms": 1_793_056_100_000u64, "kind": "tool", "status": 500, "device_id": id, "tool": "browser.open", "detail": "the device did not answer"}),
+            serde_json::json!({"ts_ms": 1_793_056_100_000u64, "kind": "approval", "status": 200, "device_id": id, "tool": "terminal.create", "detail": "approved"}),
+            serde_json::json!({"ts_ms": 1_793_055_000_000u64, "kind": "mcp", "status": 502, "device_id": id, "tool": "browser.open", "detail": "jsonrpc error -32000"}),
         ];
         let preset = Connection {
             id: "a".repeat(32),
@@ -5413,7 +5418,7 @@ mod tests {
                             ("b".repeat(64), "LAB-PC".to_owned()),
                         ],
                         &AuditFilter {
-                            kind: "tool".to_owned(),
+                            kind: "mcp".to_owned(),
                             ..AuditFilter::default()
                         },
                         true,
@@ -5421,7 +5426,7 @@ mod tests {
                     )),
                     csrf: "csrf",
                     version: "0.3.72",
-                    lead: "The console's own record, newest first. Times are UTC; a device id is shortened here but named in full by the line's tooltip.",
+                    lead: "The console's own record, newest first: the call, its outcome, and a note when one exists. Times are UTC; a device id is shortened here but named in full by the line's tooltip. Arguments are not recorded — neither here nor in the device's own audit.",
                     caption: "The console's own audit lines.",
                     filtered: true,
                 }),
@@ -5434,7 +5439,7 @@ mod tests {
                 filter: Some(audit_filter("/next/audit", &[], &AuditFilter::default(), true, AUDIT_KINDS.as_slice())),
                 csrf: "csrf",
                 version: "0.3.72",
-                lead: "The console's own record, newest first. Times are UTC; a device id is shortened here but named in full by the line's tooltip.",
+                lead: "The console's own record, newest first: the call, its outcome, and a note when one exists. Times are UTC; a device id is shortened here but named in full by the line's tooltip. Arguments are not recorded — neither here nor in the device's own audit.",
                 caption: "The console's own audit lines.",
                 filtered: false,
             })),

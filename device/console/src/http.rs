@@ -1677,9 +1677,10 @@ async fn next_audit(
             filter: Some(bar),
             csrf: &hex::encode(&session.csrf),
             version: &app.version,
-            lead:
-                "The console's own record, newest first. Times are UTC; a device id is shortened \
-                   here but named in full by the line's tooltip.",
+            lead: "The console's own record, newest first: the call, its outcome, and a note when \
+                   one exists. Times are UTC; a device id is shortened here but named in full by \
+                   the line's tooltip. Arguments are not recorded — neither here nor in the \
+                   device's own audit.",
             caption: "The console's own audit lines.",
             filtered: filter.is_active(),
             segment: page::LogSegment::Actions,
