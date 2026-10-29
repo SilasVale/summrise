@@ -230,7 +230,9 @@ for (const width of widths) {
     // measured at the browser's own viewport.
     await send("Emulation.setDeviceMetricsOverride", {
       width,
-      height: 900,
+      // The measurement viewport. A reviewer who wants a taller picture (the landing shot has to hold
+      // three device rows) asks for one; the gate itself always measures the window it was given.
+      height: Number(process.env.LAYOUT_VIEWPORT_HEIGHT || 900),
       deviceScaleFactor: 1,
       // `mobile: true` hands layout to the page's meta viewport, which is how a 1200px element in a
       // bare test page measured a 1208px viewport at width 390. The gate measures the CSS viewport

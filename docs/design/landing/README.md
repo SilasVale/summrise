@@ -77,6 +77,12 @@ own review renderer (the sanitized fixture, so the devices are STUDIO-PC / LAB-P
 ids are fabricated), and cut above the status strip so no build number is baked into a marketing
 asset. One picture, no carousel, no device mockup around it — the same rule as the terminal.
 
+It is regenerated, not redrawn. 2026-10-29: the console grew a line under each device (an outage that
+ended, a machine that has been gone since a time), which pushed the third device out of the 900 px
+viewport the shot used to be cut from. The gate takes `LAYOUT_VIEWPORT_HEIGHT=940`, the shot is cut at
+`height - 28` (the status strip), and `index.html` carries the new `height` so the page does not jump
+before the image loads.
+
 ## What would make this page wrong
 
 If the download has to be hosted by the product instead of a releases page, or if a second audience
