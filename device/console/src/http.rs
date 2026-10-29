@@ -3880,14 +3880,21 @@ async fn next_browser_page(
         .collect();
     let mut shot = None;
     if let Some(first) = rows.first() {
-        if let Ok(text) = device_tool(
-            &app,
-            &device_id,
-            "browser.screenshot",
-            json!({ "target": first.id }),
+        // **THE THUMBNAIL MUST NOT HOLD THE PAGE.** On a live device this call has been measured at
+        // the full command bound (10 s) before the page was sent; the capture is one target's
+        // still, and the pane's pump loads a live frame a moment later. A short bound keeps the
+        // page responsive and lets the pump do its job.
+        let capture = tokio::time::timeout(
+            std::time::Duration::from_millis(1_500),
+            device_tool(
+                &app,
+                &device_id,
+                "browser.screenshot",
+                json!({ "target": first.id }),
+            ),
         )
-        .await
-        {
+        .await;
+        if let Ok(Ok(text)) = capture {
             let capture: Value = serde_json::from_str(&text).unwrap_or(Value::Null);
             let format = capture["format"].as_str().unwrap_or("png");
             if let Some(data) = capture["data"].as_str() {
