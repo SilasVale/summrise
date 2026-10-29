@@ -61,6 +61,11 @@ if [ -z "$browser" ]; then
 fi
 
 pages="$out/pages"
+# **A STALE PAGE IS A PAGE THE GATE READS.** The renderer writes into this directory and never
+# removes anything, so a page deleted from the product stayed in an old output directory and the
+# layout gate measured it (state.html, written 2026-10-28, counted again on 2026-10-29). The
+# directory is the run's own; emptying it is what makes the gate measure this build.
+rm -rf "$pages"
 mkdir -p "$pages"
 export SUMMRISE_PAGE_DIR="$pages"
 

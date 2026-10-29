@@ -354,6 +354,10 @@ body.login { margin:0; background:var(--bg); }
 dd .mono { overflow-wrap:anywhere; }
 .file-name { display:inline-flex; align-items:center; min-height:24px; font-weight:500; }
 .cmd-line { white-space:pre-wrap; word-break:break-all; }
+/* **THE LIST IS AN INDEX, NOT THE COMMAND.** A wrapped 400-character command makes one row 900 px
+   tall on the live Runs page (measured); two lines identify it, the row links to the run's own page
+   where the command is whole, and the title shows it on hover. */
+.runs-table .cmd-line { display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
 .url { word-break:break-all; }
 .mini-usage { display:flex; align-items:center; gap:8px; min-width:104px; font-size:12px; }
 .mini-bar { display:block; flex:0 0 72px; height:4px; overflow:hidden; border-radius:999px; background:var(--panel-3); }
@@ -2686,7 +2690,7 @@ pub(super) fn runs(
                             tr {
                                 td class="nowrap" { (stamp(row.started_at_ms)) }
                                 td {
-                                    a class="mono cmd-line" href=(format!("{base}?run={}", encode(&row.id))) { (row.command_line) }
+                                    a class="mono cmd-line" href=(format!("{base}?run={}", encode(&row.id))) title=(row.command_line) { (row.command_line) }
                                 }
                                 td class="num" { (row.duration_ms) " ms" }
                                 td { (exit_chip(row.exit_code, row.timed_out)) }
@@ -5266,8 +5270,13 @@ mod tests {
                 timed_out: false,
             },
             RunRow {
+                // A long command is what a live Runs page actually holds: the review set showed only
+                // short ones, so the row that is nine hundred pixels tall was never looked at.
                 id: format!("run-{}", 0),
-                command_line: "Get-Service Spooler".to_owned(),
+                command_line: "powershell.exe -NoProfile -Command $ProgressPreference='SilentlyContinue'; \
+                               Invoke-WebRequest -UseBasicParsing http://127.0.0.1:18099/ -SessionVariable s; \
+                               $r = Invoke-WebRequest -UseBasicParsing http://127.0.0.1:19000/next/runs -WebSession $s"
+                    .to_owned(),
                 started_at_ms: 1_793_058_100_000,
                 duration_ms: 286,
                 exit_code: Some(0),
