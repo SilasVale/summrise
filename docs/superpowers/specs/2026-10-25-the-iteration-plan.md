@@ -366,7 +366,18 @@ running and answering CDP, and only `list` is slow. The console now waits 3 s fo
 the targets are unknown (it answered in 3.0 s instead of 10.0 s, measured), rather than hanging the
 page; that bound is a usability fix, not the root fix.
 
-**Two hypotheses tested and disproved on 2026-10-29**, so the next attempt does not repeat them:
+**FOUND IT, 2026-10-29: the page was never slow.** Fetched with a session cookie and no device
+browser in the way — `Invoke-WebRequest … -WebSession` on the console host — `/next/browser/<id>`
+answers in **34 ms** with its five targets and no notice in the HTML. The ten seconds were
+measurement bias: every load I timed went through `/next/browser` being navigated *by the device's own
+browser tool*, and that tool call holds the device's browser while the page's `browser.list` waits
+behind it. The serialized tool call is the device by design; the page had nothing to do with it.
+
+The 3 s bound stays as a backstop. The sentence that explained it — "it starts its browser on the
+first call, and that launch can take longer" — was written on the strength of a false measurement and
+is deleted; the page says only that the device did not answer.
+
+**Two hypotheses tested and disproved before that**, so the next attempt does not repeat them:
 
 - *"The launcher exits and the handle lies."* A fresh headless Chromium launched on the device
   (`--remote-debugging-port=57999`, own profile) stayed alive (`alive=True`) and answered

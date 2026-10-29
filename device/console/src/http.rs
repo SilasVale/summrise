@@ -3890,10 +3890,13 @@ async fn next_browser_page(
             Vec::new()
         }
         Err(_) => {
+            // **NO EXPLANATION, BECAUSE THE ONE I WROTE WAS WRONG.** This bound was added while the
+            // page measured 10 s; the measurement was taken through the device's own browser, whose
+            // tool calls serialize with the page's `browser.list`. Fetched with a session cookie and
+            // no device browser in the way, the page answers in 34 ms. The bound stays as a
+            // backstop; the excuse for it does not.
             error = Some(
-                "The device did not answer within 3 seconds; its browser targets are unknown. It \
-                 starts its browser on the first call, and that launch can take longer than this \
-                 page waits — open the page again once the device has finished starting it."
+                "The device did not answer within 3 seconds; its browser targets are unknown."
                     .to_owned(),
             );
             Vec::new()
