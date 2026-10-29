@@ -176,6 +176,7 @@ label.check { display:flex; align-items:center; gap:8px; min-height:24px; margin
 /* ---- empty states and pre ---- */
 pre, code { font-family:var(--mono); }
 code { padding:1px 5px; border-radius:var(--radius-xs); background:var(--panel-2); color:var(--muted); font-size:13px; }
+.state-doc { max-height:360px; overflow:auto; }
 pre.file { margin:0; padding:16px 18px; border:0; background:var(--panel); color:var(--ink); font-family:var(--mono); font-size:13px; line-height:1.65; white-space:pre-wrap; word-break:break-word; overflow:auto; }
 pre.out { margin:0; padding:14px 16px; background:#0f1014; color:#d9d5ce; font-family:var(--mono); font-size:12px; line-height:1.6; white-space:pre-wrap; word-break:break-word; overflow:auto; max-height:520px; }
 pre.out.stderr { color:#ffb4ad; }
@@ -2948,7 +2949,11 @@ pub(super) fn system(
                     "generation it booted, and how its last update ended."
                 }
                 @if let Some(state) = state {
-                    pre class="file" tabindex="0" { (state) }
+                    // **THE DOCUMENT IS A CARD, NOT THE PAGE.** On the live page this block measured
+                    // 2883 px — 128 lines of JSON — and pushed the processes, the network test and
+                    // the restart form below the fold. It scrolls inside its own boundary now, the
+                    // same way every other code block on this console does.
+                    pre class="file state-doc" tabindex="0" { (state) }
                 } @else {
                     // A card that silently disappears reads as "this device has no state"; it has
                     // one, and the console could not read it.
@@ -4334,6 +4339,27 @@ mod tests {
         }
     }
 
+    /// A state document the size the device actually writes: every section the console shows, plus
+    /// enough process and session lines that the block is taller than a screen.
+    fn long_state_document() -> String {
+        let mut text = String::from(
+            "{\n  \"schema\": 1,\n  \"health\": \"ok\",\n  \"ready\": true,\n  \"processes\": [\n",
+        );
+        for pid in 1000..1085 {
+            text.push_str(&format!(
+                "    {{ \"pid\": {pid}, \"name\": \"svchost.exe\", \"memory_kb\": 20480 }},\n"
+            ));
+        }
+        text.push_str("  ],\n  \"sessions\": [\n");
+        for n in 0..20 {
+            text.push_str(&format!(
+                "    {{ \"id\": \"session-{n}\", \"state\": \"active\", \"user\": \"operator\" }},\n"
+            ));
+        }
+        text.push_str("  ],\n  \"monitors\": []\n}");
+        text
+    }
+
     fn sample_vitals() -> Vitals {
         Vitals {
             machine: "STUDIO-PC".to_owned(),
@@ -5584,7 +5610,9 @@ mod tests {
                     "csrf",
                     "0.3.72",
                     Some("Ended pwsh.exe (pid 1188)."),
-                    Some("{\n  \"health\": \"ok\",\n  \"ready\": true\n}"),
+                    // The live state document is 128 lines; a two-line fixture could never show the
+                    // block that made the page 2883 px tall, so the gate could not see it either.
+                    Some(&long_state_document()),
                 ),
             ),
             (

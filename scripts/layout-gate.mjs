@@ -161,14 +161,27 @@ const probe = `(() => {
     }
   });
   const docOverflow = doc.scrollWidth > w + 1;
+  // **ONE BLOCK MUST NOT SWALLOW THE PAGE.** Width overflow was the only thing measured, so a single
+  // pre block 2883 px tall — 128 lines of JSON on the live System page — passed every gate while pushing
+  // the rest of the page below the fold. Only blocks that are a unit of content are counted: a table
+  // is tall because it has rows, a code block is tall because nobody bounded it.
+  const tall = [];
+  document.querySelectorAll("pre, img, blockquote, .code-block").forEach((el) => {
+    const r = el.getBoundingClientRect();
+    if (r.height > innerHeight * 2) {
+      const cls = String(el.className || "").trim().replace(/\\s+/g, ".");
+      tall.push(el.tagName.toLowerCase() + (cls ? "." + cls : "") + " h=" + Math.round(r.height));
+    }
+  });
   return JSON.stringify({
     width: w,
     docOverflow,
     scrollWidth: doc.scrollWidth,
     h1: document.querySelectorAll("h1").length,
-    overflow: docOverflow || panes.length > 0 || clipped.length > 0,
+    overflow: docOverflow || panes.length > 0 || clipped.length > 0 || tall.length > 0,
     panes: panes.slice(0, 4),
-    clipped: clipped.slice(0, 4)
+    clipped: clipped.slice(0, 4),
+    tall: tall.slice(0, 4)
   });
 })()`;
 
@@ -242,7 +255,14 @@ for (const width of widths) {
     }
     if (process.env.LAYOUT_DEBUG) console.log(name, width, answer.result.result.value);
     const note = result.overflow
-      ? `overflow ${result.scrollWidth}>${result.width} panes=${(result.panes || []).join(",")} clipped=${(result.clipped || []).join(",")}`
+      ? [
+          result.docOverflow ? `overflow ${result.scrollWidth}>${result.width}` : "",
+          (result.panes || []).length ? `panes=${result.panes.join(",")}` : "",
+          (result.clipped || []).length ? `clipped=${result.clipped.join(",")}` : "",
+          (result.tall || []).length ? `tall=${result.tall.join(",")}` : ""
+        ]
+          .filter(Boolean)
+          .join(" ")
       : result.h1 !== 1
         ? `h1=${result.h1}`
         : "";
