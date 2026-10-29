@@ -135,7 +135,12 @@ const COMPONENTS: &str = r##"  * { box-sizing: border-box; }
     body { padding: 16px 12px 32px; }
     dl { grid-template-columns: 1fr; gap: 4px; }
     dt { margin-top: 8px; }
-    header { flex-wrap: wrap; }
+    /* **A WRAPPED BUTTON NEEDS A HEADER THAT GROWS.** The shared `.topbar` is a fixed 56 px, so the
+       action that wraps to its own line at 390 px overflowed it by 10 px and printed on top of the
+       first paragraph (measured: button bottom 106, paragraph top 96). */
+    /* `.topbar` is the class that sets the fixed height, so the selector that lifts it must carry the
+       class too: a bare `header` rule loses to `.topbar` on specificity. */
+    header.topbar { flex-wrap: wrap; height: auto; min-height: 56px; padding: 8px 12px; row-gap: 6px; }
     header button { margin-left: 0; }
   }
 "##;

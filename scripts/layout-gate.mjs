@@ -165,6 +165,29 @@ const probe = `(() => {
   // pre block 2883 px tall — 128 lines of JSON on the live System page — passed every gate while pushing
   // the rest of the page below the fold. Only blocks that are a unit of content are counted: a table
   // is tall because it has rows, a code block is tall because nobody bounded it.
+  // **A BOX THAT DOES NOT HOLD ITS CONTENT.** The panel's action wrapped inside a fixed 56 px header
+  // and printed on top of the paragraph below it: no width overflow, no clipping, nothing the width
+  // rule could see. A container with overflow:visible whose flow children end below it is the
+  // shape of that bug. Absolutely positioned children are overlays by design (menus, popups) and are
+  // not counted.
+  const spill = [];
+  document.querySelectorAll("*").forEach((el) => {
+    const cs = getComputedStyle(el);
+    if (cs.display === "none" || cs.visibility === "hidden" || cs.overflow !== "visible") return;
+    const box = el.getBoundingClientRect();
+    if (box.height <= 0) return;
+    let bottom = 0;
+    for (const child of el.children) {
+      const style = getComputedStyle(child);
+      if (style.position === "absolute" || style.position === "fixed" || style.display === "none") continue;
+      const r = child.getBoundingClientRect();
+      if (r.height > 0) bottom = Math.max(bottom, r.bottom);
+    }
+    if (bottom > box.bottom + 4) {
+      const cls = String(el.className || "").trim().replace(/\s+/g, ".");
+      spill.push(el.tagName.toLowerCase() + (cls ? "." + cls : "") + " by " + Math.round(bottom - box.bottom));
+    }
+  });
   const tall = [];
   document.querySelectorAll("pre, img, blockquote, .code-block").forEach((el) => {
     const r = el.getBoundingClientRect();
@@ -178,10 +201,11 @@ const probe = `(() => {
     docOverflow,
     scrollWidth: doc.scrollWidth,
     h1: document.querySelectorAll("h1").length,
-    overflow: docOverflow || panes.length > 0 || clipped.length > 0 || tall.length > 0,
+    overflow: docOverflow || panes.length > 0 || clipped.length > 0 || tall.length > 0 || spill.length > 0,
     panes: panes.slice(0, 4),
     clipped: clipped.slice(0, 4),
-    tall: tall.slice(0, 4)
+    tall: tall.slice(0, 4),
+    spill: spill.slice(0, 4)
   });
 })()`;
 
@@ -259,7 +283,8 @@ for (const width of widths) {
           result.docOverflow ? `overflow ${result.scrollWidth}>${result.width}` : "",
           (result.panes || []).length ? `panes=${result.panes.join(",")}` : "",
           (result.clipped || []).length ? `clipped=${result.clipped.join(",")}` : "",
-          (result.tall || []).length ? `tall=${result.tall.join(",")}` : ""
+          (result.tall || []).length ? `tall=${result.tall.join(",")}` : "",
+          (result.spill || []).length ? `spill=${result.spill.join(",")}` : ""
         ]
           .filter(Boolean)
           .join(" ")
