@@ -7,6 +7,40 @@
 (() => {
   const badge = document.getElementById("approvals-badge");
   const announce = document.getElementById("approvals-announce");
+
+  // **THE QUESTION HAS A CLOCK.** A held call is refused after ninety seconds, and the row said when
+  // it started — leaving the operator to subtract from a paragraph. The server writes the deadline on
+  // each row (`data-expires-at`, Unix ms); this counts it down, and at zero stops inviting a click
+  // that the console would only refuse. Without JavaScript the same span is the absolute deadline,
+  // which is still true.
+  const clocks = Array.from(document.querySelectorAll("[data-expires-at]"));
+  const tick = () => {
+    const now = Date.now();
+    for (const clock of clocks) {
+      const expires = Number(clock.getAttribute("data-expires-at"));
+      if (!Number.isFinite(expires)) continue;
+      const left = Math.ceil((expires - now) / 1000);
+      if (left > 0) {
+        clock.textContent = left + "s left";
+        continue;
+      }
+      clock.textContent = "expired";
+      const row = clock.closest("tr");
+      if (row && !row.classList.contains("expired")) {
+        row.classList.add("expired");
+        row.querySelectorAll("button").forEach((button) => {
+          button.disabled = true;
+        });
+      }
+    }
+  };
+  if (clocks.length > 0) {
+    tick();
+    setInterval(() => {
+      if (!document.hidden) tick();
+    }, 1000);
+  }
+
   // **THE MENUS CLOSE THE WAY MENUS DO.** None of the page's disclosures had an Escape or an
   // outside click, so a keyboard user could open a row menu and leave it open over the next row's
   // controls. One delegated handler, no per-menu state.

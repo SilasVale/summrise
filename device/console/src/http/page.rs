@@ -242,6 +242,9 @@ body.terminal .content { display:flex; flex-direction:column; min-height:0; over
 .approval-say { margin:0 0 6px; font-size:13px; }
 .asked-by { margin:4px 0 0; }
 .asked-by strong { color:var(--ink); font-weight:600; }
+.approval-clock { display:block; color:var(--muted); font-variant-numeric:tabular-nums; }
+.approvals-table tr.expired .approval-clock { color:var(--danger); }
+.approvals-table tr.expired td { opacity:.65; }
 .preset-list { list-style:none; margin:0 0 10px; padding:0; display:flex; flex-direction:column; }
 .preset-row { display:flex; align-items:center; gap:8px; padding:6px 0; border-bottom:1px solid var(--line); }
 .preset-row:last-child { border-bottom:0; }
@@ -1269,6 +1272,9 @@ pub(super) struct ApprovalRow {
     pub(super) tool: String,
     pub(super) arguments: String,
     pub(super) created_ms: u64,
+    /// When the question stops being answerable. The page writes it on the row so the operator can
+    /// see the seconds left instead of subtracting them from the paragraph above.
+    pub(super) expires_ms: u64,
     /// The credential that asked, by the name its operator gave it. The choice is "approve the AI
     /// client I meant", so the card has to say which one asked — the audit has always named the
     /// token, and the decision surface did not.
@@ -1354,7 +1360,19 @@ pub(super) fn dashboard(
                                         }
                                         pre class="code-block" { (row.arguments) }
                                     }
-                                    td class="nowrap" { (stamp(row.created_ms)) }
+                                    td class="nowrap" {
+                                        (stamp(row.created_ms))
+                                        // **THE QUESTION HAS A CLOCK.** Ninety seconds is short
+                                        // enough that "waiting since 03:58:20" is not an answer to
+                                        // "how long have I got"; the script counts this down, and
+                                        // without it the deadline is still a true absolute time.
+                                        // Time of day only, on its own line: the row lives ninety
+                                        // seconds, so the date is the one the line above carries, and
+                                        // repeating it is what made the cell wider than the table.
+                                        span class="approval-clock" data-expires-at=(row.expires_ms.to_string()) {
+                                            "expires " (time_of_day(row.expires_ms))
+                                        }
+                                    }
                                     td class="num" {
                                         div class="form-inline" {
                                             // **"APPROVE" WITH NO CONTEXT IS THE WRONG BUTTON.** A screen
@@ -2553,6 +2571,18 @@ pub(super) struct RunResult {
 }
 
 /// A UTC stamp from Unix milliseconds, without a date library: `MM-DD HH:MM:SS UTC`.
+/// The time of day in UTC, for a question that lives ninety seconds: the date is the one the row
+/// already prints, and repeating it is what made the column wider than the table at 800 px.
+fn time_of_day(ms: u64) -> String {
+    let seconds = (ms / 1000) % 86_400;
+    format!(
+        "{:02}:{:02}:{:02}",
+        seconds / 3600,
+        (seconds % 3600) / 60,
+        seconds % 60
+    )
+}
+
 fn stamp(ms: u64) -> String {
     let seconds = ms / 1000;
     let days = seconds / 86_400;
@@ -5038,6 +5068,7 @@ mod tests {
             tool: "terminal.create".to_owned(),
             arguments: "{\"kind\":\"pty\"}".to_owned(),
             created_ms: 1_791_000_000_000,
+            expires_ms: 1_791_000_090_000,
             token_name: Some("claude-code".to_owned()),
             token_id: Some("0".repeat(64)),
         }];
@@ -5067,6 +5098,16 @@ mod tests {
             "the one accent is the approval"
         );
         assert_eq!(quiet.matches("class=\"btn btn-primary").count(), 1);
+        // The deadline is the data the script counts down: the row carries the exact instant, and
+        // the same span already says it as a time for anyone without the script.
+        assert!(
+            waiting.contains("data-expires-at=\"1791000090000\""),
+            "the row carries the deadline: {waiting}"
+        );
+        assert!(
+            waiting.contains("expires "),
+            "without the script the deadline is a true absolute time: {waiting}"
+        );
     }
 
     /// **ONE DESTINATION FOR THE CONSOLE'S RECORD.** The fleet footer offered two bare links
@@ -5572,6 +5613,7 @@ mod tests {
                         tool: "terminal.create".to_owned(),
                         arguments: "{\n  \"kind\": \"pty\"\n}".to_owned(),
                         created_ms: 1_790_999_900_000,
+                        expires_ms: 1_790_999_990_000,
                         token_name: Some("claude-code".to_owned()),
                         token_id: Some("9f2c".to_owned() + &"0".repeat(60)),
                     }],

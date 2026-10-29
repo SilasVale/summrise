@@ -9998,6 +9998,12 @@ async fn a_destructive_token_call_is_held_and_runs_when_approved() {
             )),
             "the name carries the id a record can be matched to: {dashboard}"
         );
+        // The deadline rides with the row, so the page can show the seconds left instead of
+        // leaving the operator to subtract from the paragraph above.
+        assert!(
+            dashboard.contains("data-expires-at=\""),
+            "the held row carries its deadline: {dashboard}"
+        );
         let (_, _, count) = send_text(
             fixture.app(),
             get_with_cookie("/next/approvals/count", &cookie),

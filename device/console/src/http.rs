@@ -5496,6 +5496,7 @@ async fn proxy_reply(
                     // Resolved now, while the credential exists: the card outlives a revocation,
                     // and the operator still deserves to know whose call they are answering.
                     let token_name = token_id.and_then(|id| lock(&app.tokens).find_by_id(id));
+                    let asked_ms = (app.now)();
                     lock(&app.approvals).insert(
                         id.clone(),
                         Pending {
@@ -5504,7 +5505,12 @@ async fn proxy_reply(
                                 device_id: device_id.to_owned(),
                                 tool: tool.clone().unwrap_or_default(),
                                 arguments: arguments_summary(&held),
-                                created_ms: (app.now)(),
+                                created_ms: asked_ms,
+                                // The deadline travels with the answer's data rather than with the
+                                // page: the row says when it stops being askable, and the page's
+                                // script turns that into the seconds the operator has left.
+                                expires_ms: asked_ms
+                                    .saturating_add(APPROVAL_TTL.as_millis() as u64),
                                 token_name: token_name.as_ref().map(|token| token.name.clone()),
                                 token_id: token_id.map(str::to_owned),
                             },
