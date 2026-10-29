@@ -1905,17 +1905,20 @@ pub(super) fn logs(view: Logs<'_>) -> Markup {
                                     }
                                 }
                                 td {
-                                    @if let Some(tool) = row["tool"].as_str().filter(|tool| !tool.is_empty()) {
-                                        code { (tool) }
-                                    } @else {
-                                        span class="muted" { "—" }
-                                    }
                                     // **THE LINE SAYS WHICH CREDENTIAL.** The JSONL has carried
                                     // `token_id` since tokens existed and the page never drew it, so
                                     // two tokens on one device left identical rows. The id is
                                     // resolved to the name here; a token that is gone shows its
                                     // short id, because the line is still true.
-                                    @if let Some(token) = row["token_id"].as_str().filter(|id| !id.is_empty()) {
+                                    @let token = row["token_id"].as_str().filter(|id| !id.is_empty());
+                                    @if let Some(tool) = row["tool"].as_str().filter(|tool| !tool.is_empty()) {
+                                        code { (tool) }
+                                    } @else if token.is_none() {
+                                        // A call with no tool and no credential (a channel event)
+                                        // has nothing to say here; one with a credential says it.
+                                        span class="muted" { "—" }
+                                    }
+                                    @if let Some(token) = token {
                                         span class="sub" {
                                             "via " (tokens
                                                 .iter()
