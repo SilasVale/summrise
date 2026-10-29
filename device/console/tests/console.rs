@@ -1509,6 +1509,40 @@ async fn health_counts_a_connected_device_as_online() {
     );
 }
 
+/// **THE FIELD MOVES BOTH WAYS.** The incident of 2026-10-29 was a channel that went away; the test
+/// above proves an open channel counts. This one proves a channel that drops stops counting — the
+/// state an operator (or a supervisor) needs to see, and the one the old `devices` count could not
+/// express.
+#[tokio::test]
+async fn health_stops_counting_a_device_whose_channel_closed() {
+    let fixture = Fixture::new("health-offline");
+    let server = TestServer::start(&fixture.console).await;
+    let (_device_id, _token, device) =
+        connected_device(&fixture, &server, &signing_key(0x7a)).await;
+
+    let (_, body) = send(fixture.app(), get("/health", None)).await;
+    assert_eq!(body["online"], json!(1), "the channel is open: {body}");
+
+    drop(device);
+
+    // The close is asynchronous: the channel task notices the socket ended.
+    let mut last = body;
+    for _ in 0..40 {
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        let (_, body) = send(fixture.app(), get("/health", None)).await;
+        if body["online"] == json!(0) {
+            assert_eq!(
+                body["devices"],
+                json!(1),
+                "the device is still known: {body}"
+            );
+            return;
+        }
+        last = body;
+    }
+    panic!("the dropped channel still counts as online: {last}");
+}
+
 #[tokio::test]
 async fn a_grant_shorter_than_a_minute_is_400_and_a_minute_is_fine() {
     let fixture = Fixture::new("grant-minimum-expiry");
