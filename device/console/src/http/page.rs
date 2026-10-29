@@ -2563,7 +2563,11 @@ pub(super) fn runs(
                         }
                         div class="field span-2" {
                             label for="args" { "Arguments, one per line" }
-                            textarea id="args" name="args" rows="3" placeholder="-NoProfile -Command Get-Date" {}
+                            // **THE PLACEHOLDER SHOWED THE WRONG SHAPE.** The field takes one
+                            // argument per line, and its example put three tokens on one line; a
+                            // live run pasted that way came back as `console-live-check"` because the
+                            // platform quoted the whole line as one argument.
+                            textarea id="args" name="args" rows="3" placeholder="-NoProfile\n-Command\nGet-Date" {}
                         }
                         div class="field" {
                             label for="cwd" { "Working directory (optional)" }
