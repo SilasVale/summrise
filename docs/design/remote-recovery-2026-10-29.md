@@ -45,10 +45,21 @@ it starts it. The script's logic was run against a live Windows service before i
 service exits 0 untouched; a stopped one (tested on BITS, which is safe to stop) is started and the
 exit code is 0.
 
-The generated `repair.cmd` was also installed by hand on DESKTOP-9VH92BJ — the machine this note is
-about — with the task recreated at five minutes; it ran once with result 0. The other two machines
-keep the start-only task until the next install, so the fleet is deliberately uneven for now and the
-installer is the thing that makes it even.
+The generated `repair.cmd` was also installed by hand on all three machines, with the task recreated
+at five minutes: DESKTOP-9VH92BJ (`C:\SummriseInstall`), DESKTOP-14RJCR8 (`C:\SummriseCanary`) and
+DESKTOP-CPH4KB2, which had **no repair task at all** — its install came from 0.3.52. Every one of
+them reports `PT5M` and `last result 0`.
+
+Then the loop was proved end to end, on the least critical machine (DESKTOP-CPH4KB2):
+
+- a detached script stopped `SummriseLaunch`;
+- `/health` went from `online: 3` to `online: 2` within a minute;
+- **2 minutes 31 seconds later it was back at `online: 3`**, with no one touching the machine;
+- the task's own log says `2026/10/29 15:42:01.79 start exit 0` — the five-minute task found the
+  service stopped and started it.
+
+That is the incident of 02:26 replayed with the fix in place, and the outcome is the one the product
+needs: the machine came back on its own.
 
 A deliberate stop is undone within five minutes. Someone taking a machine down on purpose disables
 the task first (`schtasks /change /tn SummriseRepair /disable`) and re-enables it afterwards; the
