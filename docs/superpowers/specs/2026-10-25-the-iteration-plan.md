@@ -360,6 +360,12 @@ The fix is device-side and needs the launch path read, not guessed: either adopt
 user session already runs, or make the service-session launch fail fast with a sentence the console
 can show. It is recorded here so it is not found again from scratch.
 
+One more measurement narrows it: while the page's `browser.list` sits at the bound, the pane's
+`browser.cast` calls are answered every ~205 ms in the device's own audit log — so the browser is
+running and answering CDP, and only `list` is slow. The console now waits 3 s for the list and says
+the targets are unknown (it answered in 3.0 s instead of 10.0 s, measured), rather than hanging the
+page; that bound is a usability fix, not the root fix.
+
 ### What is deliberately not done
 
 - **The device fleet still runs 0.3.152.** A canary 0.3.167 was built, signed and verified against a

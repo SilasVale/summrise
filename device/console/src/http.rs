@@ -3862,10 +3862,27 @@ async fn next_browser_page(
         return StatusCode::NOT_FOUND.into_response();
     };
     let mut error = query.error.clone();
-    let targets = match device_tool(&app, &device_id, "browser.list", json!({})).await {
-        Ok(text) => serde_json::from_str::<Vec<Value>>(&text).unwrap_or_default(),
-        Err(response) => {
+    // **THE PAGE DOES NOT WAIT TEN SECONDS FOR A LIST.** On the live device this call sits at the
+    // command bound while the device's browser starts; three seconds is long enough for an answer
+    // and short enough that the page still opens, with the list named unknown rather than empty.
+    let listed = tokio::time::timeout(
+        std::time::Duration::from_secs(3),
+        device_tool(&app, &device_id, "browser.list", json!({})),
+    )
+    .await;
+    let targets = match listed {
+        Ok(Ok(text)) => serde_json::from_str::<Vec<Value>>(&text).unwrap_or_default(),
+        Ok(Err(response)) => {
             error = Some(refusal_sentence(*response).await);
+            Vec::new()
+        }
+        Err(_) => {
+            error = Some(
+                "The device did not answer within 3 seconds; its browser targets are unknown. It \
+                 starts its browser on the first call, and that launch can take longer than this \
+                 page waits — open the page again once the device has finished starting it."
+                    .to_owned(),
+            );
             Vec::new()
         }
     };
