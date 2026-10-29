@@ -1940,7 +1940,11 @@ pub(super) fn terminal(
                 form id="terminal-form" class="terminal-form" {
                     label for="kind" class="toolbar-label" { "Kind" }
                     select id="kind" name="kind" {
-                        option value="pty" selected[preset_kind == "pty"] { "pty — a shell on this machine" }
+                        // **THE SHELL IS THE DEVICE'S, NOT YOURS.** A pty runs as the account the
+                        // device process runs under — the service's account when it was installed as
+                        // one — so a prompt can say `systemprofile` where a person expected their own
+                        // profile. The chooser says whose shell it is before it opens.
+                        option value="pty" selected[preset_kind == "pty"] { "pty — a shell as the device's account" }
                         option value="ssh" selected[preset_kind == "ssh"] { "ssh — a host this device can reach" }
                         option value="serial" selected[preset_kind == "serial"] { "serial — an OS port" }
                     }
