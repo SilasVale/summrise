@@ -1437,7 +1437,17 @@ pub(super) fn dashboard(
                                             }
                                         }
                                         span class="meta-sep" aria-hidden="true" { "·" }
-                                        span class="device-seen" { (ago(now_ms, device.last_seen_ms)) }
+                                        span class="device-seen" {
+                                            // "51m ago" says when it was last heard from; an offline row is
+                                            // answering a different question — since when has it been gone.
+                                            @if device.online {
+                                                (ago(now_ms, device.last_seen_ms))
+                                            } @else if device.last_seen_ms == 0 {
+                                                "never seen"
+                                            } @else {
+                                                "offline since " (stamp(device.last_seen_ms))
+                                            }
+                                        }
                                         @if !device.online {
                                             @if let Some(retry) = &device.last_attempt {
                                                 // WHY IT IS NOT CONNECTED, in the place the operator looks: "offline"
@@ -4664,6 +4674,34 @@ mod tests {
         assert!(
             !page.contains("stale note"),
             "a device that is online does not report an old failure: {page}"
+        );
+    }
+
+    /// **AN OFFLINE ROW ANSWERS "SINCE WHEN".** The fleet row printed `51m ago` — when the device was
+    /// last heard from — for a device that is not connected, which is a different question. On the
+    /// incident of 2026-10-29 the console knew the answer and did not print it.
+    #[test]
+    fn an_offline_row_says_since_when_it_has_been_offline() {
+        let mut offline = view('5', Some("workshop"), false);
+        offline.last_seen_ms = 1_790_000_000_000;
+        let devices = [offline];
+        let page = dashboard(
+            &devices,
+            "00",
+            "0.1.0",
+            Notes::default(),
+            &[],
+            &[],
+            1_791_000_000_000,
+        )
+        .into_string();
+        assert!(
+            page.contains("offline since "),
+            "the row says since when: {page}"
+        );
+        assert!(
+            !page.contains("ago</span>"),
+            "and not how long ago it was seen: {page}"
         );
     }
 
