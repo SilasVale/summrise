@@ -345,6 +345,21 @@ clippy clean across nine crates), the landing's own gate (78 bilingual strings, 
 the console's 30-page screenshot set at 390/800/1280, the panel's new review renderer, and the live
 console at each deploy.
 
+### An open finding: the Browser view costs ten seconds on the live device
+
+Measured 2026-10-29 against DESKTOP-9VH92BJ: `/next/browser/<id>` answers in 10.0 s. The thumbnail
+call was bounded to 1.5 s first and the page still took 10.0 s, so the cost is `browser.list` itself.
+Chrome's own `/json/list` answers in 93 ms on the device, so it is not the CDP read: the device's
+`BrowserRegistry::list` **launches Chrome when none is running** (the code says so), and on this
+machine a launch does not finish inside the tool's 10 s bound — two profiles exist, a run-scoped one
+under `C:\ProgramData\Summrise\chrome-profile\run-…` and a user-session one under
+`%LOCALAPPDATA%\Summrise\chrome`, and the running Chromium (port 57251) lives in the latter. The
+console renders seven targets after the wait, so the launch does succeed, slowly.
+
+The fix is device-side and needs the launch path read, not guessed: either adopt the browser the
+user session already runs, or make the service-session launch fail fast with a sentence the console
+can show. It is recorded here so it is not found again from scratch.
+
 ### What is deliberately not done
 
 - **The device fleet still runs 0.3.152.** A canary 0.3.167 was built, signed and verified against a
