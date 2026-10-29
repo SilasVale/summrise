@@ -366,6 +366,20 @@ running and answering CDP, and only `list` is slow. The console now waits 3 s fo
 the targets are unknown (it answered in 3.0 s instead of 10.0 s, measured), rather than hanging the
 page; that bound is a usability fix, not the root fix.
 
+**Two hypotheses tested and disproved on 2026-10-29**, so the next attempt does not repeat them:
+
+- *"The launcher exits and the handle lies."* A fresh headless Chromium launched on the device
+  (`--remote-debugging-port=57999`, own profile) stayed alive (`alive=True`) and answered
+  `/json/version` with 200 after three seconds. The registry's `alive()` (which trusts the child
+  handle) is not obviously wrong; the change that would have made it probe the endpoint was written,
+  tested green, and reverted because the experiment contradicted its rationale.
+- *"Chrome's `/json/list` is slow."* Measured directly on the device: 93 ms, then 0 ms warm.
+
+What remains: the registry's browser slot and the cast path share a mutex (`cast_slot` takes it while
+resolving a page endpoint, and `page_url` calls `targets()`), so a wedged resolve would make a later
+`list` wait behind it. That is the next thing to instrument — with timings inside the device, not
+guesses from outside it.
+
 ### What is deliberately not done
 
 - **The device fleet still runs 0.3.152.** A canary 0.3.167 was built, signed and verified against a
