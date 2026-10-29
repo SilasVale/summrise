@@ -241,6 +241,7 @@ body.terminal .content { display:flex; flex-direction:column; min-height:0; over
 .preset-panel { width:min(340px, calc(100vw - 96px)); padding:12px; }
 .approval-say { margin:0 0 6px; font-size:13px; }
 .asked-by { margin:4px 0 0; }
+.page-note { margin:10px 0 0; }
 .asked-by strong { color:var(--ink); font-weight:600; }
 .approval-clock { display:block; color:var(--muted); font-variant-numeric:tabular-nums; }
 .approvals-table tr.expired .approval-clock { color:var(--danger); }
@@ -1299,7 +1300,6 @@ pub(super) fn dashboard(
     now_ms: u64,
 ) -> Markup {
     let total = devices.len();
-    let online = devices.iter().filter(|device| device.online).count();
     // **THE ACCENT FOLLOWS ATTENTION.** Minting a code is the fleet's one action until a held call
     // exists: then that call is the thing to answer, and a second filled button would ask the
     // operator to choose between a decision that expires in ninety seconds and one that can wait.
@@ -1404,14 +1404,6 @@ pub(super) fn dashboard(
         p class="lead" {
             "Every device this console has enrolled, and the pages that act on it."
         }
-        // Who opened this page. An operator who was shown a token box for a secret they never had
-        // deserves to see that Cloudflare Access, not a token, signed them in.
-        @match notes.signer {
-            Some(email) => p class="small muted" {
-                "Signed in through Cloudflare Access as " strong { (email) } "."
-            },
-            None => p class="small muted" { "Signed in with this browser's session." },
-        }
         @if let Some(code) = notes.enroll {
             div class="callout" role="status" {
                 p {
@@ -1444,22 +1436,6 @@ pub(super) fn dashboard(
         }
         @if let Some(notice) = notes.notice {
             p class="alert notice" role="status" { (notice) }
-        }
-        @if !devices.is_empty() {
-            div class="stats" {
-                div class="stat" {
-                    p class="label" { "Devices" }
-                    p class="value" { (total) }
-                }
-                div class="stat" {
-                    p class="label" { "Online" }
-                    p class="value" { (online) }
-                }
-                div class="stat" {
-                    p class="label" { "Offline" }
-                    p class="value" { (total - online) }
-                }
-            }
         }
         section class="card" {
             (card_head(
@@ -1642,6 +1618,16 @@ pub(super) fn dashboard(
                     }
                 }
             }
+        }
+        // Who opened this page. An operator who was shown a token box for a secret they never had
+        // deserves to see that Cloudflare Access, not a token, signed them in — but it is a
+        // footnote: above the fleet it sat between the lede and the machines, in the one place the
+        // page is trying to show them.
+        @match notes.signer {
+            Some(email) => p class="small muted page-note" {
+                "Signed in through Cloudflare Access as " strong { (email) } "."
+            },
+            None => p class="small muted page-note" { "Signed in with this browser's session." },
         }
         @if !recent.is_empty() {
             section class="card" {
@@ -5037,6 +5023,12 @@ mod tests {
         assert!(
             page.contains("2 devices · 1 online"),
             "the status strip counts the fleet: {page}"
+        );
+        // **THE COUNT IS SAID ONCE.** Three stat cards repeated the strip's numbers — and the
+        // table's own chip — and pushed the machines the page exists to show below the fold.
+        assert!(
+            !page.contains("class=\"stats\""),
+            "the fleet does not repeat the strip's counts in cards: {page}"
         );
         let rows = between(&page, "<tbody>", "</tbody>");
         assert_eq!(
