@@ -2479,6 +2479,8 @@ struct FilesQuery {
     #[serde(default)]
     path: String,
     error: Option<String>,
+    /// The file a write just replaced, answered once on the page that redirected here.
+    wrote: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -2558,6 +2560,7 @@ async fn next_files_page(
             &hex::encode(&session.csrf),
             &app.version,
             error.as_deref(),
+            query.wrote.as_deref(),
         )
         .into_string(),
     )
@@ -2702,8 +2705,9 @@ async fn next_files_write(
         Ok(_) => {
             let directory = path.rsplit_once('/').map(|(head, _)| head).unwrap_or("");
             Redirect::to(&format!(
-                "/next/files/{device_id}?path={}",
-                page::encode(directory)
+                "/next/files/{device_id}?path={}&wrote={}",
+                page::encode(directory),
+                page::encode(&form.path)
             ))
             .into_response()
         }

@@ -2273,6 +2273,7 @@ pub(super) fn files(
     csrf: &str,
     version: &str,
     error: Option<&str>,
+    wrote: Option<&str>,
 ) -> Markup {
     let base = format!("/next/files/{}", device.id);
     let count = entries.len();
@@ -2282,6 +2283,12 @@ pub(super) fn files(
         }
         @if let Some(error) = error {
             p class="alert error" { (error) }
+        }
+        // **A WRITE THAT WORKED SAID NOTHING.** The page redirected to the directory and the file was
+        // simply there; an operator who just wrote something had to open it to find out. The error
+        // channel already existed; the success channel did not.
+        @if let Some(wrote) = wrote {
+            p class="alert notice" { "Wrote " code { (wrote) } "." }
         }
         @if !path.is_empty() {
             (breadcrumb(&trail_to(&base, path), last_segment(path)))
@@ -4520,7 +4527,7 @@ mod tests {
                     },
                 ),
             ),
-            ("Files", files(device, "", &[], "00", "0.1.0", None)),
+            ("Files", files(device, "", &[], "00", "0.1.0", None, None)),
             (
                 "Files",
                 file_text(device, "notes.txt", "text", "00", "0.1.0"),
@@ -4666,6 +4673,7 @@ mod tests {
                     "csrf",
                     "0.1.0",
                     Some("the device did not answer"),
+                    None,
                 )
                 .into_string(),
                 "This directory is empty.",
@@ -5569,15 +5577,15 @@ mod tests {
             ),
             (
                 "files",
-                files(&devices[0], "", &entries, "csrf", "0.3.72", None),
+                files(&devices[0], "", &entries, "csrf", "0.3.72", None, None),
             ),
             (
                 "files-empty",
-                files(&devices[0], "empty", &[], "csrf", "0.3.72", None),
+                files(&devices[0], "empty", &[], "csrf", "0.3.72", None, None),
             ),
             (
                 "files-sub",
-                files(&devices[0], "logs", &log_entries, "csrf", "0.3.72", None),
+                files(&devices[0], "logs", &log_entries, "csrf", "0.3.72", None, Some("logs/console.log")),
             ),
             (
                 "file",
@@ -5967,7 +5975,7 @@ mod tests {
                     error: None,
                 },
             ),
-            files(&device, "", &[], "00", "0.1.0", None),
+            files(&device, "", &[], "00", "0.1.0", None, None),
             runs(&device, &[], None, "00", "0.1.0", None),
             system(&device, &[], "", "00", "0.1.0", None, None),
             memory(

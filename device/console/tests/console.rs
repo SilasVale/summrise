@@ -8345,7 +8345,8 @@ async fn the_files_page_shows_a_file_and_a_write_without_csrf_is_refused() {
         headers
             .get(header::LOCATION)
             .and_then(|value| value.to_str().ok()),
-        Some(format!("/next/files/{device_id}?path=logs").as_str())
+        // The write says which file it replaced, so the page can acknowledge it once.
+        Some(format!("/next/files/{device_id}?path=logs&wrote=logs/notes.txt").as_str())
     );
 }
 
