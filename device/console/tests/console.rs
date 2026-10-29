@@ -1490,6 +1490,25 @@ async fn health_reports_status_device_count_and_uptime_without_auth() {
     assert_eq!(body["online"], json!(0), "{body}");
 }
 
+/// **ONLINE IS THE QUESTION.** `devices` counts the registry and stays the same whether anything is
+/// connected; `online` counts the channels that are open at this instant. This opens one.
+#[tokio::test]
+async fn health_counts_a_connected_device_as_online() {
+    let fixture = Fixture::new("health-online");
+    let server = TestServer::start(&fixture.console).await;
+    let (_device_id, _token, _device) =
+        connected_device(&fixture, &server, &signing_key(0x7b)).await;
+
+    let (status, body) = send(fixture.app(), get("/health", None)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["devices"], json!(1), "{body}");
+    assert_eq!(
+        body["online"],
+        json!(1),
+        "the channel the test opened is counted: {body}"
+    );
+}
+
 #[tokio::test]
 async fn a_grant_shorter_than_a_minute_is_400_and_a_minute_is_fine() {
     let fixture = Fixture::new("grant-minimum-expiry");
