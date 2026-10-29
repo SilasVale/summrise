@@ -211,8 +211,9 @@ stays in memory, and the integration test asserts the page contains no token and
 The page's **AI client** card creates one-device tokens. A token can also name several devices
 (`POST /tokens` with `device_ids`), and `POST /mcp/all` is the one standard MCP endpoint those
 tokens use: every tool takes a required `device` argument and every call still becomes an ordinary
-per-device sixty-second grant. The Security page's **Fleet tokens** section creates and revokes
-these tokens; the per-device card is unchanged.
+per-device sixty-second grant. Aggregate tokens are created and revoked through the API
+(`POST /tokens` with `device_ids`, `DELETE /tokens/<id>`); the per-device card creates one-device
+tokens only, and no page mints the fleet scope yet.
 
 It lists `GET /devices` with `last_seen_ms` rendered as an age, builds a grant form from a hardcoded
 list of the registry's 28 tool names (`POST /grants`), calls `state.get` through `POST /mcp` with

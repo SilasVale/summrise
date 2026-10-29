@@ -2598,12 +2598,23 @@ fn stamp(ms: u64) -> String {
         day_seconds % 60,
     );
     // 1970-01-01 was a Thursday; the month/day arithmetic starts at 1970-01-01 and counts forward.
-    let (month, day) = civil_from_days(days as i64);
+    let (_, month, day) = civil_from_days(days as i64);
     format!("{month:02}-{day:02} {hour:02}:{minute:02}:{second:02} UTC")
 }
 
-/// Days since 1970-01-01 to (month, day), by the usual 400-year cycle arithmetic.
-fn civil_from_days(days: i64) -> (u32, u32) {
+/// A calendar date in UTC, with its year.
+///
+/// The console's ordinary stamp leaves the year out because everything it stamps lives for
+/// minutes — a held call, a run, an audit line. A token may live a year, so its expiry needs the
+/// year, and "10-03" would be ambiguous twice over.
+fn date(ms: u64) -> String {
+    let days = ms / 1000 / 86_400;
+    let (year, month, day) = civil_from_days(days as i64);
+    format!("{year:04}-{month:02}-{day:02}")
+}
+
+/// Days since 1970-01-01 to (year, month, day), by the usual 400-year cycle arithmetic.
+fn civil_from_days(days: i64) -> (u64, u32, u32) {
     let z = days + 719_468;
     let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
     let doe = (z - era * 146_097) as u64;
@@ -2612,8 +2623,8 @@ fn civil_from_days(days: i64) -> (u32, u32) {
     let mp = (5 * doy + 2) / 153;
     let day = doy - (153 * mp + 2) / 5 + 1;
     let month = if mp < 10 { mp + 3 } else { mp - 9 };
-    let _year = yoe + era as u64 * 400 + if month <= 2 { 1 } else { 0 };
-    (month as u32, day as u32)
+    let year = yoe + era as u64 * 400 + if month <= 2 { 1 } else { 0 };
+    (year, month as u32, day as u32)
 }
 
 /// One exit code, as a chip: a finished zero, a refusal, or an end the device could not name.
@@ -3768,6 +3779,9 @@ pub(super) struct TokenRow {
     pub(super) tools: u64,
     pub(super) destructive: bool,
     pub(super) created_ms: u64,
+    /// When the token stops being a credential; absent means it never does. A year out is why the
+    /// list prints a dated year here and the console's ordinary stamp does not.
+    pub(super) expires_at_ms: Option<u64>,
 }
 
 /// The tokens a device accepts, with the form that mints one and a revoke per row.
@@ -3807,6 +3821,19 @@ pub(super) fn tokens(
                         label class="visually-hidden" for="token-name" { "Client name" }
                         input id="token-name" type="text" name="name" placeholder="what this client is, e.g. dsh" required;
                     }
+                    div class="field" {
+                        label for="token-expiry" { "Expires" }
+                        // **THE ENGINE COULD EXPIRE A TOKEN; THE PAGE COULD NOT SAY SO.** Creation
+                        // has taken `expires_in_s` since 9a69cd5 and the card offered no way to set
+                        // it, so every token minted here was permanent by accident. The choices are
+                        // the ones CONNECT-MCP.md already documents.
+                        select id="token-expiry" name="expires_in_s" {
+                            option value="" { "never" }
+                            option value="2592000" { "in 30 days" }
+                            option value="7776000" { "in 90 days" }
+                            option value="31536000" { "in 365 days" }
+                        }
+                    }
                     label class="check" {
                         input type="checkbox" name="allow_destructive" value="on";
                         "Allow destructive tools"
@@ -3836,6 +3863,7 @@ pub(super) fn tokens(
                             th class="num" scope="col" { "Tools" }
                             th scope="col" { "Access" }
                             th scope="col" { "Created" }
+                            th scope="col" { "Expires" }
                             th class="num" scope="col" { span class="visually-hidden" { "Actions" } }
                         }
                     }
@@ -3852,6 +3880,12 @@ pub(super) fn tokens(
                                     }
                                 }
                                 td class="nowrap" { (stamp(row.created_ms)) }
+                                td class="nowrap" {
+                                    @match row.expires_at_ms {
+                                        Some(expires) => { (date(expires)) }
+                                        None => { span class="muted" { "never" } }
+                                    }
+                                }
                                 td class="num" {
                                     form method="post" action=(format!("{base}/revoke")) {
                                         input type="hidden" name="csrf" value=(csrf);
@@ -5602,6 +5636,7 @@ mod tests {
                 tools: 27,
                 destructive: true,
                 created_ms: 1_793_000_000_000,
+                expires_at_ms: None,
             },
             TokenRow {
                 id: "token-2".to_owned(),
@@ -5609,6 +5644,9 @@ mod tests {
                 tools: 12,
                 destructive: false,
                 created_ms: 1_792_900_000_000,
+                // A year out: the review set has to show the column that was documented but never
+                // drawn, and the date with a year is what a year-long lifetime needs.
+                expires_at_ms: Some(1_824_500_000_000),
             },
         ];
         let secret = "srm_2f9a8c7b6d5e4f3a2b1c0d9e8f7a6b5c4d3e2f1a0b9c8d7e6f5a4b3c2d1e0f9a";

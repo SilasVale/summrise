@@ -118,8 +118,8 @@ A token is not an operator session: it cannot mint grants, list devices, read th
 another token. The console accepts at most 64 tokens.
 
 A token is **permanent by default**. Creation may give it an **expiry** between one hour and 365
-days; the card's form offers Never, 30, 90 and 365 days, and the list says `expires <date>` or `never
-expires`. An expired token is refused with `401` (the denial log keeps `expired_api_token`) before it
+days; the card's **Expires** select offers never, 30, 90 and 365 days, and the list's Expires column
+says the date (with its year) or `never`. An expired token is refused with `401` (the denial log keeps `expired_api_token`) before it
 can mint a grant; expiry is checked before the device match. **Rotate** keeps the lifetime policy —
 the new value gets the same duration counted from the rotation, not the old absolute date.
 
@@ -184,9 +184,10 @@ The answer carries the plaintext once. Use it as the bearer on `/mcp/all`:
 
 The device list is the scope: a call naming a device outside it is refused before a frame is sent,
 and a name shared by two allowed devices is ambiguous and refused, never guessed. A device token is
-refused on `/mcp/all`; an aggregate token is refused on `/mcp/<device-id>`. The Security page's
-**Fleet tokens** section creates, lists and revokes aggregate tokens; the per-device card still
-creates one-device tokens.
+refused on `/mcp/all`; an aggregate token is refused on `/mcp/<device-id>`. An aggregate token is
+created, listed and revoked through the API (`POST /tokens` with `device_ids`, `GET /tokens`,
+`DELETE /tokens/<id>`); the per-device card creates one-device tokens only, and no page mints the
+fleet scope yet.
 
 ## DeepSeek Harness
 

@@ -11074,6 +11074,112 @@ async fn a_minted_token_is_only_destructive_when_asked_for() {
     );
 }
 
+/// **THE FORM THE DOCUMENTS PROMISED.** Creation has taken a lifetime since 9a69cd5, and the
+/// Connect card offered no way to choose one: every token minted from the page was permanent by
+/// accident, and the list never said when one ends. A refusal used to land on the page as nothing
+/// at all — the redirect carried `?error=` and the handler ignored it.
+#[tokio::test]
+async fn the_connect_page_can_give_a_token_a_lifetime() {
+    let fixture = Fixture::new("token-lifetime-page");
+    let (device_id, _) = fixture.register(&signing_key(0xfb)).await;
+    let (cookie, csrf) = sign_in_to_the_page(&fixture).await;
+    let session = fixture.authenticate().await;
+    let page_uri = format!("/next/tokens/{device_id}");
+
+    let (_, _, form) = send_text(fixture.app(), get_with_cookie(&page_uri, &cookie)).await;
+    for value in ["", "2592000", "7776000", "31536000"] {
+        assert!(
+            form.contains(&format!("option value=\"{value}\"")),
+            "the card offers the lifetime {value:?}: {form}"
+        );
+    }
+
+    for (name, expiry) in [("permanent", None), ("thirty-days", Some("2592000"))] {
+        let mut fields = vec![("csrf", csrf.as_str()), ("name", name)];
+        if let Some(expiry) = expiry {
+            fields.push(("expires_in_s", expiry));
+        }
+        let mut request = post_form(&format!("{page_uri}/mint"), &fields);
+        request
+            .headers_mut()
+            .insert(header::COOKIE, cookie.parse().expect("the cookie header"));
+        let (status, _, _) = send_text(fixture.app(), request).await;
+        assert_eq!(status, StatusCode::OK, "{name} was minted");
+    }
+
+    // The store is the authority on the lifetime, and it took both values as given.
+    let (_, listed) = send(fixture.app(), get("/tokens", Some(&session))).await;
+    let rows = listed.as_array().expect("the token list");
+    let permanent = rows
+        .iter()
+        .find(|row| row["name"] == json!("permanent"))
+        .expect("the permanent token");
+    assert!(
+        permanent.get("expires_at_ms").is_none_or(Value::is_null),
+        "no expiry field means permanent: {permanent}"
+    );
+    let expiring = rows
+        .iter()
+        .find(|row| row["name"] == json!("thirty-days"))
+        .expect("the expiring token");
+    assert_eq!(
+        expiring["expires_at_ms"],
+        json!(START_MS + 30 * DAY_MS),
+        "thirty days from the fixture's clock"
+    );
+
+    // And the card says so: `never` for one, a dated year for the other.
+    let (_, _, page) = send_text(fixture.app(), get_with_cookie(&page_uri, &cookie)).await;
+    assert!(
+        page.contains("never"),
+        "the permanent token says never: {page}"
+    );
+    assert!(
+        page.contains("1970-01-31"),
+        "the thirty-day token says the date, with its year: {page}"
+    );
+
+    // A lifetime outside one hour to a year is refused, and the page explains it.
+    let mut request = post_form(
+        &format!("{page_uri}/mint"),
+        &[
+            ("csrf", &csrf),
+            ("name", "too-short"),
+            ("expires_in_s", "10"),
+        ],
+    );
+    request
+        .headers_mut()
+        .insert(header::COOKIE, cookie.parse().expect("the cookie header"));
+    let (status, headers, _) = send_text(fixture.app(), request).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert_eq!(
+        headers
+            .get(header::LOCATION)
+            .and_then(|value| value.to_str().ok()),
+        Some(format!("{page_uri}?error=expiry").as_str()),
+        "the refusal names its reason"
+    );
+    let (_, listed) = send(fixture.app(), get("/tokens", Some(&session))).await;
+    assert!(
+        !listed
+            .as_array()
+            .expect("the token list")
+            .iter()
+            .any(|row| row["name"] == json!("too-short")),
+        "nothing was created: {listed}"
+    );
+    let (_, _, explained) = send_text(
+        fixture.app(),
+        get_with_cookie(&format!("{page_uri}?error=expiry"), &cookie),
+    )
+    .await;
+    assert!(
+        explained.contains("not between one hour and 365 days"),
+        "the page says why: {explained}"
+    );
+}
+
 #[tokio::test]
 async fn a_token_mint_without_csrf_is_refused() {
     let fixture = Fixture::new("connect-csrf");

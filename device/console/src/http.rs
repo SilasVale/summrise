@@ -4224,6 +4224,10 @@ struct TokenMintForm {
     /// nothing, so absent is "no destructive consent" rather than a parse error.
     #[serde(default)]
     allow_destructive: Option<String>,
+    /// Seconds of life, from the card's select; absent (or empty) is the permanent token the form
+    /// was born making.
+    #[serde(default)]
+    expires_in_s: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -4240,11 +4244,19 @@ fn every_tool() -> Vec<String> {
         .collect()
 }
 
+/// The one refusal the tokens page has to explain: a lifetime outside the store's bounds, or the
+/// store's cap. The code travels in the URL; the page turns it into a sentence.
+#[derive(serde::Deserialize)]
+struct TokensQuery {
+    error: Option<String>,
+}
+
 /// `GET /next/tokens/:device`: the tokens that name this device, and the mint form.
 async fn next_tokens_page(
     State(app): State<AppState>,
     Path(device_id): Path<String>,
     headers: HeaderMap,
+    Query(query): Query<TokensQuery>,
 ) -> Response {
     let Some(session) = cookie_session(&app, &headers) else {
         return login_card(&app, &headers).into_response();
@@ -4265,15 +4277,28 @@ async fn next_tokens_page(
             tools: token.tools.len() as u64,
             destructive: token.allow_destructive,
             created_ms: token.created_at_ms,
+            expires_at_ms: token.expires_at_ms,
         })
         .collect();
+    // **A REFUSAL THE PAGE NEVER SAID.** The mint handler redirected with `?error=refused` and
+    // this handler ignored the query, so a token that was not created looked like a form that did
+    // nothing. The code is mapped here, where the sentence belongs.
+    let error = match query.error.as_deref() {
+        Some("expiry") => {
+            Some("That lifetime is not between one hour and 365 days; the token was not created.")
+        }
+        Some("refused") => {
+            Some("The console did not create that token: it holds at most 64, so revoke one first.")
+        }
+        _ => None,
+    };
     Html(
         page::tokens(
             &device,
             &rows,
             &hex::encode(&session.csrf),
             &app.version,
-            None,
+            error,
         )
         .into_string(),
     )
@@ -4301,19 +4326,36 @@ async fn next_token_mint(
         .into_iter()
         .map(|device| device.id)
         .collect();
+    let expires_in_s = match form.expires_in_s.as_deref() {
+        None | Some("") => None,
+        Some(value) => match value.parse::<u64>() {
+            Ok(seconds) => Some(seconds),
+            // A value the form never offers is a hand-made request; the store's own bounds are the
+            // authority, and this refusal is the same sentence the operator would get from it.
+            Err(_) => {
+                return Redirect::to(&format!("/next/tokens/{device_id}?error=expiry"))
+                    .into_response()
+            }
+        },
+    };
     let created = lock(&app.tokens).create(
         crate::tokens::Draft {
             name: form.name,
             scope: crate::tokens::TokenScope::Device(device_id.clone()),
             tools: every_tool(),
             allow_destructive: form.allow_destructive.is_some(),
-            expires_in_s: None,
+            expires_in_s,
         },
         |id| known.contains(id),
         (app.now)(),
     );
     let (meta, secret) = match created {
         Ok(created) => created,
+        Err(
+            crate::tokens::TokenError::ExpiryTooShort | crate::tokens::TokenError::ExpiryTooLong,
+        ) => {
+            return Redirect::to(&format!("/next/tokens/{device_id}?error=expiry")).into_response()
+        }
         Err(_) => {
             return Redirect::to(&format!("/next/tokens/{device_id}?error=refused")).into_response()
         }

@@ -53,12 +53,14 @@ press **Mint a token**.
 
 The value is `srm_` plus 64 lowercase hex characters, shown once and stored only as a hash: neither the
 list nor the audit can produce it again, so keep it in a secret, not a repository or a screenshot. It
-is permanent by default; an optional expiry (1 hour–365 days) can be set at creation, and revocation
-is the only withdrawal for a permanent token ([the scope rules](CONNECT-MCP.md#scope-and-revocation)).
+is permanent by default; the card's **Expires** select gives it 30, 90 or 365 days instead (the API's
+`expires_in_s` takes anything from one hour to 365 days), and revocation is the only withdrawal for a
+permanent token ([the scope rules](CONNECT-MCP.md#scope-and-revocation)).
 
-To reach several devices with one client, open the Security page's **Fleet tokens** section (or
-`POST /tokens` with `device_ids`) and point the client at `https://<console>/mcp/all`; every tool
-takes a `device` argument. The per-device card still creates one-device tokens.
+To reach several devices with one client, mint an aggregate token with `POST /tokens` and
+`device_ids` — there is no card for this scope yet — and point the client at
+`https://<console>/mcp/all`; every tool takes a `device` argument. The per-device card still creates
+one-device tokens.
 
 ## 4. Point the client at the endpoint
 
@@ -88,7 +90,8 @@ repository, or have the deployment inject the value from a secret:
 ```
 
 The same endpoint accepts a grant for a session instead of a token. The page mints tokens; a grant
-is one API call with the operator session (`POST /session` returns it):
+is one API call with the operator session (`POST /auth` with `{"token":"<the operator token>"}`
+returns it):
 
 ```bash
 curl -sS -X POST https://<console>/grants \
