@@ -736,6 +736,18 @@ fn ago(now_ms: u64, then_ms: u64) -> String {
     }
 }
 
+/// How many times the newest build has come up within the last hour, when that count is three or
+/// more. The list is newest first; one restart is an update or a boot, three in an hour is a loop.
+fn flapping_restarts(restarts: &[RestartView]) -> Option<usize> {
+    let newest = restarts.first()?;
+    let count = restarts
+        .iter()
+        .filter(|restart| restart.version == newest.version)
+        .take_while(|restart| newest.at_ms.saturating_sub(restart.at_ms) <= 3_600_000)
+        .count();
+    (count >= 3).then_some(count)
+}
+
 /// A span of milliseconds as a person says it: `4h 05m`, `12m`, `40s`. Minutes are padded so two
 /// durations in a column line up and `4h 5m` does not read as `4h 50m`.
 fn duration_text(ms: u64) -> String {
@@ -4148,13 +4160,27 @@ pub(super) fn vitals(device: &DeviceView, sample: &Vitals, csrf: &str, version: 
                 @if !sample.install.restarts.is_empty() {
                     p class="small muted" { "Restarts" }
                     ul class="rail-list" {
-                        @for restart in &sample.install.restarts {
+                        @for (index, restart) in sample.install.restarts.iter().enumerate() {
                             li {
                                 span class="rail-line mono" {
                                     (restart.version) " (" (restart.channel) ")"
+                                    // **A VERSION CHANGE IS NOT A RESTART.** The list printed the same
+                                    // build eight times with no explanation, which reads as flapping;
+                                    // a change of build is an update, and saying so separates the two.
+                                    @if let Some(older) = sample.install.restarts.get(index + 1) {
+                                        @if older.version != restart.version {
+                                            span class="rail-meta" { " — updated from " (older.version) }
+                                        }
+                                    }
                                 }
                                 span class="rail-meta" { (stamp(restart.at_ms)) }
                             }
+                        }
+                    }
+                    @if let Some(count) = flapping_restarts(&sample.install.restarts) {
+                        p class="small muted" {
+                            "This build has come up " (count) " times in " (duration_text(3_600_000)) " — a
+                            device that restarts this often is not being updated, it is failing."
                         }
                     }
                 }
@@ -4774,6 +4800,35 @@ mod tests {
 
     /// **AN OUTAGE THAT IS OVER LEAVES A TRACE.** Every machine reads `online` again the morning
     /// after one went away for four hours; without this the fleet says nothing happened.
+    /// **THE RESTART LIST SAID THE SAME BUILD EIGHT TIMES.** On a live Vitals page that reads as
+    /// flapping with no explanation: the versions were there, the reason was not. A change of build
+    /// is an update; three comings-up of one build inside an hour is a loop, and the page now names
+    /// both.
+    #[test]
+    fn the_restart_list_separates_an_update_from_a_loop() {
+        let restart = |at_ms: u64, version: &str| super::RestartView {
+            at_ms,
+            version: version.to_owned(),
+            channel: "canary".to_owned(),
+        };
+        let mut sample = sample_vitals();
+        sample.install.restarts = vec![
+            restart(1_790_991_000_000, "0.3.72"),
+            restart(1_790_990_800_000, "0.3.72"),
+            restart(1_790_990_600_000, "0.3.72"),
+            restart(1_790_990_400_000, "0.3.71"),
+        ];
+        let page = vitals(&view('1', Some("studio"), true), &sample, "00", "0.1.0").into_string();
+        assert!(
+            page.contains("updated from 0.3.71"),
+            "the update is named: {page}"
+        );
+        assert!(
+            page.contains("has come up 3 times in 1h"),
+            "the loop is named: {page}"
+        );
+    }
+
     #[test]
     fn the_fleet_says_how_long_a_device_was_away() {
         let now = 1_791_000_000_000;
