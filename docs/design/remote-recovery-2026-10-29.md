@@ -48,3 +48,25 @@ confirming.
 Either way the incident adds one requirement to the product: **the console must be able to say "this
 device stopped answering at 02:26" without the device**. Today it knows `last_seen` and prints it as
 "51m ago"; that is one wording away from the fact an operator needs.
+
+## What is waiting on the machine (written 04:12 UTC, 2026-10-29)
+
+Three console changes are committed, CI-green, and **not deployed** — the deploy runs on the console
+host through the device's channel, and that channel has been down since 02:26 UTC:
+
+| commit | change | what to check after deploying |
+| --- | --- | --- |
+| `fbd3bb72` | `/health` answers `online` beside `devices` | `curl …/health` shows `"devices":3,"online":2` (or however many are up) |
+| `433f82ab` | an offline row says `offline since <stamp>` instead of `51m ago` | the fleet row for a stopped device |
+| `da77f2e0` | a device whose launcher gave up names `sc stop/start SummriseLaunch` | the fleet page above the table |
+
+Deploy with `scripts/stage-console-deploy.bash <version>` and the downloaded `.cmd`, as
+`docs/console-deploy.md` describes; `/health` must report the new version before anything else is
+called verified.
+
+The recovery itself, when someone is at the machine:
+
+```
+sc stop SummriseLaunch
+sc start SummriseLaunch
+```
