@@ -737,6 +737,11 @@ fn ago(now_ms: u64, then_ms: u64) -> String {
 }
 
 /// The short id the fleet shows: the first eight characters, never a wall of hex.
+/// A digest as a person reads it here: eight characters and an ellipsis, the same shape as an id.
+fn short_digest(digest: &str) -> String {
+    short_id(digest)
+}
+
 fn short_id(id: &str) -> String {
     if let Some((index, _)) = id.char_indices().nth(8) {
         format!("{}…", &id[..index])
@@ -3819,6 +3824,7 @@ pub(super) struct SwapView {
 pub(super) struct RepairView {
     pub(super) from: String,
     pub(super) at_ms: u64,
+    pub(super) sha256: Option<String>,
 }
 
 /// The tray binary this install has: present, its digest, and its size.
@@ -4062,8 +4068,21 @@ pub(super) fn vitals(device: &DeviceView, sample: &Vitals, csrf: &str, version: 
                     ul class="rail-list" {
                         @for repair in &sample.install.repairs {
                             li {
-                                span class="rail-line mono" { "from " (repair.from) }
-                                span class="rail-meta" { (stamp(repair.at_ms)) }
+                                // "from previous" is the launcher's vocabulary; what happened is
+                                // that it restored the previous generation over a broken one.
+                                span class="rail-line" {
+                                    @match repair.from.as_str() {
+                                        "baseline" => { "restored the baseline" },
+                                        "previous" => { "restored the previous generation" },
+                                        other => { "restored from " (other) },
+                                    }
+                                }
+                                span class="rail-meta" {
+                                    (stamp(repair.at_ms))
+                                    @if let Some(digest) = &repair.sha256 {
+                                        " · " span class="mono" { (short_digest(digest)) }
+                                    }
+                                }
                             }
                         }
                     }
@@ -4268,6 +4287,7 @@ mod tests {
                 repairs: vec![RepairView {
                     from: "previous".to_owned(),
                     at_ms: 1_790_990_300_000,
+                    sha256: Some("24f89a977970".repeat(5) + "abcdef"),
                 }],
                 shell: Some(ShellView {
                     sha256: "ab".repeat(32),

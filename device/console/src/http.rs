@@ -4410,6 +4410,7 @@ async fn next_vitals_page(
                     Some(page::RepairView {
                         from: repair["from"].as_str()?.to_owned(),
                         at_ms: repair["at_ms"].as_u64().unwrap_or(0),
+                        sha256: repair["sha256"].as_str().map(str::to_owned),
                     })
                 })
                 .collect()

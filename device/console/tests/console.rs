@@ -9300,7 +9300,11 @@ async fn the_vitals_page_shows_the_install_it_reads() {
         page.contains("the new build did not answer /health"),
         "and the launcher's reason: {page}"
     );
-    assert!(page.contains("from previous"), "the repair: {page}");
+    // The launcher's "from previous" is rendered as what happened, with the bytes that came back.
+    assert!(
+        page.contains("restored the previous generation"),
+        "the repair says what it did: {page}"
+    );
     assert!(
         page.contains("no generation"),
         "an absent pending says so: {page}"
