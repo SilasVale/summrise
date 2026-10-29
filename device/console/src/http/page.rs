@@ -3217,7 +3217,14 @@ pub(super) fn screen(
             } @else {
                 (empty_state(
                     Page::Screen,
-                    "No capture yet. The helper that takes one must be running in the user's session.",
+                    // The device's own refusal says "the per-user helper has not registered this
+                    // boot", which is true and names nothing a person can start. The tray is that
+                    // helper, and it is started at login: this sentence is the one that tells the
+                    // operator where to look.
+                    "No capture yet. Screen captures come from the tray app in the signed-in user's \
+                     session, and it has not registered since this machine booted — sign in on the \
+                     machine (the tray starts at login), or start summrise-shell.exe from the install \
+                     directory in that session.",
                     html! { a class="btn btn-sm" href=(capture_again) { "Capture again" } },
                 ))
             }
