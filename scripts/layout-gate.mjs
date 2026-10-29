@@ -174,6 +174,11 @@ const probe = `(() => {
   document.querySelectorAll("*").forEach((el) => {
     const cs = getComputedStyle(el);
     if (cs.display === "none" || cs.visibility === "hidden" || cs.overflow !== "visible") return;
+    // **A CLOSED DISCLOSURE IS ONE VISIBLE CHILD, NOT MANY.** Chrome still answers with a box for
+    // the body of a closed disclosure, so one whose body is taller than its summary
+    // looked like a container painted past its own edge — reported on a menu nobody had opened.
+    // Nothing in a closed disclosure is on screen; the rule is about what is.
+    if (el.tagName === "DETAILS" && !el.open) return;
     const box = el.getBoundingClientRect();
     if (box.height <= 0) return;
     let bottom = 0;

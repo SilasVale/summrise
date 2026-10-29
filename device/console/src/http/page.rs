@@ -334,6 +334,12 @@ body.login { margin:0; background:var(--bg); }
 .menu-panel label { display:block; margin:0 0 4px; color:var(--muted); font-size:11px; font-weight:600; letter-spacing:.06em; text-transform:uppercase; }
 .menu-panel input { min-height:28px; padding:3px 8px; font-size:12px; }
 .menu-panel .field { margin:0 0 7px; }
+.confirm-remove { margin-top:8px; padding-top:8px; border-top:1px solid var(--line); }
+.confirm-remove > summary { cursor:pointer; list-style:none; }
+.confirm-remove > summary::-webkit-details-marker { display:none; }
+.confirm-remove .confirm-body { margin-top:8px; }
+.confirm-remove .confirm-body p { margin:0 0 8px; }
+.confirm-remove .confirm-body .btn { width:100%; }
 .restart-panel { width:300px; padding:12px; }
 .trend-row { display:grid; grid-template-columns:120px 1fr 210px; gap:16px; align-items:center; margin:0 0 16px; }
 .trend-row:last-of-type { margin-bottom:6px; }
@@ -1607,9 +1613,26 @@ pub(super) fn dashboard(
                                                 }
                                                 button type="submit" class="btn btn-sm" aria-label=(format!("Rename {}", device_label(device))) { "Rename" }
                                             }
-                                            form method="post" action=(format!("/next/fleet/{}/remove", device.id)) {
-                                                input type="hidden" name="csrf" value=(csrf);
-                                                button type="submit" class="btn btn-sm btn-danger" aria-label=(format!("Remove {}", device_label(device))) { "Remove" }
+                                            // **REMOVING A MACHINE IS NOT A LABEL.** The row's menu
+                                            // held Rename and Remove side by side as two buttons of
+                                            // the same size, and the second one forgets a machine
+                                            // that is probably running fine somewhere. It opens a
+                                            // step that says what is lost before the button exists,
+                                            // the same shape the System page's restart uses.
+                                            details class="confirm-remove" {
+                                                summary class="btn btn-sm btn-danger" { "Remove…" }
+                                                div class="confirm-body" {
+                                                    p class="small muted" {
+                                                        "Removes this machine from the console. Its "
+                                                        "tokens stop naming it, calls held for it are "
+                                                        "refused, and it needs a new enrollment code "
+                                                        "to come back. The machine keeps running."
+                                                    }
+                                                    form method="post" action=(format!("/next/fleet/{}/remove", device.id)) {
+                                                        input type="hidden" name="csrf" value=(csrf);
+                                                        button type="submit" class="btn btn-sm btn-danger" aria-label=(format!("Remove {}", device_label(device))) { "Remove " (device_label(device)) }
+                                                    }
+                                                }
                                             }
                                         }
                                     }
@@ -5968,6 +5991,19 @@ mod tests {
         assert!(
             page.contains(&format!("action=\"/next/fleet/{id}/remove\"")),
             "the remove form is still on the page: {page}"
+        );
+        // **REMOVAL ASKS FIRST.** The form only exists inside a disclosure that says what is lost;
+        // a red button beside Rename was one misclick from forgetting a working machine.
+        let confirm = page
+            .find("class=\"confirm-remove\"")
+            .expect("a removal step");
+        let form = page
+            .find(&format!("action=\"/next/fleet/{id}/remove\""))
+            .expect("the remove form");
+        assert!(confirm < form, "the form lives inside the step: {page}");
+        assert!(
+            page.contains("needs a new enrollment code"),
+            "the step says what is lost: {page}"
         );
         assert_eq!(
             page.matches("class=\"page-links\"").count(),
