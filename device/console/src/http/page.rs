@@ -136,6 +136,8 @@ input::placeholder, textarea::placeholder { color:var(--faint); }
 .form-grid .field { margin-bottom:16px; }
 .form-actions { display:flex; flex-wrap:wrap; align-items:center; gap:10px; }
 label.check { display:flex; align-items:center; gap:8px; min-height:24px; margin:0 0 14px; color:var(--ink); font-size:13px; font-weight:400; }
+.check-grid { display:flex; flex-wrap:wrap; gap:4px 18px; margin:0 0 14px; }
+.check-grid label.check { margin:0; }
 .form-inline { display:flex; flex-wrap:wrap; align-items:center; gap:8px; }
 .form-inline .field { margin:0; }
 .input-sm { min-height:28px; padding:3px 8px; font-size:12px; }
@@ -1679,8 +1681,10 @@ pub(super) fn dashboard(
                 }
             }
         }
-        // One destination for the console's own record; the page it opens has the two views.
-        nav class="toolbar" aria-label="Records" {
+        // Two fleet-level destinations: the console's own record, and the credential that reaches
+        // more than one machine. Both are about the fleet, not about a device.
+        nav class="toolbar" aria-label="Fleet" {
+            a class="btn btn-ghost btn-sm" href="/next/fleet-tokens" { "Fleet tokens" }
             a class="btn btn-ghost btn-sm" href="/next/audit" { "Records" }
         }
     };
@@ -3913,6 +3917,217 @@ pub(super) fn tokens(
     )
 }
 
+/// One aggregate token, as the fleet page's list draws it: the devices it names, by the names their
+/// operator gave them.
+pub(super) struct FleetTokenRow {
+    pub(super) id: String,
+    pub(super) name: String,
+    /// The devices the token names, in registry order, already resolved to labels.
+    pub(super) devices: Vec<String>,
+    pub(super) tools: u64,
+    pub(super) destructive: bool,
+    pub(super) created_ms: u64,
+    pub(super) expires_at_ms: Option<u64>,
+}
+
+/// The fleet's credential page: one token that reaches several devices through `/mcp/all`.
+///
+/// It is a fleet page, not a device page: the token names a list of devices, so it belongs where the
+/// machines are listed, and it was the one scope the console could only create with curl.
+pub(super) fn fleet_tokens(
+    devices: &[DeviceView],
+    rows: &[FleetTokenRow],
+    csrf: &str,
+    version: &str,
+    error: Option<&str>,
+) -> Markup {
+    let total = rows.len();
+    let content = html! {
+        (breadcrumb(&[("Fleet".to_owned(), "/next".to_owned())], "fleet tokens"))
+        section class="card" {
+            (card_head(
+                "Fleet tokens",
+                html! { span class="chip muted" { (total) } },
+                Markup::default(),
+            ))
+            div class="card-body" {
+                p class="lead" {
+                    "One credential that reaches the devices it names through one endpoint, "
+                    code { "/mcp/all" } ". Every call says which device it is for, and each device "
+                    "still checks the grant on its own; a token that names one device is the "
+                    "Connect page's job."
+                }
+                @if rows.is_empty() {
+                    p class="muted" { "No token reaches more than one device yet." }
+                } @else {
+                    table class="table tokens-table" {
+                        caption class="visually-hidden" { "The tokens that name several devices." }
+                        thead {
+                            tr {
+                                th scope="col" { "Name" }
+                                th scope="col" { "Devices" }
+                                th class="num" scope="col" { "Tools" }
+                                th scope="col" { "Access" }
+                                th scope="col" { "Created" }
+                                th scope="col" { "Expires" }
+                                th class="num" scope="col" { span class="visually-hidden" { "Actions" } }
+                            }
+                        }
+                        tbody {
+                            @for row in rows {
+                                // The scope in the names the operator gave: an id is for the record,
+                                // not for the one line whose job is "which machines".
+                                @let names = row
+                                    .devices
+                                    .iter()
+                                    .map(|id| {
+                                        devices
+                                            .iter()
+                                            .find(|device| &device.id == id)
+                                            .map(device_label)
+                                            .unwrap_or_else(|| short_id(id))
+                                    })
+                                    .collect::<Vec<_>>()
+                                    .join(", ");
+                                tr {
+                                    td { (row.name) }
+                                    td class="wrap" { (names) }
+                                    td class="num" { (row.tools) }
+                                    td {
+                                        @if row.destructive {
+                                            span class="chip brand" { "destructive allowed" }
+                                        } @else {
+                                            span class="chip muted" { "no destructive tools" }
+                                        }
+                                    }
+                                    td class="nowrap" { (stamp(row.created_ms)) }
+                                    td class="nowrap" {
+                                        @match row.expires_at_ms {
+                                            Some(expires) => { (date(expires)) }
+                                            None => { span class="muted" { "never" } }
+                                        }
+                                    }
+                                    td class="num" {
+                                        form method="post" action="/next/fleet-tokens/revoke" {
+                                            input type="hidden" name="csrf" value=(csrf);
+                                            input type="hidden" name="id" value=(row.id);
+                                            button type="submit" class="btn btn-sm btn-quiet-danger" aria-label=(format!("Revoke the token {}", row.name)) { "Revoke" }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        section class="card" {
+            (card_head("Mint a fleet token", Markup::default(), Markup::default()))
+            div class="card-body" {
+                @if let Some(error) = error {
+                    p class="alert error" { (error) }
+                }
+                form method="post" action="/next/fleet-tokens/mint" {
+                    input type="hidden" name="csrf" value=(csrf);
+                    div class="field" {
+                        label class="visually-hidden" for="fleet-token-name" { "Client name" }
+                        input id="fleet-token-name" type="text" name="name" placeholder="what this client is, e.g. dsh" required;
+                    }
+                    div class="field" {
+                        span class="label" { "Devices" }
+                        // **THE SCOPE IS THE DEVICE LIST.** Checkboxes, not a text field: the ids are
+                        // the token's scope, and a typo would mint a credential for a machine the
+                        // operator did not mean.
+                        div class="check-grid" {
+                            @for device in devices {
+                                label class="check" {
+                                    input type="checkbox" name="device" value=(device.id);
+                                    (device_label(device))
+                                }
+                            }
+                        }
+                    }
+                    div class="form-inline" {
+                        div class="field" {
+                            label for="fleet-token-expiry" { "Expires" }
+                            select id="fleet-token-expiry" name="expires_in_s" {
+                                option value="" { "never" }
+                                option value="2592000" { "in 30 days" }
+                                option value="7776000" { "in 90 days" }
+                                option value="31536000" { "in 365 days" }
+                            }
+                        }
+                        label class="check" {
+                            input type="checkbox" name="allow_destructive" value="on";
+                            "Allow destructive tools"
+                        }
+                        button type="submit" class="btn btn-primary" { "Mint a fleet token" }
+                    }
+                }
+            }
+        }
+    };
+    page(
+        Chrome {
+            active: Page::Fleet,
+            device: None,
+            title: "Fleet tokens",
+            version,
+            csrf,
+            status: fleet_status(devices),
+        },
+        content,
+    )
+}
+
+/// The one page a minted fleet token is ever shown on.
+pub(super) fn fleet_token_created(
+    name: &str,
+    secret: &str,
+    config: &str,
+    csrf: &str,
+    version: &str,
+    devices: &[DeviceView],
+) -> Markup {
+    let content = html! {
+        (breadcrumb(&[("Fleet".to_owned(), "/next".to_owned()), ("Fleet tokens".to_owned(), "/next/fleet-tokens".to_owned())], "new token"))
+        section class="card" {
+            (card_head(
+                "Fleet token",
+                html! { span class="chip brand" { (name) } },
+                Markup::default(),
+            ))
+            div class="card-body" {
+                p class="alert notice" {
+                    "This is the only time the token is shown. Copy it into the client's configuration "
+                    "now; a lost value means minting another."
+                }
+                pre class="secret" tabindex="0" { (secret) }
+            }
+        }
+        section class="card" {
+            (card_head("Client configuration", Markup::default(), Markup::default()))
+            p class="small muted" {
+                "One client, every device the token names. Each tool call carries a "
+                code { "device" } " argument; a call naming a device outside this list is refused "
+                "before a frame is sent."
+            }
+            pre class="file" tabindex="0" { (config) }
+        }
+    };
+    page(
+        Chrome {
+            active: Page::Fleet,
+            device: None,
+            title: "Fleet token",
+            version,
+            csrf,
+            status: fleet_status(devices),
+        },
+        content,
+    )
+}
+
 /// The one page a minted token is ever shown on.
 pub(super) fn token_created(
     device: &DeviceView,
@@ -5058,6 +5273,12 @@ mod tests {
             !page.contains("class=\"stats\""),
             "the fleet does not repeat the strip's counts in cards: {page}"
         );
+        // **THE FLEET SCOPE IS ONE LINK FROM THE FLEET.** It was reachable only with curl; the
+        // footer is where a fleet-level destination belongs.
+        assert!(
+            page.contains("href=\"/next/fleet-tokens\""),
+            "the fleet links its token page: {page}"
+        );
         let rows = between(&page, "<tbody>", "</tbody>");
         assert_eq!(
             rows.matches("<tr>").count(),
@@ -5649,6 +5870,15 @@ mod tests {
                 expires_at_ms: Some(1_824_500_000_000),
             },
         ];
+        let fleet_token_rows = vec![FleetTokenRow {
+            id: "fleet-token-1".to_owned(),
+            name: "dsh-fleet".to_owned(),
+            devices: vec![devices[0].id.clone(), devices[1].id.clone()],
+            tools: 28,
+            destructive: true,
+            created_ms: 1_793_050_000_000,
+            expires_at_ms: None,
+        }];
         let secret = "srm_2f9a8c7b6d5e4f3a2b1c0d9e8f7a6b5c4d3e2f1a0b9c8d7e6f5a4b3c2d1e0f9a";
         let config = format!(
             "{{\n  \"mcpServers\": {{\n    \"desk\": {{\n      \"url\": \"http://127.0.0.1:19000/mcp/{}\",\n      \"headers\": {{ \"Authorization\": \"Bearer {}\" }}\n    }}\n  }}\n}}",
@@ -5891,6 +6121,11 @@ mod tests {
                 "tokens-empty",
                 tokens(&devices[0], &[], "csrf", "0.3.72", None),
             ),
+            // The fleet scope: one token that names two machines, and the form that mints one.
+            (
+                "fleet-tokens",
+                fleet_tokens(&devices, &fleet_token_rows, "csrf", "0.3.72", None),
+            ),
             (
                 "token-created",
                 token_created(
@@ -6074,6 +6309,68 @@ mod tests {
             1,
             "one tidy row of page links: {page}"
         );
+    }
+
+    /// **THE SCOPE THE CONSOLE COULD ONLY MINT WITH CURL.** An aggregate token names a list of
+    /// devices and is used on `/mcp/all`; the page has to show which machines a token reaches, by
+    /// the names their operator gave them, and offer exactly the registry as the scope.
+    #[test]
+    fn the_fleet_token_page_names_the_scope_and_offers_the_registry() {
+        let studio_id = view('1', Some("STUDIO-PC"), true).id;
+        let lab_id = view('2', Some("LAB-PC"), true).id;
+        let devices = [
+            view('1', Some("STUDIO-PC"), true),
+            view('2', Some("LAB-PC"), true),
+        ];
+        let rows = [FleetTokenRow {
+            id: "fleet-1".to_owned(),
+            name: "dsh-fleet".to_owned(),
+            devices: vec![studio_id.clone(), lab_id.clone()],
+            tools: 28,
+            destructive: true,
+            created_ms: 1_791_000_000_000,
+            expires_at_ms: Some(1_824_500_000_000),
+        }];
+        let page = fleet_tokens(&devices, &rows, "00", "0.1.0", None).into_string();
+
+        assert!(page.contains("dsh-fleet"), "{page}");
+        assert!(
+            page.contains("STUDIO-PC, LAB-PC"),
+            "the scope reads as names, not ids: {page}"
+        );
+        // The id is the checkbox's value — the scope has to travel somehow — and nowhere else.
+        assert_eq!(
+            page.matches(&studio_id).count(),
+            1,
+            "the id appears once, as the scope value: {page}"
+        );
+        assert!(page.contains(&format!("value=\"{studio_id}\"")), "{page}");
+        assert!(
+            page.contains("2027-10-25"),
+            "the expiry carries its year: {page}"
+        );
+        assert!(
+            page.matches("name=\"device\"").count() == devices.len(),
+            "one checkbox per registered device: {page}"
+        );
+        assert!(page.contains("Mint a fleet token"), "{page}");
+
+        // Nothing minted yet says so instead of showing an empty table.
+        let empty = fleet_tokens(&devices, &[], "00", "0.1.0", None).into_string();
+        assert!(
+            empty.contains("No token reaches more than one device yet"),
+            "{empty}"
+        );
+        // A scope that outran the registry is explained, not silently dropped.
+        let refused = fleet_tokens(
+            &devices,
+            &[],
+            "00",
+            "0.1.0",
+            Some("that scope named a device"),
+        )
+        .into_string();
+        assert!(refused.contains("that scope named a device"), "{refused}");
     }
 
     #[test]

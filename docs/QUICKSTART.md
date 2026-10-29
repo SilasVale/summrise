@@ -57,10 +57,9 @@ is permanent by default; the card's **Expires** select gives it 30, 90 or 365 da
 `expires_in_s` takes anything from one hour to 365 days), and revocation is the only withdrawal for a
 permanent token ([the scope rules](CONNECT-MCP.md#scope-and-revocation)).
 
-To reach several devices with one client, mint an aggregate token with `POST /tokens` and
-`device_ids` — there is no card for this scope yet — and point the client at
-`https://<console>/mcp/all`; every tool takes a `device` argument. The per-device card still creates
-one-device tokens.
+To reach several devices with one client, open the fleet page's **Fleet tokens** link, name the
+token, tick the machines it should reach, and point the client at `https://<console>/mcp/all`; every
+tool takes a `device` argument. The per-device card still creates one-device tokens.
 
 ## 4. Point the client at the endpoint
 

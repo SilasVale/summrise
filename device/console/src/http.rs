@@ -440,6 +440,10 @@ impl Console {
             .route("/next/tokens/:device", get(next_tokens_page))
             .route("/next/tokens/:device/mint", post(next_token_mint))
             .route("/next/tokens/:device/revoke", post(next_token_revoke))
+            // The fleet scope: one token, several devices, the aggregate endpoint.
+            .route("/next/fleet-tokens", get(next_fleet_tokens_page))
+            .route("/next/fleet-tokens/mint", post(next_fleet_token_mint))
+            .route("/next/fleet-tokens/revoke", post(next_fleet_token_revoke))
             // One sample of the device's own vitals.
             .route("/next/vitals/:device", get(next_vitals_page))
             .route("/session", get(session_probe))
@@ -4411,6 +4415,216 @@ async fn next_token_revoke(
     }
     let _ = lock(&app.tokens).revoke(&form.id);
     Redirect::to(&format!("/next/tokens/{device_id}")).into_response()
+}
+
+/// The refusals the fleet-token page has to explain, as URL codes the page turns into sentences.
+#[derive(serde::Deserialize)]
+struct FleetTokensQuery {
+    error: Option<String>,
+}
+
+/// `GET /next/fleet-tokens`: the aggregate tokens and the form that mints one.
+async fn next_fleet_tokens_page(
+    State(app): State<AppState>,
+    headers: HeaderMap,
+    Query(query): Query<FleetTokensQuery>,
+) -> Response {
+    let Some(session) = cookie_session(&app, &headers) else {
+        return login_card(&app, &headers).into_response();
+    };
+    let devices = device_views(&app);
+    let rows: Vec<page::FleetTokenRow> = lock(&app.tokens)
+        .list()
+        .into_iter()
+        // Aggregate only: a one-device token belongs to that device's Connect page.
+        .filter_map(|token| {
+            let ids = token.device_ids?;
+            Some(page::FleetTokenRow {
+                id: token.id,
+                name: token.name,
+                devices: ids,
+                tools: token.tools.len() as u64,
+                destructive: token.allow_destructive,
+                created_ms: token.created_at_ms,
+                expires_at_ms: token.expires_at_ms,
+            })
+        })
+        .collect();
+    let error = match query.error.as_deref() {
+        Some("expiry") => {
+            Some("That lifetime is not between one hour and 365 days; the token was not created.")
+        }
+        Some("devices") => {
+            Some("That scope named a device the console does not have; reload and choose again.")
+        }
+        Some("refused") => {
+            Some("The console did not create that token: it holds at most 64, so revoke one first.")
+        }
+        _ => None,
+    };
+    Html(
+        page::fleet_tokens(
+            &devices,
+            &rows,
+            &hex::encode(&session.csrf),
+            &app.version,
+            error,
+        )
+        .into_string(),
+    )
+    .into_response()
+}
+
+/// Decode an `application/x-www-form-urlencoded` body.
+///
+/// `axum::Form` cannot carry a repeated key into a `Vec` — serde_urlencoded refuses duplicates —
+/// and the fleet scope is exactly a repeated field: one `device` per checked machine.
+fn form_fields(body: &[u8]) -> Vec<(String, String)> {
+    let text = String::from_utf8_lossy(body);
+    text.split('&')
+        .filter(|pair| !pair.is_empty())
+        .map(|pair| {
+            let (key, value) = pair.split_once('=').unwrap_or((pair, ""));
+            (form_decode(key), form_decode(value))
+        })
+        .collect()
+}
+
+/// Percent-decode one field: `+` is a space and `%XX` is a byte, as the form encoding says.
+fn form_decode(value: &str) -> String {
+    let bytes = value.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut index = 0;
+    while index < bytes.len() {
+        match bytes[index] {
+            b'+' => {
+                out.push(b' ');
+                index += 1;
+            }
+            b'%' if index + 2 < bytes.len() => {
+                let pair = std::str::from_utf8(&bytes[index + 1..index + 3]).ok();
+                match pair.and_then(|pair| u8::from_str_radix(pair, 16).ok()) {
+                    Some(byte) => {
+                        out.push(byte);
+                        index += 3;
+                    }
+                    None => {
+                        out.push(b'%');
+                        index += 1;
+                    }
+                }
+            }
+            byte => {
+                out.push(byte);
+                index += 1;
+            }
+        }
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+/// `POST /next/fleet-tokens/mint`: one token, the chosen devices, one endpoint (`/mcp/all`).
+async fn next_fleet_token_mint(
+    State(app): State<AppState>,
+    headers: HeaderMap,
+    body: axum::body::Bytes,
+) -> Response {
+    let fields = form_fields(&body);
+    let field = |name: &str| {
+        fields
+            .iter()
+            .find(|(key, _)| key == name)
+            .map(|(_, value)| value.as_str())
+    };
+    let Some(session) = next_session(&app, &headers, field("csrf")) else {
+        return StatusCode::FORBIDDEN.into_response();
+    };
+    let chosen: Vec<String> = fields
+        .iter()
+        .filter(|(key, _)| key == "device")
+        .map(|(_, value)| value.clone())
+        .collect();
+    let devices = device_views(&app);
+    let known: std::collections::BTreeSet<String> = lock(&app.devices)
+        .list()
+        .into_iter()
+        .map(|device| device.id)
+        .collect();
+    if chosen.is_empty() || chosen.iter().any(|id| !known.contains(id)) {
+        return Redirect::to("/next/fleet-tokens?error=devices").into_response();
+    }
+    let expires_in_s = match field("expires_in_s") {
+        None | Some("") => None,
+        Some(value) => match value.parse::<u64>() {
+            Ok(seconds) => Some(seconds),
+            Err(_) => {
+                return Redirect::to("/next/fleet-tokens?error=expiry").into_response();
+            }
+        },
+    };
+    let created = lock(&app.tokens).create(
+        crate::tokens::Draft {
+            name: field("name").unwrap_or_default().to_owned(),
+            scope: crate::tokens::TokenScope::Devices(chosen),
+            tools: every_tool(),
+            allow_destructive: field("allow_destructive").is_some(),
+            expires_in_s,
+        },
+        |id| known.contains(id),
+        (app.now)(),
+    );
+    let (meta, secret) = match created {
+        Ok(created) => created,
+        Err(
+            crate::tokens::TokenError::ExpiryTooShort | crate::tokens::TokenError::ExpiryTooLong,
+        ) => return Redirect::to("/next/fleet-tokens?error=expiry").into_response(),
+        Err(_) => return Redirect::to("/next/fleet-tokens?error=refused").into_response(),
+    };
+    let scheme = if secure_request(&headers) {
+        "https"
+    } else {
+        "http"
+    };
+    let host = headers
+        .get(header::HOST)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or("127.0.0.1");
+    let config = format!(
+        "- id: mcp-summrise-fleet\n  name: '@deepseek-ai/dsh-mcp-client'\n  config:\n    serverName: summrise\n    transport: streamable-http\n    url: {scheme}://{host}/mcp/all\n    headers:\n      Authorization: Bearer {secret}"
+    );
+    Html(
+        page::fleet_token_created(
+            &meta.name,
+            &secret,
+            &config,
+            &hex::encode(&session.csrf),
+            &app.version,
+            &devices,
+        )
+        .into_string(),
+    )
+    .into_response()
+}
+
+/// `POST /next/fleet-tokens/revoke`: retire one aggregate token.
+async fn next_fleet_token_revoke(
+    State(app): State<AppState>,
+    headers: HeaderMap,
+    Form(form): Form<TokenRevokeForm>,
+) -> Response {
+    let Some(_session) = next_session(&app, &headers, Some(&form.csrf)) else {
+        return StatusCode::FORBIDDEN.into_response();
+    };
+    // This page's business is the fleet scope; a one-device token is revoked where it lives.
+    let aggregate = lock(&app.tokens)
+        .list()
+        .into_iter()
+        .any(|token| token.id == form.id && token.device_ids.is_some());
+    if !aggregate {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+    let _ = lock(&app.tokens).revoke(&form.id);
+    Redirect::to("/next/fleet-tokens").into_response()
 }
 
 /// A percentage, rounded, and zero rather than a division by zero when the device reported nothing.

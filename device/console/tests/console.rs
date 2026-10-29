@@ -11180,6 +11180,120 @@ async fn the_connect_page_can_give_a_token_a_lifetime() {
     );
 }
 
+/// **THE FLEET SCOPE, FROM THE PAGE.** One token across several devices, used on `/mcp/all`.
+/// The engine supported it; no page minted it, so the documents pointed at curl.
+#[tokio::test]
+async fn the_fleet_tokens_page_mints_one_token_for_several_devices() {
+    let fixture = Fixture::new("fleet-token-page");
+    let (first, _) = fixture.register(&signing_key(0xfe)).await;
+    let (second, _) = fixture.register(&signing_key(0xff)).await;
+    let (cookie, csrf) = sign_in_to_the_page(&fixture).await;
+    let session = fixture.authenticate().await;
+
+    let (status, _, page) = send_text(
+        fixture.app(),
+        get_with_cookie("/next/fleet-tokens", &cookie),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(page.contains("Mint a fleet token"), "{page}");
+    assert_eq!(
+        page.matches("name=\"device\"").count(),
+        2,
+        "one checkbox per registered device: {page}"
+    );
+    assert!(
+        page.contains("No token reaches more than one device yet"),
+        "{page}"
+    );
+
+    let mut request = post_form(
+        "/next/fleet-tokens/mint",
+        &[
+            ("csrf", &csrf),
+            ("name", "one-client"),
+            ("device", &first),
+            ("device", &second),
+            ("expires_in_s", "2592000"),
+        ],
+    );
+    request
+        .headers_mut()
+        .insert(header::COOKIE, cookie.parse().expect("the cookie header"));
+    let (status, _, created) = send_text(fixture.app(), request).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        created.contains("/mcp/all"),
+        "the client configuration points at the aggregate endpoint: {created}"
+    );
+    assert!(created.contains("Bearer srm_"), "{created}");
+
+    let (_, listed) = send(fixture.app(), get("/tokens", Some(&session))).await;
+    let rows = listed.as_array().expect("the token list");
+    let token = rows
+        .iter()
+        .find(|row| row["name"] == json!("one-client"))
+        .expect("the fleet token");
+    let ids: Vec<&str> = token["device_ids"]
+        .as_array()
+        .expect("the scope")
+        .iter()
+        .map(|value| value.as_str().expect("a device id"))
+        .collect();
+    assert_eq!(ids, vec![first.as_str(), second.as_str()]);
+    assert_eq!(token["expires_at_ms"], json!(START_MS + 30 * DAY_MS));
+
+    // The list names the scope in the devices the operator knows, and offers a revoke.
+    let (_, _, listed_page) = send_text(
+        fixture.app(),
+        get_with_cookie("/next/fleet-tokens", &cookie),
+    )
+    .await;
+    assert!(listed_page.contains("one-client"), "{listed_page}");
+    assert_eq!(
+        listed_page.matches("/next/fleet-tokens/revoke").count(),
+        1,
+        "one revoke form for the one fleet token: {listed_page}"
+    );
+
+    let id = token["id"].as_str().expect("an id").to_owned();
+    let mut request = post_form("/next/fleet-tokens/revoke", &[("csrf", &csrf), ("id", &id)]);
+    request
+        .headers_mut()
+        .insert(header::COOKIE, cookie.parse().expect("the cookie header"));
+    let (status, _, _) = send_text(fixture.app(), request).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let (_, listed) = send(fixture.app(), get("/tokens", Some(&session))).await;
+    assert!(
+        !listed
+            .as_array()
+            .expect("the token list")
+            .iter()
+            .any(|row| row["name"] == json!("one-client")),
+        "the revoked token is gone: {listed}"
+    );
+}
+
+#[tokio::test]
+async fn a_fleet_token_mint_without_csrf_is_refused() {
+    let fixture = Fixture::new("fleet-token-csrf");
+    let (device, _) = fixture.register(&signing_key(0xd0)).await;
+    let (cookie, _csrf) = sign_in_to_the_page(&fixture).await;
+    let mut request = post_form(
+        "/next/fleet-tokens/mint",
+        &[
+            ("csrf", &"00".repeat(32)),
+            ("name", "sneaky"),
+            ("device", &device),
+        ],
+    );
+    request
+        .headers_mut()
+        .insert(header::COOKIE, cookie.parse().expect("the cookie header"));
+    let (status, _, _) = send_text(fixture.app(), request).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+}
+
 #[tokio::test]
 async fn a_token_mint_without_csrf_is_refused() {
     let fixture = Fixture::new("connect-csrf");

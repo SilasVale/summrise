@@ -184,10 +184,10 @@ The answer carries the plaintext once. Use it as the bearer on `/mcp/all`:
 
 The device list is the scope: a call naming a device outside it is refused before a frame is sent,
 and a name shared by two allowed devices is ambiguous and refused, never guessed. A device token is
-refused on `/mcp/all`; an aggregate token is refused on `/mcp/<device-id>`. An aggregate token is
-created, listed and revoked through the API (`POST /tokens` with `device_ids`, `GET /tokens`,
-`DELETE /tokens/<id>`); the per-device card creates one-device tokens only, and no page mints the
-fleet scope yet.
+refused on `/mcp/all`; an aggregate token is refused on `/mcp/<device-id>`. The fleet page's
+**Fleet tokens** link creates, lists and revokes aggregate tokens (the same operations are on the
+API: `POST /tokens` with `device_ids`, `GET /tokens`, `DELETE /tokens/<id>`); the per-device card
+creates one-device tokens only.
 
 ## DeepSeek Harness
 
