@@ -78,6 +78,12 @@ pub(crate) enum ConsoleError {
     },
     /// The URL is not an absolute `ws`, `wss`, `http` or `https` URL.
     BadUrl(String),
+    /// A plaintext `ws://` channel to a host that is not this machine, without the operator's
+    /// explicit `allow_plaintext` in `console.json`.
+    PlaintextChannel {
+        /// The host the URL named.
+        host: String,
+    },
     /// Windows read the token file's DACL and it allows more than SYSTEM and Administrators.
     #[cfg(windows)]
     Insecure {
@@ -113,6 +119,13 @@ impl std::fmt::Display for ConsoleError {
                     "{CONSOLE_URL_FLAG}: '{url}' is not a ws:// or wss:// URL"
                 )
             }
+            ConsoleError::PlaintextChannel { host } => write!(
+                f,
+                "{CONSOLE_URL_FLAG}: refusing a plaintext ws:// channel to '{host}': the \
+                 registration token would cross the network in the clear. Use https:// (wss), or \
+                 set \"allow_plaintext\": true in {} for a console on a trusted network.",
+                crate::config::CONSOLE_FILE
+            ),
             #[cfg(windows)]
             ConsoleError::Insecure { path, detail } => write!(
                 f,
@@ -198,12 +211,57 @@ impl ConsoleEndpoint {
             .release_version
             .clone()
             .unwrap_or_else(|| env!("CARGO_PKG_VERSION").to_owned());
-        let channel_url = channel_url(url, &device_id, &version, None)?;
+        let channel_url = channel_url(
+            url,
+            &device_id,
+            &version,
+            None,
+            config.console_allow_plaintext,
+        )?;
         Ok(Some(ConsoleEndpoint {
             channel_url,
             device_id,
             token,
         }))
+    }
+}
+
+/// The host part of a `host[:port]/path` remainder: what a certificate or a refusal names.
+fn host_of(rest: &str) -> &str {
+    let authority = rest.split('/').next().unwrap_or(rest);
+    // A bracketed IPv6 literal keeps its brackets; strip the port after them.
+    if authority.starts_with('[') {
+        return authority
+            .split_once(']')
+            .map(|(host, _)| &authority[..=host.len()])
+            .unwrap_or(authority);
+    }
+    authority.split(':').next().unwrap_or(authority)
+}
+
+/// Whether `host` is this machine or a link that is already private: loopback, a private network,
+/// a link-local address, the CGNAT range a tailnet uses, or an IPv6 unique-local address.
+///
+/// Those are the links an operator runs without TLS on purpose — a WireGuard tailnet, a lab LAN —
+/// and the token crossing them is not the leak the rule exists for. Everything else (a public
+/// address or a host name) needs `"allow_plaintext": true`, because there the wire is the internet.
+fn is_loopback_host(host: &str) -> bool {
+    let bare = host.trim_start_matches('[').trim_end_matches(']');
+    if matches!(bare.to_ascii_lowercase().as_str(), "localhost" | "::1") {
+        return true;
+    }
+    let Ok(address) = bare.parse::<std::net::IpAddr>() else {
+        return false;
+    };
+    match address {
+        std::net::IpAddr::V4(v4) => {
+            v4.is_loopback() || v4.is_private() || v4.is_link_local() ||
+            // 100.64.0.0/10: the range Tailscale and other CGNAT overlays hand out.
+            (v4.octets()[0] == 100 && (64..=127).contains(&v4.octets()[1]))
+        }
+        std::net::IpAddr::V6(v6) => {
+            v6.is_loopback() || v6.is_unique_local() || v6.is_unicast_link_local()
+        }
     }
 }
 
@@ -249,6 +307,7 @@ fn channel_url(
     device_id: &str,
     version: &str,
     retry: Option<&RetryNote>,
+    allow_plaintext: bool,
 ) -> Result<String, ConsoleError> {
     let base = base.trim().trim_end_matches('/');
     let (scheme, rest) = base
@@ -259,6 +318,14 @@ fn channel_url(
         "wss" | "https" => "wss",
         _ => return Err(ConsoleError::BadUrl(base.to_owned())),
     };
+    if scheme == "ws" && !allow_plaintext {
+        let host = host_of(rest);
+        if !is_loopback_host(host) {
+            return Err(ConsoleError::PlaintextChannel {
+                host: host.to_owned(),
+            });
+        }
+    }
     if rest.is_empty()
         || rest.contains(char::is_whitespace)
         || rest.contains('?')
@@ -534,6 +601,18 @@ async fn connect(
     }
 }
 
+/// The most frames the channel runs at once.
+///
+/// One machine, one console: the bound keeps a console that pipelines requests from spawning an
+/// unbounded number of blocking commands, while still letting a slow tool be one call rather than
+/// the whole channel. Measured on 2026-10-27 (14rjcr8): one `runs.exec` — an `scp` — ran 420 s, and
+/// every frame behind it waited; the console recorded 504 for `host.facts`, `terminal.list` and the
+/// run itself. A serial loop turned one slow command into an unanswerable device.
+const MAX_IN_FLIGHT_FRAMES: usize = 16;
+
+/// How many finished answers may wait for the socket before a task waits for the loop.
+const OUTGOING_FRAMES: usize = 64;
+
 /// Serve one socket until it closes, then return whether it carried any frame.
 async fn serve(
     mut socket: WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>,
@@ -547,11 +626,25 @@ async fn serve(
     // the console knows what the machine is without asking for a grant.
     let mut host = tokio::time::interval(std::time::Duration::from_secs(60));
     host.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    // A frame is answered by its own task, and the answer comes back here: the socket has one owner,
+    // so a ping is still answered while a tool is running, and one slow tool cannot stop the channel.
+    let (outgoing, mut answers) = tokio::sync::mpsc::channel::<Value>(OUTGOING_FRAMES);
+    let in_flight = std::sync::Arc::new(tokio::sync::Semaphore::new(MAX_IN_FLIGHT_FRAMES));
     loop {
         tokio::select! {
             _ = host.tick() => {
-                if let Err(error) = socket.send(Message::text(crate::host::frame())).await {
+                if let Err(error) = socket.send(Message::text(crate::host::frame(server.store().data_dir()))).await {
                     eprintln!("summrise-device: the host report could not be sent: {error}");
+                    break;
+                }
+            }
+            answer = answers.recv() => {
+                // `outgoing` is held by this loop, so the channel closes only when the loop does.
+                let Some(answer) = answer else {
+                    break;
+                };
+                if let Err(error) = socket.send(Message::text(answer.to_string())).await {
+                    eprintln!("summrise-device: the console channel write failed: {error}");
                     break;
                 }
             }
@@ -562,12 +655,23 @@ async fn serve(
                 match message {
                     Ok(Message::Text(text)) => {
                         served = true;
-                        if let Some(reply) = handle_frame(text.as_str(), endpoint, server, key).await {
-                            if let Err(error) = socket.send(Message::text(reply.to_string())).await {
-                                eprintln!("summrise-device: the console channel write failed: {error}");
-                                break;
+                        let endpoint = endpoint.clone();
+                        let server = server.clone();
+                        let key = *key;
+                        let outgoing = outgoing.clone();
+                        let in_flight = in_flight.clone();
+                        tokio::spawn(async move {
+                            // The permit is taken here, not in the read loop: a saturated channel
+                            // parks the task, and pings and the host report keep flowing.
+                            let Ok(_permit) = in_flight.acquire_owned().await else {
+                                return;
+                            };
+                            if let Some(reply) =
+                                handle_frame(text.as_str(), &endpoint, &server, &key).await
+                            {
+                                let _ = outgoing.send(reply).await;
                             }
-                        }
+                        });
                     }
                     Ok(Message::Ping(payload)) => {
                         let _ = socket.send(Message::Pong(payload)).await;
@@ -599,8 +703,15 @@ async fn handle_frame(
     let request_id = frame.mcp.get("id").cloned().unwrap_or(Value::Null);
     let tool = remote::requested_tool(&frame.mcp).map(str::to_owned);
 
-    let envelope = match remote::admit(&frame, &endpoint.device_id, key, crate::http::now_ms()) {
-        Ok(envelope) => envelope,
+    let admitted = match remote::admit(
+        &frame,
+        &endpoint.device_id,
+        key,
+        crate::http::now_ms(),
+        remote::Transport::Console,
+        server.nonces(),
+    ) {
+        Ok(admitted) => admitted,
         Err(refusal) => {
             server
                 .audit_refused(
@@ -621,16 +732,20 @@ async fn handle_frame(
         }
     };
 
-    let response = server
-        .handle(
-            &frame.mcp,
-            Caller::Granted {
-                grant: &envelope.grant,
-                arrival: Arrival::Console,
-                peer: None,
-            },
-        )
-        .await;
+    let caller = match &admitted {
+        remote::Admitted::Grant(envelope) => Caller::Granted {
+            grant: &envelope.grant,
+            arrival: Arrival::Console,
+            peer: None,
+        },
+        remote::Admitted::Token(scope) => Caller::Console {
+            token_id: &scope.token_id,
+            scopes: &scope.scopes,
+            allow_destructive: scope.allow_destructive,
+            arrival: Arrival::Console,
+        },
+    };
+    let response = server.handle(&frame.mcp, caller).await;
     if response.get("error").is_some() {
         Some(json!({ "id": frame.id, "error": response }))
     } else {
@@ -703,6 +818,9 @@ mod tests {
                 tools: tools.iter().map(|tool| (*tool).to_owned()).collect(),
                 expires_at_ms,
                 allow_destructive,
+                // One nonce per grant, as the console's signer does it: a frame built twice in a test
+                // must carry the same nonce for the replay check to have something to compare.
+                nonce: "5a5a".repeat(8),
             },
         )
     }
@@ -736,6 +854,7 @@ mod tests {
             supervised: false,
             console_url: Some("ws://unused".to_owned()),
             console_token_file: Some(dir.join("console")),
+            console_allow_plaintext: true,
             mesh_broker: None,
             mesh_relay: None,
             mesh_stun: None,
@@ -838,6 +957,12 @@ mod tests {
             .expect("the frame is sent");
     }
 
+    /// The next frame that answers a request.
+    ///
+    /// The host report is unsolicited and rides the same socket, so it can land before or after any
+    /// answer — the console keys it by `host`, not by `id`. A test that reads "the next frame" after
+    /// sending a request wants the answer and must not depend on which of the two the loop flushed
+    /// first.
     async fn next_frame(socket: &mut WebSocketStream<tokio::net::TcpStream>) -> Value {
         loop {
             match socket
@@ -847,7 +972,12 @@ mod tests {
                 .expect("a frame")
             {
                 WsMessage::Text(text) => {
-                    return serde_json::from_str(text.as_str()).expect("the frame is JSON")
+                    let frame: Value =
+                        serde_json::from_str(text.as_str()).expect("the frame is JSON");
+                    if frame.get("host").is_some() {
+                        continue;
+                    }
+                    return frame;
                 }
                 WsMessage::Close(_) => panic!("the device closed the channel"),
                 _ => {}
@@ -952,7 +1082,7 @@ mod tests {
                 "wss://console.example.test/console/devices/ab/channel?v=0.0.0-test",
             ),
         ] {
-            let actual = channel_url(base, "ab", "0.0.0-test", None).expect(base);
+            let actual = channel_url(base, "ab", "0.0.0-test", None, true).expect(base);
             assert!(actual.starts_with(expected), "{base}: {actual}");
             // The machine's own name follows the version, encoded so a space or `&` survives.
             if let Some(name) = host_name() {
@@ -972,10 +1102,62 @@ mod tests {
             "ws://host/a b",
         ] {
             assert!(
-                channel_url(bad, "ab", "0.0.0-test", None).is_err(),
+                channel_url(bad, "ab", "0.0.0-test", None, true).is_err(),
                 "{bad:?} must be refused"
             );
         }
+    }
+
+    /// Plaintext to another machine carries the registration token in the clear; to this machine it
+    /// never crosses a wire. The operator's `allow_plaintext` is the only way past the rule.
+    #[test]
+    fn a_plaintext_channel_is_loopback_or_explicitly_allowed() {
+        for base in [
+            "ws://127.0.0.1:19000",
+            "http://127.0.0.1:19000/console",
+            "ws://localhost:19000",
+            "ws://[::1]:19000",
+            // A tailnet / LAN link is private transport, so it needs no allowance: the deployed
+            // device reaches its console this way (100.74.250.98), and refusing it rolled a working
+            // install back once.
+            "ws://100.74.250.98:19000",
+            "ws://10.1.2.3:19000",
+            "ws://192.168.1.5:19000",
+            "ws://[fd7a:115c:a1e0::1]:19000",
+            "https://console.example.test",
+            "wss://console.example.test",
+        ] {
+            assert!(
+                channel_url(base, "ab", "0.0.0-test", None, false).is_ok(),
+                "{base:?} must be accepted without an allowance"
+            );
+        }
+
+        for base in [
+            "ws://8.8.8.8:19000",
+            "http://console.example.test",
+            "ws://203.0.113.10:19000",
+        ] {
+            let error = channel_url(base, "ab", "0.0.0-test", None, false)
+                .expect_err("plaintext off this machine is refused by default");
+            assert!(
+                matches!(error, ConsoleError::PlaintextChannel { .. }),
+                "{base}: {error:?}"
+            );
+            let allowed = channel_url(base, "ab", "0.0.0-test", None, true)
+                .expect("an explicit allowance is honoured");
+            assert!(
+                allowed.starts_with("ws://"),
+                "{base}: an allowed plaintext base still becomes a ws channel: {allowed}"
+            );
+        }
+
+        let error = channel_url("ws://8.8.8.8:19000", "ab", "0.0.0-test", None, false)
+            .expect_err("refused");
+        assert!(
+            error.to_string().contains("8.8.8.8"),
+            "the refusal names the host: {error}"
+        );
     }
 
     #[test]
@@ -1035,6 +1217,7 @@ mod tests {
             supervised: false,
             console_url: Some("https://console.example.test".to_owned()),
             console_token_file: Some(token_file),
+            console_allow_plaintext: true,
             mesh_broker: None,
             mesh_relay: None,
             mesh_stun: None,
@@ -1066,6 +1249,69 @@ mod tests {
             matches!(ConsoleEndpoint::from_config(&config), Ok(None)),
             "no console facts means the feature is off, not an error"
         );
+    }
+
+    /// A slow tool is one call, not the whole channel.
+    ///
+    /// On 2026-10-27 an `scp` through `runs.exec` ran 420 s on 14rjcr8, and the serial loop let every
+    /// later frame wait behind it: the console recorded 504 for `host.facts`, `terminal.list` and the
+    /// run itself while the device was alive and answering nothing. The second call here must answer
+    /// while the first still runs.
+    #[tokio::test]
+    async fn a_slow_call_does_not_hold_the_channel() {
+        let (server, _config, _dir) = fixture("console-concurrent");
+        let mut console = FakeConsole::start().await;
+        let handle = spawn_with_key(
+            endpoint(&console.url),
+            server.clone(),
+            signing().verifying_key(),
+        );
+        let mut connection = console.next().await;
+
+        // Four seconds, whichever platform: long enough that a serial channel cannot answer the
+        // second frame before the first ends, short enough for a test suite.
+        #[cfg(windows)]
+        let slow = json!({ "command": "cmd", "args": ["/C", "ping", "-n", "5", "127.0.0.1"] });
+        #[cfg(not(windows))]
+        let slow = json!({ "command": "sleep", "args": ["4"] });
+
+        let mut slow_arguments = slow;
+        slow_arguments["timeout_ms"] = json!(10_000);
+        send_frame(
+            &mut connection.socket,
+            json!({
+                "id": 7,
+                "mcp": json!({
+                    "jsonrpc": "2.0",
+                    "id": 70,
+                    "method": "tools/call",
+                    "params": { "name": "runs.exec", "arguments": slow_arguments },
+                }),
+                "grant": grant_allowing(&["runs.exec"], now_ms() as u64 + 60_000, true),
+            }),
+        )
+        .await;
+        send_frame(
+            &mut connection.socket,
+            json!({
+                "id": 8,
+                "mcp": state_call(71),
+                "grant": grant(&["state.get"], now_ms() as u64 + 60_000),
+            }),
+        )
+        .await;
+
+        let answer =
+            tokio::time::timeout(Duration::from_secs(3), next_frame(&mut connection.socket))
+                .await
+                .expect("the device answers the second call while the first is still running");
+        assert_eq!(answer["id"], 8, "the fast call answers first: {answer}");
+        let slow_answer = next_frame(&mut connection.socket).await;
+        assert_eq!(
+            slow_answer["id"], 7,
+            "the slow call answers when it ends: {slow_answer}"
+        );
+        handle.abort();
     }
 
     #[tokio::test]
@@ -1114,6 +1360,52 @@ mod tests {
         );
         let lines = audit_lines(&config);
         assert_eq!(lines[0]["decision"], "allow");
+        handle.abort();
+    }
+
+    /// A captured frame is one consent: the same signed grant sent twice runs once, and the second
+    /// arrival is refused by name. Without the nonce this is the call that ran twice.
+    #[tokio::test]
+    async fn the_same_signed_frame_twice_runs_once() {
+        let (server, config, _dir) = fixture("console-replay");
+        fs::write(config.files_root.join("notes.txt"), "read once")
+            .expect("the fixture file is written");
+        let mut console = FakeConsole::start().await;
+        let handle = spawn_with_key(
+            endpoint(&console.url),
+            server.clone(),
+            signing().verifying_key(),
+        );
+        let mut connection = console.next().await;
+        let frame = json!({
+            "id": 31,
+            "mcp": read_call(130, "notes.txt"),
+            "grant": grant(&["files.read"], now_ms() as u64 + 60_000),
+        });
+
+        send_frame(&mut connection.socket, frame.clone()).await;
+        let first = next_frame(&mut connection.socket).await;
+        assert_eq!(first["result"]["id"], 130, "{first}");
+
+        send_frame(&mut connection.socket, frame).await;
+        let second = next_frame(&mut connection.socket).await;
+        assert_eq!(
+            second["error"]["error"]["code"], -32001,
+            "the replayed frame is refused: {second}"
+        );
+        assert!(
+            second["error"]["error"]["message"]
+                .as_str()
+                .is_some_and(|message| message.contains("already been used")),
+            "{second}"
+        );
+
+        let lines = audit_lines(&config);
+        assert_eq!(lines.len(), 4, "two calls, two lines each: {lines:?}");
+        assert_eq!(lines[0]["decision"], "allow");
+        assert_eq!(lines[1]["ok"], true);
+        assert_eq!(lines[2]["decision"], "deny");
+        assert_eq!(lines[3]["error_kind"], "replay");
         handle.abort();
     }
 
@@ -1485,6 +1777,7 @@ mod tests {
                 tools: vec!["files.read".to_owned()],
                 expires_at_ms: now_ms() as u64 + 60_000,
                 allow_destructive: false,
+                nonce: String::new(),
             },
         );
         send_frame(

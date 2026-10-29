@@ -16,7 +16,9 @@ use std::fs;
 use std::path::Path;
 
 use crate::paths::{app_exe, repair_log};
+#[cfg(test)]
 use crate::sha256_bytes;
+use crate::sha256_file;
 use crate::{inspect_generation, resolve_baseline, BaselineChoice, Generation};
 
 /// One line of the report.
@@ -91,9 +93,8 @@ pub fn inspect(install: &Path, data: Option<&Path>) -> Report {
     // 2. The app copy the supervisor runs: it must hash to the generation's sidecar.
     if let Some(baseline) = choice.baseline() {
         let app = app_exe(install);
-        match fs::read(&app) {
-            Ok(bytes) => {
-                let actual = sha256_bytes(&bytes);
+        match sha256_file(&app) {
+            Ok(actual) => {
                 let ok = actual.eq_ignore_ascii_case(&baseline.sidecar.sha256);
                 checks.push(Check {
                     name: "app.copy",

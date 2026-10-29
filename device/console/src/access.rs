@@ -112,6 +112,17 @@ impl Access {
         Ok(Access { keys, validation })
     }
 
+    /// The issuer this verifier pins: the team's own URL, and therefore where its sign-out lives.
+    /// The configuration sets exactly one, so the set's single member is the answer.
+    pub fn issuer(&self) -> Option<&str> {
+        self.validation
+            .iss
+            .as_ref()?
+            .iter()
+            .next()
+            .map(String::as_str)
+    }
+
     /// Verify a token and return the claims Access signed.
     pub fn verify(&self, token: &str) -> Result<AccessClaims, AccessError> {
         let header =

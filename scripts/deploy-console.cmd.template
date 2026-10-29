@@ -1,0 +1,38 @@
+@echo off
+rem Staged by scripts/stage-console-deploy.bash. Do not edit the copy on the mirror:
+rem it is generated per version, and its digest is what the deploy verifies.
+setlocal
+set NEW=C:\Windows\Temp\summrise-console-__VERSION__.exe
+set LIVE=C:\SummriseConsole\summrise-console.exe
+set WANT=__SHA256__
+echo === DOWNLOAD ===
+curl -f -sS -o %NEW% __BASE_URL__/summrise-console-__VERSION__.exe || goto :fail
+echo === HASH ===
+for /f "tokens=*" %%H in ('certutil -hashfile %NEW% SHA256 ^| findstr /R /V ":"') do set GOT=%%H
+echo want %WANT%
+echo got  %GOT%
+if /I not "%GOT%"=="%WANT%" goto :hashfail
+echo === PREVIOUS VERSION ===
+for /f "tokens=*" %%V in ('powershell -NoProfile -Command "(Invoke-RestMethod -Uri http://127.0.0.1:19000/health).version"') do set PREV=%%V
+echo previous %PREV%
+echo === STOP ===
+schtasks /end /tn SummriseConsole >nul 2>&1
+taskkill /F /IM summrise-console.exe >nul 2>&1
+timeout /t 3 /nobreak >nul
+echo === BACKUP + REPLACE ===
+copy /Y %LIVE% %LIVE%.bak-%PREV% >nul
+move /Y %NEW% %LIVE%
+echo move exit %ERRORLEVEL%
+echo === START ===
+schtasks /run /tn SummriseConsole
+timeout /t 12 /nobreak >nul
+echo === HEALTH ===
+curl -sS -m 5 http://127.0.0.1:19000/health
+echo.
+goto :eof
+:hashfail
+echo ABORT: downloaded bytes do not match the staged digest
+exit /b 2
+:fail
+echo ABORT: download failed
+exit /b 1

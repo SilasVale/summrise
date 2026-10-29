@@ -113,6 +113,13 @@ pub struct Config {
     pub console_url: Option<String>,
     /// The file holding the console registration response (`id` and `token`).
     pub console_token_file: Option<PathBuf>,
+    /// Whether a plaintext `ws://` channel to a host that is not this machine is allowed.
+    ///
+    /// Off by default: the registration token crosses the link, so plaintext to another machine is a
+    /// credential on the wire. A URL named on the command line is explicit operator intent and counts
+    /// as an allowance; a `console.json` must say `"allow_plaintext": true`, which enrollment writes
+    /// when it was given `--allow-plaintext`.
+    pub console_allow_plaintext: bool,
     /// The mesh rendezvous broker's origin, when the mesh link is on.
     ///
     /// It is kept as the operator wrote it and validated where the link is built: the mesh knows
@@ -326,6 +333,7 @@ impl Config {
             });
         }
 
+        let console_allow_plaintext = console_url.is_some();
         Ok(Config {
             install,
             data,
@@ -336,6 +344,7 @@ impl Config {
             release_sha,
             release_channel,
             supervised,
+            console_allow_plaintext,
             console_url,
             console_token_file,
             mesh_broker,
@@ -419,6 +428,7 @@ impl Config {
                     }
                     self.console_url = Some(url.clone());
                     self.console_token_file = Some(token_file.clone());
+                    self.console_allow_plaintext = link.allow_plaintext;
                 }
                 _ => {
                     return Err(ConfigError::ConsoleFile {
@@ -521,6 +531,8 @@ impl Config {
 struct ConsoleLinkFile {
     #[serde(default)]
     url: Option<String>,
+    #[serde(default)]
+    allow_plaintext: bool,
     #[serde(default)]
     token_file: Option<PathBuf>,
     #[serde(default)]
@@ -690,6 +702,7 @@ mod tests {
                 supervised: false,
                 console_url: None,
                 console_token_file: None,
+                console_allow_plaintext: false,
                 mesh_broker: Some("http://127.0.0.1:8080".to_owned()),
                 mesh_relay: Some("127.0.0.1:9000".to_owned()),
                 mesh_stun: Some("203.0.113.10:3478".to_owned()),
@@ -967,6 +980,7 @@ mod tests {
                 supervised: false,
                 console_url: None,
                 console_token_file: None,
+                console_allow_plaintext: false,
                 mesh_broker: None,
                 mesh_relay: None,
                 mesh_stun: None,

@@ -28,8 +28,10 @@ mod identity;
 mod lock;
 mod mcp;
 mod mesh;
+mod panel;
 mod remote;
 mod restart;
+mod restarts;
 mod store;
 mod update;
 mod update_source;
@@ -929,6 +931,20 @@ async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
     let store = Store::new(&config.install, &config.data, config.release());
     // The launcher always passes the release facts; a direct start passes none and claims none.
     ensure_state(&store, config.release_version.is_some())?;
+    // This boot, journaled before it can serve anything: the facts carry the last few, so a console
+    // can say whether a device is restarting in a loop or simply came up once this morning. A journal
+    // that cannot be written is a line on stderr, not a device that refuses to start.
+    let release = config.release();
+    let restart = restarts::Restart {
+        at_ms: crate::http::now_ms().max(0) as u64,
+        version: release.version.clone(),
+        sha256: release.sha256.clone(),
+        channel: release.channel.clone(),
+        pid: std::process::id(),
+    };
+    if let Err(error) = restarts::record(&config.data, &restart) {
+        eprintln!("summrise-device: the boot journal could not be written: {error}");
+    }
     // C1: a fresh install has no `<data>/workspace`, and no earlier step creates it. The files
     // capability's root is the device's own directory, created here before anything can call it;
     // otherwise every `files.*` call on a new device is `NotFound` with no MCP tool to fix it.

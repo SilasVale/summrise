@@ -12,10 +12,10 @@ use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use axum::body::Bytes;
-use axum::extract::{ConnectInfo, State};
+use axum::extract::{ConnectInfo, Form, Query, State};
 use axum::http::{header, HeaderMap, StatusCode};
 use axum::middleware;
-use axum::response::{Html, IntoResponse, Response};
+use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
@@ -26,6 +26,7 @@ use summrise_core::{
 use crate::capabilities::{self, terminal};
 use crate::config::{Config, Release};
 use crate::helper;
+use crate::panel;
 use crate::restart;
 use crate::store::{Store, EVENT_TAIL};
 use crate::watchdog;
@@ -64,15 +65,32 @@ fn router_with(
     helper: Option<Arc<helper::Helper>>,
     restart: restart::Hook,
 ) -> Router {
+    // The MCP service and the panel share one terminal registry, so a session an MCP client opened
+    // is the session the panel lists. `/mcp` is the same secret as `/api/state`: the gate runs before
+    // the MCP service sees the request, so an unauthenticated caller cannot even start a handshake.
+    // One audit for the process: the MCP service writes it, and the panel shares it so a session
+    // opened from the device's own page is in the same file as a call an AI client made.
+    let audit = std::sync::Arc::new(crate::mcp::Audit::new(&config.data));
+    let (mcp_service, terminal) = crate::mcp::service_with_terminal(
+        config,
+        limits,
+        audit.clone(),
+        console,
+        mesh,
+        restart.clone(),
+    );
     let state = AppState {
         token: load_token(&config.token_file),
         store,
         release: config.release(),
         helper,
         data: config.data.clone(),
+        port: config.port,
         panel_token: mint_panel_token(),
+        audit,
         supervised: config.supervised,
-        restart: restart.clone(),
+        restart,
+        terminal,
     };
 
     // `/mcp` is the same secret as `/api/state`: the gate runs before the MCP service sees the
@@ -82,10 +100,7 @@ fn router_with(
     // The app's restart is one hook: the panel's enrollment and the MCP `host.restart` tool both
     // ask the same closure, so the two paths cannot drift.
     let mcp = Router::new()
-        .route_service(
-            "/mcp",
-            crate::mcp::service(config, limits, console, mesh, restart),
-        )
+        .route_service("/mcp", mcp_service)
         .route_layer(middleware::from_fn(crate::mcp::limit_request_body))
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
@@ -98,7 +113,62 @@ fn router_with(
         // non-loopback peer, so a reverse proxy in front of 127.0.0.1 cannot turn either into a
         // remote read.
         .route("/", get(local_panel))
+        // The same panel, rendered in Rust, one path ahead of the switch: `/` still serves
+        // `panel.html` until a later step flips it.
+        .route("/panel", get(panel_page))
+        // The rendered page has no script for enrollment, so the form posts here. The redirect
+        // carries the outcome; the page renders it as a banner on the next GET.
+        .route("/panel/enroll", post(enroll_from_panel_form))
         .route("/api/panel", get(panel_snapshot))
+        // The panel's read-only view of the live terminal sessions. Loopback-only like the page: it
+        // names the shell/serial ports a person standing at this machine can already reach.
+        .route("/api/terminal", get(panel_terminal))
+        // The panel's terminal operations: the same PtyRegistry the MCP's terminal.* tools use, so
+        // an operator at the machine can create, type into, read and close a session without a
+        // console. Loopback plus the panel token, exactly like the enrollment.
+        .route("/api/terminal/create", post(panel_terminal_create))
+        .route("/api/terminal/:id/write", post(panel_terminal_write))
+        .route("/api/terminal/:id/read", get(panel_terminal_read))
+        .route("/api/terminal/:id/close", post(panel_terminal_close))
+        .route("/api/terminal/:id/resize", post(panel_terminal_resize))
+        // The terminal emulator, embedded: the panel's terminal is the same xterm the console uses.
+        .route(
+            "/panel/xterm.js",
+            get(|| async {
+                (
+                    [(header::CONTENT_TYPE, "text/javascript; charset=utf-8")],
+                    PANEL_XTERM_JS,
+                )
+            }),
+        )
+        .route(
+            "/panel/addon-fit.js",
+            get(|| async {
+                (
+                    [(header::CONTENT_TYPE, "text/javascript; charset=utf-8")],
+                    PANEL_XTERM_FIT,
+                )
+            }),
+        )
+        .route(
+            "/panel/xterm.css",
+            get(|| async {
+                (
+                    [(header::CONTENT_TYPE, "text/css; charset=utf-8")],
+                    PANEL_XTERM_CSS,
+                )
+            }),
+        )
+        // The panel's own terminal glue: create/read/write/resize/close, and nothing else.
+        .route(
+            "/panel/panel-terminal.js",
+            get(|| async {
+                (
+                    [(header::CONTENT_TYPE, "text/javascript; charset=utf-8")],
+                    PANEL_TERMINAL_JS,
+                )
+            }),
+        )
         // The panel's enrollment: the page a person is looking at posts the code here. The handler
         // demands a loopback peer and this boot's panel token, and the token exists only in that
         // page, so a request from another origin cannot be made to look like the user's.
@@ -192,9 +262,14 @@ struct AppState {
     helper: Option<Arc<helper::Helper>>,
     /// The data directory enrollment writes `console.json` and `console-token.json` under.
     data: PathBuf,
+    /// The port the listener binds. The rendered panel prints the MCP endpoint from it; the page
+    /// cannot ask the browser its origin because the page is built before a browser sees it.
+    port: u16,
     /// This boot's panel token: 64 lowercase hex, minted once when the router is built. It is served
     /// only in the panel's HTML (a meta tag) and never in `/api/panel`, an error body, or a log line.
     panel_token: String,
+    /// The process's one audit, shared with the MCP service: panel operations are recorded there.
+    audit: std::sync::Arc<crate::mcp::Audit>,
     /// Whether the launcher started this process with a verified digest. Only then may a panel
     /// enrollment or `host.restart` restart it: a standalone app that exits would not come back.
     supervised: bool,
@@ -202,6 +277,9 @@ struct AppState {
     /// was allowed (the real hook exits after a short delay so the answer reaches the caller first;
     /// tests record the call).
     restart: restart::Hook,
+    /// The live terminal sessions, shared with the MCP service: the panel lists the same sessions an
+    /// MCP client created, because they are the same machine's terminals.
+    terminal: Arc<terminal::PtyRegistry>,
 }
 
 impl AppState {
@@ -230,6 +308,13 @@ impl AppState {
         else {
             return false;
         };
+
+        self.panel_token_matches(presented)
+    }
+
+    /// The same comparison for a token that travelled in the enrollment form instead of a header:
+    /// an HTML form cannot set a custom header, and a cross-site page cannot read the hidden field.
+    fn panel_token_matches(&self, presented: &str) -> bool {
         let Some(presented) = decode_hex_32(presented.trim()) else {
             return false;
         };
@@ -282,19 +367,88 @@ async fn local_panel(
         return error_response(StatusCode::FORBIDDEN, "loopback_only", None);
     }
 
-    Html(PANEL_PAGE.replace(PANEL_TOKEN_PLACEHOLDER, &app.panel_token)).into_response()
+    // The same page `/panel` renders, from the same facts: the HTML file is gone, and there is one
+    // place a panel section is written.
+    Html(panel::page(&panel_facts(&app)).into_string()).into_response()
 }
-
-/// The panel's page, compiled in: the device has no assets directory to lose.
-const PANEL_PAGE: &str = include_str!("panel.html");
-
-/// Where the served page gets this boot's panel token. The placeholder exists only in the source;
-/// every response carries the minted value, and the value appears nowhere else.
-const PANEL_TOKEN_PLACEHOLDER: &str = "__PANEL_TOKEN__";
 
 /// The header the panel's script sends the token in. A cross-site page cannot set a custom header
 /// without a CORS preflight, and this API never grants one.
 const PANEL_TOKEN_HEADER: &str = "x-summrise-panel";
+
+/// The rendered panel's query: the enrollment form's redirect says whether it worked.
+#[derive(Deserialize)]
+struct PanelQuery {
+    enrolled: Option<String>,
+    error: Option<String>,
+}
+
+/// `GET /panel`: the panel rendered from [`panel::PanelFacts`] instead of `panel.html`.
+///
+/// The gate is the same one `GET /` uses — a loopback peer, refused with `loopback_only` — because
+/// the page carries this boot's token. A failed enrollment comes back here as `?error=<code>` and a
+/// successful one as `?enrolled=1`, so the page is always one server-rendered read.
+async fn panel_page(
+    State(app): State<AppState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    Query(query): Query<PanelQuery>,
+) -> Response {
+    if !peer.ip().is_loopback() {
+        return error_response(StatusCode::FORBIDDEN, "loopback_only", None);
+    }
+
+    let facts = panel_facts(&app);
+    let markup = if let Some(error) = query.error {
+        panel::enroll_result(&facts, panel::EnrollOutcome::Failed(error))
+    } else if query.enrolled.as_deref() == Some("1") {
+        panel::enroll_result(&facts, panel::EnrollOutcome::Enrolled)
+    } else {
+        panel::page(&facts)
+    };
+
+    Html(markup.into_string()).into_response()
+}
+
+/// Read every fact the rendered panel shows, from the same sources `/api/panel` reads. One read
+/// per request: a browser reload is a fresh look at the machine, and nothing is cached in between.
+fn panel_facts(app: &AppState) -> panel::PanelFacts {
+    let state = app
+        .store
+        .load()
+        .ok()
+        .and_then(|state| serde_json::to_value(state).ok());
+    // A failure to read the log prints the same "no events" line the HTML page printed for a null
+    // tail; the difference is not a fact the page has ever shown.
+    let events = app.store.tail_events(EVENT_TAIL).unwrap_or_default();
+    let sessions = app
+        .terminal
+        .list()
+        .into_iter()
+        .map(|session| panel::SessionFacts {
+            kind: session.kind.as_str().to_owned(),
+            shell: session.shell,
+            id: session.id.as_str().to_owned(),
+        })
+        .collect();
+    let data_dir = app.data.display().to_string();
+    let (token_file, token_command) = panel::token_facts(&data_dir);
+
+    panel::PanelFacts {
+        version: app.release.version.clone(),
+        channel: app.release.channel.clone(),
+        sha256: app.release.sha256.clone(),
+        pid: std::process::id(),
+        data_dir,
+        mcp_endpoint: format!("http://127.0.0.1:{}/mcp", app.port),
+        token_file,
+        token_command,
+        state,
+        events,
+        console_attempt: crate::console::last_attempt(),
+        sessions,
+        panel_token: app.panel_token.clone(),
+    }
+}
 
 /// 32 bytes from the operating system's generator, as lowercase hex: the same shape the helper's and
 /// the console's tokens have, and for the same reason — a token that is guessable is not a token.
@@ -344,6 +498,324 @@ async fn panel_snapshot(
         "console_attempt": crate::console::last_attempt(),
     }))
     .into_response()
+}
+
+/// The xterm the panel's terminal needs, served from the binary so the page has no CDN dependency.
+const PANEL_XTERM_JS: &str = include_str!("../assets/xterm.js");
+const PANEL_XTERM_CSS: &str = include_str!("../assets/xterm.css");
+const PANEL_XTERM_FIT: &str = include_str!("../assets/addon-fit.js");
+/// The panel's own terminal glue, kept apart from the emulator: this is the file that speaks
+/// `/api/terminal/*` and knows the page's element ids.
+const PANEL_TERMINAL_JS: &str = include_str!("../assets/panel-terminal.js");
+
+/// `GET /api/terminal`: the live terminal sessions, read-only, for the panel's list.
+async fn panel_terminal(
+    State(app): State<AppState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+) -> Response {
+    if !peer.ip().is_loopback() {
+        return error_response(StatusCode::FORBIDDEN, "loopback_only", None);
+    }
+    let sessions: Vec<serde_json::Value> = app
+        .terminal
+        .list()
+        .into_iter()
+        .map(|session| {
+            serde_json::json!({
+                "id": session.id.as_str(),
+                "kind": session.kind.as_str(),
+                "shell": session.shell,
+                "started_at_ms": session.started_at_ms,
+            })
+        })
+        .collect();
+    Json(serde_json::json!({ "sessions": sessions })).into_response()
+}
+
+#[derive(Deserialize)]
+struct PanelTerminalCreate {
+    kind: String,
+    port: Option<String>,
+    baud: Option<u32>,
+    shell: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct PanelTerminalResize {
+    rows: u16,
+    cols: u16,
+}
+
+#[derive(Deserialize)]
+struct PanelTerminalWrite {
+    data: String,
+}
+
+#[derive(Deserialize)]
+struct PanelTerminalRead {
+    cursor: Option<u64>,
+}
+
+/// The one gate every panel terminal operation passes: a loopback peer and this boot's token.
+fn panel_terminal_allowed(app: &AppState, peer: SocketAddr, headers: &HeaderMap) -> bool {
+    peer.ip().is_loopback() && app.panel_authorized(headers)
+}
+
+/// Begin an audited panel operation; `None` means its authorization line could not be written and
+/// the operation must not run (the same rule the MCP path follows).
+async fn panel_call_begin(app: &AppState, tool: &'static str) -> Option<u64> {
+    let id = app.audit.next_id();
+    app.audit
+        .begin(
+            id,
+            now_ms(),
+            tool,
+            "allow",
+            crate::mcp::Arrival::Panel,
+            None,
+            None,
+        )
+        .await
+        .then_some(id)
+}
+
+/// Record how a panel operation ended. `error_kind` is a closed set of names, never a message.
+async fn panel_call_end(app: &AppState, id: u64, error_kind: Option<&'static str>) {
+    app.audit
+        .end(
+            id,
+            now_ms(),
+            error_kind.is_none(),
+            error_kind,
+            crate::mcp::Arrival::Panel,
+            None,
+            None,
+        )
+        .await;
+}
+
+/// What a panel handler answers when its own audit line cannot be written: the operation did not
+/// run, and the refusal says why without pretending the device is broken.
+fn panel_not_audited() -> Response {
+    error_response(
+        StatusCode::INTERNAL_SERVER_ERROR,
+        "audit_unwritable",
+        Some(
+            "the device's event log could not be written, so the operation was not run".to_owned(),
+        ),
+    )
+}
+
+async fn panel_terminal_create(
+    State(app): State<AppState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+    Json(body): Json<PanelTerminalCreate>,
+) -> Response {
+    if !panel_terminal_allowed(&app, peer, &headers) {
+        return error_response(StatusCode::FORBIDDEN, "panel_only", None);
+    }
+    let kind = match terminal::Kind::parse(&body.kind) {
+        Ok(kind) => kind,
+        Err(error) => {
+            return error_response(
+                StatusCode::BAD_REQUEST,
+                "invalid_kind",
+                Some(error.to_string()),
+            )
+        }
+    };
+    let target = match kind {
+        terminal::Kind::Pty => terminal::CreateTarget::Pty {
+            shell: body.shell.as_deref(),
+        },
+        terminal::Kind::Serial => {
+            let Some(port) = body.port.as_deref().filter(|port| !port.is_empty()) else {
+                return error_response(
+                    StatusCode::BAD_REQUEST,
+                    "serial_needs_port",
+                    Some("kind serial needs a port, e.g. COM3".to_owned()),
+                );
+            };
+            let mut serial = terminal::SerialTarget::new(port);
+            if let Some(baud) = body.baud {
+                serial.baud = baud;
+            }
+            terminal::CreateTarget::Serial(serial)
+        }
+        terminal::Kind::Ssh => {
+            return error_response(
+                StatusCode::BAD_REQUEST,
+                "ssh_not_in_panel",
+                Some("the panel opens ptys and serial lines only".to_owned()),
+            )
+        }
+    };
+    let Some(call) = panel_call_begin(&app, "terminal.create").await else {
+        return panel_not_audited();
+    };
+    match app.terminal.create(target, 24, 80).await {
+        Ok(id) => {
+            panel_call_end(&app, call, None).await;
+            Json(serde_json::json!({
+                "id": id.as_str(),
+                "kind": kind.as_str(),
+            }))
+            .into_response()
+        }
+        Err(error) => {
+            panel_call_end(&app, call, Some("refused")).await;
+            error_response(
+                StatusCode::BAD_REQUEST,
+                "terminal_create_refused",
+                Some(error.to_string()),
+            )
+        }
+    }
+}
+
+async fn panel_terminal_write(
+    State(app): State<AppState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+    axum::extract::Path(id): axum::extract::Path<String>,
+    Json(body): Json<PanelTerminalWrite>,
+) -> Response {
+    if !panel_terminal_allowed(&app, peer, &headers) {
+        return error_response(StatusCode::FORBIDDEN, "panel_only", None);
+    }
+    let Some(id) = terminal::SessionId::parse(&id) else {
+        return error_response(StatusCode::BAD_REQUEST, "invalid_session", None);
+    };
+    let Some(call) = panel_call_begin(&app, "terminal.write").await else {
+        return panel_not_audited();
+    };
+    match app.terminal.write(&id, body.data.as_bytes()).await {
+        Ok(written) => {
+            panel_call_end(&app, call, None).await;
+            Json(serde_json::json!({ "written": written })).into_response()
+        }
+        Err(error) => {
+            panel_call_end(&app, call, Some("refused")).await;
+            error_response(
+                StatusCode::BAD_REQUEST,
+                "terminal_write_refused",
+                Some(error.to_string()),
+            )
+        }
+    }
+}
+
+/// `POST /api/terminal/:id/resize`: the browser's grid, so a full-screen program draws correctly.
+async fn panel_terminal_resize(
+    State(app): State<AppState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+    axum::extract::Path(id): axum::extract::Path<String>,
+    Json(body): Json<PanelTerminalResize>,
+) -> Response {
+    if !panel_terminal_allowed(&app, peer, &headers) {
+        return error_response(StatusCode::FORBIDDEN, "panel_only", None);
+    }
+    let Some(id) = terminal::SessionId::parse(&id) else {
+        return error_response(StatusCode::BAD_REQUEST, "invalid_session", None);
+    };
+    let Some(call) = panel_call_begin(&app, "terminal.resize").await else {
+        return panel_not_audited();
+    };
+    match app.terminal.resize(&id, body.rows, body.cols).await {
+        Ok(()) => {
+            panel_call_end(&app, call, None).await;
+            Json(serde_json::json!({ "resized": true })).into_response()
+        }
+        Err(error) => {
+            panel_call_end(&app, call, Some("refused")).await;
+            error_response(
+                StatusCode::BAD_REQUEST,
+                "terminal_resize_refused",
+                Some(error.to_string()),
+            )
+        }
+    }
+}
+
+/// The panel's read answer: the lossy text, and the bytes a terminal replays.
+///
+/// Both are always present so a client chooses: `text` is what a person reads in a log, and
+/// `data_base64` is what an emulator must be fed, because a multi-byte character split by the
+/// cursor is two U+FFFD in the text and intact in the bytes.
+fn panel_read_answer(data: &[u8], cursor: u64) -> serde_json::Value {
+    serde_json::json!({
+        "text": String::from_utf8_lossy(data),
+        "data_base64": base64::Engine::encode(
+            &base64::engine::general_purpose::STANDARD,
+            data,
+        ),
+        "cursor": cursor,
+    })
+}
+
+async fn panel_terminal_read(
+    State(app): State<AppState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+    axum::extract::Path(id): axum::extract::Path<String>,
+    Query(query): Query<PanelTerminalRead>,
+) -> Response {
+    if !panel_terminal_allowed(&app, peer, &headers) {
+        return error_response(StatusCode::FORBIDDEN, "panel_only", None);
+    }
+    let Some(id) = terminal::SessionId::parse(&id) else {
+        return error_response(StatusCode::BAD_REQUEST, "invalid_session", None);
+    };
+    let Some(call) = panel_call_begin(&app, "terminal.read").await else {
+        return panel_not_audited();
+    };
+    match app.terminal.read(&id, query.cursor.unwrap_or(0)) {
+        Ok(answer) => {
+            panel_call_end(&app, call, None).await;
+            Json(panel_read_answer(&answer.data, answer.cursor)).into_response()
+        }
+        Err(error) => {
+            panel_call_end(&app, call, Some("refused")).await;
+            error_response(
+                StatusCode::BAD_REQUEST,
+                "terminal_read_refused",
+                Some(error.to_string()),
+            )
+        }
+    }
+}
+
+async fn panel_terminal_close(
+    State(app): State<AppState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+    axum::extract::Path(id): axum::extract::Path<String>,
+) -> Response {
+    if !panel_terminal_allowed(&app, peer, &headers) {
+        return error_response(StatusCode::FORBIDDEN, "panel_only", None);
+    }
+    let Some(id) = terminal::SessionId::parse(&id) else {
+        return error_response(StatusCode::BAD_REQUEST, "invalid_session", None);
+    };
+    let Some(call) = panel_call_begin(&app, "terminal.close").await else {
+        return panel_not_audited();
+    };
+    match app.terminal.close(&id).await {
+        Ok(()) => {
+            panel_call_end(&app, call, None).await;
+            Json(serde_json::json!({ "closed": true })).into_response()
+        }
+        Err(error) => {
+            panel_call_end(&app, call, Some("refused")).await;
+            error_response(
+                StatusCode::BAD_REQUEST,
+                "terminal_close_refused",
+                Some(error.to_string()),
+            )
+        }
+    }
 }
 
 /// The panel's enrollment request, as the page sends it. `force` and `allow_plaintext` are the two
@@ -403,6 +875,104 @@ async fn enroll_from_panel(
         }
         // The operator reads the device's own sentence; the panel invents none.
         Err(error) => sentence_response(StatusCode::BAD_REQUEST, &error.to_string()),
+    }
+}
+
+/// The rendered panel's enrollment form. A browser form cannot set the JSON route's header, so the
+/// token travels in a hidden field; `force` and `allow_plaintext` are checkboxes, whose submitted
+/// value is `on` (or absent), not a JSON boolean.
+#[derive(Deserialize)]
+struct PanelEnrollForm {
+    /// Optional so a missing field is the page's `usage` banner, not axum's plain 422: every
+    /// failure of this form has a redirect to explain it.
+    console_url: Option<String>,
+    code: Option<String>,
+    force: Option<String>,
+    allow_plaintext: Option<String>,
+    /// This boot's panel token, rendered into the form. A cross-site page cannot read it.
+    panel_token: Option<String>,
+}
+
+/// `POST /panel/enroll`: the form half of `/api/enroll`, with the same gates and the same
+/// [`crate::enroll::enroll`] call. The answer is a redirect, not a body, so a reload cannot repeat
+/// the write and the page remains a server-rendered read.
+async fn enroll_from_panel_form(
+    State(app): State<AppState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+    Form(form): Form<PanelEnrollForm>,
+) -> Response {
+    if !peer.ip().is_loopback() {
+        return error_response(StatusCode::FORBIDDEN, "loopback_only", None);
+    }
+    let authorized = app.panel_authorized(&headers)
+        || form
+            .panel_token
+            .as_deref()
+            .is_some_and(|presented| app.panel_token_matches(presented));
+    if !authorized {
+        return error_response(StatusCode::FORBIDDEN, "unauthorized", None);
+    }
+
+    let console_url = form.console_url.as_deref().unwrap_or("").trim().to_owned();
+    let code = form.code.as_deref().unwrap_or("").trim().to_owned();
+    if console_url.is_empty() || code.is_empty() {
+        return Redirect::to("/panel?error=usage").into_response();
+    }
+
+    let invocation = crate::enroll::EnrollInvocation {
+        console_url,
+        code,
+        data: app.data.clone(),
+        force: checked(form.force.as_deref()),
+        allow_plaintext: checked(form.allow_plaintext.as_deref()),
+    };
+    match crate::enroll::enroll(&invocation).await {
+        Ok(_) => {
+            // The answer is built before the hook is asked, exactly like `/api/enroll`: the hook's
+            // delay is what lets the browser receive the redirect and issue the follow-up GET.
+            let restarting = app.supervised;
+            let response = Redirect::to("/panel?enrolled=1").into_response();
+            if restarting {
+                (app.restart)();
+            }
+            response
+        }
+        Err(error) => {
+            Redirect::to(&format!("/panel?error={}", enroll_error_code(&error))).into_response()
+        }
+    }
+}
+
+/// A checkbox's form value: present and not an explicit off value. The page submits `on`; `0` and
+/// `false` are the spellings a hand-written client might send.
+fn checked(value: Option<&str>) -> bool {
+    value.is_some_and(|value| {
+        let value = value.trim();
+        !value.is_empty() && value != "0" && !value.eq_ignore_ascii_case("false")
+    })
+}
+
+/// The stable code a failed form enrollment redirects with. The page maps the code to a sentence;
+/// `/api/enroll` keeps returning `EnrollError`'s own Display text unchanged.
+fn enroll_error_code(error: &crate::enroll::EnrollError) -> &'static str {
+    use crate::enroll::EnrollError;
+
+    match error {
+        EnrollError::Bootstrap(_) => "bootstrap",
+        EnrollError::Usage => "usage",
+        EnrollError::BadUrl(_) => "bad_url",
+        EnrollError::DataDir { .. } => "data_dir",
+        EnrollError::Identity(_) => "identity",
+        EnrollError::Console { .. } => "console_unreachable",
+        EnrollError::Status { .. } => "console_status",
+        EnrollError::Refused { .. } => "console_refused",
+        EnrollError::BadResponse { .. } => "bad_response",
+        EnrollError::ConsoleFile { .. } => "console_file",
+        EnrollError::TokenConflict { .. } => "token_conflict",
+        EnrollError::Write { .. } => "write",
+        #[cfg(windows)]
+        EnrollError::Protect { .. } => "protect",
     }
 }
 
@@ -750,6 +1320,7 @@ mod tests {
             supervised: release_sha.is_some(),
             console_url: None,
             console_token_file: None,
+            console_allow_plaintext: false,
             mesh_broker: None,
             mesh_relay: None,
             mesh_stun: None,
@@ -1516,9 +2087,15 @@ mod tests {
                 .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)),
             "the token is lowercase hex: {token}"
         );
+        // The form is a plain POST now: the page carries the token in a hidden field because a form
+        // cannot set `x-summrise-panel`, and the answer is a redirect with the outcome.
         assert!(
-            html.contains("The device is restarting to connect"),
-            "the page explains the supervised restart, and keeps the manual sentence for a standalone start"
+            html.contains("action=\"/panel/enroll\""),
+            "the enroll form posts to the panel's own route"
+        );
+        assert!(
+            html.contains("name=\"panel_token\""),
+            "the form carries this boot's token in a field"
         );
         for id in [
             "enroll-console",
@@ -1544,8 +2121,8 @@ mod tests {
             "the status line is announced to a screen reader"
         );
         assert!(
-            html.contains("x-summrise-panel"),
-            "the page sends this boot's token in the header the endpoint requires"
+            html.contains(r#"src="/panel/panel-terminal.js""#),
+            "the terminal's glue is an asset now; the page no longer carries its own script"
         );
         assert!(
             html.contains("Use this machine"),
@@ -1564,6 +2141,116 @@ mod tests {
         assert_eq!(other_status, StatusCode::OK);
         let other = panel_meta(&other_html).expect("the second server carries its own token");
         assert_ne!(token, other, "a second boot gets a second token");
+    }
+
+    #[tokio::test]
+    async fn the_panel_lists_the_live_terminal_sessions() {
+        let fixture = fixture("panel-terminal", None);
+        let client = client();
+        let server = PanelServer::start(fixture.app()).await;
+
+        let (status, html) = get_text(&client, &server.base_url).await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(
+            html.contains("id=\"terminal-sessions\""),
+            "the panel's terminal card carries the live list"
+        );
+
+        let (status, body) = get_text(&client, &format!("{}/api/terminal", server.base_url)).await;
+        assert_eq!(status, StatusCode::OK);
+        let list: serde_json::Value =
+            serde_json::from_str(&body).expect("the terminal list is JSON");
+        assert_eq!(list["sessions"], serde_json::json!([]));
+    }
+
+    #[tokio::test]
+    async fn the_panel_terminal_operations_need_the_panel_token_and_work() {
+        let fixture = fixture("panel-terminal-ops", None);
+        let client = client();
+        let server = PanelServer::start(fixture.app()).await;
+        let token = served_token(&client, &server).await;
+
+        // Without the token: refused before any session exists.
+        let response = client
+            .post(format!("{}/api/terminal/create", server.base_url))
+            .header("content-type", "application/json")
+            .body(json!({ "kind": "pty" }).to_string())
+            .send()
+            .await
+            .expect("the device answers");
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+
+        // With it: a pty, a write, a read and a close.
+        let response = client
+            .post(format!("{}/api/terminal/create", server.base_url))
+            .header("x-summrise-panel", &token)
+            .header("content-type", "application/json")
+            .body(json!({ "kind": "pty" }).to_string())
+            .send()
+            .await
+            .expect("the device answers");
+        assert_eq!(response.status(), StatusCode::OK);
+        let text = response.text().await.expect("the create answer");
+        let created: Value = serde_json::from_str(&text).expect("the create answer is JSON");
+        let id = created["id"].as_str().expect("a session id").to_owned();
+
+        for (method, path, body) in [
+            (
+                "write",
+                format!("/api/terminal/{id}/write"),
+                Some(json!({ "data": "exit\n" })),
+            ),
+            ("read", format!("/api/terminal/{id}/read?cursor=0"), None),
+            (
+                "close",
+                format!("/api/terminal/{id}/close"),
+                Some(json!({})),
+            ),
+        ] {
+            let request = if method == "read" {
+                client.get(format!("{}{path}", server.base_url))
+            } else {
+                client.post(format!("{}{path}", server.base_url))
+            };
+            let request = match body {
+                Some(body) => request
+                    .header("content-type", "application/json")
+                    .body(body.to_string()),
+                None => request,
+            };
+            let response = request
+                .header("x-summrise-panel", &token)
+                .send()
+                .await
+                .expect("the device answers");
+            assert_eq!(response.status(), StatusCode::OK, "{method} {path}");
+        }
+
+        // The panel's terminal operations are audited like an MCP call: a session opened at the
+        // device's own page must be findable in events.jsonl, or the log answers "what ran here"
+        // with everything except what the person standing at the machine did.
+        let lines: Vec<Value> = std::fs::read_to_string(fixture.config.data.join("events.jsonl"))
+            .unwrap_or_default()
+            .lines()
+            .map(|line| serde_json::from_str(line).expect("an audit line is JSON"))
+            .collect();
+        let panel_ops: Vec<&Value> = lines
+            .iter()
+            .filter(|line| line["transport"] == "panel" && line["decision"] == "allow")
+            .collect();
+        assert_eq!(
+            panel_ops.len(),
+            4,
+            "create, write, read and close each wrote their authorization line: {lines:?}"
+        );
+        assert_eq!(panel_ops[0]["tool"], "terminal.create", "{lines:?}");
+        assert_eq!(panel_ops[1]["tool"], "terminal.write", "{lines:?}");
+        assert_eq!(panel_ops[2]["tool"], "terminal.read", "{lines:?}");
+        assert_eq!(panel_ops[3]["tool"], "terminal.close", "{lines:?}");
+        assert!(
+            lines.iter().all(|line| line["token_id"].is_null()),
+            "a panel call carries no token id: {lines:?}"
+        );
     }
 
     #[tokio::test]
@@ -1907,5 +2594,356 @@ mod tests {
             console.requests().is_empty(),
             "a non-loopback request never reaches the console"
         );
+    }
+
+    #[test]
+    fn a_split_character_survives_the_read_answer_as_bytes() {
+        // Two reads whose boundary falls inside one three-byte character. The text fields are
+        // lossy on purpose (an operator reading a log wants words, not bytes), and the base64
+        // fields are what a terminal replays: joined, they are the character again.
+        let character = "中".as_bytes();
+        let first = panel_read_answer(&character[..1], 1);
+        let second = panel_read_answer(&character[1..], 3);
+        assert!(
+            first["text"].as_str().expect("text").contains('\u{fffd}'),
+            "the split half is the replacement character in the text"
+        );
+        let mut joined = Vec::new();
+        for answer in [&first, &second] {
+            let encoded = answer["data_base64"].as_str().expect("the bytes");
+            joined.extend(
+                base64::Engine::decode(&base64::engine::general_purpose::STANDARD, encoded)
+                    .expect("valid base64"),
+            );
+        }
+        assert_eq!(joined, character, "the bytes rejoin into the character");
+        assert_eq!(second["cursor"].as_u64(), Some(3));
+    }
+
+    #[tokio::test]
+    async fn the_rust_panel_renders_the_facts_the_html_page_shows() {
+        let mut fixture = fixture_with_release(
+            "panel-rust-page",
+            None,
+            Some("2.0.3"),
+            Some("b1946ac92492d2347c6235b4d2611184"),
+            Some(Channel::Stable),
+        );
+        fixture.config.port = 18_080;
+        fixture.saved_state();
+        let client = client();
+        let server = PanelServer::start(fixture.app()).await;
+
+        let (status, html) = get_text(&client, &format!("{}/panel", server.base_url)).await;
+        assert_eq!(status, StatusCode::OK);
+        let token = panel_meta(&html).expect("GET /panel carries the panel token meta tag");
+        assert_eq!(token.len(), 64, "the token is 32 bytes as hex: {token}");
+
+        for fact in [
+            "2.0.3",
+            "stable",
+            "b1946ac92492d2347c6235b4d2611184",
+            "http://127.0.0.1:18080/mcp",
+            "Use this machine",
+            "Console link",
+            "Recent events",
+            "schema",
+            "lastVerdict",
+            "<title>Summrise — this machine</title>",
+        ] {
+            assert!(
+                html.contains(fact),
+                "{fact:?} is missing from /panel: {html}"
+            );
+        }
+        assert!(
+            html.contains("pid "),
+            "the build section prints the process: {html}"
+        );
+        // The command is PowerShell on Windows and a shell on Linux; the test asks the same
+        // function the page asked instead of assuming the separator (this assertion is why the
+        // Windows job was red while every Linux suite passed).
+        let (token_file, command) = panel::token_facts(&fixture.config.data.display().to_string());
+        assert!(
+            html.contains(&command.replace('"', "&quot;")),
+            "the read command names the token file ({command}): {html}"
+        );
+        assert!(
+            html.contains(&token_file),
+            "the token path is printed: {html}"
+        );
+        assert!(html.contains(r#"action="/panel/enroll""#));
+        assert!(html.contains(r#"name="panel_token""#));
+
+        // A live session is read from the same registry `/api/terminal` reads, and the page is
+        // rendered at request time rather than cached: one created after the first GET shows up.
+        let response = client
+            .post(format!("{}/api/terminal/create", server.base_url))
+            .header("x-summrise-panel", &token)
+            .header("content-type", "application/json")
+            .body(json!({ "kind": "pty" }).to_string())
+            .send()
+            .await
+            .expect("the device answers");
+        assert_eq!(response.status(), StatusCode::OK);
+        let created: Value =
+            serde_json::from_str(&response.text().await.expect("the create answer is text"))
+                .expect("the create answer is JSON");
+        let id = created["id"].as_str().expect("a session id").to_owned();
+
+        let (status, html) = get_text(&client, &format!("{}/panel", server.base_url)).await;
+        assert_eq!(status, StatusCode::OK);
+        let start = html
+            .find("id=\"terminal-sessions\"")
+            .expect("the sessions list");
+        let end = start + html[start..].find("Build").expect("the build section");
+        let sessions = &html[start..end];
+        assert!(
+            sessions.contains(&id) && sessions.contains("pty"),
+            "the live session is in its section: {sessions}"
+        );
+
+        let _ = client
+            .post(format!("{}/api/terminal/{id}/close", server.base_url))
+            .header("x-summrise-panel", &token)
+            .send()
+            .await;
+    }
+
+    #[tokio::test]
+    async fn the_rust_panel_refuses_a_non_loopback_peer() {
+        let fixture = fixture("panel-rust-non-loopback", None);
+        let app = fixture.app();
+        let remote = SocketAddr::from(([203, 0, 113, 10], 40_123));
+
+        let mut request = get("/panel", None);
+        request.extensions_mut().insert(ConnectInfo(remote));
+        let (status, answer) = send(app.clone(), request).await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+        assert_eq!(
+            answer,
+            json!({ "error": "loopback_only" }),
+            "the rendered page carries the token, so a remote peer gets no page"
+        );
+
+        let mut request = Request::builder()
+            .method("POST")
+            .uri("/panel/enroll")
+            .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+            .body(Body::from(
+                "console_url=http%3A%2F%2F127.0.0.1%3A1&code=a&panel_token=b",
+            ))
+            .expect("the request builds");
+        request.extensions_mut().insert(ConnectInfo(remote));
+        let (status, answer) = send(app, request).await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+        assert_eq!(answer, json!({ "error": "loopback_only" }));
+    }
+
+    #[tokio::test]
+    async fn the_panel_enroll_form_redirects_with_the_outcome() {
+        let fixture = fixture("panel-form-enroll", None);
+        let console = MockConsole::start().await;
+        let client = reqwest::Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .expect("a client that leaves the redirect visible");
+        let server = PanelServer::start(fixture.app()).await;
+        let (status, html) = get_text(&client, &format!("{}/panel", server.base_url)).await;
+        assert_eq!(status, StatusCode::OK);
+        let token = panel_meta(&html).expect("the form carries this boot's token");
+        let code = "a".repeat(64);
+
+        // A form with the wrong hidden token must not reach the console.
+        let wrong = format!(
+            "{}{}",
+            if token.starts_with('0') { '1' } else { '0' },
+            &token[1..]
+        );
+        let response = client
+            .post(format!("{}/panel/enroll", server.base_url))
+            .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+            .body(format!(
+                "console_url={}&code={code}&panel_token={wrong}",
+                console.base_url
+            ))
+            .send()
+            .await
+            .expect("the device answers");
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        assert!(
+            console.requests().is_empty(),
+            "a form without this boot's token writes nothing and sends nothing"
+        );
+
+        let response = client
+            .post(format!("{}/panel/enroll", server.base_url))
+            .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+            .body(format!(
+                "console_url={}&code={code}&panel_token={token}",
+                console.base_url
+            ))
+            .send()
+            .await
+            .expect("the device answers");
+        assert_eq!(response.status(), StatusCode::SEE_OTHER);
+        assert_eq!(
+            response
+                .headers()
+                .get(header::LOCATION)
+                .and_then(|value| value.to_str().ok()),
+            Some("/panel?enrolled=1")
+        );
+        assert_eq!(console.requests().len(), 1, "the real enrollment ran");
+
+        let (status, page) =
+            get_text(&client, &format!("{}/panel?enrolled=1", server.base_url)).await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(page.contains(r#"class="enroll-status ok""#));
+        assert!(page.contains("Enrolled."));
+
+        // A second enrollment is a conflict until the form's force box is ticked; the redirect says
+        // which code the page should explain.
+        let response = client
+            .post(format!("{}/panel/enroll", server.base_url))
+            .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+            .body(format!(
+                "console_url={}&code={}&panel_token={token}",
+                console.base_url,
+                "b".repeat(64)
+            ))
+            .send()
+            .await
+            .expect("the device answers");
+        assert_eq!(response.status(), StatusCode::SEE_OTHER);
+        assert_eq!(
+            response
+                .headers()
+                .get(header::LOCATION)
+                .and_then(|value| value.to_str().ok()),
+            Some("/panel?error=token_conflict")
+        );
+
+        let (status, page) = get_text(
+            &client,
+            &format!("{}/panel?error=token_conflict", server.base_url),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(page.contains(r#"class="enroll-status error""#));
+        assert!(page.contains("Enrolment failed (token_conflict)"));
+        assert!(page.contains("a console token already exists"));
+
+        // The force checkbox is a form field, not a JSON boolean: `on` must reach `enroll`'s force.
+        let response = client
+            .post(format!("{}/panel/enroll", server.base_url))
+            .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+            .body(format!(
+                "console_url={}&code={}&force=on&allow_plaintext=on&panel_token={token}",
+                console.base_url,
+                "c".repeat(64)
+            ))
+            .send()
+            .await
+            .expect("the device answers");
+        assert_eq!(response.status(), StatusCode::SEE_OTHER);
+        assert_eq!(
+            response
+                .headers()
+                .get(header::LOCATION)
+                .and_then(|value| value.to_str().ok()),
+            Some("/panel?enrolled=1"),
+            "force rotates the existing enrollment"
+        );
+        assert_eq!(
+            console.requests().len(),
+            2,
+            "the checked boxes reach the real enrollment"
+        );
+
+        // A field the form needs but did not carry is still a redirect, so the page can explain it.
+        let response = client
+            .post(format!("{}/panel/enroll", server.base_url))
+            .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+            .body(format!("panel_token={token}"))
+            .send()
+            .await
+            .expect("the device answers");
+        assert_eq!(response.status(), StatusCode::SEE_OTHER);
+        assert_eq!(
+            response
+                .headers()
+                .get(header::LOCATION)
+                .and_then(|value| value.to_str().ok()),
+            Some("/panel?error=usage")
+        );
+        assert_eq!(
+            console.requests().len(),
+            2,
+            "an incomplete form never reaches the console"
+        );
+    }
+
+    #[test]
+    fn a_checkbox_is_true_when_present_and_false_when_absent() {
+        assert!(!checked(None));
+        assert!(!checked(Some("")));
+        assert!(!checked(Some("0")));
+        assert!(!checked(Some("false")));
+        assert!(checked(Some("on")));
+        assert!(checked(Some("1")));
+    }
+
+    #[tokio::test]
+    async fn the_panel_serves_its_own_terminal_assets() {
+        // The terminal is xterm now, embedded in this binary; a build without the assets is a page
+        // whose terminal never opens. These are the three routes the page asks for.
+        let fixture = fixture("panel-assets", None);
+        for (path, content_type, marker) in [
+            (
+                "/panel/xterm.js",
+                "text/javascript; charset=utf-8",
+                "Terminal",
+            ),
+            (
+                "/panel/addon-fit.js",
+                "text/javascript; charset=utf-8",
+                "FitAddon",
+            ),
+            ("/panel/xterm.css", "text/css; charset=utf-8", "xterm"),
+            (
+                "/panel/panel-terminal.js",
+                "text/javascript; charset=utf-8",
+                "term-host",
+            ),
+        ] {
+            let response = fixture
+                .app()
+                .oneshot(
+                    Request::builder()
+                        .uri(path)
+                        .body(Body::empty())
+                        .expect("a request"),
+                )
+                .await
+                .expect("the asset answers");
+            assert_eq!(response.status(), StatusCode::OK, "{path}");
+            assert_eq!(
+                response
+                    .headers()
+                    .get(header::CONTENT_TYPE)
+                    .and_then(|value| value.to_str().ok()),
+                Some(content_type),
+                "{path}"
+            );
+            let body = axum::body::to_bytes(response.into_body(), 8 << 20)
+                .await
+                .expect("a body");
+            assert!(
+                body.windows(marker.len())
+                    .any(|window| window == marker.as_bytes()),
+                "{path} carries its marker"
+            );
+        }
     }
 }

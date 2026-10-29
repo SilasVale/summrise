@@ -10,7 +10,7 @@
 |---|---|---|
 | Console grant-signing key | console data dir (`grant.key`), never leaves it | Mint any grant for any registered device; the console is the authority |
 | Operator token | operator's file; console holds none (hashes/compares) | Full operator: enroll, grants, tokens, audit |
-| Operator session | console memory only; 24 h | Same as the operator token until expiry |
+| Operator session | browser cookie; console `sessions.json` holds the hash; 30 d | Same as the operator token until expiry |
 | API token (`srm_…`) | shown once; console stores SHA-256 | A scoped, revocable device credential |
 | Device identity key | device `<data>/identity.key` | Impersonate the device to the console/mesh |
 | Device channel token | device `<data>/console-token.json`; console stores its hash | Reconnect as the device, consume its frames |
@@ -22,8 +22,9 @@
 ## Boundaries
 
 1. **Operator browser ↔ edge ↔ console.** TLS and Cloudflare Access terminate at the edge; the console
-   verifies the Access JWT when configured and otherwise checks the operator session. The page holds
-   the session in memory only and sends it as a bearer; no cookies, so no ambient CSRF credential.
+   verifies the Access JWT when configured and otherwise checks the operator session. The page's session
+   is an `HttpOnly`, `SameSite=Lax` cookie scoped to `/next` (`Secure` over TLS); no API mutation
+   accepts the cookie, and every `/next` mutation carries the session's CSRF value, which is not in it.
 2. **Console ↔ device.** The device dials **outbound** `wss://console/devices/<id>/channel`; it never
    listens for the network. The console forwards MCP frames over that channel; the device re-verifies
    the grant offline against its pinned console key.
@@ -49,8 +50,11 @@
 - **Loopback-only local surface.** The server binds `127.0.0.1`; the panel and the enroll handler also
   check the peer address; the panel's credential is a per-boot 32-byte token in a meta tag, required
   in a header no cross-site page can set without a CORS preflight the device never grants.
-- **CSRF / sessions.** The console API is bearer-only, no cookies; sessions are in memory, 24 h, and
-  `POST /logout` removes the presented one. Access identity is verified per request, never stored.
+- **CSRF / sessions.** No API mutation accepts the page cookie; the page's session is an `HttpOnly`,
+  `SameSite=Lax` cookie scoped to `/next` (`Secure` over TLS), and every `/next` mutation carries the
+  session's CSRF value, kept in the session rather than the cookie. Sessions last 30 d, are stored as a
+  hash in `sessions.json`, and `POST /logout` removes the presented one. Access identity is verified per
+  request, never stored.
 - **Secrets in logs.** Audit/denial lines carry ids, codes and statuses, never payload bodies or
   plaintext credentials; tests grep for `srm_` and the token value.
 - **Comparison discipline.** Token hashes, install tokens, panel tokens and sessions compare with

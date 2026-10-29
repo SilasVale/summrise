@@ -64,7 +64,8 @@ done
 
 if ((windows)); then
     echo "== cargo xwin check --workspace --target x86_64-pc-windows-msvc"
-    cargo xwin check --workspace --target x86_64-pc-windows-msvc
+    # `--manifest-path`, like the portable half: the workspace root is `device/`, not this directory.
+    cargo xwin check --workspace --manifest-path device/Cargo.toml --target x86_64-pc-windows-msvc
 fi
 
 echo "check: every command passed"

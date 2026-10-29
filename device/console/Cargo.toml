@@ -6,6 +6,7 @@ edition.workspace = true
 publish.workspace = true
 
 [dependencies]
+summrise-ui = { path = "../ui" }
 # `ws` is the device channel: the device dials the console, and the console forwards the operator's
 # MCP exchange over that socket.
 axum = { version = "0.7", features = ["ws"] }
@@ -41,6 +42,12 @@ tokio = { version = "1", features = [
 # WebSocket tests need a real listener and a client, because a handshake is not a tower response.
 [dev-dependencies]
 futures-util = "0.3"
+# `test-util` gives the approval gate's ten-minute deadline a virtual clock: a test that waits ten
+# real minutes is a test nobody runs, and the expiry path is the one a person never sees.
+tokio = { version = "1", features = ["test-util"] }
+# The page's Access sign-in is tested with a real signed assertion, not a stub: the verifier the
+# test exercises is the one the deployment runs.
+jsonwebtoken = "9"
 tokio-tungstenite = { version = "0.24", default-features = false, features = [
     "connect",
     "handshake",

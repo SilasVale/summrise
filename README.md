@@ -3,6 +3,9 @@
 The Summrise device runtime: a Windows agent that supervises itself, updates from signed releases,
 and offers its capabilities to a local operator, a mesh peer, or a console session.
 
+**What the product is for — the one sentence, the four nouns and the design rules — is
+[`docs/PRODUCT.md`](docs/PRODUCT.md).** Everything else in this repository serves that statement.
+
 This repository is the clean start for the runtime that replaces the pre-1.3 `agent/`. The old tree
 lives in `summrise-legacy`; nothing here depends on it.
 
@@ -16,6 +19,8 @@ device/
   mesh/      pinned-QUIC sessions, the broker and relay, STUN candidates
   release/   signed release documents, channels, revocation lists, the signer
   console/   the control plane: operator sessions, enrollment codes, grants, the device channel, audit
+  shell/     the tray process in the user's session: the icon, the console window, launch and screenshot
+  ui/        the styling the console and the device's own panel share: tokens, chips, cards, page shell
   winsec/    the Windows security helpers (protected DACLs), shared by launch and device
   winsys/    the Windows calls safe crates cannot make: process listing and termination
 ```
@@ -28,6 +33,9 @@ Two runtimes, one control plane:
   over loopback, the console channel, and the mesh with one authorization check.
 - **`summrise-console`** brokers: it enrolls devices, signs grants offline-verifiable by the device,
   and carries operator traffic without being able to forge a device's answer.
+- **`summrise-shell`** is the only process in the user's session: a tray icon with three verbs, a
+  WebView2 window on the console page (one profile, so the operator signs in once), and the helper the
+  device calls to launch Chrome or capture that session's screen. It holds no credential.
 
 ## Build and test
 
@@ -43,20 +51,36 @@ Windows is the target: the lifecycle suite only runs there (`ci.yml`'s `device-w
 Linux `cargo test` proves the portable half. `--windows` compiles the Windows-only paths from Linux;
 it proves they build, not that they pass.
 
-The console page is a second buildable surface. `dist/index.html` is committed because the Rust
-binary embeds it, so the page's own gate is `ci.yml`'s `console` job:
+The console page is Rust. `/` redirects to `/next`, which `summrise-console` renders from `maud`
+templates; there is no npm, no committed bundle and no second build. A page change is gated by the
+same `cargo test -p summrise-console` the rest of the crate uses.
+
+To look at every page at once — light and dark, at any width — the console renders itself into a
+directory and a browser photographs it:
 
 ```bash
-cd device/console/web
-npm ci
-npm run typecheck
-npm test
-cd -
-./scripts/build-web.sh            # rebuilds dist/index.html; commit it
+scripts/console-screenshots.bash --out /tmp/console-shots          # 28 pages, light + dark
+scripts/console-screenshots.bash --out /tmp/console-shots --width 900 --light-only
+open /tmp/console-shots/index.html
 ```
 
-The job also fails when the committed bundle is not the one this source builds — a stale page still
-compiles, which is why the diff is the check.
+A second run can say what moved: `--diff <previous run>` compares every screenshot, lists the pages
+whose pixels changed (with the share), writes a highlighted diff image per changed page under
+`<out>/diff/`, and `--fail-on-change` makes it an exit code for a gate. With no argument, `--diff`
+compares against the baseline (`--baseline`, default `$XDG_CACHE_HOME/summrise-console-shots`), which
+`--update-baseline` replaces with the run just made — so a styling change is two commands on a fresh
+checkout: `--update-baseline` once, `--diff` after every change.
+
+The only JavaScript left is vendored xterm and four pieces of page glue
+(`device/console/assets/`: approvals, browser, terminal; `device/device/assets/panel-terminal.js`). `scripts/console-smoke.mjs` drives the
+console in a browser — the fleet table, every device link, and a real shell typed into — and needs
+a machine where a browser can start (a signed-in desktop session, not the device service):
+
+```bash
+CONSOLE_URL=http://127.0.0.1:19000 CONSOLE_TOKEN_FILE=/path/operator.token \
+CONSOLE_BROWSER='C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe' \
+node scripts/console-smoke.mjs            # add --terminal for the shell leg
+```
 
 ## The documents
 
@@ -86,7 +110,7 @@ A release carries the installer, the app binary and the signed release document:
 SummriseSetup-0.3.7.exe /S /D=C:\SummriseInstall
 
 :: verify
-curl http://127.0.0.1:18090/api/health
+curl http://127.0.0.1:18080/api/health
 summrise-launch.exe --self-check C:\SummriseInstall --data C:\ProgramData\Summrise
 ```
 
@@ -108,7 +132,7 @@ list, and the supervisor rolls back to the previous generation if the new one fa
 
 ## Onboarding a machine
 
-The console's **Add a device** mints a one-time code for this machine. Either path spends that code
+The console's **New enrollment code** mints a one-time code for this machine. Either path spends that code
 once and writes `console.json` and `console-token.json` under the data directory; the running app
 builds its console link at boot, so restart the `SummriseLaunch` service afterwards.
 
@@ -125,8 +149,9 @@ builds its console link at boot, so restart the `SummriseLaunch` service afterwa
   ```
 
   Add `--force` to replace an existing registration, and `--allow-plaintext` only for a console on a
-  trusted plaintext tunnel. `--data` defaults to `<install>\data`, so an installed binary needs only
-  the URL and the code.
+  trusted plaintext tunnel. `--data` defaults to the running executable's parent plus `data`, which
+  on an installed binary is **not** the service's store — so pass `--data C:\ProgramData\Summrise`,
+  as above.
 
 ## Cutting a release
 
@@ -160,5 +185,6 @@ The design is a record, not a wiki page: each document states a decision and wha
 
 * `docs/RELEASE.md` — how a release is published, deployed and **verified against the world**.
 * `docs/superpowers/specs/` — the designs and decisions, including the ones that were reversed.
-* `device/console/web` — the console page (React, built into one file the binary embeds).
-* `device/device/src/panel.html` — the device's own panel (hand-written, same design tokens).
+* `device/console/src/http/page.rs` — the console page's Rust renderers (maud), compiled into the
+  binary; `assets/` holds its three scripts and the vendored terminal.
+* `device/device/src/panel.rs` — the device's own panel, rendered in Rust from the same design tokens.

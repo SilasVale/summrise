@@ -37,27 +37,47 @@ pub fn token_path() -> std::path::PathBuf {
 /// The loopback server the device calls. It answers `POST /launch` and nothing else.
 pub struct Server {
     port: u16,
+    /// Set when this server is dropped: the device rotates its token at every boot, and a listener
+    /// that kept serving would keep authorizing the OLD token on a port nobody remembers.
+    stopping: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl Server {
-    /// Bind `127.0.0.1:0` and serve until the process ends.
+    /// Bind `127.0.0.1:0` and serve until the caller drops the handle.
     pub fn start(token: String) -> std::io::Result<Server> {
         let listener = TcpListener::bind("127.0.0.1:0")?;
+        // Non-blocking so the loop can see `stopping`; a blocking `accept` would outlive the handle.
+        listener.set_nonblocking(true)?;
         let port = listener.local_addr()?.port();
+        let stopping = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let stop = stopping.clone();
         std::thread::spawn(move || {
             // The launch verb is served one request at a time, and the previous browser is this
             // thread's business: a second Chrome with the same profile would only hand the request
             // to the first one, which is listening on the old port.
             let mut last: Option<std::process::Child> = None;
-            for stream in listener.incoming().flatten() {
-                handle(stream, &token, &mut last);
+            while !stop.load(std::sync::atomic::Ordering::SeqCst) {
+                match listener.accept() {
+                    Ok((stream, _)) => handle(stream, &token, &mut last),
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                        std::thread::sleep(Duration::from_millis(100));
+                    }
+                    Err(_) => std::thread::sleep(Duration::from_millis(100)),
+                }
             }
         });
-        Ok(Server { port })
+        Ok(Server { port, stopping })
     }
 
     pub fn port(&self) -> u16 {
         self.port
+    }
+}
+
+impl Drop for Server {
+    fn drop(&mut self) {
+        self.stopping
+            .store(true, std::sync::atomic::Ordering::SeqCst);
     }
 }
 

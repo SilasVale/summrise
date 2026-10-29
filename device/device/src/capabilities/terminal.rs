@@ -1434,7 +1434,7 @@ impl PtyRegistry {
         // The shell inherits the device's environment and working directory; no capability-level
         // sandbox applies to a terminal.
         let command = CommandBuilder::new(shell);
-        let child = pair
+        let mut child = pair
             .slave
             .spawn_command(command)
             .map_err(|error| PtyError::Backend(format!("cannot start {shell}: {error}")))?;
@@ -1443,12 +1443,29 @@ impl PtyRegistry {
         // from ever seeing EOF after the shell exits (the old agent's round-87 trap): drop it here.
         drop(pair.slave);
 
-        let reader = pair.master.try_clone_reader().map_err(|error| {
-            PtyError::Backend(format!("cannot read the pseudo-terminal: {error}"))
-        })?;
-        let writer = pair.master.take_writer().map_err(|error| {
-            PtyError::Backend(format!("cannot write the pseudo-terminal: {error}"))
-        })?;
+        // A SPAWNED CHILD MUST NOT OUTLIVE A FAILED SETUP. `spawn_command` succeeded, so the shell is
+        // already running in its own session; if the reader or the writer cannot be taken, returning
+        // an error would leave a shell with no session and no reader, and nothing to reap it.
+        let reader = match pair.master.try_clone_reader() {
+            Ok(reader) => reader,
+            Err(error) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(PtyError::Backend(format!(
+                    "cannot read the pseudo-terminal: {error}"
+                )));
+            }
+        };
+        let writer = match pair.master.take_writer() {
+            Ok(writer) => writer,
+            Err(error) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(PtyError::Backend(format!(
+                    "cannot write the pseudo-terminal: {error}"
+                )));
+            }
+        };
 
         let output = Arc::new(Mutex::new(Output {
             ring: Ring::new(self.limits.buffer_bytes),
@@ -1467,7 +1484,9 @@ impl PtyRegistry {
         if let Err(error) = thread.spawn(move || {
             drain_reader(reader, thread_output, thread_child, pid);
         }) {
-            let _ = lock(&child).kill();
+            let mut child = lock(&child);
+            let _ = child.kill();
+            let _ = child.wait();
             return Err(PtyError::Backend(format!(
                 "cannot start the session's reader thread: {error}"
             )));

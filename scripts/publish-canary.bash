@@ -106,10 +106,6 @@ cargo xwin build --release --target "$target" -p summrise-launch -p summrise-dev
 bin="target/$target/release"
 mkdir -p "$out"
 
-# The console page is a build artifact inside the binary. A publish that embeds yesterday's JavaScript
-# is the one failure this check exists for, and it costs a second.
-"$root/scripts/build-web.sh" --check
-
 echo "== signing the release document for $version ($channel)"
 signer_bin="$signer"
 artifact="$bin/summrise-device.exe"

@@ -1082,6 +1082,12 @@ impl MeshSession {
         }
         for (index, candidate) in candidates.iter().enumerate() {
             let remaining_ms = deadline_ms.saturating_sub(clock.now());
+            // The floor in `candidate_slice_ms` may carry one slice past the punch budget, but a
+            // thousand candidates (a hostile registration) must not: once the deadline has passed,
+            // every further candidate is a handshake nobody is waiting for.
+            if remaining_ms == 0 {
+                return DirectAttempt::TimedOut;
+            }
             let candidates_left = total - index;
             let slice_ms = candidate_slice_ms(remaining_ms, candidates_left);
             let attempt = tokio::time::timeout(
@@ -1157,7 +1163,11 @@ impl MeshSession {
         peer_id: &str,
     ) -> Result<Channel, SessionError> {
         let relay = self.relay.ok_or(SessionError::RelayUnavailable)?;
-        let session_id = relay_session_id(&self.identity.public_bytes(), peer_key);
+        // THE SESSION ID IS RANDOM, not the two public keys concatenated. A derivable id let anyone
+        // who can reach the relay open two connections under a pair's id and sit on the splice,
+        // denying that pair the floor for as long as they cared to try. The id travels in the signed
+        // request below, so the serving peer still learns it — from the requester, not from the keys.
+        let session_id = random_session_id();
 
         // Publish the meeting before joining the relay: the serving peer
         // learns the session id only from this request, so the note must exist
@@ -1341,13 +1351,10 @@ async fn meet_at_relay(
 /// concatenated are exactly that, so the pair names the session without a
 /// truncation or a collision-prone hash. Both peers compute the same id from
 /// the same two keys, whichever argument order they pass.
-fn relay_session_id(one: &PublicKey, other: &PublicKey) -> String {
-    let (lower, higher) = if one <= other {
-        (one, other)
-    } else {
-        (other, one)
-    };
-    format!("{}{}", keys::hex_encode(lower), keys::hex_encode(higher))
+fn random_session_id() -> String {
+    let mut bytes = [0u8; 16];
+    rand::fill(&mut bytes);
+    keys::hex_encode(&bytes)
 }
 
 /// How long one candidate gets out of the punch budget still remaining.
@@ -1885,56 +1892,6 @@ mod tests {
             MIN_CANDIDATE_SLICE_MS,
             "a short punch budget still gives a single candidate a real handshake window"
         );
-    }
-
-    /// One request, one response, both directions, over the pair of channels.
-    async fn echo(dialer: &mut Channel, listener: &mut Channel) {
-        let request = frame(Kind::Req, 7);
-        dialer
-            .send_frame(&request)
-            .await
-            .expect("the request goes out");
-        let received = timeout(PATIENCE, listener.recv_frame())
-            .await
-            .expect("the request timed out")
-            .expect("the request arrives");
-        assert_eq!(received, request);
-
-        let response = Frame {
-            kind: Kind::Res,
-            id: received.id,
-            payload: received.payload.clone(),
-        };
-        listener
-            .send_frame(&response)
-            .await
-            .expect("the response goes out");
-        let echoed = timeout(PATIENCE, dialer.recv_frame())
-            .await
-            .expect("the response timed out")
-            .expect("the response arrives");
-        assert_eq!(echoed, response);
-
-        // The channel is kind-agnostic: a stream chunk and a ping travel the
-        // same path as a request and its response, in both directions.
-        let stream = frame(Kind::Stream, 8);
-        dialer
-            .send_frame(&stream)
-            .await
-            .expect("the stream chunk goes out");
-        let received = timeout(PATIENCE, listener.recv_frame())
-            .await
-            .expect("the stream chunk timed out")
-            .expect("the stream chunk arrives");
-        assert_eq!(received, stream);
-
-        let ping = frame(Kind::Ping, 9);
-        listener.send_frame(&ping).await.expect("the ping goes out");
-        let received = timeout(PATIENCE, dialer.recv_frame())
-            .await
-            .expect("the ping timed out")
-            .expect("the ping arrives");
-        assert_eq!(received, ping);
     }
 
     #[tokio::test]
@@ -2477,12 +2434,29 @@ mod tests {
         )
         .await
         .expect("the dialer joins");
-        let mut listener = MeshSession::join(
-            listener_identity.clone(),
-            config(&broker, Some(relay), FALLBACK_TIMEOUT_MS),
-        )
-        .await
-        .expect("the listener joins");
+        let listener = Arc::new(
+            MeshSession::join(
+                listener_identity.clone(),
+                config(&broker, Some(relay), FALLBACK_TIMEOUT_MS),
+            )
+            .await
+            .expect("the listener joins"),
+        );
+        // THE SHAPE THE PRODUCT HAS: a device serves, it does not dial. The session id is random and
+        // travels in the signed request, so the serving side can only learn it by consuming that
+        // request — which is exactly what `serve` does. Two dialers in the same room was only ever
+        // possible because the id was derivable from the keys.
+        let served = std::sync::Arc::new(tokio::sync::Mutex::new(Vec::new()));
+        let serving = {
+            let served = std::sync::Arc::clone(&served);
+            spawn_serve(&listener, move |_peer, channel| {
+                let served = std::sync::Arc::clone(&served);
+                async move {
+                    let mut kept = served.lock().await;
+                    kept.push(channel.peer_id().to_owned());
+                }
+            })
+        };
 
         // The listener still answers on its bound address, but its published
         // candidate is a UDP socket that reads nothing: the dialer's QUIC
@@ -2501,24 +2475,30 @@ mod tests {
         .await
         .expect("the dead candidate is registered");
 
-        let (dialer_channel, listener_channel) = timeout(PATIENCE, async {
-            tokio::join!(
-                dialer.connect(&listener_peer, now_ms()),
-                listener.connect(&dialer_peer, now_ms()),
-            )
-        })
-        .await
-        .expect("the relay connect timed out");
-
-        let mut dialer_channel = dialer_channel.expect("the dialer falls back to the relay");
-        let mut listener_channel = listener_channel.expect("the listener falls back to the relay");
+        let dialer_channel = timeout(PATIENCE, dialer.connect(&listener_peer, now_ms()))
+            .await
+            .expect("the relay connect timed out")
+            .expect("the dialer falls back to the relay");
 
         assert_eq!(dialer.path(), PathState::Relayed);
-        assert_eq!(listener.path(), PathState::Relayed);
         assert!(!dialer_channel.is_direct());
-        assert!(!listener_channel.is_direct());
 
-        echo(&mut dialer_channel, &mut listener_channel).await;
+        // The serving side joined the room named in the request and accepted the session.
+        timeout(PATIENCE, async {
+            loop {
+                if !served.lock().await.is_empty() {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .expect("the listener serves the relayed session");
+        assert_eq!(
+            served.lock().await.first().map(String::as_str),
+            Some(dialer_peer.as_str())
+        );
+        serving.abort();
     }
 
     #[tokio::test]

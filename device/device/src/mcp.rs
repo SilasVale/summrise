@@ -113,6 +113,8 @@ pub(crate) struct DeviceServer {
     runs: Arc<runs::Runs>,
     /// The per-call audit log; shared so concurrent sessions serialize their appends.
     audit: Arc<Audit>,
+    /// The grant nonces this device has admitted, so a captured frame cannot run twice.
+    nonces: crate::remote::NonceLog,
     /// Whether the launcher started this process (`Config.supervised`). Only then may
     /// `host.restart` ask for the hook: a standalone app that exits would not come back.
     supervised: bool,
@@ -143,6 +145,21 @@ pub(crate) enum Caller<'a> {
         /// fills this; the audit line omits it elsewhere.
         peer: Option<&'a str>,
     },
+    /// The console's channel carried a permanent token's scope. No grant is signed: the token
+    /// record is the permission, and the device applies the same `authorize` rules with it.
+    // The variant lands before the console's frame format switches to it (both must ship
+    // together); until then only the test constructs it.
+    #[allow(dead_code)]
+    Console {
+        /// The token record's id (never the `srm_` secret), for the audit line.
+        token_id: &'a str,
+        /// The registry tools the token allows, in the order the console recorded them.
+        scopes: &'a [String],
+        /// Whether the token's record consented to destructive tools.
+        allow_destructive: bool,
+        /// The wire it arrived on.
+        arrival: Arrival,
+    },
 }
 
 /// How a call reached the handler, as the audit line records it.
@@ -155,6 +172,10 @@ pub(crate) enum Caller<'a> {
 pub(crate) enum Arrival {
     /// The loopback HTTP surface, with the install token.
     Loopback,
+    /// The device's own page on loopback, with this boot's panel token. The operator standing at
+    /// the machine, which is the same trust as `Loopback` but a different door: a terminal session
+    /// opened from the page must be findable in the log as one.
+    Panel,
     /// The console's outbound WebSocket.
     Console,
     /// A mesh channel: a peer reached this device directly or through the relay.
@@ -166,6 +187,7 @@ impl Arrival {
     fn as_str(self) -> &'static str {
         match self {
             Arrival::Loopback => "loopback",
+            Arrival::Panel => "panel",
             Arrival::Console => "console",
             Arrival::Mesh => "mesh",
         }
@@ -174,7 +196,8 @@ impl Arrival {
     /// How `core`'s authorization reads this arrival.
     fn transport(self) -> Transport {
         match self {
-            Arrival::Loopback => Transport::Loopback,
+            // The panel is this machine's operator, exactly as the install-token surface is.
+            Arrival::Loopback | Arrival::Panel => Transport::Loopback,
             Arrival::Console => Transport::Console,
             // A mesh peer is remote however it was reached, so an absent grant is `NoGrant` rather
             // than the loopback default deny.
@@ -189,6 +212,7 @@ impl<'a> Caller<'a> {
         match self {
             Caller::Owner => Arrival::Loopback,
             Caller::Granted { arrival, .. } => arrival,
+            Caller::Console { arrival, .. } => arrival,
         }
     }
 
@@ -197,6 +221,7 @@ impl<'a> Caller<'a> {
         match self {
             Caller::Owner => None,
             Caller::Granted { peer, .. } => peer,
+            Caller::Console { .. } => None,
         }
     }
 }
@@ -209,14 +234,23 @@ impl<'a> Caller<'a> {
 /// [`terminal::Limits::default`], and an in-process test shortens the write bound. `restart` is the
 /// router's one hook: the same closure the panel's enrollment asks, so both supervised paths exit by
 /// the same code.
-pub(crate) fn service(
+/// The MCP service plus the terminal registry behind it, so the device's own panel can list the live
+/// sessions without a second registry: one machine, one set of terminals.
+pub(crate) fn service_with_terminal(
     config: &Config,
     limits: terminal::Limits,
+    audit: Arc<Audit>,
     console: Option<crate::console::ConsoleEndpoint>,
     mesh: Option<crate::mesh::MeshLink>,
     restart: restart::Hook,
-) -> StreamableHttpService<DeviceServer, LocalSessionManager> {
-    let server = DeviceServer::new(config, limits).with_restart(restart);
+) -> (
+    StreamableHttpService<DeviceServer, LocalSessionManager>,
+    Arc<terminal::PtyRegistry>,
+) {
+    let server = DeviceServer::new(config, limits)
+        .with_restart(restart)
+        .with_audit(audit);
+    let terminal = Arc::clone(&server.terminal);
     // The sweeper is the device's, not a client's: it holds a weak reference, so the children are
     // closed when the service (and its registry) is dropped.
     server.terminal.spawn_sweeper();
@@ -233,10 +267,13 @@ pub(crate) fn service(
     if let Some(link) = mesh {
         crate::mesh::spawn(link, server.clone());
     }
-    StreamableHttpService::new(
-        move || Ok(server.clone()),
-        Default::default(),
-        StreamableHttpServerConfig::default(),
+    (
+        StreamableHttpService::new(
+            move || Ok(server.clone()),
+            Default::default(),
+            StreamableHttpServerConfig::default(),
+        ),
+        terminal,
     )
 }
 
@@ -293,6 +330,7 @@ impl DeviceServer {
             monitor: Arc::new(monitor::MonitorRegistry::new(&config.data)),
             runs: Arc::new(runs::Runs::new(&config.data, &config.files_root)),
             audit,
+            nonces: crate::remote::NonceLog::new(),
             supervised: config.supervised,
             restart: restart::none(),
         }
@@ -302,6 +340,23 @@ impl DeviceServer {
     /// without a router (a test, a console handler fixture) is safe by default.
     pub(crate) fn with_restart(mut self, restart: restart::Hook) -> DeviceServer {
         self.restart = restart;
+        self
+    }
+
+    /// The store, whose data directory holds what the facts report (the boot journal, the swap files).
+    pub(crate) fn store(&self) -> &Store {
+        &self.store
+    }
+
+    /// The grant nonces this device has admitted.
+    pub(crate) fn nonces(&self) -> &crate::remote::NonceLog {
+        &self.nonces
+    }
+
+    /// Share the process's one audit with the panel, so a session the operator opens from the page
+    /// lands in the same file as the calls an AI client makes.
+    pub(crate) fn with_audit(mut self, audit: Arc<Audit>) -> DeviceServer {
+        self.audit = audit;
         self
     }
 
@@ -330,6 +385,7 @@ impl DeviceServer {
     /// The caller awaits this before `dispatch`; a session close or process stop after dispatch but
     /// before the `end` line leaves this line on disk, which is the honest record. `false` means the
     /// line could not be written, and an allowed call must not run without it.
+    #[allow(clippy::too_many_arguments)]
     async fn audit_begin(
         &self,
         id: u64,
@@ -338,13 +394,15 @@ impl DeviceServer {
         decision: &str,
         arrival: Arrival,
         peer: Option<&str>,
+        token_id: Option<&str>,
     ) -> bool {
         self.audit
-            .begin(id, ts_ms, tool, decision, arrival, peer)
+            .begin(id, ts_ms, tool, decision, arrival, peer, token_id)
             .await
     }
 
     /// Log the outcome half of a call, with a machine-readable kind and no argument value.
+    #[allow(clippy::too_many_arguments)]
     async fn audit_end(
         &self,
         id: u64,
@@ -352,9 +410,18 @@ impl DeviceServer {
         error_kind: Option<&'static str>,
         arrival: Arrival,
         peer: Option<&str>,
+        token_id: Option<&str>,
     ) {
         self.audit
-            .end(id, crate::http::now_ms(), ok, error_kind, arrival, peer)
+            .end(
+                id,
+                crate::http::now_ms(),
+                ok,
+                error_kind,
+                arrival,
+                peer,
+                token_id,
+            )
             .await;
     }
 
@@ -373,9 +440,9 @@ impl DeviceServer {
     ) {
         let id = self.next_call_id();
         let now_ms = crate::http::now_ms();
-        self.audit_begin(id, now_ms, tool, "deny", arrival, peer)
+        self.audit_begin(id, now_ms, tool, "deny", arrival, peer, None)
             .await;
-        self.audit_end(id, false, Some(error_kind), arrival, peer)
+        self.audit_end(id, false, Some(error_kind), arrival, peer, None)
             .await;
     }
 
@@ -470,10 +537,17 @@ impl DeviceServer {
         let id = self.next_call_id();
         let arrival = caller.arrival();
         let peer = caller.peer();
+        // The record id of the permanent token that authenticated this call, when one did. It is
+        // what an operator revokes and what the console's own audit names; without it a token call
+        // is indistinguishable from a console-signed grant in the device's log.
+        let token_id = match &caller {
+            Caller::Console { token_id, .. } => Some(*token_id),
+            Caller::Owner | Caller::Granted { .. } => None,
+        };
         let Some(definition) = registry::tool(name) else {
-            self.audit_begin(id, now_ms, name, "deny", arrival, peer)
+            self.audit_begin(id, now_ms, name, "deny", arrival, peer, token_id)
                 .await;
-            self.audit_end(id, false, Some("unknown_tool"), arrival, peer)
+            self.audit_end(id, false, Some("unknown_tool"), arrival, peer, token_id)
                 .await;
             return Err(CallFailure::Arguments(format!("unknown tool: {name}")));
         };
@@ -483,6 +557,19 @@ impl DeviceServer {
         let policy = match caller {
             Caller::Owner => None,
             Caller::Granted { grant, .. } => Some(summrise_core::Grant::from(grant)),
+            // The token record is the permission; the device's view of it is the same `Grant` shape
+            // `authorize` already reads, without a signature to verify because the console's
+            // authenticated channel carried it. The expiry is the console's to enforce: a token has
+            // no console-side frame deadline, and the device has no clock for it.
+            Caller::Console {
+                scopes,
+                allow_destructive,
+                ..
+            } => Some(summrise_core::Grant {
+                tool_patterns: scopes.to_vec(),
+                expires_at_ms: i64::MAX,
+                auto_for_destructive: allow_destructive,
+            }),
         };
         let context = match caller {
             Caller::Owner => Ctx {
@@ -505,23 +592,42 @@ impl DeviceServer {
                 approval: ApprovalState::NotRequired,
                 now_ms: now_ms.saturating_sub(CLOCK_SKEW_MS),
             },
+            Caller::Console {
+                token_id, scopes, ..
+            } => Ctx {
+                subject: Subject::Key {
+                    id: (*token_id).to_owned(),
+                    scopes: scopes.to_vec(),
+                },
+                grant: policy.as_ref(),
+                transport: arrival.transport(),
+                approval: ApprovalState::NotRequired,
+                now_ms: now_ms.saturating_sub(CLOCK_SKEW_MS),
+            },
         };
         let call = ToolCall::new(name.to_owned(), definition.destructive);
         match authorize(&context, &call) {
             Decision::Allow => {}
             Decision::Deny { reason } => {
                 let detail = reason.to_string();
-                self.audit_begin(id, now_ms, name, "deny", arrival, peer)
+                self.audit_begin(id, now_ms, name, "deny", arrival, peer, token_id)
                     .await;
-                self.audit_end(id, false, Some("denied"), arrival, peer)
+                self.audit_end(id, false, Some("denied"), arrival, peer, token_id)
                     .await;
                 return Err(CallFailure::Denied(detail));
             }
             Decision::Ask { prompt } => {
-                self.audit_begin(id, now_ms, name, "ask", arrival, peer)
+                self.audit_begin(id, now_ms, name, "ask", arrival, peer, token_id)
                     .await;
-                self.audit_end(id, false, Some("approval_required"), arrival, peer)
-                    .await;
+                self.audit_end(
+                    id,
+                    false,
+                    Some("approval_required"),
+                    arrival,
+                    peer,
+                    token_id,
+                )
+                .await;
                 // Through the console there is no interactive approval yet, so the only way to
                 // consent is the signature. Say that in the refusal rather than leaving the
                 // operator with a prompt no surface can answer.
@@ -529,6 +635,10 @@ impl DeviceServer {
                     Caller::Granted { .. } => format!(
                         "{prompt}; this grant did not consent to destructive tools, so mint a \
                          grant with allow_destructive=true"
+                    ),
+                    Caller::Console { .. } => format!(
+                        "{prompt}; this token did not consent to destructive tools, so mark it \
+                         allow_destructive"
                     ),
                     Caller::Owner => prompt,
                 };
@@ -541,7 +651,7 @@ impl DeviceServer {
         // what the audit keeps; it says the call was allowed, not that it failed. An unwritable log
         // refuses the call before dispatch: no side effect runs without its authorization line.
         if !self
-            .audit_begin(id, now_ms, name, "allow", arrival, peer)
+            .audit_begin(id, now_ms, name, "allow", arrival, peer, token_id)
             .await
         {
             return Err(CallFailure::Internal(
@@ -551,21 +661,22 @@ impl DeviceServer {
 
         match self.dispatch(name, arguments).await {
             Ok(text) => {
-                self.audit_end(id, true, None, arrival, peer).await;
+                self.audit_end(id, true, None, arrival, peer, token_id)
+                    .await;
                 Ok(CallToolResult::success(vec![ContentBlock::text(text)]))
             }
             Err(ToolError::Arguments(message)) => {
-                self.audit_end(id, false, Some("arguments"), arrival, peer)
+                self.audit_end(id, false, Some("arguments"), arrival, peer, token_id)
                     .await;
                 Err(CallFailure::Arguments(message))
             }
             Err(ToolError::Refused(message)) => {
-                self.audit_end(id, false, Some("refused"), arrival, peer)
+                self.audit_end(id, false, Some("refused"), arrival, peer, token_id)
                     .await;
                 Err(CallFailure::Refused(message))
             }
             Err(ToolError::Internal(message)) => {
-                self.audit_end(id, false, Some("internal"), arrival, peer)
+                self.audit_end(id, false, Some("internal"), arrival, peer, token_id)
                     .await;
                 Err(CallFailure::Internal(message))
             }
@@ -865,8 +976,12 @@ impl DeviceServer {
                 // `alive`, `exit_code` and `signal` are the session's end facts: an older client
                 // ignores them, and a client of an older device sees only `{data, cursor}` and must
                 // treat that as alive.
+                // `data` is the lossy text an older client reads, and `data_base64` is the bytes a
+                // terminal replays: a multi-byte character split by the cursor is two U+FFFD in the
+                // text and intact in the base64. Both are always present, so a client chooses.
                 Ok(json!({
                     "data": String::from_utf8_lossy(&answer.data),
+                    "data_base64": BASE64.encode(&answer.data),
                     "cursor": answer.cursor,
                     "alive": answer.alive,
                     "exit_code": answer.end.exit_code,
@@ -993,6 +1108,22 @@ impl DeviceServer {
                     "format": "png",
                     "data": screenshot.data,
                     "bytes": screenshot.bytes,
+                })
+                .to_string())
+            }
+            Handler::BrowserCast => {
+                let arguments: BrowserTargetArgs = parse(arguments, name)?;
+                let frame = self
+                    .browser
+                    .cast(&arguments.target)
+                    .await
+                    .map_err(|error| refused(name, error))?;
+                Ok(json!({
+                    "format": "jpeg",
+                    "data": frame.data,
+                    "width": frame.width,
+                    "height": frame.height,
+                    "at_ms": frame.at_ms,
                 })
                 .to_string())
             }
@@ -1144,8 +1275,22 @@ impl DeviceServer {
                         .unwrap_or(DEFAULT_NET_TIMEOUT_MS)
                         .clamp(1, system::MAX_TIMEOUT_MS),
                 );
-                let report = system::net_test(&arguments.host, arguments.port, timeout)
-                    .map_err(|error| refused(name, error))?;
+                // **THE RESOLVER IS A BLOCKING CALL AND THIS IS A REACTOR THREAD.** A name the DNS
+                // server never answers used to park a Tokio worker for the resolver's own budget before
+                // the connect timeout even started, and every other call on that worker waited behind
+                // it — which is how a healthy device answers a console call 30 s late. The work moves to
+                // the blocking pool, where parking it costs nothing.
+                let (host, port) = (arguments.host.clone(), arguments.port);
+                let report =
+                    tokio::task::spawn_blocking(move || system::net_test(&host, port, timeout))
+                        .await
+                        .map_err(|_| {
+                            refused(
+                                name,
+                                system::SystemError::Unresolved(arguments.host.clone()),
+                            )
+                        })?
+                        .map_err(|error| refused(name, error))?;
                 Ok(json!({
                     "addresses": report.addresses,
                     "connected": report.connected,
@@ -1157,7 +1302,7 @@ impl DeviceServer {
             Handler::HostFacts => {
                 // Read-only, and the one tool an operator can call without minting a grant: knowing
                 // what machine a device is is context for every decision that follows.
-                Ok(crate::host::facts().to_string())
+                Ok(crate::host::facts(self.store.data_dir()).to_string())
             }
             Handler::HostRestart => {
                 let _arguments: EmptyArgs = parse(arguments, name)?;
@@ -1320,6 +1465,7 @@ enum Handler {
     BrowserNavigate,
     BrowserEval,
     BrowserScreenshot,
+    BrowserCast,
     BrowserClose,
     BrowserShutdown,
     MonitorAdd,
@@ -1368,6 +1514,7 @@ const HANDLERS: &[(&str, Handler)] = &[
     ("browser.navigate", Handler::BrowserNavigate),
     ("browser.eval", Handler::BrowserEval),
     ("browser.screenshot", Handler::BrowserScreenshot),
+    ("browser.cast", Handler::BrowserCast),
     ("browser.close", Handler::BrowserClose),
     ("browser.shutdown", Handler::BrowserShutdown),
     ("monitor.add", Handler::MonitorAdd),
@@ -1857,6 +2004,17 @@ fn input_schema(definition: &ToolDef) -> Value {
                 "target": {
                     "type": "string",
                     "description": "The target id browser.list or browser.open returned. The result is a base64 PNG of at most 8 MiB."
+                }
+            },
+            "required": ["target"],
+            "additionalProperties": false
+        }),
+        "browser.cast" => json!({
+            "type": "object",
+            "properties": {
+                "target": {
+                    "type": "string",
+                    "description": "The target id browser.list or browser.open returned. The result is the newest screencast frame as a base64 JPEG of at most 8 MiB; the stream stops itself after 60 s without a call."
                 }
             },
             "required": ["target"],
@@ -2428,6 +2586,12 @@ struct AuditBegin<'a> {
     /// authenticates the console or the local owner rather than a peer.
     #[serde(skip_serializing_if = "Option::is_none")]
     peer: Option<&'a str>,
+    /// The permanent token's record id, when one authenticated the call. Absent on the owner's
+    /// loopback calls and on console-signed grants (a grant names no token); present on console
+    /// channel calls, where the token is the permission and the record id is what the operator
+    /// revokes. Never the `srm_` secret.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    token_id: Option<&'a str>,
 }
 
 /// One `end` line: the call returned. `error_kind` is a closed set of names, never a message and
@@ -2444,6 +2608,9 @@ struct AuditEnd<'a> {
     /// The mesh caller's pinned public key in hex; absent on the console and loopback wires.
     #[serde(skip_serializing_if = "Option::is_none")]
     peer: Option<&'a str>,
+    /// The permanent token's record id, when one authenticated the call; see `AuditBegin`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    token_id: Option<&'a str>,
 }
 
 /// The append-only event log at `<data>/events.jsonl`.
@@ -2465,7 +2632,7 @@ struct AuditEnd<'a> {
 /// growing audit is a worse warning than a missing one. A failed `begin` returns `false` and the
 /// caller refuses the call; a failed `end` is reported and the call still returns, because after
 /// dispatch the capability has already run.
-struct Audit {
+pub(crate) struct Audit {
     path: PathBuf,
     rotated: PathBuf,
     max_bytes: u64,
@@ -2475,7 +2642,7 @@ struct Audit {
 }
 
 impl Audit {
-    fn new(data: &Path) -> Audit {
+    pub(crate) fn new(data: &Path) -> Audit {
         Audit::with_cap(data.join("events.jsonl"), AUDIT_MAX_BYTES)
     }
 
@@ -2494,12 +2661,13 @@ impl Audit {
         Arc::clone(&self.append)
     }
 
-    fn next_id(&self) -> u64 {
+    pub(crate) fn next_id(&self) -> u64 {
         self.next_id.fetch_add(1, Ordering::Relaxed)
     }
 
     /// Write the authorization line. `false` means no line was written.
-    async fn begin(
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) async fn begin(
         &self,
         id: u64,
         ts_ms: i64,
@@ -2507,6 +2675,7 @@ impl Audit {
         decision: &str,
         arrival: Arrival,
         peer: Option<&str>,
+        token_id: Option<&str>,
     ) -> bool {
         self.append_line(&AuditBegin {
             id,
@@ -2516,11 +2685,13 @@ impl Audit {
             decision,
             transport: arrival.as_str(),
             peer,
+            token_id,
         })
         .await
     }
 
-    async fn end(
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) async fn end(
         &self,
         id: u64,
         ts_ms: i64,
@@ -2528,6 +2699,7 @@ impl Audit {
         error_kind: Option<&str>,
         arrival: Arrival,
         peer: Option<&str>,
+        token_id: Option<&str>,
     ) {
         let _written = self
             .append_line(&AuditEnd {
@@ -2538,6 +2710,7 @@ impl Audit {
                 error_kind,
                 transport: arrival.as_str(),
                 peer,
+                token_id,
             })
             .await;
     }
@@ -2703,6 +2876,7 @@ mod tests {
             supervised: false,
             console_url: None,
             console_token_file: None,
+            console_allow_plaintext: false,
             mesh_broker: None,
             mesh_relay: None,
             mesh_stun: None,
@@ -2861,6 +3035,18 @@ mod tests {
         message["result"]["content"][0]["text"]
             .as_str()
             .unwrap_or_else(|| panic!("a text result: {message}"))
+    }
+
+    /// The audit lines written under one config's data directory.
+    fn audit_lines_of(config: &crate::config::Config) -> Vec<Value> {
+        match fs::read_to_string(config.data.join("events.jsonl")) {
+            Ok(contents) => contents
+                .lines()
+                .map(|line| serde_json::from_str(line).expect("an audit line is JSON"))
+                .collect(),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+            Err(error) => panic!("the audit log is readable: {error}"),
+        }
     }
 
     fn audit_lines(device: &Device) -> Vec<Value> {
@@ -3209,6 +3395,7 @@ mod tests {
                 "browser.navigate",
                 "browser.eval",
                 "browser.screenshot",
+                "browser.cast",
                 "browser.close",
                 "browser.shutdown",
                 "monitor.add",
@@ -4606,6 +4793,7 @@ mod tests {
             supervised: false,
             console_url: None,
             console_token_file: None,
+            console_allow_plaintext: false,
             mesh_broker: None,
             mesh_relay: None,
             mesh_stun: None,
@@ -4825,6 +5013,7 @@ mod tests {
                 "allow",
                 super::Arrival::Loopback,
                 None,
+                None,
             )
             .await;
 
@@ -4847,7 +5036,7 @@ mod tests {
 
         assert!(
             !audit
-            .begin(1, 1, "files.write", "allow", super::Arrival::Loopback, None)
+            .begin(1, 1, "files.write", "allow", super::Arrival::Loopback, None, None)
             .await,
             "the caller must be able to refuse the call when its authorization line cannot be written"
         );
@@ -4867,10 +5056,19 @@ mod tests {
                     "allow",
                     super::Arrival::Loopback,
                     None,
+                    None,
                 )
                 .await;
             audit
-                .end(id, id as i64, true, None, super::Arrival::Loopback, None)
+                .end(
+                    id,
+                    id as i64,
+                    true,
+                    None,
+                    super::Arrival::Loopback,
+                    None,
+                    None,
+                )
                 .await;
         }
 
@@ -5066,6 +5264,7 @@ mod tests {
             supervised: false,
             console_url: None,
             console_token_file: None,
+            console_allow_plaintext: false,
             mesh_broker: None,
             mesh_relay: None,
             mesh_stun: None,
@@ -5098,6 +5297,7 @@ mod tests {
             supervised,
             console_url: None,
             console_token_file: None,
+            console_allow_plaintext: false,
             mesh_broker: None,
             mesh_relay: None,
             mesh_stun: None,
@@ -5133,7 +5333,10 @@ mod tests {
 
         let reply = host_restart(&server, 7).await;
 
-        assert_eq!(reply["result"]["isError"], true, "{reply}");
+        // The denial is either a JSON-RPC error or a tool result flagged `isError`; both are
+        // refusals, and the point is that the empty scope never reaches the capability.
+        let refused = reply.get("error").is_some() || reply["result"]["isError"] == true;
+        assert!(refused, "{reply}");
         assert_eq!(
             text_of(&reply),
             "this device was not started by the launcher; restarting it here would not bring it back",
@@ -5200,6 +5403,75 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_console_token_scope_authorizes_without_a_grant() {
+        let (server, config, _dir) = console_server("console-token");
+        let scopes: Vec<String> = Vec::new();
+        let caller = super::Caller::Console {
+            token_id: "tok-1",
+            scopes: &scopes,
+            allow_destructive: false,
+            arrival: super::Arrival::Console,
+        };
+        let reply = server
+            .handle(
+                &json!({
+                    "jsonrpc": "2.0",
+                    "id": 4,
+                    "method": "tools/call",
+                    "params": { "name": "files.read", "arguments": { "path": "x" } }
+                }),
+                caller,
+            )
+            .await;
+        // The denial is a JSON-RPC error on the wire, not a flagged tool result: the empty token
+        // scope never reaches the capability.
+        assert_eq!(reply["error"]["code"], -32001, "{reply}");
+        assert!(
+            reply["error"]["message"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("does not cover"),
+            "{reply}"
+        );
+        // The refusal names the record an operator can act on: a token id is what `/tokens` shows
+        // and what revocation takes, and without it the line cannot be tied to a credential.
+        let lines = audit_lines_of(&config);
+        assert_eq!(lines[0]["token_id"], "tok-1", "{lines:?}");
+        assert_eq!(lines[1]["token_id"], "tok-1", "{lines:?}");
+    }
+
+    #[tokio::test]
+    async fn a_console_token_call_records_its_token_id_on_the_allow_line() {
+        let (server, config, _dir) = console_server("console-token-allow");
+        let scopes = vec!["files.read".to_owned()];
+        let caller = super::Caller::Console {
+            token_id: "tok-9",
+            scopes: &scopes,
+            allow_destructive: false,
+            arrival: super::Arrival::Console,
+        };
+        let reply = server
+            .handle(
+                &json!({
+                    "jsonrpc": "2.0",
+                    "id": 6,
+                    "method": "tools/call",
+                    "params": { "name": "files.read", "arguments": { "path": "missing" } }
+                }),
+                caller,
+            )
+            .await;
+        assert!(
+            reply["result"].is_object(),
+            "the scoped token reaches the capability: {reply}"
+        );
+        let lines = audit_lines_of(&config);
+        assert_eq!(lines[0]["decision"], "allow", "{lines:?}");
+        assert_eq!(lines[0]["token_id"], "tok-9", "{lines:?}");
+        assert_eq!(lines[1]["token_id"], "tok-9", "{lines:?}");
+    }
+
+    #[tokio::test]
     async fn a_granted_destructive_call_asks_before_it_runs() {
         let (server, config, _dir) = console_server("console-ask");
         let grant = summrise_core::grant::Grant {
@@ -5207,6 +5479,7 @@ mod tests {
             tools: vec!["files.write".to_owned()],
             expires_at_ms: (crate::http::now_ms() + 60_000) as u64,
             allow_destructive: false,
+            nonce: String::new(),
         };
 
         let reply = server
@@ -5260,6 +5533,7 @@ mod tests {
             tools: vec!["files.write".to_owned()],
             expires_at_ms: (crate::http::now_ms() + 60_000) as u64,
             allow_destructive: true,
+            nonce: String::new(),
         };
 
         let reply = server

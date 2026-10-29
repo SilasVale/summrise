@@ -4,9 +4,10 @@
 //! one until a session is created from it. That is why they live here rather than on the device — a
 //! device that changes owners must not inherit the previous owner's host names.
 //!
-//! **No credential is stored.** An SSH password or key is typed at use time; a file that holds one is a
-//! file that leaks one. The preset names the shape of the connection (kind, host, port, user, serial
-//! framing) and nothing a stolen console file would let somebody log in with.
+//! **No credential is stored.** An SSH password is typed at use time; a key never leaves the machine
+//! it is on. The preset names the shape of the connection (kind, host, port, user, serial framing,
+//! and the *path* of a key the device already has) and nothing a stolen console file would let
+//! somebody log in with.
 //!
 //! The file is `<data>/connections.json`, written whole through the store's atomic write, so a crash
 //! leaves the previous list or the new one.
@@ -44,6 +45,10 @@ pub struct Connection {
     pub port_path: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub baud: Option<u32>,
+    /// `kind: "ssh"`: an absolute path to an OpenSSH key **on the device**. Configuration, not a
+    /// credential — the key never leaves the machine it is on.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub key_path: Option<String>,
 }
 
 /// What the page sends when it saves a preset.
@@ -61,6 +66,8 @@ pub struct Draft {
     pub port_path: Option<String>,
     #[serde(default)]
     pub baud: Option<u32>,
+    #[serde(default)]
+    pub key_path: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -136,6 +143,14 @@ impl Connections {
 /// The same rule the device applies, applied a step earlier: a preset that cannot become a session is
 /// refused when it is saved, not when the operator is waiting for a prompt.
 fn validated(draft: Draft) -> Result<Connection, &'static str> {
+    if draft.kind != "ssh"
+        && draft
+            .key_path
+            .as_deref()
+            .is_some_and(|path| !path.trim().is_empty())
+    {
+        return Err("only an ssh preset takes a key file");
+    }
     let name = draft.name.trim();
     if name.is_empty() || name.chars().count() > 64 || name.chars().any(char::is_control) {
         return Err("the name must be 1 to 64 printable characters");
@@ -151,6 +166,7 @@ fn validated(draft: Draft) -> Result<Connection, &'static str> {
             user: None,
             port_path: None,
             baud: None,
+            key_path: None,
         },
         "ssh" => {
             let host = draft
@@ -172,6 +188,12 @@ fn validated(draft: Draft) -> Result<Connection, &'static str> {
             let Some(port) = draft.port.filter(|port| *port > 0) else {
                 return Err("an ssh preset needs a port");
             };
+            let key_path = draft
+                .key_path
+                .as_deref()
+                .map(str::trim)
+                .filter(|path| bounded(path, 260))
+                .map(str::to_owned);
             Connection {
                 id: mint(),
                 name: name.to_owned(),
@@ -181,6 +203,7 @@ fn validated(draft: Draft) -> Result<Connection, &'static str> {
                 user: Some(user.to_owned()),
                 port_path: None,
                 baud: None,
+                key_path,
             }
         }
         "serial" => {
@@ -202,6 +225,7 @@ fn validated(draft: Draft) -> Result<Connection, &'static str> {
                 user: None,
                 port_path: Some(path.to_owned()),
                 baud,
+                key_path: None,
             }
         }
         _ => return Err("the kind must be pty, ssh or serial"),
@@ -239,7 +263,43 @@ mod tests {
             user: Some("operator".to_owned()),
             port_path: None,
             baud: None,
+            key_path: None,
         }
+    }
+
+    /// A key's path is configuration and round-trips; the key itself never appears. Only ssh may
+    /// name one, and the store is where that rule lives for every caller.
+    #[test]
+    fn a_keys_path_round_trips_and_only_ssh_may_carry_one() {
+        let dir = temp();
+        let key = "C:\\Users\\operator\\.ssh\\id_ed25519";
+        {
+            let mut connections = Connections::load(&dir).expect("loads empty");
+            let mut draft = ssh_draft();
+            draft.key_path = Some(key.to_owned());
+            let saved = connections
+                .add("device-a", draft)
+                .expect("ssh with a key saves");
+            assert_eq!(saved.key_path.as_deref(), Some(key));
+
+            let pty = Draft {
+                name: "shell".to_owned(),
+                kind: "pty".to_owned(),
+                host: None,
+                port: None,
+                user: None,
+                port_path: None,
+                baud: None,
+                key_path: Some(key.to_owned()),
+            };
+            assert!(connections.add("device-a", pty).is_err());
+        }
+        let connections = Connections::load(&dir).expect("reloads");
+        assert_eq!(
+            connections.list("device-a")[0].key_path.as_deref(),
+            Some(key)
+        );
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]
@@ -259,6 +319,7 @@ mod tests {
                         user: None,
                         port_path: Some("COM3".to_owned()),
                         baud: Some(115200),
+                        key_path: None,
                     },
                 )
                 .expect("serial saves");
@@ -298,7 +359,8 @@ mod tests {
                     port: Some(22),
                     user: Some("operator".to_owned()),
                     port_path: None,
-                    baud: None
+                    baud: None,
+                    key_path: None,
                 }
             )
             .is_err());
@@ -312,7 +374,8 @@ mod tests {
                     port: None,
                     user: None,
                     port_path: None,
-                    baud: None
+                    baud: None,
+                    key_path: None,
                 }
             )
             .is_err());

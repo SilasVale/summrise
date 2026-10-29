@@ -34,36 +34,25 @@ jobs:
       - name: the device workspace is clippy-clean
         run: cargo clippy --manifest-path device/Cargo.toml -p summrise-core -p summrise-device -p summrise-launch -p summrise-mesh -p summrise-release -p summrise-console -p summrise-winsec -p summrise-winsys -p summrise-shell --all-targets -- -D warnings
 
-  console:
-    name: console (typecheck + tests + the committed page)
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: device/console/web/package-lock.json
-      # **THE PAGE IS HALF THE PRODUCT AND HAD NO JOB OF ITS OWN.** `dist/index.html` is committed
-      # because the Rust binary embeds it with `include_str!`, so a stale bundle still compiles and
-      # still ships — and a TypeScript error only surfaces on the next build, which may be a release.
-      # These are the three facts a page change owes: it typechecks, its tests pass, and the committed
-      # artifact IS this source's build. `build-web.sh --check` compares mtimes, which a fresh
-      # checkout cannot distinguish; the diff is the check that cannot be fooled.
-      - name: the page's dependencies, from the lockfile
-        working-directory: device/console/web
-        run: npm ci
-      - name: the page typechecks
-        working-directory: device/console/web
-        run: npm run typecheck
-      - name: the page's tests
-        working-directory: device/console/web
-        run: npm test
-      - name: the committed page is rebuilt from this source
-        run: ./scripts/build-web.sh
-      - name: the bundle is committed, not stale
-        run: git diff --exit-code -- device/console/web/dist/index.html
+      # **THE LAYOUT GATE.** The console's own review harness writes every page; headless Chrome
+      # measures each one at three widths and fails on a card that hides a horizontal scrollbar, an
+      # element painted past its clipping box, or a page without exactly one h1. It has already
+      # caught four pages whose cards were wider than a phone.
+      - name: every console page fits the window
+        run: |
+          export SUMMRISE_PAGE_DIR="$RUNNER_TEMP/console-pages"
+          mkdir -p "$SUMMRISE_PAGE_DIR"
+          cargo test --quiet --manifest-path device/Cargo.toml -p summrise-console --lib -- --ignored render_pages_for_review
+          node scripts/layout-gate.mjs "$SUMMRISE_PAGE_DIR" 360 390 800 1280
+      # The panel is the device's own page, and it is the only surface a person sees without the
+      # console; it gets the same measurement.
+      - name: the device panel fits the window
+        run: |
+          export SUMMRISE_PANEL_DIR="$RUNNER_TEMP/panel-pages"
+          rm -rf "$SUMMRISE_PANEL_DIR"
+          mkdir -p "$SUMMRISE_PANEL_DIR"
+          cargo test --quiet --manifest-path device/Cargo.toml -p summrise-device --bin summrise-device -- --ignored render_panel_for_review
+          node scripts/layout-gate.mjs "$SUMMRISE_PANEL_DIR" 390 1280
 
   device-windows:
     name: device (the Windows lifecycle)
@@ -98,9 +87,10 @@ jobs:
       - name: the device workspace (unit tests, everything but the launcher)
         timeout-minutes: 20
         run: cargo test --manifest-path device/Cargo.toml --workspace --exclude summrise-launch
-      - name: the launcher's unit tests
-        timeout-minutes: 10
-        run: cargo test --manifest-path device/Cargo.toml -p summrise-launch --lib
+      # **THE LAUNCHER'S UNIT TESTS RUN UNKEYED, AT THE END.** They sign their fixtures with a
+      # fixed seed and verify against the key this build embedded; in a keyed build the fixture
+      # signature cannot match that key, so they belong to the placeholder build beside the
+      # fail-closed test. (They were run here and were red on Windows for exactly that reason.)
       # THE LIFECYCLE, IN ONE PROCESS. It hung here on 2026-10-21 after its first test printed
       # `ok`; the cause was `Command::output()` waiting for a pipe that a restored app inherited,
       # fixed on 2026-10-22 (`72e24bfe`). The shared-process run is green again (verified by the
@@ -138,4 +128,21 @@ jobs:
           unset SUMMRISE_LAUNCHER_PUBKEY SUMMRISE_RELEASE_PUBKEY
           cargo clean --manifest-path device/Cargo.toml -p summrise-launch -p summrise-device
           cargo build --manifest-path device/Cargo.toml --workspace
+          cargo test --manifest-path device/Cargo.toml -p summrise-launch --lib
           cargo test --manifest-path device/Cargo.toml -p summrise-launch --test windows_lifecycle -- --ignored --exact a_build_without_a_release_key_refuses_updates_by_name --nocapture
+
+  landing:
+    name: landing (one page, two languages, measured contrast)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      # NO `setup-node`: the page's gate uses only `node:` builtins, and the runner's own Node is
+      # enough. The command below is the same one a person runs locally — a local check that is not
+      # CI's check is not the same check.
+      - name: the page, its two languages, its contrast and its social card
+        run: node landing/check.mjs
+      # The same measurement the console's pages get: at a phone's width the front door must not
+      # scroll sideways, and it must keep one h1.
+      - name: the page fits a phone
+        run: node scripts/layout-gate.mjs landing/public 390 768 1280

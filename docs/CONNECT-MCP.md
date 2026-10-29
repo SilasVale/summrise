@@ -21,10 +21,10 @@ The path is the device id: 64 lowercase hex characters, the registered public ke
 MCP `2025-06-18`; it answers JSON (no SSE), and every request carries a grant, or a token the console
 turns into one — there is no session.
 
-The console page has the same flow without the curl: each device card's **AI client** button opens the
-**Connect an AI client** card, which either mints a session grant or creates a permanent token through
-the page's own operator session, and shows the endpoint, the header and a DeepSeek Harness
-configuration. The curl below is for a script or an operator on a machine without the page.
+The console page has the same flow without the curl for the token half: the device's **Connect an AI
+client** page (rail: **Tokens**) mints a permanent token through the page's own operator session and
+shows the endpoint and the header. It does not mint session grants — those are one API call with the
+operator session, below. The curl is for a script or an operator on a machine without the page.
 
 ## Mint a grant
 
@@ -60,9 +60,10 @@ A grant expires, so a configuration built around one has to be rebuilt. A **perm
 console's answer for a client whose configuration must stay fixed: the console issues it once, the
 client sends it on every request, and the console turns it into a short grant each time.
 
-Create it in the console page: device card → **AI client** (**Connect an AI client**) → **Permanent
-token**. Name it, choose the tools it may call, and set the destructive consent (the same
-`allow_destructive` a grant carries). The token is `srm_` followed by 64 lowercase hex characters (68
+Create it in the console page: the device's **Connect an AI client** page (rail: **Tokens**). Name
+it, tick the destructive consent (the same `allow_destructive` a grant carries — unticked means a
+destructive call is held for approval and refused if nobody answers within ninety seconds), and press
+**Mint a token**. The token is `srm_` followed by 64 lowercase hex characters (68
 in all), returned once at creation:
 
 ```
@@ -117,8 +118,8 @@ A token is not an operator session: it cannot mint grants, list devices, read th
 another token. The console accepts at most 64 tokens.
 
 A token is **permanent by default**. Creation may give it an **expiry** between one hour and 365
-days; the card's form offers Never, 30, 90 and 365 days, and the list says `expires <date>` or `never
-expires`. An expired token is refused with `401` (the denial log keeps `expired_api_token`) before it
+days; the card's **Expires** select offers never, 30, 90 and 365 days, and the list's Expires column
+says the date (with its year) or `never`. An expired token is refused with `401` (the denial log keeps `expired_api_token`) before it
 can mint a grant; expiry is checked before the device match. **Rotate** keeps the lifetime policy —
 the new value gets the same duration counted from the rotation, not the old absolute date.
 
@@ -183,9 +184,10 @@ The answer carries the plaintext once. Use it as the bearer on `/mcp/all`:
 
 The device list is the scope: a call naming a device outside it is refused before a frame is sent,
 and a name shared by two allowed devices is ambiguous and refused, never guessed. A device token is
-refused on `/mcp/all`; an aggregate token is refused on `/mcp/<device-id>`. The Security page's
-**Fleet tokens** section creates, lists and revokes aggregate tokens; the per-device card still
-creates one-device tokens.
+refused on `/mcp/all`; an aggregate token is refused on `/mcp/<device-id>`. The fleet page's
+**Fleet tokens** link creates, lists and revokes aggregate tokens (the same operations are on the
+API: `POST /tokens` with `device_ids`, `GET /tokens`, `DELETE /tokens/<id>`); the per-device card
+creates one-device tokens only.
 
 ## DeepSeek Harness
 
@@ -246,6 +248,16 @@ A loopback or tunnel deployment without Access needs no dashboard step.
   `401`.
 - **HTTPS only.** The bearer is a secret in a header; never put it in a URL, a shell history, a
   repository or a screenshot.
+- **A frame runs once.** Every grant carries a signed nonce; the device remembers the ones it has
+  admitted and refuses a repeat (`error_kind:"replay"`), so a captured frame cannot re-run a call.
+  A grant signed before this existed (no nonce) is still accepted.
+- **The device checks, in order:** the grant's signature against the console's key, that the grant
+  names this device, the expiry (with five minutes of clock skew), the tool against the grant's list,
+  and the nonce. A failure in any of them is a JSON-RPC `-32001` and a `deny` line in
+  `events.jsonl`; none of them reaches the capability.
+- **The device's audit names the credential.** A console-channel call authorized by a permanent token
+  records that token's `id` (never the secret); calls through the device's own page record
+  `transport:"panel"`; a mesh peer records its public key.
 
 ## Limits
 

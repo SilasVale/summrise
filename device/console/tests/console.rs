@@ -16,13 +16,20 @@ use ed25519_dalek::{Signer, SigningKey};
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
-use summrise_console::{Config, Console};
+use summrise_console::{AccessConfig, Config, Console, LoginCode, ACCESS_HEADER};
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::{self, Message as WsMessage};
 use tower::ServiceExt;
 
 const OPERATOR_TOKEN: [u8; 32] = [0x11; 32];
 const GRANT_SEED: [u8; 32] = [0x22; 32];
+
+/// The throwaway Access team the unit tests under `src/access.rs` already use: this file signs its
+/// own assertions with the same fixture key, so a page test meets the verifier the deployment runs.
+const ACCESS_AUDIENCE: &str = "test-audience-tag";
+const ACCESS_ISSUER: &str = "https://test-team.cloudflareaccess.com";
+const ACCESS_KEY_PEM: &str = include_str!("fixtures/access-test-key.pem");
+const ACCESS_JWKS: &str = include_str!("fixtures/access-test-jwks.json");
 const START_MS: u64 = 1_000_000;
 const DAY_MS: u64 = 24 * 60 * 60 * 1000;
 const MINUTE_MS: u64 = 60 * 1000;
@@ -135,6 +142,25 @@ impl Fixture {
         let reader = fixture.clock.clone();
         fixture.console = Console::load_with_clock(&config, move || reader.load(Ordering::Relaxed))
             .expect("the console reloads with the broker");
+        fixture.config = config;
+        fixture
+    }
+
+    /// A console with Cloudflare Access configured the way the deployment has it: three facts and a
+    /// pinned JWKS on disk. The key that signs the tests' assertions is the one the JWKS names.
+    fn with_access(label: &str) -> Self {
+        let mut fixture = Self::new(label);
+        let jwks = fixture._dir.join("access-jwks.json");
+        fs::write(&jwks, ACCESS_JWKS).expect("the pinned JWKS is written");
+        let mut config = fixture.config.clone();
+        config.access = Some(AccessConfig {
+            jwks,
+            audience: ACCESS_AUDIENCE.to_owned(),
+            issuer: ACCESS_ISSUER.to_owned(),
+        });
+        let reader = fixture.clock.clone();
+        fixture.console = Console::load_with_clock(&config, move || reader.load(Ordering::Relaxed))
+            .expect("the console reloads with Access");
         fixture.config = config;
         fixture
     }
@@ -481,7 +507,7 @@ async fn a_wrong_operator_token_is_401() {
 }
 
 #[tokio::test]
-async fn the_operator_token_yields_a_session_that_expires_in_24_hours() {
+async fn the_operator_token_yields_a_session_that_expires_in_a_month() {
     let fixture = Fixture::new("right-token");
 
     let (status, body) = send(
@@ -494,7 +520,7 @@ async fn the_operator_token_yields_a_session_that_expires_in_24_hours() {
     let session = body["token"].as_str().expect("a session token");
     assert_eq!(session.len(), 64, "a session token is 32 bytes of hex");
     assert_ne!(session, hex(&OPERATOR_TOKEN), "a session is not the secret");
-    assert_eq!(body["expires_at_ms"], json!(START_MS + DAY_MS));
+    assert_eq!(body["expires_at_ms"], json!(START_MS + 30 * DAY_MS));
 }
 
 #[tokio::test]
@@ -505,7 +531,7 @@ async fn an_expired_session_is_401() {
     let (status, _) = send(fixture.app(), get("/fleet", Some(&session))).await;
     assert_eq!(status, StatusCode::OK, "the session starts out valid");
 
-    fixture.advance_ms(DAY_MS);
+    fixture.advance_ms(30 * DAY_MS);
     let (status, body) = send(fixture.app(), get("/fleet", Some(&session))).await;
     assert_eq!(status, StatusCode::UNAUTHORIZED);
     assert_eq!(body, json!({ "error": "unauthorized" }));
@@ -1239,16 +1265,22 @@ async fn a_valid_grant_verifies_with_the_console_grant_key() {
         "the console returns the fact it signed"
     );
 
+    let nonce = body["grant"]["nonce"]
+        .as_str()
+        .expect("the grant carries the nonce it signed")
+        .to_owned();
+    assert_eq!(nonce.len(), 32, "sixteen bytes of hex: {nonce}");
     let canonical = summrise_console::canonical_message(&summrise_console::Grant {
         device_id: device_id.clone(),
         tools: tools.clone(),
         expires_at_ms: START_MS + 3_600_000,
         allow_destructive: true,
+        nonce: nonce.clone(),
     });
     assert_eq!(
         canonical,
         format!(
-            "grant\n{device_id}\n{}\n{}\ntrue",
+            "grant\n{device_id}\n{}\n{}\ntrue\n{nonce}",
             tools.join(","),
             START_MS + 3_600_000
         ),
@@ -1277,6 +1309,10 @@ async fn a_grant_that_does_not_ask_for_destruction_gets_false() {
         tools: vec!["files.read".to_owned()],
         expires_at_ms: START_MS + 60_000,
         allow_destructive: false,
+        nonce: grant["grant"]["nonce"]
+            .as_str()
+            .expect("the grant carries a nonce")
+            .to_owned(),
     });
     let signature = decode_signature(grant["signature"].as_str().expect("a hex signature"));
     SigningKey::from_bytes(&GRANT_SEED)
@@ -1294,6 +1330,7 @@ fn the_canonical_message_is_exactly_the_agreed_string() {
             tools,
             expires_at_ms: 1_700_000_000_000,
             allow_destructive: false,
+            nonce: String::new(),
         }),
         "grant\nabc123\nfiles.read,terminal.create\n1700000000000\nfalse"
     );
@@ -1425,6 +1462,42 @@ async fn grant_signing_requires_an_operator_session() {
     assert_eq!(status, StatusCode::UNAUTHORIZED);
 }
 
+/// **EVERY ANSWER CARRIES THE BROWSER MITIGATIONS.** Measured on the live console before this
+/// test: `x-frame-options`, `cache-control` and `content-type` — nothing about sniffing, referrers
+/// or what the page may embed. The middleware that sets them is one layer, so one test reads them.
+#[tokio::test]
+async fn every_answer_carries_the_browser_mitigations() {
+    let fixture = Fixture::new("security-headers");
+
+    let (status, headers, _) = send_with_headers(fixture.app(), get("/health", None)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        headers.get("x-frame-options").and_then(|v| v.to_str().ok()),
+        Some("DENY")
+    );
+    assert_eq!(
+        headers
+            .get("x-content-type-options")
+            .and_then(|v| v.to_str().ok()),
+        Some("nosniff")
+    );
+    assert_eq!(
+        headers.get("referrer-policy").and_then(|v| v.to_str().ok()),
+        Some("no-referrer")
+    );
+    assert_eq!(
+        headers
+            .get("content-security-policy")
+            .and_then(|v| v.to_str().ok()),
+        Some("frame-ancestors 'none'; object-src 'none'; base-uri 'self'")
+    );
+    assert_eq!(
+        headers.get("cache-control").and_then(|v| v.to_str().ok()),
+        Some("no-store"),
+        "a cached page is yesterday's page"
+    );
+}
+
 #[tokio::test]
 async fn health_reports_status_device_count_and_uptime_without_auth() {
     let fixture = Fixture::new("health");
@@ -1433,6 +1506,7 @@ async fn health_reports_status_device_count_and_uptime_without_auth() {
     assert_eq!(status, StatusCode::OK);
     assert_eq!(body["status"], json!("ok"));
     assert_eq!(body["devices"], json!(0));
+    assert_eq!(body["online"], json!(0), "nothing is connected yet: {body}");
     assert_eq!(
         body["version"],
         json!(env!("CARGO_PKG_VERSION")),
@@ -1447,6 +1521,107 @@ async fn health_reports_status_device_count_and_uptime_without_auth() {
     let (status, body) = send(fixture.app(), get("/health", None)).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(body["devices"], json!(1));
+    // Registered is not connected: the count that answers "is anything up" stays 0 until a channel
+    // opens, which is the distinction a known-device count cannot make.
+    assert_eq!(body["online"], json!(0), "{body}");
+}
+
+/// **ONLINE IS THE QUESTION.** `devices` counts the registry and stays the same whether anything is
+/// connected; `online` counts the channels that are open at this instant. This opens one.
+#[tokio::test]
+async fn health_counts_a_connected_device_as_online() {
+    let fixture = Fixture::new("health-online");
+    let server = TestServer::start(&fixture.console).await;
+    let (_device_id, _token, _device) =
+        connected_device(&fixture, &server, &signing_key(0x7b)).await;
+
+    let (status, body) = send(fixture.app(), get("/health", None)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["devices"], json!(1), "{body}");
+    assert_eq!(
+        body["online"],
+        json!(1),
+        "the channel the test opened is counted: {body}"
+    );
+}
+
+/// **THE FIELD MOVES BOTH WAYS.** The incident of 2026-10-29 was a channel that went away; the test
+/// above proves an open channel counts. This one proves a channel that drops stops counting — the
+/// state an operator (or a supervisor) needs to see, and the one the old `devices` count could not
+/// express.
+#[tokio::test]
+async fn health_stops_counting_a_device_whose_channel_closed() {
+    let fixture = Fixture::new("health-offline");
+    let server = TestServer::start(&fixture.console).await;
+    let (_device_id, _token, device) =
+        connected_device(&fixture, &server, &signing_key(0x7a)).await;
+
+    let (_, body) = send(fixture.app(), get("/health", None)).await;
+    assert_eq!(body["online"], json!(1), "the channel is open: {body}");
+
+    drop(device);
+
+    // The close is asynchronous: the channel task notices the socket ended.
+    let mut last = body;
+    for _ in 0..40 {
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        let (_, body) = send(fixture.app(), get("/health", None)).await;
+        if body["online"] == json!(0) {
+            assert_eq!(
+                body["devices"],
+                json!(1),
+                "the device is still known: {body}"
+            );
+            return;
+        }
+        last = body;
+    }
+    panic!("the dropped channel still counts as online: {last}");
+}
+
+/// **THE OUTAGE THAT IS OVER IS STILL A FACT.** A fleet row says `online` again the moment a device
+/// comes back; this is what lets it also say how long the device was gone.
+#[tokio::test]
+async fn a_reconnect_records_how_long_the_device_was_away() {
+    let fixture = Fixture::new("outage-record");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, token, device) = connected_device(&fixture, &server, &signing_key(0x78)).await;
+    let session = fixture.authenticate().await;
+
+    let (_, fleet) = send(fixture.app(), get("/fleet", Some(&session))).await;
+    let listed = fleet
+        .as_array()
+        .expect("the fleet is a list")
+        .iter()
+        .find(|entry| entry["id"] == json!(device_id))
+        .expect("the device is listed");
+    assert!(
+        listed["last_outage"].is_null(),
+        "a device that has never gone away has no outage: {listed}"
+    );
+
+    drop(device);
+    tokio::time::sleep(std::time::Duration::from_millis(80)).await;
+    let _again = open_channel(&server, &device_id, &token)
+        .await
+        .expect("the device reconnects");
+
+    let (_, fleet) = send(fixture.app(), get("/fleet", Some(&session))).await;
+    let listed = fleet
+        .as_array()
+        .expect("the fleet is a list")
+        .iter()
+        .find(|entry| entry["id"] == json!(device_id))
+        .expect("the device is still listed");
+    let outage = &listed["last_outage"];
+    assert!(
+        outage["duration_ms"].as_u64().unwrap_or(0) >= 80,
+        "the gap it was away is recorded: {listed}"
+    );
+    assert!(
+        outage["started_ms"].as_u64().unwrap_or(0) > 0,
+        "and when it began: {listed}"
+    );
 }
 
 #[tokio::test]
@@ -1794,9 +1969,13 @@ async fn the_forwarded_grant_reverifies_over_the_canonical_bytes() {
             .expect("the granted facts are an object");
         assert_eq!(
             facts.len(),
-            4,
-            "exactly the four canonical fields: {facts:?}"
+            5,
+            "exactly the five canonical fields: {facts:?}"
         );
+        let delivered_nonce = facts["nonce"]
+            .as_str()
+            .expect("a nonce in the forwarded grant")
+            .to_owned();
         let delivered_device = facts["device_id"]
             .as_str()
             .expect("a device id in the forwarded grant");
@@ -1818,7 +1997,7 @@ async fn the_forwarded_grant_reverifies_over_the_canonical_bytes() {
         assert!(delivered_consent, "the operator's consent is forwarded");
 
         let canonical = format!(
-            "grant\n{delivered_device}\n{}\n{delivered_expiry}\n{delivered_consent}",
+            "grant\n{delivered_device}\n{}\n{delivered_expiry}\n{delivered_consent}\n{delivered_nonce}",
             delivered_tools.join(",")
         );
         let signature = decode_signature(
@@ -2003,7 +2182,6 @@ async fn a_request_with_no_channel_waits_then_is_503_device_reconnecting() {
     let fixture = Fixture::new("mcp-reconnecting");
     let (device_id, _token) = fixture.register(&signing_key(0x93)).await;
     let session = fixture.authenticate().await;
-    let grant = fixture.create_grant(&session, &device_id, 60).await;
 
     let started = std::time::Instant::now();
     let (status, headers, body) = send_with_headers(
@@ -2013,7 +2191,6 @@ async fn a_request_with_no_channel_waits_then_is_503_device_reconnecting() {
             &session,
             json!({
                 "device_id": device_id,
-                "grant": grant,
                 "request": { "jsonrpc": "2.0", "id": 1, "method": "tools/list" },
             }),
         ),
@@ -2065,7 +2242,7 @@ async fn an_expired_grant_is_refused() {
             &session,
             json!({
                 "device_id": device_id,
-                "grant": grant,
+            "grant": grant,
                 "request": { "jsonrpc": "2.0", "id": 1, "method": "tools/list" },
             }),
         ),
@@ -2091,7 +2268,7 @@ async fn a_grant_that_names_another_device_is_refused() {
             &session,
             json!({
                 "device_id": device_id,
-                "grant": grant,
+            "grant": grant,
                 "request": { "jsonrpc": "2.0", "id": 1, "method": "tools/list" },
             }),
         ),
@@ -2117,7 +2294,7 @@ async fn a_tampered_grant_is_refused() {
             &session,
             json!({
                 "device_id": device_id,
-                "grant": grant,
+            "grant": grant,
                 "request": { "jsonrpc": "2.0", "id": 1, "method": "tools/list" },
             }),
         ),
@@ -2142,7 +2319,6 @@ async fn two_hundred_requests_against_a_wedged_device_stay_bounded_and_busy() {
     let (device_id, _token, _device) =
         connected_device(&fixture, &server, &signing_key(0xc4)).await;
     let session = fixture.authenticate().await;
-    let grant = fixture.create_grant(&session, &device_id, 60).await;
 
     let mut calls = Vec::new();
     for _ in 0..200 {
@@ -2152,7 +2328,6 @@ async fn two_hundred_requests_against_a_wedged_device_stay_bounded_and_busy() {
             &session,
             json!({
                 "device_id": device_id,
-                "grant": grant,
                 "request": { "jsonrpc": "2.0", "id": 1, "method": "tools/list" },
             }),
         );
@@ -2222,7 +2397,6 @@ async fn a_device_that_never_answers_is_a_504() {
         .await
         .expect("the device channel");
     let session = fixture.authenticate().await;
-    let grant = fixture.create_grant(&session, &device_id, 60).await;
 
     let mut outcome = None;
     for _ in 0..40 {
@@ -2233,8 +2407,7 @@ async fn a_device_that_never_answers_is_a_504() {
                 &session,
                 json!({
                     "device_id": device_id,
-                    "grant": grant,
-                    "request": { "jsonrpc": "2.0", "id": 1, "method": "tools/list" },
+                        "request": { "jsonrpc": "2.0", "id": 1, "method": "tools/list" },
                 }),
             ),
         )
@@ -2328,9 +2501,11 @@ async fn the_audit_lists_the_newest_lines_first() {
             json!("grant"),
             json!("register"),
             json!("enroll"),
-            json!("enroll")
+            json!("auth"),
+            json!("enroll"),
+            json!("auth")
         ],
-        "one line per operator action, newest first"
+        "one line per operator action, newest first, sign-ins included"
     );
 }
 
@@ -2571,8 +2746,10 @@ async fn an_operator_mcp_call_is_one_audit_line_without_its_payload() {
     assert_eq!(
         kinds,
         vec![
+            json!("auth"),
             json!("enroll"),
             json!("register"),
+            json!("auth"),
             json!("grant"),
             json!("mcp")
         ],
@@ -2757,7 +2934,11 @@ async fn a_spent_enrollment_code_is_a_denial_with_the_device_id() {
     // is a denial.
     let audit = audit_lines(&fixture);
     let kinds: Vec<Value> = audit.iter().map(|line| line["kind"].clone()).collect();
-    assert_eq!(kinds, vec![json!("enroll"), json!("register")]);
+    assert_eq!(
+        kinds,
+        vec![json!("auth"), json!("enroll"), json!("register")],
+        "the sign-in, then the actions it bought"
+    );
 
     let denied = denial_lines(&fixture).pop().expect("the denial line");
     assert_eq!(denied["kind"], json!("denied"));
@@ -2785,7 +2966,7 @@ async fn an_expired_grant_is_audited_as_denied_with_its_reason() {
             &session,
             json!({
                 "device_id": device_id,
-                "grant": grant,
+            "grant": grant,
                 "request": { "jsonrpc": "2.0", "id": 1, "method": "tools/list" },
             }),
         ),
@@ -2820,8 +3001,8 @@ async fn a_channel_with_a_bad_device_token_is_a_denial_line() {
     assert_eq!(denied["device_id"], json!(device_id));
     assert_eq!(
         audit_lines(&fixture).len(),
-        2,
-        "the registration's enroll and register lines are the only audit lines"
+        3,
+        "the registration's sign-in, enroll and register lines are the audit lines"
     );
 }
 
@@ -2868,7 +3049,10 @@ async fn the_audit_cap_rotates_to_one_generation_and_discards_the_older_one() {
         for line in text.lines() {
             let value: Value =
                 serde_json::from_str(line).expect("rotation never splits a line from its JSON");
-            assert_eq!(value["kind"], json!("denied"));
+            assert!(
+                value["kind"] == json!("denied") || value["kind"] == json!("auth"),
+                "a generation holds refusals and sign-ins, nothing else: {value}"
+            );
         }
     }
 
@@ -2884,7 +3068,8 @@ async fn the_audit_cap_rotates_to_one_generation_and_discards_the_older_one() {
         "the older generations are discarded, not accumulated: {} lines",
         lines.len()
     );
-    assert_eq!(lines[0]["kind"], json!("denied"));
+    // The newest line is the sign-in this read needed; the refusals sit behind it.
+    assert_eq!(lines[0]["kind"], json!("auth"));
 }
 
 #[tokio::test]
@@ -2893,7 +3078,6 @@ async fn a_request_that_arrives_between_channels_waits_for_the_next_one() {
     let server = TestServer::start(&fixture.console).await;
     let (device_id, token) = fixture.register(&signing_key(0xb1)).await;
     let session = fixture.authenticate().await;
-    let grant = fixture.create_grant(&session, &device_id, 60).await;
 
     let app = fixture.app();
     let request = post_json_bearer(
@@ -2901,7 +3085,6 @@ async fn a_request_that_arrives_between_channels_waits_for_the_next_one() {
         &session,
         json!({
             "device_id": device_id.clone(),
-            "grant": grant,
             "request": { "jsonrpc": "2.0", "id": 7, "method": "tools/list" },
         }),
     );
@@ -2939,7 +3122,6 @@ async fn a_replaced_channel_fails_an_in_flight_request_as_502_without_retry_afte
     let (device_id, token, mut device) =
         connected_device(&fixture, &server, &signing_key(0xb2)).await;
     let session = fixture.authenticate().await;
-    let grant = fixture.create_grant(&session, &device_id, 60).await;
 
     let app = fixture.app();
     let request = post_json_bearer(
@@ -2947,7 +3129,6 @@ async fn a_replaced_channel_fails_an_in_flight_request_as_502_without_retry_afte
         &session,
         json!({
             "device_id": device_id.clone(),
-            "grant": grant,
             "request": { "jsonrpc": "2.0", "id": 7, "method": "tools/list" },
         }),
     );
@@ -3000,7 +3181,6 @@ async fn a_channel_that_dies_mid_request_is_502() {
     let (device_id, _token, mut device) =
         connected_device(&fixture, &server, &signing_key(0xb3)).await;
     let session = fixture.authenticate().await;
-    let grant = fixture.create_grant(&session, &device_id, 60).await;
 
     let app = fixture.app();
     let request = post_json_bearer(
@@ -3008,7 +3188,6 @@ async fn a_channel_that_dies_mid_request_is_502() {
         &session,
         json!({
             "device_id": device_id,
-            "grant": grant,
             "request": { "jsonrpc": "2.0", "id": 7, "method": "tools/list" },
         }),
     );
@@ -3047,8 +3226,13 @@ async fn unauthenticated_denials_are_rated_and_cannot_rotate_the_audit() {
 
     // The authenticated index is untouched: one enroll line, no rotation, no denial text.
     let audit = audit_lines(&fixture);
-    assert_eq!(audit.len(), 1, "one authenticated action, one audit line");
-    assert_eq!(audit[0]["kind"], json!("enroll"));
+    assert_eq!(
+        audit.len(),
+        2,
+        "the sign-in and the enroll: authenticated actions, no denial"
+    );
+    assert_eq!(audit[0]["kind"], json!("auth"));
+    assert_eq!(audit[1]["kind"], json!("enroll"));
     assert!(
         !fixture.config.data.join("audit.1.jsonl").exists(),
         "unauthenticated traffic must not rotate the audit"
@@ -3084,25 +3268,21 @@ async fn unauthenticated_denials_are_rated_and_cannot_rotate_the_audit() {
     assert_eq!(denials[101]["status"], json!(401));
 }
 
-// ---- the operator page ------------------------------------------------------------------------
+// ---- the root and the Rust page ----------------------------------------------------------------
 
 #[tokio::test]
-async fn the_operator_page_is_served_as_html() {
-    let fixture = Fixture::new("page-served");
+async fn the_root_sends_a_bookmark_to_the_rust_page() {
+    let fixture = Fixture::new("root-redirect");
 
-    let (status, headers, page) = send_text(fixture.app(), get("/", None)).await;
+    let (status, headers, _) = send_text(fixture.app(), get("/", None)).await;
 
-    assert_eq!(status, StatusCode::OK);
-    assert!(
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert_eq!(
         headers
-            .get(header::CONTENT_TYPE)
-            .and_then(|value| value.to_str().ok())
-            .is_some_and(|value| value.starts_with("text/html")),
-        "the operator page is HTML, not JSON: {headers:?}"
-    );
-    assert!(
-        page.contains("<!doctype html>") && page.contains("<html"),
-        "the response is the page itself: {page}"
+            .get(header::LOCATION)
+            .and_then(|value| value.to_str().ok()),
+        Some("/next"),
+        "the old root points at the page that replaced it"
     );
 }
 
@@ -3134,14 +3314,8 @@ async fn the_served_tool_catalogue_is_the_registry() {
         assert_eq!(tool["destructive"], expected.destructive, "{name}");
     }
 
-    // And the page really does call it: a page that silently fell back to a stale copy would pass
-    // every other test here.
-    let (status, _, page) = send_text(fixture.app(), get("/", None)).await;
-    assert_eq!(status, StatusCode::OK);
-    assert!(
-        page.contains("/tools"),
-        "the page asks the console for the catalogue"
-    );
+    // The Rust page carries no catalogue of its own: the device's `tools/list` is the only source,
+    // and the server renders what it needs. Nothing to assert on the page, which is the point.
 }
 
 #[tokio::test]
@@ -3151,43 +3325,11 @@ async fn the_tool_catalogue_is_not_served_without_an_operator() {
     assert_eq!(status, StatusCode::UNAUTHORIZED);
 }
 
-#[test]
-fn the_page_is_the_built_bundle_and_needs_nothing_from_outside() {
-    let page = include_str!("../web/dist/index.html");
-
-    assert!(
-        page.contains("id=\"root\""),
-        "the served page is the React bundle's mount point"
-    );
-    assert!(
-        !page.contains("device-cards"),
-        "the hand-written page is not what ships any more"
-    );
-    assert!(
-        page.contains("Connect an AI client"),
-        "the built page carries the AI-client card; rebuild it with scripts/build-web.sh when its sources change"
-    );
-    // The bundle carries XML namespace URIs and React's documentation links in strings; neither is a
-    // request. What would be a request is a load, so that is what this looks for.
-    for needle in [
-        "src=\"http",
-        "href=\"http",
-        "url(http",
-        "@import",
-        "fetch(\"http",
-        "import(\"http",
-    ] {
-        assert!(
-            !page.contains(needle),
-            "the page must not load {needle} — the console serves it alone"
-        );
-    }
-}
-
 #[tokio::test]
 async fn the_page_holds_no_secret_and_says_the_token_stays_in_memory() {
     let fixture = Fixture::new("page-secret");
-    let (status, _, page) = send_text(fixture.app(), get("/", None)).await;
+    // The login page is what an unauthenticated visitor sees; the signed-in page is behind the cookie.
+    let (status, _, page) = send_text(fixture.app(), get("/next", None)).await;
     assert_eq!(status, StatusCode::OK);
 
     assert!(
@@ -3237,6 +3379,1315 @@ async fn the_session_probe_says_what_it_made_of_the_access_header() {
     assert_eq!(body["access"]["header"], true);
 }
 
+/// The page's gate is a cookie; Cloudflare Access is the identity in front of it. An operator the
+/// edge already authenticated was never given a token to type, so a verified header must sign them
+/// in — the token box is the break-glass path, not the front door.
+#[tokio::test]
+async fn a_verified_access_request_signs_the_page_in_without_a_token() {
+    let fixture = Fixture::with_access("access-sign-in");
+    let request = Request::builder()
+        .method("GET")
+        .uri("/next")
+        .header(ACCESS_HEADER, access_token(60))
+        .body(Body::empty())
+        .expect("the request builds");
+
+    let (status, headers, page) = send_text(fixture.app(), request).await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        page.contains("New enrollment code"),
+        "the signed-in fleet, not the token box: {page}"
+    );
+    assert!(!page.contains("Operator token"), "no token box: {page}");
+    let cookie = headers
+        .get(header::SET_COOKIE)
+        .and_then(|value| value.to_str().ok())
+        .expect("the answer sets the session it just minted");
+    assert!(cookie.starts_with("summrise_session="), "{cookie}");
+    assert!(cookie.contains("HttpOnly"), "{cookie}");
+}
+
+/// A header that does not verify is not an identity: the token box stays, and nothing is minted for
+/// whoever sent it.
+#[tokio::test]
+async fn an_access_header_that_does_not_verify_leaves_the_token_box() {
+    let fixture = Fixture::with_access("access-refused");
+    let request = Request::builder()
+        .method("GET")
+        .uri("/next")
+        .header(ACCESS_HEADER, "not-a-jwt")
+        .body(Body::empty())
+        .expect("the request builds");
+
+    let (status, headers, page) = send_text(fixture.app(), request).await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert!(page.contains("Operator token"), "{page}");
+    assert!(
+        headers.get(header::SET_COOKIE).is_none(),
+        "a refused identity mints nothing"
+    );
+}
+
+/// Only a GET signs in: a cross-site form POST that the edge happens to see must not mint a
+/// session, and a mutation still needs the session's own CSRF value.
+#[tokio::test]
+async fn a_post_carrying_only_an_access_header_mints_nothing() {
+    let fixture = Fixture::with_access("access-post");
+    let request = Request::builder()
+        .method("POST")
+        .uri("/next/fleet/device/name")
+        .header(ACCESS_HEADER, access_token(60))
+        .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+        .body(Body::from("csrf=00&name=renamed"))
+        .expect("the request builds");
+
+    let (status, headers, _) = send_text(fixture.app(), request).await;
+
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert!(
+        headers.get(header::SET_COOKIE).is_none(),
+        "a POST mints nothing"
+    );
+}
+
+/// Signing out has to end the session Access itself holds: clearing our cookie alone would be
+/// undone by the next request, which the edge would authenticate again.
+#[tokio::test]
+async fn signing_out_behind_access_ends_the_access_session() {
+    let fixture = Fixture::with_access("access-sign-out");
+    let (status, headers, _) = send_text(
+        fixture.app(),
+        post_form("/next/auth", &[("token", &hex(&OPERATOR_TOKEN))]),
+    )
+    .await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let set = headers
+        .get(header::SET_COOKIE)
+        .expect("a session cookie")
+        .to_str()
+        .expect("a cookie is ASCII");
+    let cookie = set.split(';').next().expect("the name=value pair");
+
+    let (_, _, page) = send_text(fixture.app(), get_with_cookie("/next", cookie)).await;
+    let csrf = csrf_from(&page);
+
+    let request = Request::builder()
+        .method("POST")
+        .uri("/next/logout")
+        .header(header::COOKIE, cookie)
+        .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+        .body(Body::from(format!("csrf={csrf}")))
+        .expect("the request builds");
+    let (status, headers, _) = send_text(fixture.app(), request).await;
+
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert_eq!(
+        headers
+            .get(header::LOCATION)
+            .and_then(|value| value.to_str().ok()),
+        Some("https://test-team.cloudflareaccess.com/cdn-cgi/access/logout"),
+        "our cookie is not the session that outlives us"
+    );
+}
+
+/// `--login-link` prints `<page>?code=…` and promises two minutes' way in. The page has to spend
+/// that code, or the only recovery left when Access misbehaves is a secret in a file on the host.
+#[tokio::test]
+async fn an_unknown_path_is_a_page_with_a_way_back() {
+    let fixture = Fixture::new("not-found");
+    // Unauthenticated: the 404 is the same page whoever asks, so a typo never becomes a login wall.
+    let (status, headers, body) = send_text(fixture.app(), get("/next/no-such-page", None)).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert_eq!(
+        headers
+            .get(header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok()),
+        Some("text/html; charset=utf-8")
+    );
+    assert!(body.contains("Not here"), "{body}");
+    assert!(
+        body.contains("href=\"/next\""),
+        "the page has a way back: {body}"
+    );
+    assert!(
+        !body.contains("no-such-page"),
+        "the path is not echoed: {body}"
+    );
+}
+
+#[tokio::test]
+async fn a_login_link_code_signs_the_page_in_exactly_once() {
+    let fixture = Fixture::new("login-link");
+    let code = LoginCode {
+        code: "a".repeat(64),
+        expires_at_ms: fixture.now_ms() + MINUTE_MS,
+    };
+    summrise_console::write_login_code(&fixture.config.data, &code).expect("the code is written");
+    let uri = format!("/next?code={}", code.code);
+
+    let (status, headers, _) = send_text(fixture.app(), get(&uri, None)).await;
+
+    assert_eq!(
+        status,
+        StatusCode::SEE_OTHER,
+        "a link signs in and redirects"
+    );
+    assert_eq!(
+        headers
+            .get(header::LOCATION)
+            .and_then(|value| value.to_str().ok()),
+        Some("/next"),
+        "the code leaves the URL with the redirect"
+    );
+    assert!(
+        headers
+            .get(header::SET_COOKIE)
+            .and_then(|value| value.to_str().ok())
+            .is_some_and(|cookie| cookie.starts_with("summrise_session=")),
+        "the link mints the page's session"
+    );
+
+    // A link is one use: a second visit says so instead of minting another session.
+    let (status, headers, page) = send_text(fixture.app(), get(&uri, None)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        page.contains("not accepted"),
+        "the card explains the dead link: {page}"
+    );
+    assert!(headers.get(header::SET_COOKIE).is_none());
+}
+
+/// A code that does not match is refused like an expired one — and the card still has the token
+/// path under it, because a dead link must not be a dead end.
+#[tokio::test]
+async fn a_login_link_that_does_not_match_leaves_the_token_box() {
+    let fixture = Fixture::new("login-link-refused");
+    let code = LoginCode {
+        code: "b".repeat(64),
+        expires_at_ms: fixture.now_ms() + MINUTE_MS,
+    };
+    summrise_console::write_login_code(&fixture.config.data, &code).expect("the code is written");
+
+    let (status, headers, page) =
+        send_text(fixture.app(), get("/next?code=not-the-code", None)).await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert!(page.contains("Operator token"), "{page}");
+    assert!(headers.get(header::SET_COOKIE).is_none());
+}
+
+/// The card says which of the two Access failures happened, because the page's sign-in now depends
+/// on the header arriving: silence here is what used to look like a verification bug. A request
+/// through the edge carries `cf-ray`, which is how the page knows Access was in the path at all.
+#[tokio::test]
+async fn the_card_says_when_access_did_not_identify_the_request() {
+    let fixture = Fixture::with_access("card-access-missing");
+    let request = Request::builder()
+        .method("GET")
+        .uri("/next")
+        .header("cf-ray", "8a00000000000000-TEST")
+        .body(Body::empty())
+        .expect("the request builds");
+
+    let (status, _, page) = send_text(fixture.app(), request).await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        page.contains("Cloudflare Access did not identify this request"),
+        "{page}"
+    );
+}
+
+#[tokio::test]
+async fn the_card_says_when_access_did_not_accept_the_request() {
+    let fixture = Fixture::with_access("card-access-refused");
+    let request = Request::builder()
+        .method("GET")
+        .uri("/next")
+        .header(ACCESS_HEADER, "not-a-jwt")
+        .body(Body::empty())
+        .expect("the request builds");
+
+    let (status, _, page) = send_text(fixture.app(), request).await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        page.contains("Cloudflare Access did not accept this request"),
+        "{page}"
+    );
+}
+
+/// Without Access there is no edge to explain: the card must not invent one.
+#[tokio::test]
+async fn the_card_is_quiet_when_access_is_not_configured() {
+    let fixture = Fixture::new("card-no-access");
+
+    let (_, _, page) = send_text(fixture.app(), get("/next", None)).await;
+
+    assert!(!page.contains("Cloudflare Access"), "{page}");
+}
+
+/// The operator who opens the console where no edge is in the path (the tailnet address, a smoke
+/// run) is not being asked to sign in at Cloudflare: there is nothing there to sign in to.
+#[tokio::test]
+async fn the_card_is_quiet_on_a_direct_request_when_access_is_configured() {
+    let fixture = Fixture::with_access("card-access-direct");
+
+    let (_, _, page) = send_text(fixture.app(), get("/next", None)).await;
+
+    assert!(
+        !page.contains("Cloudflare Access did not identify"),
+        "a direct request must not send the operator to an edge that is not in the path: {page}"
+    );
+}
+
+/// The one operator string that reaches a filesystem is refused by the page itself: a traversal
+/// never becomes a device round trip.
+#[tokio::test]
+async fn a_files_write_outside_the_root_is_refused_by_the_page() {
+    let fixture = Fixture::new("files-traversal");
+    let (device_id, _) = fixture.register(&signing_key(0xf7)).await;
+    let (cookie, csrf) = sign_in_to_the_page(&fixture).await;
+
+    let mut request = post_form(
+        &format!("/next/files/{device_id}/write"),
+        &[
+            ("csrf", &csrf),
+            ("path", "../windows/system32/x"),
+            ("content", "x"),
+        ],
+    );
+    request
+        .headers_mut()
+        .insert(header::COOKIE, cookie.parse().expect("the cookie header"));
+    let (status, headers, _) = send_text(fixture.app(), request).await;
+
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let location = headers
+        .get(header::LOCATION)
+        .and_then(|value| value.to_str().ok())
+        .expect("a redirect");
+    assert!(
+        location.contains("cannot%20contain"),
+        "the page's own refusal, not the device's: {location}"
+    );
+}
+
+/// A revoke form on device A's page must not destroy a token that belongs to device B.
+#[tokio::test]
+async fn a_token_is_only_revoked_from_a_page_that_can_reach_it() {
+    let fixture = Fixture::new("token-scope");
+    let (device_a, _) = fixture.register(&signing_key(0xf8)).await;
+    let (device_b, _) = fixture.register(&signing_key(0xf9)).await;
+    let (cookie, csrf) = sign_in_to_the_page(&fixture).await;
+
+    let mut request = post_form(
+        &format!("/next/tokens/{device_a}/mint"),
+        &[("csrf", &csrf), ("name", "scoped")],
+    );
+    request
+        .headers_mut()
+        .insert(header::COOKIE, cookie.parse().expect("the cookie header"));
+    let (status, _, _) = send_text(fixture.app(), request).await;
+    assert_eq!(status, StatusCode::OK);
+
+    let (_, _, listed) = send_text(
+        fixture.app(),
+        get_with_cookie(&format!("/next/tokens/{device_a}"), &cookie),
+    )
+    .await;
+    let marker = "name=\"id\" value=\"";
+    let start = listed.find(marker).expect("a revoke form") + marker.len();
+    let end = start + listed[start..].find('"').expect("the id ends");
+    let id = listed[start..end].to_owned();
+
+    // Device B's page names a token it cannot reach: refused, and the token survives.
+    let mut request = post_form(
+        &format!("/next/tokens/{device_b}/revoke"),
+        &[("csrf", &csrf), ("id", &id)],
+    );
+    request
+        .headers_mut()
+        .insert(header::COOKIE, cookie.parse().expect("the cookie header"));
+    let (status, _, _) = send_text(fixture.app(), request).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+
+    let (_, _, after) = send_text(
+        fixture.app(),
+        get_with_cookie(&format!("/next/tokens/{device_a}"), &cookie),
+    )
+    .await;
+    assert!(
+        after.contains("scoped"),
+        "the token is still there: {after}"
+    );
+}
+
+/// `/session` is a probe a client can call with the page's cookie; before this it could only see a
+/// bearer token, so `via: "session"` was unreachable and a signed-in page read as signed out.
+#[tokio::test]
+async fn the_session_probe_sees_a_page_cookie() {
+    let fixture = Fixture::new("session-probe-cookie");
+    let cookie = page_cookie(&fixture).await;
+    let request = Request::builder()
+        .method("GET")
+        .uri("/session")
+        .header(header::COOKIE, cookie)
+        .body(Body::empty())
+        .expect("the request builds");
+
+    let (status, body) = send(fixture.app(), request).await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["authenticated"], true);
+    assert_eq!(body["via"], "session");
+}
+
+/// Every way in leaves an audit line naming the way, and nothing about the credential. The console
+/// could not previously answer "did the edge deliver the header?" from its own record — a question
+/// that cost an operator an hour when the page fell back to the token box.
+#[tokio::test]
+async fn each_way_in_writes_an_auth_line() {
+    let fixture = Fixture::with_access("auth-audit");
+
+    // 1. Cloudflare Access: a verified assertion and no cookie.
+    let request = Request::builder()
+        .method("GET")
+        .uri("/next")
+        .header(ACCESS_HEADER, access_token(60))
+        .body(Body::empty())
+        .expect("the request builds");
+    send_text(fixture.app(), request).await;
+
+    // 2. The API's token exchange, whose session then reads the log.
+    let session = fixture.authenticate().await;
+
+    // 3. The page's token form.
+    let _ = page_cookie(&fixture).await;
+
+    // 4. A `--login-link` code.
+    let code = LoginCode {
+        code: "f".repeat(64),
+        expires_at_ms: fixture.now_ms() + MINUTE_MS,
+    };
+    summrise_console::write_login_code(&fixture.config.data, &code).expect("the code is written");
+    send_text(
+        fixture.app(),
+        get(&format!("/next?code={}", code.code), None),
+    )
+    .await;
+
+    let (status, rows) = send(fixture.app(), get("/audit", Some(&session))).await;
+    assert_eq!(status, StatusCode::OK, "{rows}");
+    let details: Vec<&str> = rows
+        .as_array()
+        .expect("the audit is a list")
+        .iter()
+        .filter(|row| row["kind"] == "auth")
+        .filter_map(|row| row["detail"].as_str())
+        .collect();
+
+    for way in ["access", "token", "login-link"] {
+        assert!(
+            details.contains(&way),
+            "a {way} sign-in is in the audit: {details:?}"
+        );
+    }
+    // The row names the way in, never the secret it came with.
+    let text = rows.to_string();
+    assert!(!text.contains(&hex(&OPERATOR_TOKEN)), "{text}");
+    assert!(!text.contains(&code.code), "{text}");
+}
+
+/// Presets are operator convenience the console stores, and the terminal page is where they are
+/// used: saving one has to show up on the page that will open a session from it.
+#[tokio::test]
+async fn a_saved_connection_is_listed_on_the_terminal_page() {
+    let fixture = Fixture::new("presets-list");
+    let (device_id, _) = fixture.register(&signing_key(0xf2)).await;
+    let cookie = page_cookie(&fixture).await;
+    let page_uri = format!("/next/terminal/{device_id}");
+    let (_, _, page) = send_text(fixture.app(), get_with_cookie(&page_uri, &cookie)).await;
+    let csrf = csrf_from(&page);
+
+    let (status, _, _) = send_text(
+        fixture.app(),
+        post_form_cookie(
+            &format!("/next/terminal/{device_id}/connections"),
+            &[
+                ("csrf", &csrf),
+                ("name", "Edge box"),
+                ("kind", "ssh"),
+                ("target", "root@10.0.0.5:2222"),
+            ],
+            &cookie,
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "a save redirects back");
+
+    let (status, _, page) = send_text(fixture.app(), get_with_cookie(&page_uri, &cookie)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(page.contains("Edge box"), "{page}");
+    assert!(page.contains("10.0.0.5"), "{page}");
+}
+
+/// Reachability is a question an operator asks the device ("can you see X:443?"), and the answer is
+/// a summary in the page's notice slot.
+#[tokio::test]
+async fn the_system_page_can_test_reachability_from_the_device() {
+    let fixture = Fixture::new("system-net-test");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xe5)).await;
+    let (cookie, csrf) = sign_in_to_the_page(&fixture).await;
+
+    let app = fixture.app();
+    let request = post_form_cookie(
+        &format!("/next/system/{device_id}/net"),
+        &[("csrf", &csrf), ("host", "10.0.0.5"), ("port", "443")],
+        &cookie,
+    );
+    let test = tokio::spawn(async move { send_text(app, request).await });
+
+    let frame = next_json(&mut device).await;
+    assert_eq!(
+        frame["mcp"]["params"]["name"],
+        json!("system.net_test"),
+        "{frame}"
+    );
+    assert_eq!(
+        frame["mcp"]["params"]["arguments"]["host"],
+        json!("10.0.0.5")
+    );
+    assert_eq!(frame["mcp"]["params"]["arguments"]["port"], json!(443));
+    answer(
+        &mut device,
+        &frame,
+        json!({
+            "jsonrpc": "2.0", "id": 1,
+            "result": { "content": [{ "type": "text", "text": json!({
+                // The device's own shape: the address that connected, not a boolean.
+                "addresses": ["10.0.0.5:443"], "connected": "10.0.0.5:443", "latency_ms": 3, "error": null
+            }).to_string() }], "isError": false }
+        }),
+    )
+    .await;
+
+    let (status, headers, _) = test.await.expect("the test finishes");
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let location = headers
+        .get(header::LOCATION)
+        .and_then(|value| value.to_str().ok())
+        .expect("a redirect");
+    assert!(location.contains("net="), "{location}");
+    assert!(location.contains("reachable"), "{location}");
+    assert!(
+        location.contains("connected%20to%2010.0.0.5%3A443"),
+        "the summary names the address that answered: {location}"
+    );
+}
+
+/// The form is on the page it acts on, next to the process tools.
+#[tokio::test]
+async fn the_system_page_offers_a_reachability_check() {
+    let fixture = Fixture::new("system-net-form");
+    let (device_id, _) = fixture.register(&signing_key(0xe4)).await;
+    let cookie = page_cookie(&fixture).await;
+
+    let (status, _, page) = send_text(
+        fixture.app(),
+        get_with_cookie(&format!("/next/system/{device_id}"), &cookie),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        page.contains(&format!("/next/system/{device_id}/net")),
+        "{page}"
+    );
+    assert!(page.contains("Test reachability"), "{page}");
+}
+
+/// A restart is behind a second click and reaches `host.restart`; the answer says the device is
+/// coming back rather than pretending the page is unchanged.
+#[tokio::test]
+async fn the_system_page_can_restart_the_device() {
+    let fixture = Fixture::new("system-restart");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xe7)).await;
+    let (cookie, csrf) = sign_in_to_the_page(&fixture).await;
+
+    let app = fixture.app();
+    let request = post_form_cookie(
+        &format!("/next/system/{device_id}/restart"),
+        &[("csrf", &csrf)],
+        &cookie,
+    );
+    let restart = tokio::spawn(async move { send_text(app, request).await });
+
+    let frame = next_json(&mut device).await;
+    assert_eq!(
+        frame["mcp"]["params"]["name"],
+        json!("host.restart"),
+        "{frame}"
+    );
+    answer(
+        &mut device,
+        &frame,
+        json!({
+            "jsonrpc": "2.0", "id": 1,
+            "result": { "content": [{ "type": "text", "text": "{\"restarting\":true}" }], "isError": false }
+        }),
+    )
+    .await;
+
+    let (status, headers, _) = restart.await.expect("the restart finishes");
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let location = headers
+        .get(header::LOCATION)
+        .and_then(|value| value.to_str().ok())
+        .expect("a redirect");
+    assert!(
+        location.contains("restart=asked"),
+        "the page says the device is coming back: {location}"
+    );
+}
+
+/// The restart is offered where the processes are, behind a disclosure, with its consequence said.
+#[tokio::test]
+async fn the_system_page_offers_the_restart_behind_a_disclosure() {
+    let fixture = Fixture::new("system-restart-form");
+    let (device_id, _) = fixture.register(&signing_key(0xe6)).await;
+    let cookie = page_cookie(&fixture).await;
+
+    let (status, _, page) = send_text(
+        fixture.app(),
+        get_with_cookie(&format!("/next/system/{device_id}"), &cookie),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        page.contains(&format!("/next/system/{device_id}/restart")),
+        "{page}"
+    );
+    assert!(page.contains("Restart now"), "{page}");
+}
+
+/// The device's missing-parent refusal tells the operator to use `files.mkdir`; the page has to be
+/// able to do it, or it is pointing at a door that does not exist.
+#[tokio::test]
+async fn a_directory_can_be_created_from_the_files_page() {
+    let fixture = Fixture::new("files-mkdir");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xea)).await;
+    let (cookie, csrf) = sign_in_to_the_page(&fixture).await;
+
+    let app = fixture.app();
+    let request = post_form_cookie(
+        &format!("/next/files/{device_id}/mkdir"),
+        &[("csrf", &csrf), ("path", "logs/2026"), ("current", "logs")],
+        &cookie,
+    );
+    let create = tokio::spawn(async move { send_text(app, request).await });
+
+    let frame = next_json(&mut device).await;
+    assert_eq!(
+        frame["mcp"]["params"]["name"],
+        json!("files.mkdir"),
+        "{frame}"
+    );
+    assert_eq!(
+        frame["mcp"]["params"]["arguments"]["path"],
+        json!("logs/2026")
+    );
+    answer(
+        &mut device,
+        &frame,
+        json!({
+            "jsonrpc": "2.0", "id": 1,
+            "result": { "content": [{ "type": "text", "text": "{}" }], "isError": false }
+        }),
+    )
+    .await;
+
+    let (status, headers, _) = create.await.expect("the mkdir finishes");
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert_eq!(
+        headers
+            .get(header::LOCATION)
+            .and_then(|value| value.to_str().ok()),
+        Some(format!("/next/files/{device_id}?path=logs").as_str()),
+        "the listing the operator was looking at comes back"
+    );
+}
+
+/// The page's path rule covers the new folder too.
+#[tokio::test]
+async fn a_mkdir_path_outside_the_root_is_refused_by_the_page() {
+    let fixture = Fixture::new("files-mkdir-traversal");
+    let (device_id, _) = fixture.register(&signing_key(0xe9)).await;
+    let (cookie, csrf) = sign_in_to_the_page(&fixture).await;
+
+    let (status, headers, _) = send_text(
+        fixture.app(),
+        post_form_cookie(
+            &format!("/next/files/{device_id}/mkdir"),
+            &[("csrf", &csrf), ("path", "../escape")],
+            &cookie,
+        ),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let location = headers
+        .get(header::LOCATION)
+        .and_then(|value| value.to_str().ok())
+        .expect("a redirect");
+    assert!(location.contains("cannot%20contain"), "{location}");
+}
+
+/// A watched target can be probed now, so a fresh status does not wait for the interval.
+#[tokio::test]
+async fn a_watched_target_can_be_probed_now() {
+    let fixture = Fixture::new("monitor-probe-now");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xe8)).await;
+    let (cookie, csrf) = sign_in_to_the_page(&fixture).await;
+
+    let app = fixture.app();
+    let request = post_form_cookie(
+        &format!("/next/monitors/{device_id}/probe"),
+        &[("csrf", &csrf), ("id", "target-1")],
+        &cookie,
+    );
+    let probe = tokio::spawn(async move { send_text(app, request).await });
+
+    let frame = next_json(&mut device).await;
+    assert_eq!(
+        frame["mcp"]["params"]["name"],
+        json!("monitor.probe"),
+        "{frame}"
+    );
+    assert_eq!(frame["mcp"]["params"]["arguments"]["id"], json!("target-1"));
+    answer(
+        &mut device,
+        &frame,
+        json!({
+            "jsonrpc": "2.0", "id": 1,
+            "result": { "content": [{ "type": "text", "text": json!({"ts_ms": 1, "ok": true, "latency_ms": 3}).to_string() }], "isError": false }
+        }),
+    )
+    .await;
+
+    let (status, headers, _) = probe.await.expect("the probe finishes");
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert_eq!(
+        headers
+            .get(header::LOCATION)
+            .and_then(|value| value.to_str().ok()),
+        Some(format!("/next/monitors/{device_id}").as_str())
+    );
+}
+
+/// An ssh preset that names a key on the device is like a serial one: it can open a session from the
+/// rail without a credential typed in, because a key path is configuration and the key stays put.
+#[tokio::test]
+async fn an_ssh_preset_with_a_key_connects_from_the_rail() {
+    let fixture = Fixture::new("preset-key-connect");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xec)).await;
+    let (cookie, csrf) = sign_in_to_the_page(&fixture).await;
+    let page_uri = format!("/next/terminal/{device_id}");
+
+    let mut request = post_form(
+        &format!("{page_uri}/connections"),
+        &[
+            ("csrf", &csrf),
+            ("name", "Edge"),
+            ("kind", "ssh"),
+            ("target", "root@10.0.0.5:2222"),
+            ("key_path", "C:\\Users\\op\\.ssh\\id_ed25519"),
+        ],
+    );
+    request
+        .headers_mut()
+        .insert(header::COOKIE, cookie.parse().expect("the cookie header"));
+    let (status, _, _) = send_text(fixture.app(), request).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+
+    let app = fixture.app();
+    let request = get_with_cookie(&page_uri, &cookie);
+    let page = tokio::spawn(async move { send_text(app, request).await });
+    let frame = next_json(&mut device).await;
+    answer(
+        &mut device,
+        &frame,
+        json!({
+            "jsonrpc": "2.0", "id": 1,
+            "result": { "content": [{ "type": "text", "text": "[]" }], "isError": false }
+        }),
+    )
+    .await;
+    let (_, _, body) = page.await.expect("the page finishes");
+    let preset = first_preset_id(&body);
+    assert!(
+        body.contains(&format!("/connections/{preset}/connect")),
+        "a key-bearing ssh preset connects from the rail: {body}"
+    );
+
+    let app = fixture.app();
+    let request = post_form_cookie(
+        &format!("{page_uri}/connections/{preset}/connect"),
+        &[("csrf", &csrf)],
+        &cookie,
+    );
+    let connect = tokio::spawn(async move { send_text(app, request).await });
+    let frame = next_json(&mut device).await;
+    assert_eq!(
+        frame["mcp"]["params"]["name"],
+        json!("terminal.create"),
+        "{frame}"
+    );
+    assert_eq!(
+        frame["mcp"]["params"]["arguments"]["auth"]["kind"],
+        json!("key"),
+        "{frame}"
+    );
+    assert_eq!(
+        frame["mcp"]["params"]["arguments"]["auth"]["path"],
+        json!("C:\\Users\\op\\.ssh\\id_ed25519"),
+        "{frame}"
+    );
+    answer(
+        &mut device,
+        &frame,
+        json!({
+            "jsonrpc": "2.0", "id": 1,
+            "result": { "content": [{ "type": "text", "text": json!({ "id": "session-77", "kind": "ssh", "shell": "root@10.0.0.5" }).to_string() }], "isError": false }
+        }),
+    )
+    .await;
+    let (status, headers, _) = connect.await.expect("the connect finishes");
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert_eq!(
+        headers
+            .get(header::LOCATION)
+            .and_then(|value| value.to_str().ok()),
+        Some(format!("{page_uri}?attach=session-77").as_str())
+    );
+}
+
+/// A key file belongs to the kind that uses one: a pty or serial preset that names one is a mistake,
+/// refused where it is made.
+#[tokio::test]
+async fn a_key_file_on_a_pty_preset_is_refused() {
+    let fixture = Fixture::new("preset-key-pty");
+    let (device_id, _) = fixture.register(&signing_key(0xeb)).await;
+    let (cookie, csrf) = sign_in_to_the_page(&fixture).await;
+
+    let mut request = post_form(
+        &format!("/next/terminal/{device_id}/connections"),
+        &[
+            ("csrf", &csrf),
+            ("name", "Shell"),
+            ("kind", "pty"),
+            ("target", ""),
+            ("key_path", "C:\\Users\\op\\.ssh\\id_ed25519"),
+        ],
+    );
+    request
+        .headers_mut()
+        .insert(header::COOKIE, cookie.parse().expect("the cookie header"));
+    let (status, headers, _) = send_text(fixture.app(), request).await;
+
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let location = headers
+        .get(header::LOCATION)
+        .and_then(|value| value.to_str().ok())
+        .expect("a redirect");
+    assert!(
+        location.contains("only%20an%20ssh%20preset"),
+        "the page says why: {location}"
+    );
+}
+
+/// The id of the first preset the page rendered, read off its remove form's action.
+fn first_preset_id(page: &str) -> String {
+    let marker = "/connections/";
+    let start = page.find(marker).expect("a preset row") + marker.len();
+    page[start..]
+        .chars()
+        .take_while(|c| c.is_ascii_hexdigit())
+        .collect()
+}
+
+/// Saving and forgetting are the two halves of the same control; a forgotten preset must leave the
+/// page, not merely the file.
+#[tokio::test]
+async fn a_preset_can_be_forgotten_from_the_page() {
+    let fixture = Fixture::new("presets-forget");
+    let (device_id, _) = fixture.register(&signing_key(0xf3)).await;
+    let cookie = page_cookie(&fixture).await;
+    let page_uri = format!("/next/terminal/{device_id}");
+    let (_, _, page) = send_text(fixture.app(), get_with_cookie(&page_uri, &cookie)).await;
+    let csrf = csrf_from(&page);
+
+    let (status, _, _) = send_text(
+        fixture.app(),
+        post_form_cookie(
+            &format!("{page_uri}/connections"),
+            &[
+                ("csrf", &csrf),
+                ("name", "Old box"),
+                ("kind", "pty"),
+                ("target", ""),
+            ],
+            &cookie,
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let (_, _, page) = send_text(fixture.app(), get_with_cookie(&page_uri, &cookie)).await;
+    assert!(page.contains("Old box"), "{page}");
+    let preset = first_preset_id(&page);
+
+    let (status, _, _) = send_text(
+        fixture.app(),
+        post_form_cookie(
+            &format!("{page_uri}/connections/{preset}/remove"),
+            &[("csrf", &csrf)],
+            &cookie,
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+
+    let (_, _, page) = send_text(fixture.app(), get_with_cookie(&page_uri, &cookie)).await;
+    assert!(!page.contains("Old box"), "the row is gone: {page}");
+}
+
+/// An ssh preset carries no credential, so "Use" fills the form and leaves the password blank —
+/// that is the whole reason the preset may store host, user and port but nothing else.
+#[tokio::test]
+async fn an_ssh_preset_prefills_the_form_but_not_a_password() {
+    let fixture = Fixture::new("presets-prefill");
+    let (device_id, _) = fixture.register(&signing_key(0xf4)).await;
+    let cookie = page_cookie(&fixture).await;
+    let page_uri = format!("/next/terminal/{device_id}");
+    let (_, _, page) = send_text(fixture.app(), get_with_cookie(&page_uri, &cookie)).await;
+    let csrf = csrf_from(&page);
+
+    send_text(
+        fixture.app(),
+        post_form_cookie(
+            &format!("{page_uri}/connections"),
+            &[
+                ("csrf", &csrf),
+                ("name", "Edge box"),
+                ("kind", "ssh"),
+                ("target", "root@10.0.0.5:2222"),
+            ],
+            &cookie,
+        ),
+    )
+    .await;
+    let (_, _, page) = send_text(fixture.app(), get_with_cookie(&page_uri, &cookie)).await;
+    let preset = first_preset_id(&page);
+
+    let (status, _, page) = send_text(
+        fixture.app(),
+        get_with_cookie(&format!("{page_uri}?preset={preset}"), &cookie),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert!(page.contains("value=\"10.0.0.5\""), "{page}");
+    assert!(page.contains("value=\"root\""), "{page}");
+    assert!(page.contains("value=\"2222\""), "{page}");
+    assert!(
+        page.contains("option value=\"ssh\" selected"),
+        "the kind follows the preset: {page}"
+    );
+    assert!(
+        !page.contains("data-kind=\"ssh\" hidden"),
+        "the prefilled group is visible without touching the select: {page}"
+    );
+    assert!(
+        !page.contains("value=\"root\" type=\"password\""),
+        "no password is ever prefilled: {page}"
+    );
+}
+
+/// The password is the preset's deliberate omission, so connecting an ssh preset from the page has
+/// to say so instead of failing at the device with a worse sentence.
+#[tokio::test]
+async fn connecting_an_ssh_preset_asks_for_the_password() {
+    let fixture = Fixture::new("presets-ssh-connect");
+    let (device_id, _) = fixture.register(&signing_key(0xf5)).await;
+    let cookie = page_cookie(&fixture).await;
+    let page_uri = format!("/next/terminal/{device_id}");
+    let (_, _, page) = send_text(fixture.app(), get_with_cookie(&page_uri, &cookie)).await;
+    let csrf = csrf_from(&page);
+    send_text(
+        fixture.app(),
+        post_form_cookie(
+            &format!("{page_uri}/connections"),
+            &[
+                ("csrf", &csrf),
+                ("name", "Edge box"),
+                ("kind", "ssh"),
+                ("target", "root@10.0.0.5"),
+            ],
+            &cookie,
+        ),
+    )
+    .await;
+    let (_, _, page) = send_text(fixture.app(), get_with_cookie(&page_uri, &cookie)).await;
+    let preset = first_preset_id(&page);
+
+    let (status, headers, _) = send_text(
+        fixture.app(),
+        post_form_cookie(
+            &format!("{page_uri}/connections/{preset}/connect"),
+            &[("csrf", &csrf)],
+            &cookie,
+        ),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let location = headers
+        .get(header::LOCATION)
+        .and_then(|value| value.to_str().ok())
+        .expect("a redirect");
+    let (_, _, page) = send_text(fixture.app(), get_with_cookie(location, &cookie)).await;
+    assert!(
+        page.contains("needs its password typed on the page"),
+        "{page}"
+    );
+}
+
+/// The presets are mutations of the console's own file, so the page's CSRF rule covers them.
+#[tokio::test]
+async fn a_preset_cannot_be_saved_without_the_sessions_csrf() {
+    let fixture = Fixture::new("presets-csrf");
+    let (device_id, _) = fixture.register(&signing_key(0xf6)).await;
+    let cookie = page_cookie(&fixture).await;
+
+    let (status, _, _) = send_text(
+        fixture.app(),
+        post_form_cookie(
+            &format!("/next/terminal/{device_id}/connections"),
+            &[
+                ("csrf", &"00".repeat(32)),
+                ("name", "Nope"),
+                ("kind", "pty"),
+                ("target", ""),
+            ],
+            &cookie,
+        ),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::FORBIDDEN);
+}
+
+/// `/health` is what a supervisor and a human check first; whether Access is configured is the fact
+/// that explains why the page behaves the way it does, and it is not a secret.
+#[tokio::test]
+async fn health_says_whether_access_is_configured() {
+    let plain = Fixture::new("health-no-access");
+    let (status, body) = send(plain.app(), get("/health", None)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["access_configured"], false);
+
+    let trusted = Fixture::with_access("health-access");
+    let (status, body) = send(trusted.app(), get("/health", None)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["access_configured"], true);
+}
+
+/// The page names who signed the operator in. A person who was told to type a token they never had
+/// deserves to see, on the page, that Access — not the token — opened it.
+#[tokio::test]
+async fn the_dashboard_names_access_as_the_signer() {
+    let fixture = Fixture::with_access("dashboard-signer-access");
+    let request = Request::builder()
+        .method("GET")
+        .uri("/next")
+        .header(ACCESS_HEADER, access_token(60))
+        .body(Body::empty())
+        .expect("the request builds");
+
+    let (status, _, page) = send_text(fixture.app(), request).await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        page.contains("Signed in through Cloudflare Access as ")
+            && page.contains("operator@example.test"),
+        "the page names Access and the identity it verified: {page}"
+    );
+}
+
+/// Without Access the sentence has to be the other one, because the token really did sign them in.
+#[tokio::test]
+async fn the_dashboard_says_the_token_signed_in_without_access() {
+    let fixture = Fixture::new("dashboard-signer-token");
+    let cookie = page_cookie(&fixture).await;
+
+    let (status, _, page) = send_text(fixture.app(), get_with_cookie("/next", &cookie)).await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        page.contains("Signed in with this browser's session"),
+        "{page}"
+    );
+}
+
+/// The explanation is not the landing page's privilege: a bookmarked deep link that lands signed out
+/// gets the same sentence, because that is where an operator without a session actually arrives.
+#[tokio::test]
+async fn a_signed_out_deep_page_explains_the_edge_too() {
+    let fixture = Fixture::with_access("deep-page-note");
+    let request = Request::builder()
+        .method("GET")
+        .uri("/next/audit")
+        .header("cf-ray", "8a00000000000000-TEST")
+        .body(Body::empty())
+        .expect("the request builds");
+
+    let (status, _, page) = send_text(fixture.app(), request).await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        page.contains("Cloudflare Access did not identify this request"),
+        "{page}"
+    );
+}
+
+/// The page mints a session for an Access-verified request with no cookie, so a browser that refuses
+/// cookies would append one per page load. The file keeps the newest few, not everything since the
+/// first deploy.
+#[tokio::test]
+async fn the_session_store_keeps_at_most_thirty_two_sessions() {
+    let fixture = Fixture::new("session-cap");
+    let mut newest = String::new();
+    for _ in 0..=32 {
+        let (status, headers, _) = send_text(
+            fixture.app(),
+            post_form("/next/auth", &[("token", &hex(&OPERATOR_TOKEN))]),
+        )
+        .await;
+        assert_eq!(status, StatusCode::SEE_OTHER);
+        newest = headers
+            .get(header::SET_COOKIE)
+            .expect("a session cookie")
+            .to_str()
+            .expect("a cookie is ASCII")
+            .to_owned();
+    }
+
+    let text = fs::read_to_string(fixture.config.data.join("sessions.json"))
+        .expect("the sessions file is written");
+    let rows: Vec<Value> = serde_json::from_str(&text).expect("the file is JSON");
+    assert_eq!(rows.len(), 32, "the store is bounded");
+
+    let cookie = newest.split(';').next().expect("the name=value pair");
+    let (_, _, page) = send_text(fixture.app(), get_with_cookie("/next", cookie)).await;
+    assert!(
+        page.contains("New enrollment code"),
+        "the newest session is the one kept: {page}"
+    );
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn the_session_file_is_readable_only_by_its_owner() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let fixture = Fixture::new("session-mode");
+    let _ = page_cookie(&fixture).await;
+
+    let mode = fs::metadata(fixture.config.data.join("sessions.json"))
+        .expect("the sessions file exists")
+        .permissions()
+        .mode()
+        & 0o777;
+    assert_eq!(mode, 0o600, "a session hash is credential-grade");
+}
+
+/// Sign-out must mean something even in the tab whose cookie is gone: the edge's session is the one
+/// that would sign it straight back in.
+#[tokio::test]
+async fn signing_out_without_a_session_still_ends_the_access_session() {
+    let fixture = Fixture::with_access("access-sign-out-no-cookie");
+    let request = Request::builder()
+        .method("POST")
+        .uri("/next/logout")
+        .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+        .header("x-forwarded-proto", "https")
+        .body(Body::empty())
+        .expect("the request builds");
+
+    let (status, headers, _) = send_text(fixture.app(), request).await;
+
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert_eq!(
+        headers
+            .get(header::LOCATION)
+            .and_then(|value| value.to_str().ok()),
+        Some("https://test-team.cloudflareaccess.com/cdn-cgi/access/logout"),
+        "the edge's session outlives ours"
+    );
+    let cleared = headers
+        .get(header::SET_COOKIE)
+        .and_then(|value| value.to_str().ok());
+    assert!(
+        cleared.is_some_and(|cookie| cookie.contains("Secure")),
+        "the clear mirrors the cookie it clears: {cleared:?}"
+    );
+}
+
+/// Without an edge there is nothing to sign out of: the tab goes home.
+#[tokio::test]
+async fn signing_out_without_access_goes_home() {
+    let fixture = Fixture::new("sign-out-home");
+
+    let (status, headers, _) = send_text(fixture.app(), post_form("/next/logout", &[])).await;
+
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert_eq!(
+        headers
+            .get(header::LOCATION)
+            .and_then(|value| value.to_str().ok()),
+        Some("/next")
+    );
+}
+
+/// A one-time code must not outlive itself in the recovery copy: minting a second link must not
+/// leave the first code on disk, and spending one must clear a leftover copy from an older build.
+#[tokio::test]
+async fn a_login_code_leaves_no_recovery_copy() {
+    let fixture = Fixture::new("login-code-backup");
+    let data = &fixture.config.data;
+    let first = LoginCode {
+        code: "d".repeat(64),
+        expires_at_ms: fixture.now_ms() + MINUTE_MS,
+    };
+    let second = LoginCode {
+        code: "e".repeat(64),
+        expires_at_ms: fixture.now_ms() + MINUTE_MS,
+    };
+    summrise_console::write_login_code(data, &first).expect("the first code is written");
+    summrise_console::write_login_code(data, &second).expect("the second code is written");
+
+    let backup = data.join("login.json.bak");
+    assert!(
+        !backup.exists(),
+        "the previous code must not survive in a copy"
+    );
+
+    fs::write(&backup, "a leftover from an older build").expect("the leftover exists");
+    let (status, _, _) = send_text(
+        fixture.app(),
+        get(&format!("/next?code={}", second.code), None),
+    )
+    .await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert!(!backup.exists(), "spending the code removes the copy too");
+}
+
+/// `--login-link https://console.saisi.online` prints `<public-url>?code=…`. The bare root is the
+/// URL that command would be given, and its redirect to the page must carry the code, not drop it.
+#[tokio::test]
+async fn the_root_redirect_keeps_the_query_a_login_link_carries() {
+    let fixture = Fixture::new("root-query");
+
+    let (status, headers, _) = send_text(fixture.app(), get("/?code=abc", None)).await;
+
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert_eq!(
+        headers
+            .get(header::LOCATION)
+            .and_then(|value| value.to_str().ok()),
+        Some("/next?code=abc")
+    );
+}
+
+/// The login box takes the one-time code too: `--login-link` says its code is for that box, and a
+/// code pasted there used to be decoded as a 32-byte token and refused.
+#[tokio::test]
+async fn the_login_box_accepts_a_one_time_code() {
+    let fixture = Fixture::new("login-box-code");
+    let code = LoginCode {
+        code: "c".repeat(64),
+        expires_at_ms: fixture.now_ms() + MINUTE_MS,
+    };
+    summrise_console::write_login_code(&fixture.config.data, &code).expect("the code is written");
+
+    let (status, headers, _) = send_text(
+        fixture.app(),
+        post_form("/next/auth", &[("code", &code.code)]),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert!(
+        headers
+            .get(header::SET_COOKIE)
+            .and_then(|value| value.to_str().ok())
+            .is_some_and(|cookie| cookie.starts_with("summrise_session=")),
+        "a spent code buys the same session a token does"
+    );
+}
+
+/// Two 64-hex parameters, two meanings: an enrollment code is shown on the page, a login code is
+/// spent. A login link must never be printed as "Enrollment code".
+#[tokio::test]
+async fn a_login_code_in_the_url_is_not_shown_as_an_enrollment_code() {
+    let fixture = Fixture::new("code-not-enrol");
+    let cookie = page_cookie(&fixture).await;
+
+    let (status, _, page) = send_text(
+        fixture.app(),
+        get_with_cookie("/next?code=deadbeef", &cookie),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert!(!page.contains("Enrollment code:"), "{page}");
+}
+
+/// A refused sign-in says what the edge said, not only that the credential was wrong: the refusal
+/// re-renders the card, and that card is where the operator found the missing sentence before.
+#[tokio::test]
+async fn the_refusal_card_carries_the_access_note() {
+    let fixture = Fixture::with_access("refusal-note");
+    let request = Request::builder()
+        .method("POST")
+        .uri("/next/auth")
+        .header("cf-ray", "8a00000000000000-TEST")
+        .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+        .body(Body::from("token=deadbeef"))
+        .expect("the request builds");
+
+    let (status, _, page) = send_text(fixture.app(), request).await;
+
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    assert!(
+        page.contains("Cloudflare Access did not identify this request"),
+        "{page}"
+    );
+}
+
 #[tokio::test]
 async fn no_console_answer_is_cacheable() {
     // A cached page outlives a deploy and a cached `/session` outlives a login: both were possible
@@ -3246,7 +4697,7 @@ async fn no_console_answer_is_cacheable() {
     // The page is HTML, so it is read off the response rather than through the JSON helper.
     let response = fixture
         .app()
-        .oneshot(get("/", None))
+        .oneshot(get("/next", None))
         .await
         .expect("the page is served");
     assert_eq!(response.status(), StatusCode::OK);
@@ -4290,6 +5741,35 @@ async fn an_aggregate_token_is_created_and_listed_without_a_secret() {
     assert!(list[0].get("token").is_none());
 }
 
+/// Removing a device takes the tokens that could reach it — including an aggregate token that
+/// merely LISTS it, which its per-device page never shows, so nobody could revoke it by hand.
+#[tokio::test]
+async fn removing_a_device_revokes_the_aggregate_tokens_that_list_it() {
+    let fixture = Fixture::new("aggregate-token-device-removal");
+    let session = fixture.authenticate().await;
+    let (a, _) = fixture.register(&signing_key(0x73)).await;
+    let (b, _) = fixture.register(&signing_key(0x74)).await;
+    let (status, created) = fixture
+        .create_aggregate_token(&session, "all", &[a.clone(), b.clone()], &["files.read"])
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{created}");
+
+    let request = Request::builder()
+        .method("DELETE")
+        .uri(format!("/fleet/{a}"))
+        .header(header::AUTHORIZATION, format!("Bearer {session}"))
+        .body(Body::empty())
+        .expect("the request builds");
+    let (status, _) = send(fixture.app(), request).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+
+    let (_, list) = send(fixture.app(), get("/tokens", Some(&session))).await;
+    assert!(
+        list.as_array().expect("a list").is_empty(),
+        "the aggregate token went with the device it could reach: {list}"
+    );
+}
+
 #[tokio::test]
 async fn a_token_create_requires_exactly_one_scope() {
     let fixture = Fixture::new("aggregate-token-scope");
@@ -4911,16 +6391,19 @@ async fn a_rotated_token_kills_the_old_one_and_keeps_the_scope() {
     let device_side = async {
         let frame = next_json(&mut device).await;
         assert_eq!(frame["mcp"], request);
-        let grant: summrise_console::Grant =
-            serde_json::from_value(frame["grant"]["grant"].clone())
-                .expect("the frame carries a grant");
-        assert_eq!(
-            grant.tools,
-            vec!["files.read".to_owned(), "memory.search".to_owned()],
-            "the new token mints the same tools"
-        );
+        let token = &frame["token"];
         assert!(
-            grant.allow_destructive,
+            token["token_id"].as_str().is_some(),
+            "the frame carries a token scope"
+        );
+        assert_eq!(
+            token["scopes"],
+            json!(["files.read", "memory.search"]),
+            "the new token keeps the same tools"
+        );
+        assert_eq!(
+            token["allow_destructive"],
+            json!(true),
             "the new token keeps the destructive consent"
         );
         answer(
@@ -5046,7 +6529,6 @@ async fn a_token_mints_a_sixty_second_grant_with_the_tokens_tools_and_consent() 
         .await;
     assert_eq!(status, StatusCode::CREATED, "{created}");
     let token = created["token"].as_str().expect("the token").to_owned();
-    let minted_at = fixture.now_ms();
 
     let request = json!({ "jsonrpc": "2.0", "id": 11, "method": "tools/list" });
     let http = send(
@@ -5056,31 +6538,22 @@ async fn a_token_mints_a_sixty_second_grant_with_the_tokens_tools_and_consent() 
     let device_side = async {
         let frame = next_json(&mut device).await;
         assert_eq!(frame["mcp"], request);
-        let grant: summrise_console::Grant =
-            serde_json::from_value(frame["grant"]["grant"].clone())
-                .expect("the frame carries a grant");
-        assert_eq!(grant.device_id, device_id);
-        assert_eq!(
-            grant.tools,
-            vec!["files.read".to_owned(), "memory.search".to_owned()],
-            "the grant names exactly the token's tools"
-        );
+        let token = &frame["token"];
         assert!(
-            grant.allow_destructive,
+            token["token_id"].as_str().is_some(),
+            "the frame carries a token scope"
+        );
+        assert_eq!(token["device_id"], json!(device_id));
+        assert_eq!(
+            token["scopes"],
+            json!(["files.read", "memory.search"]),
+            "the scope names exactly the token's tools"
+        );
+        assert_eq!(
+            token["allow_destructive"],
+            json!(true),
             "the consent is the token's, not the caller's"
         );
-        assert_eq!(
-            grant.expires_at_ms,
-            minted_at + 60_000,
-            "a minted grant lives sixty seconds"
-        );
-        let message = summrise_console::canonical_message(&grant);
-        let signature =
-            decode_signature(frame["grant"]["signature"].as_str().expect("a signature"));
-        SigningKey::from_bytes(&GRANT_SEED)
-            .verifying_key()
-            .verify_strict(message.as_bytes(), &signature)
-            .expect("the device can verify the minted grant offline");
         answer(
             &mut device,
             &frame,
@@ -5249,6 +6722,28 @@ async fn a_token_call_moves_last_used_and_names_the_token_in_the_audit() {
     assert!(
         !audit.contains("srm_") && !audit.contains(&plaintext),
         "the audit must never carry the secret: {audit}"
+    );
+
+    // **THE PAGE SHOWS WHAT THE STORE KNOWS.** `last_used_ms` was in the list all along and neither
+    // token table drew it, so an idle credential and a busy one looked the same on the page where
+    // the operator decides which one to revoke.
+    let (cookie, _csrf) = sign_in_to_the_page(&fixture).await;
+    let (_, _, page) = send_text(
+        fixture.app(),
+        get_with_cookie(&format!("/next/tokens/{device_id}"), &cookie),
+    )
+    .await;
+    assert!(
+        page.contains("01-01 00:16:46 UTC"),
+        "the Connect list dates the last use: {page}"
+    );
+
+    // The record names the credential too: the audit row said `mcp / files.read` and left the
+    // question "whose token?" to a JSONL field no page drew.
+    let (_, _, records) = send_text(fixture.app(), get_with_cookie("/next/audit", &cookie)).await;
+    assert!(
+        records.contains("via laptop-dsh"),
+        "the audit line names the token by the operator's label: {records}"
     );
 }
 
@@ -5684,13 +7179,15 @@ async fn a_token_works_one_millisecond_before_it_expires() {
     let device_side = async {
         let frame = next_json(&mut device).await;
         assert_eq!(frame["mcp"], request);
-        let grant: summrise_console::Grant =
-            serde_json::from_value(frame["grant"]["grant"].clone())
-                .expect("the frame carries a grant");
+        let token = &frame["token"];
+        assert!(
+            token["token_id"].as_str().is_some(),
+            "the frame carries a token scope"
+        );
         assert_eq!(
-            grant.expires_at_ms,
-            fixture.now_ms() + 60_000,
-            "the grant is minted from the same clock"
+            token["expires_at_ms"],
+            json!(created_at + one_hour_ms),
+            "the scope carries the token's own expiry"
         );
         answer(
             &mut device,
@@ -5915,6 +7412,27 @@ fn csrf_from(page: &str) -> String {
     page[start..].chars().take(64).collect()
 }
 
+/// A real Access assertion for the fixture team, expiring `seconds` from now. Signed with the same
+/// throwaway key the pinned JWKS publishes, so `Access::verify` is what accepts it.
+fn access_token(seconds: u64) -> String {
+    let mut header = jsonwebtoken::Header::new(jsonwebtoken::Algorithm::RS256);
+    header.kid = Some("test-key".to_owned());
+    let key = jsonwebtoken::EncodingKey::from_rsa_pem(ACCESS_KEY_PEM.as_bytes())
+        .expect("the fixture key loads");
+    let exp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("a clock after the epoch")
+        .as_secs()
+        + seconds;
+    let claims = json!({
+        "aud": ACCESS_AUDIENCE,
+        "iss": ACCESS_ISSUER,
+        "exp": exp,
+        "email": "operator@example.test",
+    });
+    jsonwebtoken::encode(&header, &claims, &key).expect("the token is signed")
+}
+
 #[tokio::test]
 async fn the_rust_page_signs_in_with_a_cookie_and_signs_out_with_csrf() {
     let fixture = Fixture::new("rust-page-login");
@@ -5948,7 +7466,7 @@ async fn the_rust_page_signs_in_with_a_cookie_and_signs_out_with_csrf() {
         "plain HTTP must not set Secure: {cookie}"
     );
     assert!(cookie.contains("Path=/next"), "{cookie}");
-    assert!(cookie.contains("Max-Age=86400"), "{cookie}");
+    assert!(cookie.contains("Max-Age=2592000"), "{cookie}");
     let cookie = cookie
         .split(';')
         .next()
@@ -6052,6 +7570,88 @@ async fn the_rust_page_lists_the_registered_fleet() {
     assert!(!body.contains("No devices have registered yet."), "{body}");
 }
 
+/// **PROGRESSIVE DISCLOSURE, MEASURED.** On the fleet the rail used to list ten device pages whose
+/// hrefs all fall back to `/next` — icons that navigate to the page the reader is already on — and a
+/// fleet row printed all eleven pages as one run of words, so the four that answer a daily job looked
+/// exactly like the seven that do not. This pins both halves: one rail entry before a device is
+/// chosen and eleven after, four links plus one disclosure in the row, and the other seven still
+/// ordinary anchors inside it, so the page works with scripting off.
+#[tokio::test]
+async fn the_fleet_shows_only_the_pages_a_device_can_open() {
+    let fixture = Fixture::new("fleet-progressive-disclosure");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xb5)).await;
+    let cookie = page_cookie(&fixture).await;
+
+    let (status, _, fleet) = send_text(fixture.app(), get_with_cookie("/next", &cookie)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        fleet.matches("class=\"rail-item").count(),
+        1,
+        "the fleet's rail is the fleet, not ten links back to itself: {fleet}"
+    );
+    assert!(fleet.contains("class=\"row-menu more-pages\""), "{fleet}");
+    for page in ["Terminal", "Screen", "Files", "Connect"] {
+        assert!(
+            fleet.contains(&format!(">{page}</a>")),
+            "the {page} link is in the row: {fleet}"
+        );
+    }
+    let menu_at = fleet
+        .find("class=\"menu-panel page-menu\"")
+        .expect("the more-pages disclosure is in the row");
+    let menu = &fleet[menu_at..];
+    // "State" is a card on the System page now, and "Browser" is the Screen page's second view.
+    for page in ["Runs", "System", "Memory", "Monitors", "Vitals"] {
+        assert!(
+            menu.contains(&format!(">{page}</a>")),
+            "the {page} link is one click away: {fleet}"
+        );
+    }
+
+    // The pages appear with the device: a device page keeps the whole rail.
+    let app = fixture.app();
+    let request = get_with_cookie(&format!("/next/vitals/{device_id}"), &cookie);
+    let page = tokio::spawn(async move { send_text(app, request).await });
+    let frame = next_json(&mut device).await;
+    assert_eq!(
+        frame["mcp"]["params"]["name"],
+        json!("host.facts"),
+        "{frame}"
+    );
+    let facts = json!({
+        "machine": "BOX",
+        "os": { "name": "Windows", "version": "11" },
+        "cpu": { "cores": 8 },
+        "uptime_s": 120,
+        "memory": { "total_bytes": 8_000_000_000u64, "available_bytes": 4_000_000_000u64 },
+        "disks": [],
+        "update": {
+            "current": { "version": "0.3.112", "channel": "canary" },
+            "previous": null,
+            "pending": null,
+            "last_swap": null,
+            "repairs": []
+        },
+        "shell": { "present": false, "sha256": "", "bytes": 0 },
+        "restarts": []
+    });
+    answer(
+        &mut device,
+        &frame,
+        json!({ "jsonrpc": "2.0", "id": 1, "result": { "content": [{ "type": "text", "text": facts.to_string() }], "isError": false } }),
+    )
+    .await;
+    let (status, _, body) = page.await.expect("the page finishes");
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        body.matches("class=\"rail-item").count(),
+        10,
+        "a device page lists every rail destination: {body}"
+    );
+}
+
 #[tokio::test]
 async fn the_rust_page_hides_the_fleet_after_the_session_expires() {
     let fixture = Fixture::new("rust-page-expiry");
@@ -6071,10 +7671,10 @@ async fn the_rust_page_hides_the_fleet_after_the_session_expires() {
         .expect("the name=value pair")
         .to_owned();
 
-    // The console's clock is injectable; a session lives 24 hours from its mint.
+    // The console's clock is injectable; a session lives a month from its mint.
     fixture
         .clock
-        .store(START_MS + DAY_MS + 1, Ordering::Relaxed);
+        .store(START_MS + 30 * DAY_MS + 1, Ordering::Relaxed);
 
     let (status, _, body) = send_text(fixture.app(), get_with_cookie("/next", &cookie)).await;
     assert_eq!(status, StatusCode::OK);
@@ -6213,7 +7813,10 @@ async fn the_console_refuses_framing_on_the_page_and_the_sign_in() {
     let fixture = Fixture::new("rust-page-frame");
     for uri in ["/", "/next"] {
         let (status, headers, _) = send_text(fixture.app(), get(uri, None)).await;
-        assert_eq!(status, StatusCode::OK, "{uri}");
+        assert!(
+            status == StatusCode::OK || status == StatusCode::SEE_OTHER,
+            "{uri}: {status}"
+        );
         assert_eq!(
             headers
                 .get("x-frame-options")
@@ -6224,4 +7827,3911 @@ async fn the_console_refuses_framing_on_the_page_and_the_sign_in() {
             "{uri}"
         );
     }
+}
+
+/// A phase-2 form post that also carries the page's session cookie.
+fn post_form_cookie(uri: &str, fields: &[(&str, &str)], cookie: &str) -> Request<Body> {
+    let mut request = post_form(uri, fields);
+    request
+        .headers_mut()
+        .insert(header::COOKIE, cookie.parse().expect("the cookie header"));
+    request
+}
+
+#[tokio::test]
+async fn the_rust_page_renames_and_removes_a_device_with_its_csrf() {
+    let fixture = Fixture::new("rust-page-mutate");
+    let (device_id, _) = fixture.register(&signing_key(0xb4)).await;
+    let cookie = page_cookie(&fixture).await;
+    let (_, _, page) = send_text(fixture.app(), get_with_cookie("/next", &cookie)).await;
+    let csrf = csrf_from(&page);
+
+    let (status, _, _) = send_text(
+        fixture.app(),
+        post_form_cookie(
+            &format!("/next/fleet/{device_id}/name"),
+            &[("csrf", &csrf), ("name", "studio")],
+            &cookie,
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "a rename redirects");
+    let (_, _, page) = send_text(fixture.app(), get_with_cookie("/next", &cookie)).await;
+    assert!(page.contains("studio"), "{page}");
+
+    // A wrong CSRF is 403 and changes nothing.
+    let (status, _, _) = send_text(
+        fixture.app(),
+        post_form_cookie(
+            &format!("/next/fleet/{device_id}/name"),
+            &[("csrf", &"00".repeat(32)), ("name", "hijacked")],
+            &cookie,
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let (_, _, page) = send_text(fixture.app(), get_with_cookie("/next", &cookie)).await;
+    assert!(
+        page.contains("studio") && !page.contains("hijacked"),
+        "{page}"
+    );
+
+    // An empty name is refused, not treated as "clear".
+    let (status, _, _) = send_text(
+        fixture.app(),
+        post_form_cookie(
+            &format!("/next/fleet/{device_id}/name"),
+            &[("csrf", &csrf), ("name", "   ")],
+            &cookie,
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let (_, _, page) = send_text(
+        fixture.app(),
+        get_with_cookie("/next?error=invalid_name", &cookie),
+    )
+    .await;
+    assert!(page.contains("invalid_name"), "{page}");
+    assert!(page.contains("studio"), "{page}");
+
+    // Remove: the row disappears and the console records it.
+    let (status, _, _) = send_text(
+        fixture.app(),
+        post_form_cookie(
+            &format!("/next/fleet/{device_id}/remove"),
+            &[("csrf", &csrf)],
+            &cookie,
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let (_, _, page) = send_text(fixture.app(), get_with_cookie("/next", &cookie)).await;
+    assert!(!page.contains(&device_id), "the device row is gone: {page}");
+    let (status, _, audit) =
+        send_text(fixture.app(), get_with_cookie("/next/audit", &cookie)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(audit.contains("device_remove"), "{audit}");
+}
+
+#[tokio::test]
+async fn the_rust_page_mints_an_enrollment_code_once_and_gates_the_logs() {
+    let fixture = Fixture::new("rust-page-enroll");
+    let cookie = page_cookie(&fixture).await;
+    let (_, _, page) = send_text(fixture.app(), get_with_cookie("/next", &cookie)).await;
+    let csrf = csrf_from(&page);
+
+    let (status, headers, _) = send_text(
+        fixture.app(),
+        post_form_cookie("/next/enroll", &[("csrf", &csrf)], &cookie),
+    )
+    .await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let location = headers
+        .get(header::LOCATION)
+        .expect("a redirect")
+        .to_str()
+        .expect("ASCII");
+    assert!(location.starts_with("/next?enroll="), "{location}");
+    let code = location.trim_start_matches("/next?enroll=");
+    assert_eq!(code.len(), 64, "the code is 32 bytes in hex");
+
+    let (status, _, page) = send_text(
+        fixture.app(),
+        get_with_cookie(&format!("/next?enroll={code}"), &cookie),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        page.contains("Enrollment code:") && page.contains(code),
+        "{page}"
+    );
+
+    // Wrong CSRF: no code, 403.
+    let (status, _, _) = send_text(
+        fixture.app(),
+        post_form_cookie("/next/enroll", &[("csrf", &"00".repeat(32))], &cookie),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+
+    // The logs are login-gated, then readable.
+    for uri in ["/next/audit", "/next/denials"] {
+        let (status, _, body) = send_text(fixture.app(), get(uri, None)).await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(body.contains("Sign in"), "{uri}: {body}");
+        let (status, _, body) = send_text(fixture.app(), get_with_cookie(uri, &cookie)).await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(!body.contains("Sign in"), "{uri}: {body}");
+    }
+}
+
+/// Sign in through the page and return (cookie, csrf), the pair every `/next` mutation needs.
+async fn sign_in_to_the_page(fixture: &Fixture) -> (String, String) {
+    let (status, headers, _) = send_text(
+        fixture.app(),
+        post_form("/next/auth", &[("token", &hex(&OPERATOR_TOKEN))]),
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::SEE_OTHER,
+        "the page's sign-in redirects"
+    );
+    let cookie = headers
+        .get(header::SET_COOKIE)
+        .expect("a session cookie")
+        .to_str()
+        .expect("a cookie is ASCII")
+        .split(';')
+        .next()
+        .expect("the name=value pair")
+        .to_owned();
+    let (_, _, body) = send_text(fixture.app(), get_with_cookie("/next", &cookie)).await;
+    let csrf = csrf_from(&body);
+    (cookie, csrf)
+}
+
+fn post_json_cookie(uri: &str, body: Value, cookie: &str, csrf: Option<&str>) -> Request<Body> {
+    let mut builder = Request::builder()
+        .method("POST")
+        .uri(uri)
+        .header(header::CONTENT_TYPE, "application/json")
+        .header(header::COOKIE, cookie);
+    if let Some(csrf) = csrf {
+        builder = builder.header("x-csrf", csrf);
+    }
+    builder
+        .body(Body::from(body.to_string()))
+        .expect("the request builds")
+}
+
+#[tokio::test]
+async fn the_terminal_page_is_gated_by_the_cookie_and_carries_the_device_and_csrf() {
+    let fixture = Fixture::new("terminal-page");
+    let (device_id, _token) = fixture.register(&signing_key(0xe1)).await;
+
+    let (status, _, body) = send_text(
+        fixture.app(),
+        get(&format!("/next/terminal/{device_id}"), None),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        body.contains("Sign in"),
+        "the page is behind the cookie: {body}"
+    );
+
+    let (cookie, csrf) = sign_in_to_the_page(&fixture).await;
+    let (status, _, page) = send_text(
+        fixture.app(),
+        get_with_cookie(&format!("/next/terminal/{device_id}"), &cookie),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        page.contains(&format!("data-device=\"{device_id}\"")),
+        "{page}"
+    );
+    assert!(page.contains(&format!("data-csrf=\"{csrf}\"")), "{page}");
+    assert!(
+        page.contains("/assets/xterm.js"),
+        "the terminal script: {page}"
+    );
+    assert!(
+        page.contains("/assets/terminal.js"),
+        "the page's glue: {page}"
+    );
+
+    // An unknown device is a 404, not a page that opens a shell somewhere else.
+    let (status, _, _) = send_text(
+        fixture.app(),
+        get_with_cookie(&format!("/next/terminal/{}", "00".repeat(32)), &cookie),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn a_terminal_mutation_without_the_page_csrf_is_refused_before_the_device_hears_of_it() {
+    let fixture = Fixture::new("terminal-csrf");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xe2)).await;
+    let (cookie, _csrf) = sign_in_to_the_page(&fixture).await;
+
+    let (status, _, _) = send_text(
+        fixture.app(),
+        post_json_cookie(
+            &format!("/next/terminal/{device_id}/create"),
+            json!({ "kind": "pty" }),
+            &cookie,
+            None,
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert!(
+        tokio::time::timeout(
+            std::time::Duration::from_millis(200),
+            next_json(&mut device)
+        )
+        .await
+        .is_err(),
+        "a refused create must not reach the device"
+    );
+    let _ = &mut device;
+}
+
+#[tokio::test]
+async fn the_terminal_page_relays_create_and_read_with_the_cursor_it_was_given() {
+    let fixture = Fixture::new("terminal-relay");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xe3)).await;
+    let (cookie, csrf) = sign_in_to_the_page(&fixture).await;
+
+    let app = fixture.app();
+    let request = post_json_cookie(
+        &format!("/next/terminal/{device_id}/create"),
+        json!({ "kind": "pty", "rows": 30, "cols": 100 }),
+        &cookie,
+        Some(&csrf),
+    );
+    let create = tokio::spawn(async move { send_with_headers(app, request).await });
+
+    let frame = next_json(&mut device).await;
+    assert_eq!(frame["mcp"]["method"], json!("tools/call"), "{frame}");
+    assert_eq!(
+        frame["mcp"]["params"]["name"],
+        json!("terminal.create"),
+        "{frame}"
+    );
+    assert_eq!(frame["mcp"]["params"]["arguments"]["kind"], json!("pty"));
+    assert_eq!(frame["mcp"]["params"]["arguments"]["rows"], json!(30));
+    assert_eq!(frame["mcp"]["params"]["arguments"]["cols"], json!(100));
+    answer(
+        &mut device,
+        &frame,
+        // The device's reply is the JSON-RPC envelope it would send an MCP client.
+        json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {
+                "content": [{ "type": "text", "text": json!({ "id": "session-1", "kind": "pty", "shell": "pwsh" }).to_string() }],
+                "isError": false,
+            },
+        }),
+    )
+    .await;
+
+    let (status, _, created) = create.await.expect("the create call finishes");
+    assert_eq!(status, StatusCode::OK, "{created}");
+    assert_eq!(created["id"], json!("session-1"));
+    assert_eq!(created["shell"], json!("pwsh"));
+
+    let app = fixture.app();
+    let request = get_with_cookie(
+        &format!("/next/terminal/{device_id}/session-1/read?cursor=7"),
+        &cookie,
+    );
+    let read = tokio::spawn(async move { send_with_headers(app, request).await });
+    let frame = next_json(&mut device).await;
+    assert_eq!(
+        frame["mcp"]["params"]["name"],
+        json!("terminal.read"),
+        "{frame}"
+    );
+    assert_eq!(
+        frame["mcp"]["params"]["arguments"]["id"],
+        json!("session-1")
+    );
+    assert_eq!(frame["mcp"]["params"]["arguments"]["cursor"], json!(7));
+    answer(
+        &mut device,
+        &frame,
+        json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {
+                "content": [{ "type": "text", "text": json!({ "data": "hello", "cursor": 12, "alive": true }).to_string() }],
+                "isError": false,
+            },
+        }),
+    )
+    .await;
+    let (status, _, body) = read.await.expect("the read call finishes");
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(
+        body,
+        json!({ "data": "hello", "cursor": 12, "alive": true })
+    );
+
+    // A device refusal keeps its own sentence in the page's answer.
+    let app = fixture.app();
+    let request = post_json_cookie(
+        &format!("/next/terminal/{device_id}/missing/write"),
+        json!({ "data": "x" }),
+        &cookie,
+        Some(&csrf),
+    );
+    let write = tokio::spawn(async move { send_with_headers(app, request).await });
+    let frame = next_json(&mut device).await;
+    answer_error(
+        &mut device,
+        &frame,
+        json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "error": { "code": -32001, "message": "terminal.write: no such session" },
+        }),
+    )
+    .await;
+    let (status, _, body) = write.await.expect("the write call finishes");
+    assert_eq!(status, StatusCode::BAD_GATEWAY, "{body}");
+    assert_eq!(
+        body["error"],
+        json!("terminal.write: no such session"),
+        "the device's refusal is passed through: {body}"
+    );
+}
+
+/// The operator's own scope is `["*"]`, and the proxy must read that as a wildcard: an exact
+/// comparison here silently refused every grantless `tools/call` while the page had already stopped
+/// signing grants.
+#[tokio::test]
+async fn an_operator_mcp_call_without_a_grant_reaches_the_device() {
+    let fixture = Fixture::new("mcp-operator-scope");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xe4)).await;
+    let session = fixture.authenticate().await;
+
+    let app = fixture.app();
+    let request = post_json_bearer(
+        "/mcp",
+        &session,
+        json!({
+            "device_id": device_id,
+            "request": {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "tools/call",
+                "params": { "name": "files.read", "arguments": { "path": "notes.txt" } }
+            }
+        }),
+    );
+    let call = tokio::spawn(async move { send_with_headers(app, request).await });
+
+    let frame = next_json(&mut device).await;
+    assert_eq!(
+        frame["mcp"]["params"]["name"],
+        json!("files.read"),
+        "the frame carries the call, not a refusal: {frame}"
+    );
+    answer(
+        &mut device,
+        &frame,
+        json!({
+            "content": [{ "type": "text", "text": "hello" }],
+            "isError": false,
+        }),
+    )
+    .await;
+
+    let (status, _, body) = call.await.expect("the call finishes");
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["content"][0]["text"], json!("hello"));
+}
+
+#[tokio::test]
+async fn the_files_page_lists_the_devices_root_and_marks_directories_as_links() {
+    let fixture = Fixture::new("files-page");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xe5)).await;
+    let (cookie, _csrf) = sign_in_to_the_page(&fixture).await;
+
+    let app = fixture.app();
+    let request = get_with_cookie(&format!("/next/files/{device_id}"), &cookie);
+    let page = tokio::spawn(async move { send_text(app, request).await });
+
+    let frame = next_json(&mut device).await;
+    assert_eq!(
+        frame["mcp"]["params"]["name"],
+        json!("files.list"),
+        "{frame}"
+    );
+    assert_eq!(frame["mcp"]["params"]["arguments"]["path"], json!(""));
+    answer(
+        &mut device,
+        &frame,
+        json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {
+                "content": [{ "type": "text", "text": json!([
+                    { "name": "notes.txt", "kind": "file", "len": 5 },
+                    { "name": "logs", "kind": "directory", "len": 0 }
+                ]).to_string() }],
+                "isError": false
+            }
+        }),
+    )
+    .await;
+
+    let (status, _, body) = page.await.expect("the page finishes");
+    assert_eq!(status, StatusCode::OK);
+    let html = body;
+    assert!(html.contains("notes.txt"), "{html}");
+    assert!(html.contains("logs"), "{html}");
+    assert!(
+        html.contains(&format!("/next/files/{device_id}/read?path=notes.txt")),
+        "a file is a read link: {html}"
+    );
+    assert!(
+        html.contains(&format!("/next/files/{device_id}?path=logs")),
+        "a directory is a listing link: {html}"
+    );
+    assert!(html.contains("Write a file"), "{html}");
+}
+
+#[tokio::test]
+async fn the_files_page_shows_a_file_and_a_write_without_csrf_is_refused() {
+    let fixture = Fixture::new("files-read-write");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xe6)).await;
+    let (cookie, csrf) = sign_in_to_the_page(&fixture).await;
+
+    let app = fixture.app();
+    let request = get_with_cookie(
+        &format!("/next/files/{device_id}/read?path=notes.txt"),
+        &cookie,
+    );
+    let page = tokio::spawn(async move { send_text(app, request).await });
+    let frame = next_json(&mut device).await;
+    assert_eq!(
+        frame["mcp"]["params"]["name"],
+        json!("files.read"),
+        "{frame}"
+    );
+    answer(
+        &mut device,
+        &frame,
+        json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {
+                "content": [{ "type": "text", "text": "hello from the file" }],
+                "isError": false
+            }
+        }),
+    )
+    .await;
+    let (status, _, body) = page.await.expect("the read page finishes");
+    assert_eq!(status, StatusCode::OK);
+    assert!(body.contains("hello from the file"), "{body}");
+
+    // A write without the page's CSRF value changes nothing and never reaches the device.
+    let mut request = post_form(
+        &format!("/next/files/{device_id}/write"),
+        &[
+            ("csrf", &"00".repeat(32)),
+            ("path", "notes.txt"),
+            ("content", "x"),
+        ],
+    );
+    request
+        .headers_mut()
+        .insert(header::COOKIE, cookie.parse().expect("the cookie header"));
+    let (status, _, _) = send_text(fixture.app(), request).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert!(
+        tokio::time::timeout(
+            std::time::Duration::from_millis(200),
+            next_json(&mut device)
+        )
+        .await
+        .is_err(),
+        "a refused write must not reach the device"
+    );
+
+    // With it, the write is forwarded and the page returns to the file's directory.
+    let mut request = post_form(
+        &format!("/next/files/{device_id}/write"),
+        &[
+            ("csrf", &csrf),
+            ("path", "logs/notes.txt"),
+            ("content", "written"),
+        ],
+    );
+    request
+        .headers_mut()
+        .insert(header::COOKIE, cookie.parse().expect("the cookie header"));
+    let write = tokio::spawn(async move { send_text(fixture.app(), request).await });
+    let frame = next_json(&mut device).await;
+    assert_eq!(
+        frame["mcp"]["params"]["name"],
+        json!("files.write"),
+        "{frame}"
+    );
+    assert_eq!(
+        frame["mcp"]["params"]["arguments"]["path"],
+        json!("logs/notes.txt")
+    );
+    assert_eq!(
+        frame["mcp"]["params"]["arguments"]["content"],
+        json!("written")
+    );
+    answer(
+        &mut device,
+        &frame,
+        json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {
+                "content": [{ "type": "text", "text": json!({ "path": "logs/notes.txt", "bytes": 7 }).to_string() }],
+                "isError": false
+            }
+        }),
+    )
+    .await;
+    let (status, headers, _) = write.await.expect("the write finishes");
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert_eq!(
+        headers
+            .get(header::LOCATION)
+            .and_then(|value| value.to_str().ok()),
+        // The write says which file it replaced, so the page can acknowledge it once.
+        Some(format!("/next/files/{device_id}?path=logs&wrote=logs/notes.txt").as_str())
+    );
+}
+
+#[tokio::test]
+async fn the_runs_page_lists_the_devices_history_and_a_run_is_forwarded() {
+    let fixture = Fixture::new("runs-page");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xe7)).await;
+    let (cookie, csrf) = sign_in_to_the_page(&fixture).await;
+
+    let app = fixture.app();
+    let request = get_with_cookie(&format!("/next/runs/{device_id}"), &cookie);
+    let page = tokio::spawn(async move { send_text(app, request).await });
+    let frame = next_json(&mut device).await;
+    assert_eq!(
+        frame["mcp"]["params"]["name"],
+        json!("runs.list"),
+        "{frame}"
+    );
+    answer(
+        &mut device,
+        &frame,
+        json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {
+                "content": [{ "type": "text", "text": json!([
+                    { "id": "run-1", "command": "pwsh", "args": ["-NoProfile", "Get-Date"],
+                      "started_at_ms": 1_793_000_000_000u64, "duration_ms": 120,
+                      "exit_code": 0, "timed_out": false }
+                ]).to_string() }],
+                "isError": false
+            }
+        }),
+    )
+    .await;
+    let (status, _, body) = page.await.expect("the runs page finishes");
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        body.contains("Run a command") || body.contains("History"),
+        "{body}"
+    );
+    assert!(body.contains("pwsh -NoProfile Get-Date"), "{body}");
+
+    // One run: the form is forwarded unchanged and its output is what the page shows.
+    let mut request = post_form(
+        &format!("/next/runs/{device_id}/exec"),
+        &[
+            ("csrf", &csrf),
+            ("command", "echo"),
+            ("args", "hello\nfrom\nthe\npage"),
+            ("timeout_ms", "5000"),
+        ],
+    );
+    request
+        .headers_mut()
+        .insert(header::COOKIE, cookie.parse().expect("the cookie header"));
+    let run = tokio::spawn(async move { send_text(fixture.app(), request).await });
+    let frame = next_json(&mut device).await;
+    assert_eq!(
+        frame["mcp"]["params"]["name"],
+        json!("runs.exec"),
+        "{frame}"
+    );
+    assert_eq!(
+        frame["mcp"]["params"]["arguments"]["command"],
+        json!("echo")
+    );
+    assert_eq!(
+        frame["mcp"]["params"]["arguments"]["args"],
+        json!(["hello", "from", "the", "page"])
+    );
+    assert_eq!(
+        frame["mcp"]["params"]["arguments"]["timeout_ms"],
+        json!(5000)
+    );
+    assert_eq!(frame["mcp"]["params"]["arguments"]["shell"], json!(false));
+    answer(
+        &mut device,
+        &frame,
+        json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {
+                "content": [{ "type": "text", "text": json!({
+                    "id": "run-2", "exit_code": 0, "timed_out": false, "duration_ms": 42,
+                    "stdout": "hello\nfrom\nthe\npage\n", "stderr": "", "truncated": false,
+                    "history_recorded": true
+                }).to_string() }],
+                "isError": false
+            }
+        }),
+    )
+    .await;
+    let (status, _, body) = run.await.expect("the run finishes");
+    assert_eq!(status, StatusCode::OK);
+    assert!(body.contains("hello"), "{body}");
+    assert!(body.contains("exit 0"), "{body}");
+    assert!(body.contains("run-2"), "{body}");
+}
+
+/// **A REFUSED ACTION IS A PAGE.** The run form used to answer a device refusal with the raw
+/// `{"error":"…"}` body: no chrome, no navigation, on the screen of someone who pressed Run.
+#[tokio::test]
+async fn a_device_refusal_of_a_run_is_rendered_as_a_page() {
+    let fixture = Fixture::new("runs-refusal");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xda)).await;
+    let (cookie, csrf) = sign_in_to_the_page(&fixture).await;
+
+    let mut request = post_form(
+        &format!("/next/runs/{device_id}/exec"),
+        &[("csrf", &csrf), ("command", "pwsh"), ("args", "Get-Date")],
+    );
+    request
+        .headers_mut()
+        .insert(header::COOKIE, cookie.parse().expect("the cookie header"));
+    let run = tokio::spawn(async move { send_text(fixture.app(), request).await });
+    let frame = next_json(&mut device).await;
+    assert_eq!(
+        frame["mcp"]["params"]["name"],
+        json!("runs.exec"),
+        "{frame}"
+    );
+    // A JSON-RPC error frame, sent whole: `answer` wraps its argument in a `result`, which is how
+    // the console could not tell this test's refusal from a malformed run answer.
+    device
+        .send(WsMessage::Text(
+            json!({
+                "id": frame["id"].clone(),
+                "error": { "error": { "code": -32000, "message": "the device refused that command" } }
+            })
+            .to_string(),
+        ))
+        .await
+        .expect("the device refuses");
+    let (status, _, body) = run.await.expect("the run finishes");
+    assert_eq!(status, StatusCode::BAD_GATEWAY, "{body}");
+    assert!(
+        body.contains("Refused"),
+        "the page names what happened: {body}"
+    );
+    assert!(
+        body.contains("the device refused that command"),
+        "the device's sentence is on the page: {body}"
+    );
+    assert!(
+        body.contains(&format!("/next/runs/{device_id}")),
+        "the page offers the way back: {body}"
+    );
+    assert!(
+        !body.trim_start().starts_with('{'),
+        "the answer is a page, not a JSON body: {body}"
+    );
+}
+
+/// The same shape, one handler further: a refused write is a page too, and it offers the files page
+/// back rather than a JSON body with no way home.
+#[tokio::test]
+async fn a_device_refusal_of_a_write_is_rendered_as_a_page() {
+    let fixture = Fixture::new("files-write-refusal");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xdb)).await;
+    let (cookie, csrf) = sign_in_to_the_page(&fixture).await;
+
+    let mut request = post_form(
+        &format!("/next/files/{device_id}/write"),
+        &[("csrf", &csrf), ("path", "notes.txt"), ("content", "hello")],
+    );
+    request
+        .headers_mut()
+        .insert(header::COOKIE, cookie.parse().expect("the cookie header"));
+    let write = tokio::spawn(async move { send_text(fixture.app(), request).await });
+    let frame = next_json(&mut device).await;
+    assert_eq!(
+        frame["mcp"]["params"]["name"],
+        json!("files.write"),
+        "{frame}"
+    );
+    device
+        .send(WsMessage::Text(
+            json!({
+                "id": frame["id"].clone(),
+                "error": { "error": { "code": -32000, "message": "the file is read-only" } }
+            })
+            .to_string(),
+        ))
+        .await
+        .expect("the device refuses");
+    let (status, _, body) = write.await.expect("the write finishes");
+    assert_eq!(status, StatusCode::BAD_GATEWAY, "{body}");
+    assert!(body.contains("Refused"), "{body}");
+    assert!(body.contains("the file is read-only"), "{body}");
+    assert!(body.contains(&format!("/next/files/{device_id}")), "{body}");
+    assert!(!body.trim_start().starts_with('{'), "{body}");
+}
+
+#[tokio::test]
+async fn a_run_without_the_page_csrf_is_refused_before_the_device_hears_of_it() {
+    let fixture = Fixture::new("runs-csrf");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xe8)).await;
+    let (cookie, _csrf) = sign_in_to_the_page(&fixture).await;
+
+    let mut request = post_form(
+        &format!("/next/runs/{device_id}/exec"),
+        &[
+            ("csrf", &"00".repeat(32)),
+            ("command", "echo"),
+            ("args", "x"),
+        ],
+    );
+    request
+        .headers_mut()
+        .insert(header::COOKIE, cookie.parse().expect("the cookie header"));
+    let (status, _, _) = send_text(fixture.app(), request).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert!(
+        tokio::time::timeout(
+            std::time::Duration::from_millis(200),
+            next_json(&mut device)
+        )
+        .await
+        .is_err(),
+        "a refused run must not reach the device"
+    );
+}
+
+#[tokio::test]
+async fn the_state_page_shows_the_devices_own_document() {
+    let fixture = Fixture::new("state-page");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xe9)).await;
+    let (cookie, _csrf) = sign_in_to_the_page(&fixture).await;
+
+    // The document lives on the System page now: the old address redirects there, and the device
+    // is asked for nothing on the way.
+    let app = fixture.app();
+    let request = get_with_cookie(&format!("/next/state/{device_id}"), &cookie);
+    let (status, headers, _body) = send_text(app, request).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let location = headers
+        .get(header::LOCATION)
+        .and_then(|value| value.to_str().ok())
+        .expect("a location");
+    assert_eq!(location, format!("/next/system/{device_id}"));
+    assert!(
+        tokio::time::timeout(Duration::from_millis(200), next_json(&mut device))
+            .await
+            .is_err(),
+        "the redirect asks the device nothing"
+    );
+}
+
+#[tokio::test]
+async fn the_system_page_lists_processes_and_forwards_a_kill() {
+    let fixture = Fixture::new("system-page");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xea)).await;
+    let (cookie, csrf) = sign_in_to_the_page(&fixture).await;
+
+    let app = fixture.app();
+    let request = get_with_cookie(&format!("/next/system/{device_id}"), &cookie);
+    let page = tokio::spawn(async move { send_text(app, request).await });
+    let frame = next_json(&mut device).await;
+    assert_eq!(
+        frame["mcp"]["params"]["name"],
+        json!("system.process_list"),
+        "{frame}"
+    );
+    answer(
+        &mut device,
+        &frame,
+        json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {
+                "content": [{ "type": "text", "text": json!([
+                    { "pid": 4242, "name": "pwsh.exe", "memory_kb": 1024 }
+                ]).to_string() }],
+                "isError": false
+            }
+        }),
+    )
+    .await;
+    // The page then asks for the state document it prints below the process list.
+    let frame = next_json(&mut device).await;
+    assert_eq!(
+        frame["mcp"]["params"]["name"],
+        json!("state.get"),
+        "{frame}"
+    );
+    answer(
+        &mut device,
+        &frame,
+        json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {
+                "content": [{ "type": "text", "text": json!({ "health": { "status": "ok" } }).to_string() }],
+                "isError": false
+            }
+        }),
+    )
+    .await;
+    let (status, _, body) = page.await.expect("the system page finishes");
+    assert_eq!(status, StatusCode::OK);
+    assert!(body.contains("pwsh.exe"), "{body}");
+    assert!(body.contains("End a process"), "{body}");
+
+    let mut request = post_form(
+        &format!("/next/system/{device_id}/kill"),
+        &[("csrf", &csrf), ("pid", "4242")],
+    );
+    request
+        .headers_mut()
+        .insert(header::COOKIE, cookie.parse().expect("the cookie header"));
+    let kill = tokio::spawn(async move { send_text(fixture.app(), request).await });
+    let frame = next_json(&mut device).await;
+    assert_eq!(
+        frame["mcp"]["params"]["name"],
+        json!("system.process_kill"),
+        "{frame}"
+    );
+    assert_eq!(frame["mcp"]["params"]["arguments"]["pid"], json!(4242));
+    answer(
+        &mut device,
+        &frame,
+        json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {
+                "content": [{ "type": "text", "text": json!({ "killed": [4242], "failed": [] }).to_string() }],
+                "isError": false
+            }
+        }),
+    )
+    .await;
+    let (status, headers, _) = kill.await.expect("the kill finishes");
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert_eq!(
+        headers
+            .get(header::LOCATION)
+            .and_then(|value| value.to_str().ok()),
+        Some(format!("/next/system/{device_id}?killed=1&failed=0").as_str())
+    );
+}
+
+#[tokio::test]
+async fn the_memory_page_lists_entries_and_forwards_an_append() {
+    let fixture = Fixture::new("memory-page");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xeb)).await;
+    let (cookie, csrf) = sign_in_to_the_page(&fixture).await;
+
+    let app = fixture.app();
+    let request = get_with_cookie(&format!("/next/memory/{device_id}"), &cookie);
+    let page = tokio::spawn(async move { send_text(app, request).await });
+    let frame = next_json(&mut device).await;
+    assert_eq!(
+        frame["mcp"]["params"]["name"],
+        json!("memory.list"),
+        "{frame}"
+    );
+    answer(
+        &mut device,
+        &frame,
+        json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {
+                "content": [{ "type": "text", "text": json!([
+                    { "id": "m1", "text": "the antenna is on COM3", "tags": ["hardware", "serial"] }
+                ]).to_string() }],
+                "isError": false
+            }
+        }),
+    )
+    .await;
+    let (status, _, body) = page.await.expect("the memory page finishes");
+    assert_eq!(status, StatusCode::OK);
+    assert!(body.contains("the antenna is on COM3"), "{body}");
+    assert!(body.contains("hardware, serial"), "{body}");
+
+    let mut request = post_form(
+        &format!("/next/memory/{device_id}/append"),
+        &[
+            ("csrf", &csrf),
+            ("text", "the key is in the drawer"),
+            ("tags", "keys, office"),
+        ],
+    );
+    request
+        .headers_mut()
+        .insert(header::COOKIE, cookie.parse().expect("the cookie header"));
+    let append = tokio::spawn(async move { send_text(fixture.app(), request).await });
+    let frame = next_json(&mut device).await;
+    assert_eq!(
+        frame["mcp"]["params"]["name"],
+        json!("memory.append"),
+        "{frame}"
+    );
+    assert_eq!(
+        frame["mcp"]["params"]["arguments"]["text"],
+        json!("the key is in the drawer")
+    );
+    assert_eq!(
+        frame["mcp"]["params"]["arguments"]["tags"],
+        json!(["keys", "office"])
+    );
+    answer(
+        &mut device,
+        &frame,
+        json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {
+                "content": [{ "type": "text", "text": json!({ "appended": true, "id": "m2" }).to_string() }],
+                "isError": false
+            }
+        }),
+    )
+    .await;
+    let (status, headers, _) = append.await.expect("the append finishes");
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert_eq!(
+        headers
+            .get(header::LOCATION)
+            .and_then(|value| value.to_str().ok()),
+        Some(format!("/next/memory/{device_id}").as_str())
+    );
+}
+
+#[tokio::test]
+async fn a_memory_delete_without_the_page_csrf_is_refused() {
+    let fixture = Fixture::new("memory-csrf");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xec)).await;
+    let (cookie, _csrf) = sign_in_to_the_page(&fixture).await;
+
+    let mut request = post_form(
+        &format!("/next/memory/{device_id}/delete"),
+        &[("csrf", &"00".repeat(32)), ("id", "m1")],
+    );
+    request
+        .headers_mut()
+        .insert(header::COOKIE, cookie.parse().expect("the cookie header"));
+    let (status, _, _) = send_text(fixture.app(), request).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert!(
+        tokio::time::timeout(
+            std::time::Duration::from_millis(200),
+            next_json(&mut device)
+        )
+        .await
+        .is_err(),
+        "a refused delete must not reach the device"
+    );
+}
+
+#[tokio::test]
+async fn the_screen_page_renders_the_capture_as_a_data_url() {
+    let fixture = Fixture::new("screen-page");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xed)).await;
+    let (cookie, _csrf) = sign_in_to_the_page(&fixture).await;
+
+    let app = fixture.app();
+    let request = get_with_cookie(&format!("/next/screen/{device_id}"), &cookie);
+    let page = tokio::spawn(async move { send_text(app, request).await });
+    let frame = next_json(&mut device).await;
+    assert_eq!(
+        frame["mcp"]["params"]["name"],
+        json!("screen.capture"),
+        "{frame}"
+    );
+    answer(
+        &mut device,
+        &frame,
+        json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {
+                "content": [{ "type": "text", "text": json!({
+                    "format": "png", "data": "QUJD", "width": 10, "height": 20
+                }).to_string() }],
+                "isError": false
+            }
+        }),
+    )
+    .await;
+    let (status, _, body) = page.await.expect("the screen page finishes");
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        body.contains("src=\"data:image/png;base64,QUJD\""),
+        "{body}"
+    );
+    assert!(body.contains("10×20"), "{body}");
+}
+
+#[tokio::test]
+async fn the_monitors_page_lists_a_target_and_forwards_an_add() {
+    let fixture = Fixture::new("monitors-page");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xee)).await;
+    let (cookie, csrf) = sign_in_to_the_page(&fixture).await;
+
+    let app = fixture.app();
+    let request = get_with_cookie(&format!("/next/monitors/{device_id}"), &cookie);
+    let page = tokio::spawn(async move { send_text(app, request).await });
+    let frame = next_json(&mut device).await;
+    assert_eq!(
+        frame["mcp"]["params"]["name"],
+        json!("monitor.list"),
+        "{frame}"
+    );
+    answer(
+        &mut device,
+        &frame,
+        json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {
+                "content": [{ "type": "text", "text": json!([
+                    { "id": "tcp:10.0.0.1:443", "kind": "tcp", "host": "10.0.0.1", "port": 443,
+                      "path": null, "expect": null, "interval_ms": 15000,
+                      "summary": { "up_now": true, "since_ms": 1, "up_pct": 100, "drops": 0, "last_status": null } }
+                ]).to_string() }],
+                "isError": false
+            }
+        }),
+    )
+    .await;
+    let (status, _, body) = page.await.expect("the monitors page finishes");
+    assert_eq!(status, StatusCode::OK);
+    assert!(body.contains("10.0.0.1:443"), "{body}");
+    assert!(body.contains("Watch a target"), "{body}");
+
+    let mut request = post_form(
+        &format!("/next/monitors/{device_id}/add"),
+        &[
+            ("csrf", &csrf),
+            ("kind", "http"),
+            ("host", "192.168.1.1"),
+            ("port", "80"),
+            ("interval_ms", "20000"),
+            ("path", "/health"),
+            ("expect", "ok"),
+        ],
+    );
+    request
+        .headers_mut()
+        .insert(header::COOKIE, cookie.parse().expect("the cookie header"));
+    let add = tokio::spawn(async move { send_text(fixture.app(), request).await });
+    let frame = next_json(&mut device).await;
+    assert_eq!(
+        frame["mcp"]["params"]["name"],
+        json!("monitor.add"),
+        "{frame}"
+    );
+    assert_eq!(frame["mcp"]["params"]["arguments"]["kind"], json!("http"));
+    assert_eq!(
+        frame["mcp"]["params"]["arguments"]["host"],
+        json!("192.168.1.1")
+    );
+    assert_eq!(frame["mcp"]["params"]["arguments"]["port"], json!(80));
+    assert_eq!(
+        frame["mcp"]["params"]["arguments"]["path"],
+        json!("/health")
+    );
+    assert_eq!(frame["mcp"]["params"]["arguments"]["expect"], json!("ok"));
+    answer(
+        &mut device,
+        &frame,
+        json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {
+                "content": [{ "type": "text", "text": json!({ "id": "http:192.168.1.1:80" }).to_string() }],
+                "isError": false
+            }
+        }),
+    )
+    .await;
+    let (status, headers, _) = add.await.expect("the add finishes");
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert_eq!(
+        headers
+            .get(header::LOCATION)
+            .and_then(|value| value.to_str().ok()),
+        Some(format!("/next/monitors/{device_id}").as_str())
+    );
+}
+
+/// Editing from a filtered list keeps the filter: otherwise the entry the operator clicked can be
+/// outside the unfiltered page, and the edit card silently does not appear.
+#[tokio::test]
+async fn editing_from_a_search_keeps_the_search() {
+    let fixture = Fixture::new("memory-edit-filter");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xd4)).await;
+    let (cookie, csrf) = sign_in_to_the_page(&fixture).await;
+
+    let app = fixture.app();
+    let request = get_with_cookie(&format!("/next/memory/{device_id}?q=needle"), &cookie);
+    let page = tokio::spawn(async move { send_text(app, request).await });
+    let frame = next_json(&mut device).await;
+    assert_eq!(
+        frame["mcp"]["params"]["name"],
+        json!("memory.search"),
+        "{frame}"
+    );
+    answer(
+        &mut device,
+        &frame,
+        json!({ "jsonrpc": "2.0", "id": 1, "result": { "content": [{ "type": "text", "text": json!([
+            { "id": "entry-1", "text": "a needle", "tags": [] }
+        ]).to_string() }], "isError": false } }),
+    )
+    .await;
+    let (_, _, body) = page.await.expect("the page finishes");
+    assert!(
+        body.contains("?edit=entry-1&amp;q=needle"),
+        "the edit link carries the search: {body}"
+    );
+
+    // The form carries it too, so the save comes back to the same filtered list.
+    let app = fixture.app();
+    let request = post_form_cookie(
+        &format!("/next/memory/{device_id}/update"),
+        &[
+            ("csrf", &csrf),
+            ("id", "entry-1"),
+            ("text", "a needle"),
+            ("tags", ""),
+            ("q", "needle"),
+        ],
+        &cookie,
+    );
+    let update = tokio::spawn(async move { send_text(app, request).await });
+    let frame = next_json(&mut device).await;
+    assert_eq!(
+        frame["mcp"]["params"]["name"],
+        json!("memory.update"),
+        "{frame}"
+    );
+    answer(
+        &mut device,
+        &frame,
+        json!({ "jsonrpc": "2.0", "id": 1, "result": { "content": [{ "type": "text", "text": "{}" }], "isError": false } }),
+    )
+    .await;
+    let (status, headers, _) = update.await.expect("the update finishes");
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let location = headers
+        .get(header::LOCATION)
+        .and_then(|value| value.to_str().ok())
+        .expect("a redirect");
+    assert!(
+        location.contains("q=needle"),
+        "the filter comes back: {location}"
+    );
+}
+
+/// A refused action's sentence is on the page the browser lands on, not swallowed by it.
+#[tokio::test]
+async fn the_browser_page_shows_a_refused_action_sentence() {
+    let fixture = Fixture::new("browser-error-shown");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xd6)).await;
+    let cookie = page_cookie(&fixture).await;
+
+    let app = fixture.app();
+    let request = get_with_cookie(
+        &format!("/next/browser/{device_id}?error=the%20target%20is%20not%20there"),
+        &cookie,
+    );
+    let page = tokio::spawn(async move { send_text(app, request).await });
+    for name in ["browser.list", "browser.screenshot"] {
+        let frame = next_json(&mut device).await;
+        assert_eq!(frame["mcp"]["params"]["name"], json!(name), "{frame}");
+        let text = if name == "browser.list" {
+            json!([{ "id": "target-1", "title": "example", "url": "https://example.com/", "type": "page" }]).to_string()
+        } else {
+            json!({ "format": "png", "data": "QUJD", "bytes": 3 }).to_string()
+        };
+        answer(
+            &mut device,
+            &frame,
+            json!({ "jsonrpc": "2.0", "id": 1, "result": { "content": [{ "type": "text", "text": text }], "isError": false } }),
+        )
+        .await;
+    }
+    let (status, _, body) = page.await.expect("the page finishes");
+    assert_eq!(status, StatusCode::OK);
+    assert!(body.contains("the target is not there"), "{body}");
+}
+
+/// A refused mkdir leaves a sentence and still lists the directory it was refused in.
+#[tokio::test]
+async fn a_refused_mkdir_still_shows_the_directory() {
+    let fixture = Fixture::new("files-error-keeps-listing");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xd5)).await;
+    let cookie = page_cookie(&fixture).await;
+
+    let app = fixture.app();
+    let request = get_with_cookie(
+        &format!("/next/files/{device_id}?error=that%20folder%20is%20not%20allowed"),
+        &cookie,
+    );
+    let page = tokio::spawn(async move { send_text(app, request).await });
+    let frame = next_json(&mut device).await;
+    assert_eq!(
+        frame["mcp"]["params"]["name"],
+        json!("files.list"),
+        "{frame}"
+    );
+    answer(
+        &mut device,
+        &frame,
+        json!({ "jsonrpc": "2.0", "id": 1, "result": { "content": [{ "type": "text", "text": json!([
+            { "name": "notes.txt", "kind": "file", "len": 3 }
+        ]).to_string() }], "isError": false } }),
+    )
+    .await;
+    let (status, _, body) = page.await.expect("the page finishes");
+    assert_eq!(status, StatusCode::OK);
+    assert!(body.contains("that folder is not allowed"), "{body}");
+    assert!(
+        body.contains("notes.txt"),
+        "the listing survives the error: {body}"
+    );
+}
+
+/// The glue builds request paths itself, so the id it interpolates must be encoded: a device that
+/// answers with `../<other-device>/session-3` must not turn the pane into a cross-device write.
+#[tokio::test]
+async fn the_terminal_glue_encodes_the_session_id() {
+    let fixture = Fixture::new("terminal-glue-encoding");
+    let (status, _, js) = send_text(fixture.app(), get("/assets/terminal.js", None)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        js.contains("encodeURIComponent(id)"),
+        "the id is encoded before it becomes a path: {js}"
+    );
+}
+
+/// The server does not rely on the glue: an id that is not one is refused before any device call.
+#[tokio::test]
+async fn a_terminal_id_that_is_not_one_is_refused() {
+    let fixture = Fixture::new("terminal-id-guard");
+    let (device_id, _) = fixture.register(&signing_key(0xd7)).await;
+    let (cookie, csrf) = sign_in_to_the_page(&fixture).await;
+
+    let mut request = post_json_cookie(
+        &format!("/next/terminal/{device_id}/session-1%2Fother/write"),
+        json!({ "data": "x" }),
+        &cookie,
+        Some(&csrf),
+    );
+    request.headers_mut().insert(
+        header::CONTENT_TYPE,
+        "application/json".parse().expect("a header"),
+    );
+    let (status, _, _) = send_with_headers(fixture.app(), request).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+
+    // The read path takes the same id and refuses it the same way.
+    let (status, _, _) = send_text(
+        fixture.app(),
+        get_with_cookie(
+            &format!("/next/terminal/{device_id}/session-1%2Fother/read?cursor=0"),
+            &cookie,
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+}
+
+/// The browser pane pumps frames: a JSON frame route behind the session, and an image the script can
+/// replace without re-rendering the page.
+#[tokio::test]
+async fn the_browser_pane_can_take_a_fresh_frame() {
+    let fixture = Fixture::new("browser-frame");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xcf)).await;
+    let cookie = page_cookie(&fixture).await;
+
+    // The page renders one capture and the hook the script follows.
+    let app = fixture.app();
+    let request = get_with_cookie(&format!("/next/browser/{device_id}"), &cookie);
+    let page = tokio::spawn(async move { send_text(app, request).await });
+    let frame = next_json(&mut device).await;
+    assert_eq!(
+        frame["mcp"]["params"]["name"],
+        json!("browser.list"),
+        "{frame}"
+    );
+    answer(
+        &mut device,
+        &frame,
+        json!({ "jsonrpc": "2.0", "id": 1, "result": { "content": [{ "type": "text", "text": json!([
+            { "id": "target-1", "title": "example", "url": "https://example.com/", "type": "page" }
+        ]).to_string() }], "isError": false } }),
+    )
+    .await;
+    let frame = next_json(&mut device).await;
+    assert_eq!(
+        frame["mcp"]["params"]["name"],
+        json!("browser.screenshot"),
+        "{frame}"
+    );
+    answer(
+        &mut device,
+        &frame,
+        json!({ "jsonrpc": "2.0", "id": 1, "result": { "content": [{ "type": "text", "text": json!({ "format": "png", "data": "QUJD", "bytes": 3 }).to_string() }], "isError": false } }),
+    )
+    .await;
+    let (_, _, body) = page.await.expect("the page finishes");
+    assert!(body.contains("id=\"cast\""), "{body}");
+    assert!(body.contains("data-target=\"target-1\""), "{body}");
+    assert!(body.contains("/assets/browser.js"), "{body}");
+
+    // The frame route takes the newest frame of the device's live stream, for the pump.
+    let app = fixture.app();
+    let request = get_with_cookie(
+        &format!("/next/browser/{device_id}/frame?target=target-1"),
+        &cookie,
+    );
+    let frame_request = tokio::spawn(async move { send_text(app, request).await });
+    let frame = next_json(&mut device).await;
+    assert_eq!(
+        frame["mcp"]["params"]["name"],
+        json!("browser.cast"),
+        "{frame}"
+    );
+    assert_eq!(
+        frame["mcp"]["params"]["arguments"]["target"],
+        json!("target-1")
+    );
+    answer(
+        &mut device,
+        &frame,
+        json!({ "jsonrpc": "2.0", "id": 1, "result": { "content": [{ "type": "text", "text": json!({ "format": "jpeg", "data": "/9j/AAAA", "width": 1280, "height": 800, "at_ms": 1_793_000_000_000u64 }).to_string() }], "isError": false } }),
+    )
+    .await;
+    let (status, _, body) = frame_request.await.expect("the frame finishes");
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let frame: Value = serde_json::from_str(&body).expect("a JSON frame");
+    assert_eq!(frame["format"], json!("jpeg"));
+    assert_eq!(frame["data"], json!("/9j/AAAA"));
+    assert_eq!(frame["width"], json!(1280));
+    assert_eq!(frame["stream"], json!(true), "the pane may poll faster");
+
+    // Without a session it refuses before touching the device.
+    let request = get(
+        &format!("/next/browser/{device_id}/frame?target=target-1"),
+        None,
+    );
+    let (status, _, _) = send_text(fixture.app(), request).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+}
+
+/// A transient failure of the live stream is NOT an old device: it reaches the caller, which keeps
+/// trying the stream, instead of silently downgrading the pane to screenshots for the tab's life.
+#[tokio::test]
+async fn a_transient_cast_failure_is_a_502_not_a_fallback() {
+    let fixture = Fixture::new("browser-frame-transient");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xc6)).await;
+    let cookie = page_cookie(&fixture).await;
+
+    let app = fixture.app();
+    let request = get_with_cookie(
+        &format!("/next/browser/{device_id}/frame?target=target-1"),
+        &cookie,
+    );
+    let frame_request = tokio::spawn(async move { send_text(app, request).await });
+
+    let frame = next_json(&mut device).await;
+    assert_eq!(
+        frame["mcp"]["params"]["name"],
+        json!("browser.cast"),
+        "{frame}"
+    );
+    answer_error(
+        &mut device,
+        &frame,
+        json!({ "jsonrpc": "2.0", "id": 1, "error": { "code": -32603, "message": "browser.cast: the screencast reader stopped before a frame arrived" } }),
+    )
+    .await;
+
+    // No screenshot is asked for: the failure is the answer.
+    let (status, _, body) = frame_request.await.expect("the frame finishes");
+    assert_eq!(status, StatusCode::BAD_GATEWAY, "{body}");
+    assert!(body.contains("screencast reader"), "{body}");
+}
+
+/// A device older than `browser.cast` still fills the pane: the console falls back to one
+/// screenshot per poll rather than failing the frame.
+#[tokio::test]
+async fn the_frame_route_falls_back_to_a_screenshot_on_an_older_device() {
+    let fixture = Fixture::new("browser-frame-fallback");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xc8)).await;
+    let cookie = page_cookie(&fixture).await;
+
+    let app = fixture.app();
+    let request = get_with_cookie(
+        &format!("/next/browser/{device_id}/frame?target=target-1"),
+        &cookie,
+    );
+    let frame_request = tokio::spawn(async move { send_text(app, request).await });
+
+    // The old build has no browser.cast.
+    let frame = next_json(&mut device).await;
+    assert_eq!(
+        frame["mcp"]["params"]["name"],
+        json!("browser.cast"),
+        "{frame}"
+    );
+    answer_error(
+        &mut device,
+        &frame,
+        json!({ "jsonrpc": "2.0", "id": 1, "error": { "code": -32601, "message": "unknown tool: browser.cast" } }),
+    )
+    .await;
+
+    // The console asks for a screenshot instead.
+    let frame = next_json(&mut device).await;
+    assert_eq!(
+        frame["mcp"]["params"]["name"],
+        json!("browser.screenshot"),
+        "{frame}"
+    );
+    answer(
+        &mut device,
+        &frame,
+        json!({ "jsonrpc": "2.0", "id": 1, "result": { "content": [{ "type": "text", "text": json!({ "format": "png", "data": "QUJD", "bytes": 3 }).to_string() }], "isError": false } }),
+    )
+    .await;
+
+    let (status, _, body) = frame_request.await.expect("the frame finishes");
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let frame: Value = serde_json::from_str(&body).expect("a JSON frame");
+    assert_eq!(frame["format"], json!("png"));
+    assert_eq!(frame["data"], json!("QUJD"));
+    assert_eq!(
+        frame["stream"],
+        json!(false),
+        "the pane learns to slow down: {frame}"
+    );
+}
+
+/// Once the pane knows the device has no stream, the console stops asking for one: `stream=0` goes
+/// straight to a screenshot and makes one device call, not two.
+#[tokio::test]
+async fn a_pane_that_knows_there_is_no_stream_skips_the_ask() {
+    let fixture = Fixture::new("browser-frame-nostream");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xc7)).await;
+    let cookie = page_cookie(&fixture).await;
+
+    let app = fixture.app();
+    let request = get_with_cookie(
+        &format!("/next/browser/{device_id}/frame?target=target-1&stream=0"),
+        &cookie,
+    );
+    let frame_request = tokio::spawn(async move { send_text(app, request).await });
+
+    let frame = next_json(&mut device).await;
+    assert_eq!(
+        frame["mcp"]["params"]["name"],
+        json!("browser.screenshot"),
+        "no cast attempt at all: {frame}"
+    );
+    answer(
+        &mut device,
+        &frame,
+        json!({ "jsonrpc": "2.0", "id": 1, "result": { "content": [{ "type": "text", "text": json!({ "format": "png", "data": "QUJD", "bytes": 3 }).to_string() }], "isError": false } }),
+    )
+    .await;
+
+    let (status, _, body) = frame_request.await.expect("the frame finishes");
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let frame: Value = serde_json::from_str(&body).expect("a JSON frame");
+    assert_eq!(frame["stream"], json!(false));
+}
+
+/// The install card is the device's own account of its generations and its last swap: the console
+/// shows it and keeps no copy.
+#[tokio::test]
+async fn the_vitals_page_shows_the_install_it_reads() {
+    let fixture = Fixture::new("vitals-install");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xd0)).await;
+    let cookie = page_cookie(&fixture).await;
+    let facts = json!({
+        "machine": "BOX",
+        "os": { "name": "Windows", "version": "11" },
+        "cpu": { "cores": 8 },
+        "uptime_s": 120,
+        "memory": { "total_bytes": 8_000_000_000u64, "available_bytes": 4_000_000_000u64 },
+        "disks": [],
+        "update": {
+            "current": { "version": "0.3.112", "channel": "canary" },
+            "previous": { "version": "0.3.111", "channel": "canary" },
+            "pending": null,
+            "last_swap": {
+                "outcome": "rolled_back",
+                "version": "0.3.111",
+                "at_ms": 1_790_990_000_000u64,
+                "reason": "the new build did not answer /health"
+            },
+            "repairs": [{ "from": "previous", "at_ms": 1_790_990_300_000u64 }]
+        },
+        "shell": { "present": true, "sha256": "cd".repeat(32), "bytes": 1411072 },
+        "restarts": [
+            { "at_ms": 1_790_991_000_000u64, "version": "0.3.112", "channel": "canary", "pid": 4242 },
+            { "at_ms": 1_790_990_000_000u64, "version": "0.3.111", "channel": "canary", "pid": 1111 }
+        ]
+    });
+
+    let page = visit_vitals(&fixture, &cookie, &device_id, &mut device, &facts).await;
+
+    assert!(page.contains("Install"), "{page}");
+    assert!(page.contains("0.3.112"), "the current generation: {page}");
+    assert!(page.contains("Previous"), "{page}");
+    assert!(page.contains("0.3.111"), "the previous generation: {page}");
+    assert!(
+        page.contains("rolled back"),
+        "the last swap's outcome: {page}"
+    );
+    assert!(
+        page.contains("the new build did not answer /health"),
+        "and the launcher's reason: {page}"
+    );
+    // The launcher's "from previous" is rendered as what happened, with the bytes that came back.
+    assert!(
+        page.contains("restored the previous generation"),
+        "the repair says what it did: {page}"
+    );
+    assert!(
+        page.contains("no generation"),
+        "an absent pending says so: {page}"
+    );
+    assert!(
+        page.contains("Tray") && page.contains(&"cd".repeat(32)),
+        "the tray's digest is on the card, because the canary update does not carry it: {page}"
+    );
+    assert!(
+        page.contains("Restarts"),
+        "the boot journal is on the card: {page}"
+    );
+    assert!(
+        page.contains("0.3.112") && page.contains("canary"),
+        "a restart row names its release: {page}"
+    );
+}
+
+/// Open the vitals page once, answering its `host.facts` call with `facts`, and return the page.
+async fn visit_vitals(
+    fixture: &Fixture,
+    cookie: &str,
+    device_id: &str,
+    device: &mut DeviceSocket,
+    facts: &Value,
+) -> String {
+    let app = fixture.app();
+    let request = get_with_cookie(&format!("/next/vitals/{device_id}"), cookie);
+    let page = tokio::spawn(async move { send_text(app, request).await });
+    let frame = next_json(device).await;
+    assert_eq!(
+        frame["mcp"]["params"]["name"],
+        json!("host.facts"),
+        "{frame}"
+    );
+    answer(
+        device,
+        &frame,
+        json!({ "jsonrpc": "2.0", "id": 1, "result": { "content": [{ "type": "text", "text": facts.to_string() }], "isError": false } }),
+    )
+    .await;
+    page.await.expect("the page finishes").2
+}
+
+/// A token that already consents is never asked again: a device answering -32002 to it is refusing
+/// for its own reasons, and the console must not stall the caller for the whole deadline.
+#[tokio::test]
+async fn a_consenting_token_is_not_asked_for_approval() {
+    let fixture = Fixture::new("approval-consenting");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xca)).await;
+    let session = fixture.authenticate().await;
+    let (status, created) = fixture
+        .create_token(&session, &device_id, "trusted", &["terminal.create"], true)
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{created}");
+    let plaintext = created["token"].as_str().expect("the token").to_owned();
+    let call = json!({
+        "jsonrpc": "2.0",
+        "id": 65,
+        "method": "tools/call",
+        "params": { "name": "terminal.create", "arguments": { "kind": "pty" } },
+    });
+    let app = fixture.app();
+    let request = post_token(&device_id, &plaintext, call.clone());
+    let client = tokio::spawn(async move { send(app, request).await });
+
+    let frame = next_json(&mut device).await;
+    assert_eq!(frame["mcp"], call, "{frame}");
+    answer_error(
+        &mut device,
+        &frame,
+        json!({ "jsonrpc": "2.0", "id": 65, "error": { "code": -32002, "message": "the device refuses this one" } }),
+    )
+    .await;
+
+    let (status, body) = client.await.expect("the client finishes");
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["error"]["code"], json!(-32002), "{body}");
+
+    // Nothing was held for the operator to answer.
+    let cookie = page_cookie(&fixture).await;
+    let (_, _, count) = send_text(
+        fixture.app(),
+        get_with_cookie("/next/approvals/count", &cookie),
+    )
+    .await;
+    let count: Value = serde_json::from_str(&count).expect("a JSON count");
+    assert_eq!(count["pending"], json!(0));
+}
+
+/// Facts with no totals are no reading: the trend does not record a zero it did not measure.
+#[tokio::test]
+async fn facts_without_a_reading_do_not_enter_the_trend() {
+    let fixture = Fixture::new("vitals-no-reading");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xc9)).await;
+    let cookie = page_cookie(&fixture).await;
+    let facts = json!({
+        "machine": "BOX",
+        "os": { "name": "Linux", "version": "6.5" },
+        "cpu": { "cores": 4 },
+        "uptime_s": 60,
+        "disks": [],
+        "update": { "current": null, "previous": null, "pending": null, "last_swap": null, "repairs": [] }
+    });
+
+    let first = visit_vitals(&fixture, &cookie, &device_id, &mut device, &facts).await;
+    let second = visit_vitals(&fixture, &cookie, &device_id, &mut device, &facts).await;
+
+    assert!(first.contains("One point so far"), "{first}");
+    assert!(
+        second.contains("One point so far"),
+        "two visits without readings are still no point: {second}"
+    );
+}
+
+/// An approved call whose device goes away before answering is UNKNOWN, never "needs approval":
+/// the frame may have run, so a retry could run it twice.
+#[tokio::test]
+async fn an_approved_call_whose_device_disappears_is_unknown() {
+    let fixture = Fixture::new("approval-unknown");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xcc)).await;
+    let session = fixture.authenticate().await;
+    let (status, created) = fixture
+        .create_token(
+            &session,
+            &device_id,
+            "cautious",
+            &["terminal.create"],
+            false,
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{created}");
+    let plaintext = created["token"].as_str().expect("the token").to_owned();
+    let call = json!({
+        "jsonrpc": "2.0",
+        "id": 63,
+        "method": "tools/call",
+        "params": { "name": "terminal.create", "arguments": { "kind": "pty" } },
+    });
+    let app = fixture.app();
+    let request = post_token(&device_id, &plaintext, call.clone());
+    let client = tokio::spawn(async move { send(app, request).await });
+
+    let frame = next_json(&mut device).await;
+    assert_eq!(frame["mcp"], call, "{frame}");
+    answer_error(
+        &mut device,
+        &frame,
+        json!({ "jsonrpc": "2.0", "id": 63, "error": { "code": -32002, "message": "'terminal.create' is destructive and needs approval" } }),
+    )
+    .await;
+
+    let (cookie, csrf) = sign_in_to_the_page(&fixture).await;
+    let id = wait_for_approval(&fixture, &cookie).await;
+
+    let approve = {
+        let app = fixture.app();
+        let request = post_form_cookie(
+            &format!("/next/approvals/{id}/approve"),
+            &[("csrf", &csrf)],
+            &cookie,
+        );
+        tokio::spawn(async move { send_text(app, request).await })
+    };
+
+    // The re-send arrives, and then the device is gone without answering it.
+    let frame = next_json(&mut device).await;
+    assert_eq!(frame["mcp"], call, "{frame}");
+    drop(device);
+
+    let (status, _, _) = approve.await.expect("the approve finishes");
+    assert_eq!(status, StatusCode::SEE_OTHER);
+
+    let (status, body) = client.await.expect("the client finishes");
+    assert_eq!(status, StatusCode::GATEWAY_TIMEOUT, "{body}");
+    assert!(
+        body.to_string().contains("unknown"),
+        "the answer says the outcome is unknown: {body}"
+    );
+
+    let lines = audit_lines(&fixture);
+    assert!(
+        lines.iter().any(|line| {
+            line["kind"] == "approval"
+                && line["status"] == 504
+                && line["detail"] == "approved, but the device did not answer"
+        }),
+        "the record names it: {lines:#?}"
+    );
+}
+
+/// Removing a device refuses its held calls instead of leaving them on the dashboard.
+#[tokio::test]
+async fn removing_a_device_refuses_its_held_calls() {
+    let fixture = Fixture::new("approval-device-removed");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xcb)).await;
+    let session = fixture.authenticate().await;
+    let (status, created) = fixture
+        .create_token(
+            &session,
+            &device_id,
+            "cautious",
+            &["terminal.create"],
+            false,
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{created}");
+    let plaintext = created["token"].as_str().expect("the token").to_owned();
+    let call = json!({
+        "jsonrpc": "2.0",
+        "id": 64,
+        "method": "tools/call",
+        "params": { "name": "terminal.create", "arguments": { "kind": "pty" } },
+    });
+    let app = fixture.app();
+    let request = post_token(&device_id, &plaintext, call.clone());
+    let client = tokio::spawn(async move { send(app, request).await });
+
+    let frame = next_json(&mut device).await;
+    assert_eq!(frame["mcp"], call, "{frame}");
+    answer_error(
+        &mut device,
+        &frame,
+        json!({ "jsonrpc": "2.0", "id": 64, "error": { "code": -32002, "message": "'terminal.create' is destructive and needs approval" } }),
+    )
+    .await;
+
+    let (cookie, csrf) = sign_in_to_the_page(&fixture).await;
+    let _ = wait_for_approval(&fixture, &cookie).await;
+
+    let (status, _, _) = send_text(
+        fixture.app(),
+        post_form_cookie(
+            &format!("/next/fleet/{device_id}/remove"),
+            &[("csrf", &csrf)],
+            &cookie,
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+
+    let (_, _, count) = send_text(
+        fixture.app(),
+        get_with_cookie("/next/approvals/count", &cookie),
+    )
+    .await;
+    let count: Value = serde_json::from_str(&count).expect("a JSON count");
+    assert_eq!(
+        count["pending"],
+        json!(0),
+        "the removed device's call is gone"
+    );
+
+    let (_, body) = client.await.expect("the client finishes");
+    assert_eq!(
+        body["error"]["code"],
+        json!(-32002),
+        "the refused call keeps the device's sentence: {body}"
+    );
+}
+
+/// A client that hangs up takes its held call with it: nothing sits on the dashboard waiting for a
+/// request that no longer exists.
+#[tokio::test]
+async fn a_held_call_leaves_when_its_client_hangs_up() {
+    let fixture = Fixture::new("approval-hangup");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xcd)).await;
+    let session = fixture.authenticate().await;
+    let (status, created) = fixture
+        .create_token(
+            &session,
+            &device_id,
+            "cautious",
+            &["terminal.create"],
+            false,
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{created}");
+    let plaintext = created["token"].as_str().expect("the token").to_owned();
+    let call = json!({
+        "jsonrpc": "2.0",
+        "id": 62,
+        "method": "tools/call",
+        "params": { "name": "terminal.create", "arguments": { "kind": "pty" } },
+    });
+    let app = fixture.app();
+    let request = post_token(&device_id, &plaintext, call.clone());
+    let client = tokio::spawn(async move { send(app, request).await });
+
+    let frame = next_json(&mut device).await;
+    assert_eq!(frame["mcp"], call, "{frame}");
+    answer_error(
+        &mut device,
+        &frame,
+        json!({ "jsonrpc": "2.0", "id": 62, "error": { "code": -32002, "message": "'terminal.create' is destructive and needs approval" } }),
+    )
+    .await;
+
+    let (cookie, _csrf) = sign_in_to_the_page(&fixture).await;
+    let _ = wait_for_approval(&fixture, &cookie).await;
+
+    // The client goes away without an answer.
+    client.abort();
+
+    let mut pending = json!(1);
+    for _ in 0..200 {
+        let (_, _, body) = send_text(
+            fixture.app(),
+            get_with_cookie("/next/approvals/count", &cookie),
+        )
+        .await;
+        pending = serde_json::from_str::<Value>(&body)
+            .map(|body| body["pending"].clone())
+            .unwrap_or(json!(1));
+        if pending == json!(0) {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+    }
+    assert_eq!(
+        pending,
+        json!(0),
+        "the hung-up call is not waiting for anyone"
+    );
+
+    // **AND THE RECORD CLOSES.** The ask was written when it started; a client that leaves without
+    // an answer is not a refusal and must not read as one, but a question with no closing line is
+    // indistinguishable from a console that lost the answer.
+    let mut closing = None;
+    for _ in 0..200 {
+        closing = audit_lines(&fixture).into_iter().find(|line| {
+            line["kind"] == json!("approval") && line["detail"] == json!("client left")
+        });
+        if closing.is_some() {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+    }
+    let closing = closing.expect("the ask that was abandoned leaves a closing line");
+    assert_eq!(closing["status"], json!(200));
+    assert_eq!(closing["tool"], json!("terminal.create"));
+    assert!(
+        closing["token_id"].is_string(),
+        "the closing line names the token: {closing}"
+    );
+}
+
+/// Nobody answers: the gate's deadline ends the call, and the client gets the device's refusal.
+/// Expiry fails CLOSED, as the legacy gate did — this is the one path a person never sees.
+#[tokio::test(start_paused = true)]
+async fn an_unanswered_approval_expires_closed() {
+    let fixture = Fixture::new("approval-expiry");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xce)).await;
+    let session = fixture.authenticate().await;
+    let (status, created) = fixture
+        .create_token(
+            &session,
+            &device_id,
+            "cautious",
+            &["terminal.create"],
+            false,
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{created}");
+    let plaintext = created["token"].as_str().expect("the token").to_owned();
+    let call = json!({
+        "jsonrpc": "2.0",
+        "id": 61,
+        "method": "tools/call",
+        "params": { "name": "terminal.create", "arguments": { "kind": "pty" } },
+    });
+    let http = send(
+        fixture.app(),
+        post_token(&device_id, &plaintext, call.clone()),
+    );
+
+    let device_side = async {
+        let frame = next_json(&mut device).await;
+        assert_eq!(frame["mcp"], call, "{frame}");
+        answer_error(
+            &mut device,
+            &frame,
+            json!({ "jsonrpc": "2.0", "id": 61, "error": { "code": -32002, "message": "'terminal.create' is destructive and needs approval" } }),
+        )
+        .await;
+    };
+
+    let (cookie, _csrf) = sign_in_to_the_page(&fixture).await;
+    let watcher = async {
+        let id = wait_for_approval(&fixture, &cookie).await;
+        assert!(!id.is_empty());
+        // Nobody presses anything; time passes.
+        tokio::time::advance(std::time::Duration::from_secs(601)).await;
+    };
+
+    let ((status, body), (), ()) = tokio::join!(http, device_side, watcher);
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["error"]["code"], json!(-32002), "{body}");
+
+    let lines = audit_lines(&fixture);
+    assert!(
+        lines
+            .iter()
+            .any(|line| line["kind"] == "approval" && line["detail"] == "timed out"),
+        "the record says it expired: {lines:#?}"
+    );
+}
+
+/// The badge is on every signed-in page, and its count route answers only to a session.
+#[tokio::test]
+async fn every_page_carries_the_approvals_badge() {
+    let fixture = Fixture::new("approvals-badge");
+    let cookie = page_cookie(&fixture).await;
+
+    let (status, _, page) = send_text(fixture.app(), get_with_cookie("/next/audit", &cookie)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(page.contains("id=\"approvals-badge\""), "{page}");
+    assert!(page.contains("/assets/approvals.js"), "{page}");
+
+    let (status, count) = send(fixture.app(), get("/next/approvals/count", None)).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED, "{count}");
+
+    let (status, _, count) = send_text(
+        fixture.app(),
+        get_with_cookie("/next/approvals/count", &cookie),
+    )
+    .await;
+    let count: Value = serde_json::from_str(&count).expect("a JSON count");
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(count["pending"], json!(0));
+
+    let (status, _, js) = send_text(fixture.app(), get("/assets/approvals.js", None)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(js.contains("/next/approvals/count"), "{js}");
+}
+
+/// The vitals page keeps its own trend: one point per visit, in the console's memory, and it says
+/// so rather than implying a sampler runs behind it.
+#[tokio::test]
+async fn the_vitals_page_keeps_a_trend_from_its_own_visits() {
+    let fixture = Fixture::new("vitals-trend");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xd1)).await;
+    let cookie = page_cookie(&fixture).await;
+    let facts = json!({
+        "machine": "BOX",
+        "os": { "name": "Windows", "version": "11" },
+        "cpu": { "cores": 8 },
+        "uptime_s": 120,
+        "memory": { "total_bytes": 8_000_000_000u64, "available_bytes": 4_000_000_000u64 },
+        "disks": [{ "name": "C:\\", "total_bytes": 1_000u64, "free_bytes": 400u64 }],
+        "update": { "current": { "version": "0.3.1" } }
+    });
+
+    let first = visit_vitals(&fixture, &cookie, &device_id, &mut device, &facts).await;
+    assert!(first.contains("One point so far"), "{first}");
+
+    let second = visit_vitals(&fixture, &cookie, &device_id, &mut device, &facts).await;
+    assert!(
+        second.contains("class=\"spark\""),
+        "the second visit draws the line: {second}"
+    );
+    assert!(second.contains("2 samples"), "{second}");
+    assert!(second.contains("Not a sampler"), "{second}");
+}
+
+/// A destructive call a token did not consent to is held for the operator, and the request stays
+/// open while they decide. Approving re-sends it with consent for THIS call only.
+#[tokio::test]
+async fn a_destructive_token_call_is_held_and_runs_when_approved() {
+    let fixture = Fixture::new("approval-approved");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xd3)).await;
+    let session = fixture.authenticate().await;
+    let (status, created) = fixture
+        .create_token(
+            &session,
+            &device_id,
+            "cautious",
+            &["terminal.create"],
+            false,
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{created}");
+    let plaintext = created["token"].as_str().expect("the token").to_owned();
+    let call = json!({
+        "jsonrpc": "2.0",
+        "id": 31,
+        "method": "tools/call",
+        "params": { "name": "terminal.create", "arguments": { "kind": "pty" } },
+    });
+    let http = send(
+        fixture.app(),
+        post_token(&device_id, &plaintext, call.clone()),
+    );
+
+    let device_side = async {
+        let frame = next_json(&mut device).await;
+        assert_eq!(frame["mcp"], call, "{frame}");
+        answer_error(
+            &mut device,
+            &frame,
+            json!({ "jsonrpc": "2.0", "id": 31, "error": { "code": -32002, "message": "'terminal.create' is destructive and needs approval" } }),
+        )
+        .await;
+
+        // The approved re-send: same call, consenting token.
+        let frame = next_json(&mut device).await;
+        assert_eq!(frame["mcp"], call, "{frame}");
+        assert_eq!(
+            frame["token"]["allow_destructive"],
+            json!(true),
+            "the console consents for this call: {frame}"
+        );
+        answer(
+            &mut device,
+            &frame,
+            json!({ "jsonrpc": "2.0", "id": 31, "result": { "content": [{ "type": "text", "text": "{\"id\":\"session-1\"}" }], "isError": false } }),
+        )
+        .await;
+    };
+
+    let (cookie, csrf) = sign_in_to_the_page(&fixture).await;
+    let operator = async {
+        let id = wait_for_approval(&fixture, &cookie).await;
+        // **THE CARD NAMES THE CREDENTIAL.** "Approve" answers one client's call, and two clients
+        // can hold the same tool on the same machine; the audit always named the token and the
+        // decision surface did not.
+        let (_, _, dashboard) = send_text(fixture.app(), get_with_cookie("/next", &cookie)).await;
+        assert!(
+            dashboard.contains("asked by") && dashboard.contains("cautious"),
+            "the held call names the token that asked: {dashboard}"
+        );
+        assert!(
+            dashboard.contains(&format!(
+                "token {}",
+                created["id"].as_str().expect("a token id")
+            )),
+            "the name carries the id a record can be matched to: {dashboard}"
+        );
+        // The deadline rides with the row, so the page can show the seconds left instead of
+        // leaving the operator to subtract from the paragraph above.
+        assert!(
+            dashboard.contains("data-expires-at=\""),
+            "the held row carries its deadline: {dashboard}"
+        );
+        let (_, _, count) = send_text(
+            fixture.app(),
+            get_with_cookie("/next/approvals/count", &cookie),
+        )
+        .await;
+        let count: Value = serde_json::from_str(&count).expect("a JSON count");
+        assert_eq!(count["pending"], json!(1), "the badge counts the held call");
+        let (status, _, _) = send_text(
+            fixture.app(),
+            post_form_cookie(
+                &format!("/next/approvals/{id}/approve"),
+                &[("csrf", &csrf)],
+                &cookie,
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::SEE_OTHER);
+        let (_, _, count) = send_text(
+            fixture.app(),
+            get_with_cookie("/next/approvals/count", &cookie),
+        )
+        .await;
+        let count: Value = serde_json::from_str(&count).expect("a JSON count");
+        assert_eq!(count["pending"], json!(0), "answered calls stop counting");
+        id
+    };
+
+    let ((status, body), (), id) = tokio::join!(http, device_side, operator);
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(
+        body["result"]["content"][0]["text"],
+        json!("{\"id\":\"session-1\"}")
+    );
+
+    // A second press on the same question is not reported as delivered: the call is gone.
+    let (status, headers, _) = send_text(
+        fixture.app(),
+        post_form_cookie(
+            &format!("/next/approvals/{id}/approve"),
+            &[("csrf", &csrf)],
+            &cookie,
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let location = headers
+        .get(header::LOCATION)
+        .and_then(|value| value.to_str().ok())
+        .expect("a redirect");
+    assert!(
+        location.contains("no%20longer%20waiting"),
+        "the second press says the call is gone: {location}"
+    );
+}
+
+/// An approval is consent for a credential that exists NOW: the ninety seconds the operator had to
+/// decide is long enough for a token to be revoked, and the device cannot know about a revocation
+/// (it can only check an expiry). The approved call is refused, not re-sent.
+#[tokio::test]
+async fn an_approved_call_whose_token_was_revoked_is_refused() {
+    let fixture = Fixture::new("approval-token-revoked");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xd9)).await;
+    let session = fixture.authenticate().await;
+    let (status, created) = fixture
+        .create_token(
+            &session,
+            &device_id,
+            "cautious",
+            &["terminal.create"],
+            false,
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{created}");
+    let plaintext = created["token"].as_str().expect("the token").to_owned();
+    let token_id = created["id"]
+        .as_str()
+        .or_else(|| created["token_meta"]["id"].as_str())
+        .expect("the created token's id")
+        .to_owned();
+    let call = json!({
+        "jsonrpc": "2.0",
+        "id": 41,
+        "method": "tools/call",
+        "params": { "name": "terminal.create", "arguments": { "kind": "pty" } },
+    });
+    let http = send(
+        fixture.app(),
+        post_token(&device_id, &plaintext, call.clone()),
+    );
+
+    let device_side = async {
+        let frame = next_json(&mut device).await;
+        answer_error(
+            &mut device,
+            &frame,
+            json!({ "jsonrpc": "2.0", "id": 41, "error": { "code": -32002, "message": "'terminal.create' is destructive and needs approval" } }),
+        )
+        .await;
+        // Nothing is re-sent: the token is gone by the time the operator approves.
+        let silent = tokio::time::timeout(
+            std::time::Duration::from_millis(400),
+            next_json(&mut device),
+        )
+        .await;
+        assert!(
+            silent.is_err(),
+            "a revoked token's approval must not reach the device"
+        );
+    };
+
+    let (cookie, csrf) = sign_in_to_the_page(&fixture).await;
+    let operator = async {
+        let id = wait_for_approval(&fixture, &cookie).await;
+        let request = Request::builder()
+            .method("DELETE")
+            .uri(format!("/tokens/{token_id}"))
+            .header(header::AUTHORIZATION, format!("Bearer {session}"))
+            .body(Body::empty())
+            .expect("the request builds");
+        let (status, _) = send(fixture.app(), request).await;
+        assert_eq!(status, StatusCode::NO_CONTENT, "the token is revoked");
+        let (status, _, _) = send_text(
+            fixture.app(),
+            post_form_cookie(
+                &format!("/next/approvals/{id}/approve"),
+                &[("csrf", &csrf)],
+                &cookie,
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::SEE_OTHER);
+    };
+
+    let ((status, body), (), ()) = tokio::join!(http, device_side, operator);
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(
+        body["code"],
+        json!(-32001),
+        "the approval is refused with its own sentence: {body}"
+    );
+    assert!(
+        body["message"]
+            .as_str()
+            .is_some_and(|message| message.contains("no longer valid")),
+        "{body}"
+    );
+}
+
+/// Refusing returns the device's own sentence: the call did not run.
+#[tokio::test]
+async fn a_refused_approval_returns_the_device_sentence() {
+    let fixture = Fixture::new("approval-refused");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xd2)).await;
+    let session = fixture.authenticate().await;
+    let (status, created) = fixture
+        .create_token(
+            &session,
+            &device_id,
+            "cautious",
+            &["terminal.create"],
+            false,
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{created}");
+    let plaintext = created["token"].as_str().expect("the token").to_owned();
+    let call = json!({
+        "jsonrpc": "2.0",
+        "id": 32,
+        "method": "tools/call",
+        "params": { "name": "terminal.create", "arguments": { "kind": "pty" } },
+    });
+    let http = send(
+        fixture.app(),
+        post_token(&device_id, &plaintext, call.clone()),
+    );
+
+    let device_side = async {
+        let frame = next_json(&mut device).await;
+        answer_error(
+            &mut device,
+            &frame,
+            json!({ "jsonrpc": "2.0", "id": 32, "error": { "code": -32002, "message": "'terminal.create' is destructive and needs approval" } }),
+        )
+        .await;
+    };
+
+    let (cookie, csrf) = sign_in_to_the_page(&fixture).await;
+    let operator = async {
+        let id = wait_for_approval(&fixture, &cookie).await;
+        let (status, _, _) = send_text(
+            fixture.app(),
+            post_form_cookie(
+                &format!("/next/approvals/{id}/refuse"),
+                &[("csrf", &csrf)],
+                &cookie,
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::SEE_OTHER);
+    };
+
+    let ((status, body), (), ()) = tokio::join!(http, device_side, operator);
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["error"]["code"], json!(-32002), "{body}");
+    assert!(
+        body["error"]["message"]
+            .as_str()
+            .is_some_and(|message| message.contains("destructive")),
+        "{body}"
+    );
+}
+
+/// The id of the first held call the dashboard lists, read off its approve form's action.
+fn first_approval_id(body: &str) -> Option<String> {
+    let start = body.find("/next/approvals/")? + "/next/approvals/".len();
+    let rest = &body[start..];
+    let end = rest.find('/')?;
+    Some(rest[..end].to_owned())
+}
+
+/// Wait for the dashboard to list a held call, then answer with its id.
+async fn wait_for_approval(fixture: &Fixture, cookie: &str) -> String {
+    for _ in 0..200 {
+        let (_, _, body) = send_text(fixture.app(), get_with_cookie("/next", cookie)).await;
+        if let Some(id) = first_approval_id(&body) {
+            return id;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    panic!("the dashboard never listed a held call");
+}
+
+/// A refused Access token leaves a line. "Was the edge's header there, and did the console accept
+/// it?" must be answerable from the audit, not only from the card the browser shows.
+#[tokio::test]
+async fn a_refused_access_token_is_audited() {
+    let fixture = Fixture::with_access("access-refusal-audited");
+    let mut request = get("/next", None);
+    request.headers_mut().insert(
+        "cf-access-jwt-assertion",
+        "not-a-jwt".parse().expect("a header value"),
+    );
+    let (status, _, _) = send_text(fixture.app(), request).await;
+    assert_eq!(status, StatusCode::OK);
+
+    let lines = audit_lines(&fixture);
+    let refused = lines
+        .iter()
+        .find(|line| line["kind"] == "auth" && line["status"] == 401)
+        .unwrap_or_else(|| panic!("a refusal line: {lines:#?}"));
+    assert_eq!(refused["detail"], "access refused");
+}
+
+/// A refused operator token leaves one too, and it never carries what was typed.
+#[tokio::test]
+async fn a_refused_operator_token_is_audited() {
+    let fixture = Fixture::new("token-refusal-audited");
+    let wrong = "0".repeat(64);
+    let (status, _, _) =
+        send_text(fixture.app(), post_form("/next/auth", &[("token", &wrong)])).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+
+    let lines = audit_lines(&fixture);
+    let refused = lines
+        .iter()
+        .find(|line| line["kind"] == "auth" && line["status"] == 401)
+        .unwrap_or_else(|| panic!("a refusal line: {lines:#?}"));
+    assert_eq!(refused["detail"], "token refused");
+    assert!(
+        !lines.iter().any(|line| line.to_string().contains(&wrong)),
+        "the attempt is not what is recorded"
+    );
+}
+
+/// A history row can be opened: `runs.get` answers the row, which is all the device keeps.
+#[tokio::test]
+async fn a_run_history_row_can_be_opened() {
+    let fixture = Fixture::new("runs-get");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xd8)).await;
+    let cookie = page_cookie(&fixture).await;
+
+    let app = fixture.app();
+    let request = get_with_cookie(&format!("/next/runs/{device_id}?run=run-7"), &cookie);
+    let page = tokio::spawn(async move { send_text(app, request).await });
+
+    let frame = next_json(&mut device).await;
+    assert_eq!(
+        frame["mcp"]["params"]["name"],
+        json!("runs.list"),
+        "{frame}"
+    );
+    answer(
+        &mut device,
+        &frame,
+        json!({
+            "jsonrpc": "2.0", "id": 1,
+            "result": { "content": [{ "type": "text", "text": json!([
+                { "id": "run-7", "command": "pwsh", "args": ["-c", "1"], "cwd": "C:\\work",
+                  "exit_code": 0, "timed_out": false, "duration_ms": 12,
+                  "started_at_ms": 1793057500000u64, "stdout_bytes": 5, "stderr_bytes": 0 }
+            ]).to_string() }], "isError": false }
+        }),
+    )
+    .await;
+
+    let frame = next_json(&mut device).await;
+    assert_eq!(frame["mcp"]["params"]["name"], json!("runs.get"), "{frame}");
+    assert_eq!(frame["mcp"]["params"]["arguments"]["id"], json!("run-7"));
+    answer(
+        &mut device,
+        &frame,
+        json!({
+            "jsonrpc": "2.0", "id": 1,
+            "result": { "content": [{ "type": "text", "text": json!({
+                "id": "run-7", "command": "pwsh", "args": ["-c", "1"], "cwd": "C:\\work",
+                "exit_code": 0, "timed_out": false, "duration_ms": 12,
+                "started_at_ms": 1793057500000u64, "stdout_bytes": 5, "stderr_bytes": 0
+            }).to_string() }], "isError": false }
+        }),
+    )
+    .await;
+
+    let (status, _, body) = page.await.expect("the page finishes");
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        body.contains("?run=run-7"),
+        "the row links to itself: {body}"
+    );
+    assert!(body.contains("run-7"), "{body}");
+    assert!(
+        body.contains("C:\\work"),
+        "the row's working directory: {body}"
+    );
+    assert!(
+        body.contains("5 bytes"),
+        "how much stdout the run produced: {body}"
+    );
+}
+
+/// The memory page can search the text (not only filter a tag), which is what `memory.search` is for.
+#[tokio::test]
+async fn the_memory_page_searches_the_text() {
+    let fixture = Fixture::new("memory-search");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xdb)).await;
+    let cookie = page_cookie(&fixture).await;
+
+    let app = fixture.app();
+    let request = get_with_cookie(&format!("/next/memory/{device_id}?q=needle"), &cookie);
+    let page = tokio::spawn(async move { send_text(app, request).await });
+
+    let frame = next_json(&mut device).await;
+    assert_eq!(
+        frame["mcp"]["params"]["name"],
+        json!("memory.search"),
+        "{frame}"
+    );
+    assert_eq!(
+        frame["mcp"]["params"]["arguments"]["query"],
+        json!("needle")
+    );
+    answer(
+        &mut device,
+        &frame,
+        json!({
+            "jsonrpc": "2.0", "id": 1,
+            "result": { "content": [{ "type": "text", "text": json!([
+                { "id": "entry-1", "text": "a needle in the store", "tags": ["probe"] }
+            ]).to_string() }], "isError": false }
+        }),
+    )
+    .await;
+
+    let (status, _, body) = page.await.expect("the page finishes");
+    assert_eq!(status, StatusCode::OK);
+    assert!(body.contains("a needle in the store"), "{body}");
+}
+
+/// An entry can be rewritten in place; the form is filled from the entry the list already returned.
+#[tokio::test]
+async fn the_memory_page_can_edit_an_entry() {
+    let fixture = Fixture::new("memory-edit");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xda)).await;
+    let (cookie, csrf) = sign_in_to_the_page(&fixture).await;
+
+    let app = fixture.app();
+    let request = get_with_cookie(&format!("/next/memory/{device_id}?edit=entry-1"), &cookie);
+    let page = tokio::spawn(async move { send_text(app, request).await });
+    let frame = next_json(&mut device).await;
+    assert_eq!(
+        frame["mcp"]["params"]["name"],
+        json!("memory.list"),
+        "{frame}"
+    );
+    answer(
+        &mut device,
+        &frame,
+        json!({
+            "jsonrpc": "2.0", "id": 1,
+            "result": { "content": [{ "type": "text", "text": json!([
+                { "id": "entry-1", "text": "the old fact", "tags": ["a", "b"] }
+            ]).to_string() }], "isError": false }
+        }),
+    )
+    .await;
+    let (status, _, body) = page.await.expect("the page finishes");
+    assert_eq!(status, StatusCode::OK);
+    assert!(body.contains("Edit an entry"), "{body}");
+    assert!(body.contains("the old fact"), "{body}");
+    assert!(
+        body.contains(&format!("/next/memory/{device_id}/update")),
+        "{body}"
+    );
+
+    let app = fixture.app();
+    let request = post_form_cookie(
+        &format!("/next/memory/{device_id}/update"),
+        &[
+            ("csrf", &csrf),
+            ("id", "entry-1"),
+            ("text", "the new fact"),
+            ("tags", "a, b"),
+        ],
+        &cookie,
+    );
+    let update = tokio::spawn(async move { send_text(app, request).await });
+    let frame = next_json(&mut device).await;
+    assert_eq!(
+        frame["mcp"]["params"]["name"],
+        json!("memory.update"),
+        "{frame}"
+    );
+    assert_eq!(frame["mcp"]["params"]["arguments"]["id"], json!("entry-1"));
+    assert_eq!(
+        frame["mcp"]["params"]["arguments"]["text"],
+        json!("the new fact")
+    );
+    assert_eq!(
+        frame["mcp"]["params"]["arguments"]["tags"],
+        json!(["a", "b"]),
+        "tags are the complete new list, split from the field"
+    );
+    answer(
+        &mut device,
+        &frame,
+        json!({
+            "jsonrpc": "2.0", "id": 1,
+            "result": { "content": [{ "type": "text", "text": "{}" }], "isError": false }
+        }),
+    )
+    .await;
+    let (status, _, _) = update.await.expect("the update finishes");
+    assert_eq!(status, StatusCode::SEE_OTHER);
+}
+
+/// The whole store can be taken away as JSONL, which is what `memory.export` is for.
+#[tokio::test]
+async fn the_memory_page_can_export_the_store() {
+    let fixture = Fixture::new("memory-export");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xd9)).await;
+    let cookie = page_cookie(&fixture).await;
+
+    let app = fixture.app();
+    let request = get_with_cookie(&format!("/next/memory/{device_id}/export"), &cookie);
+    let export = tokio::spawn(async move { send_text(app, request).await });
+
+    let frame = next_json(&mut device).await;
+    assert_eq!(
+        frame["mcp"]["params"]["name"],
+        json!("memory.export"),
+        "{frame}"
+    );
+    answer(
+        &mut device,
+        &frame,
+        json!({
+            "jsonrpc": "2.0", "id": 1,
+            "result": { "content": [{ "type": "text", "text": json!({
+                // The device answers an envelope; the download is the JSONL inside it.
+                "text": "{\"id\":\"1\",\"text\":\"kept\"}\n",
+                "entries": 1,
+                "truncated": true,
+                "total_bytes": 27
+            }).to_string() }], "isError": false }
+        }),
+    )
+    .await;
+
+    let (status, headers, body) = export.await.expect("the export finishes");
+    assert_eq!(status, StatusCode::OK);
+    assert!(body.contains("kept"), "{body}");
+    assert!(
+        !body.contains("truncated") && !body.contains("entries"),
+        "the envelope is not the file: {body}"
+    );
+    assert!(
+        headers
+            .get("x-memory-truncated")
+            .and_then(|value| value.to_str().ok())
+            .is_some_and(|value| value == "true"),
+        "a truncated export says so in a header, since JSONL has nowhere else"
+    );
+    assert!(
+        headers
+            .get(header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok())
+            .is_some_and(|value| value.contains("json")),
+        "the response names what it is"
+    );
+    assert!(
+        headers
+            .get(header::CONTENT_DISPOSITION)
+            .and_then(|value| value.to_str().ok())
+            .is_some_and(|value| value.contains("attachment")),
+        "it downloads rather than renders"
+    );
+}
+
+/// Navigation and shutdown were the two browser tools without a form; both now reach the device.
+#[tokio::test]
+async fn the_browser_page_can_navigate_and_shut_the_browser_down() {
+    let fixture = Fixture::new("browser-navigate-shutdown");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xdc)).await;
+    let (cookie, csrf) = sign_in_to_the_page(&fixture).await;
+
+    let app = fixture.app();
+    let request = post_form_cookie(
+        &format!("/next/browser/{device_id}/navigate"),
+        &[
+            ("csrf", &csrf),
+            ("target", "target-1"),
+            ("url", "https://example.org/next"),
+        ],
+        &cookie,
+    );
+    let navigate = tokio::spawn(async move { send_text(app, request).await });
+    let frame = next_json(&mut device).await;
+    assert_eq!(
+        frame["mcp"]["params"]["name"],
+        json!("browser.navigate"),
+        "{frame}"
+    );
+    assert_eq!(
+        frame["mcp"]["params"]["arguments"]["target"],
+        json!("target-1")
+    );
+    assert_eq!(
+        frame["mcp"]["params"]["arguments"]["url"],
+        json!("https://example.org/next")
+    );
+    answer(
+        &mut device,
+        &frame,
+        json!({
+            "jsonrpc": "2.0", "id": 1,
+            "result": { "content": [{ "type": "text", "text": "{}" }], "isError": false }
+        }),
+    )
+    .await;
+    let (status, _, _) = navigate.await.expect("the navigate finishes");
+    assert_eq!(status, StatusCode::SEE_OTHER);
+
+    let app = fixture.app();
+    let request = post_form_cookie(
+        &format!("/next/browser/{device_id}/shutdown"),
+        &[("csrf", &csrf)],
+        &cookie,
+    );
+    let shutdown = tokio::spawn(async move { send_text(app, request).await });
+    let frame = next_json(&mut device).await;
+    assert_eq!(
+        frame["mcp"]["params"]["name"],
+        json!("browser.shutdown"),
+        "{frame}"
+    );
+    answer(
+        &mut device,
+        &frame,
+        json!({
+            "jsonrpc": "2.0", "id": 1,
+            "result": { "content": [{ "type": "text", "text": "{\"stopped\":true}" }], "isError": false }
+        }),
+    )
+    .await;
+    let (status, _, _) = shutdown.await.expect("the shutdown finishes");
+    assert_eq!(status, StatusCode::SEE_OTHER);
+}
+
+/// An expression runs in the device's target and its answer is on the page that follows; the console
+/// keeps it in memory rather than in the URL.
+#[tokio::test]
+async fn the_browser_page_can_evaluate_and_shows_the_answer() {
+    let fixture = Fixture::new("browser-eval");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xdd)).await;
+    let (cookie, csrf) = sign_in_to_the_page(&fixture).await;
+
+    let app = fixture.app();
+    let request = post_form_cookie(
+        &format!("/next/browser/{device_id}/eval"),
+        &[
+            ("csrf", &csrf),
+            ("target", "target-1"),
+            ("expression", "document.title"),
+        ],
+        &cookie,
+    );
+    let eval = tokio::spawn(async move { send_text(app, request).await });
+
+    let frame = next_json(&mut device).await;
+    assert_eq!(
+        frame["mcp"]["params"]["name"],
+        json!("browser.eval"),
+        "{frame}"
+    );
+    assert_eq!(
+        frame["mcp"]["params"]["arguments"]["target"],
+        json!("target-1")
+    );
+    assert_eq!(
+        frame["mcp"]["params"]["arguments"]["expression"],
+        json!("document.title")
+    );
+    answer(
+        &mut device,
+        &frame,
+        json!({
+            "jsonrpc": "2.0", "id": 1,
+            "result": { "content": [{ "type": "text", "text": json!({ "type": "string", "value": "Example" }).to_string() }], "isError": false }
+        }),
+    )
+    .await;
+    let (status, _, _) = eval.await.expect("the eval finishes");
+    assert_eq!(status, StatusCode::SEE_OTHER);
+
+    // The page that follows shows the expression and the answer.
+    let app = fixture.app();
+    let request = get_with_cookie(&format!("/next/browser/{device_id}"), &cookie);
+    let page = tokio::spawn(async move { send_text(app, request).await });
+    let frame = next_json(&mut device).await;
+    assert_eq!(
+        frame["mcp"]["params"]["name"],
+        json!("browser.list"),
+        "{frame}"
+    );
+    answer(
+        &mut device,
+        &frame,
+        json!({
+            "jsonrpc": "2.0", "id": 1,
+            "result": { "content": [{ "type": "text", "text": json!([
+                { "id": "target-1", "title": "example", "url": "https://example.com/", "type": "page" }
+            ]).to_string() }], "isError": false }
+        }),
+    )
+    .await;
+    let frame = next_json(&mut device).await;
+    assert_eq!(
+        frame["mcp"]["params"]["name"],
+        json!("browser.screenshot"),
+        "{frame}"
+    );
+    answer(
+        &mut device,
+        &frame,
+        json!({
+            "jsonrpc": "2.0", "id": 1,
+            "result": { "content": [{ "type": "text", "text": json!({ "format": "png", "data": "QUJD", "bytes": 3 }).to_string() }], "isError": false }
+        }),
+    )
+    .await;
+
+    let (status, _, body) = page.await.expect("the browser page finishes");
+    assert_eq!(status, StatusCode::OK);
+    assert!(body.contains("Last evaluation"), "{body}");
+    assert!(body.contains("document.title"), "{body}");
+    assert!(body.contains("Example"), "{body}");
+    assert!(
+        body.contains(&format!("/next/browser/{device_id}/eval")),
+        "the form is there to run another: {body}"
+    );
+}
+
+#[tokio::test]
+async fn the_browser_page_lists_targets_captures_the_first_and_forwards_an_open() {
+    let fixture = Fixture::new("browser-page");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xef)).await;
+    let (cookie, csrf) = sign_in_to_the_page(&fixture).await;
+
+    let app = fixture.app();
+    let request = get_with_cookie(&format!("/next/browser/{device_id}"), &cookie);
+    let page = tokio::spawn(async move { send_text(app, request).await });
+
+    let frame = next_json(&mut device).await;
+    assert_eq!(
+        frame["mcp"]["params"]["name"],
+        json!("browser.list"),
+        "{frame}"
+    );
+    answer(
+        &mut device,
+        &frame,
+        json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {
+                "content": [{ "type": "text", "text": json!([
+                    { "id": "target-1", "title": "example", "url": "https://example.com/", "type": "page" }
+                ]).to_string() }],
+                "isError": false
+            }
+        }),
+    )
+    .await;
+
+    let frame = next_json(&mut device).await;
+    assert_eq!(
+        frame["mcp"]["params"]["name"],
+        json!("browser.screenshot"),
+        "{frame}"
+    );
+    assert_eq!(
+        frame["mcp"]["params"]["arguments"]["target"],
+        json!("target-1")
+    );
+    answer(
+        &mut device,
+        &frame,
+        json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {
+                "content": [{ "type": "text", "text": json!({ "format": "png", "data": "QUJD", "bytes": 3 }).to_string() }],
+                "isError": false
+            }
+        }),
+    )
+    .await;
+
+    let (status, _, body) = page.await.expect("the browser page finishes");
+    assert_eq!(status, StatusCode::OK);
+    assert!(body.contains("https://example.com/"), "{body}");
+    assert!(
+        body.contains("src=\"data:image/png;base64,QUJD\""),
+        "{body}"
+    );
+
+    let mut request = post_form(
+        &format!("/next/browser/{device_id}/open"),
+        &[("csrf", &csrf), ("url", "https://example.org/")],
+    );
+    request
+        .headers_mut()
+        .insert(header::COOKIE, cookie.parse().expect("the cookie header"));
+    let open = tokio::spawn(async move { send_text(fixture.app(), request).await });
+    let frame = next_json(&mut device).await;
+    assert_eq!(
+        frame["mcp"]["params"]["name"],
+        json!("browser.open"),
+        "{frame}"
+    );
+    assert_eq!(
+        frame["mcp"]["params"]["arguments"]["url"],
+        json!("https://example.org/")
+    );
+    answer(
+        &mut device,
+        &frame,
+        json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {
+                "content": [{ "type": "text", "text": json!({ "target": "target-2", "url": "https://example.org/" }).to_string() }],
+                "isError": false
+            }
+        }),
+    )
+    .await;
+    let (status, headers, _) = open.await.expect("the open finishes");
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert_eq!(
+        headers
+            .get(header::LOCATION)
+            .and_then(|value| value.to_str().ok()),
+        Some(format!("/next/browser/{device_id}").as_str())
+    );
+}
+
+#[tokio::test]
+async fn a_terminal_create_can_name_an_ssh_or_a_serial_target() {
+    let fixture = Fixture::new("terminal-kinds");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xf0)).await;
+    let (cookie, csrf) = sign_in_to_the_page(&fixture).await;
+
+    // SSH: the page carries the password into the device's auth envelope and never into the URL.
+    let mut request = post_json_cookie(
+        &format!("/next/terminal/{device_id}/create"),
+        json!({
+            "kind": "ssh", "host": "10.0.0.5", "ssh_port": 2222, "user": "root",
+            "password": "hunter2", "rows": 30, "cols": 90
+        }),
+        &cookie,
+        Some(&csrf),
+    );
+    request.headers_mut().insert(
+        header::CONTENT_TYPE,
+        "application/json".parse().expect("a header"),
+    );
+    let app = fixture.app();
+    let create = tokio::spawn(async move { send_with_headers(app, request).await });
+    let frame = next_json(&mut device).await;
+    let arguments = &frame["mcp"]["params"]["arguments"];
+    assert_eq!(arguments["kind"], json!("ssh"), "{frame}");
+    assert_eq!(arguments["host"], json!("10.0.0.5"));
+    assert_eq!(arguments["port"], json!(2222));
+    assert_eq!(arguments["user"], json!("root"));
+    assert_eq!(arguments["auth"]["kind"], json!("password"));
+    assert_eq!(arguments["auth"]["password"], json!("hunter2"));
+    assert_eq!(arguments["rows"], json!(30));
+    answer(
+        &mut device,
+        &frame,
+        json!({
+            "jsonrpc": "2.0", "id": 1,
+            "result": { "content": [{ "type": "text", "text": json!({ "id": "session-9", "kind": "ssh", "shell": "root@10.0.0.5" }).to_string() }], "isError": false }
+        }),
+    )
+    .await;
+    let (status, _, body) = create.await.expect("the ssh create finishes");
+    assert_eq!(status, StatusCode::OK, "{body}");
+
+    // Serial: the port path and the baud, and no host or user.
+    let mut request = post_json_cookie(
+        &format!("/next/terminal/{device_id}/create"),
+        json!({ "kind": "serial", "serial_port": "COM3", "baud": 9600 }),
+        &cookie,
+        Some(&csrf),
+    );
+    request.headers_mut().insert(
+        header::CONTENT_TYPE,
+        "application/json".parse().expect("a header"),
+    );
+    let app = fixture.app();
+    let create = tokio::spawn(async move { send_with_headers(app, request).await });
+    let frame = next_json(&mut device).await;
+    let arguments = &frame["mcp"]["params"]["arguments"];
+    assert_eq!(arguments["kind"], json!("serial"), "{frame}");
+    assert_eq!(arguments["port"], json!("COM3"));
+    assert_eq!(arguments["baud"], json!(9600));
+    answer(
+        &mut device,
+        &frame,
+        json!({
+            "jsonrpc": "2.0", "id": 1,
+            "result": { "content": [{ "type": "text", "text": json!({ "id": "session-10", "kind": "serial", "shell": "COM3 9600 8N1" }).to_string() }], "isError": false }
+        }),
+    )
+    .await;
+    let (status, _, body) = create.await.expect("the serial create finishes");
+    assert_eq!(status, StatusCode::OK, "{body}");
+
+    // SSH by key: the page names the key on the device and sends no password. A key path is
+    // configuration, not a credential, so the preset and the form may hold it.
+    let mut request = post_json_cookie(
+        &format!("/next/terminal/{device_id}/create"),
+        json!({
+            "kind": "ssh", "host": "10.0.0.5", "ssh_port": 22, "user": "root",
+            "key_path": "C:\\Users\\operator\\.ssh\\id_ed25519", "rows": 24, "cols": 80
+        }),
+        &cookie,
+        Some(&csrf),
+    );
+    request.headers_mut().insert(
+        header::CONTENT_TYPE,
+        "application/json".parse().expect("a header"),
+    );
+    let app = fixture.app();
+    let create = tokio::spawn(async move { send_with_headers(app, request).await });
+    let frame = next_json(&mut device).await;
+    let arguments = &frame["mcp"]["params"]["arguments"];
+    assert_eq!(arguments["auth"]["kind"], json!("key"), "{frame}");
+    assert_eq!(
+        arguments["auth"]["path"],
+        json!("C:\\Users\\operator\\.ssh\\id_ed25519"),
+        "{frame}"
+    );
+    answer(
+        &mut device,
+        &frame,
+        json!({
+            "jsonrpc": "2.0", "id": 1,
+            "result": { "content": [{ "type": "text", "text": json!({ "id": "session-11", "kind": "ssh", "shell": "root@10.0.0.5" }).to_string() }], "isError": false }
+        }),
+    )
+    .await;
+    let (status, _, body) = create.await.expect("the key create finishes");
+    assert_eq!(status, StatusCode::OK, "{body}");
+}
+
+/// An ssh session needs one of the two: a password typed on the page, or a key path the device can
+/// read. Saying so beats a device-side refusal with a worse sentence.
+#[tokio::test]
+async fn an_ssh_create_without_a_password_or_a_key_is_refused_by_the_page() {
+    let fixture = Fixture::new("terminal-ssh-no-auth");
+    let (device_id, _) = fixture.register(&signing_key(0xee)).await;
+    let (cookie, csrf) = sign_in_to_the_page(&fixture).await;
+
+    let mut request = post_json_cookie(
+        &format!("/next/terminal/{device_id}/create"),
+        json!({ "kind": "ssh", "host": "10.0.0.5", "user": "root" }),
+        &cookie,
+        Some(&csrf),
+    );
+    request.headers_mut().insert(
+        header::CONTENT_TYPE,
+        "application/json".parse().expect("a header"),
+    );
+    let (status, _, body) = send_with_headers(fixture.app(), request).await;
+
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert!(
+        body["error"]
+            .as_str()
+            .is_some_and(|sentence| sentence.contains("key path")),
+        "{body}"
+    );
+}
+
+/// The page offers the key field; without it the device's public-key auth was unreachable from the
+/// console, which said so in the one place an operator would look for it.
+#[tokio::test]
+async fn the_terminal_page_offers_a_key_file() {
+    let fixture = Fixture::new("terminal-key-field");
+    let (device_id, _) = fixture.register(&signing_key(0xed)).await;
+    let cookie = page_cookie(&fixture).await;
+
+    let (status, _, page) = send_text(
+        fixture.app(),
+        get_with_cookie(&format!("/next/terminal/{device_id}"), &cookie),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert!(page.contains("id=\"key_path\""), "{page}");
+}
+
+#[tokio::test]
+async fn the_connect_page_mints_a_token_once_lists_it_and_revokes_it() {
+    let fixture = Fixture::new("connect-page");
+    let (device_id, _token) = fixture.register(&signing_key(0xf1)).await;
+    let (cookie, csrf) = sign_in_to_the_page(&fixture).await;
+
+    let page_uri = format!("/next/tokens/{device_id}");
+    let (status, _, body) = send_text(fixture.app(), get_with_cookie(&page_uri, &cookie)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(body.contains("Mint a token"), "{body}");
+    assert!(body.contains("No token names this device yet"), "{body}");
+
+    // Mint: the page shows the secret once, along with the client configuration for this device.
+    let mut request = post_form(
+        &format!("{page_uri}/mint"),
+        &[("csrf", &csrf), ("name", "dsh-aggregate")],
+    );
+    request
+        .headers_mut()
+        .insert(header::COOKIE, cookie.parse().expect("the cookie header"));
+    let (status, _, created) = send_text(fixture.app(), request).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(created.contains("srm_"), "{created}");
+    assert!(
+        created.contains(&format!("/mcp/{device_id}")),
+        "the client config names this device's endpoint: {created}"
+    );
+
+    // The list reports it, and carries the id the revoke form posts.
+    let (_, _, listed) = send_text(fixture.app(), get_with_cookie(&page_uri, &cookie)).await;
+    assert!(listed.contains("dsh-aggregate"), "{listed}");
+    let marker = "name=\"id\" value=\"";
+    let start = listed.find(marker).expect("a revoke form") + marker.len();
+    let end = start + listed[start..].find('"').expect("the id ends");
+    let id = listed[start..end].to_owned();
+
+    let mut request = post_form(
+        &format!("{page_uri}/revoke"),
+        &[("csrf", &csrf), ("id", &id)],
+    );
+    request
+        .headers_mut()
+        .insert(header::COOKIE, cookie.parse().expect("the cookie header"));
+    let (status, _, _) = send_text(fixture.app(), request).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let (_, _, after) = send_text(fixture.app(), get_with_cookie(&page_uri, &cookie)).await;
+    assert!(!after.contains("dsh-aggregate"), "{after}");
+    assert!(after.contains("No token names this device yet"), "{after}");
+}
+
+/// The consent is the operator's, not a default: a mint without the box ticked must produce a token
+/// whose destructive calls the device refuses, and the list must say so.
+#[tokio::test]
+async fn a_minted_token_is_only_destructive_when_asked_for() {
+    let fixture = Fixture::new("token-consent");
+    let (device_id, _) = fixture.register(&signing_key(0xfa)).await;
+    let (cookie, csrf) = sign_in_to_the_page(&fixture).await;
+    let page_uri = format!("/next/tokens/{device_id}");
+
+    let mut request = post_form(
+        &format!("{page_uri}/mint"),
+        &[("csrf", &csrf), ("name", "plain")],
+    );
+    request
+        .headers_mut()
+        .insert(header::COOKIE, cookie.parse().expect("the cookie header"));
+    let (status, _, _) = send_text(fixture.app(), request).await;
+    assert_eq!(status, StatusCode::OK);
+
+    let (_, _, listed) = send_text(fixture.app(), get_with_cookie(&page_uri, &cookie)).await;
+    assert!(listed.contains("plain"), "{listed}");
+    assert!(
+        !listed.contains("destructive allowed"),
+        "a plain mint has no destructive consent: {listed}"
+    );
+
+    let mut request = post_form(
+        &format!("{page_uri}/mint"),
+        &[
+            ("csrf", &csrf),
+            ("name", "armed"),
+            ("allow_destructive", "on"),
+        ],
+    );
+    request
+        .headers_mut()
+        .insert(header::COOKIE, cookie.parse().expect("the cookie header"));
+    let (status, _, _) = send_text(fixture.app(), request).await;
+    assert_eq!(status, StatusCode::OK);
+
+    let (_, _, listed) = send_text(fixture.app(), get_with_cookie(&page_uri, &cookie)).await;
+    assert!(listed.contains("armed"), "{listed}");
+    assert!(
+        listed.contains("destructive allowed"),
+        "the ticked box is recorded on the row: {listed}"
+    );
+    assert!(
+        listed.contains("holds the question for ninety seconds"),
+        "the page says where the ninety-second hold lives — this page, not the device: {listed}"
+    );
+    assert!(
+        listed.contains("refused by the device"),
+        "the device refuses without consent; the page only holds the question: {listed}"
+    );
+}
+
+/// **THE FORM THE DOCUMENTS PROMISED.** Creation has taken a lifetime since 9a69cd5, and the
+/// Connect card offered no way to choose one: every token minted from the page was permanent by
+/// accident, and the list never said when one ends. A refusal used to land on the page as nothing
+/// at all — the redirect carried `?error=` and the handler ignored it.
+#[tokio::test]
+async fn the_connect_page_can_give_a_token_a_lifetime() {
+    let fixture = Fixture::new("token-lifetime-page");
+    let (device_id, _) = fixture.register(&signing_key(0xfb)).await;
+    let (cookie, csrf) = sign_in_to_the_page(&fixture).await;
+    let session = fixture.authenticate().await;
+    let page_uri = format!("/next/tokens/{device_id}");
+
+    let (_, _, form) = send_text(fixture.app(), get_with_cookie(&page_uri, &cookie)).await;
+    for value in ["", "2592000", "7776000", "31536000"] {
+        assert!(
+            form.contains(&format!("option value=\"{value}\"")),
+            "the card offers the lifetime {value:?}: {form}"
+        );
+    }
+
+    for (name, expiry) in [("permanent", None), ("thirty-days", Some("2592000"))] {
+        let mut fields = vec![("csrf", csrf.as_str()), ("name", name)];
+        if let Some(expiry) = expiry {
+            fields.push(("expires_in_s", expiry));
+        }
+        let mut request = post_form(&format!("{page_uri}/mint"), &fields);
+        request
+            .headers_mut()
+            .insert(header::COOKIE, cookie.parse().expect("the cookie header"));
+        let (status, _, _) = send_text(fixture.app(), request).await;
+        assert_eq!(status, StatusCode::OK, "{name} was minted");
+    }
+
+    // The store is the authority on the lifetime, and it took both values as given.
+    let (_, listed) = send(fixture.app(), get("/tokens", Some(&session))).await;
+    let rows = listed.as_array().expect("the token list");
+    let permanent = rows
+        .iter()
+        .find(|row| row["name"] == json!("permanent"))
+        .expect("the permanent token");
+    assert!(
+        permanent.get("expires_at_ms").is_none_or(Value::is_null),
+        "no expiry field means permanent: {permanent}"
+    );
+    let expiring = rows
+        .iter()
+        .find(|row| row["name"] == json!("thirty-days"))
+        .expect("the expiring token");
+    assert_eq!(
+        expiring["expires_at_ms"],
+        json!(START_MS + 30 * DAY_MS),
+        "thirty days from the fixture's clock"
+    );
+
+    // And the card says so: `never` for one, a dated year for the other.
+    let (_, _, page) = send_text(fixture.app(), get_with_cookie(&page_uri, &cookie)).await;
+    assert!(
+        page.contains("never"),
+        "the permanent token says never: {page}"
+    );
+    assert!(
+        page.contains("1970-01-31"),
+        "the thirty-day token says the date, with its year: {page}"
+    );
+
+    // A lifetime outside one hour to a year is refused, and the page explains it.
+    let mut request = post_form(
+        &format!("{page_uri}/mint"),
+        &[
+            ("csrf", &csrf),
+            ("name", "too-short"),
+            ("expires_in_s", "10"),
+        ],
+    );
+    request
+        .headers_mut()
+        .insert(header::COOKIE, cookie.parse().expect("the cookie header"));
+    let (status, headers, _) = send_text(fixture.app(), request).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert_eq!(
+        headers
+            .get(header::LOCATION)
+            .and_then(|value| value.to_str().ok()),
+        Some(format!("{page_uri}?error=expiry").as_str()),
+        "the refusal names its reason"
+    );
+    let (_, listed) = send(fixture.app(), get("/tokens", Some(&session))).await;
+    assert!(
+        !listed
+            .as_array()
+            .expect("the token list")
+            .iter()
+            .any(|row| row["name"] == json!("too-short")),
+        "nothing was created: {listed}"
+    );
+    let (_, _, explained) = send_text(
+        fixture.app(),
+        get_with_cookie(&format!("{page_uri}?error=expiry"), &cookie),
+    )
+    .await;
+    assert!(
+        explained.contains("not between one hour and 365 days"),
+        "the page says why: {explained}"
+    );
+}
+
+/// **THE FLEET SCOPE, FROM THE PAGE.** One token across several devices, used on `/mcp/all`.
+/// The engine supported it; no page minted it, so the documents pointed at curl.
+#[tokio::test]
+async fn the_fleet_tokens_page_mints_one_token_for_several_devices() {
+    let fixture = Fixture::new("fleet-token-page");
+    let (first, _) = fixture.register(&signing_key(0xfe)).await;
+    let (second, _) = fixture.register(&signing_key(0xff)).await;
+    let (cookie, csrf) = sign_in_to_the_page(&fixture).await;
+    let session = fixture.authenticate().await;
+
+    let (status, _, page) = send_text(
+        fixture.app(),
+        get_with_cookie("/next/fleet-tokens", &cookie),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(page.contains("Mint a fleet token"), "{page}");
+    assert_eq!(
+        page.matches("name=\"device\"").count(),
+        2,
+        "one checkbox per registered device: {page}"
+    );
+    assert!(
+        page.contains("No token reaches more than one device yet"),
+        "{page}"
+    );
+
+    let mut request = post_form(
+        "/next/fleet-tokens/mint",
+        &[
+            ("csrf", &csrf),
+            ("name", "one-client"),
+            ("device", &first),
+            ("device", &second),
+            ("expires_in_s", "2592000"),
+        ],
+    );
+    request
+        .headers_mut()
+        .insert(header::COOKIE, cookie.parse().expect("the cookie header"));
+    let (status, _, created) = send_text(fixture.app(), request).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        created.contains("/mcp/all"),
+        "the client configuration points at the aggregate endpoint: {created}"
+    );
+    assert!(created.contains("Bearer srm_"), "{created}");
+
+    let (_, listed) = send(fixture.app(), get("/tokens", Some(&session))).await;
+    let rows = listed.as_array().expect("the token list");
+    let token = rows
+        .iter()
+        .find(|row| row["name"] == json!("one-client"))
+        .expect("the fleet token");
+    let ids: Vec<&str> = token["device_ids"]
+        .as_array()
+        .expect("the scope")
+        .iter()
+        .map(|value| value.as_str().expect("a device id"))
+        .collect();
+    assert_eq!(ids, vec![first.as_str(), second.as_str()]);
+    assert_eq!(token["expires_at_ms"], json!(START_MS + 30 * DAY_MS));
+
+    // The list names the scope in the devices the operator knows, and offers a revoke.
+    let (_, _, listed_page) = send_text(
+        fixture.app(),
+        get_with_cookie("/next/fleet-tokens", &cookie),
+    )
+    .await;
+    assert!(listed_page.contains("one-client"), "{listed_page}");
+    assert_eq!(
+        listed_page.matches("/next/fleet-tokens/revoke").count(),
+        1,
+        "one revoke form for the one fleet token: {listed_page}"
+    );
+
+    let id = token["id"].as_str().expect("an id").to_owned();
+    let mut request = post_form("/next/fleet-tokens/revoke", &[("csrf", &csrf), ("id", &id)]);
+    request
+        .headers_mut()
+        .insert(header::COOKIE, cookie.parse().expect("the cookie header"));
+    let (status, _, _) = send_text(fixture.app(), request).await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    let (_, listed) = send(fixture.app(), get("/tokens", Some(&session))).await;
+    assert!(
+        !listed
+            .as_array()
+            .expect("the token list")
+            .iter()
+            .any(|row| row["name"] == json!("one-client")),
+        "the revoked token is gone: {listed}"
+    );
+}
+
+#[tokio::test]
+async fn a_fleet_token_mint_without_csrf_is_refused() {
+    let fixture = Fixture::new("fleet-token-csrf");
+    let (device, _) = fixture.register(&signing_key(0xd0)).await;
+    let (cookie, _csrf) = sign_in_to_the_page(&fixture).await;
+    let mut request = post_form(
+        "/next/fleet-tokens/mint",
+        &[
+            ("csrf", &"00".repeat(32)),
+            ("name", "sneaky"),
+            ("device", &device),
+        ],
+    );
+    request
+        .headers_mut()
+        .insert(header::COOKIE, cookie.parse().expect("the cookie header"));
+    let (status, _, _) = send_text(fixture.app(), request).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn a_token_mint_without_csrf_is_refused() {
+    let fixture = Fixture::new("connect-csrf");
+    let (device_id, _token) = fixture.register(&signing_key(0xf2)).await;
+    let (cookie, _csrf) = sign_in_to_the_page(&fixture).await;
+    let mut request = post_form(
+        &format!("/next/tokens/{device_id}/mint"),
+        &[("csrf", &"00".repeat(32)), ("name", "sneaky")],
+    );
+    request
+        .headers_mut()
+        .insert(header::COOKIE, cookie.parse().expect("the cookie header"));
+    let (status, _, _) = send_text(fixture.app(), request).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn the_vitals_page_draws_one_sample_of_the_devices_own_numbers() {
+    let fixture = Fixture::new("vitals-page");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xf3)).await;
+    let (cookie, _csrf) = sign_in_to_the_page(&fixture).await;
+
+    let app = fixture.app();
+    let request = get_with_cookie(&format!("/next/vitals/{device_id}"), &cookie);
+    let page = tokio::spawn(async move { send_text(app, request).await });
+    let frame = next_json(&mut device).await;
+    assert_eq!(
+        frame["mcp"]["params"]["name"],
+        json!("host.facts"),
+        "{frame}"
+    );
+    answer(
+        &mut device,
+        &frame,
+        json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {
+                "content": [{ "type": "text", "text": json!({
+                    "machine": "DESKTOP-TEST",
+                    "os": { "name": "Windows", "version": "10.0.22631" },
+                    "cpu": { "cores": 12 },
+                    "uptime_s": 7200,
+                    "memory": { "total_bytes": 8u64 * 1024 * 1024 * 1024, "available_bytes": 4u64 * 1024 * 1024 * 1024 },
+                    "disks": [{ "name": "C:\\", "total_bytes": 100u64 * 1024 * 1024 * 1024, "free_bytes": 25u64 * 1024 * 1024 * 1024 }],
+                    "update": { "current": { "version": "0.3.65", "channel": "canary" } }
+                }).to_string() }],
+                "isError": false
+            }
+        }),
+    )
+    .await;
+    let (status, _, body) = page.await.expect("the vitals page finishes");
+    assert_eq!(status, StatusCode::OK);
+    assert!(body.contains("DESKTOP-TEST"), "{body}");
+    assert!(body.contains("4.0 GiB used of 8.0 GiB"), "{body}");
+    assert!(body.contains("C:\\"), "{body}");
+    assert!(body.contains("0.3.65 (canary)"), "{body}");
+    assert!(body.contains("width:50%"), "the memory bar is half: {body}");
+}
+
+#[tokio::test]
+async fn the_conventional_favicon_path_answers_with_the_icon() {
+    // A browser asks for /favicon.ico on every page it opens; a 404 there is a console error on
+    // every page that does not declare an icon.
+    let fixture = Fixture::new("favicon");
+    let response = fixture
+        .app()
+        .oneshot(get("/favicon.ico", None))
+        .await
+        .expect("the icon is served");
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        response
+            .headers()
+            .get(header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok()),
+        Some("image/png")
+    );
+}
+
+#[tokio::test]
+async fn a_page_session_survives_a_console_restart() {
+    // Every deploy used to sign the operator out, because sessions were memory only. A session is
+    // written to `<data>/sessions.json` now, and the token itself never is.
+    let fixture = Fixture::new("session-restart");
+    let (cookie, csrf) = sign_in_to_the_page(&fixture).await;
+
+    let restarted = fixture.restart();
+    let (status, _, body) = send_text(restarted.router(), get_with_cookie("/next", &cookie)).await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "the restarted console accepts the cookie"
+    );
+    assert!(body.contains("Devices"), "{body}");
+
+    // The CSRF value is part of the session too, so a form rendered before the restart still works.
+    let (status, _, _) = send_text(
+        restarted.router(),
+        post_form_cookie("/next/enroll", &[("csrf", &csrf)], &cookie),
+    )
+    .await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+
+    // The session file holds hashes, not tokens.
+    let file =
+        std::fs::read_to_string(fixture.config.data.join("sessions.json")).expect("the file");
+    assert!(
+        !file.contains(&cookie["summrise_session=".len()..]),
+        "{file}"
+    );
+    assert!(file.contains("token_hash"), "{file}");
+}
+
+#[tokio::test]
+async fn a_page_session_expires_after_its_lifetime() {
+    let fixture = Fixture::new("session-expiry");
+    let (cookie, _csrf) = sign_in_to_the_page(&fixture).await;
+
+    // One minute short of the month: the session still works.
+    fixture.advance_ms(30 * 24 * 60 * 60 * 1000 - 60_000);
+    let (status, _, _) = send_text(fixture.app(), get_with_cookie("/next", &cookie)).await;
+    assert_eq!(status, StatusCode::OK);
+
+    // A minute past it: the page is the login card again.
+    fixture.advance_ms(120_000);
+    let (status, _, body) = send_text(fixture.app(), get_with_cookie("/next", &cookie)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(body.contains("Sign in"), "{body}");
+}
+
+/// A session another browser left behind is visible in the rail; ending it there must close it on
+/// the device, not merely hide the row.
+#[tokio::test]
+async fn ending_a_session_from_the_rail_closes_it_on_the_device() {
+    let fixture = Fixture::new("terminal-rail-end");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xe2)).await;
+    let (cookie, csrf) = sign_in_to_the_page(&fixture).await;
+
+    // The page's own request, answered with one live session.
+    let app = fixture.app();
+    let request = get_with_cookie(&format!("/next/terminal/{device_id}"), &cookie);
+    let page = tokio::spawn(async move { send_text(app, request).await });
+    let frame = next_json(&mut device).await;
+    answer(
+        &mut device,
+        &frame,
+        json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {
+                "content": [{ "type": "text", "text": json!([
+                    { "id": "session-9", "kind": "pty", "started_at_ms": 1_791_000_000_000u64 }
+                ]).to_string() }],
+                "isError": false
+            }
+        }),
+    )
+    .await;
+    let (status, _, _) = page.await.expect("the page finishes");
+    assert_eq!(status, StatusCode::OK);
+
+    // The rail's form ends the session.
+    let app = fixture.app();
+    let request = post_form_cookie(
+        &format!("/next/terminal/{device_id}/session-9/end"),
+        &[("csrf", &csrf)],
+        &cookie,
+    );
+    let end = tokio::spawn(async move { send_text(app, request).await });
+
+    let frame = next_json(&mut device).await;
+    assert_eq!(
+        frame["mcp"]["params"]["name"],
+        json!("terminal.close"),
+        "{frame}"
+    );
+    assert_eq!(
+        frame["mcp"]["params"]["arguments"]["id"],
+        json!("session-9"),
+        "{frame}"
+    );
+    answer(
+        &mut device,
+        &frame,
+        json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": { "content": [{ "type": "text", "text": "{\"ok\":true}" }], "isError": false }
+        }),
+    )
+    .await;
+
+    let (status, headers, _) = end.await.expect("the end request finishes");
+    assert_eq!(status, StatusCode::SEE_OTHER);
+    assert_eq!(
+        headers
+            .get(header::LOCATION)
+            .and_then(|value| value.to_str().ok()),
+        Some(format!("/next/terminal/{device_id}").as_str()),
+        "the page comes back after the session is closed"
+    );
+}
+
+#[tokio::test]
+async fn the_terminal_page_lists_the_devices_live_sessions() {
+    let fixture = Fixture::new("terminal-rail");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xe1)).await;
+    let (cookie, csrf) = sign_in_to_the_page(&fixture).await;
+
+    let app = fixture.app();
+    let request = get_with_cookie(&format!("/next/terminal/{device_id}"), &cookie);
+    let page = tokio::spawn(async move { send_text(app, request).await });
+
+    // The page asks the device for its sessions before it renders the rail.
+    let frame = next_json(&mut device).await;
+    assert_eq!(
+        frame["mcp"]["params"]["name"],
+        json!("terminal.list"),
+        "{frame}"
+    );
+    answer(
+        &mut device,
+        &frame,
+        json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {
+                "content": [{ "type": "text", "text": json!([
+                    { "id": "session-3", "kind": "pty", "started_at_ms": 1_791_000_000_000u64 },
+                    { "id": "session-7", "kind": "ssh", "started_at_ms": 1_791_000_500_000u64 }
+                ]).to_string() }],
+                "isError": false
+            }
+        }),
+    )
+    .await;
+
+    let (status, _, body) = page.await.expect("the page finishes");
+    assert_eq!(status, StatusCode::OK);
+    assert!(body.contains("class=\"context-rail\""), "{body}");
+    assert!(body.contains("?attach=session-3"), "{body}");
+    assert!(body.contains("?attach=session-7"), "{body}");
+    assert!(
+        body.contains(&format!("/next/terminal/{device_id}/session-3/end")),
+        "a session in the rail can be ended without opening it: {body}"
+    );
+    assert!(
+        body.contains(&csrf),
+        "the page still carries its CSRF value: {body}"
+    );
+}
+
+#[tokio::test]
+async fn the_fleet_shows_the_console_s_own_recent_activity() {
+    let fixture = Fixture::new("fleet-activity");
+    let (cookie, csrf) = sign_in_to_the_page(&fixture).await;
+
+    // A device action lands in the audit log; the fleet page reads the same file `/audit` serves.
+    let (status, _, _) = send_text(
+        fixture.app(),
+        post_form_cookie("/next/enroll", &[("csrf", &csrf)], &cookie),
+    )
+    .await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+
+    let (status, _, body) = send_text(fixture.app(), get_with_cookie("/next", &cookie)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(body.contains("Recent activity"), "the card is on the page");
+    assert!(
+        body.contains("enroll"),
+        "the enrollment is one of the lines: {body}"
+    );
+}
+
+#[tokio::test]
+async fn the_audit_page_narrows_to_the_lines_the_filter_names() {
+    let fixture = Fixture::new("audit-filter");
+    let (cookie, csrf) = sign_in_to_the_page(&fixture).await;
+
+    // One enrollment is one audit line, and it is the only line this console has made.
+    let (status, _, _) = send_text(
+        fixture.app(),
+        post_form_cookie("/next/enroll", &[("csrf", &csrf)], &cookie),
+    )
+    .await;
+    assert_eq!(status, StatusCode::SEE_OTHER);
+
+    // No filter: the form and the line.
+    let (status, _, body) = send_text(fixture.app(), get_with_cookie("/next/audit", &cookie)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        body.contains("id=\"f-kind\""),
+        "the filter bar is on the page: {body}"
+    );
+    assert!(body.contains("enroll"), "{body}");
+
+    // A kind that is not in the log: the empty state, not the same table.
+    let (status, _, body) = send_text(
+        fixture.app(),
+        get_with_cookie("/next/audit?kind=tool", &cookie),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(body.contains("No line matches this filter"), "{body}");
+
+    // The tool filter reads the detail too, so a narrowed view is never a dead end.
+    let (status, _, body) = send_text(
+        fixture.app(),
+        get_with_cookie("/next/audit?kind=enroll", &cookie),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(body.contains("enroll"), "{body}");
+}
+
+/// The filter offers every kind the console writes, so a line it can record is a line it can select.
+#[tokio::test]
+async fn the_audit_filter_offers_the_new_kinds() {
+    let fixture = Fixture::new("audit-filter-kinds");
+    let (cookie, _csrf) = sign_in_to_the_page(&fixture).await;
+
+    let approval = json!({
+        "ts_ms": 1_793_060_000_000u64,
+        "kind": "approval",
+        "status": 200,
+        "tool": "terminal.create",
+        "detail": "asked"
+    });
+    let enroll = json!({
+        "ts_ms": 1_793_059_000_000u64,
+        "kind": "enroll",
+        "status": 200,
+        "tool": "memory.list",
+        "detail": "page"
+    });
+    let path = fixture.config.data.join("audit.jsonl");
+    let mut text = std::fs::read_to_string(&path).unwrap_or_default();
+    text.push_str(&format!("{approval}\n{enroll}\n"));
+    std::fs::write(&path, text).expect("the audit line is written");
+
+    let (status, _, body) = send_text(
+        fixture.app(),
+        get_with_cookie("/next/audit?kind=approval", &cookie),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        body.contains("option value=\"approval\" selected"),
+        "the filter can name it: {body}"
+    );
+    assert!(body.contains("terminal.create"), "{body}");
+    assert!(
+        !body.contains("memory.list"),
+        "only the named kind's line: {body}"
+    );
+}
+
+#[tokio::test]
+async fn the_denials_page_narrows_with_the_same_filter() {
+    let fixture = Fixture::new("denials-filter");
+    let (cookie, _csrf) = sign_in_to_the_page(&fixture).await;
+
+    // A request with no session is a denial line; one with a bad token is another.
+    let (status, _, _) = send_text(
+        fixture.app(),
+        get_with_cookie("/next/audit", "summrise_session=not-a-cookie"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+
+    let (status, _, body) =
+        send_text(fixture.app(), get_with_cookie("/next/denials", &cookie)).await;
+    assert_eq!(status, StatusCode::OK);
+    // **ONE KIND, SO NO KIND FILTER.** The audit's twelve-option list used to appear here too,
+    // offering eleven choices that cannot match a store whose every row is `denied`; the page
+    // says what it is instead. The test that pinned the old selector is what let the lie ship.
+    assert!(
+        !body.contains("id=\"f-kind\""),
+        "denials has one kind, so it must not offer a kind filter: {body}"
+    );
+    assert!(
+        body.contains("refused before authentication"),
+        "the page says which log it is: {body}"
+    );
+    assert!(
+        body.contains("action=\"/next/denials\""),
+        "the form posts back to the denials page: {body}"
+    );
+    assert!(
+        !body.contains("id=\"f-device\""),
+        "a denial has no device to filter by: {body}"
+    );
+
+    // The audit keeps the full kind list: it is the log with many kinds.
+    let (status, _, audit) =
+        send_text(fixture.app(), get_with_cookie("/next/audit", &cookie)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        audit.contains("id=\"f-kind\""),
+        "the audit still filters by kind: {audit}"
+    );
+
+    // A status class that cannot be in the log gives the empty state.
+    let (status, _, body) = send_text(
+        fixture.app(),
+        get_with_cookie("/next/denials?status=5", &cookie),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(body.contains("No line matches this filter"), "{body}");
 }

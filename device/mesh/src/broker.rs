@@ -58,8 +58,10 @@ use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
 use tokio::net::TcpListener;
 
+use crate::keys;
 use crate::rendezvous::{
-    ConnectRequest, LookupResponse, Registration, RendezvousError, RequestsResponse,
+    poll_message, ConnectRequest, LookupResponse, Registration, RendezvousError, RequestsResponse,
+    POLL_SKEW_MS,
 };
 
 /// The largest registration or connect-request body the broker will parse,
@@ -402,6 +404,14 @@ struct ClockQuery {
     _now_ms: u64,
 }
 
+/// What a poll must carry: the timestamp it signed, and that signature.
+#[derive(Debug, Deserialize)]
+struct PollQuery {
+    #[serde(rename = "now_ms")]
+    now_ms: u64,
+    sig: String,
+}
+
 /// `GET /lookup/:peer_id?now_ms=…` — the fresh candidates and their stamp.
 async fn lookup(
     State(broker): State<Broker>,
@@ -557,9 +567,9 @@ async fn leave_request(
 async fn take_requests(
     State(broker): State<Broker>,
     Path(target): Path<String>,
-    query: Result<Query<ClockQuery>, QueryRejection>,
+    query: Result<Query<PollQuery>, QueryRejection>,
 ) -> Result<Json<RequestsResponse>, ApiError> {
-    let Query(_query) = query.map_err(|rejection| {
+    let Query(poll) = query.map_err(|rejection| {
         api_error(
             StatusCode::BAD_REQUEST,
             "malformed_query",
@@ -570,6 +580,10 @@ async fn take_requests(
     if !is_canonical_peer_id(&target) {
         return Err(malformed_peer_id(&target));
     }
+    // **AN INBOX IS THE PEER'S OWN, AND A PUBLIC KEY IS NOT A CREDENTIAL.** The queue is drained by
+    // whoever polls it, so without this check any client that can reach the broker could read another
+    // peer's signed connect requests — and stop the relay fallback it was about to use — by naming
+    // its key. The poll carries the target's signature, which only the target can produce.
     let now_ms = broker.now();
     // **SWEEP BEFORE THE 404.** A target whose registration lapsed can never poll again, so returning
     // early would leave its expired notes counting against the caps for the rest of their ttl. The
@@ -584,6 +598,9 @@ async fn take_requests(
         }
     }
 
+    // The inbox is the peer's own; the check is here, after the 404, so an unknown id still answers
+    // the same thing the public lookup does, and before the remove, so a stranger drains nothing.
+    verify_poll(&target, &poll, now_ms)?;
     let waiting = inbox.remove(&target).unwrap_or_default();
     let requests = waiting
         .into_iter()
@@ -591,6 +608,29 @@ async fn take_requests(
         .map(|queued| queued.request)
         .collect();
     Ok(Json(RequestsResponse { requests }))
+}
+
+/// Check a poll's signature and timestamp against the broker's own clock.
+fn verify_poll(target: &str, poll: &PollQuery, broker_now_ms: u64) -> Result<(), ApiError> {
+    let public = keys::hex_decode(target)
+        .ok()
+        .and_then(|bytes| <[u8; keys::PUBLIC_KEY_BYTES]>::try_from(bytes).ok())
+        .ok_or_else(|| malformed_peer_id(target))?;
+    let signature = keys::hex_decode(&poll.sig)
+        .ok()
+        .and_then(|bytes| <[u8; keys::SIGNATURE_BYTES]>::try_from(bytes).ok())
+        .ok_or_else(|| unauthorized("the poll's signature is not hex Ed25519"))?;
+    if poll.now_ms.abs_diff(broker_now_ms) > POLL_SKEW_MS {
+        return Err(unauthorized(
+            "the poll's timestamp is outside the clock window; sign a fresh one",
+        ));
+    }
+    keys::verify(&public, &poll_message(target, poll.now_ms), &signature)
+        .map_err(|_| unauthorized("the poll is not signed by the peer it names"))
+}
+
+fn unauthorized(detail: &str) -> ApiError {
+    api_error(StatusCode::UNAUTHORIZED, "unauthorized", detail)
 }
 
 #[cfg(test)]
@@ -676,10 +716,12 @@ mod tests {
             .expect("the request builds")
     }
 
-    fn take_requests_request(target: &str, now_ms: u64) -> Request<Body> {
+    /// A signed poll, the only shape the broker accepts: `identity` must be the target's.
+    fn take_requests_request(identity: &Identity, target: &str, now_ms: u64) -> Request<Body> {
+        let sig = keys::hex_encode(&identity.sign(&poll_message(target, now_ms)));
         Request::builder()
             .method("GET")
-            .uri(format!("/requests/{target}?now_ms={now_ms}"))
+            .uri(format!("/requests/{target}?now_ms={now_ms}&sig={sig}"))
             .body(Body::empty())
             .expect("the request builds")
     }
@@ -688,8 +730,20 @@ mod tests {
         send(app.clone(), leave_request_request(request)).await
     }
 
-    async fn take_requests(app: &Router, target: &str, now_ms: u64) -> (StatusCode, Value) {
-        send(app.clone(), take_requests_request(target, now_ms)).await
+    /// A poll as the peer that owns the inbox.
+    async fn take_requests(app: &Router, target: &Identity, now_ms: u64) -> (StatusCode, Value) {
+        let id = target.public_hex();
+        send(app.clone(), take_requests_request(target, &id, now_ms)).await
+    }
+
+    /// A poll as somebody else, naming `target` — what the broker must refuse.
+    async fn take_requests_as(
+        app: &Router,
+        signer: &Identity,
+        target: &str,
+        now_ms: u64,
+    ) -> (StatusCode, Value) {
+        send(app.clone(), take_requests_request(signer, target, now_ms)).await
     }
 
     async fn register_empty(app: &Router, identity: &Identity) -> String {
@@ -1121,7 +1175,9 @@ mod tests {
             "a connect request addressed to a non-canonical id is malformed"
         );
         assert_eq!(
-            take_requests(&app, &uppercase, ISSUED).await.0,
+            take_requests_as(&app, &requester, &uppercase, ISSUED)
+                .await
+                .0,
             StatusCode::BAD_REQUEST,
             "an inbox poll for a non-canonical id is malformed"
         );
@@ -1200,7 +1256,7 @@ mod tests {
         let (status, _) = leave_request(&app, &request).await;
         assert_eq!(status, StatusCode::NO_CONTENT);
 
-        let (status, body) = take_requests(&app, &target_id, ISSUED).await;
+        let (status, body) = take_requests(&app, &target, ISSUED).await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(
             body["requests"],
@@ -1208,7 +1264,7 @@ mod tests {
             "the target takes exactly the request that was left"
         );
 
-        let (status, body) = take_requests(&app, &target_id, ISSUED).await;
+        let (status, body) = take_requests(&app, &target, ISSUED).await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(
             body["requests"],
@@ -1228,7 +1284,7 @@ mod tests {
         let fresh = ConnectRequest::sign(&requester, &target_id, "fresh", ISSUED, 500);
         assert_eq!(leave_request(&app, &fresh).await.0, StatusCode::NO_CONTENT);
         clock.store(ISSUED + 500, std::sync::atomic::Ordering::SeqCst);
-        let (_, body) = take_requests(&app, &target_id, ISSUED + 500).await;
+        let (_, body) = take_requests(&app, &target, ISSUED + 500).await;
         assert_eq!(
             body["requests"],
             json!([serde_json::to_value(&fresh).expect("a request is JSON")]),
@@ -1243,7 +1299,7 @@ mod tests {
         // THE TTL RUNS FROM RECEIPT, not from the signed stamp: the note was accepted at +500, so it is
         // stale one millisecond past +1,000 — not at +501, which is only one millisecond of inbox life.
         clock.store(ISSUED + 1_001, std::sync::atomic::Ordering::SeqCst);
-        let (status, body) = take_requests(&app, &target_id, ISSUED + 1_001).await;
+        let (status, body) = take_requests(&app, &target, ISSUED + 1_001).await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(
             body["requests"],
@@ -1252,7 +1308,7 @@ mod tests {
         );
 
         clock.store(ISSUED, std::sync::atomic::Ordering::SeqCst);
-        let (_, body) = take_requests(&app, &target_id, ISSUED).await;
+        let (_, body) = take_requests(&app, &target, ISSUED).await;
         assert_eq!(
             body["requests"],
             json!([]),
@@ -1267,14 +1323,15 @@ mod tests {
     async fn a_poll_for_an_expired_target_sweeps_its_notes() {
         let (broker, clock) = clocked(ISSUED);
         let app = broker.router();
-        let target = register_empty(&app, &Identity::generate()).await;
+        let target_identity = Identity::generate();
+        let target = register_empty(&app, &target_identity).await;
         let requester = Identity::generate();
         let note = ConnectRequest::sign(&requester, &target, "leaked", ISSUED, 30_000);
         assert_eq!(leave_request(&app, &note).await.0, StatusCode::NO_CONTENT);
 
         // The registration's ttl has passed; the note's has not.
         clock.store(ISSUED + TTL + 1, std::sync::atomic::Ordering::SeqCst);
-        let (status, _) = take_requests(&app, &target, ISSUED + TTL + 1).await;
+        let (status, _) = take_requests(&app, &target_identity, ISSUED + TTL + 1).await;
         assert_eq!(status, StatusCode::NOT_FOUND);
         assert!(
             broker
@@ -1319,11 +1376,62 @@ mod tests {
         );
     }
 
+    /// A PUBLIC KEY IS NOT A CREDENTIAL: the inbox belongs to the peer that can sign for it, and a
+    /// stranger naming the key must neither read the queue nor drain it.
+    #[tokio::test]
+    async fn a_stranger_cannot_take_another_peers_inbox() {
+        let (broker, _clock) = clocked(ISSUED);
+        let app = broker.router();
+        let target = Identity::generate();
+        let target_id = register_empty(&app, &target).await;
+        let requester = Identity::generate();
+        let note = ConnectRequest::sign(&requester, &target_id, "relay-session", ISSUED, TTL);
+        assert_eq!(leave_request(&app, &note).await.0, StatusCode::NO_CONTENT);
+
+        let stranger = Identity::generate();
+        let (status, body) = take_requests_as(&app, &stranger, &target_id, ISSUED).await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+        assert_eq!(body["error"], json!("unauthorized"));
+
+        // And the queue it tried to take is still there for its owner.
+        let (status, body) = take_requests(&app, &target, ISSUED).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            body["requests"].as_array().map(Vec::len),
+            Some(1),
+            "the refused poll drained nothing"
+        );
+    }
+
+    /// The signature covers the stamp, so an old poll cannot be replayed outside the window.
+    #[tokio::test]
+    async fn a_poll_signed_for_another_time_is_refused() {
+        let (broker, clock) = clocked(ISSUED);
+        let app = broker.router();
+        let target = Identity::generate();
+        // The longest registration the broker allows, so the clock can move past the poll window
+        // without the registration itself expiring first (a 404 would answer before the signature).
+        let registration = Registration::sign(&target, Vec::new(), ISSUED, MAX_REGISTRATION_TTL_MS);
+        assert_eq!(
+            register(&app, &registration).await.0,
+            StatusCode::NO_CONTENT
+        );
+        let stale = take_requests_request(&target, &target.public_hex(), ISSUED);
+        clock.store(
+            ISSUED + POLL_SKEW_MS + 1,
+            std::sync::atomic::Ordering::SeqCst,
+        );
+        let (status, body) = send(app, stale).await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+        assert_eq!(body["error"], json!("unauthorized"));
+    }
+
     /// A CONNECT REQUEST'S TTL IS THE PEER'S NUMBER, and the broker bounds it the same way it bounds a
     /// registration's: a signed `u64::MAX` would wait in the inbox for ever.
     #[tokio::test]
     async fn a_connect_request_ttl_above_the_ceiling_is_refused() {
-        let app = app();
+        let (broker, _clock) = clocked(ISSUED);
+        let app = broker.router();
         let target = Identity::generate();
         let target_id = register_empty(&app, &target).await;
         let requester = Identity::generate();
@@ -1332,7 +1440,7 @@ mod tests {
         let (status, body) = leave_request(&app, &too_long).await;
         assert_eq!(status, StatusCode::BAD_REQUEST);
         assert_eq!(body["error"], json!("ttl_too_long"));
-        let (status, body) = take_requests(&app, &target_id, ISSUED).await;
+        let (status, body) = take_requests(&app, &target, ISSUED).await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(
             body["requests"],
@@ -1345,7 +1453,14 @@ mod tests {
     /// polls, and an unbounded queue is memory an unauthenticated caller controls.
     #[tokio::test]
     async fn a_targets_inbox_is_capped_and_a_poll_reopens_it() {
-        let broker = Broker::with_inbox_capacity(2, 8);
+        let clock = Arc::new(std::sync::atomic::AtomicU64::new(ISSUED));
+        let reader = Arc::clone(&clock);
+        let broker = Broker {
+            max_requests_per_target: 2,
+            max_queued_requests: 8,
+            clock: Arc::new(move || reader.load(std::sync::atomic::Ordering::SeqCst)),
+            ..Broker::default()
+        };
         let app = broker.router();
         let target = Identity::generate();
         let target_id = register_empty(&app, &target).await;
@@ -1363,7 +1478,7 @@ mod tests {
             "the refusal names the per-target cap: {body}"
         );
 
-        let (_, body) = take_requests(&app, &target_id, ISSUED).await;
+        let (_, body) = take_requests(&app, &target, ISSUED).await;
         assert_eq!(
             body["requests"].as_array().map(Vec::len),
             Some(2),
@@ -1415,7 +1530,7 @@ mod tests {
         assert_eq!(status, StatusCode::FORBIDDEN);
         assert_eq!(body["error"], json!("bad_signature"));
 
-        let (status, body) = take_requests(&app, &target_id, ISSUED).await;
+        let (status, body) = take_requests(&app, &target, ISSUED).await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(
             body["requests"],
@@ -1435,7 +1550,7 @@ mod tests {
         assert_eq!(status, StatusCode::NOT_FOUND);
         assert_eq!(body["error"], json!("unknown_peer"));
 
-        let (status, body) = take_requests(&app, &stranger, ISSUED).await;
+        let (status, body) = take_requests_as(&app, &requester, &stranger, ISSUED).await;
         assert_eq!(status, StatusCode::NOT_FOUND);
         assert_eq!(body["error"], json!("unknown_peer"));
     }

@@ -1,7 +1,10 @@
 # The console page, in Rust
 
 **Date:** 2026-10-27
-**Status:** proposed
+**Status:** shipped. `/` redirects to `/next`, every page is maud-rendered by the console, the
+terminal page runs pty/ssh/serial in tabs, and `device/console/web` (with its npm build, committed
+bundle, CI job and `scripts/build-web.sh`) is deleted. The only JavaScript left is vendored xterm
+and the terminal page's glue; `scripts/console-smoke.mjs` is its browser check.
 
 ## Problem
 
@@ -77,12 +80,28 @@ replaced, so the operator never loses a surface to a half-migration.
 
 ## Acceptance
 
-- No `.ts`/`.tsx` under `device/console`; no npm/pnpm lockfile; no npm in CI.
-- `GET /` is rendered by `cargo test`-covered Rust handlers.
+- No `.ts`/`.tsx` under `device/console`; no npm/pnpm lockfile; no npm in CI. ✅
+- `GET /` is rendered by `cargo test`-covered Rust handlers. ✅
 - The operator session is an HttpOnly cookie; mutating routes reject a missing
-  CSRF token.
-- The terminal still works through xterm.js, loaded only there.
-- The console's auth, audit and device routes are unchanged on the wire.
+  CSRF token. ✅ (30-day session, persisted across restarts as a token hash.)
+- The terminal still works through xterm.js, loaded only there. ✅ (xterm plus a
+  ~150-line glue per terminal page; the emulator is the one accepted exception —
+  measured and argued in `plans/2026-10-27-terminal-in-the-browser.md`.)
+- The console's auth, audit and device routes are unchanged on the wire. ✅
+
+Beyond the original acceptance, the shipped page has:
+
+- the legacy panel's shape — a 52px icon rail, a 244px context rail that changes
+  per page, a canvas, a status strip — for every page, light and dark;
+- responsive behaviour in three steps (the context rail goes first, then the
+  icon rail narrows, then the content tightens; a wide table scrolls in its card);
+- a contrast gate: `every_text_colour_reads_on_the_surface_it_sits_on` measures
+  eleven pairs in each theme against WCAG AA's 4.5:1;
+- a screenshot tool: `scripts/console-screenshots.bash` renders every page,
+  photographs it light and dark, and with `--diff` reports which pages a change
+  moved, per page, in pixels;
+- keyboard entry: a skip link to `#content`, a caption on every table,
+  `aria-current` on the rail, and a visible focus ring.
 
 ## Risks
 
@@ -98,4 +117,68 @@ replaced, so the operator never loses a surface to a half-migration.
 
 ## Status
 
-Proposed. The tray (Rust) is the first visible half; this spec is the second.
+Shipped on 2026-10-27, in the phases this document described: the cookie session
+first (with CSRF and tests), then the pages one at a time behind `/next`, then
+the terminal, then `/` itself. The React page and its build are gone.
+
+What the phases did not anticipate, and what the page learned in use:
+
+- the operator notices **state**, not layout: "how long ago did this device
+  check in", "is this token destructive", "what did the console just do" —
+  which is why the fleet row carries an age, the token table names the access,
+  and the fleet page ends with the console's own last six lines;
+- a rail is only useful when it holds the page's own subject (sessions, runs,
+  processes, targets, memory entries, disks), not a second copy of the
+  navigation;
+- "looks good" needs a gate: the contrast test and the screenshot diff are what
+  keep a styling change from being an opinion.
+
+## Acceptance record (2026-10-27, console 0.3.87)
+
+The evidence for the paragraphs above, in the order a reader would want it:
+
+| Check | Result |
+|---|---|
+| the device workspace's tests (`cargo test` over nine crates, CI's own command) | **1214 passed, 0 failed, 3 ignored** |
+| clippy, every target, warnings as errors | clean |
+| `cargo fmt --all -- --check` | clean |
+| `scripts/console-screenshots.bash --out /tmp/acceptance` | **26 pages, 52 images**, gallery written |
+| every live page (fleet, terminal, files, runs, system, state, memory, monitors, browser, tokens, vitals, audit, denials) | **13/13 answered 200**; nine carry a context rail |
+| `/health` on the running console | `ok`, version 0.3.87, three devices |
+
+## Acceptance record (2026-10-27, console 0.3.120)
+
+The record above was measured at 0.3.87. This is the same measurement twenty-odd rounds later,
+after the console gained the approvals gate, the install card, the vitals trend, the browser frame
+pump and the approvals badge — measured with the commands the table names, in this session.
+
+| Check | Result |
+|---|---|
+| the device workspace's tests (`cargo test` over nine crates, CI's own command) | **1289 passed, 0 failed, 3 ignored** (1214 at 0.3.87) |
+| `cargo test -p summrise-console` alone | 108 unit + 246 integration + 1 bin |
+| clippy, every target, warnings as errors | clean |
+| `cargo fmt --all -- --check` | clean |
+| `scripts/console-screenshots.bash --out …` | **28 pages, 56 images**, gallery written (26 at 0.3.87) |
+| every live page (fleet, terminal, files, runs, system, state, memory, monitors, browser, tokens, vitals, audit, denials) | **13/13 answered 200** |
+| `/health` on the running console | `ok`, version 0.3.120, three devices |
+
+What the page gained since the first record, each with a test that can fail:
+
+- **approvals** — a destructive call a token did not consent to is held, listed on the dashboard and
+  counted in a badge on every page; approving re-sends it with consent for that call only, refusing
+  or expiry returns the device's sentence, and a failed re-send answers "outcome unknown" instead of
+  inviting a retry that would run it twice. The deadline is 90 s because Cloudflare Access cuts the
+  origin at about 100 s — the plan's §9 says why that differs from the legacy gate.
+- **install** — generations, the launcher's last swap with its reason, and its repairs, read from
+  `host.facts` and kept nowhere in the console.
+- **trend** — the vitals page's own visits, labelled "Not a sampler" so nobody reads it as a
+  background series.
+- **browser** — a frame pump at 1 fps, single-flight and paused while hidden, replacing one static
+  capture. The CDP screencast the plan's P6 acceptance asked for shipped as `browser.cast`; the plan
+  records it met on canary 0.3.124.
+- **audit** — the filter offers every kind the log can hold, not the four it started with.
+| the browser smoke (`scripts/console-smoke.mjs --terminal`) | `terminal ok — session session-4 · powershell.exe, 2 tabs` |
+
+What is intentionally not here: a per-page pixel budget, a performance
+benchmark of the rendered page, and a translated UI. Each is a new goal, not a
+gap in this one.
