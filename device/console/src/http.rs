@@ -5493,6 +5493,9 @@ async fn proxy_reply(
                         token_id: token_id.map(str::to_owned),
                         resolved: false,
                     };
+                    // Resolved now, while the credential exists: the card outlives a revocation,
+                    // and the operator still deserves to know whose call they are answering.
+                    let token_name = token_id.and_then(|id| lock(&app.tokens).find_by_id(id));
                     lock(&app.approvals).insert(
                         id.clone(),
                         Pending {
@@ -5502,6 +5505,8 @@ async fn proxy_reply(
                                 tool: tool.clone().unwrap_or_default(),
                                 arguments: arguments_summary(&held),
                                 created_ms: (app.now)(),
+                                token_name: token_name.as_ref().map(|token| token.name.clone()),
+                                token_id: token_id.map(str::to_owned),
                             },
                             decide,
                         },

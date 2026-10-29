@@ -9983,6 +9983,21 @@ async fn a_destructive_token_call_is_held_and_runs_when_approved() {
     let (cookie, csrf) = sign_in_to_the_page(&fixture).await;
     let operator = async {
         let id = wait_for_approval(&fixture, &cookie).await;
+        // **THE CARD NAMES THE CREDENTIAL.** "Approve" answers one client's call, and two clients
+        // can hold the same tool on the same machine; the audit always named the token and the
+        // decision surface did not.
+        let (_, _, dashboard) = send_text(fixture.app(), get_with_cookie("/next", &cookie)).await;
+        assert!(
+            dashboard.contains("asked by") && dashboard.contains("cautious"),
+            "the held call names the token that asked: {dashboard}"
+        );
+        assert!(
+            dashboard.contains(&format!(
+                "token {}",
+                created["id"].as_str().expect("a token id")
+            )),
+            "the name carries the id a record can be matched to: {dashboard}"
+        );
         let (_, _, count) = send_text(
             fixture.app(),
             get_with_cookie("/next/approvals/count", &cookie),

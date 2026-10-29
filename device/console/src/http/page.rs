@@ -240,6 +240,8 @@ body.terminal .content { display:flex; flex-direction:column; min-height:0; over
 .preset-count { margin-left:2px; color:var(--faint); font-variant-numeric:tabular-nums; }
 .preset-panel { width:min(340px, calc(100vw - 96px)); padding:12px; }
 .approval-say { margin:0 0 6px; font-size:13px; }
+.asked-by { margin:4px 0 0; }
+.asked-by strong { color:var(--ink); font-weight:600; }
 .preset-list { list-style:none; margin:0 0 10px; padding:0; display:flex; flex-direction:column; }
 .preset-row { display:flex; align-items:center; gap:8px; padding:6px 0; border-bottom:1px solid var(--line); }
 .preset-row:last-child { border-bottom:0; }
@@ -1267,6 +1269,12 @@ pub(super) struct ApprovalRow {
     pub(super) tool: String,
     pub(super) arguments: String,
     pub(super) created_ms: u64,
+    /// The credential that asked, by the name its operator gave it. The choice is "approve the AI
+    /// client I meant", so the card has to say which one asked — the audit has always named the
+    /// token, and the decision surface did not.
+    pub(super) token_name: Option<String>,
+    /// The token's record id, for the tooltip: names can repeat, ids cannot.
+    pub(super) token_id: Option<String>,
 }
 
 pub(super) fn dashboard(
@@ -1329,6 +1337,13 @@ pub(super) fn dashboard(
                                             }
                                             None => {
                                                 code title=(row.device_id) { (row.device_id.chars().take(12).collect::<String>()) }
+                                            }
+                                        }
+                                        // Which credential asked: two clients can hold the same
+                                        // tool on the same machine, and "approve" answers one of them.
+                                        @if let (Some(name), Some(id)) = (&row.token_name, &row.token_id) {
+                                            p class="asked-by small muted" title=(format!("token {id}")) {
+                                                "asked by " strong { (name) }
                                             }
                                         }
                                     }
@@ -5023,6 +5038,8 @@ mod tests {
             tool: "terminal.create".to_owned(),
             arguments: "{\"kind\":\"pty\"}".to_owned(),
             created_ms: 1_791_000_000_000,
+            token_name: Some("claude-code".to_owned()),
+            token_id: Some("0".repeat(64)),
         }];
         let waiting = dashboard(
             &[view('a', Some("STUDIO-PC"), true)],
@@ -5555,6 +5572,8 @@ mod tests {
                         tool: "terminal.create".to_owned(),
                         arguments: "{\n  \"kind\": \"pty\"\n}".to_owned(),
                         created_ms: 1_790_999_900_000,
+                        token_name: Some("claude-code".to_owned()),
+                        token_id: Some("9f2c".to_owned() + &"0".repeat(60)),
                     }],
                     1_791_000_000_000,
                 ),
