@@ -4282,6 +4282,7 @@ async fn next_tokens_page(
             destructive: token.allow_destructive,
             created_ms: token.created_at_ms,
             expires_at_ms: token.expires_at_ms,
+            last_used_ms: token.last_used_ms,
         })
         .collect();
     // **A REFUSAL THE PAGE NEVER SAID.** The mint handler redirected with `?error=refused` and
@@ -4447,6 +4448,7 @@ async fn next_fleet_tokens_page(
                 destructive: token.allow_destructive,
                 created_ms: token.created_at_ms,
                 expires_at_ms: token.expires_at_ms,
+                last_used_ms: token.last_used_ms,
             })
         })
         .collect();

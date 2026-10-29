@@ -6723,6 +6723,20 @@ async fn a_token_call_moves_last_used_and_names_the_token_in_the_audit() {
         !audit.contains("srm_") && !audit.contains(&plaintext),
         "the audit must never carry the secret: {audit}"
     );
+
+    // **THE PAGE SHOWS WHAT THE STORE KNOWS.** `last_used_ms` was in the list all along and neither
+    // token table drew it, so an idle credential and a busy one looked the same on the page where
+    // the operator decides which one to revoke.
+    let (cookie, _csrf) = sign_in_to_the_page(&fixture).await;
+    let (_, _, page) = send_text(
+        fixture.app(),
+        get_with_cookie(&format!("/next/tokens/{device_id}"), &cookie),
+    )
+    .await;
+    assert!(
+        page.contains("01-01 00:16:46 UTC"),
+        "the Connect list dates the last use: {page}"
+    );
 }
 
 /// A grant-authenticated call has no token record to name, so its audit line carries no token_id.

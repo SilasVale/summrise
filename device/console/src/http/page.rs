@@ -399,6 +399,10 @@ dd .mono { overflow-wrap:anywhere; }
   .content { padding:16px 16px 32px; }
   /* A table wider than the phone scrolls inside its own card rather than pushing the page. */
   .card { overflow-x:auto; }
+  /* **THE LEAST ACTIONABLE DATE GOES FIRST.** Two token tables grew a "last used" column and no
+     longer fit at 800; creation time is the one of the three dates an operator never acts on
+     (expiry and use are the revocation decision), so it is the one that folds away. */
+  .tokens-table .col-created { display:none; }
   .table th, .table td { padding:8px 10px; }
 }
 @media (min-width: 721px) and (max-width: 1000px) {
@@ -3786,6 +3790,9 @@ pub(super) struct TokenRow {
     /// When the token stops being a credential; absent means it never does. A year out is why the
     /// list prints a dated year here and the console's ordinary stamp does not.
     pub(super) expires_at_ms: Option<u64>,
+    /// When this token last authenticated a call; absent means never. The store has kept it all
+    /// along and no page showed it, so an idle credential and a busy one looked the same.
+    pub(super) last_used_ms: Option<u64>,
 }
 
 /// The tokens a device accepts, with the form that mints one and a revoke per row.
@@ -3866,8 +3873,9 @@ pub(super) fn tokens(
                             th scope="col" { "Name" }
                             th class="num" scope="col" { "Tools" }
                             th scope="col" { "Access" }
-                            th scope="col" { "Created" }
+                            th class="col-created" scope="col" { "Created" }
                             th scope="col" { "Expires" }
+                            th scope="col" { "Last used" }
                             th class="num" scope="col" { span class="visually-hidden" { "Actions" } }
                         }
                     }
@@ -3883,10 +3891,16 @@ pub(super) fn tokens(
                                         span class="chip muted" { "no destructive tools" }
                                     }
                                 }
-                                td class="nowrap" { (stamp(row.created_ms)) }
+                                td class="nowrap col-created" { (stamp(row.created_ms)) }
                                 td class="nowrap" {
                                     @match row.expires_at_ms {
                                         Some(expires) => { (date(expires)) }
+                                        None => { span class="muted" { "never" } }
+                                    }
+                                }
+                                td class="nowrap" {
+                                    @match row.last_used_ms {
+                                        Some(used) => { (stamp(used)) }
                                         None => { span class="muted" { "never" } }
                                     }
                                 }
@@ -3928,6 +3942,7 @@ pub(super) struct FleetTokenRow {
     pub(super) destructive: bool,
     pub(super) created_ms: u64,
     pub(super) expires_at_ms: Option<u64>,
+    pub(super) last_used_ms: Option<u64>,
 }
 
 /// The fleet's credential page: one token that reaches several devices through `/mcp/all`.
@@ -3968,8 +3983,9 @@ pub(super) fn fleet_tokens(
                                 th scope="col" { "Devices" }
                                 th class="num" scope="col" { "Tools" }
                                 th scope="col" { "Access" }
-                                th scope="col" { "Created" }
+                                th class="col-created" scope="col" { "Created" }
                                 th scope="col" { "Expires" }
+                                th scope="col" { "Last used" }
                                 th class="num" scope="col" { span class="visually-hidden" { "Actions" } }
                             }
                         }
@@ -4000,10 +4016,16 @@ pub(super) fn fleet_tokens(
                                             span class="chip muted" { "no destructive tools" }
                                         }
                                     }
-                                    td class="nowrap" { (stamp(row.created_ms)) }
+                                    td class="nowrap col-created" { (stamp(row.created_ms)) }
                                     td class="nowrap" {
                                         @match row.expires_at_ms {
                                             Some(expires) => { (date(expires)) }
+                                            None => { span class="muted" { "never" } }
+                                        }
+                                    }
+                                    td class="nowrap" {
+                                        @match row.last_used_ms {
+                                            Some(used) => { (stamp(used)) }
                                             None => { span class="muted" { "never" } }
                                         }
                                     }
@@ -5858,6 +5880,8 @@ mod tests {
                 destructive: true,
                 created_ms: 1_793_000_000_000,
                 expires_at_ms: None,
+                // A busy credential: the dashboard polls with it every few minutes.
+                last_used_ms: Some(1_793_059_200_000),
             },
             TokenRow {
                 id: "token-2".to_owned(),
@@ -5868,6 +5892,7 @@ mod tests {
                 // A year out: the review set has to show the column that was documented but never
                 // drawn, and the date with a year is what a year-long lifetime needs.
                 expires_at_ms: Some(1_824_500_000_000),
+                last_used_ms: None,
             },
         ];
         let fleet_token_rows = vec![FleetTokenRow {
@@ -5878,6 +5903,7 @@ mod tests {
             destructive: true,
             created_ms: 1_793_050_000_000,
             expires_at_ms: None,
+            last_used_ms: Some(1_793_058_000_000),
         }];
         let secret = "srm_2f9a8c7b6d5e4f3a2b1c0d9e8f7a6b5c4d3e2f1a0b9c8d7e6f5a4b3c2d1e0f9a";
         let config = format!(
@@ -6330,6 +6356,7 @@ mod tests {
             destructive: true,
             created_ms: 1_791_000_000_000,
             expires_at_ms: Some(1_824_500_000_000),
+            last_used_ms: Some(1_791_000_500_000),
         }];
         let page = fleet_tokens(&devices, &rows, "00", "0.1.0", None).into_string();
 
@@ -6348,6 +6375,10 @@ mod tests {
         assert!(
             page.contains("2027-10-25"),
             "the expiry carries its year: {page}"
+        );
+        assert!(
+            page.contains("10-03 04:08:20 UTC"),
+            "the list dates the last use, not just creation: {page}"
         );
         assert!(
             page.matches("name=\"device\"").count() == devices.len(),
