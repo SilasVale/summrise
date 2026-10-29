@@ -1280,10 +1280,16 @@ pub(super) fn dashboard(
 ) -> Markup {
     let total = devices.len();
     let online = devices.iter().filter(|device| device.online).count();
+    // **THE ACCENT FOLLOWS ATTENTION.** Minting a code is the fleet's one action until a held call
+    // exists: then that call is the thing to answer, and a second filled button would ask the
+    // operator to choose between a decision that expires in ninety seconds and one that can wait.
+    // The button stays in the card head either way; only its fill yields (PRODUCT.md rule 2).
     let enroll = html! {
         form method="post" action="/next/enroll" {
             input type="hidden" name="csrf" value=(csrf);
-            button type="submit" class="btn btn-primary" { "New enrollment code" }
+            button type="submit" class=(if approvals.is_empty() { "btn btn-primary" } else { "btn" }) {
+                "New enrollment code"
+            }
         }
     };
     let content = html! {
@@ -4992,6 +4998,60 @@ mod tests {
         assert_eq!(page.matches(">Files</a>").count(), devices.len(), "{page}");
     }
 
+    /// **THE ACCENT FOLLOWS ATTENTION.** `no_page_asks_for_two_things_at_once` counts the state the
+    /// fleet gains when a call is held; this test pins the other half — with nothing held, enrolling
+    /// is the page's one action and keeps the fill. The two together say the rule has two directions
+    /// rather than a page that happens to pass.
+    #[test]
+    fn the_accent_yields_to_a_held_call_and_returns_without_one() {
+        let device = view('a', Some("STUDIO-PC"), true);
+        let device_id = device.id.clone();
+        let notes = Notes::default();
+        let quiet = dashboard(
+            &[device],
+            "csrf",
+            "0.1.0",
+            notes,
+            &[],
+            &[],
+            1_791_000_000_000,
+        )
+        .into_string();
+        let held = [ApprovalRow {
+            id: "held-1".to_owned(),
+            device_id,
+            tool: "terminal.create".to_owned(),
+            arguments: "{\"kind\":\"pty\"}".to_owned(),
+            created_ms: 1_791_000_000_000,
+        }];
+        let waiting = dashboard(
+            &[view('a', Some("STUDIO-PC"), true)],
+            "csrf",
+            "0.1.0",
+            Notes::default(),
+            &[],
+            &held,
+            1_791_000_000_000,
+        )
+        .into_string();
+
+        let enroll = |page: &str| between(page, "action=\"/next/enroll\"", "</form>").to_owned();
+        assert!(
+            enroll(&quiet).contains("btn btn-primary"),
+            "with nothing waiting, enrolling is the fleet's action"
+        );
+        assert!(
+            !enroll(&waiting).contains("btn btn-primary"),
+            "a held call is the action; a second fill asks the operator to choose"
+        );
+        assert_eq!(
+            waiting.matches("class=\"btn btn-primary").count(),
+            1,
+            "the one accent is the approval"
+        );
+        assert_eq!(quiet.matches("class=\"btn btn-primary").count(), 1);
+    }
+
     /// **ONE DESTINATION FOR THE CONSOLE'S RECORD.** The fleet footer offered two bare links
     /// (Audit, Denials); the two views live behind one `Records` link and a segment control now.
     #[test]
@@ -5235,16 +5295,11 @@ mod tests {
         );
     }
 
-    /// A review harness: write each page to `/tmp/pages` so a browser can be pointed at the real
-    /// markup. Ignored, because it is a tool for the eyes rather than a gate.
-    #[test]
-    #[ignore = "writes pages for a browser to look at"]
-    fn render_pages_for_review() {
-        // `SUMMRISE_PAGE_DIR` lets the screenshot script render somewhere it owns; the default is
-        // the directory everyone already looks in.
-        let out = std::env::var("SUMMRISE_PAGE_DIR").unwrap_or_else(|_| "/tmp/pages".to_owned());
-        let dir = std::path::Path::new(&out);
-        std::fs::create_dir_all(dir).expect("the review directory");
+    /// The review set: every page and variant a person can land on, with the fixtures that show
+    /// each state (a held call, an outage that ended, a refusal). Two readers share it — the
+    /// screenshot script (through the ignored test below) and the gate that counts the accent —
+    /// because a page that is only photographed can be looked at, and one only counted looks fine.
+    fn review_pages() -> Vec<(&'static str, Markup)> {
         let mut devices = vec![
             view('a', Some("STUDIO-PC"), true),
             view('b', Some("LAB-PC"), true),
@@ -5478,7 +5533,7 @@ mod tests {
             baud: None,
             key_path: Some("C:\\Users\\operator\\.ssh\\id_ed25519".to_owned()),
         };
-        let pages: Vec<(&str, Markup)> = vec![
+        vec![
             (
                 "dashboard",
                 dashboard(
@@ -5765,11 +5820,21 @@ mod tests {
             ),
             ("login", login(None, None)),
             ("not-found", not_found("0.3.72")),
-        ];
+        ]
+    }
+
+    #[test]
+    #[ignore = "writes pages for a browser to look at"]
+    fn render_pages_for_review() {
+        // `SUMMRISE_PAGE_DIR` lets the screenshot script render somewhere it owns; the default is
+        // the directory everyone already looks in.
+        let out = std::env::var("SUMMRISE_PAGE_DIR").unwrap_or_else(|_| "/tmp/pages".to_owned());
+        let dir = std::path::Path::new(&out);
+        std::fs::create_dir_all(dir).expect("the review directory");
         // Two fixtures can share a page name (a page and its post-submit variant); the file name
         // must not be one of them, or the second silently overwrites the first in the review set.
         let mut seen: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
-        for (name, markup) in pages {
+        for (name, markup) in review_pages() {
             let count = seen.entry(name.to_owned()).or_insert(0);
             *count += 1;
             let file = if *count == 1 {
@@ -5779,6 +5844,23 @@ mod tests {
             };
             std::fs::write(dir.join(format!("{file}.html")), markup.into_string())
                 .expect("the page is written");
+        }
+    }
+
+    /// **ONE ACCENT, ONE JOB.** PRODUCT.md rule 2: the accent marks the action to be taken, so a page
+    /// carrying two filled buttons asks for two things at once and leaves the reader to guess which
+    /// one the product wants. The review set is every page a person can land on — the only list that
+    /// contains the state each page gains from another page's data — and the count is over the
+    /// markup (`class="btn btn-primary`), not over the stylesheet that defines it.
+    #[test]
+    fn no_page_asks_for_two_things_at_once() {
+        for (name, page) in review_pages() {
+            let html = page.into_string();
+            let filled = html.matches("class=\"btn btn-primary").count();
+            assert!(
+                filled <= 1,
+                "{name} carries {filled} primary actions; the accent marks one"
+            );
         }
     }
 

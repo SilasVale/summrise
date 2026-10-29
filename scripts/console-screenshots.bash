@@ -69,6 +69,13 @@ rm -rf "$pages"
 mkdir -p "$pages"
 export SUMMRISE_PAGE_DIR="$pages"
 
+# **AND THE PICTURES ARE THE SAME TRAP.** Emptying the markup is only half of it: the PNGs beside it
+# are written per name, so an output directory that already held a deleted page's `state.png` made
+# `--diff` report it as "new" — a page that no longer exists, invented by the run's own leftovers.
+# Only this script's own files are removed, so `--out /tmp/x` stays safe to point anywhere.
+rm -f "$out"/*.png
+rm -rf "$out/dark-pages"
+
 echo "console-screenshots: rendering the pages with the console's own renderer"
 SUMMRISE_PAGE_DIR="$pages" cargo test --quiet \
     --manifest-path "$root/device/Cargo.toml" \
