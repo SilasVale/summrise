@@ -940,6 +940,26 @@ async fn no_store(request: axum::extract::Request, next: axum::middleware::Next)
         header::X_FRAME_OPTIONS,
         axum::http::HeaderValue::from_static("DENY"),
     );
+    // **THE BROWSER MITIGATES NOTHING IT WAS NOT TOLD.** `X-Frame-Options` was the only one of these
+    // the console sent (measured 2026-10-29: `x-frame-options`, `cache-control`, `content-type`).
+    // A browser that sniffs is a browser that can run what the console meant as a download; a
+    // console page can carry a device id in its path, and a referrer leaks it to whatever the page
+    // links to. The CSP line constrains nothing the console does — no frames, no plugins, no base
+    // rewrite — so the inline terminal bootstrap keeps working.
+    response.headers_mut().insert(
+        header::X_CONTENT_TYPE_OPTIONS,
+        axum::http::HeaderValue::from_static("nosniff"),
+    );
+    response.headers_mut().insert(
+        header::REFERRER_POLICY,
+        axum::http::HeaderValue::from_static("no-referrer"),
+    );
+    response.headers_mut().insert(
+        header::CONTENT_SECURITY_POLICY,
+        axum::http::HeaderValue::from_static(
+            "frame-ancestors 'none'; object-src 'none'; base-uri 'self'",
+        ),
+    );
     response
 }
 

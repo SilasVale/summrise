@@ -1462,6 +1462,42 @@ async fn grant_signing_requires_an_operator_session() {
     assert_eq!(status, StatusCode::UNAUTHORIZED);
 }
 
+/// **EVERY ANSWER CARRIES THE BROWSER MITIGATIONS.** Measured on the live console before this
+/// test: `x-frame-options`, `cache-control` and `content-type` — nothing about sniffing, referrers
+/// or what the page may embed. The middleware that sets them is one layer, so one test reads them.
+#[tokio::test]
+async fn every_answer_carries_the_browser_mitigations() {
+    let fixture = Fixture::new("security-headers");
+
+    let (status, headers, _) = send_with_headers(fixture.app(), get("/health", None)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        headers.get("x-frame-options").and_then(|v| v.to_str().ok()),
+        Some("DENY")
+    );
+    assert_eq!(
+        headers
+            .get("x-content-type-options")
+            .and_then(|v| v.to_str().ok()),
+        Some("nosniff")
+    );
+    assert_eq!(
+        headers.get("referrer-policy").and_then(|v| v.to_str().ok()),
+        Some("no-referrer")
+    );
+    assert_eq!(
+        headers
+            .get("content-security-policy")
+            .and_then(|v| v.to_str().ok()),
+        Some("frame-ancestors 'none'; object-src 'none'; base-uri 'self'")
+    );
+    assert_eq!(
+        headers.get("cache-control").and_then(|v| v.to_str().ok()),
+        Some("no-store"),
+        "a cached page is yesterday's page"
+    );
+}
+
 #[tokio::test]
 async fn health_reports_status_device_count_and_uptime_without_auth() {
     let fixture = Fixture::new("health");
