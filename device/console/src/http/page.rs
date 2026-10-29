@@ -736,6 +736,19 @@ fn ago(now_ms: u64, then_ms: u64) -> String {
     }
 }
 
+/// A span of milliseconds as a person says it: `4h 05m`, `12m`, `40s`. Minutes are padded so two
+/// durations in a column line up and `4h 5m` does not read as `4h 50m`.
+fn duration_text(ms: u64) -> String {
+    let seconds = ms / 1000;
+    if seconds >= 3_600 {
+        format!("{}h {:02}m", seconds / 3_600, (seconds % 3_600) / 60)
+    } else if seconds >= 60 {
+        format!("{}m", seconds / 60)
+    } else {
+        format!("{seconds}s")
+    }
+}
+
 /// The short id the fleet shows: the first eight characters, never a wall of hex.
 /// A digest as a person reads it here: eight characters and an ellipsis, the same shape as an id.
 fn short_digest(digest: &str) -> String {
@@ -1459,6 +1472,21 @@ pub(super) fn dashboard(
                                                 "never seen"
                                             } @else {
                                                 "offline since " (stamp(device.last_seen_ms))
+                                            }
+                                        }
+                                        @if let Some(outage) = &device.last_outage {
+                                            // **THE OUTAGE THAT IS OVER LEAVES A TRACE.** A fleet whose
+                                            // machines are all "online" says nothing about the four hours
+                                            // one of them spent gone; after a network change or a service
+                                            // that had to be restarted, the row is where a person finds
+                                            // out that it happened. Five minutes is the floor: a device
+                                            // reconnecting after a blip is not news. A day is the ceiling:
+                                            // yesterday's outage is history, not status.
+                                            @if outage.duration_ms >= 300_000 && now_ms.saturating_sub(outage.started_ms + outage.duration_ms) <= 86_400_000 {
+                                                span class="meta-sep" aria-hidden="true" { "·" }
+                                                span class="device-outage" title=(format!("its channel went away at {}", stamp(outage.started_ms))) {
+                                                    "back after " (duration_text(outage.duration_ms))
+                                                }
                                             }
                                         }
                                         @if !device.online {
@@ -4265,6 +4293,7 @@ mod tests {
             version: Some("0.3.72".to_owned()),
             host: None,
             last_attempt: None,
+            last_outage: None,
         }
     }
 
@@ -4743,6 +4772,56 @@ mod tests {
         );
     }
 
+    /// **AN OUTAGE THAT IS OVER LEAVES A TRACE.** Every machine reads `online` again the morning
+    /// after one went away for four hours; without this the fleet says nothing happened.
+    #[test]
+    fn the_fleet_says_how_long_a_device_was_away() {
+        let now = 1_791_000_000_000;
+        let mut device = view('8', Some("workshop"), true);
+        device.last_outage = Some(super::super::OutageView {
+            started_ms: now - 4 * 3_600_000 - 300_000,
+            duration_ms: 4 * 3_600_000 + 300_000,
+        });
+        let page = dashboard(
+            std::slice::from_ref(&device),
+            "00",
+            "0.1.0",
+            Notes::default(),
+            &[],
+            &[],
+            now,
+        )
+        .into_string();
+        assert!(page.contains("back after 4h 05m"), "{page}");
+
+        // A blip is not news, and neither is an outage that ended a day ago. Each case sets when the
+        // outage STARTED and how long it lasted; the row only asks when it ended.
+        for (started, duration, label) in [
+            (now - 120_000, 120_000u64, "a two-minute blip"),
+            (now - 2 * 86_400_000, 3_600_000, "one that ended a day ago"),
+        ] {
+            let mut device = view('9', Some("workshop"), true);
+            device.last_outage = Some(super::super::OutageView {
+                started_ms: started,
+                duration_ms: duration,
+            });
+            let page = dashboard(
+                std::slice::from_ref(&device),
+                "00",
+                "0.1.0",
+                Notes::default(),
+                &[],
+                &[],
+                now,
+            )
+            .into_string();
+            assert!(
+                !page.contains("back after"),
+                "{label} must not be shown: {page}"
+            );
+        }
+    }
+
     #[test]
     fn an_offline_row_says_since_when_it_has_been_offline() {
         let mut offline = view('5', Some("workshop"), false);
@@ -5074,6 +5153,12 @@ mod tests {
         devices[0].last_seen_ms = 1_791_000_000_000 - 6 * 60 * 1000;
         devices[1].last_seen_ms = 1_791_000_000_000 - 3 * 3600 * 1000;
         devices[2].last_seen_ms = 1_791_000_000_000 - 2 * 86_400 * 1000;
+        // The state the fleet row gained after the 2026-10-29 outage: a machine that is back, and
+        // says for how long it was gone. A review set that never shows it cannot be reviewed for it.
+        devices[1].last_outage = Some(super::super::OutageView {
+            started_ms: 1_791_000_000_000 - 4 * 3_600_000 - 300_000,
+            duration_ms: 4 * 3_600_000 + 300_000,
+        });
         let id = devices[0].id.clone();
         let entries = vec![
             FileEntry {
@@ -6109,6 +6194,7 @@ mod tests {
             version: None,
             host: None,
             last_attempt: None,
+            last_outage: None,
         };
         let page = dashboard(
             &[device],

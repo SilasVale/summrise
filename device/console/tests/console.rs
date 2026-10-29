@@ -1543,6 +1543,51 @@ async fn health_stops_counting_a_device_whose_channel_closed() {
     panic!("the dropped channel still counts as online: {last}");
 }
 
+/// **THE OUTAGE THAT IS OVER IS STILL A FACT.** A fleet row says `online` again the moment a device
+/// comes back; this is what lets it also say how long the device was gone.
+#[tokio::test]
+async fn a_reconnect_records_how_long_the_device_was_away() {
+    let fixture = Fixture::new("outage-record");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, token, device) = connected_device(&fixture, &server, &signing_key(0x78)).await;
+    let session = fixture.authenticate().await;
+
+    let (_, fleet) = send(fixture.app(), get("/fleet", Some(&session))).await;
+    let listed = fleet
+        .as_array()
+        .expect("the fleet is a list")
+        .iter()
+        .find(|entry| entry["id"] == json!(device_id))
+        .expect("the device is listed");
+    assert!(
+        listed["last_outage"].is_null(),
+        "a device that has never gone away has no outage: {listed}"
+    );
+
+    drop(device);
+    tokio::time::sleep(std::time::Duration::from_millis(80)).await;
+    let _again = open_channel(&server, &device_id, &token)
+        .await
+        .expect("the device reconnects");
+
+    let (_, fleet) = send(fixture.app(), get("/fleet", Some(&session))).await;
+    let listed = fleet
+        .as_array()
+        .expect("the fleet is a list")
+        .iter()
+        .find(|entry| entry["id"] == json!(device_id))
+        .expect("the device is still listed");
+    let outage = &listed["last_outage"];
+    assert!(
+        outage["duration_ms"].as_u64().unwrap_or(0) >= 80,
+        "the gap it was away is recorded: {listed}"
+    );
+    assert!(
+        outage["started_ms"].as_u64().unwrap_or(0) > 0,
+        "and when it began: {listed}"
+    );
+}
+
 #[tokio::test]
 async fn a_grant_shorter_than_a_minute_is_400_and_a_minute_is_fine() {
     let fixture = Fixture::new("grant-minimum-expiry");

@@ -6283,6 +6283,7 @@ async fn rename_device(
     // device audit. `session` is what proves the caller is the operator.
     let _ = session;
 
+    let outage = app.channels.last_outage(&device.id);
     Ok(Json(DeviceView {
         online: app.channels.online(&device.id),
         version: app.channels.version(&device.id),
@@ -6292,6 +6293,12 @@ async fn rename_device(
             attempts: note.attempts,
             reason: note.reason,
         }),
+        last_outage: outage
+            .and_then(|outage| outage.duration_ms)
+            .map(|duration_ms| OutageView {
+                started_ms: outage.map(|outage| outage.started_ms).unwrap_or(0),
+                duration_ms,
+            }),
         id: device.id,
         public_key: device.public_key,
         registered_at_ms: device.registered_at_ms,
@@ -6413,6 +6420,18 @@ fn device_views(app: &AppState) -> Vec<DeviceView> {
                 attempts: note.attempts,
                 reason: note.reason,
             }),
+            last_outage: app
+                .channels
+                .last_outage(&device.id)
+                .and_then(|outage| outage.duration_ms)
+                .map(|duration_ms| OutageView {
+                    started_ms: app
+                        .channels
+                        .last_outage(&device.id)
+                        .map(|outage| outage.started_ms)
+                        .unwrap_or(0),
+                    duration_ms,
+                }),
             // A name given at registration wins; the machine's own name is a fallback for the
             // devices that never gave one, which is all of them so far.
             name: device.name.or_else(|| app.channels.name(&device.id)),
@@ -6451,10 +6470,22 @@ struct DeviceView {
     /// How the attempt before the last one ended, when the device has said since.
     #[serde(skip_serializing_if = "Option::is_none")]
     last_attempt: Option<RetryView>,
+    /// The last time this device's channel went away and came back, when the console saw both ends.
+    /// `online` answers "is it up now"; this answers "was it away, and for how long" — the question
+    /// an operator asks when they come back to a fleet where nothing looks wrong any more.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    last_outage: Option<OutageView>,
     /// The machine facts the device last sent over its channel: the operator reads what the device is,
     /// including which sessions are disconnected, without minting a grant to ask.
     #[serde(skip_serializing_if = "Option::is_none")]
     host: Option<serde_json::Value>,
+}
+
+/// One finished outage, as a page reads it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
+pub(crate) struct OutageView {
+    pub(crate) started_ms: u64,
+    pub(crate) duration_ms: u64,
 }
 
 /// How a transport failure is answered, and whether the operator may retry.

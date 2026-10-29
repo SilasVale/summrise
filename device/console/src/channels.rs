@@ -142,7 +142,23 @@ struct Live {
 /// The requests waiting for an answer, keyed by the envelope id.
 type Pending = Arc<Mutex<HashMap<u64, oneshot::Sender<Answer>>>>;
 
-/// Every live channel, keyed by device id.
+/// Milliseconds since the Unix epoch, for the two moments an outage has. The registry keeps no
+/// injected clock: both moments are real ones, and a test that needs a duration waits for it.
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+/// One outage: when a device's channel went away, and how long it stayed away. `duration_ms` is
+/// `None` while the device is still down.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Outage {
+    pub started_ms: u64,
+    pub duration_ms: Option<u64>,
+}
+
 /// How the attempt before a device's current one ended, as that device reported it on connecting.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct RetryNote {
@@ -172,6 +188,10 @@ pub(crate) struct ChannelRegistry {
     /// a device cannot report a failure over the connection that failed, so the story is one attempt
     /// behind, and the label in the page says so.
     retries: Mutex<HashMap<String, RetryNote>>,
+    /// The last outage each device had: when it began and how long it lasted. A live channel leaves
+    /// no trace of the hours it was gone, and the fleet row that says `online` is answering a
+    /// different question than "was this machine away, and for how long".
+    outages: Mutex<HashMap<String, Outage>>,
     /// Wakes a request waiting for a channel to open.
     changed: Notify,
     send_timeout: Duration,
@@ -201,10 +221,16 @@ impl ChannelRegistry {
             names: Mutex::new(HashMap::new()),
             retries: Mutex::new(HashMap::new()),
             hosts: Mutex::new(HashMap::new()),
+            outages: Mutex::new(HashMap::new()),
             changed: Notify::new(),
             send_timeout,
             reply_timeout,
         }
+    }
+
+    /// The last outage of one device, if the console saw it go away and come back.
+    pub(crate) fn last_outage(&self, device_id: &str) -> Option<Outage> {
+        lock(&self.outages).get(device_id).copied()
     }
 
     /// The deepest any outbound queue has been since the console started.
@@ -459,6 +485,17 @@ impl ChannelRegistry {
 
     /// Register a socket as the device's live channel, replacing and closing any predecessor.
     fn open(&self, device_id: &str) -> OpenChannel {
+        // **AN OUTAGE ENDS HERE, NOT WHEN THE PAGE IS NEXT OPENED.** The close is the moment the
+        // console learns the device is gone; this is the moment it learns it is back, which is the
+        // pair the fleet row needs to say "back after 4h 05m".
+        {
+            let mut outages = lock(&self.outages);
+            if let Some(outage) = outages.get_mut(device_id) {
+                if outage.duration_ms.is_none() {
+                    outage.duration_ms = Some(now_ms().saturating_sub(outage.started_ms));
+                }
+            }
+        }
         let generation = self.next_generation.fetch_add(1, Ordering::Relaxed);
         let (outbound, commands) = mpsc::channel(CHANNEL_CAPACITY);
         let pending: Pending = Arc::new(Mutex::new(HashMap::new()));
@@ -495,10 +532,22 @@ impl ChannelRegistry {
     /// Forget the channel if it is still the one this task opened.
     fn close(&self, device_id: &str, generation: u64) {
         let mut live = lock(&self.live);
-        if live.get(device_id).map(|channel| channel.generation) == Some(generation) {
+        let closed = live.get(device_id).map(|channel| channel.generation) == Some(generation);
+        if closed {
             live.remove(device_id);
         }
         drop(live);
+        if closed {
+            // The device is gone as of now. A replaced channel never reaches this branch: its
+            // generation is not the live one any more, and the replacement already ended the outage.
+            lock(&self.outages).insert(
+                device_id.to_owned(),
+                Outage {
+                    started_ms: now_ms(),
+                    duration_ms: None,
+                },
+            );
+        }
         self.changed.notify_waiters();
     }
 }
