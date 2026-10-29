@@ -3217,9 +3217,6 @@ pub(super) fn memory(
                 }
             }
         }
-        p class="footnote" {
-            "Device " code title=(device.id) { (&device.id) }
-        }
     };
     let meta = if entries.is_empty() {
         Markup::default()
@@ -3867,9 +3864,6 @@ pub(super) fn tokens(
                     }
                 }
             }
-        }
-        p class="footnote" {
-            "Device " code title=(device.id) { (&device.id) }
         }
     };
     page(
@@ -5317,6 +5311,43 @@ mod tests {
         .into_string();
         assert!(empty.contains("No live session on this device"), "{empty}");
         assert!(!empty.contains("?attach="), "{empty}");
+    }
+
+    /// **AN ID IS AN ADDRESS, NOT A FOOTNOTE.** The console's rule is a shortened id in text and the
+    /// full one in a tooltip. Memory and Connect printed all sixty-four characters as body text at
+    /// the bottom of the page — on Memory it was decoration, and on Connect the endpoint above it
+    /// already carries the same id as the thing a client copies.
+    #[test]
+    fn the_device_id_is_not_a_footnote() {
+        let device = view('a', Some("studio"), true);
+        let id = device.id.clone();
+        let memory_page = memory(
+            &device,
+            &[],
+            MemoryLook {
+                tag: "",
+                query: "",
+                editing: None,
+            },
+            "00",
+            "0.1.0",
+            None,
+        )
+        .into_string();
+        assert!(
+            !memory_page.contains("class=\"footnote\""),
+            "memory does not print the whole id: {memory_page}"
+        );
+        let connect = tokens(&device, &[], "00", "0.1.0", None).into_string();
+        assert!(
+            !connect.contains("class=\"footnote\""),
+            "the endpoint is where the id belongs: {connect}"
+        );
+        assert_eq!(
+            connect.matches(&format!("/mcp/{id}")).count(),
+            1,
+            "the endpoint still names the device exactly once: {connect}"
+        );
     }
 
     #[test]
