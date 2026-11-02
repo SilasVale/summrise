@@ -8,10 +8,9 @@
 // Events → Activity), but they are no longer navigation.
 export type Page =
   | "devices"
-  | "files"
   | "terminal"
-  | "browser"
   | "screen"
+  | "files"
   | "runs"
   | "system"
   | "audit";
@@ -20,12 +19,11 @@ export type Page =
 /// label is the difference between "a column of glyphs" and a navigable set of sections.
 export const PAGE_LABELS: Record<Page, string> = {
   devices: "Devices",
-  files: "Files",
   terminal: "Terminal",
-  browser: "Browser",
   screen: "Screen",
+  files: "Files",
   runs: "Runs",
-  system: "System",
+  system: "Machine",
   audit: "Activity"
 };
 
@@ -38,7 +36,6 @@ const ICONS: Record<Page, string> = {
     "M4 5.5h16M4 12h16M4 18.5h10M3 3.5h18a1 1 0 0 1 1 1v15a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1v-15a1 1 0 0 1 1-1Z",
   files: "M3 5.5h6l2 2h10v11H3z",
   terminal: "M6 8l3.5 4L6 16M12 16h6M3 4.5h18v15H3z",
-  browser: "M3 5.5h18v13H3zM3 9.5h18M6.5 7.5h.01M9 7.5h.01",
   screen: "M3 4.5h18v12H3zM9 20.5h6M12 16.5v4",
   runs: "M8 5v14l11-7z",
   system: "M8 8h8v8H8zM4 9h4M4 15h4M16 9h4M16 15h4M9 4v4M15 4v4M9 16v4M15 16v4",

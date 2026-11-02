@@ -22,7 +22,6 @@ import { DevicePage } from "./DevicePage";
 import { DevicePicker } from "./DevicePicker";
 import { TerminalWorkspace } from "./TerminalWorkspace";
 import type { Grant } from "./terminal";
-import { BrowserPane } from "./BrowserPane";
 import { FilesPage } from "./FilesPage";
 import { RunsPage } from "./RunsPage";
 import { ScreenPage } from "./ScreenPage";
@@ -488,20 +487,6 @@ export function App() {
             </section>
           )}
 
-          {page === "browser" && (
-            <DevicePage
-              title="Browser"
-              pickHint="The browser is one the device runs for you — in the user's session when the helper is there. Pick a device to grant the console its browser tools."
-              devices={devices}
-              chosen={chosen}
-              grant={grant}
-              onChoose={setSelected}
-              onGrant={(deviceId, envelope) => setGrant({ deviceId, envelope })}
-            >
-              {(active) => <BrowserPane grant={active} />}
-            </DevicePage>
-          )}
-
           {page === "screen" && (
             <DevicePage
               title="Screen"
@@ -534,7 +519,7 @@ export function App() {
 
           {page === "system" && (
             <DevicePage
-              title="System"
+              title="Machine"
               pickHint="Processes and reachability live on the device, so pick one. The console signs a grant for the system tools, and the device checks that grant on every read, every kill and every network test."
               grantHint="A grant is signed by the console, names the tools and expires. The device checks it on every call. Everything is selected by default: press the button and the process list appears."
               devices={devices}

@@ -642,12 +642,6 @@ const PAGES = [
     state: 'device picker (no grant or terminal; not exercised)'
   },
   {
-    id: 'browser',
-    label: 'Browser',
-    heading: 'Browser',
-    state: 'device picker (no grant; browser pane not exercised)'
-  },
-  {
     id: 'screen',
     label: 'Screen',
     heading: 'Screen',
@@ -656,9 +650,9 @@ const PAGES = [
   { id: 'runs', label: 'Runs', heading: 'Runs', state: 'device picker (no grant; runs not exercised)' },
   {
     id: 'system',
-    label: 'System',
-    heading: 'System',
-    state: 'device picker (no grant; system pane not exercised)'
+    label: 'Machine',
+    heading: 'Machine',
+    state: 'device picker (no grant; machine pane not exercised)'
   },
   { id: 'audit', label: 'Activity', heading: 'Activity', state: 'audit table' },
 ];

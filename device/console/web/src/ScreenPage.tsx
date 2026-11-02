@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useRequestGate } from "./requests";
 import { callTool, toolFailure, type Grant } from "./terminal";
+import { BrowserPane } from "./BrowserPane";
 
 /** What `screen.capture` answers: one PNG and the size the helper reported for it. */
 type Capture = { data: string; width: number; height: number };
@@ -21,6 +22,7 @@ export function ScreenPage({ grant }: { grant: Grant }) {
   const [shot, setShot] = useState<Shot | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [view, setView] = useState<"desktop" | "browser">("desktop");
 
   // The disabled button is the visible guard, but a second click can arrive before the re-render
   // disables it; the handler closes over the previous `busy`, so the ref is the real gate.
@@ -71,30 +73,55 @@ export function ScreenPage({ grant }: { grant: Grant }) {
       <div className="panel-head">
         <h2>Screen</h2>
         <div className="actions">
-          <button type="button" disabled={busy} onClick={() => void capture()}>
-            {busy ? "Capturing…" : "Capture screen"}
-          </button>
+          <div className="seg" role="group" aria-label="Screen view">
+            <button
+              type="button"
+              aria-pressed={view === "desktop"}
+              onClick={() => setView("desktop")}
+            >
+              Desktop
+            </button>
+            <button
+              type="button"
+              aria-pressed={view === "browser"}
+              onClick={() => setView("browser")}
+            >
+              Browser
+            </button>
+          </div>
+          {view === "desktop" && (
+            <button type="button" disabled={busy} onClick={() => void capture()}>
+              {busy ? "Capturing…" : "Capture screen"}
+            </button>
+          )}
         </div>
       </div>
-      <p className="hint">
-        The picture comes from the per-user helper's session, so a locked or disconnected session is
-        the device's refusal, not a black frame.
-      </p>
 
-      {error && <p className="error">{error}</p>}
-
-      {shot && (
+      {view === "browser" ? (
+        <BrowserPane grant={grant} />
+      ) : (
         <>
           <p className="hint">
-            <span className="mono">
-              {shot.width}×{shot.height}
-            </span>{" "}
-            · captured {shot.capturedAt.toLocaleString()} ·{" "}
-            <a href={shot.dataUrl} download={downloadName(shot.capturedAt)}>
-              Download
-            </a>
+            The picture comes from the per-user helper's session, so a locked or disconnected session
+            is the device's refusal, not a black frame.
           </p>
-          <img className="screen-shot" src={shot.dataUrl} alt="the device's screen" />
+
+          {error && <p className="error">{error}</p>}
+
+          {shot && (
+            <>
+              <p className="hint">
+                <span className="mono">
+                  {shot.width}×{shot.height}
+                </span>{" "}
+                · captured {shot.capturedAt.toLocaleString()} ·{" "}
+                <a href={shot.dataUrl} download={downloadName(shot.capturedAt)}>
+                  Download
+                </a>
+              </p>
+              <img className="screen-shot" src={shot.dataUrl} alt="the device's screen" />
+            </>
+          )}
         </>
       )}
     </div>

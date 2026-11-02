@@ -122,6 +122,12 @@ main { flex: 1; max-width: 84rem; margin: 0 auto; padding: var(--sp-5); display:
 .panel-head { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; margin-bottom: var(--sp-1); }
 .actions { margin-left: auto; display: flex; gap: var(--sp-2); }
 
+/* A two-state view switch (Desktop / Browser) belongs inside the page header, not in the rail:
+   it is a view of the same device surface, not a destination. */
+.seg { display: inline-flex; gap: 2px; padding: 2px; border: 1px solid var(--line); border-radius: var(--radius-sm2); }
+.seg button { border: 0; background: transparent; padding: var(--sp-1) var(--sp-2); }
+.seg button[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); }
+
 /* A button inside a grid panel stretches to the column: buttons are controls, not blocks. */
 .panel > button, .grant > button { justify-self: start; }
 
