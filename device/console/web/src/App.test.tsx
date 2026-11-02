@@ -225,20 +225,19 @@ describe("App", () => {
     expect(screen.queryByText(/running 2 builds/)).not.toBeInTheDocument();
   });
 
-  it("renders the whole shell: the eight rail sections, the brand, the build and the sign-in path", async () => {
+  it("renders the whole shell: the seven rail sections, the brand, the build and the sign-in path", async () => {
     await bootAndSignIn();
 
     const rail = screen.getByRole("navigation", { name: "Sections" });
     const sections = within(rail).getAllByRole("button");
-    expect(sections).toHaveLength(8);
+    expect(sections).toHaveLength(7);
     expect(sections.map((section) => section.textContent)).toEqual([
       "Devices",
-      "Files",
       "Terminal",
-      "Browser",
       "Screen",
+      "Files",
       "Runs",
-      "System",
+      "Machine",
       "Activity"
     ]);
     expect(within(rail).getByRole("button", { name: "Devices" })).toHaveAttribute("aria-current", "page");

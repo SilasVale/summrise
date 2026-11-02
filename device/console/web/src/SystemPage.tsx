@@ -314,7 +314,7 @@ export function SystemPage({ grant }: { grant: Grant }) {
   return (
     <div className="system-page">
       <div className="panel-head">
-        <h2>System</h2>
+        <h2>Machine</h2>
       </div>
       <p className="hint">
         What the device is running, and whether it can reach one TCP port. Every read and every
