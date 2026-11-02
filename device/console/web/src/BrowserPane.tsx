@@ -363,7 +363,9 @@ export function BrowserPane({ grant }: { grant: Grant }) {
           value={url}
           onChange={(event) => setUrl(event.target.value)}
         />
-        <button type="button" onClick={() => void open()}>Open new tab</button>
+        <button type="button" disabled={!url.trim()} onClick={() => void open()}>
+          Open new tab
+        </button>
         <button type="button" disabled={!target || !url.trim()} onClick={() => void navigate()}>
           Navigate
         </button>

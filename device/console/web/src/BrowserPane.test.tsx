@@ -112,13 +112,16 @@ describe("BrowserPane", () => {
     expect((call?.[2] as { expression: string }).expression).toContain(".focus()");
   });
 
-  it("keeps Navigate disabled until there is both a target and an address", async () => {
+  it("keeps Navigate and Open new tab disabled until there is an address", async () => {
     await openPane();
     const navigate = screen.getByRole("button", { name: "Navigate" });
+    const open = screen.getByRole("button", { name: "Open new tab" });
     expect(navigate).toBeDisabled();
+    expect(open).toBeDisabled();
 
     fireEvent.change(screen.getByLabelText("Address"), { target: { value: "https://b.test" } });
     expect(navigate).toBeEnabled();
+    expect(open).toBeEnabled();
   });
 
   it("disables Navigate and Close tab when no target is listed", async () => {
