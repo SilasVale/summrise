@@ -32,6 +32,7 @@ pub const TOKENS: &str = r#":root {
      An ANSI palette tuned for a light canvas is not the dark one with the colours swapped: these are
      the legacy's, so a `ls` or a `git status` reads the same in both products. */
   --term-canvas:#ffffff; --term-selection:rgba(191,58,10,.18);
+  --term-black:#1d1d1f; --term-white:#44403c;
   --term-red:#b3261e; --term-green:#1d7a3c; --term-yellow:#a8620a;
   --term-blue:#1f5fbf; --term-magenta:#8a3ffc; --term-cyan:#0e7490;
   /* ---- one vocabulary, two names ---- */
@@ -62,6 +63,7 @@ pub const TOKENS: &str = r#":root {
     --shadow:0 1px 2px rgba(0,0,0,.45), 0 16px 36px -26px rgba(0,0,0,.9);
     --hover:#2a2b32;
     --term-canvas:#131418; --term-selection:rgba(255,163,107,.24);
+    --term-black:#2a2c33; --term-white:#e8e9ec;
     --term-red:#ff8b84; --term-green:#6edc8b; --term-yellow:#e0a44a;
     --term-blue:#7fb0ff; --term-magenta:#c9a3ff; --term-cyan:#6fd3e6;
   }
