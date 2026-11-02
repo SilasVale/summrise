@@ -6,7 +6,7 @@ Three version streams ship from this repository and none of them is deployed by 
 |---|---|---|
 | **device runtime** | `summrise-launch` + `summrise-device`, the Windows service | the installer, or the device's own update check against the mirror |
 | **console** | `summrise-console`, the operator's surface | built here, fetched by the host and swapped by `scripts/stage-console-deploy.bash` (see `docs/console-deploy.md`) |
-| **console page** | Rust handlers in `console/src/http/page.rs`, rendered per request | inside the console binary — no separate deploy, no npm |
+| **console page** | React 19, built into one HTML file and embedded in the console binary | inside the console binary — no separate deploy, no Node at runtime |
 
 They share a version number because they are released together, but a *device* release does not redeploy a
 *console*, and a console deploy does not touch a device. `verify-release.sh` is the tool that keeps those
@@ -342,9 +342,9 @@ scripts/publish-canary.bash \
     --console http://127.0.0.1:19000        # optional: verify the world at the end
 ```
 
-The page is Rust rendered per request, compiled into the console binary, so there is no separate
-artifact that can be older than its sources — a publish's binary IS the page. What the publish still
-checks is the version it signs and the mirror it names.
+The page is React 19 built to one `dist/index.html` and embedded in the console binary, so there is
+no separate page artifact at runtime; `scripts/build-web.sh --check` refuses a stale committed
+bundle before a build. What the publish still checks is the version it signs and the mirror it names.
 
 What it produces:
 
@@ -473,9 +473,9 @@ The console binary carries the page and, for every registered device, the standa
 
 1. `curl http://127.0.0.1:19000/health` — the version must be the one just built, and `devices` the
    registry size.
-2. The page at `http://127.0.0.1:19000/`: sign in, open a device's **Connect an AI client** page (rail:
-   **Tokens**) and **Mint a token**; it shows the endpoint and the header once. A session grant is the
-   same call through `POST /grants`, not a page.
+2. The page at `http://127.0.0.1:19000/`: sign in, open **Home → Connect a client** (or the account
+   menu) and use the **Tokens** section's **Create token**; it shows the endpoint and the header once.
+   A session grant is the same call through `POST /grants`, not a page.
 3. The endpoint: use the card's header (or a grant minted through the loopback `/grants`) and send
    `initialize`, `tools/list` and one `tools/call`. The data directory's `audit.jsonl` records
    `{"kind":"mcp","tool":"<tool>","status":200}` for the call; `initialize`/`tools/list` are not a tool
@@ -584,15 +584,16 @@ a real state for a day.
 
 ## The page itself
 
-Nothing is built beside the binary: the page is `maud` templates in `console/src/http/page.rs` and
-the binary renders it. To look at every page without a browser workflow:
+The operator page is React 19 in `device/console/web`: Vite builds one `dist/index.html` and
+`summrise-console` embeds it with `include_str!`. There is no Node at runtime. To look at the
+destinations without a live console:
 
 ```bash
-scripts/console-screenshots.bash --out /tmp/console-shots   # 28 pages, light + dark
+node device/console/web/scripts/screenshot.mjs <tag>
 ```
 
-The two scripts the page serves (`assets/approvals.js`, `assets/browser.js`) are `include_str!`'d,
-and the terminal's xterm stack is vendored the same way.
+The maud fallback at `/next` (login-code redemption) keeps its own renderer and assets; it is not
+the operator's path. Its screenshots are still produced by `scripts/console-screenshots.bash`.
 
 ## Rolling back
 
