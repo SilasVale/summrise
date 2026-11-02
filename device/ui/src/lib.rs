@@ -12,22 +12,39 @@
 
 use maud::{html, Markup};
 
-/// The token block: `:root` for the light theme and the same names again inside the dark media query.
+/// The token block: `:root` for the light theme, with every colour and the terminal palette restated
+/// inside the dark media query. The scale (type, weights, spacing, radii, fonts) is theme-free and
+/// therefore declared once.
 pub const TOKENS: &str = r#":root {
   color-scheme: light dark;
-  --bg:#f6f6f7; --panel:#ffffff; --panel-2:#f4f4f5; --panel-3:#ececef;
-  --ink:#18181b; --muted:#5d5e67; --faint:#696a74;
-  --line:#e6e6e9; --line-strong:#d5d5da;
+  --bg:#fafafa; --panel:#ffffff; --panel-2:#fafafa; --panel-3:#f4f4f5;
+  --ink:#18181b; --muted:#71717a; --faint:#696a74;
+  --line:rgba(0,0,0,.08); --line-strong:rgba(0,0,0,.14); --line-soft:rgba(0,0,0,.05);
   --accent:#bf3a0a; --accent-solid:#b03a0a; --accent-hover:#963008;
   --accent-soft:#fff0e6; --accent-fg:#ffffff;
-  --ok:#1d7a3c; --warn:#a05d08; --ok-soft:#e7f6ec;
-  --danger:#b3261e; --danger-soft:#fdecea;
+  --ok:#1d7a3c; --warn:#a05d08; --ok-soft:#e7f6ec; --warn-soft:#fff4e5;
+  --danger:#b3261e; --danger-soft:#fdecea; --focus-ring:#bf3a0a;
   --rail:#17181c; --rail-line:rgba(255,255,255,.08); --rail-ink:#9a9ba4;
   --rail-ink-hover:#f4f4f5; --rail-focus:#ffb86b;
-  --shadow:0 1px 2px rgba(24,24,27,.04), 0 10px 30px -24px rgba(24,24,27,.30);
-  --radius:12px; --radius-sm:10px; --radius-xs:8px;
+  --shadow:0 1px 3px rgba(0,0,0,.06),0 1px 2px rgba(0,0,0,.04);
+  --shadow-lg:0 12px 32px rgba(0,0,0,.12);
+  --shadow-1:var(--shadow);
+  --shadow-2:0 6px 24px -18px rgba(16,23,33,.45);
+  --radius:14px; --radius-sm:10px; --radius-sm2:8px; --radius-xs:6px;
+  --radius-lg:20px; --radius-pill:999px;
   --font:-apple-system,"SF Pro Text","PingFang SC","Hiragino Sans GB","Microsoft YaHei","Segoe UI",Roboto,sans-serif;
   --mono:"SF Mono",ui-monospace,"JetBrains Mono",Consolas,"Cascadia Mono",monospace;
+  --font-mono:var(--mono);
+
+  /* Seven type sizes, one weight family, one spacing rhythm. The React sheet used to carry its
+     own copies of these; they live here now so the two surfaces cannot choose different numbers. */
+  --fs-2xs:10px; --fs-xs:11px; --fs-sm:12px; --fs-base:13px;
+  --fs-md:14px; --fs-lg:17px; --fs-xl:22px;
+  --fw-regular:400; --fw-medium:500; --fw-semi:600; --fw-bold:700;
+  --tracking-display:-0.011em; --tracking-micro:0.014em;
+  --sp-0-5:2px; --sp-1:4px; --sp-1-5:6px; --sp-2:8px; --sp-2-5:10px;
+  --sp-3:12px; --sp-3-5:14px; --sp-4:16px; --sp-5:24px;
+
   /* The terminal is a canvas that follows the page, the way summrise-legacy's does (`--term-canvas-bg`).
      An ANSI palette tuned for a light canvas is not the dark one with the colours swapped: these are
      the legacy's, so a `ls` or a `git status` reads the same in both products. */
@@ -40,27 +57,24 @@ pub const TOKENS: &str = r#":root {
      They are aliases now rather than a second palette: a token defined twice is a token that drifts. */
   --surface:var(--panel); --surface-recessed:var(--panel-2); --surface-chip:var(--panel-3);
   --ink-muted:var(--muted); --ink-faint:var(--faint); --error:var(--danger);
-  --error-soft:var(--danger-soft); --warn-soft:#fff4e5;
-  /* A hover wash that pages actually reference. `--hover` was used by two rules and declared
-     nowhere, so the rule computed to nothing; a token that exists only at the call site is not a token. */
-  --hover:var(--panel-2);
-  --font-mono:var(--mono); --radius-lg:16px;
+  --error-soft:var(--danger-soft); --hover:var(--panel-2);
 }
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg:#101115; --panel:#191a1f; --panel-2:#212228; --panel-3:#2a2b32;
-    --ink:#ececf0; --muted:#a6a7b1; --faint:#8e909a;
-    --line:rgba(255,255,255,.08); --line-strong:rgba(255,255,255,.15);
+    --bg:#131418; --panel:#1c1d22; --panel-2:#16171b; --panel-3:#23242a;
+    --ink:#ecedef; --muted:#a2a3ac; --faint:#8e909a;
+    --line:rgba(255,255,255,.08); --line-strong:rgba(255,255,255,.14); --line-soft:rgba(255,255,255,.05);
     --accent:#ffa36b; --accent-solid:#b03a0a; --accent-hover:#c2410c;
-    --accent-soft:#33211a; --accent-fg:#ffffff;
+    --accent-soft:#3d2817; --accent-fg:#ffffff;
     --ok:#6edc8b; --warn:#e0a44a; --ok-soft:rgba(46,160,73,.16);
-    /* The dark warning surface, which the light block's #fff4e5 cannot serve: without this line
-       `.chip.warn` drew #e0a44a on cream and measured 2.02:1. */
-    --warn-soft:#3a2a14;
-    --danger:#ff8b84; --danger-soft:rgba(190,40,30,.18);
+    --warn-soft:#3a2a14; --danger:#ff8b84; --danger-soft:#2a1512;
+    --focus-ring:#ffa36b;
     --rail:#0b0c0e; --rail-line:rgba(255,255,255,.07); --rail-ink:#8f9099;
     --rail-ink-hover:#ffffff; --rail-focus:#ffb86b;
-    --shadow:0 1px 2px rgba(0,0,0,.45), 0 16px 36px -26px rgba(0,0,0,.9);
+    --shadow:0 1px 2px rgba(0,0,0,.4);
+    --shadow-lg:0 12px 32px rgba(0,0,0,.45);
+    --shadow-1:var(--shadow);
+    --shadow-2:0 8px 24px -18px rgba(0,0,0,.8);
     --hover:#2a2b32;
     --term-canvas:#131418; --term-selection:rgba(255,163,107,.24);
     --term-black:#2a2c33; --term-white:#e8e9ec;
