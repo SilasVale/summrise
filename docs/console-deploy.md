@@ -1,9 +1,9 @@
 # Deploying the console
 
-> **Status: the hub build is not deployed yet.** The last verified deploy was `0.3.246` on 2026-11-02;
-> its facts are kept below as the baseline, not as this build's result. The Lead fills the **Measured**
-> table after the deploy. A version is called deployed only when `/health` names it, the served page
-> is the committed `dist/index.html` byte for byte, and the real-device checks pass.
+> **Status: verified, 2026-11-02 — `0.3.251` deployed to `DESKTOP-9VH92BJ` with this runbook.** The
+> canary device was upgraded to the same build through a signed release document. `/health` named it,
+> the served page was the committed `dist/index.html` byte for byte, and the real terminal, plugin and
+> live-catalogue checks passed. `0.3.246` is kept below as the previous baseline.
 
 ## Why the console deploys differently from a device
 
@@ -208,19 +208,24 @@ build's numbers.
 | stop → `/health` | ~20 s (the task's own restart) |
 | after | version `0.3.246`, 3 devices, 3 online; `REAL_TERMINAL_OK` |
 
-**This deploy: `<version>`, `<date>`.** Fill every cell from the deployed host; do not infer a value.
-`—` means the check was not run, and a note must say why.
+**Last verified: `0.3.251`, 2026-11-02.**
 
-| step | `<version>` |
+| step | 0.3.251 |
 |---|---|
-| binary | `<bytes>` B, sha256 `<12 hex>…<6 hex>` |
-| page (`dist/index.html`) | `<bytes>` B |
-| `/health` after restart | `{"status":"ok","devices":<n>,"version":"<version>"}` |
-| stop → `/health` | `<seconds>` s |
-| real terminal check | `<REAL_TERMINAL_OK or the first failing line>` |
-| real plugin check | `<REAL_PLUGIN_OK, deferred with reason, or not applicable>` |
-| page by hand | `<which destinations and states were read, and the finding>` |
-| rollback binary kept | `summrise-console.exe.bak-<previous>` |
+| binary | 7,130,112 B, sha256 `ffb92bb5…f24122` |
+| page (`dist/index.html`) | 851,346 B |
+| stop → `/health` | ~20 s (the task's own restart; uptime was 17 s at the first answer) |
+| `/health` after restart | `{"status":"ok","devices":3,"online":2,"version":"0.3.251"}` |
+| real terminal check | `REAL_TERMINAL_OK` (DESKTOP-9VH92BJ, pty marker) |
+| real plugin check | `REAL_PLUGIN_OK` (add → 48 tools, `hello.greet` answered, 11 log lines, removed, no `plugin.ps1` child) |
+| real console check | `REAL_CONSOLE_OK` (live `/fleet/:id/tools` = 46 tools incl. `plugins.list`; a `hello.greet` token minted and revoked) |
+| page by hand | not opened on the host; the served page is the committed `dist/index.html` byte for byte (851,346 B), the browser gate passed against that bundle, and the gallery was read at 360/390/800/1280 in both themes |
+| rollback binary kept | `summrise-console.exe.bak-0.3.250` and `.bak-0.3.251`; the directory was trimmed from 93 backups to these two |
+
+**Device half, same session.** `summrise-device` 0.3.218 → **0.3.251** through the signed
+`release-0.3.251.json` (artifact sha256 `919aa0f8…8a0f`; the launcher kept 0.3.218 as `previous`).
+The example plugin was added, called, logged and removed through the console; the registry ended
+empty and the plugin process was gone.
 
 The directory accumulates `summrise-console.exe.bak-0.3.x` files; `docs/RELEASE.md` asks for two.
 Keep the last two and delete the rest as part of a deploy.
