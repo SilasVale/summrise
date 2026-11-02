@@ -230,18 +230,19 @@ out. They do not earn a destination; nothing there is a daily job.
 
 ### 5.2 The shell
 
-- **Rail (≥1024 px):** a 216 px labelled sidebar. 20 px icons, 13 px labels, one accent for the
+- **Rail (≥768 px):** a 200 px labelled sidebar. 20 px icons, 13 px labels, one accent for the
   current item. Labels are not optional at this width: an icon-only column is a memory test, and the
   product's own audit found ten icons that led back to the page the reader was on.
-- **Rail (640–1023 px):** a 56 px icon rail, labels on hover/focus and as accessible names.
-- **<640 px:** a bottom tab bar with five items, icon + 10 px label. Home is the first tab; the
-  account menu moves to the header. The content gets the full width; no 56 px left gutter.
-- **Header:** the brand at the left on the fleet/home page; the selected machine's name and status
-  where a machine is in context, with a picker that lists all machines and "All machines". On mobile
-  the header is one row: back/picker, title, overflow menu.
+- **Rail (640–767 px):** a 56 px icon rail, labels on hover/focus and as accessible names.
+- **<640 px:** a bottom tab bar with five items, 20 px icon + 11 px label. Home is the first tab; the
+  account menu moves to the header. The content gets the full width; no 56 px left gutter. The bar
+  does not wrap, and there is no status strip beneath it.
+- **Header:** one control, not a name plus a picker: `[● workshop · Running · v0.3.246 ▾]`, whose
+  menu lists All machines, every machine, and Add a machine. With no machine it reads
+  `[All machines ▾]`. On mobile the header is one 44 px row: picker, title, overflow menu.
 - **No bottom status strip.** It duplicated the fleet count, the session and the version. The count
   is Home's job, the session is the account menu's, the version is About's.
-- **Content width:** 1120 px max, 32 px page padding (24 on tablet, 16 on phone). One `h1` per page.
+- **Content width:** 1120 px max, 24 px page padding (16 on phone). One `h1` per page.
 
 ### 5.3 The map from today
 
@@ -269,46 +270,63 @@ out. They do not earn a destination; nothing there is a daily job.
 
 ### 6.1 Home
 
-**Purpose:** answer "is it running, where is the door, what can it do, what should I do next".
+**Purpose:** answer "is it running, where is the door, what can it do, what should I do next" in one
+screen, without repeating the shell.
 
-- **Header:** machine name, status chip (`Running`, `Offline`, `Needs update`), version.
-- **Hero:** one sentence — "This machine gives your AI 50 tools, and 2 plugins add 7 more." The
-  endpoint in a code row with Copy. If the device is offline, the sentence is why and the endpoint is
-  dimmed; Copy is disabled rather than copying a door that does not open.
-- **Actions:** Connect a client (accent, opens the sheet); Add a capability (quiet, Plugins).
-- **Capabilities summary:** up to six capability tiles in a grid: name, tool count, source badge
-  (Built-in / Plugin), one-line job. "All 50 tools →" opens Capabilities.
-- **Recent calls:** the last five rows from the audit, each with tool, result chip and relative time;
-  "All activity →". Empty state: "No calls yet. Connect a client and make one." with the Connect
-  action.
-- **Notices:** at most two inline banners above the hero, each with an action: device offline
-  (Reconnect / Open panel), version older than the console's supported plugin surface (Open Machine),
-  a plugin failed (Open Plugins).
-- **Zero state (no machine selected):** the fleet list, one card per machine (name, status, build,
-  host, last seen) with Open and Connect; the enrolment action. This is the current Devices page,
-  kept because it is the only way in, restyled to the new shell.
+- **No second header.** The shell's machine control owns identity; Home starts with one status line:
+  `Running · v0.3.246 · 50 tools · 2 plugins`.
+- **Endpoint:** the console's MCP URL in one code row with Copy. Offline: the line says why, the
+  endpoint is dimmed, and Copy is disabled rather than copying a door that does not open.
+- **One accent:** **Connect a client** (opens the sheet). **Add a capability** is a quiet link to
+  Plugins. The empty calls state does not repeat Connect.
+- **Counts:** one line — `50 tools · 8 capabilities · 2 plugins →` — opens Capabilities. No tile grid:
+  the catalogue is the catalogue.
+- **Recent calls:** the last three, as single-line rows (tool, result, relative time); "All activity →".
+  Empty: "No calls yet." pointing at the same Connect button.
+- **Notices:** at most one banner, and only for the states that need the operator now: offline, or a
+  catalogue the console could not read ("The machine is running. The console could not read its tool
+  list, so these counts may be stale." + Retry). Version drift lives on Machine; a failed plugin lives
+  on Plugins.
+- **Zero state (no machine selected):** the fleet, one row per machine (name, status, build, last
+  seen). The whole row opens the machine; the row's overflow holds Rename, Remove and Copy diagnostics.
+  One accent only: **Add a machine**, in the page head (the empty state uses the same action, not a
+  second primary). "Reconnected after 2 attempts" is the most a row says about the past; the full
+  failure sentence is not the card's job.
 
 ### 6.2 Capabilities
 
 **Purpose:** show exactly what the AI can call and let the operator prove it.
 
 - **Header:** "Capabilities", count "50 tools · 8 capabilities", search field (filters name,
-  description, capability), segmented filter `All · Built-in · Plugins`.
-- **Body:** one section per capability: name, source badge, tool count, one-line description, then
-  tool rows. A tool row is a button: monospace name, one-line description, a `Destructive` chip when
-  it changes the machine, chevron. Built-ins first, then plugins, each alphabetically.
+  description, capability). No source segmented control: the source is a badge, not a mode.
+- **Body:** one section per capability: name, source badge, `12 tools · 3 can change the machine`
+  (a summary, not a chip on every row), one-line description, then tool rows. A tool row is a button:
+  monospace name, one-line description, chevron. Built-ins first, then plugins, each alphabetically;
+  within the built-ins, the operator's order (`terminal`, `files`, `screen`, `browser`, `runs`,
+  `host`, `plugins`, then the rest).
 - **Detail sheet:** name, capability, source, description, annotations (`Read-only`, `Destructive`,
   `Idempotent`, `Open world` only when supplied), the input schema summarised as a field list, and
-  **Try it**.
+  **Try it**. The `Destructive` chip appears here, not on every list row.
 - **Try it (in the sheet):** one field per top-level schema property (`string`, `number`, `integer`,
   `boolean`, `enum`, arrays as JSON); required marked; description as help; a **Raw JSON** toggle for
-  nested types. **Run** is the only accent; it becomes **Running…** and disables. The result panel
-  shows the returned text as formatted JSON when it parses, the elapsed time, and errors verbatim. A
-  destructive tool opens a confirmation sentence ("This call can change this machine and cannot be
-  undone. Run it?") before the call; the button says **Run once**.
+  nested types. The form's states are part of the spec:
+  - blank optional field = omit the key; blank required field = error on press and focus it
+    (`Add a value for "path".`);
+  - a boolean is `Not sent / true / false`, never a bare checkbox;
+  - a property the summariser cannot render forces Raw JSON (`This tool takes a nested object; edit
+    the JSON.`), and the toggle refuses to switch back with `Fix the JSON before switching back.`;
+  - **Run** is pinned in the sheet's footer, is the only accent, and becomes `Running… 12s` with
+    `This can take up to two minutes.`;
+  - the result is formatted JSON when it parses, capped at 40vh / 400 lines with **Show all** and
+    **Copy**, and errors are shown verbatim;
+  - no answer after two minutes: `No answer after 2 minutes. The call may still be running; check
+    Activity.`;
+  - a destructive tool shows the confirmation inline above the arguments, with the exact JSON that
+    will run and the button `Run once`; success adds `Recorded in Activity.` with a link.
 - **States:** loading (three skeleton rows, not a spinner over the page); device offline (one banner,
   Retry, no empty list); no tools (the device is running a build that advertises none — say so and
-  point at Machine); no search matches ("No tool matches \"…\". Clear the search.").
+  point at Machine); no search matches ("No tool matches \"…\"." + "Clear the search."); a stale
+  catalogue is labelled, not hidden.
 - **Rule:** the page reads the device's live `tools/list`; the static registry is a fallback only,
   and the page must never show a tool the device would refuse as unknown.
 
@@ -319,16 +337,19 @@ out. They do not earn a destination; nothing there is a daily job.
 - **Header:** "Plugins", count, **Add plugin** (accent).
 - **List:** one row per plugin: name, namespace/version, state chip (`Running`, `Starting`,
   `Stopped`, `Failed`), tool count, source path (truncated, title has the full path); actions
-  `Logs`, `Restart`, `Remove` in an overflow menu. A failed row carries the failure sentence inline
-  and its action is **Restart**, not Logs.
-- **Add sheet:** a path field, the sentence "A plugin is an MCP server. It runs with this machine's
-  permissions — install only code you trust."; a disclosure "What a plugin needs" with the manifest
-  keys; **Add** (accent) disabled until the path is non-empty; inline errors (not found, no
-  manifest, invalid manifest, namespace taken, tool name collision) each with the next action.
-- **Logs sheet:** the last 200 lines, monospace, scrollable, **Copy** and **Refresh**; an empty log
-  says "No output yet."
-- **Empty state:** the teaching state — "No plugins. Add one to give the AI a capability this machine
-  does not have." — the manifest example, and the primary action.
+  `Logs`, `Restart`, `Remove` in an overflow menu. A failed row is a real row: name, `Stopped 2m ago`,
+  one-line reason, a visible **Restart**, and Logs in the overflow.
+- **Add sheet:** a path field that is validated on blur; under it, either the manifest summary
+  (`hello · v0.1.0 · 2 tools · runs with this machine's privileges`) or the failure and its action
+  (`No plugin.json in that folder.` + `Open the guide`). **Add and run** (accent) stays disabled until
+  the path is valid. Trust copy leads with the consequence: `This runs the plugin's code with this
+  machine's privileges. Install only code you trust.` Then a disclosure `What is a plugin?` for the
+  definition and the manifest keys.
+- **Logs sheet:** loaded when the sheet opens, last 200 lines, mono 12 px / 1.5, scrolled to the last
+  line when the plugin failed; **Copy**; **Refresh** only while `Starting`; empty: "No output yet." +
+  "The plugin has not written anything since it started."
+- **Empty state:** "No plugins yet. Add one when a built-in cannot do the job." + the primary action.
+  No manifest example on the page; it belongs in the guide.
 - **Older device:** if `plugins.list` is not in the catalogue, say "This machine needs a newer
   Summrise to host plugins." with **Open Machine**; do not show an Add button that will fail.
 - **Remove:** confirmation names the plugin and says calls to its tools will fail; removing does not
@@ -340,23 +361,36 @@ out. They do not earn a destination; nothing there is a daily job.
 **Purpose:** the record — what was called, by which token, with what result.
 
 Keep the existing table and filters (time window, token, device, tool; CSV export; row detail;
-deep link to Runs). Changes are shell-level: its own `h1`, the new spacing, and a device column that
-uses the machine's name. No new claims. The empty state says "No calls in this window." with a
-**Last week** action when the window is narrower than all time.
+deep link to Runs). The shell gives it one `h1` and the new spacing. Fix the record's own reading:
+
+- the table has no nested `max-height`; while a row is open the page scrolls, not a 17 rem box;
+- the whole row toggles its record; one chevron, not a `Details` button per row;
+- the device column shows the machine's name (the id in `title`), never a 64-hex string;
+- there is no `KIND` column (`mcp` on every row is not information) and no "20 of 20 lines" caption;
+- headers are sentence case at 12 px muted, not uppercase micro-labels;
+- relative time with the exact date in `title`, grouped by day when the window spans more than one;
+- the record is a `10rem minmax(0, 1fr)` grid, max 42 rem, values left-aligned, mono only for
+  code-shaped values; Export CSV moves to the overflow.
+- Empty state: "No calls in this window." with a **Last week** action when the window is narrower
+  than all time. The subtitle "Every call this console recorded…" is deleted: the table is the
+  sentence.
 
 ### 6.5 Connect (sheet)
 
 **Purpose:** hand the AI a credential and a configuration.
 
-- Three sections, one at a time, in a segmented control: **Endpoint**, **Clients**, **Tokens**.
+- Three sections, one at a time, in a segmented control: **Endpoint**, **Clients**, **Tokens**. The
+  title follows the entry point: `Connect a client` (Endpoint, Clients) or `Tokens` (list + create);
+  same sheet, explicit entries.
 - **Endpoint:** the console's MCP URL for this device, Copy, and one sentence on what a bearer is.
   A disclosure explains local loopback vs console endpoint.
 - **Clients:** DSH / Claude / Codex / Cursor tabs; each shows a config block with `<token>` as a
-  placeholder and Copy. A sentence says the token is created in the Tokens section and shown once.
+  placeholder and Copy. After Copy the block collapses to `Copied. It is not shown again.`
 - **Tokens:** the existing token table (name, scope summary, created, expires, last used; rotate,
-  revoke) and **Create token** with a name, a tool scope (the live catalogue, grouped, with
-  All/Read-only presets), and destructive consent. The created value is shown once in a copy block
-  with a warning; closing the sheet forgets it.
+  revoke) and **Create token** with a name, presets first (`Read-only`, `All tools`, `Choose tools…`)
+  with a live summary `12 tools · 3 can change the machine`, the full grid only behind
+  `Choose tools`, and destructive consent. The created value is shown once in a copy block with a
+  warning; closing the sheet forgets it.
 - The sheet is wide on desktop (720 px), full-screen on phone; Escape closes; focus returns to the
   trigger.
 
@@ -365,13 +399,21 @@ uses the machine's name. No new claims. The empty state says "No calls in this w
 **Purpose:** the operator's hands; the brake.
 
 - A tab bar: **Terminal · Screen · Files · Runs · Machine** (URL fragment per tab). The selected
-  machine's header is above; switching tabs never loses the machine.
+  machine's header is above; switching tabs never loses the machine. Desktop: the tab bar sits in
+  the page head, not as a third band under the header. Phone: one 44 px header row (machine + `⋯`),
+  then a 40 px scrollable segmented tab row; the tab's name is the page's `h1`.
 - Terminal is the default tab when the operator chooses Device: the most direct way to take over.
 - Each tab keeps its current content and actions, with these changes: no per-page device picker (the
   shell guarantees a device); one `h1` for the destination is the tab's name in the header, so the
-  card titles inside become `h2`; the copy that told the operator to pick a machine is deleted.
+  card titles inside become `h2`; the copy that told the operator to pick a machine is deleted. One
+  caption line under the `h1` at most; the Files limits move to a `Limits` disclosure at the panel
+  foot and the Runs help becomes field help.
+- The terminal is one frame, not two: the panel's padding is 0, the canvas goes edge to edge under a
+  40 px tab strip, the canvas has no border or radius of its own, and in dark it is one step below
+  the page (`--term-canvas: #0f1014`) rather than the page's own colour.
 - Screen keeps Browser as its second view; Files and Runs keep their forms and results; Machine keeps
-  host facts, install, restart and the process list.
+  host facts, install, restart and the process list. Closing a live PTY asks `Close this session?
+  The process keeps running on the machine.`
 - If the device is offline, the tabs render the last known state where it is cheap (terminal
   sessions) and one banner with Retry where a read is required. No fake data.
 
@@ -380,15 +422,20 @@ uses the machine's name. No new claims. The empty state says "No calls in this w
 | Context | Copy |
 |---|---|
 | Home, running | `Running · v0.3.246 · 50 tools · 2 plugins` |
-| Home, no calls | `No calls yet. Connect a client and make one.` |
+| Home, no calls | `No calls yet.` (points at the one Connect action) |
 | Connect, primary | `Connect a client` |
+| Fleet, primary | `Add a machine` |
 | Capabilities, empty search | `No tool matches "{query}".` + `Clear the search` |
+| Capabilities, stale | `The machine is running. The console could not read its tool list, so these counts may be stale.` + `Retry` |
 | Try it, destructive | `This call can change this machine and cannot be undone. Run it?` |
-| Plugins, trust | `A plugin is an MCP server. It runs with this machine's permissions — install only code you trust.` |
-| Plugin failed | `{name} stopped: {reason}. Restart it, or read its log.` |
+| Try it, time-out | `No answer after 2 minutes. The call may still be running; check Activity.` |
+| Plugins, trust | `This runs the plugin's code with this machine's privileges. Install only code you trust.` |
+| Plugins, empty | `No plugins yet. Add one when a built-in cannot do the job.` |
+| Plugin failed | `{name} stopped. {reason}` + `Restart` / `Logs` |
 | Device offline | `{name} is not connected. The console keeps trying; open the machine's panel if it stays offline.` |
 | Old build | `This machine needs a newer Summrise to host plugins.` + `Open Machine` |
 | Token shown | `Copy this token now. It is not shown again.` |
+| Terminal, empty | `No session yet.` |
 
 Rules: sentence case; verbs first; no "simply", "just", "please"; no "permission denied" without the
 action that grants it; no sentence that describes the UI ("this page lets you…").
@@ -397,16 +444,22 @@ action that grants it; no sentence that describes the UI ("this page lets you…
 
 ## 7. Cross-cutting craft
 
-- **Type:** seven sizes (11, 12, 13, 14, 15, 18, 22), 13 px body, 1.5 line height for prose, 1.3 for
-  data. System stack (`-apple-system, "Segoe UI", …`); monospace for tool names, paths, logs,
-  endpoints, tokens.
-- **Space:** 4/8/12/16/24/32. Page 32; card 20; row 12/16. No ad-hoc margins.
-- **Radii:** small 6, card 12, sheet 16, pill 999. One shadow level; no glow.
+- **Type:** the seven committed sizes — 10, 11, 12, 13, 14, 17, 22 px — 13 px body, 1.5 line
+  height for prose, 1.3 for data. System stack (`-apple-system, "Segoe UI", …`); monospace for tool
+  names, paths, logs, endpoints, tokens. A new size is a change to the token and
+  `device/console/tests/tokens.rs` in the same commit.
+- **Space:** the committed rhythm — 2, 4, 6, 8, 10, 12, 14, 16, 24. Page 24; card 16; row 8/12. No
+  ad-hoc margins.
+- **Radii:** the committed set — 6, 8, 10, 14, 20, pill 999. One shadow level; no glow.
 - **Accent:** the brand orange, and only for the primary action, the current rail item, and focus.
   Destructive actions are text-coloured with a red hover, never a filled red button in the normal
-  path.
-- **Focus:** 2 px accent ring with 2 px offset, visible on every interactive element in both themes;
-  skip link is the first tab stop; sheets trap focus and restore it.
+  path. A screen has one accent fill; when a second candidate appears, delete the weaker one rather
+  than restyling it.
+- **Focus:** 2 px accent ring with 2 px offset, visible on every interactive element in both themes —
+  inputs, selects and textareas included; skip link is the first tab stop; sheets trap focus and
+  restore it.
+- **Hover and press:** the primary darkens (`--accent-hover`), the secondary raises its surface and
+  border, and a card does not lift. Motion explains change, not decoration.
 - **Sheets:** right-side drawer at ≥800 px (480 px wide), bottom sheet below; backdrop 40% black;
   Escape and backdrop click close (unless a call is running); the title is the sheet's `h2`.
 - **Loading:** skeletons for lists, inline "Running…" for actions, no full-page spinner.

@@ -43,8 +43,9 @@ with `include_str!`), PowerShell for the shipped example plugin, no new runtime 
   - `GET /fleet/:id/tools` → `{ "tools": [{ "name", "description", "inputSchema", "source", "capability", "destructive" }] }`
     where `source` is `"builtin"` or `"plugin:<namespace>"`, `capability` is the built-in group or
     the namespace, and `destructive` is a boolean.
-- The type scale is seven sizes (11, 12, 13, 14, 15, 18, 22); spacing is 4/8/12/16/24/32. A new
-  literal outside those fails review.
+- The type scale is the committed seven (10, 11, 12, 13, 14, 17, 22 px); spacing is the committed
+  rhythm (2, 4, 6, 8, 10, 12, 14, 16, 24); radii are 6/8/10/14/20. A literal outside those fails
+  `device/console/tests/tokens.rs`; a new scale value needs the token and that test in one commit.
 
 ## Review Focus
 
@@ -328,9 +329,13 @@ sentence that says so. The check must not change the token's stored shape.
 - Selecting a machine stores it in localStorage and stays on `home` (not terminal).
 - `#terminal` (legacy) maps to `device/terminal`; `#audit` maps to `activity`; `#run/<device>/<id>`
   selects the device and opens `device/runs` with the run focus; `#files` etc. map to `device/<tab>`.
-- The rail: 216 px labelled at ≥1024, 56 px icons between 640 and 1023, bottom tabs below 640. Five
+- The rail: 200 px labelled at ≥768, 56 px icons between 640 and 767, bottom tabs below 640. Five
   items. The account menu at the foot holds version, docs, sign out. No status strip.
-- One `h1` per page: the destination name. The machine's name is a header `h2`/identity, not an h1.
+- The header is one control — `[● workshop · Running · v0.3.246 ▾]` — whose menu lists All machines,
+  each machine, and Add a machine. No second `.machine-head` row and no `<select>` beside it.
+- One `h1` per page: the destination name. The machine's name is part of the header control, not an h1.
+- One accent fill per screen. On the fleet, the whole row opens the machine and `Add a machine` is
+  the only accent; the row's overflow holds Rename / Remove / Copy diagnostics.
 - Keep the existing sign-in screen and the error banner behavior.
 - Do not change the data layer beyond adding `selected` persistence.
 
@@ -358,14 +363,17 @@ scroll lock; `prefers-reduced-motion` respected.
 modify `App.tsx`, `app.css`, `DeviceCard.tsx` (Open/Connect copy and styling), `api.ts` (the live
 tools call and its types).
 
-**Behaviour:** spec §6.1. The fleet zero state reuses the current devices content. The hub state uses
-the live catalogue (built-ins vs plugins), `plugins.list` for the plugin count (call it through the
-existing operator MCP helper; if the tool is absent, count 0 and show no plugin notice), the last
-five audit rows, and the endpoint URL (`location.origin + "/mcp/" + id`). Offline: one banner, actions
-disabled with a reason; no fake counts. `useLiveTools` caches per device for 30 s, returns
-`{tools, stale, error}`.
+**Behaviour:** spec §6.1, in its lean form. The fleet zero state is rows (whole row opens the
+machine; overflow holds Rename / Remove / Copy diagnostics), with `Add a machine` as the only accent.
+The hub state is one status line, the endpoint with Copy, one accent (Connect a client), one counts
+line to Capabilities, the last three audit rows, and at most one notice (offline, or a catalogue the
+console could not read). No tile grid, no second header, no second Connect button, no version-drift
+banner on Home. `plugins.list` supplies the plugin count through the existing operator MCP helper;
+if the tool is absent, the count is 0 and there is no plugin notice. Offline: the endpoint is dimmed,
+Copy is disabled, actions say why; no fake counts. `useLiveTools` caches per device for 30 s, returns
+`{tools, stale, error}`, and a stale catalogue is labelled.
 
-**Steps:** tests for counts, empty calls, offline; implement; screenshots; commit:
+**Steps:** tests for counts, empty calls, offline, stale catalogue; implement; screenshots; commit:
 `feat(console-web): Home states the hub and the next step`.
 
 ## Task C4: Capabilities + Try it
@@ -374,14 +382,18 @@ disabled with a reason; no fake counts. `useLiveTools` caches per device for 30 
 `capabilities.test.ts`, `ToolSheet.tsx`, `ToolSheet.test.tsx`; modify `App.tsx`, `app.css`, `api.ts`.
 
 **Behaviour:** spec §6.2. `capabilities.ts` is pure: `groupByCapability(tools)`, `filterTools`,
-`summariseSchema`, `exampleArguments`, `formatResult`. The form is generated from `inputSchema`
-(flat object; JSON fallback per field and a raw toggle). Calls go through the existing `callTool` with
-the operator grant. A destructive tool asks for confirmation first. The result shows formatted JSON
-when it parses, the elapsed ms, and the error verbatim. The Activity row appears because the call goes
-through `/mcp`.
+`summariseSchema`, `exampleArguments`, `formatResult`, `initialForm(schema)`, `validateForm(schema,
+values)`. The form is generated from `inputSchema` (flat object; JSON fallback per field and a raw
+toggle) with the states the spec fixes: blank optional = omitted, blank required = inline error and
+focus, booleans are `Not sent / true / false`, a nested property forces Raw JSON, the toggle refuses
+to switch back on invalid JSON, Run is pinned in the footer, results are capped with Show all/Copy,
+and a two-minute timeout says the call may still be running. Calls go through the existing `callTool`
+with the operator grant. A destructive tool confirms inline with the exact JSON and `Run once`. The
+Activity row appears because the call goes through `/mcp`. No source segmented filter; the group line
+summarises destruction.
 
-**Steps:** pure tests first (grouping/filter/schema/example); then the page test (a fake tool call,
-destructive confirm, error); implement; commit:
+**Steps:** pure tests first (grouping/filter/schema/example/validate/raw); then the page test (a fake
+tool call, required-error, destructive confirm, timeout copy); implement; commit:
 `feat(console-web): every capability can be seen and tried`.
 
 ## Task C5: Plugins
@@ -389,12 +401,15 @@ destructive confirm, error); implement; commit:
 **Files:** Create `PluginsPage.tsx`, `PluginsPage.test.tsx`; modify `App.tsx`, `app.css`, `api.ts`
 (plugin tool calls through the operator MCP helper).
 
-**Behaviour:** spec §6.3. `plugins.list` drives the page. Add sheet (path + trust sentence + errors),
-row overflow (Logs, Restart, Remove with confirmation), log sheet (200 lines, Copy, Refresh), states
-(empty, loading, failed, offline). Old build: if the live catalogue has no `plugins.*`, show the
-"newer Summrise" sentence and no Add. Add a `usePlugins(deviceId)` hook in the page file.
+**Behaviour:** spec §6.3. `plugins.list` drives the page. Add sheet validates the path on blur and
+shows the manifest summary or the failure before `Add and run` enables; the trust sentence leads with
+the consequence. Row overflow (Logs, Restart, Remove with confirmation); a failed row shows its reason
+and a visible Restart. Logs sheet loads on open, scrolled to the last line on failure, Refresh only
+while Starting. States: empty (no manifest example), loading, failed, offline. Old build: if the live
+catalogue has no `plugins.*`, show the "newer Summrise" sentence and no Add. Add a
+`usePlugins(deviceId)` hook in the page file.
 
-**Steps:** tests for empty, old build, add error, remove confirm; implement; commit:
+**Steps:** tests for empty, old build, invalid path, add error, remove confirm; implement; commit:
 `feat(console-web): plugins are installed, watched and removed in one place`.
 
 ## Task C6: Connect
@@ -417,22 +432,37 @@ close. Client blocks for DSH/Claude/Codex/Cursor with `<token>` placeholder. Esc
 `RunsPage.tsx`, `SystemPage.tsx`, `AuditTable.tsx`; create `DevicePageShell.tsx` if useful.
 
 **Behaviour:** the five existing pages render under `Device` with a tab bar; no per-page device
-picker; one h1 (the tab name); existing actions preserved. Activity gets the new shell and its empty
-state sentence. Run deep links still open Runs. Delete the unused `MemoryPage`, `MonitorsPage`,
-`EventsPage`, `SecurityPage`, their tests, and any imports/types only they use (check `grep` first;
-the APIs that other pages use stay).
+picker; one h1 (the tab name); existing actions preserved. Desktop puts the tab bar in the page head,
+not a third band; phone uses a 40 px scrollable segmented row. The terminal becomes one frame
+(panel padding 0, canvas edge to edge, dark canvas one step below the page); a live PTY close asks
+`Close this session? The process keeps running on the machine.` Files' limits move into a `Limits`
+disclosure and Runs' help becomes field help; all five `pickHint` paragraphs are deleted. Activity
+gets the new shell and the spec §6.4 fixes: no nested max-height (the row opens and the page scrolls),
+the whole row toggles, the device column shows the machine's name, no `KIND` column and no line
+caption, sentence-case headers, relative time with the exact date in `title`, day grouping, Export CSV
+in the overflow, and the subtitle deleted. Run deep links still open Runs.
 
-**Steps:** tests for tab routing and the run deep link; `npm run typecheck && npm test && npm run
-build`; screenshots; commit: `feat(console-web): one device workspace, one record`.
+Delete the dead tree in the same commit after `grep` proves nothing imports it: `MemoryPage`,
+`MonitorsPage`, `EventsPage`, `SecurityPage`, `MonitorChip`, `NotificationsCard`, `VitalsChart`, their
+tests, `DevicePicker`/`ToolPicker` if superseded, the unused rail tokens (`--rail`, `--rail-line`,
+`--rail-ink`, `--rail-ink-hover`, `--rail-focus`, `--tracking-micro`) and any imports/types only they
+used. A dead page is a second product; a dead token is a second vocabulary.
+
+**Steps:** tests for tab routing, the run deep link, the close-confirmation copy and the Activity
+record layout; `npm run typecheck && npm test && npm run build`; screenshots; commit:
+`feat(console-web): one device workspace, one record`.
 
 ## Task C8: Screenshots, accessibility and copy
 
 **Files:** `device/console/web/scripts/screenshot.mjs` (new states), `app.css`, page files.
 
-**Behaviour:** add Home (fleet and hub), Capabilities, a tool sheet, Plugins (empty and populated),
-Connect; capture light/dark/390. Fix focus order, `aria-current`, skip link, contrast if the token
-test complains. Delete the status-strip strings. Read every new sentence against the code.
-Run `scripts/build-web.sh --check` and `node scripts/layout-gate.mjs` on rendered pages where
+**Behaviour:** the gallery covers **360, 390, 800 and 1280 × light and dark for all five
+destinations**, plus the states: Home fleet / hub / offline / stale catalogue; Capabilities list and
+empty search; tool sheet idle / running / error / destructive; Plugins empty / failed / old build;
+Connect Endpoint and Tokens; Device terminal and Activity record. Fix focus order, `aria-current`,
+skip link, `input/select/textarea:focus-visible`, hover/press per spec §7, contrast if the token test
+complains. Delete the status-strip strings. Read every new sentence against the code. Run
+`scripts/build-web.sh --check` and `node scripts/layout-gate.mjs` on the rendered pages where
 applicable.
 
 **Commit:** `feat(console-web): the hub's screens, measured`.
