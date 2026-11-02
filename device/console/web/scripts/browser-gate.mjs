@@ -77,6 +77,27 @@ const DEVICE = {
   version: '0.3.42',
   last_seen_ms: NOW
 };
+const RUN = {
+  id: 'r-1',
+  command: 'echo',
+  args: ['hello'],
+  cwd: '.',
+  exit_code: 0,
+  timed_out: false,
+  duration_ms: 42,
+  started_at_ms: NOW - 5 * 60_000,
+  stdout_bytes: 6,
+  stderr_bytes: 0
+};
+const AUDIT_LINE = {
+  ts_ms: NOW - 30_000,
+  kind: 'mcp',
+  device_id: DEVICE.id,
+  token_id: null,
+  tool: 'runs.exec',
+  detail: 'run r-1 exited 0 in 42 ms',
+  status: 200
+};
 const TOOL_NAMES = [
   'terminal.create',
   'terminal.list',
@@ -131,7 +152,7 @@ function apiReply(request, url) {
   if (method === 'GET' && pathname === '/fleet') return json([DEVICE]);
   if (method === 'GET' && /^\/fleet\/[^/]+\/connections$/.test(pathname)) return json([]);
   if (method === 'GET' && pathname === '/tokens') return json([]);
-  if (method === 'GET' && pathname === '/audit') return json([]);
+  if (method === 'GET' && pathname === '/audit') return json([AUDIT_LINE]);
   if (method === 'GET' && pathname === '/denials') return json([]);
   if (method === 'GET' && pathname === '/tools') return json(TOOL_NAMES.map((name) => ({ name })));
 
@@ -166,6 +187,12 @@ function apiReply(request, url) {
       return json({
         result: { content: [{ type: 'text', text: JSON.stringify({ data: '', cursor: state.cursor }) }] }
       });
+    }
+    if (name === 'runs.list') {
+      return json({ result: { content: [{ type: 'text', text: JSON.stringify([RUN]) }] } });
+    }
+    if (name === 'runs.get') {
+      return json({ result: { content: [{ type: 'text', text: JSON.stringify(RUN) }] } });
     }
     if (name === 'terminal.close') {
       return json({ result: { content: [{ type: 'text', text: '{}' }] } });
@@ -258,6 +285,20 @@ try {
   if (!state.writes.includes(MARKER)) throw new Error('the marker never reached terminal.write');
   step('typed a marker; it reached terminal.write and returned through terminal.read');
   await page.screenshot({ path: path.join(OUT, '03-terminal-marker.png') });
+
+  await page.getByRole('button', { name: 'Activity' }).click();
+  await page.getByRole('heading', { name: 'Activity' }).waitFor({ timeout: 10_000 });
+  step('opened Activity; the audit window carries the run');
+
+  await page.getByRole('button', { name: 'Details' }).first().click();
+  await page.getByRole('button', { name: 'Open in Runs' }).click();
+  await page.getByRole('heading', { name: 'Runs' }).waitFor({ timeout: 10_000 });
+  await page.getByText('r-1', { exact: true }).first().waitFor({ timeout: 10_000 });
+  if (await page.locator('.terminal-panel').isVisible()) {
+    throw new Error('the terminal panel stayed visible on the Runs page');
+  }
+  step('opened r-1 from its audit line; the terminal panel stayed hidden');
+  await page.screenshot({ path: path.join(OUT, '04-activity-run.png') });
 
   if (errors.length > 0) throw new Error('console errors: ' + errors.join(' ;; '));
   console.log(`browser-gate: PASS — ${steps.length} steps, ${state.writes.length} bytes written, marker echoed`);
