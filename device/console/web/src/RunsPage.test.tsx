@@ -276,6 +276,7 @@ describe("RunsPage", () => {
     const heading = await screen.findByRole("heading", { name: "Command" });
     const detail = heading.closest("section");
     expect(detail).not.toBeNull();
+    await waitFor(() => expect(detail).toHaveFocus());
     expect(within(detail as HTMLElement).getByText("run-2")).toBeInTheDocument();
     expect(within(detail as HTMLElement).getByText("echo hello")).toBeInTheDocument();
     expect(within(detail as HTMLElement).getByText("exit 0")).toBeInTheDocument();
