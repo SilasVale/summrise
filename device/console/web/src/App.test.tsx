@@ -397,7 +397,7 @@ describe("App", () => {
     expect(within(screen.getByRole("table")).getByText(shortTokenId)).toBeInTheDocument();
   });
 
-  it("samples host facts into the browser-local history and draws the card's chart", async () => {
+  it("samples host facts into the browser-local history, per device", async () => {
     const gib = 1024 ** 3;
     mocks.devices.mockResolvedValue([
       {
@@ -423,11 +423,8 @@ describe("App", () => {
 
     await bootAndSignIn();
 
-    // One sample was already in this browser; the refresh appended this poll's, so the chart has the
-    // two points it needs. The device without host facts has no key at all.
-    expect(screen.getByText("Memory available 50.0%")).toBeInTheDocument();
-    expect(screen.getByText("Tightest disk / 25.0% free")).toBeInTheDocument();
-
+    // One sample was already in this browser; the refresh appended this poll's, so the history has
+    // the two points the Machine page draws. The device without host facts has no key at all.
     const stored = JSON.parse(
       localStorage.getItem(VITALS_KEY_PREFIX + workshop.id) ?? "[]"
     ) as VitalsSample[];

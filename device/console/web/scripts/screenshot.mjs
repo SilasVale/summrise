@@ -409,7 +409,7 @@ const CONNECTIONS = {
 };
 
 const SESSION = { authenticated: true, email: 'operator@summrise.test', via: 'token' };
-const HEALTH = { version: '0.3.42', devices: DEVICES.length };
+const HEALTH = { version: '0.3.218', devices: DEVICES.length };
 const MESH = { configured: true, broker: 'https://mesh.summrise.test' };
 
 // ---------------------------------------------------------------------------------------------
@@ -632,27 +632,27 @@ const PAGES = [
     id: 'devices',
     label: 'Devices',
     heading: 'Devices',
-    state: 'fleet cards and audit table; the selection panel is empty (no device selected)'
+    state: 'the fleet picker: each machine\'s build, reachability and the way in'
   },
-  { id: 'files', label: 'Files', heading: 'Files', state: 'device picker (no grant; file pane not exercised)' },
+  { id: 'files', label: 'Files', heading: 'Files', state: 'device picker (the tool surface is not exercised by this harness yet)' },
   {
     id: 'terminal',
     label: 'Terminal',
     heading: 'Terminal',
-    state: 'device picker (no grant or terminal; not exercised)'
+    state: 'device picker (the tool surface is not exercised by this harness yet)'
   },
   {
     id: 'screen',
     label: 'Screen',
     heading: 'Screen',
-    state: 'device picker (no grant; capture not exercised)'
+    state: 'device picker (the tool surface is not exercised by this harness yet)'
   },
-  { id: 'runs', label: 'Runs', heading: 'Runs', state: 'device picker (no grant; runs not exercised)' },
+  { id: 'runs', label: 'Runs', heading: 'Runs', state: 'device picker (the tool surface is not exercised by this harness yet)' },
   {
     id: 'system',
     label: 'Machine',
     heading: 'Machine',
-    state: 'device picker (no grant; machine pane not exercised)'
+    state: 'device picker (the tool surface is not exercised by this harness yet)'
   },
   { id: 'audit', label: 'Activity', heading: 'Activity', state: 'audit table' },
 ];
@@ -799,21 +799,16 @@ async function settle(page, state, quietMs = 150) {
 }
 
 async function assertPage(page, meta) {
-  // The rail button's `title` is the page's label; the top bar's crumb is the same label. Both must
-  // name the page the caller asked for.
+  // THE PAGE NAME IS DRAWN ONCE, IN THE CONTENT. The top bar used to repeat it as a crumb; removing
+  // that duplicate means this gate now checks the rail's `aria-current` and the page's own heading
+  // (below) instead of two copies of the same string agreeing.
   try {
     await page.waitForFunction(
-      ({ id, label }) => {
+      ({ label }) => {
         const active = document.querySelector('nav.rail .rail-btn[aria-current="page"]');
-        const crumb = document.querySelector('.topbar .crumb');
-        return (
-          active !== null &&
-          active.getAttribute('title') === label &&
-          crumb !== null &&
-          (crumb.textContent ?? '').trim() === label
-        );
+        return active !== null && active.getAttribute('title') === label;
       },
-      { id: meta.id, label: meta.label },
+      { label: meta.label },
       { timeout: 5_000 }
     );
   } catch {
@@ -821,13 +816,8 @@ async function assertPage(page, meta) {
       .locator('nav.rail .rail-btn[aria-current="page"]')
       .getAttribute('title')
       .catch(() => null);
-    const crumb = await page
-      .locator('.topbar .crumb')
-      .innerText()
-      .catch(() => '');
     throw new Error(
-      `navigation did not land on ${meta.label} ` +
-        `(aria-current=${active ?? 'none'}, crumb=${JSON.stringify(crumb.trim())})`
+      `navigation did not land on ${meta.label} (aria-current=${active ?? 'none'})`
     );
   }
 
@@ -1089,8 +1079,8 @@ try {
 
       state.label = first.id;
       try {
-        // The app opens on Terminal, not Devices; enter the first page through the rail so the
-        // harness does not depend on which page is the default.
+        // Enter every page through the rail: the harness does not assume which page the app opens
+        // on (it now opens on Devices).
         await goTo(page, first);
         await capturePage(page, state, first, pass);
       } catch (error) {

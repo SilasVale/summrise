@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
+import type { Device } from "./DeviceCard";
 import { message } from "./format";
+import { HostFactsBlock } from "./HostFacts";
 import { Modal } from "./Modal";
 import { useRequestGate } from "./requests";
 import { callTool, type Grant } from "./terminal";
+import type { VitalsSample } from "./vitals";
 
 /**
  * One running process, as `system.process_list` returns it.
@@ -70,7 +73,16 @@ const RESTARTED_SENTENCE =
  * and that name again. A net test that reaches nothing is a result (the addresses resolved and the
  * device says why the connection failed), not an error page: the device answered.
  */
-export function SystemPage({ grant }: { grant: Grant }) {
+export function SystemPage({
+  grant,
+  device,
+  vitals = []
+}: {
+  grant: Grant;
+  /** The selected machine, from the fleet read; null while it is starting or gone. */
+  device?: Device | null;
+  vitals?: VitalsSample[];
+}) {
   const [processes, setProcesses] = useState<DeviceProcess[]>([]);
   const [note, setNote] = useState(READING_PROCESSES);
   const [listError, setListError] = useState<string | null>(null);
@@ -318,8 +330,27 @@ export function SystemPage({ grant }: { grant: Grant }) {
       </div>
       <p className="hint">
         What the device is running, and whether it can reach one TCP port. Every read and every
-        action goes through the grant the console signed; the device audits each call.
+        action goes through your console session; the device audits each call.
       </p>
+
+      <section className="system-section" aria-labelledby="system-this-machine">
+        <h3 id="system-this-machine">This machine</h3>
+        {device?.host ? (
+          <HostFactsBlock host={device.host} vitals={vitals} />
+        ) : (
+          <p className="hint">
+            This device has not reported machine facts yet. They arrive with the fleet read; refresh
+            once it reconnects.
+          </p>
+        )}
+        {device && (
+          <p className="hint">
+            Device id <span className="mono">{device.id}</span> ·{" "}
+            {device.version ? `build ${device.version}` : "build unknown"} ·{" "}
+            {device.online ? "online" : "offline"}
+          </p>
+        )}
+      </section>
 
       <section className="system-section" aria-labelledby="system-device-app">
         <h3 id="system-device-app">Device app</h3>

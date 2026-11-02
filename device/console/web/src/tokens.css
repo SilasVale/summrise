@@ -30,7 +30,7 @@
   --surface-chip: #f4f4f5;
   --ink: #18181b;
   --ink-muted: #71717a;
-  --ink-faint: #a1a1aa;
+  --ink-faint: #696a74;
   --line: rgba(0, 0, 0, 0.08);
   --line-strong: rgba(0, 0, 0, 0.14);
   --line-soft: rgba(0, 0, 0, 0.05);
@@ -41,7 +41,7 @@
   --warn-soft: #fff4e5;
   --error: #b3261e;
   --error-soft: #fdecea;
-  --focus-ring: rgba(191, 58, 10, 0.5);
+  --focus-ring: #bf3a0a;
 
   /* Named after the values the two surfaces already used; 8px is the button/input/row radius,
      14px the pane, 20px the sheet. */
@@ -99,7 +99,7 @@
     --surface-chip: #23242a;
     --ink: #ecedef;
     --ink-muted: #a2a3ac;
-    --ink-faint: #6f707a;
+    --ink-faint: #8e909a;
     --line: rgba(255, 255, 255, 0.08);
     --line-strong: rgba(255, 255, 255, 0.14);
     --line-soft: rgba(255, 255, 255, 0.05);
@@ -117,7 +117,7 @@
     --warn-soft: #3a2a14;
     --error: #ff8b84;
     --error-soft: #2a1512;
-    --focus-ring: rgba(255, 163, 107, 0.55);
+    --focus-ring: #ffa36b;
 
     --shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
     --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.45);

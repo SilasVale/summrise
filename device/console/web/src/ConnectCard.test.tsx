@@ -108,6 +108,14 @@ async function openTokens() {
   await settle();
 }
 
+/** Render the card and switch to the session-grant mode; the card now opens on the token. */
+async function openSession() {
+  renderCard();
+  await settle();
+  fireEvent.click(screen.getByRole("tab", { name: "Session grant" }));
+  await settle();
+}
+
 function mint() {
   fireEvent.click(screen.getByRole("button", { name: "Mint a grant and show the config" }));
 }
@@ -143,8 +151,7 @@ afterEach(() => {
 
 describe("ConnectCard", () => {
   it("mints the served catalogue once the client answers, in its order", async () => {
-    renderCard();
-    await settle();
+    await openSession();
 
     mint();
 
@@ -159,7 +166,7 @@ describe("ConnectCard", () => {
 
   it("mints the 38-name fallback while the catalogue has not answered", async () => {
     mocks.tools.mockImplementation(() => new Promise(() => {}));
-    renderCard();
+    await openSession();
 
     mint();
 
@@ -169,8 +176,7 @@ describe("ConnectCard", () => {
 
   it("keeps the fallback usable when the catalogue request fails", async () => {
     mocks.tools.mockRejectedValue(new Error("offline"));
-    renderCard();
-    await settle();
+    await openSession();
 
     mint();
 
@@ -180,8 +186,7 @@ describe("ConnectCard", () => {
 
   it("keeps the fallback when the catalogue answers with no tools", async () => {
     mocks.tools.mockResolvedValue([]);
-    renderCard();
-    await settle();
+    await openSession();
 
     mint();
 
@@ -190,8 +195,7 @@ describe("ConnectCard", () => {
   });
 
   it("shows the endpoint and the client config once the grant is minted", async () => {
-    renderCard();
-    await settle();
+    await openSession();
 
     mint();
 
@@ -202,17 +206,9 @@ describe("ConnectCard", () => {
 });
 
 describe("ConnectCard's permanent-token mode", () => {
-  it("offers two modes and starts on the session grant the card has always been", async () => {
+  it("offers two modes and starts on the permanent token", async () => {
     renderCard();
-    expect(screen.getByRole("tab", { name: "Session grant" })).toHaveAttribute(
-      "aria-selected",
-      "true"
-    );
-    expect(screen.getByRole("button", { name: "Mint a grant and show the config" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Create token" })).not.toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("tab", { name: "Permanent token" }));
-
+    await settle();
     expect(screen.getByRole("tab", { name: "Permanent token" })).toHaveAttribute(
       "aria-selected",
       "true"
@@ -220,6 +216,15 @@ describe("ConnectCard's permanent-token mode", () => {
     expect(await screen.findByRole("button", { name: "Create token" })).toBeDisabled();
     await waitFor(() => expect(mocks.tokens).toHaveBeenCalledTimes(1));
     expect(screen.queryByRole("button", { name: "Mint a grant and show the config" })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("tab", { name: "Session grant" }));
+
+    expect(screen.getByRole("tab", { name: "Session grant" })).toHaveAttribute(
+      "aria-selected",
+      "true"
+    );
+    expect(screen.getByRole("button", { name: "Mint a grant and show the config" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Create token" })).not.toBeInTheDocument();
   });
 
   it("creates with the trimmed name, chosen tools and consent, then shows the token once", async () => {
@@ -228,7 +233,6 @@ describe("ConnectCard's permanent-token mode", () => {
     typeName("  laptop-dsh  ");
     fireEvent.click(screen.getByRole("button", { name: "None" }));
     fireEvent.click(screen.getByRole("checkbox", { name: "screen.capture" }));
-    fireEvent.click(screen.getByRole("checkbox", { name: "Allow destructive tools" }));
     createToken();
 
     await waitFor(() =>
@@ -273,7 +277,7 @@ describe("ConnectCard's permanent-token mode", () => {
         name: "laptop-dsh",
         device_id: WORKSHOP.id,
         tools: ["terminal.create", "screen.capture"],
-        allow_destructive: false
+        allow_destructive: true
       })
     );
   });
@@ -290,7 +294,7 @@ describe("ConnectCard's permanent-token mode", () => {
         name: "laptop-dsh",
         device_id: WORKSHOP.id,
         tools: ["terminal.create", "screen.capture"],
-        allow_destructive: false,
+        allow_destructive: true,
         expires_in_s: 30 * 86400
       })
     );
@@ -308,7 +312,7 @@ describe("ConnectCard's permanent-token mode", () => {
         name: "laptop-dsh",
         device_id: WORKSHOP.id,
         tools: ["terminal.create", "screen.capture"],
-        allow_destructive: false,
+        allow_destructive: true,
         expires_in_s: 365 * 86400
       })
     );

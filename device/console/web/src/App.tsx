@@ -15,9 +15,10 @@ import { shortId } from "./format";
 import { DeviceCard, retrySentence } from "./DeviceCard";
 import { recordVitals, type VitalsSample } from "./vitals";
 import { AUDIT_WINDOW, AuditTable } from "./AuditTable";
-import { PAGE_LABELS, Rail, type Page } from "./Rail";
+import { Rail, type Page } from "./Rail";
 import { Modal } from "./Modal";
 import { ConnectCard } from "./ConnectCard";
+import { FleetTokens } from "./FleetTokens";
 import { DevicePage } from "./DevicePage";
 import { DevicePicker } from "./DevicePicker";
 import { TerminalWorkspace } from "./TerminalWorkspace";
@@ -39,7 +40,10 @@ export function App() {
   // The operator's permanent tokens, fetched so the audit can name the token behind a call. Empty when
   // the console would not answer: the table falls back to record ids.
   const [tokens, setTokens] = useState<TokenMeta[]>([]);
-  const [page, setPage] = useState<Page>("terminal");
+  // THE FIRST SCREEN IS THE MACHINES, NOT A TERMINAL WITH NO MACHINE. PRODUCT.md's rule 5: a first
+  // visit shows the machines; the workspace appears once one is chosen. The old default was terminal,
+  // so a zero-device fleet taught the operator an icon-only rail before it taught them anything.
+  const [page, setPage] = useState<Page>("devices");
   const [selected, setSelected] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -47,6 +51,7 @@ export function App() {
   const [renaming, setRenaming] = useState<Device | null>(null);
   const [removing, setRemoving] = useState<Device | null>(null);
   const [connecting, setConnecting] = useState<Device | null>(null);
+  const [fleetTokens, setFleetTokens] = useState(false);
   const [draftName, setDraftName] = useState("");
   const [notice, setNotice] = useState<string | null>(null);
   const [code, setCode] = useState<{ code: string; expires_at_ms: number } | null>(null);
@@ -105,25 +110,46 @@ export function App() {
   // a session earns two 401s on every cold load — visible in the browser console as failures that are
   // not failures, and exactly the noise that hides a real one later.
   const refreshData = useCallback(async () => {
-    const [list, lines, tokenList] = await Promise.all([
+    // EACH STREAM ANSWERS FOR ITSELF. A failed /audit used to reject the whole read, so the Devices
+    // page said "0 devices, 0 online" and Activity said "No audit lines yet" — two claims about the
+    // world made from a request that never arrived. The last known values now stay, and one banner
+    // says which read failed.
+    const [list, lines, tokenList] = await Promise.allSettled([
       api.devices(),
       api.audit(AUDIT_WINDOW),
       tokensOrEmpty()
     ]);
-    setDevices(list);
-    // The poll is the only sampler; the stored last timestamp enforces the 30 s cadence. Sampling
-    // after a successful fleet fetch is what keeps an offline device from adding a stale point.
-    setVitals(recordVitals(list, Date.now()));
-    setAudit(lines);
-    setTokens(tokenList);
+    if (list.status === "fulfilled") {
+      setDevices(list.value);
+      // The poll is the only sampler; the stored last timestamp enforces the 30 s cadence. Sampling
+      // after a successful fleet fetch is what keeps an offline device from adding a stale point.
+      setVitals(recordVitals(list.value, Date.now()));
+    }
+    if (lines.status === "fulfilled") setAudit(lines.value);
+    if (tokenList.status === "fulfilled") setTokens(tokenList.value);
+    const failed = [list, lines, tokenList].filter(
+      (result): result is PromiseRejectedResult => result.status === "rejected"
+    );
+    if (failed.length > 0) {
+      setError("The console could not read " + failed.map((result) => describe(result.reason)).join("; "));
+    } else {
+      setError(null);
+    }
   }, []);
 
   const probe = useCallback(async () => {
-    const [state, health] = await Promise.all([api.session(), api.health()]);
-    setConsoleVersion(health.version);
+    // /session decides the page; /health only labels the console's build. Waiting for both meant a
+    // console whose /health failed could never render, even with a valid session.
+    const state = await api.session();
     setSession(state);
     if (!state.authenticated) return;
     await refreshData();
+    try {
+      const health = await api.health();
+      setConsoleVersion(health.version);
+    } catch {
+      /* the version label stays "…" — the page is not blocked on a cosmetic fact */
+    }
     setError(null);
   }, [refreshData]);
 
@@ -204,6 +230,7 @@ export function App() {
 
   const applyRename = async () => {
     if (!renaming) return;
+    setError(null);
     const name = draftName.trim();
     try {
       await api.rename(renaming.id, name === "" ? null : name);
@@ -217,6 +244,7 @@ export function App() {
 
   const applyRemove = async () => {
     if (!removing) return;
+    setError(null);
     try {
       await api.remove(removing.id);
       setNotice(`${removing.name ?? shortId(removing.id)} was removed; its channel closed.`);
@@ -257,6 +285,7 @@ export function App() {
   };
 
   const mintCode = async () => {
+    setError(null);
     try {
       setCode(await api.enroll());
     } catch (cause) {
@@ -264,17 +293,36 @@ export function App() {
     }
   };
 
-  if (session === null) return <p className="boot">Connecting…</p>;
+  if (session === null) {
+    return (
+      <div className="login-wrap">
+        <section className="panel login">
+          <img src={logoUrl} alt="" width={40} height={40} />
+          <h1>Connecting to the console</h1>
+          {error ? (
+            <>
+              <p className="error">{error}</p>
+              <button type="button" className="primary" onClick={() => void probe().catch((cause) => setError(describe(cause)))}>
+                Try again
+              </button>
+            </>
+          ) : (
+            <p className="hint">Reading the console's own state…</p>
+          )}
+        </section>
+      </div>
+    );
+  }
 
   if (!session.authenticated) {
     return (
       <div className="login-wrap">
         <section className="panel login">
           <img src={logoUrl} alt="" width={40} height={40} />
-          <h2>Sign in to the console</h2>
+          <h1>Sign in to the console</h1>
           <p className="hint">
-            Cloudflare Access signs you in automatically. The operator token is the way in when it does
-            not.
+            The operator token is the 64-character secret in the file the console's
+            <code> --operator-token-file </code> names, on the console host.
           </p>
           {accessNote && <p className="error">{accessNote}</p>}
           {!accessNote && session.access?.header && session.access.error && (
@@ -284,8 +332,8 @@ export function App() {
           )}
           {!accessNote && !session.access?.header && session.access?.configured && (
             <p className="hint">
-              This request carried no Access identity — usually a page restored after the session
-              expired. <a href="/">Reload through Access</a>.
+              This page has no sign-in. Reload through Cloudflare Access, or paste the operator token
+              below.
             </p>
           )}
           {!accessNote && session.access && !session.access.configured && (
@@ -317,16 +365,31 @@ export function App() {
 
   const online = devices.filter((device) => device.online).length;
   const chosen = devices.find((device) => device.id === selected) ?? null;
+  // THE COMMAND THE CONSOLE PRINTS IS THE ONE THE MANUAL PROVES. Without --data the code is spent
+  // into a store beside the exe, and the installed SummriseLaunch service never sees it; without
+  // .exe an elevated Command Prompt looks for a file name Windows does not resolve.
+  const enrollCommand = code
+    ? `summrise-device.exe --enroll ${location.origin} ${code.code} --data C:\\ProgramData\\Summrise`
+    : "";
 
   return (
     <div className="shell">
+      {error && (
+        // POST-SIGN-IN FAILURES HAD NO SURFACE: every handler wrote `error`, and only the signed-out
+        // card ever drew it. A rejected enrollment or rename then looked like a click that did
+        // nothing. This banner sits above the shell (and over a modal scrim), says the sentence, and
+        // stays until dismissed or replaced by the next success.
+        <div className="alert-banner" role="alert">
+          <span>{error}</span>
+          <button type="button" onClick={() => setError(null)}>Dismiss</button>
+        </div>
+      )}
       <header className="topbar">
         <div className="topbar-inner">
           <div className="brand">
             <img src={logoUrl} alt="" width={26} height={26} />
             <h1>Summrise</h1>
             <span>console</span>
-            <span className="crumb">{PAGE_LABELS[page]}</span>
           </div>
           <p className="session">
             <span className={"dot " + (online > 0 ? "dot-ok" : "dot-off")} />
@@ -366,6 +429,7 @@ export function App() {
                   <h2>Devices</h2>
                   <div className="actions">
                     <button type="button" onClick={() => void load()}>Refresh</button>
+                    <button type="button" onClick={() => setFleetTokens(true)}>Fleet tokens</button>
                     <button type="button" className="primary" onClick={() => void mintCode()}>
                       New enrollment code
                     </button>
@@ -374,6 +438,31 @@ export function App() {
                 <p className="summary">
                   {devices.length} devices, {online} online
                 </p>
+                {code && (
+                  <div className="enroll">
+                    <p className="hint">
+                      This code works once, for 15 minutes. On the Windows machine, run this in an
+                      elevated Command Prompt, then restart the <code>SummriseLaunch</code> service.
+                    </p>
+                    <pre className="code">{enrollCommand}</pre>
+                    <div className="actions">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          void copyText(enrollCommand).then((ok) =>
+                            setNotice(ok ? "Enrollment command copied." : "Could not copy the command.")
+                          )
+                        }
+                      >
+                        Copy command
+                      </button>
+                      <button type="button" onClick={() => setCode(null)}>Dismiss</button>
+                    </div>
+                    <p className="hint">
+                      Expires at {new Date(code.expires_at_ms).toLocaleTimeString()}.
+                    </p>
+                  </div>
+                )}
                 {(versions.length > 1 || unreported > 0) && (
                   <p className="hint" role="status">
                     {versions.length > 1 &&
@@ -389,7 +478,6 @@ export function App() {
                     <DeviceCard
                       key={device.id}
                       device={device}
-                      vitals={vitals[device.id] ?? []}
                       newest={newest}
                       selected={selected === device.id}
                       onSelect={() => {
@@ -406,21 +494,6 @@ export function App() {
                     />
                   ))}
                 </div>
-              </section>
-
-              <section className="panel">
-                <div className="panel-head">
-                  <h2>Add a device</h2>
-                </div>
-                <p className="hint">
-                  A code is single-use and expires in minutes. Run the command on the new machine.
-                </p>
-                {code && (
-                  <pre className="code">
-{`summrise-device --enroll ${location.origin} ${code.code}`}
-{`expires ${new Date(code.expires_at_ms).toLocaleTimeString()}`}
-                  </pre>
-                )}
               </section>
             </div>
           )}
@@ -517,7 +590,9 @@ export function App() {
               chosen={chosen}
               onChoose={setSelected}
             >
-              {(active) => <SystemPage grant={active} />}
+              {(active) => (
+                <SystemPage grant={active} device={chosen} vitals={chosen ? vitals[chosen.id] ?? [] : []} />
+              )}
             </DevicePage>
           )}
 
@@ -564,6 +639,17 @@ export function App() {
 
       {connecting && (
         <ConnectCard device={connecting} onClose={() => setConnecting(null)} />
+      )}
+
+      {fleetTokens && (
+        <Modal title="Fleet tokens" onClose={() => setFleetTokens(false)}>
+          <FleetTokens
+            devices={devices}
+            tokens={tokens}
+            embedded
+            onChanged={() => void load()}
+          />
+        </Modal>
       )}
 
       {removing && (

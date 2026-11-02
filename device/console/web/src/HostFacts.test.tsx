@@ -1,0 +1,66 @@
+import { render, screen } from "@testing-library/react";
+import { describe, expect, it } from "vitest";
+import { HostFactsBlock } from "./HostFacts";
+
+const GIB = 1024 ** 3;
+const NOW = 1_700_000_000_000;
+
+const host = {
+  os: { name: "Windows", version: "11" },
+  uptime_s: 90_061,
+  memory: { total_bytes: 8 * GIB, available_bytes: 4 * GIB },
+  disks: [{ name: "/", total_bytes: 100 * GIB, free_bytes: 25 * GIB }],
+  sessions: [{ id: 2, user: "operator", state: "active" }],
+  helper: { registered: true, session: 2 },
+  update: {
+    current: { version: "0.3.218" },
+    previous: { version: "0.3.217" },
+    repairs: []
+  }
+};
+
+const sample = (ts_ms: number) => ({
+  ts_ms,
+  memory_available_bytes: 4 * GIB,
+  memory_total_bytes: 8 * GIB,
+  disk_name: "/",
+  disk_free_bytes: 25 * GIB,
+  disk_total_bytes: 100 * GIB
+});
+
+describe("HostFactsBlock — the Machine page's subject", () => {
+  it("draws the machine's live facts and the sampled history", () => {
+    const { container } = render(
+      <HostFactsBlock host={host} vitals={[sample(NOW - 60_000), sample(NOW)]} />
+    );
+
+    expect(screen.getByText("4.0 GiB free of 8.0 GiB")).toBeInTheDocument();
+    expect(screen.getByText("25.0 GiB of 100.0 GiB")).toBeInTheDocument();
+    expect(screen.getByText("operator@2 active")).toBeInTheDocument();
+    expect(screen.getByText(/current 0\.3\.218 · previous 0\.3\.217/)).toBeInTheDocument();
+    expect(screen.getByText("session 2")).toBeInTheDocument();
+    expect(screen.getByText("Memory available 50.0%")).toBeInTheDocument();
+    expect(screen.getByText("Tightest disk / 25.0% free")).toBeInTheDocument();
+    expect(container.querySelector("svg")).toHaveAttribute("aria-hidden", "true");
+  });
+
+  it("says the history is still collecting before the second sample", () => {
+    const { container } = render(<HostFactsBlock host={host} vitals={[]} />);
+
+    expect(
+      screen.getByText(/Collecting memory and disk history while this page is open/)
+    ).toBeInTheDocument();
+    expect(container.querySelector("svg")).toBeNull();
+  });
+
+  it("draws no row for an absent record instead of a zero", () => {
+    render(<HostFactsBlock host={{}} vitals={[]} />);
+
+    // No memory, no disks, no sessions, no update: the block is the chart's collecting sentence,
+    // not four rows claiming the machine has 0 bytes.
+    expect(screen.queryByText("Memory")).not.toBeInTheDocument();
+    expect(screen.queryByText(/free of/)).not.toBeInTheDocument();
+    expect(screen.queryByText("Helper")).toBeInTheDocument();
+    expect(screen.getByText("not running")).toBeInTheDocument();
+  });
+});

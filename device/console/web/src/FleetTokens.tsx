@@ -32,10 +32,13 @@ export function FleetTokens({
   devices,
   tokens,
   onChanged,
+  embedded = false,
 }: {
   devices: Device[];
   tokens: TokenMeta[];
   onChanged: () => void;
+  /** Inside a dialog the surrounding Modal owns the title and the panel chrome. */
+  embedded?: boolean;
 }) {
   const tools = useToolNames();
   const [name, setName] = useState("");
@@ -123,10 +126,12 @@ export function FleetTokens({
   };
 
   return (
-    <section className="panel">
-      <div className="panel-head">
-        <h2>Fleet tokens</h2>
-      </div>
+    <section className={embedded ? "fleet-tokens" : "panel"}>
+      {!embedded && (
+        <div className="panel-head">
+          <h2>Fleet tokens</h2>
+        </div>
+      )}
       <p className="hint">
         One permanent token for several devices. It is accepted only on{" "}
         <code>/mcp/all</code>; every tool there takes a required{" "}
