@@ -3271,18 +3271,25 @@ async fn unauthenticated_denials_are_rated_and_cannot_rotate_the_audit() {
 // ---- the root and the Rust page ----------------------------------------------------------------
 
 #[tokio::test]
-async fn the_root_sends_a_bookmark_to_the_rust_page() {
-    let fixture = Fixture::new("root-redirect");
+async fn the_root_is_the_react_workspace_unless_a_login_code_is_riding_on_it() {
+    let fixture = Fixture::new("root-react");
 
-    let (status, headers, _) = send_text(fixture.app(), get("/", None)).await;
+    let (status, _, page) = send_text(fixture.app(), get("/", None)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        page.contains("id=\"root\""),
+        "the root is the React workspace"
+    );
 
+    // `--login-link` puts a one-time code in the query; the Rust page redeems it, so that request
+    // must keep going to /next with the query intact.
+    let (status, headers, _) = send_text(fixture.app(), get("/?code=one-time", None)).await;
     assert_eq!(status, StatusCode::SEE_OTHER);
     assert_eq!(
         headers
             .get(header::LOCATION)
             .and_then(|value| value.to_str().ok()),
-        Some("/next"),
-        "the old root points at the page that replaced it"
+        Some("/next?code=one-time")
     );
 }
 
