@@ -542,8 +542,21 @@ function replyFor(request, url) {
   }
   if (method === 'POST' && pathname === '/mcp') {
     const body = requestBody(request);
-    if (body?.request?.params?.name === 'terminal.list') {
-      return json({ result: { content: [{ type: 'text', text: '[]' }] } });
+    const name = body?.request?.params?.name;
+    // The workspace photographs need the two calls a pty open makes; the ANSWER is empty output, not
+    // a fake shell. Every other tool is still a loud failure.
+    if (name === 'terminal.list') return json({ result: { content: [{ type: 'text', text: '[]' }] } });
+    if (name === 'terminal.create') {
+      return json({ result: { content: [{ type: 'text', text: JSON.stringify({ id: 'shot-pty-1' }) }] } });
+    }
+    if (name === 'terminal.resize') {
+      return json({ result: { content: [{ type: 'text', text: JSON.stringify({ rows: 24, cols: 80 }) }] } });
+    }
+    if (name === 'terminal.read') {
+      return json({ result: { content: [{ type: 'text', text: JSON.stringify({ data: '', cursor: 0 }) }] } });
+    }
+    if (name === 'terminal.close') {
+      return json({ result: { content: [{ type: 'text', text: '{}' }] } });
     }
     return null;
   }
@@ -932,6 +945,23 @@ async function captureWorkspace(page, state, pass) {
       note: 'selected the first device; the session grant opens the terminal without a form'
     });
     console.log(`  ${pass.key.padEnd(6)} ${file}`);
+
+    // THE CANVAS IS THE PALETTE'S, so photograph it. Open the first pty; the answer above is empty
+    // output, which is enough to mount xterm and show the white (light) / #131418 (dark) canvas.
+    await page.getByRole('button', { name: '+ New session' }).click();
+    const dialog = page.getByRole('dialog', { name: 'New terminal session' });
+    await dialog.getByRole('button', { name: 'Open' }).click();
+    await page.locator('.term-host .xterm').first().waitFor({ state: 'visible', timeout: 5_000 });
+    await settle(page, state, 400);
+    const sessionFile = `terminal-session${pass.suffix}.png`;
+    await page.screenshot({ path: path.join(OUT, sessionFile), animations: 'disabled', fullPage: false });
+    captures.push({
+      pass: pass.key,
+      page: 'terminal-session',
+      file: sessionFile,
+      note: 'one pty open; the empty output is a canvas, not a fake shell'
+    });
+    console.log(`  ${pass.key.padEnd(6)} ${sessionFile}`);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     captureFailures.push({ pass: pass.key, page: 'terminal-workspace', message });
@@ -981,6 +1011,20 @@ function buildGallery() {
       </section>`;
   }).join('');
 
+  const workspaceRows = `
+    <section class="page">
+      <h2>Workspace</h2>
+      <p class="state">A selected device: the sessions-first empty state, and one pty's canvas (no output; no fake shell).</p>
+      <div class="pair">
+        <figure><figcaption>empty · light</figcaption>${image(byKey.get('light:terminal-workspace'), 'Terminal workspace empty, light')}</figure>
+        <figure><figcaption>empty · dark</figcaption>${image(byKey.get('dark:terminal-workspace'), 'Terminal workspace empty, dark')}</figure>
+      </div>
+      <div class="pair">
+        <figure><figcaption>pty open · light</figcaption>${image(byKey.get('light:terminal-session'), 'Terminal canvas, light')}</figure>
+        <figure><figcaption>pty open · dark</figcaption>${image(byKey.get('dark:terminal-session'), 'Terminal canvas, dark')}</figure>
+      </div>
+    </section>`;
+
   const mobileRows = PASSES.find((pass) => pass.key === 'mobile')
     .pages.map((meta) => {
       const file = byKey.get(`mobile:${meta.id}`);
@@ -1025,6 +1069,7 @@ function buildGallery() {
     Full-size pages are 1280×900, light and dark; Devices and Terminal also have a 390×844 light pass.
   </p>
 </header>
+${workspaceRows}
 ${rows}
 <section class="page">
   <h2>Small screens</h2>

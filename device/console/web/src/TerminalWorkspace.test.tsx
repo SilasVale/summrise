@@ -182,6 +182,16 @@ describe("TerminalWorkspace tab names", () => {
     expect(callToolMock).toHaveBeenCalledWith(GRANT, "terminal.create", { kind: "pty" });
   });
 
+  it("paints the terminal on the page's canvas, not a black one", async () => {
+    render(<TerminalWorkspace grant={GRANT} />);
+    await startPtyTab();
+    await screen.findByRole("tab", { name: /pty 1/ });
+
+    // jsdom loads no sheet, so the seam's fallback is what it sees; the point is that it is the
+    // WHITE canvas the canonical palette names, not the old hardcoded #10151c.
+    expect(mockedXterm.instances[0].options.theme).toMatchObject({ background: "#ffffff" });
+  });
+
   it("renames the active tab and the name survives the next poll", async () => {
     render(<TerminalWorkspace grant={GRANT} />);
     await startPtyTab();
@@ -196,7 +206,7 @@ describe("TerminalWorkspace tab names", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "Save" }));
 
     expect(await screen.findByRole("tab", { name: /prod db/ })).toHaveTextContent("prod db");
-    expect(screen.getByText('Renamed to "prod db".')).toBeInTheDocument();
+    // The tab's new name IS the confirmation; no sentence repeats it in the page chrome.
 
     const before = reads();
     await waitFor(() => expect(reads()).toBeGreaterThan(before), { timeout: 2_000 });
@@ -656,8 +666,8 @@ describe("TerminalWorkspace search", () => {
     // Without decorations the addon selects a match but draws nothing, and clearing draws nothing too.
     const next = addon.findNext.mock.calls[0][1];
     expect(next?.decorations).toMatchObject({
-      matchBackground: "#3a4f63",
-      activeMatchBackground: "#b45309"
+      matchBackground: "rgba(191,58,10,.18)",
+      activeMatchBackground: "#fff0e6"
     });
     expect(next?.caseSensitive).toBeUndefined();
 

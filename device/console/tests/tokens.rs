@@ -168,3 +168,50 @@ fn every_text_pair_reads_on_the_surface_it_sits_on() {
         }
     }
 }
+
+/// A declaration anywhere on a line. `device/ui` packs several tokens per line, so the line-based
+/// `value` above would return the rest of the line for the first one.
+fn declared<'a>(css: &'a str, name: &str) -> Option<&'a str> {
+    let needle = format!("--{name}:");
+    let start = css.find(&needle)? + needle.len();
+    let rest = &css[start..];
+    let end = rest.find(';').unwrap_or(rest.len());
+    Some(rest[..end].trim())
+}
+
+#[test]
+fn the_terminal_palette_is_the_canonical_one() {
+    // `device/ui` is the single palette; the React sheet is its consumer. The canvas and the six
+    // ANSI colours are the ones an operator reads a shell through, so they are compared by name in
+    // both themes rather than trusted to a copy that already drifted once.
+    use summrise_ui::TOKENS as UI;
+    let names = [
+        "term-canvas",
+        "term-black",
+        "term-red",
+        "term-green",
+        "term-yellow",
+        "term-blue",
+        "term-magenta",
+        "term-cyan",
+        "term-white",
+    ];
+    for dark in [false, true] {
+        let react = theme(dark);
+        let canonical = if dark {
+            UI.find("@media")
+                .map(|index| block(UI, index))
+                .expect("the canonical sheet has a dark block")
+        } else {
+            UI
+        };
+        for name in names {
+            assert_eq!(
+                declared(react, name),
+                declared(canonical, name),
+                "--{name} differs between the React sheet and device/ui in {}",
+                if dark { "dark" } else { "light" }
+            );
+        }
+    }
+}

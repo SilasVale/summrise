@@ -151,26 +151,63 @@ type Preset = {
 
 const NEW_PRESET: Preset = { name: "", kind: "pty", host: "", port: "22", user: "", port_path: "", baud: "115200" };
 
-function terminalTheme() {
-  const dark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-  return dark
-    ? { background: "#0e1319", foreground: "#e7edf4", cursor: "#bf3a0a", selectionBackground: "#2e3a47" }
-    : { background: "#10151c", foreground: "#d5dde6", cursor: "#ff8a4c", selectionBackground: "#2a3540" };
+/** A design token as the page computed it; the fallback only runs where the sheet is absent (jsdom). */
+function token(name: string, fallback: string): string {
+  if (typeof document === "undefined") return fallback;
+  const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  return value === "" ? fallback : value;
 }
 
 /**
- * How a match reads on the terminal's dark screen: a quiet slate for every match, amber for the one
- * the search is on. The addon draws nothing without this object — a search would select a line and
- * `clearDecorations()` would have nothing to clear — so the two requirements travel together.
+ * The xterm theme IS the page's palette, not a second one.
+ *
+ * The canvas follows the system theme — white in light, #131418 in dark — and the ANSI colours are
+ * the canonical --term-* tokens (device/ui). The old theme painted a black canvas in both themes,
+ * which is the black-terminal-on-a-white-page defect the canonical palette's header records.
  */
-const SEARCH_DECORATIONS = {
-  matchBackground: "#3a4f63",
-  matchBorder: "#5b7a99",
-  matchOverviewRuler: "#5b7a99",
-  activeMatchBackground: "#b45309",
-  activeMatchBorder: "#f59e0b",
-  activeMatchColorOverviewRuler: "#f59e0b"
-} as const;
+function terminalTheme() {
+  const canvas = token("--term-canvas", "#ffffff");
+  const ink = token("--ink", "#18181b");
+  return {
+    background: canvas,
+    foreground: ink,
+    cursor: token("--accent", "#bf3a0a"),
+    cursorAccent: canvas,
+    selectionBackground: token("--term-selection", "rgba(191,58,10,.18)"),
+    black: token("--term-black", "#1d1d1f"),
+    red: token("--term-red", "#b3261e"),
+    green: token("--term-green", "#1d7a3c"),
+    yellow: token("--term-yellow", "#a8620a"),
+    blue: token("--term-blue", "#1f5fbf"),
+    magenta: token("--term-magenta", "#8a3ffc"),
+    cyan: token("--term-cyan", "#0e7490"),
+    white: token("--term-white", "#44403c"),
+    brightBlack: token("--ink-muted", "#5d5e67"),
+    brightRed: token("--term-red", "#b3261e"),
+    brightGreen: token("--term-green", "#1d7a3c"),
+    brightYellow: token("--term-yellow", "#a8620a"),
+    brightBlue: token("--term-blue", "#1f5fbf"),
+    brightMagenta: token("--term-magenta", "#8a3ffc"),
+    brightCyan: token("--term-cyan", "#0e7490"),
+    brightWhite: ink
+  };
+}
+
+/**
+ * How a match reads on the terminal: the page's selection wash for every match, the accent for the
+ * one the search is on. The addon draws nothing without this object — a search would select a line
+ * and `clearDecorations()` would have nothing to clear — so the two requirements travel together.
+ */
+function searchDecorations() {
+  return {
+    matchBackground: token("--term-selection", "rgba(191,58,10,.18)"),
+    matchBorder: token("--accent", "#bf3a0a"),
+    matchOverviewRuler: token("--accent", "#bf3a0a"),
+    activeMatchBackground: token("--accent-soft", "#fff0e6"),
+    activeMatchBorder: token("--accent", "#bf3a0a"),
+    activeMatchColorOverviewRuler: token("--accent", "#bf3a0a")
+  };
+}
 
 /** A session id as a file stem: ids are usually safe, but a name from the device is still its data. */
 function safeSession(session: string): string {
@@ -718,7 +755,6 @@ export function TerminalWorkspace({
         { key: session, session, kind, title: title ?? nextTabTitle(kind, previous) }
       ]);
       setActive(session);
-      setStatus(`Session ${session} is open.`);
       return null;
     } catch (cause) {
       const sentence = message(cause);
@@ -839,7 +875,6 @@ export function TerminalWorkspace({
     setTabs((previous) => [...previous, { key: session, session, kind, title: nextTabTitle(kind, previous) }]);
     setActive(session);
     setAvailable((previous) => previous.filter((entry) => entry.id !== session));
-    setStatus(`Attached to ${session}.`);
   };
 
   const close = async (tab: Tab) => {
@@ -857,7 +892,6 @@ export function TerminalWorkspace({
       const next = tabs.find((entry) => entry.key !== tab.key) ?? null;
       setActive(next?.key ?? null);
     }
-    setStatus(`Session ${tab.session} is closed.`);
   };
 
   /** Start a faulted tab again: drop the sentence and read once from the retained output. */
@@ -883,7 +917,6 @@ export function TerminalWorkspace({
     setTabs((previous) => renameTab(previous, renaming.key, title));
     setActive(renaming.key);
     setRenaming(null);
-    setStatus(`Renamed to "${title}".`);
   };
 
   const activeTab = tabs.find((tab) => tab.key === active) ?? null;
@@ -929,7 +962,7 @@ export function TerminalWorkspace({
   const findStep = (direction: "next" | "previous") => {
     const search = activeSearch();
     if (!search || findTerm === "") return;
-    const options = { decorations: SEARCH_DECORATIONS };
+    const options = { decorations: searchDecorations() };
     const hit =
       direction === "next" ? search.findNext(findTerm, options) : search.findPrevious(findTerm, options);
     setFindMiss(!hit);
