@@ -27,6 +27,7 @@ import type { Grant } from "./terminal";
 import { FilesPage } from "./FilesPage";
 import { RunsPage } from "./RunsPage";
 import { parseRunLink, runLink } from "./run-link";
+import { parseSurfaceHash, surfaceHash } from "./surface-link";
 import { ScreenPage } from "./ScreenPage";
 import { SystemPage } from "./SystemPage";
 
@@ -48,7 +49,10 @@ export function App() {
   // A run link in the fragment survives a reload (and the sign-in a reload needs). It names the
   // machine as well as the run, because a run id is only unique on its device.
   const [initialRun] = useState(() => parseRunLink(window.location.hash));
-  const [page, setPage] = useState<Page>(initialRun ? "runs" : "devices");
+  const [initialPage] = useState<Page>(
+    () => (initialRun ? "runs" : parseSurfaceHash(window.location.hash)) ?? "devices"
+  );
+  const [page, setPage] = useState<Page>(initialPage);
   const [selected, setSelected] = useState<string | null>(initialRun?.deviceId ?? null);
   // A run id handed from Activity to Runs; RunsPage consumes it once and clears it.
   const [runsFocus, setRunsFocus] = useState<string | null>(initialRun?.runId ?? null);
@@ -232,13 +236,22 @@ export function App() {
     setPage("runs");
   };
 
-  // Leaving Runs forgets the link, so a later reload opens the first screen rather than a run the
-  // operator has moved on from. While Runs is the page, the fragment stays and reloads stay deep.
+  // The fragment is the page's address: a reload keeps the surface, and a run link keeps both the
+  // machine and the run. Leaving Runs replaces the run link with the new surface instead of leaving a
+  // stale run in the URL. Devices is the bare path, which is also what the first visit gets.
   useEffect(() => {
-    if (page === "runs") return;
+    const path = window.location.pathname + window.location.search;
     if (parseRunLink(window.location.hash)) {
-      window.history.replaceState(null, "", window.location.pathname + window.location.search);
+      if (page === "runs") return;
+      window.history.replaceState(null, "", page === "devices" ? path : surfaceHash(page));
+      return;
     }
+    if (page === "devices") {
+      if (window.location.hash) window.history.replaceState(null, "", path);
+      return;
+    }
+    const wanted = surfaceHash(page);
+    if (window.location.hash !== wanted) window.history.replaceState(null, "", wanted);
   }, [page]);
 
   const signIn = async () => {
