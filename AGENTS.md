@@ -50,8 +50,8 @@ xterm and the device's own pages are separate.
   every width; a page that scrolls sideways fails.
 
 The page's shape is five destinations — Home, Capabilities, Plugins, Activity, Device — and a canvas.
-There is no status strip. The rail is a labelled 216 px sidebar at ≥1024 px, a 56 px icon rail at
-640–1023 px, and a bottom tab bar below 640 px. Device holds Terminal, Screen, Files, Runs and
-Machine as one tab bar; the selected machine's header sits above every hub page, so a destination
+There is no status strip. The rail is a labelled 200 px sidebar at ≥768 px, a 56 px icon rail at
+640–767 px, and a bottom tab bar below 640 px. Device holds Terminal, Screen, Files, Runs and
+Machine as one tab bar; the shell's one machine control sits above every hub page, so a destination
 click never loses the machine. Connect is a sheet, not a destination. There is no second navigation
 rail inside the page.
