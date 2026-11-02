@@ -74,55 +74,6 @@ struct Pending {
     decide: tokio::sync::oneshot::Sender<bool>,
 }
 
-/// The held call's registration, removed when the holding future drops.
-///
-/// A client that hangs up drops the proxy's future, and with it the waiter the timeout lived in. An
-/// entry left behind would sit on the dashboard forever and, worse, answer a call nobody is waiting
-/// for. The guard is what makes the map's size follow the requests that exist.
-///
-/// **A HANG-UP STILL HAS TO CLOSE THE RECORD.** A client that goes away never reaches an `approval`
-/// line — the handler is cancelled where it stands — so the audit showed a question that was asked
-/// and then nothing, which reads exactly like a console that lost the answer. When the guard is
-/// dropped without a decision it writes the missing line (`client left`) from a task of its own,
-/// because `Drop` cannot await.
-struct Held<'a> {
-    app: &'a AppState,
-    id: String,
-    /// The facts the closing line needs: the handler's locals are gone by the time `Drop` runs.
-    device_id: Option<String>,
-    tool: Option<String>,
-    token_id: Option<String>,
-    /// Set by every path that ends the ask on purpose: approved, refused, timed out.
-    resolved: bool,
-}
-
-impl Drop for Held<'_> {
-    fn drop(&mut self) {
-        lock(&self.app.approvals).remove(&self.id);
-        if self.resolved {
-            return;
-        }
-        if tokio::runtime::Handle::try_current().is_err() {
-            return;
-        }
-        let app = self.app.clone();
-        let device_id = self.device_id.clone();
-        let tool = self.tool.clone();
-        let token_id = self.token_id.clone();
-        tokio::spawn(async move {
-            app.record_facts(AuditFacts {
-                kind: "approval",
-                device_id: device_id.as_deref(),
-                status: StatusCode::OK,
-                detail: Some("client left"),
-                tool: tool.as_deref(),
-                token_id: token_id.as_deref(),
-            })
-            .await;
-        });
-    }
-}
-
 /// How many sessions the store keeps.
 ///
 /// One operator, a handful of browsers. The page also mints a session for an Access-verified request
@@ -5616,21 +5567,6 @@ fn error_code(reply: &Reply) -> Option<i64> {
     }
 }
 
-/// What a held call will run, as the operator should read it: the arguments, pretty-printed and cut.
-fn arguments_summary(request: &Value) -> String {
-    let arguments = request
-        .get("params")
-        .and_then(|params| params.get("arguments"))
-        .cloned()
-        .unwrap_or(Value::Null);
-    let text = serde_json::to_string_pretty(&arguments).unwrap_or_default();
-    let mut summary: String = text.chars().take(400).collect();
-    if text.chars().count() > 400 {
-        summary.push('…');
-    }
-    summary
-}
-
 async fn proxy_reply(
     app: &AppState,
     device_id: &str,
@@ -5664,8 +5600,6 @@ async fn proxy_reply(
         }
     };
     let is_tools_list = request.get("method").and_then(Value::as_str) == Some("tools/list");
-    // An approval is answered by re-sending this exact call, so it is kept beside the one that left.
-    let held = request.clone();
 
     if let Some(tool) = tool.as_deref() {
         // A `*` is a wildcard, as it is on the device: the operator's own scope is `["*"]`, and an
@@ -5747,178 +5681,26 @@ async fn proxy_reply(
         }
         Ok(Ok(mut reply)) => {
             // A device answers -32002 when a destructive call's credential did not consent to it.
-            // Through the console that call is HELD here instead of returned: the console is the
-            // only surface where a person can say yes, and the client's request stays open while
-            // they decide. An unanswered question is refused — expiry fails closed, as the legacy
-            // gate did.
-            // Only a credential that did NOT consent is held. A consenting token answered -32002
-            // is a device refusing for its own reasons (a damaged or hostile build), and asking the
-            // operator to authorize what they already authorized would stall the page for the whole
-            // deadline.
-            let askable = match auth {
-                RequestAuth::Token(scope) if !scope.allow_destructive => Some(scope),
-                _ => None,
-            };
+            // There is no ninety-second hold: the token's consent was the decision, and a call it
+            // did not authorize is refused now, with a sentence that says how to authorize it.
             if error_code(&reply) == Some(-32002) {
-                if let Some(scope) = askable {
-                    let consenting = crate::channels::TokenScope {
-                        token_id: scope.token_id.clone(),
-                        device_id: scope.device_id.clone(),
-                        scopes: scope.scopes.clone(),
-                        allow_destructive: true,
-                        expires_at_ms: scope.expires_at_ms,
-                    };
-                    let id = hex::encode(&random_32()[..8]);
-                    let (decide, answer) = tokio::sync::oneshot::channel();
-                    let mut registration = Held {
-                        app,
-                        id: id.clone(),
-                        device_id: audit_id.clone(),
-                        tool: tool.clone(),
-                        token_id: token_id.map(str::to_owned),
-                        resolved: false,
-                    };
-                    // Resolved now, while the credential exists: the card outlives a revocation,
-                    // and the operator still deserves to know whose call they are answering.
-                    let token_name = token_id.and_then(|id| lock(&app.tokens).find_by_id(id));
-                    let asked_ms = (app.now)();
-                    lock(&app.approvals).insert(
-                        id.clone(),
-                        Pending {
-                            row: page::ApprovalRow {
-                                id: id.clone(),
-                                device_id: device_id.to_owned(),
-                                tool: tool.clone().unwrap_or_default(),
-                                arguments: arguments_summary(&held),
-                                created_ms: asked_ms,
-                                // The deadline travels with the answer's data rather than with the
-                                // page: the row says when it stops being askable, and the page's
-                                // script turns that into the seconds the operator has left.
-                                expires_ms: asked_ms
-                                    .saturating_add(APPROVAL_TTL.as_millis() as u64),
-                                token_name: token_name.as_ref().map(|token| token.name.clone()),
-                                token_id: token_id.map(str::to_owned),
-                            },
-                            decide,
-                        },
-                    );
-                    app.record_facts(AuditFacts {
-                        kind: "approval",
-                        device_id: audit_id.as_deref(),
-                        status: StatusCode::OK,
-                        detail: Some("asked"),
-                        tool: tool.as_deref(),
-                        token_id,
-                    })
-                    .await;
-                    match tokio::time::timeout(APPROVAL_TTL, answer).await {
-                        Ok(Ok(true)) => {
-                            registration.resolved = true;
-                            app.record_facts(AuditFacts {
-                                kind: "approval",
-                                device_id: audit_id.as_deref(),
-                                status: StatusCode::OK,
-                                detail: Some("approved"),
-                                tool: tool.as_deref(),
-                                token_id,
-                            })
-                            .await;
-                            // The consent is for THIS call, held in the console, and it is not
-                            // written anywhere: the token keeps saying no to the next one.
-                            //
-                            // The credential is re-read, not remembered: the 90 s the operator had
-                            // to decide is long enough for a token to be revoked or to expire, and
-                            // the device cannot know about a revocation — it only checks expiry. A
-                            // consent to a credential that no longer exists is not a consent.
-                            let still_live = lock(&app.tokens)
-                                .find_by_id(&consenting.token_id)
-                                .is_some_and(|record| {
-                                    record
-                                        .expires_at_ms
-                                        .is_none_or(|expires| (app.now)() < expires)
-                                });
-                            if !still_live {
-                                app.record_facts(AuditFacts {
-                                    kind: "approval",
-                                    device_id: audit_id.as_deref(),
-                                    status: StatusCode::UNAUTHORIZED,
-                                    detail: Some("token gone"),
-                                    tool: tool.as_deref(),
-                                    token_id,
-                                })
-                                .await;
-                                reply = Reply::Error(json!({
-                                    "code": -32001,
-                                    "message": "this call was approved, but the token that asked for it is no longer valid: it was refused, not run.",
-                                }));
-                                return Ok(reply);
-                            }
-                            //
-                            // The bound is the first dispatch's, not the general one: a run holds
-                            // its request for the command's own timeout, and approving one must not
-                            // make the console give up while the device is still running it.
-                            let bound = run_wait(&held)
-                                .map(|wait| wait + RUNS_BACKSTOP_GRACE)
-                                .unwrap_or(app.mcp_timeout);
-                            match app
-                                .channels
-                                .request_within(
-                                    device_id,
-                                    held.clone(),
-                                    &RequestAuth::Token(&consenting),
-                                    bound,
-                                )
-                                .await
-                            {
-                                Ok(retried) => reply = retried,
-                                Err(_) => {
-                                    // The frame may have reached the device before the channel
-                                    // failed, so the call may have run. Returning the original
-                                    // "needs approval" would invite a retry that runs it TWICE; the
-                                    // only honest answer is that the outcome is unknown.
-                                    app.record_facts(AuditFacts {
-                                        kind: "approval",
-                                        device_id: audit_id.as_deref(),
-                                        status: StatusCode::GATEWAY_TIMEOUT,
-                                        detail: Some("approved, but the device did not answer"),
-                                        tool: tool.as_deref(),
-                                        token_id,
-                                    })
-                                    .await;
-                                    return Err(Box::new(ApiError::gateway_timeout(
-                                        "approved, but the device did not answer: the outcome is                                          unknown, and retrying may run it twice",
-                                    )
-                                    .into_response()));
-                                }
-                            }
-                        }
-                        Ok(_) => {
-                            registration.resolved = true;
-                            app.record_facts(AuditFacts {
-                                kind: "approval",
-                                device_id: audit_id.as_deref(),
-                                status: StatusCode::OK,
-                                detail: Some("refused"),
-                                tool: tool.as_deref(),
-                                token_id,
-                            })
-                            .await;
-                        }
-                        Err(_) => {
-                            registration.resolved = true;
-                            app.record_facts(AuditFacts {
-                                kind: "approval",
-                                device_id: audit_id.as_deref(),
-                                status: StatusCode::OK,
-                                detail: Some("timed out"),
-                                tool: tool.as_deref(),
-                                token_id,
-                            })
-                            .await;
-                        }
+                if let Reply::Error(error) = &mut reply {
+                    if let Some(inner) = error.get_mut("error") {
+                        inner["message"] = json!(
+                            "this token does not allow destructive calls; mint one with destructive consent to run it"
+                        );
                     }
-                    drop(registration);
                 }
+                app.record_facts(AuditFacts {
+                    kind: "denied",
+                    device_id: audit_id.as_deref(),
+                    status: StatusCode::FORBIDDEN,
+                    detail: Some("destructive_without_consent"),
+                    tool: tool.as_deref(),
+                    token_id,
+                })
+                .await;
+                return Ok(reply);
             }
             if let (Some(allowed), true) = (filter, is_tools_list) {
                 if let Reply::Result(result) = &mut reply {

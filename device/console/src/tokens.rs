@@ -452,14 +452,6 @@ impl Tokens {
     }
 
     /// The token whose hash is `hash`, if any.
-    /// The record with this id, if it still exists: a revoked one is gone, an expired one is not.
-    ///
-    /// The approval gate holds a call for up to ninety seconds and must re-read what it decided on;
-    /// the id it kept is enough, because the caller was authenticated when the record was found.
-    pub(crate) fn find_by_id(&self, id: &str) -> Option<Token> {
-        self.tokens.get(id).cloned()
-    }
-
     pub(crate) fn find_by_hash(&self, hash: &str) -> Option<Token> {
         // The comparison walks the whole hash, as every credential comparison in this service does.
         self.tokens
