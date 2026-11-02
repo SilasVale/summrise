@@ -334,6 +334,8 @@ export function TerminalWorkspace({
   // The device's session list is read on mount now, not behind an "Attach" click. These are the two
   // states that read has: a request in flight, and the sentence when it failed.
   const [listing, setListing] = useState(true);
+  const [toolsOpen, setToolsOpen] = useState(false);
+  const toolsRef = useRef<HTMLDetailsElement>(null);
   const [listError, setListError] = useState<string | null>(null);
   const [presets, setPresets] = useState<SavedConnection[]>([]);
   // A preference of the operator, not of a tab: every xterm and every tab opened later uses it.
@@ -839,6 +841,29 @@ export function TerminalWorkspace({
     setPresets((previous) => previous.filter((entry) => entry.id !== saved.id));
   };
 
+  const closeTools = () => {
+    if (toolsRef.current) toolsRef.current.open = false;
+    setToolsOpen(false);
+  };
+
+  // A menu is a layer, not a section: a click anywhere else, or Escape, puts it away. Native
+  // <details> alone only closes from its summary, which is not how a menu behaves on the desktop.
+  useEffect(() => {
+    if (!toolsOpen) return;
+    const onPointer = (event: PointerEvent) => {
+      if (!toolsRef.current?.contains(event.target as Node)) closeTools();
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") closeTools();
+    };
+    document.addEventListener("pointerdown", onPointer);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("pointerdown", onPointer);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [toolsOpen]);
+
   const listSessions = useCallback(async (announce = false) => {
     setListing(true);
     setListError(null);
@@ -995,34 +1020,70 @@ export function TerminalWorkspace({
               that creates it; seven controls over an empty box were chrome pretending to be work. */}
           {tabs.length > 0 && (
             <>
-              <button type="button" onClick={() => setPresetDialog(true)}>Save a preset</button>
-              <button
-                type="button"
-                disabled={!activeTab}
-                onClick={() =>
-                  activeTab && setRenaming({ key: activeTab.key, title: activeTab.title, error: null })
-                }
-              >
-                Rename tab
-              </button>
-              <button type="button" disabled={!activeTab} onClick={() => void exportLog()}>Export log</button>
               <button type="button" disabled={!activeTab} onClick={toggleFind}>Find</button>
-              <button
-                type="button"
-                title={`Smaller terminal text (now ${fontSize})`}
-                disabled={fontSize <= MIN_FONT_SIZE}
-                onClick={() => setFontSize(clampFontSize(fontSize - 1))}
+              {/* Seven labelled buttons became Find plus one menu. The actions are still one
+                  keystroke away, but the terminal keeps the width; a session is not a form. */}
+              <details
+                className="session-menu"
+                ref={toolsRef}
+                onToggle={(event) => setToolsOpen(event.currentTarget.open)}
               >
-                A−
-              </button>
-              <button
-                type="button"
-                title={`Larger terminal text (now ${fontSize})`}
-                disabled={fontSize >= MAX_FONT_SIZE}
-                onClick={() => setFontSize(clampFontSize(fontSize + 1))}
-              >
-                A+
-              </button>
+                <summary className="session-tools" aria-label="Session tools" title="Session tools">
+                  ⋯
+                </summary>
+                <div className="session-menu-pop">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      closeTools();
+                      setPresetDialog(true);
+                    }}
+                  >
+                    Save a preset
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!activeTab}
+                    onClick={() => {
+                      closeTools();
+                      if (activeTab) {
+                        setRenaming({ key: activeTab.key, title: activeTab.title, error: null });
+                      }
+                    }}
+                  >
+                    Rename tab
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!activeTab}
+                    onClick={() => {
+                      closeTools();
+                      void exportLog();
+                    }}
+                  >
+                    Export log
+                  </button>
+                  <div className="session-menu-row">
+                    <span className="hint">Text size</span>
+                    <button
+                      type="button"
+                      title={`Smaller terminal text (now ${fontSize})`}
+                      disabled={fontSize <= MIN_FONT_SIZE}
+                      onClick={() => setFontSize(clampFontSize(fontSize - 1))}
+                    >
+                      A−
+                    </button>
+                    <button
+                      type="button"
+                      title={`Larger terminal text (now ${fontSize})`}
+                      disabled={fontSize >= MAX_FONT_SIZE}
+                      onClick={() => setFontSize(clampFontSize(fontSize + 1))}
+                    >
+                      A+
+                    </button>
+                  </div>
+                </div>
+              </details>
             </>
           )}
           <button type="button" className="primary" onClick={() => openDialog({}, null)}>
