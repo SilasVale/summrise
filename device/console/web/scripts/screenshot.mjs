@@ -919,6 +919,35 @@ async function capturePage(page, state, meta, pass) {
   console.log(`  ${pass.key.padEnd(6)} ${file}`);
 }
 
+async function captureWorkspace(page, state, pass) {
+  const meta = PAGES.find((entry) => entry.id === 'terminal');
+  try {
+    await goTo(page, meta);
+    const use = page.locator('main .picker button', { hasText: 'Use' }).first();
+    if ((await use.count()) === 0) return;
+    await use.click();
+    await page.locator('main .terminal-workspace').waitFor({ state: 'visible', timeout: 5_000 }).catch(async (error) => {
+      await page.screenshot({ path: path.join(OUT, `terminal-workspace${pass.suffix}-failed.png`) });
+      console.error('workspace debug:', (await page.locator('main').innerText()).slice(0, 1200));
+      throw error;
+    });
+    await settle(page, state, 300);
+    const file = `terminal-workspace${pass.suffix}.png`;
+    await page.screenshot({ path: path.join(OUT, file), animations: 'disabled', fullPage: false });
+    captures.push({
+      pass: pass.key,
+      page: 'terminal-workspace',
+      file,
+      note: 'selected the first device; the session grant opens the terminal without a form'
+    });
+    console.log(`  ${pass.key.padEnd(6)} ${file}`);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    captureFailures.push({ pass: pass.key, page: 'terminal-workspace', message });
+    console.error(`screenshot: could not capture the workspace (${pass.key}): ${message}`);
+  }
+}
+
 // ---------------------------------------------------------------------------------------------
 // Gallery.
 // ---------------------------------------------------------------------------------------------
@@ -1095,6 +1124,7 @@ try {
       for (const issue of state.pageErrors) pageErrors.push({ pass: pass.key, ...issue });
       for (const issue of state.apiFailures) apiFailures.push({ pass: pass.key, ...issue });
       for (const issue of state.consoleErrors) consoleErrors.push({ pass: pass.key, ...issue });
+      if (pass.key !== 'mobile') await captureWorkspace(page, state, pass);
       await context.close().catch(() => {});
     }
   }

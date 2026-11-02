@@ -17,11 +17,11 @@ import { recordVitals, type VitalsSample } from "./vitals";
 import { AUDIT_WINDOW, AuditTable } from "./AuditTable";
 import { PAGE_LABELS, Rail, type Page } from "./Rail";
 import { Modal } from "./Modal";
-import { GrantForm } from "./GrantForm";
 import { ConnectCard } from "./ConnectCard";
 import { DevicePage } from "./DevicePage";
 import { DevicePicker } from "./DevicePicker";
 import { TerminalWorkspace } from "./TerminalWorkspace";
+import type { Grant } from "./terminal";
 import { BrowserPane } from "./BrowserPane";
 import { FilesPage } from "./FilesPage";
 import { RunsPage } from "./RunsPage";
@@ -51,11 +51,25 @@ export function App() {
   const [draftName, setDraftName] = useState("");
   const [notice, setNotice] = useState<string | null>(null);
   const [code, setCode] = useState<{ code: string; expires_at_ms: number } | null>(null);
-  const [grant, setGrant] = useState<{ deviceId: string; envelope: unknown } | null>(null);
+  const [grant, setGrant] = useState<Grant | null>(null);
   /** True when the grant in force was refused, so the form is offered again above the live tabs. */
   const [grantStale, setGrantStale] = useState(false);
   const [consoleVersion, setConsoleVersion] = useState<string | null>(null);
   const [accessNote, setAccessNote] = useState<string | null>(null);
+
+  // The operator's session is the credential. Selecting a machine starts a session-scoped grant
+  // (no envelope); `/mcp` treats an absent grant as full operator authority on that device, so the
+  // terminal opens without a consent form. The legacy signed-grant path stays on the server for
+  // existing clients, but the page no longer asks the operator to mint one.
+  useEffect(() => {
+    if (selected === null) {
+      setGrant(null);
+      setGrantStale(false);
+      return;
+    }
+    setGrant({ deviceId: selected, envelope: null });
+    setGrantStale(false);
+  }, [selected]);
 
   const newest = useMemo(
     () =>
@@ -438,29 +452,24 @@ export function App() {
               <DevicePicker devices={devices} onChoose={setSelected} />
             </section>
           )}
-          {page === "terminal" && chosen && (!grant || grant.deviceId !== chosen.id || grantStale) && (
-            <section className="panel">
+          {page === "terminal" && chosen && grantStale && (
+            <section className="panel empty">
               <div className="panel-head">
-                <h2>Grant what the console may do on {chosen.name ?? shortId(chosen.id)}</h2>
+                <h2>The device refused the console session</h2>
               </div>
               <p className="hint">
-                A grant is signed by the console, names the tools and expires. The device checks it on
-                every call. Everything is selected by default: press the button and the terminal
-                appears.
+                The console or the device no longer accepts this session. Reconnect to start a fresh
+                one; the open tabs keep their place.
               </p>
-              {grantStale && (
-                <p className="hint">
-                  The grant in force was refused by the console or the device. Sign a new one and the
-                  open tabs resume where they were.
-                </p>
-              )}
-              <GrantForm
-                deviceId={chosen.id}
-                onGranted={(envelope) => {
-                  setGrant({ deviceId: chosen.id, envelope });
+              <button
+                type="button"
+                onClick={() => {
+                  setGrant({ deviceId: chosen.id, envelope: null });
                   setGrantStale(false);
                 }}
-              />
+              >
+                Reconnect
+              </button>
             </section>
           )}
           {/*

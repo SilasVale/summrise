@@ -2,7 +2,14 @@
 // the device, the device runs the shell. Nothing here has a second credential, and every keystroke is
 // a line in the device's audit.
 
-export type Grant = { deviceId: string; envelope: unknown };
+/**
+ * What a page needs to call a device.
+ *
+ * `envelope` is the legacy signed grant, or null for the operator's own session: the console's
+ * `/mcp` route already treats a missing grant as the operator's full authority on the named device.
+ * The page no longer mints a one-hour grant just to open a shell.
+ */
+export type Grant = { deviceId: string; envelope: unknown | null };
 
 import { getToken } from "./api";
 
@@ -58,7 +65,9 @@ export async function callTool(grant: Grant, name: string, args: Record<string, 
       headers: { "content-type": "application/json", authorization: `Bearer ${getToken()}` },
       body: JSON.stringify({
         device_id: grant.deviceId,
-        grant: grant.envelope,
+        // Omit the field entirely for a session grant: `/mcp` distinguishes absent (operator
+        // authority) from present (a legacy grant it must verify).
+        ...(grant.envelope === null ? {} : { grant: grant.envelope }),
         request: { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } }
       })
     });

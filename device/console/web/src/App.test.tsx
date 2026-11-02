@@ -266,69 +266,27 @@ describe("App", () => {
     expect(screen.queryByText("No audit lines yet.")).not.toBeInTheDocument();
   });
 
-  it("selects a device and lands on the terminal with that device's grant form", async () => {
+  it("selects a device and opens its terminal without a grant form", async () => {
     await bootAndSignIn();
 
     selectDevice("workshop");
 
-    expect(
-      screen.getByRole("heading", { name: "Grant what the console may do on workshop" })
-    ).toBeInTheDocument();
-    expect(screen.getByLabelText("Lifetime (seconds)")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Grant access" })).toBeInTheDocument();
-    expect(screen.queryByText("No device selected.")).not.toBeInTheDocument();
-    // Files draws the same grant form, so the grant heading alone does not say which page this is.
+    const workspace = await screen.findByTestId("workspace");
+    expect(workspace).toHaveAttribute("data-visible", "yes");
+    expect(screen.getByRole("heading", { name: "workshop" })).toBeInTheDocument();
+    expect(screen.queryByText(/Grant what the console may do/)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Lifetime (seconds)")).not.toBeInTheDocument();
+    // The route to the workspace is the Terminal page, not a consent screen.
     const rail = screen.getByRole("navigation", { name: "Sections" });
     expect(within(rail).getByRole("button", { name: "Terminal" })).toHaveAttribute("aria-current", "page");
-  });
-
-  it("draws each device page's grant panel with the hint that shipped, and Browser without one", async () => {
-    await bootAndSignIn();
-    selectDevice("workshop");
-
-    const rail = screen.getByRole("navigation", { name: "Sections" });
-    const grantHints: [string, string][] = [
-      [
-        "Screen",
-        "A grant is signed by the console, names the tools and expires. The device checks it on every call. Everything is selected by default: press the button and the screen can be captured."
-      ],
-      [
-        "Files",
-        "A grant is signed by the console, names the tools and expires. The device checks it on every call. Everything is selected by default: press the button and the files appear."
-      ],
-      [
-        "Runs",
-        "A grant is signed by the console, names the tools and expires. The device checks it on every call. Everything is selected by default: press the button and the run form appears."
-      ],
-      [
-        "System",
-        "A grant is signed by the console, names the tools and expires. The device checks it on every call. Everything is selected by default: press the button and the process list appears."
-      ]
-    ];
-    for (const [section, hint] of grantHints) {
-      fireEvent.click(within(rail).getByRole("button", { name: section }));
-      expect(
-        screen.getByRole("heading", { name: "Grant what the console may do on workshop" })
-      ).toBeInTheDocument();
-      expect(screen.getByText(hint)).toBeInTheDocument();
-    }
-
-    // Browser's grant panel has no hint paragraph; the heading is all it says.
-    fireEvent.click(within(rail).getByRole("button", { name: "Browser" }));
-    expect(
-      screen.getByRole("heading", { name: "Grant what the console may do on workshop" })
-    ).toBeInTheDocument();
   });
 
   it("keeps the workspace mounted, hidden, across a page change", async () => {
     await bootAndSignIn();
     selectDevice("workshop");
-    expect(screen.queryByTestId("workspace")).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "monitor-chip" })).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Grant access" }));
     const workspace = await screen.findByTestId("workspace");
-    expect(mocks.grant).toHaveBeenCalledWith("dev-workshop-0001", expect.any(Array), 3600, true);
+    expect(mocks.grant).not.toHaveBeenCalled();
     expect(workspace).toHaveAttribute("data-visible", "yes");
 
     const rail = screen.getByRole("navigation", { name: "Sections" });
