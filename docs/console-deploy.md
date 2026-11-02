@@ -217,7 +217,7 @@ build's numbers.
 | stop → `/health` | ~20 s (the task's own restart; uptime was 17 s at the first answer) |
 | `/health` after restart | `{"status":"ok","devices":3,"online":2,"version":"0.3.251"}` |
 | real terminal check | `REAL_TERMINAL_OK` (DESKTOP-9VH92BJ, pty marker) |
-| real plugin check | `REAL_PLUGIN_OK` (add → 48 tools, `hello.greet` answered, 11 log lines, removed, no `plugin.ps1` child) |
+| real plugin check | `REAL_PLUGIN_OK` (add → 48 tools, `hello.greet` answered, 11 log lines, removed, no `plugin.ps1` child; after `host.restart` the registered plugin came back `running` with 2 tools and exactly one child, and removing it left zero) |
 | real console check | `REAL_CONSOLE_OK` (live `/fleet/:id/tools` = 46 tools incl. `plugins.list`; a `hello.greet` token minted and revoked) |
 | page by hand | not opened on the host; the served page is the committed `dist/index.html` byte for byte (851,346 B), the browser gate passed against that bundle, and the gallery was read at 360/390/800/1280 in both themes |
 | rollback binary kept | `summrise-console.exe.bak-0.3.250` and `.bak-0.3.251`; the directory was trimmed from 93 backups to these two |
