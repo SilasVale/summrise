@@ -134,7 +134,7 @@ afterAll(() => {
 
 /** Open the pty dialog from the panel head and submit it. */
 async function startPtyTab() {
-  fireEvent.click(screen.getByRole("button", { name: "+ New" }));
+  fireEvent.click(screen.getByRole("button", { name: "+ New session" }));
   const dialog = await screen.findByRole("dialog", { name: "New terminal session" });
   fireEvent.click(within(dialog).getByRole("button", { name: "Open" }));
   await waitFor(() =>
@@ -147,9 +147,30 @@ function reads(): number {
 }
 
 describe("TerminalWorkspace tab names", () => {
-  it("disables Rename tab until a tab is open", () => {
+  it("shows only the action that creates a session until one is open", () => {
     render(<TerminalWorkspace grant={GRANT} />);
-    expect(screen.getByRole("button", { name: "Rename tab" })).toBeDisabled();
+    // The session toolbar belongs to a session; at the empty state the page offers the one action
+    // that makes one, and no disabled controls pretending to be a toolbar.
+    expect(screen.getByRole("button", { name: "+ New session" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Rename tab" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Attach to a session" })).not.toBeInTheDocument();
+  });
+
+  it("lists the device's sessions without an Attach click", async () => {
+    callToolMock.mockImplementation(async (_grant, name) => {
+      if (name === "terminal.list") return JSON.stringify([{ id: "live-1", kind: "pty" }]);
+      if (name === "terminal.resize") return JSON.stringify({ rows: 24, cols: 80 });
+      if (name === "terminal.read") return JSON.stringify({ data: "", cursor: 0 });
+      throw new Error(`the test did not expect a ${name} call`);
+    });
+    render(<TerminalWorkspace grant={GRANT} />);
+
+    // The list is the empty state: the session appears without a control being pressed to fetch it.
+    expect(await screen.findByText("live-1")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Attach" }));
+
+    expect(await screen.findByRole("tab", { name: /pty 1/ })).toBeInTheDocument();
+    expect(callToolMock).toHaveBeenCalledWith(GRANT, "terminal.list", {});
   });
 
   it("opens a pty session as a tab named pty 1", async () => {
@@ -444,17 +465,21 @@ describe("TerminalWorkspace text size", () => {
     );
   });
 
-  it("disables A− at the minimum the layout survives", () => {
+  it("disables A− at the minimum the layout survives", async () => {
     window.localStorage.setItem(FONT_SIZE_KEY, String(MIN_FONT_SIZE));
     render(<TerminalWorkspace grant={GRANT} />);
+    await startPtyTab();
+    await screen.findByRole("tab", { name: /pty 1/ });
 
     expect(screen.getByRole("button", { name: "A−" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "A+" })).toBeEnabled();
   });
 
-  it("disables A+ at the maximum", () => {
+  it("disables A+ at the maximum", async () => {
     window.localStorage.setItem(FONT_SIZE_KEY, String(MAX_FONT_SIZE));
     render(<TerminalWorkspace grant={GRANT} />);
+    await startPtyTab();
+    await screen.findByRole("tab", { name: /pty 1/ });
 
     expect(screen.getByRole("button", { name: "A+" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "A−" })).toBeEnabled();
@@ -472,10 +497,9 @@ describe("TerminalWorkspace text size", () => {
     });
     try {
       render(<TerminalWorkspace grant={GRANT} />);
-      expect(screen.getByRole("button", { name: "A+" })).toBeEnabled();
-
       await startPtyTab();
       await screen.findByRole("tab", { name: /pty 1/ });
+      expect(screen.getByRole("button", { name: "A+" })).toBeEnabled();
       await waitFor(() => expect(mockedXterm.instances).toHaveLength(1));
       expect(mockedXterm.instances[0].options.fontSize).toBe(DEFAULT_FONT_SIZE);
     } finally {
@@ -601,9 +625,12 @@ describe("TerminalWorkspace search", () => {
     return screen.getByPlaceholderText("Find in this session");
   }
 
-  it("disables Find until a session is open", () => {
+  it("offers Find only once a session is open", async () => {
     render(<TerminalWorkspace grant={GRANT} />);
-    expect(screen.getByRole("button", { name: "Find" })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "Find" })).not.toBeInTheDocument();
+    await startPtyTab();
+    await screen.findByRole("tab", { name: /pty 1/ });
+    expect(screen.getByRole("button", { name: "Find" })).toBeEnabled();
   });
 
   it("finds forward on Enter and backward on Shift+Enter, decorating the matches", async () => {

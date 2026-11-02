@@ -89,6 +89,18 @@ function rowOf(text: string): HTMLElement {
 
 
 describe("AuditTable", () => {
+  it("opens scoped to the selected machine and can widen to the fleet", () => {
+    render(<AuditTable lines={lines} devices={devices} tokens={[]} selectedDeviceId={alpha} />);
+
+    expect(screen.getByRole("button", { name: "This machine" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.queryByText("terminal.write")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "All machines" }));
+
+    expect(screen.getByRole("button", { name: "All machines" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByText("terminal.write")).toBeInTheDocument();
+  });
+
   it("filters by device, opens a line, and clears a filter that matches nothing", () => {
     render(<AuditTable lines={lines} devices={devices} tokens={[]} />);
     expect(detailButtons()).toHaveLength(3);
