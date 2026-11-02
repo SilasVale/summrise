@@ -551,6 +551,55 @@ function replyFor(request, url) {
     // The workspace photographs need the two calls a pty open makes; the ANSWER is empty output, not
     // a fake shell. Every other tool is still a loud failure.
     if (name === 'terminal.list') return json({ result: { content: [{ type: 'text', text: '[]' }] } });
+    if (name === 'runs.list') {
+      return json({
+        result: {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify([
+                {
+                  id: 'r-1',
+                  command: 'echo',
+                  args: ['hello'],
+                  cwd: '.',
+                  exit_code: 0,
+                  timed_out: false,
+                  duration_ms: 42,
+                  started_at_ms: NOW - 5 * 60_000,
+                  stdout_bytes: 6,
+                  stderr_bytes: 0
+                }
+              ])
+            }
+          ]
+        }
+      });
+    }
+    if (name === 'runs.get') {
+      console.error('runs.get called', JSON.stringify(requestBody(request)));
+      return json({
+        result: {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify({
+                id: 'r-1',
+                command: 'echo',
+                args: ['hello'],
+                cwd: '.',
+                exit_code: 0,
+                timed_out: false,
+                duration_ms: 42,
+                started_at_ms: NOW - 5 * 60_000,
+                stdout_bytes: 6,
+                stderr_bytes: 0
+              })
+            }
+          ]
+        }
+      });
+    }
     if (name === 'terminal.create') {
       return json({ result: { content: [{ type: 'text', text: JSON.stringify({ id: 'shot-pty-1' }) }] } });
     }
@@ -941,6 +990,22 @@ async function capturePage(page, state, meta, pass) {
       note: 'one line open: full device id and its copy button'
     });
     console.log(`  ${pass.key.padEnd(6)} ${detailFile}`);
+
+    // The run detail's handle, followed: Activity → Runs on the same device. The stub returns one
+    // record; the screenshot is the page the operator lands on, not a second Activity claim.
+    await page.getByRole('button', { name: 'Open in Runs' }).click();
+    await page.getByRole('heading', { name: 'Runs' }).waitFor({ state: 'visible', timeout: 5_000 });
+    await settle(page, state, 350);
+    console.error('runs page text:', (await page.locator('.runs-page').innerText()).slice(0, 400));
+    const runFile = `activity-run${pass.suffix}.png`;
+    await page.screenshot({ path: path.join(OUT, runFile), animations: 'disabled', fullPage: false });
+    captures.push({
+      pass: pass.key,
+      page: 'activity-run',
+      file: runFile,
+      note: 'the run id opened Runs on the same device; the record is the stub’s one run'
+    });
+    console.log(`  ${pass.key.padEnd(6)} ${runFile}`);
   }
 }
 
@@ -948,10 +1013,15 @@ async function captureWorkspace(page, state, pass) {
   const meta = PAGES.find((entry) => entry.id === 'terminal');
   try {
     await goTo(page, meta);
-    const use = page.locator('main .picker button', { hasText: 'Use' }).first();
-    if ((await use.count()) === 0) return;
-    await use.click();
-    await page.locator('main .terminal-workspace').waitFor({ state: 'visible', timeout: 5_000 }).catch(async (error) => {
+    // A previous capture (Activity → Runs) may have selected a device already, in which case the
+    // workspace is on screen and the picker's Use button does not exist. Both paths lead here.
+    const workspace = page.locator('main .terminal-workspace');
+    if ((await workspace.count()) === 0) {
+      const use = page.locator('main .picker button', { hasText: 'Use' }).first();
+      if ((await use.count()) === 0) return;
+      await use.click();
+    }
+    await workspace.waitFor({ state: 'visible', timeout: 5_000 }).catch(async (error) => {
       await page.screenshot({ path: path.join(OUT, `terminal-workspace${pass.suffix}-failed.png`) });
       console.error('workspace debug:', (await page.locator('main').innerText()).slice(0, 1200));
       throw error;
@@ -1065,6 +1135,10 @@ function buildGallery() {
       <div class="pair">
         <figure><figcaption>activity line open · light</figcaption>${image(byKey.get('light:audit-detail'), 'Activity detail, light')}</figure>
         <figure><figcaption>activity line open · dark</figcaption>${image(byKey.get('dark:audit-detail'), 'Activity detail, dark')}</figure>
+      </div>
+      <div class="pair">
+        <figure><figcaption>run opened from Activity · light</figcaption>${image(byKey.get('light:activity-run'), 'Run opened from Activity, light')}</figure>
+        <figure><figcaption>run opened from Activity · dark</figcaption>${image(byKey.get('dark:activity-run'), 'Run opened from Activity, dark')}</figure>
       </div>
     </section>`;
 

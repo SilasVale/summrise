@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useMemo, type ReactNode } from "react";
 import type { Device } from "./api";
 import { DevicePicker } from "./DevicePicker";
 import type { Grant } from "./terminal";
@@ -22,7 +22,14 @@ export type DevicePageProps = {
 };
 
 export function DevicePage({ title, pickHint, devices, chosen, onChoose, children }: DevicePageProps) {
-  if (!chosen) {
+  // ONE GRANT PER DEVICE, not one per render. Pages use it as an effect dependency; a fresh object on
+  // every parent render re-ran their reads and invalidated in-flight ones (Activity → Runs lost its
+  // detail to exactly that).
+  const grant = useMemo<Grant | null>(
+    () => (chosen ? { deviceId: chosen.id, envelope: null } : null),
+    [chosen?.id]
+  );
+  if (!chosen || !grant) {
     return (
       <section className="panel">
         <div className="panel-head">
@@ -33,5 +40,5 @@ export function DevicePage({ title, pickHint, devices, chosen, onChoose, childre
       </section>
     );
   }
-  return <section className="panel">{children({ deviceId: chosen.id, envelope: null })}</section>;
+  return <section className="panel">{children(grant)}</section>;
 }
