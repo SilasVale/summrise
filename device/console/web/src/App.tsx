@@ -422,6 +422,7 @@ export function App() {
 
   return (
     <div className="shell">
+      <a className="skip-link" href="#main">Skip to content</a>
       {error && (
         // POST-SIGN-IN FAILURES HAD NO SURFACE: every handler wrote `error`, and only the signed-out
         // card ever drew it. A rejected enrollment or rename then looked like a click that did
@@ -450,7 +451,7 @@ export function App() {
       <div className="body">
         <Rail page={page} onPage={setPage} devices={devices.length} online={online} />
 
-        <main className={page === "terminal" && chosen ? "terminal-main" : undefined}>
+        <main id="main" tabIndex={-1} className={page === "terminal" && chosen ? "terminal-main" : undefined}>
           {chosen && page !== "devices" && (
             <section className="workspace-head">
               <div className="workspace-identity">

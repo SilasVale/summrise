@@ -191,6 +191,8 @@ describe("App", () => {
 
     expect(await screen.findByText("workshop")).toBeInTheDocument();
     expect(screen.getByText("attic")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Skip to content" })).toHaveAttribute("href", "#main");
+    expect(screen.getByRole("main")).toHaveAttribute("id", "main");
     // The status bar is where the page counts the fleet; the panel's own summary says the same numbers.
     const statusbar = container.querySelector(".statusbar");
     expect(statusbar).not.toBeNull();
