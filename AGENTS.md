@@ -39,10 +39,12 @@ xterm and the device's own pages are separate.
 - `scripts/build-web.sh --check` — the committed page is the source; the binary cannot ship
   yesterday's UI silently.
 - `cargo test -p summrise-console` — the console suite and the token contract
-  (`tests/tokens.rs`: seven type sizes, one spacing rhythm, the radii, the dark surfaces). The maud
-  fallback's ink pairs are measured by `every_text_colour_reads_on_the_surface_it_sits_on` in
-  `src/http/page.rs`; **the React page's own colour pairs are not yet behind a gate**, so measure a
-  new pair before it lands.
+  (`tests/tokens.rs`: seven type sizes, one spacing rhythm, the radii, the dark surfaces, and the
+  React sheet's eleven text pairs in BOTH themes against WCAG AA). The maud fallback's pairs are
+  measured by `every_text_colour_reads_on_the_surface_it_sits_on` in `src/http/page.rs`.
+- `cargo test --manifest-path device/console-logic/Cargo.toml` and
+  `node scripts/check-console-logic.mjs` — the page's pure decisions are Rust/wasm; the artifact is
+  committed, and the check fails when a source edit was not rebuilt.
 - `node scripts/layout-gate.mjs <pages-dir> <width…>` — the rendered Rust pages and the landing at
   every width; a page that scrolls sideways fails.
 
