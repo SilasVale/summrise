@@ -27,6 +27,7 @@ use crate::capabilities::{self, terminal};
 use crate::config::{Config, Release};
 use crate::helper;
 use crate::panel;
+use crate::plugins::host::PluginHost;
 use crate::restart;
 use crate::store::{Store, EVENT_TAIL};
 use crate::watchdog;
@@ -42,6 +43,7 @@ pub(crate) fn router(config: &Config, store: Store) -> Router {
         None,
         None,
         restart::none(),
+        Arc::new(PluginHost::load(&config.data)),
     )
 }
 
@@ -53,9 +55,21 @@ pub(crate) fn router_with_limits(
     store: Store,
     limits: terminal::Limits,
 ) -> Router {
-    router_with(config, store, limits, None, None, None, restart::none())
+    router_with(
+        config,
+        store,
+        limits,
+        None,
+        None,
+        None,
+        restart::none(),
+        Arc::new(PluginHost::load(&config.data)),
+    )
 }
 
+// The router's dependencies are listed once, here, in the order the features landed; a struct would
+// hide the fact that every new capability is one more argument the process owns.
+#[allow(clippy::too_many_arguments)]
 fn router_with(
     config: &Config,
     store: Store,
@@ -64,6 +78,7 @@ fn router_with(
     mesh: Option<crate::mesh::MeshLink>,
     helper: Option<Arc<helper::Helper>>,
     restart: restart::Hook,
+    plugins: Arc<PluginHost>,
 ) -> Router {
     // The MCP service and the panel share one terminal registry, so a session an MCP client opened
     // is the session the panel lists. `/mcp` is the same secret as `/api/state`: the gate runs before
@@ -78,6 +93,7 @@ fn router_with(
         console,
         mesh,
         restart.clone(),
+        plugins,
     );
     let state = AppState {
         token: load_token(&config.token_file),
@@ -206,6 +222,7 @@ pub async fn serve(
     console: Option<crate::console::ConsoleEndpoint>,
     mesh: Option<crate::mesh::MeshLink>,
     helper: Option<Arc<helper::Helper>>,
+    plugins: Arc<PluginHost>,
 ) -> io::Result<()> {
     // A supervised app restarts through the launcher after the answer reaches the page or the MCP
     // client; a standalone process has no supervisor to bring it back, so its handlers never call
@@ -219,6 +236,7 @@ pub async fn serve(
         mesh,
         helper,
         restart,
+        plugins,
     );
     let listener = bind(&config).await?;
     let address = listener.local_addr()?;
@@ -236,7 +254,15 @@ pub async fn serve(
         listener,
         app.into_make_service_with_connect_info::<SocketAddr>(),
     )
+    // The interactive stop: Ctrl+C lets the run loop call `PluginHost::stop_all` before the process
+    // ends. A SCM stop or a kill is outside any process's destructor; the launcher owns that path.
+    .with_graceful_shutdown(shutdown_signal())
     .await
+}
+
+/// Wait for the one signal the app can handle itself.
+async fn shutdown_signal() {
+    let _ = tokio::signal::ctrl_c().await;
 }
 
 fn loopback_addr(port: u16) -> SocketAddr {
@@ -1348,7 +1374,7 @@ mod tests {
             self.app_with(None, restart)
         }
 
-        /// The one place the seven router arguments are listed; a new dependency is one edit.
+        /// The one place the router arguments are listed; a new dependency is one edit.
         fn app_with(
             &self,
             helper: Option<Arc<crate::helper::Helper>>,
@@ -1362,6 +1388,7 @@ mod tests {
                 None,
                 helper,
                 restart,
+                Arc::new(PluginHost::load(&self.config.data)),
             )
         }
 

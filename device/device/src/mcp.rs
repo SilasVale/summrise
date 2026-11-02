@@ -249,11 +249,12 @@ pub(crate) fn service_with_terminal(
     console: Option<crate::console::ConsoleEndpoint>,
     mesh: Option<crate::mesh::MeshLink>,
     restart: restart::Hook,
+    plugins: Arc<PluginHost>,
 ) -> (
     StreamableHttpService<DeviceServer, LocalSessionManager>,
     Arc<terminal::PtyRegistry>,
 ) {
-    let server = DeviceServer::new(config, limits)
+    let server = DeviceServer::new_with_plugins(config, limits, plugins)
         .with_restart(restart)
         .with_audit(audit);
     let terminal = Arc::clone(&server.terminal);
@@ -320,7 +321,21 @@ fn payload_too_large(declared: u64) -> Response {
 }
 
 impl DeviceServer {
+    /// A server over a host loaded from `config.data`. Production builds its host once at boot and
+    /// uses [`DeviceServer::new_with_plugins`]; tests use this constructor and keep the host private.
+    #[cfg(test)]
     pub(crate) fn new(config: &Config, limits: terminal::Limits) -> DeviceServer {
+        // Boot starts nothing: `start_all` is the device's call, after it has decided to serve. A
+        // server built by a test (`console_server`, `restart_server`) gets an empty host.
+        DeviceServer::new_with_plugins(config, limits, Arc::new(PluginHost::load(&config.data)))
+    }
+
+    /// The same server over a host the device already built, so boot loads the registry once.
+    pub(crate) fn new_with_plugins(
+        config: &Config,
+        limits: terminal::Limits,
+        plugins: Arc<PluginHost>,
+    ) -> DeviceServer {
         let audit = Arc::new(Audit::new(&config.data));
         DeviceServer {
             files_root: config.files_root.clone(),
@@ -339,14 +354,13 @@ impl DeviceServer {
             nonces: crate::remote::NonceLog::new(),
             supervised: config.supervised,
             restart: restart::none(),
-            // Boot starts nothing: `start_all` is the device's call, after it has decided to serve.
-            // A server built by a test (`console_server`, `restart_server`) gets an empty host.
-            plugins: Arc::new(PluginHost::load(&config.data)),
+            plugins,
         }
     }
 
-    /// Replace the plugin host. The device builds one host at boot and shares it with every MCP
-    /// session; a test injects a scripted one.
+    /// Replace the plugin host with a scripted one. Tests only: boot passes the shared host through
+    /// [`DeviceServer::new_with_plugins`].
+    #[cfg(test)]
     pub(crate) fn with_plugins(mut self, plugins: Arc<PluginHost>) -> DeviceServer {
         self.plugins = plugins;
         self
@@ -6062,4 +6076,39 @@ mod tests {
         assert_eq!(error["action"], "plugins.list");
     }
 
+    #[tokio::test]
+    async fn the_server_loads_the_plugin_registry_from_config_data() {
+        let (_server, config, dir) = console_server("mcp-plugin-registry-load");
+        let source = crate::plugins::test_support::plugin_dir(&dir, "hello");
+        let manifest: Value = serde_json::from_str(
+            &fs::read_to_string(source.join("plugin.json")).expect("the manifest"),
+        )
+        .expect("the manifest is JSON");
+        fs::write(
+            config.data.join("plugins.json"),
+            json!({
+                "version": 1,
+                "plugins": [{
+                    "manifest": manifest,
+                    "path": source.display().to_string(),
+                    "installed_at_ms": 0,
+                }]
+            })
+            .to_string(),
+        )
+        .expect("the registry is written");
+
+        let server = super::DeviceServer::new(&config, terminal::Limits::default());
+
+        let listed = server.plugins.list().await;
+        assert_eq!(listed.len(), 1, "the host read config.data/plugins.json");
+        assert_eq!(listed[0].namespace, "hello");
+        assert_eq!(
+            listed[0].state,
+            crate::plugins::host::PluginState::Stopped,
+            "loading the registry starts nothing; start_all is the boot decision"
+        );
+        assert!(server.plugins.tools().is_empty());
+        assert!(super::registry::tool("plugins.list").is_some());
+    }
 }

@@ -83,6 +83,9 @@ tokio = { version = "1", features = [
     # stated here because this crate now names it directly).
     "process",
     "sync",
+    # Ctrl+C is the one stop the device can make orderly itself; `serve` waits for it so the run loop
+    # can stop the plugin children before the process exits.
+    "signal",
 ] }
 
 # Unix only. portable-pty starts the child with `setsid()`, so the shell is a session and process

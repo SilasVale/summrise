@@ -1009,7 +1009,22 @@ async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
             None
         }
     };
-    http::serve(config, store, console, mesh, helper).await?;
+    // One plugin host for the process: created before the router (the router's MCP service takes it),
+    // started before the listener accepts a call, and stopped after `serve` returns so the graceful
+    // Ctrl+C path kills the children rather than leaving them behind a dead device.
+    let plugin_host = std::sync::Arc::new(plugins::host::PluginHost::load(&config.data));
+    plugin_host.start_all().await;
+    let serving = http::serve(
+        config,
+        store,
+        console,
+        mesh,
+        helper,
+        std::sync::Arc::clone(&plugin_host),
+    )
+    .await;
+    plugin_host.stop_all().await;
+    serving?;
     Ok(())
 }
 
