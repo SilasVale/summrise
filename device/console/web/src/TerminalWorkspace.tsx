@@ -42,11 +42,11 @@ type Instance = {
  * Why a tab stopped working, in the words that tell the three cases apart.
  *
  * `closed` is the session being gone: the device no longer has it, or its reader saw it end.
- * `unreachable` is the device not answering; `grant` is permission being refused (the one that
- * names the grant). `read` and `write` are a single call failing while the device still lists the
+ * `unreachable` is the device not answering; `refused` is the console or the device refusing this
+ * console session. `read` and `write` are a single call failing while the device still lists the
  * session, and they say which half failed.
  */
-type FaultKind = "closed" | "unreachable" | "grant" | "read" | "write";
+type FaultKind = "closed" | "unreachable" | "refused" | "read" | "write";
 
 type Fault = {
   kind: FaultKind;
@@ -57,7 +57,7 @@ type Fault = {
 const FAULT_LABELS: Record<FaultKind, string> = {
   closed: "closed",
   unreachable: "offline",
-  grant: "grant",
+  refused: "refused",
   read: "read failed",
   write: "not sent"
 };
@@ -178,34 +178,34 @@ function safeSession(session: string): string {
 }
 
 /**
- * The sentence a grant refusal deserves, or `null` when the failure was not one.
+ * The sentence a refused call deserves, or `null` when the failure was not a refusal.
  *
- * Two surfaces refuse a call for grant reasons and they answer differently: the console checks the
- * signature and the expiry before the frame leaves (HTTP 403 with a code), and the device checks the
- * same grant again (a JSON-RPC error, code -32001 or -32002). Both are named here so a page never has
- * to match English to know which of the three failures it is.
+ * The console checks the operator's session before the frame leaves (HTTP 403 with a code), and the
+ * device checks the same session again (a JSON-RPC error, code -32001 or -32002). Both are named here
+ * so a page never has to match English to know which of the three failures it is. **THE OPERATOR
+ * SIGNS NO GRANT FOR A WORKSPACE PAGE**: the remedy is a fresh console session, never a form.
  */
-function grantRefusal(cause: unknown): string | null {
+function sessionRefusal(cause: unknown): string | null {
   if (!(cause instanceof ToolError)) return null;
   if (cause.status === 403) {
     switch (cause.message) {
       case "grant_expired":
-        return "Your grant expired: the console refused the call before it reached the device. Sign a new grant to resume.";
+        return "The console session expired before the call reached the device. Reload and sign in again.";
       case "invalid_grant_signature":
-        return "Your grant's signature was refused. Sign a new grant to resume.";
+        return "The console refused this session's signature. Reload and sign in again.";
       case "grant_device_mismatch":
-        return "Your grant was signed for another device. Sign a new grant for this one.";
+        return "This session is for another device. Pick the device again.";
       case "tool not permitted by grant":
-        return "Your grant does not cover this tool. Sign a grant that includes it.";
+        return "This console session does not cover this tool.";
       default:
-        return `Your grant refused the call: ${cause.message}. Sign a new grant to resume.`;
+        return `The console refused this call: ${cause.message}. Reload and sign in again.`;
     }
   }
   if (cause.code === -32001) {
-    return `Your grant refused the call: ${cause.message}. Sign a new grant to resume.`;
+    return `The device refused this call: ${cause.message}.`;
   }
   if (cause.code === -32002) {
-    return `Your grant did not consent to this call: ${cause.message}. Sign a grant that does.`;
+    return `This session does not consent to destructive calls: ${cause.message}. Nothing ran.`;
   }
   return null;
 }
@@ -347,7 +347,7 @@ export function TerminalWorkspace({
   // declared before the poll effect so the immediate poll after a renewal already sees them cleared.
   useEffect(() => {
     for (const [key, fault] of [...faultRef.current]) {
-      if (fault.kind === "grant") {
+      if (fault.kind === "refused") {
         clearFault(key);
         probing.current.delete(key);
       }
@@ -390,9 +390,9 @@ export function TerminalWorkspace({
   const diagnose = useCallback(
     async (tab: Tab, source: "read" | "write", cause: unknown) => {
       const note = source === "write" ? " Your keystrokes were not sent." : "";
-      const refused = grantRefusal(cause);
+      const refused = sessionRefusal(cause);
       if (refused) {
-        setFault(tab.key, { kind: "grant", sentence: refused + note });
+        setFault(tab.key, { kind: "refused", sentence: refused + note });
         grantRefusedRef.current?.();
         return;
       }
@@ -431,9 +431,9 @@ export function TerminalWorkspace({
               }
         );
       } catch (probeCause) {
-        const probeRefused = grantRefusal(probeCause);
+        const probeRefused = sessionRefusal(probeCause);
         if (probeRefused) {
-          setFault(tab.key, { kind: "grant", sentence: probeRefused + note });
+          setFault(tab.key, { kind: "refused", sentence: probeRefused + note });
           grantRefusedRef.current?.();
         } else {
           setFault(tab.key, { kind: "unreachable", sentence: unreachableSentence(probeCause) + note });
@@ -456,13 +456,13 @@ export function TerminalWorkspace({
   const fail = useCallback(
     (tab: Tab, source: "read" | "write", cause: unknown) => {
       const current = faultRef.current.get(tab.key);
-      if (current && (current.kind === "closed" || current.kind === "grant")) return;
+      if (current && (current.kind === "closed" || current.kind === "refused")) return;
       // A grant refusal answers the question by itself, whatever the tab's previous fault was: the
       // permission is the reason, not the link the earlier sentence described.
-      const refused = grantRefusal(cause);
+      const refused = sessionRefusal(cause);
       if (refused) {
         const note = source === "write" ? " Your keystrokes were not sent." : "";
-        setFault(tab.key, { kind: "grant", sentence: refused + note });
+        setFault(tab.key, { kind: "refused", sentence: refused + note });
         grantRefusedRef.current?.();
         return;
       }
@@ -509,7 +509,7 @@ export function TerminalWorkspace({
   const write = useCallback(
     (tab: Tab, data: string) => {
       const current = faultRef.current.get(tab.key);
-      if (current && (current.kind === "closed" || current.kind === "grant")) return;
+      if (current && (current.kind === "closed" || current.kind === "refused")) return;
       let batch = batches.current.get(tab.key);
       if (!batch) {
         batch = createTerminalWriteBatcher(
@@ -531,7 +531,7 @@ export function TerminalWorkspace({
       const instance = instanceAt(tab.key);
       if (!instance) return;
       const current = faultRef.current.get(tab.key);
-      if (current && (current.kind === "closed" || current.kind === "grant")) return;
+      if (current && (current.kind === "closed" || current.kind === "refused")) return;
       try {
         const read = await readOnce(tab);
         if (read.data) instance.term.write(read.data);
@@ -1088,11 +1088,11 @@ export function TerminalWorkspace({
           <p>{activeFault.sentence}</p>
           <div className="terminal-fault-actions">
             <span className="hint">
-              {activeFault.kind === "closed" || activeFault.kind === "grant"
+              {activeFault.kind === "closed" || activeFault.kind === "refused"
                 ? "No keystrokes are sent from this tab while it is in this state."
                 : `Tab ${activeTab.title}`}
             </span>
-            {activeFault.kind !== "closed" && activeFault.kind !== "grant" && (
+            {activeFault.kind !== "closed" && activeFault.kind !== "refused" && (
               <button type="button" className="mini" onClick={() => retry(activeTab)}>
                 Try again
               </button>

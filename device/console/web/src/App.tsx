@@ -51,15 +51,16 @@ export function App() {
   const [notice, setNotice] = useState<string | null>(null);
   const [code, setCode] = useState<{ code: string; expires_at_ms: number } | null>(null);
   const [grant, setGrant] = useState<Grant | null>(null);
-  /** True when the grant in force was refused, so the form is offered again above the live tabs. */
+  /** True when the console refused a call on the session in force, so the recovery panel is offered above the live tabs. */
   const [grantStale, setGrantStale] = useState(false);
   const [consoleVersion, setConsoleVersion] = useState<string | null>(null);
   const [accessNote, setAccessNote] = useState<string | null>(null);
 
   // The operator's session is the credential. Selecting a machine starts a session-scoped grant
-  // (no envelope); `/mcp` treats an absent grant as full operator authority on that device, so the
-  // terminal opens without a consent form. The legacy signed-grant path stays on the server for
-  // existing clients, but the page no longer asks the operator to mint one.
+  // (no envelope); `/mcp` treats an absent grant as full operator authority on that device, so every
+  // workspace page opens without a consent form. The legacy signed-grant path stays on the server for
+  // existing clients; the page mints a grant only for an AI client, in ConnectCard, where the consent
+  // is the point.
   useEffect(() => {
     if (selected === null) {
       setGrant(null);
@@ -427,13 +428,10 @@ export function App() {
           {page === "files" && (
             <DevicePage
               title="Files"
-              pickHint="The files live on the device, so pick one. The console signs a grant for the file tools, and the device checks that grant on every list, read, write and mkdir."
-              grantHint="A grant is signed by the console, names the tools and expires. The device checks it on every call. Everything is selected by default: press the button and the files appear."
+              pickHint="The files live on the device, so pick one. Your console session reaches it; the device checks that session on every list, read, write and mkdir."
               devices={devices}
               chosen={chosen}
-              grant={grant}
               onChoose={setSelected}
-              onGrant={(deviceId, envelope) => setGrant({ deviceId, envelope })}
             >
               {(active) => <FilesPage grant={active} />}
             </DevicePage>
@@ -445,8 +443,8 @@ export function App() {
                 <h2>Terminal</h2>
               </div>
               <p className="hint">
-                A terminal runs on a device, so pick one. The console signs a grant for the tools it
-                needs, and the device checks that grant on every call.
+                A terminal runs on a device, so pick one. Your console session reaches it; the device
+                checks that session on every call.
               </p>
               <DevicePicker devices={devices} onChoose={setSelected} />
             </section>
@@ -454,11 +452,11 @@ export function App() {
           {page === "terminal" && chosen && grantStale && (
             <section className="panel empty">
               <div className="panel-head">
-                <h2>The device refused the console session</h2>
+                <h2>The console refused this session</h2>
               </div>
               <p className="hint">
-                The console or the device no longer accepts this session. Reconnect to start a fresh
-                one; the open tabs keep their place.
+                The console no longer accepts this session's calls. Reconnect to start a fresh one; the
+                open tabs keep their place.
               </p>
               <button
                 type="button"
@@ -490,13 +488,10 @@ export function App() {
           {page === "screen" && (
             <DevicePage
               title="Screen"
-              pickHint="The screen belongs to the device's user session, so pick the device whose screen you want to see. The console signs a grant for the capture tool, and the device checks that grant on every call."
-              grantHint="A grant is signed by the console, names the tools and expires. The device checks it on every call. Everything is selected by default: press the button and the screen can be captured."
+              pickHint="The screen belongs to the device's user session, so pick the device whose screen you want to see. Your console session reaches it; the device checks it on every capture."
               devices={devices}
               chosen={chosen}
-              grant={grant}
               onChoose={setSelected}
-              onGrant={(deviceId, envelope) => setGrant({ deviceId, envelope })}
             >
               {(active) => <ScreenPage grant={active} />}
             </DevicePage>
@@ -505,13 +500,10 @@ export function App() {
           {page === "runs" && (
             <DevicePage
               title="Runs"
-              pickHint="A run happens on the device, so pick one. runs.exec is destructive and audited: the console signs a grant for it, and the device checks that grant on every call."
-              grantHint="A grant is signed by the console, names the tools and expires. The device checks it on every call. Everything is selected by default: press the button and the run form appears."
+              pickHint="A run happens on the device, so pick one. Your console session reaches it; the device checks it on every call, and runs.exec is destructive and audited."
               devices={devices}
               chosen={chosen}
-              grant={grant}
               onChoose={setSelected}
-              onGrant={(deviceId, envelope) => setGrant({ deviceId, envelope })}
             >
               {(active) => <RunsPage grant={active} />}
             </DevicePage>
@@ -520,13 +512,10 @@ export function App() {
           {page === "system" && (
             <DevicePage
               title="Machine"
-              pickHint="Processes and reachability live on the device, so pick one. The console signs a grant for the system tools, and the device checks that grant on every read, every kill and every network test."
-              grantHint="A grant is signed by the console, names the tools and expires. The device checks it on every call. Everything is selected by default: press the button and the process list appears."
+              pickHint="Processes and reachability live on the device, so pick one. Your console session reaches it; the device checks it on every read, every kill and every network test."
               devices={devices}
               chosen={chosen}
-              grant={grant}
               onChoose={setSelected}
-              onGrant={(deviceId, envelope) => setGrant({ deviceId, envelope })}
             >
               {(active) => <SystemPage grant={active} />}
             </DevicePage>

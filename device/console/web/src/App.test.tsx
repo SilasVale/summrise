@@ -259,7 +259,7 @@ describe("App", () => {
     expect(screen.getByRole("heading", { name: "Screen" })).toBeInTheDocument();
     expect(
       screen.getByText(
-        "The screen belongs to the device's user session, so pick the device whose screen you want to see. The console signs a grant for the capture tool, and the device checks that grant on every call."
+        "The screen belongs to the device's user session, so pick the device whose screen you want to see. Your console session reaches it; the device checks it on every capture."
       )
     ).toBeInTheDocument();
     expect(screen.queryByText("No audit lines yet.")).not.toBeInTheDocument();
