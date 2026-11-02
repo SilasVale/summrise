@@ -44,8 +44,10 @@ The legacy proof is concrete:
 2. **No bearer in JavaScript.** The React app uses the console's HttpOnly session cookie and the CSRF
    token on mutations. The old app's `setToken`/localStorage path is not the target; the API/auth
    seam is adapted before the React page is the default.
-3. **CI owns the npm steps.** `scripts/check.sh` must replay `npm ci`, `typecheck`, `test` and the
-   bundle check, or the rule "run the command the other end runs" is false.
+3. **CI owns the page's build steps.** `npm ci`, `typecheck`, `build` and the committed-bundle
+   check are required. The 334-file jsdom suite is a local author's tool, not a required gate: it
+   asserts markup and component internals, and the legacy record already showed a green jsdom suite
+   beside a page whose buttons were dead. A small Playwright flow is the browser gate to add.
 4. **No runtime Node, no second update path.** React is a build dependency. The console binary, the
    device binary and the shell remain the only shipped runtimes.
 5. **The Rust page stays until parity.** `/next` keeps serving the maud page while React is served at

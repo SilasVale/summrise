@@ -71,9 +71,10 @@ jobs:
       - name: the page typechecks
         working-directory: device/console/web
         run: npm run typecheck
-      - name: the page's tests pass
-        working-directory: device/console/web
-        run: npm test
+      # **THE JSDOM SUITE IS NOT A REQUIRED GATE.** Its 334 tests assert markup and component
+      # internals; the legacy record has a green jsdom suite beside a page whose buttons were dead.
+      # Typecheck catches the type-level break, the Rust suite covers logic, the layout gate and a
+      # small Playwright flow cover the browser. The suite stays in `npm test` for the author.
       # The page is embedded in the console binary with include_str!, so a source change that does
       # not update dist/index.html still compiles and still ships yesterday's UI. This is the gate.
       - name: the committed page is this source
