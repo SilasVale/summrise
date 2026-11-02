@@ -41,8 +41,8 @@ describe("DeviceCard — the picker's card, not the machine page", () => {
     expect(screen.getByText(/seen 15s ago/)).toBeInTheDocument();
     expect(screen.getByText(/v0\.3\.42/)).toBeInTheDocument();
     expect(screen.getByText(/Windows 11 · up 1d 1h/)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Work on this" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Connect AI client" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Work on workshop" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Connect AI client to workshop" })).toBeInTheDocument();
 
     // The machine's own facts are NOT on the picker any more. They have one home: Machine.
     expect(screen.queryByText("2.0 GiB free of 8.0 GiB")).not.toBeInTheDocument();
@@ -56,9 +56,9 @@ describe("DeviceCard — the picker's card, not the machine page", () => {
     const details = container.querySelector("details.card-details");
     expect(details).not.toBeNull();
     expect(details).not.toHaveAttribute("open");
-    expect(details).toContainElement(screen.getByRole("button", { name: "Copy diagnostics" }));
-    expect(details).toContainElement(screen.getByRole("button", { name: "Rename" }));
-    expect(details).toContainElement(screen.getByRole("button", { name: "Remove" }));
+    expect(details).toContainElement(screen.getByRole("button", { name: "Copy diagnostics for workshop" }));
+    expect(details).toContainElement(screen.getByRole("button", { name: "Rename workshop" }));
+    expect(details).toContainElement(screen.getByRole("button", { name: "Remove workshop" }));
     // The raw id is not furniture on the picker.
     expect(screen.queryByText("dev-1")).not.toBeInTheDocument();
   });

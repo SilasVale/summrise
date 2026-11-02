@@ -171,7 +171,7 @@ async function bootAndSignIn() {
 function selectDevice(name: string) {
   const card = screen.getByText(name).closest("article");
   expect(card).not.toBeNull();
-  fireEvent.click(within(card as HTMLElement).getByRole("button", { name: "Work on this" }));
+  fireEvent.click(within(card as HTMLElement).getByRole("button", { name: /^Work on / }));
 }
 
 describe("App", () => {
