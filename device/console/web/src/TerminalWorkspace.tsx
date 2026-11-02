@@ -15,7 +15,7 @@ import {
   MAX_FONT_SIZE,
   MIN_FONT_SIZE
 } from "./terminalFont";
-import { api, type SavedConnection } from "./api";
+import { api, HttpError, type SavedConnection } from "./api";
 import { downloadFile } from "./download";
 import { message } from "./format";
 import { Modal } from "./Modal";
@@ -757,6 +757,7 @@ export function TerminalWorkspace({
         { key: session, session, kind, title: title ?? nextTabTitle(kind, previous) }
       ]);
       setActive(session);
+      setStatus("");
       return null;
     } catch (cause) {
       const sentence = message(cause);
@@ -803,6 +804,7 @@ export function TerminalWorkspace({
       );
       return;
     }
+    setStatus(`Opening "${saved.name}"…`);
     if (saved.kind === "serial") {
       void openWith({ kind: "serial", port: saved.port_path, baud: saved.baud ?? 115200 }, saved.name);
       return;
@@ -837,8 +839,20 @@ export function TerminalWorkspace({
   };
 
   const forgetPreset = async (saved: SavedConnection) => {
-    await api.removeConnection(grant.deviceId, saved.id).catch(() => {});
-    setPresets((previous) => previous.filter((entry) => entry.id !== saved.id));
+    try {
+      await api.removeConnection(grant.deviceId, saved.id);
+      setPresets((previous) => previous.filter((entry) => entry.id !== saved.id));
+      setStatus(`Forgot "${saved.name}".`);
+    } catch (cause) {
+      // A preset already gone is the state the operator asked for; anything else leaves the row in
+      // place so a second Forget is possible and the page does not claim a remove that did not happen.
+      if (cause instanceof HttpError && cause.status === 404) {
+        setPresets((previous) => previous.filter((entry) => entry.id !== saved.id));
+        setStatus(`"${saved.name}" was already gone.`);
+      } else {
+        setStatus(`Could not forget "${saved.name}": ${message(cause)}`);
+      }
+    }
   };
 
   const closeTools = () => {
@@ -906,9 +920,20 @@ export function TerminalWorkspace({
     // Flush what was typed before the session goes away; a keystroke queued behind the close would
     // otherwise be sent to an id the device already ended.
     await batches.current.get(tab.key)?.flush();
+    try {
+      await callTool(grantRef.current, "terminal.close", { id: tab.session });
+    } catch (cause) {
+      // A session already gone is closed. Any other failure means the device may still be running
+      // it; keep the tab so the sentence, the id and a second Close all stay on screen.
+      if (!(cause instanceof ToolError && cause.status === 404)) {
+        setStatus(
+          `Could not close ${tab.title}: ${message(cause)}. The session may still be open.`
+        );
+        return;
+      }
+    }
     batches.current.get(tab.key)?.cancel();
     batches.current.delete(tab.key);
-    await callTool(grantRef.current, "terminal.close", { id: tab.session }).catch(() => {});
     setTabs((previous) => previous.filter((entry) => entry.key !== tab.key));
     cursors.current.delete(tab.key);
     probing.current.delete(tab.key);
@@ -1092,9 +1117,7 @@ export function TerminalWorkspace({
         </div>
       </div>
 
-      {tabs.length > 0 && status && (
-        <p className={status.startsWith("Could not") ? "error" : "hint"}>{status}</p>
-      )}
+      {status && <p className={status.startsWith("Could not") ? "error" : "hint"}>{status}</p>}
 
       {tabs.length === 0 && (
         <div className="terminal-start">

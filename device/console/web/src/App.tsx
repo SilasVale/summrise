@@ -663,6 +663,7 @@ export function App() {
                 lines={audit}
                 devices={devices}
                 tokens={tokens}
+                selectedDeviceId={selected}
                 onOpenRun={openRun}
               />
             </section>

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState, type FormEvent } from "react"
 import { copyText } from "./copy";
 import { message } from "./format";
 import { useRequestGate } from "./requests";
-import { callTool, type Grant } from "./terminal";
+import { callTool, ToolError, type Grant } from "./terminal";
 
 /**
  * `runs.exec`'s answer: the run's outcome and the retained head of each stream.
@@ -598,6 +598,12 @@ function runFailure(cause: unknown): string {
     return (
       "The console stopped waiting for the device: the command may still be running there, and its " +
       "history row may appear when it finishes. Refresh the history to look for it."
+    );
+  }
+  if (cause instanceof ToolError && cause.status === 502) {
+    return (
+      "The device disconnected before the console heard the result: the command may have run. " +
+      "Check the history before running it again."
     );
   }
   return "Could not run the command: " + sentence;

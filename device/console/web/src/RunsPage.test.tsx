@@ -331,3 +331,25 @@ describe("RunsPage", () => {
     await waitFor(() => expect(called("runs.list")).toHaveLength(3));
   });
 });
+
+describe("RunsPage recovery", () => {
+  it("warns that a disconnected run may have executed", async () => {
+    mocked.mockImplementation(async (_grant, name) => {
+      if (name === "runs.list") return JSON.stringify([]);
+      if (name === "runs.exec") throw new ToolError("device disconnected", 502);
+      throw new Error(`the test did not expect a ${name} call`);
+    });
+
+    render(<RunsPage grant={GRANT} />);
+    await screen.findByText(EMPTY_NOTE);
+    fireEvent.change(screen.getByLabelText("Command"), { target: { value: "echo once" } });
+    fireEvent.click(screen.getByRole("button", { name: "Run" }));
+
+    expect(
+      await screen.findByText(
+        "The device disconnected before the console heard the result: the command may have run. " +
+          "Check the history before running it again."
+      )
+    ).toBeInTheDocument();
+  });
+});

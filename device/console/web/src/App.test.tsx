@@ -283,6 +283,31 @@ describe("App", () => {
     expect(screen.getByText("signed in with the operator token")).toBeInTheDocument();
   });
 
+  it("scopes Activity to the chosen machine", async () => {
+    mocks.audit.mockResolvedValue([
+      {
+        ts_ms: Date.now(),
+        kind: "tool",
+        device_id: "dev-workshop",
+        token_id: null,
+        tool: "terminal.create",
+        detail: null,
+        status: 200
+      }
+    ]);
+    await bootAndSignIn();
+    selectDevice("workshop");
+    fireEvent.click(screen.getByRole("button", { name: "Activity" }));
+
+    const machine = await screen.findByRole("button", { name: "This machine" });
+    expect(machine).toBeEnabled();
+    expect(machine).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "All machines" })).toHaveAttribute(
+      "aria-pressed",
+      "false"
+    );
+  });
+
   it("navigates the rail to Activity and to the Screen picker", async () => {
     await bootAndSignIn();
 
