@@ -78,6 +78,11 @@ tokio = { version = "1", features = [
     "time",
     # The audit log is appended with `tokio::fs`, so a call never blocks the reactor on a write.
     "fs",
+    # The plugin host spawns and supervises child MCP servers with `tokio::process`; its supervisor
+    # and the session's waiter map use `tokio::sync` (already in the tree through the HTTP stack, and
+    # stated here because this crate now names it directly).
+    "process",
+    "sync",
 ] }
 
 # Unix only. portable-pty starts the child with `setsid()`, so the shell is a session and process

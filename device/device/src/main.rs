@@ -29,6 +29,7 @@ mod lock;
 mod mcp;
 mod mesh;
 mod panel;
+mod plugins;
 mod remote;
 mod restart;
 mod restarts;
