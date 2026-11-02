@@ -82,8 +82,8 @@ cd ../../..
 scripts/build-web.sh --check     # fail when the committed dist is stale
 ```
 
-CI's `console-web` job runs the same build and the freshness check. The jsdom suite is a local tool,
-not a required gate; the Rust suite covers logic and the token contract.
+CI's `console-web` job runs the typecheck, the freshness check and the browser gate. The jsdom suite
+is a local tool, not a required gate; the Rust suite covers logic and the token contract.
 
 The public page is plain static assets, checked without dependencies:
 

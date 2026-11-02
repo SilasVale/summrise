@@ -3,7 +3,7 @@
 > **Installing a plugin runs its code with this machine's privileges. There is no sandbox, no
 > signature and no registry in v1. Install only code you trust.**
 
-A plugin is an **MCP server**: a program the hub starts as a child process and speaks MCP to over
+A plugin is an **MCP server**: a program the hub starts as a child process and talks MCP to over
 stdio. Its tools are advertised behind the device's one endpoint as `<namespace>.<tool>`, under the
 same token and in the same Activity record as the built-ins. A plugin is for the capability the
 built-ins do not have; it is not a second product, a second authorization model or a hosted service.

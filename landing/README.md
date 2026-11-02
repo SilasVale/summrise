@@ -61,7 +61,9 @@ element carries `data-i18n="key"`, and the gate refuses a key on only one side:
 2. add `"section.thing": "……"` to `lang-zh.js`.
 
 HTML is allowed in both: the switch swaps `innerHTML`, so `<br>`, `<em>` and the brand's
-`<span class="sun">` survive translation.
+`<span class="sun">` survive translation. The document title and meta description are the two
+strings the switch cannot reach through the markup; they live in `lang-zh.js` as `meta.title` and
+`meta.description` and `site.js` applies them.
 
 ## Nothing is a hardcoded number that can be fetched
 
