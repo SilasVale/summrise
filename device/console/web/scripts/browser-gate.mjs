@@ -265,7 +265,7 @@ try {
   step('signed in through /auth; /session then answered authenticated');
   await page.screenshot({ path: path.join(OUT, '02-devices.png') });
 
-  await page.getByRole('button', { name: 'Work on this' }).click();
+  await page.getByRole('button', { name: /^Work on / }).click();
   await page.getByRole('heading', { name: 'Terminal' }).waitFor({ timeout: 10_000 });
   step('selected gate-workshop; Terminal opened with a session-scoped grant');
 
