@@ -604,7 +604,7 @@ destructive flags (`add`, `remove`, `restart` destructive; `list`, `inspect`, `l
 | `plugins.list` | `{}` | `[{id,namespace,name,version,description,state,tools,path,last_error}]` | no |
 | `plugins.inspect` | `{path}` | `{id,namespace,name,version,description}` (manifest fields; nothing is started) | no |
 | `plugins.add` | `{path}` | `{plugin, tools}` | yes |
-| `plugins.remove` | `{namespace}` | `{removed, stopped}` | yes |
+| `plugins.remove` | `{namespace}` | `{plugin}` (its state is `stopped`) | yes |
 | `plugins.restart` | `{namespace}` | `{plugin}` | yes |
 | `plugins.logs` | `{namespace, lines?}` | `{namespace, lines: [string]}` | no |
 
