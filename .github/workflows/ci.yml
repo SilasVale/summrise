@@ -107,12 +107,13 @@ jobs:
       # side of that trade.
       - name: build the binaries the lifecycle test drives
         run: cargo build --manifest-path device/Cargo.toml --workspace
-      # THE SUITE IS SPLIT SO A HANG NAMES ITS BINARY. A test process that never exits used to
-      # hold the whole job for its 45-minute ceiling with no way to tell which suite it was; two
-      # steps and a per-step timeout turn that into a red step with the suite in its name.
-      - name: the device workspace (unit tests, everything but the launcher)
+      # **THE PORTABLE HALF RUNS ONCE.** The Linux `device` job already runs core, console, mesh and
+      # release; repeating them here was a second copy of the same tests on a slower runner. Windows
+      # runs the crates whose behaviour is OS-specific (ConPTY/serial, ACLs, sessions/tray) and the
+      # lifecycle below, which is the only proof of the service, installer and update swap.
+      - name: the Windows-specific crates
         timeout-minutes: 20
-        run: cargo test --manifest-path device/Cargo.toml --workspace --exclude summrise-launch
+        run: cargo test --manifest-path device/Cargo.toml -p summrise-device -p summrise-winsec -p summrise-winsys -p summrise-shell
       # **THE LAUNCHER'S UNIT TESTS RUN UNKEYED, AT THE END.** They sign their fixtures with a
       # fixed seed and verify against the key this build embedded; in a keyed build the fixture
       # signature cannot match that key, so they belong to the placeholder build beside the
