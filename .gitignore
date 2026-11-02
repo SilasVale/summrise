@@ -3,3 +3,6 @@
 node_modules/
 device/installer/*.exe
 .superpowers/
+
+# Wrangler leaves its local cache beside the landing config; it is not the site.
+landing/.wrangler/
