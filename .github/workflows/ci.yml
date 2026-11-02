@@ -54,6 +54,31 @@ jobs:
           cargo test --quiet --manifest-path device/Cargo.toml -p summrise-device --bin summrise-device -- --ignored render_panel_for_review
           node scripts/layout-gate.mjs "$SUMMRISE_PANEL_DIR" 390 1280
 
+  console-web:
+    name: console web (the React page)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: device/console/web/package-lock.json
+      - name: install the page's build dependencies
+        working-directory: device/console/web
+        run: npm ci
+      - name: the page typechecks
+        working-directory: device/console/web
+        run: npm run typecheck
+      - name: the page's tests pass
+        working-directory: device/console/web
+        run: npm test
+      # The page is embedded in the console binary with include_str!, so a source change that does
+      # not update dist/index.html still compiles and still ships yesterday's UI. This is the gate.
+      - name: the committed page is this source
+        run: ./scripts/build-web.sh --check
+
   device-windows:
     name: device (the Windows lifecycle)
     runs-on: windows-latest

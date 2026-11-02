@@ -50,6 +50,15 @@ const MAX_LOG_LIMIT: usize = 1000;
 /// How long the console tells an operator's client to wait before retrying a reconnecting device.
 const RETRY_AFTER_MS: u64 = 1_000;
 
+/// The React console page, embedded as one self-contained file.
+///
+/// **A SECOND PAGE DURING THE MIGRATION, NOT A SECOND PRODUCT.** The maud page at `/next` stays the
+/// operator surface while the React app reaches parity; `/app` is where it is proved against the
+/// real console, its real cookies and its real API. The build is committed and gated, so a stale
+/// page cannot compile and ship. When the React page covers every surface, `/` moves to it and this
+/// constant is the only place the old page was referenced.
+const REACT_PAGE: &str = include_str!("../web/dist/index.html");
+
 /// How long a held destructive call waits for the operator, and it is deliberately shorter than it
 /// looks: the console is served through Cloudflare Access, whose origin bound cuts a request at
 /// about 100 s. A ten-minute hold would have the edge drop the client while the console still
@@ -356,6 +365,7 @@ impl Console {
                 }),
             )
             .route("/health", get(health))
+            .route("/app", get(react_page))
             .route("/auth", post(authenticate))
             .route("/next", get(next_page))
             .route("/next/auth", post(next_login))
@@ -1064,6 +1074,12 @@ async fn access_sign_in(
 
 /// `GET /health`: unauthenticated, and deliberately so — a supervisor and a human need one route
 /// that answers before any credential has been presented. It reads only counts, never a secret.
+/// `GET /app`: the React console page, one embedded file. It carries no data of its own; the page
+/// authenticates with the console's own session and calls the JSON routes that already exist.
+async fn react_page() -> Html<&'static str> {
+    Html(REACT_PAGE)
+}
+
 async fn health(State(app): State<AppState>) -> Json<Health> {
     let devices = lock(&app.devices);
     let online = devices
