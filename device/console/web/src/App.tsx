@@ -16,7 +16,7 @@ import { DeviceCard } from "./DeviceCard";
 import { retrySentence } from "./logic";
 import { recordVitals, type VitalsSample } from "./vitals";
 import { AUDIT_WINDOW, AuditTable } from "./AuditTable";
-import { Rail, type Page } from "./Rail";
+import { PAGE_LABELS, Rail, type Page } from "./Rail";
 import { Modal } from "./Modal";
 import { ConnectCard } from "./ConnectCard";
 import { FleetTokens } from "./FleetTokens";
@@ -253,6 +253,14 @@ export function App() {
     const wanted = surfaceHash(page);
     if (window.location.hash !== wanted) window.history.replaceState(null, "", wanted);
   }, [page]);
+
+  // The tab is part of the surface: a window full of consoles should say which one this is, and
+  // the signed-out tab should not claim a machine page it is not showing.
+  useEffect(() => {
+    document.title = session?.authenticated
+      ? `${PAGE_LABELS[page]} · Summrise console`
+      : "Sign in · Summrise console";
+  }, [page, session?.authenticated]);
 
   const signIn = async () => {
     setBusy(true);
