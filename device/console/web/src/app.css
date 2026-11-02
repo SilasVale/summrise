@@ -16,6 +16,24 @@ p { margin: var(--sp-1-5) 0; }
 .ok { color: var(--ok); }
 .hint { color: var(--ink-muted); font-size: var(--fs-sm); }
 
+/* The first tab stop is the page, not seven rail buttons. The link is invisible until focused. */
+.skip-link {
+  position: fixed;
+  left: var(--sp-3);
+  top: var(--sp-3);
+  z-index: 30;
+  padding: var(--sp-1-5) var(--sp-3);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm2);
+  background: var(--surface);
+  color: var(--ink);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+  text-decoration: none;
+  transform: translateY(-200%);
+}
+.skip-link:focus { transform: translateY(0); outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+
 .topbar {
   position: sticky; top: 0; z-index: 10;
   min-height: 56px;
