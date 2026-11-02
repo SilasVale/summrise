@@ -333,7 +333,7 @@ sentence that says so. The check must not change the token's stored shape.
   items. The account menu at the foot holds version, docs, sign out. No status strip.
 - The header is one control — `[● workshop · Running · v0.3.246 ▾]` — whose menu lists All machines,
   each machine, and Add a machine. No second `.machine-head` row and no `<select>` beside it.
-- One `h1` per page: the destination name. The machine's name is part of the header control, not an h1.
+- One `h1` per page: **Machines** for Home's fleet zero state, **Home** for the hub state, then the destination name. The machine's name is part of the header control, not an h1.
 - One accent fill per screen. On the fleet, the whole row opens the machine and `Add a machine` is
   the only accent; the row's overflow holds Rename / Remove / Copy diagnostics.
 - Keep the existing sign-in screen and the error banner behavior.

@@ -288,7 +288,7 @@ screen, without repeating the shell.
   list, so these counts may be stale." + Retry). Version drift lives on Machine; a failed plugin lives
   on Plugins.
 - **Zero state (no machine selected):** the fleet, one row per machine (name, status, build, last
-  seen). The whole row opens the machine; the row's overflow holds Rename, Remove and Copy diagnostics.
+  seen). The page's `h1` is **Machines**; the hub state's is **Home**. The whole row opens the machine; the row's overflow holds Rename, Remove and Copy diagnostics.
   One accent only: **Add a machine**, in the page head (the empty state uses the same action, not a
   second primary). "Reconnected after 2 attempts" is the most a row says about the past; the full
   failure sentence is not the card's job.
