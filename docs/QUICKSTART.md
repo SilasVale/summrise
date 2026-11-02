@@ -1,8 +1,9 @@
-# Quick start: an installed device to an AI client
+# Quick start: an installed device to a first call
 
-Five minutes from an installed device to an AI client holding a permanent token. The long forms are
-[`CONNECT-MCP.md`](CONNECT-MCP.md) (the endpoint, grants and Access) and
-[`RELEASE.md`](RELEASE.md) (how a console is deployed and what each public path answers).
+The short path: install, enrol, open the console, connect a client, make a call, add a plugin. The
+long forms are [`CONNECT-MCP.md`](CONNECT-MCP.md) (the endpoint, tokens and grants) and
+[`PLUGINS.md`](PLUGINS.md) (the plugin contract). The product statement is
+[`PRODUCT.md`](PRODUCT.md).
 
 ## 1. Install
 
@@ -17,14 +18,15 @@ SummriseSetup-<version>.exe /S /D=C:\SummriseInstall
 It is loopback only and has no login — if you can read it, you are on the box. The service is up when
 `curl http://127.0.0.1:18080/api/health` answers.
 
-## 2. Enroll the machine
+## 2. Enrol the machine
 
-In the console: the Devices page's **New enrollment code**. The code is single-use and expires in
-minutes. Spend it either way:
+In the console, **Home → Add a machine**. It mints a one-time code (15 minutes) and prints the
+command that spends it. Either path spends the code once:
 
 - **At the machine:** in the panel, open **Console link → Enrol this machine**, paste the console URL
   and the code, and press **Enroll**. Tick **Replace an existing enrollment** only to rotate this
-  machine's token.
+  machine's token. A panel enrollment on a supervised install asks the launcher to restart the app;
+  the page says so.
 - **From an elevated command line:**
 
   ```bat
@@ -32,127 +34,159 @@ minutes. Spend it either way:
   ```
 
   Add `--force` to replace an existing registration, and `--allow-plaintext` only for a console on a
-  trusted plaintext tunnel.
+  trusted plaintext tunnel. After a command-line enrollment, restart the service yourself:
 
-Either path spends the code once and writes the console link and channel token under the data
-directory. The app builds its console link at boot. A **panel** enrollment on a supervised install
-asks the launcher to restart the app automatically (the page says so); after a **command-line**
-enrollment, restart the service yourself, and the card turns **online**:
+  ```bat
+  sc stop SummriseLaunch
+  sc start SummriseLaunch
+  ```
 
-```bat
-sc stop SummriseLaunch
-sc start SummriseLaunch
-```
+The app builds its console link at boot. The machine appears in Home's fleet, online, when the
+channel is up.
 
-## 3. Create a permanent token
+## 3. Open the console
 
-In the console, open the device's **Connect AI client** dialog (Devices → the card's **Connect AI
-client**). Name the token, decide whether destructive tools are allowed (unticked means
-a destructive call is refused immediately, and the refusal says how to allow it), and press
-**Create token**.
+Sign in with the operator token (the page keeps its bearer in memory; a reload asks for it again).
+Home is the fleet until a machine is chosen: one row per machine, its build and when it was last
+seen. Choose the machine; Home becomes the hub.
 
-The value is `srm_` plus 64 lowercase hex characters, shown once and stored only as a hash: neither the
-list nor the audit can produce it again, so keep it in a secret, not a repository or a screenshot. It
-is permanent by default; the card's **Expires** select gives it 30, 90 or 365 days instead (the API's
-`expires_in_s` takes anything from one hour to 365 days), and revocation is the only withdrawal for a
-permanent token ([the scope rules](CONNECT-MCP.md#scope-and-revocation)).
+The hub screen states the three facts in order: **Running** (or **Offline**) with the build, the
+endpoint, and the tool counts. The two actions are **Connect a client** (accent) and **Add a
+capability** (quiet, to Plugins). Recent calls are the last three rows; **All activity** is the full
+record.
 
-To reach several devices with one client, open **Devices → Fleet tokens**, name the token, tick the
-machines it should reach, and point the client at `https://<console>/mcp/all`; every tool takes a
-`device` argument. The per-device card still creates one-device tokens.
+## 4. Connect a client
 
-## 4. Point the client at the endpoint
+**Connect a client** opens the sheet with three sections: **Endpoint**, **Clients**, **Tokens**.
 
-The endpoint is the console's MCP route for that device; the device id is on its card (64 lowercase
-hex characters):
+1. **Endpoint** gives this machine's MCP URL, with Copy:
 
-```http
-POST https://console.saisi.online/mcp/<device-id>
-Authorization: Bearer srm_<64 lowercase hex characters>
-```
+   ```http
+   POST https://console.saisi.online/mcp/<device-id>
+   Authorization: Bearer srm_<64 lowercase hex characters>
+   ```
 
-Any streamable-HTTP MCP client takes those two facts; the transport sends `Content-Type: application/json`
-and `Accept: application/json, text/event-stream` ([the wire form](CONNECT-MCP.md#the-endpoint)).
+   The path is the device id (64 lowercase hex characters); the console knows it, and the endpoint
+   shown in the sheet is the one to copy.
 
-For DeepSeek Harness, a fixed configuration with the token written literally — keep the file out of the
-repository, or have the deployment inject the value from a secret:
+2. **Tokens → Create token.** Name it, choose the tools it names, and decide whether destructive
+   tools are allowed (unticked means a destructive call is refused immediately, and the refusal names
+   the consent it needs). The value is `srm_` plus 64 lowercase hex characters, shown once and stored
+   only as a hash: neither the list nor the audit can produce it again. It is permanent by default;
+   the **Expires** select gives it 30, 90 or 365 days instead.
 
-```yaml
-- id: mcp-summrise-device
-  name: '@deepseek-ai/dsh-mcp-client'
-  config:
-    serverName: summrise-device
-    transport: streamable-http
-    url: https://console.saisi.online/mcp/<device-id>
-    headers:
-      Authorization: Bearer srm_<64 lowercase hex characters>
-```
+3. **Clients** offers DSH / Claude / Codex / Cursor configurations with `<token>` as the placeholder.
+   Copy the endpoint and the token into the client you use. A fixed DeepSeek Harness block is in
+   [`CONNECT-MCP.md#a-fixed-deepseek-harness-configuration`](CONNECT-MCP.md#a-fixed-deepseek-harness-configuration).
 
-The same endpoint accepts a grant for a session instead of a token. The page mints tokens; a grant
-is one API call with the operator session (`POST /auth` with `{"token":"<the operator token>"}`
-returns it):
+A grant is the short-lived alternative to a token: one device, named tools, an expiry. The sheet does
+not mint grants; [`CONNECT-MCP.md#mint-a-grant`](CONNECT-MCP.md#mint-a-grant) does.
 
-```bash
-curl -sS -X POST https://<console>/grants \
-  -H "Authorization: Bearer <session>" -H 'content-type: application/json' \
-  -d '{"device_id":"<device-id>","tools":["files.read"],"expires_in_s":3600}'
-```
+## 5. Make the first call
 
-Its lowercase hex goes in the same header ([details](CONNECT-MCP.md#mint-a-grant)). A grant expires; a
-permanent token does not (one created with an expiry does). Behind Cloudflare
-Access with a service-token policy for `/mcp/*`, add the two `CF-Access-*` headers too
-([details](CONNECT-MCP.md#cloudflare-access)).
-
-## 5. Check it
-
-With the token and the device id in the shell:
+Any streamable-HTTP MCP client takes the endpoint and the bearer. With the token and the endpoint in
+the shell:
 
 ```bash
 TOKEN='srm_<64 lowercase hex characters>'
-curl -sS -X POST "https://console.saisi.online/mcp/<device-id>" \
+ENDPOINT='https://console.saisi.online/mcp/<device-id>'
+
+curl -sS -X POST "$ENDPOINT" \
   -H "authorization: Bearer $TOKEN" \
   -H 'content-type: application/json' \
   -H 'accept: application/json, text/event-stream' \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}'
 ```
 
-`result.tools` is exactly the token's tool set: a tool you did not select is absent, not refused. An
-AI client that lists the tools (under `mcp__summrise-device__<tool>` in DeepSeek Harness) made the same
-call; [`CONNECT-MCP.md#a-quick-check`](CONNECT-MCP.md#a-quick-check) has `initialize` and `tools/call`.
+`result.tools` is the token's tool set, built-ins and plugin tools together: a tool you did not
+select is absent, not refused. Then drive a real shell:
 
-## 6. Revoke
+```bash
+curl -sS -X POST "$ENDPOINT" \
+  -H "authorization: Bearer $TOKEN" \
+  -H 'content-type: application/json' \
+  -H 'accept: application/json, text/event-stream' \
+  -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"terminal.create","arguments":{"kind":"pty"}}}'
+```
 
-In the device's **Connect AI client** dialog (Devices → **Connect AI client**), the token's row has
-**Revoke**.
-The next request with that token is `401`, and the value is never shown again. Create a new token and
-update the client's configuration if the client should keep working.
+The answer carries the session id. Write to it, then read the output:
 
-## 7. Local only: no console
+```bash
+curl -sS -X POST "$ENDPOINT" \
+  -H "authorization: Bearer $TOKEN" \
+  -H 'content-type: application/json' \
+  -H 'accept: application/json, text/event-stream' \
+  -d '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"terminal.write","arguments":{"id":"<session-id>","data":"echo hello\r"}}}'
+```
+
+`terminal.read` with `{"id":"<session-id>","cursor":0}` returns the output. The call is in
+**Activity** with its tool, token, device and result. Open **Device → Terminal** to see the same
+session and take the keyboard back.
+
+You can also skip the client for a first look: **Capabilities** lists every tool the machine
+advertises, and **Try it** runs one from a form generated from its schema.
+
+## 6. Add a plugin
+
+A plugin adds a capability the built-ins do not have. It is an MCP server installed from a directory
+on the device; its tools appear behind the same endpoint, under the same token, in the same record.
+
+1. From the repository root, copy the reference to the Windows machine, for example:
+
+   ```powershell
+   New-Item -ItemType Directory -Force C:\SummrisePlugin | Out-Null
+   Copy-Item -Recurse examples\plugins\hello C:\SummrisePlugin\hello
+   ```
+
+2. In the console, **Plugins → Add plugin**, paste `C:\SummrisePlugin\hello`. The path field calls
+   `plugins.inspect`, which reads the manifest and starts nothing; **Add and run** stays disabled
+   until the path is valid. The trust sentence is above the button:
+
+   > This runs the plugin's code with this machine's privileges. Install only code you trust.
+
+3. The row shows **Running**, its namespace and its tool count. In **Capabilities**, click
+   `hello.greet`, then **Try it** with `{"name":"Ada"}`. It returns `hi, Ada!`, and Activity records
+   `hello.greet`.
+
+**Remove** forgets the plugin and stops its process; it never deletes `C:\SummrisePlugin\hello`. The
+full contract is [`PLUGINS.md`](PLUGINS.md). On the console host,
+`scripts/real-plugin-check.ps1` runs the same path end to end and prints `REAL_PLUGIN_OK`.
+
+## 7. Revoke the token
+
+**Connect a client → Tokens**, then **Revoke** on the row. The next request with that token is `401`,
+and the value is never shown again. Create a new token and update the client's configuration if it
+should keep working. This is the brake: the token names the tools and the destructive consent, and
+revocation is immediate for new calls.
+
+## 8. Local only: no console
 
 A device is usable by the machine it runs on with no console at all. The install token at `<data>/token`
-— `C:\ProgramData\Summrise\token` on a default Windows install — is the local owner credential: reading
-that file (`Get-Content C:\ProgramData\Summrise\token`, as an administrator) is what proves you own the
-box, and a call bearing it is allowed outright, including destructive tools, with no grant and no
-approval prompt. The file is protected to the service account and administrators; treat it as this
-machine's password.
+— `C:\ProgramData\Summrise\token` on a default Windows install — is the local owner credential:
+reading that file (`Get-Content C:\ProgramData\Summrise\token`, as an administrator) is what proves
+you own the box, and a call bearing it is allowed outright, including destructive tools, with no grant
+and no approval prompt. The file is protected to the service account and administrators; treat it as
+this machine's password.
 
-The panel's **Use this machine** section shows the loopback endpoint (`http://127.0.0.1:18080/mcp`), the
-token file's path and read command, and a client configuration with the value left out — the page is
-served to anyone on loopback, so it does not print the secret. Send the 64 characters as the bearer,
-without the file's trailing newline:
+The panel's **Use this machine** section shows the loopback endpoint
+(`http://127.0.0.1:18080/mcp`), the token file's path and read command, and a client configuration with
+the value left out — the page is served to anyone on loopback, so it does not print the secret. Send
+the 64 characters as the bearer, without the file's trailing newline:
 
 ```http
 Authorization: Bearer <contents of C:\ProgramData\Summrise\token>
 ```
 
-## 8. When it does not work
+## 9. When it does not work
 
 | What you see | What it means |
 |---|---|
 | `302` to `…cloudflareaccess.com` | The request hit a Cloudflare Access application before the endpoint. `/mcp/*` must be its own application — a bypass, or a service token whose two `CF-Access-*` headers the client sends — never the operator application. |
-| `401` | The bearer was not accepted: the header is missing or is not a bearer, the token is unknown, revoked, expired, or was created for another device, or the grant expired. Check the id in the path, and create a new token if this one was revoked or expired. |
+| `401` | The bearer was not accepted: the header is missing or is not a bearer, the token is unknown, revoked, expired, or was created for another device, or the grant expired. Check the endpoint's device id, and create a new token if this one was revoked or expired. |
 | `403`, JSON-RPC `-32001`, "tool not permitted by grant" | The tool is outside the token's (or grant's) set. A token's tools and destructive consent are fixed at creation: create a token that includes the tool. |
-| `404`, `no_such_device` | The id in the path is not a registered device (for a valid grant: the device was removed). Copy the id from the card again. |
-| `503` with `retry_after_ms` | The device has no open channel or its queue is full — offline, between reconnects, or busy. Retry after that many milliseconds; the card's **Channel** row says whether it is back. |
-| The card says **offline** right after enrolment | The console link is built at boot: restart `SummriseLaunch` (the commands in step 2). |
-| The card stays **offline** after the restart | The device cannot reach the console over outbound HTTPS, or enrolment did not complete. **Last seen** is the last contact, and the retry sentence is one attempt behind, because a device cannot report the connection that failed. |
+| `404`, `no_such_device` | The id in the endpoint is not a registered device (for a valid grant: the device was removed). Copy the endpoint from Connect again. |
+| `503` with `retry_after_ms` | The device has no open channel or its queue is full — offline, between reconnects, or busy. Retry after that many milliseconds; the machine's row in Home says whether it is back. |
+| The machine says **offline** right after enrolment | The console link is built at boot: restart `SummriseLaunch` (the commands in step 2). |
+| The machine stays **offline** after the restart | The device cannot reach the console over outbound HTTPS, or enrolment did not complete. **Last seen** is the last contact, and the retry sentence is one attempt behind, because a device cannot report the connection that failed. |
+| `PLUGIN_TIMEOUT` from a plugin tool | The plugin did not answer inside 120 s. The call may still be running; read the plugin's log in **Plugins → Logs**, then retry. |
+| Plugins says the machine needs a newer Summrise | The device build has no plugin host. The endpoint and the built-ins still work; update the device to add plugins. |
