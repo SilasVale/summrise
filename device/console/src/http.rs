@@ -722,6 +722,38 @@ fn reply_detail(reply: &Reply) -> Option<String> {
     }
 }
 
+/// The outcome of a `runs.exec`, as the audit keeps it: the run id, its exit and how long it took.
+///
+/// The output is deliberately not copied here: the device's history never stored it, and the audit
+/// is a record of calls, not a second run log. This is the metadata an operator can use to find the
+/// run in the Runs page; `runs.get` is still where the record lives.
+fn run_detail(reply: &Reply) -> Option<String> {
+    let Reply::Result(result) = reply else {
+        return reply_detail(reply);
+    };
+    let text = result.get("content")?.get(0)?.get("text")?.as_str()?;
+    let run: Value = serde_json::from_str(text).ok()?;
+    let id = run.get("id")?.as_str()?;
+    let elapsed = run.get("duration_ms").and_then(Value::as_u64);
+    if run
+        .get("timed_out")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+    {
+        return Some(match elapsed {
+            Some(ms) => format!("run {id} timed out after {ms} ms"),
+            None => format!("run {id} timed out"),
+        });
+    }
+    match run.get("exit_code").and_then(Value::as_i64) {
+        Some(code) => Some(match elapsed {
+            Some(ms) => format!("run {id} exited {code} in {ms} ms"),
+            None => format!("run {id} exited {code}"),
+        }),
+        None => Some(format!("run {id} ended without an exit code")),
+    }
+}
+
 /// Who the console believes is asking: a session, or an Access identity.
 struct Operator {
     /// The verified email, when Access answered.
@@ -5707,7 +5739,11 @@ async fn proxy_reply(
                     crate::mcp::filter_tools(result, allowed);
                 }
             }
-            let detail = reply_detail(&reply);
+            let detail = if tool.as_deref() == Some("runs.exec") {
+                run_detail(&reply)
+            } else {
+                reply_detail(&reply)
+            };
             app.record_facts(AuditFacts {
                 kind: "mcp",
                 device_id: audit_id.as_deref(),
@@ -7000,5 +7036,38 @@ mod tests {
                 json!({"method": "tools/call", "params": {"name": "x", "arguments": arguments}});
             assert_eq!(take_aggregate_device(&mut request), Err(()));
         }
+    }
+
+    #[test]
+    fn a_run_records_its_outcome_in_the_audit_detail() {
+        let result =
+            |text: &str| Reply::Result(json!({"content": [{"type": "text", "text": text}]}));
+        assert_eq!(
+            run_detail(&result(
+                r#"{"id":"r-1","exit_code":0,"timed_out":false,"duration_ms":42}"#
+            ))
+            .as_deref(),
+            Some("run r-1 exited 0 in 42 ms")
+        );
+        assert_eq!(
+            run_detail(&result(
+                r#"{"id":"r-2","exit_code":null,"timed_out":true,"duration_ms":60000}"#
+            ))
+            .as_deref(),
+            Some("run r-2 timed out after 60000 ms")
+        );
+        assert_eq!(
+            run_detail(&result(
+                r#"{"id":"r-3","exit_code":null,"timed_out":false,"duration_ms":7}"#
+            ))
+            .as_deref(),
+            Some("run r-3 ended without an exit code")
+        );
+        // An error keeps the existing sentence; a reply that is not a run stays detail-less.
+        assert_eq!(
+            run_detail(&Reply::Error(json!({"error": {"code": -32603}}))).as_deref(),
+            Some("jsonrpc error -32603")
+        );
+        assert_eq!(run_detail(&result("not json")), None);
     }
 }
