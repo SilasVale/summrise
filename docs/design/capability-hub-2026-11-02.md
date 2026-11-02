@@ -19,7 +19,7 @@ call and lets the operator take the keyboard back.
 Three decisions define this revision:
 
 1. **The hub is the product; the console is its window.** The hub is not a new service. It is the
-   device runtime that already executes 50 tools, plus a plugin host that lets it execute more. The
+   device runtime that already executes 40 built-in tools, plus a plugin host that lets it execute more. The
    console stops being a device control panel with a hub bolted on: its first screen is the hub, and
    the machine workspace is one destination inside it.
 2. **Five destinations, not seven.** Home · Capabilities · Plugins · Activity · Device. Devices and
@@ -196,7 +196,7 @@ The promise is judged in the first five minutes; design the whole path, not just
 2. **Open the panel** — `http://127.0.0.1:18080/`. It says the machine is running, and gives one
    action: enrol it with the console. The operator pastes the console URL and a one-time code.
 3. **Open the console** — the machine appears in the fleet, online. The operator opens it.
-4. **Home** — one sentence of state: running, version, 50 tools, 0 plugins. The endpoint is on the
+4. **Home** — one sentence of state: running, version, 40 built-in tools, 0 plugins. The endpoint is on the
    screen with Copy. Two actions: **Connect a client** and **Add a capability**.
 5. **Connect** — a sheet: the endpoint, then the client selector (DSH / Claude / Codex / Cursor) with
    a copy-paste block; "Create token" names the tools and the destructive consent. The token is shown
@@ -282,7 +282,9 @@ screen, without repeating the shell.
   endpoint is dimmed, and Copy is disabled rather than copying a door that does not open.
 - **One accent:** **Connect a client** (opens the sheet). **Add a capability** is a quiet link to
   Plugins. The empty calls state does not repeat Connect.
-- **Counts:** one line — `50 tools · 8 capabilities · 2 plugins →` — opens Capabilities. No tile grid:
+- **Counts:** one line — `46 tools · 11 capabilities · 2 plugins →` — opens Capabilities. The v1
+  registry has 40 built-ins plus six `plugins.*` management tools; the page computes this line and
+  never hard-codes it. No tile grid:
   the catalogue is the catalogue.
 - **Recent calls:** the last three, as single-line rows (tool, result, relative time); "All activity →".
   Empty: "No calls yet." pointing at the same Connect button.
@@ -300,7 +302,7 @@ screen, without repeating the shell.
 
 **Purpose:** show exactly what the AI can call and let the operator prove it.
 
-- **Header:** "Capabilities", count "50 tools · 8 capabilities", search field (filters name,
+- **Header:** "Capabilities", count "46 tools · 11 capabilities", search field (filters name,
   description, capability). No source segmented control: the source is a badge, not a mode.
 - **Body:** one section per capability: name, source badge, `12 tools · 3 can change the machine`
   (a summary, not a chip on every row), one-line description, then tool rows. A tool row is a button:
@@ -490,7 +492,7 @@ AI client (DSH / Claude / Codex / Cursor / custom)
                                 ▼
 ┌────────────────────────── Summrise device ───────────────────────────┐
 │ MCP gateway: tools/list (built-ins ∪ healthy plugins) · tools/call     │
-│ Registry: 50 built-in tools + dynamic plugin tools                     │
+│ Registry: 40 built-in tools + 6 plugins.* + dynamic plugin tools       │
 │ Router: name → in-process handler | plugin namespace                   │
 │ Supervisor: spawn · initialize · health · restart · logs · stop        │
 │ Built-ins: files memory terminal browser monitor runs system host      │
@@ -793,7 +795,7 @@ to subagents; the Lead reviews the diff, runs the gates and deploys.
 
 | Risk | What it would do | Mitigation |
 |---|---|---|
-| **Cold start** | a hub with no plugins is "just another MCP server" | the 50 built-ins carry v1; plugins are the escape hatch, never the headline; Home sells the built-ins first |
+| **Cold start** | a hub with no plugins is "just another MCP server" | the 40 built-ins carry v1; plugins are the escape hatch, never the headline; Home sells the built-ins first |
 | **Trust** | a plugin run as SYSTEM is a remote-code-execution feature wearing a UI | say it plainly at install; keep the token brake; no marketplace; the example is source the operator can read |
 | **Windows-only plugins** | an npm/git ecosystem does not exist for this host | v1 plugins are directories with any command; PowerShell example; docs state the platform |
 | **The console swallows the hub** | seven surfaces return as ten | five destinations are a tested invariant; a new rail item needs a deletion in the same change |
