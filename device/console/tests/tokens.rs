@@ -6,6 +6,7 @@
 //! string comparison, not a browser test. The file is the same one Vite builds into the page.
 
 const TOKENS: &str = include_str!("../web/src/tokens.css");
+const APP: &str = include_str!("../web/src/app.css");
 
 /// The value of `--name` in a token block, parsed line by line: comments are ignored because a
 /// declaration always starts at the beginning of its own line.
@@ -213,5 +214,53 @@ fn the_terminal_palette_is_the_canonical_one() {
                 if dark { "dark" } else { "light" }
             );
         }
+    }
+}
+
+#[test]
+fn every_weight_is_one_of_four_tokens() {
+    // The sheet had 26 literal weights across five values (450/500/550/600/650). The family is now
+    // four documented steps; a new literal, or a renamed token, fails here instead of drifting.
+    for (name, expected) in [
+        ("fw-regular", "400"),
+        ("fw-medium", "500"),
+        ("fw-semi", "600"),
+        ("fw-bold", "700"),
+    ] {
+        assert_eq!(value(TOKENS, name), Some(expected), "--{name}");
+    }
+    for line in APP.lines() {
+        let Some(index) = line.find("font-weight:") else {
+            continue;
+        };
+        let weight = line[index + "font-weight:".len()..]
+            .split(';')
+            .next()
+            .unwrap_or("")
+            .trim();
+        assert!(
+            weight.starts_with("var(--fw-"),
+            "literal font weight: {line}"
+        );
+    }
+}
+
+#[test]
+fn every_type_size_comes_from_the_seven_step_scale() {
+    // Two declarations had escaped the scale (0.95rem for a close glyph, 0.65rem for a status pill).
+    // A raw length here means a new size nobody measured against the body's 13px.
+    for line in APP.lines() {
+        let Some(index) = line.find("font-size:") else {
+            continue;
+        };
+        let size = line[index + "font-size:".len()..]
+            .split(';')
+            .next()
+            .unwrap_or("")
+            .trim();
+        assert!(
+            size.starts_with("var(--fs-"),
+            "font size outside the scale: {line}"
+        );
     }
 }
