@@ -198,6 +198,17 @@ describe("App", () => {
     expect(within(statusbar as HTMLElement).getByText("signed in with the operator token")).toBeInTheDocument();
   });
 
+  it("opens Runs on boot when the URL names a run", async () => {
+    window.history.replaceState(null, "", "#run/workshop/r-1");
+    await boot();
+    fireEvent.change(screen.getByLabelText("Operator token"), { target: { value: "operator-token" } });
+    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+
+    expect(await screen.findByRole("heading", { name: "Runs" })).toBeInTheDocument();
+    expect(window.location.hash).toBe("#run/workshop/r-1");
+    window.history.replaceState(null, "", window.location.pathname);
+  });
+
   it("warns when the fleet runs more than one build", async () => {
     mocks.devices.mockResolvedValue([
       { ...workshop, version: "0.3.30" },
