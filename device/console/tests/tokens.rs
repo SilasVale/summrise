@@ -250,3 +250,65 @@ fn every_type_size_comes_from_the_seven_step_scale() {
         );
     }
 }
+
+/// Does `value` contain `literal` as a whole length, not as the tail of `0.1rem` or `1.15rem`?
+fn contains_length(value: &str, literal: &str) -> bool {
+    let mut from = 0;
+    while let Some(index) = value[from..].find(literal) {
+        let start = from + index;
+        let before = value[..start].chars().last();
+        let after = value[start + literal.len()..].chars().next();
+        let boundary = |c: Option<char>| !matches!(c, Some(c) if c.is_ascii_digit() || c == '.');
+        if boundary(before) && boundary(after) {
+            return true;
+        }
+        from = start + 1;
+    }
+    false
+}
+
+#[test]
+fn spacing_uses_the_rhythm_when_the_value_is_already_on_it() {
+    // 104 declarations were written in rem values that already WERE a rhythm step (0.25rem = 4px,
+    // 0.5rem = 8px, ...). Moving them onto --sp-* is pixel-identical; this gate stops the next
+    // 0.5rem from being typed by hand. The off-scale values (0.35rem, 0.65rem, ...) are the next
+    // batch and are deliberately not asserted away here.
+    let properties = [
+        "padding",
+        "margin",
+        "gap",
+        "row-gap",
+        "column-gap",
+        "top",
+        "right",
+        "bottom",
+        "left",
+        "inset",
+    ];
+    let literals = [
+        ("0.125rem", "0-5"),
+        ("0.25rem", "1"),
+        ("0.375rem", "1-5"),
+        ("0.5rem", "2"),
+        ("0.625rem", "2-5"),
+        ("0.75rem", "3"),
+        ("0.875rem", "3-5"),
+        ("1rem", "4"),
+        ("1.5rem", "5"),
+    ];
+    for line in APP.lines() {
+        if !properties.iter().any(|property| line.contains(property)) {
+            continue;
+        }
+        assert!(
+            !line.contains(".var(--sp-"),
+            "a spacing token was spliced into a decimal: {line}"
+        );
+        for (literal, step) in literals {
+            assert!(
+                !contains_length(line, literal),
+                "spacing literal {literal} is --sp-{step}; write the token: {line}"
+            );
+        }
+    }
+}
