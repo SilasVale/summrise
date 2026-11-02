@@ -2,9 +2,10 @@
 
 `device/` (the runtime) and `docs/superpowers/specs/` (the design record).
 
-**THE PRODUCT STATEMENT IS `docs/PRODUCT.md`** — the one sentence, the four nouns, the seven
-surfaces and the nine design rules. A UI change that has not read it is a guess. The README is the
-build/run map; this file carries only the rules that are not discoverable from the tree.
+**THE PRODUCT STATEMENT IS `docs/PRODUCT.md`** — the one sentence, the model (Capability, Device,
+Session, Record, Reachability), the five surfaces and the eleven design rules. A UI change that has
+not read it is a guess. The plan of record is `docs/design/capability-hub-2026-11-02.md`; the README
+is the build/run map; this file carries only the rules that are not discoverable from the tree.
 
 **THE REPOSITORY IS WRITTEN IN ENGLISH** — commits, comments, docs. **TALKING TO THE OPERATOR IS IN CHINESE.**
 
@@ -48,7 +49,9 @@ xterm and the device's own pages are separate.
 - `node scripts/layout-gate.mjs <pages-dir> <width…>` — the rendered Rust pages and the landing at
   every width; a page that scrolls sideways fails.
 
-The page's shape is one compact icon rail with seven destinations — Devices, Terminal, Screen, Files,
-Runs, Machine, Activity — a canvas, and a status strip. The selected machine's header sits above
-every workspace page, so a rail click never loses the machine the calls will hit. There is no second
-navigation rail inside the page.
+The page's shape is five destinations — Home, Capabilities, Plugins, Activity, Device — and a canvas.
+There is no status strip. The rail is a labelled 216 px sidebar at ≥1024 px, a 56 px icon rail at
+640–1023 px, and a bottom tab bar below 640 px. Device holds Terminal, Screen, Files, Runs and
+Machine as one tab bar; the selected machine's header sits above every hub page, so a destination
+click never loses the machine. Connect is a sheet, not a destination. There is no second navigation
+rail inside the page.
