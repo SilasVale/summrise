@@ -65,7 +65,7 @@ export function BrowserPane({ grant }: { grant: Grant }) {
       }
       const next = prefer && pages.some((entry) => entry.id === prefer) ? prefer : pages[0].id;
       setTarget(next);
-      setStatus(`${pages.length} target(s).`);
+      setStatus(`${pages.length} ${pages.length === 1 ? "page" : "pages"}.`);
       return pages;
     } catch (cause) {
       // A stale error describes a view that is gone, exactly like stale data does.
@@ -322,7 +322,7 @@ export function BrowserPane({ grant }: { grant: Grant }) {
       <div className="panel-head">
         <h2>Browser</h2>
         <div className="actions">
-          <button type="button" onClick={() => void list()}>List targets</button>
+          <button type="button" onClick={() => void list()}>Refresh pages</button>
           <button type="button" disabled={!target} onClick={() => void capture()}>Refresh view</button>
           <button
             type="button"
@@ -343,7 +343,7 @@ export function BrowserPane({ grant }: { grant: Grant }) {
         // The browser can hold several pages; the screenshot follows the target, so the operator has
         // to be able to say which one. Without this the pane always showed whichever came first.
         <div className="row">
-          <select aria-label="Target" value={target} onChange={(event) => choose(event.target.value)}>
+          <select aria-label="Page" value={target} onChange={(event) => choose(event.target.value)}>
             {targets.map((entry) => (
               <option key={entry.id} value={entry.id}>
                 {entry.title || entry.url || entry.id}
