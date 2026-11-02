@@ -1,0 +1,268 @@
+#!/usr/bin/env node
+// The page's first evidence path: sign in, pick a device, open a pty, type, read it back.
+//
+//   node scripts/browser-gate.mjs
+//
+// The console's HTTP routes are answered by Playwright; `/mcp` is a deliberate ECHO, not a shell.
+// It proves the page's write goes out and the read comes back into xterm — the seam the jsdom suite
+// cannot see — while saying plainly that no device executed anything.
+//
+// The browser is the Playwright runtime already on this machine (same resolution as the screenshot
+// harness); no dependency is added to package.json.
+
+import { mkdir, readFile } from 'node:fs/promises';
+import http from 'node:http';
+import { createRequire } from 'node:module';
+import path from 'node:path';
+import process from 'node:process';
+import { fileURLToPath } from 'node:url';
+
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+const WEB = path.resolve(HERE, '..');
+const DIST_INDEX = path.join(WEB, 'dist', 'index.html');
+const OUT = path.resolve(process.env.CONSOLE_GATE_ROOT || '/tmp/console-browser-gate');
+const TOKEN = 'browser-gate-operator-token';
+const MARKER = 'gate-marker-7f3a';
+
+const require = createRequire(import.meta.url);
+const PLAYWRIGHT_CANDIDATES = [
+  process.env.PLAYWRIGHT_CORE_DIR &&
+    path.join(process.env.PLAYWRIGHT_CORE_DIR, 'node_modules', 'playwright-core'),
+  process.env.PLAYWRIGHT_CORE_DIR,
+  'playwright-core',
+  'playwright',
+  '/home/zss/summrise/agent/resources/panel-react/node_modules/playwright-core',
+  path.join(WEB, 'node_modules', 'playwright-core')
+].filter(Boolean);
+
+let playwright = null;
+for (const candidate of PLAYWRIGHT_CANDIDATES) {
+  try {
+    playwright = require(candidate);
+    break;
+  } catch {
+    /* the next candidate */
+  }
+}
+if (!playwright) {
+  console.error('browser-gate: playwright-core not found; set PLAYWRIGHT_CORE_DIR');
+  process.exit(2);
+}
+
+const ICON_PNG = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+  'base64'
+);
+
+const indexHtml = await readFile(DIST_INDEX).catch((error) => {
+  console.error(`browser-gate: cannot read ${DIST_INDEX}: ${error.message}`);
+  console.error('browser-gate: build the page first: cd device/console/web && npm run build');
+  process.exit(2);
+});
+
+const NOW = Date.now();
+const DEVICE = {
+  id: 'gate-device-0123456789abcdef',
+  name: 'gate-workshop',
+  online: true,
+  version: '0.3.42',
+  last_seen_ms: NOW
+};
+const TOOL_NAMES = [
+  'terminal.create',
+  'terminal.list',
+  'terminal.read',
+  'terminal.resize',
+  'terminal.write',
+  'terminal.close'
+];
+
+// The only state the gate needs: whether the operator signed in, whether a pty was opened, what the
+// page wrote, and whether the echo has been handed back.
+const state = {
+  signedIn: false,
+  opened: false,
+  writes: '',
+  echoed: false,
+  cursor: 0
+};
+
+const json = (body, status = 200) => ({ status, body });
+const bodyOf = (request) => {
+  try {
+    return request.postDataJSON() ?? {};
+  } catch {
+    return {};
+  }
+};
+
+function apiReply(request, url) {
+  const method = request.method();
+  const pathname = url.pathname;
+
+  if (method === 'POST' && pathname === '/auth') {
+    if (bodyOf(request).token !== TOKEN) return json({ error: 'invalid_token' }, 401);
+    state.signedIn = true;
+    return json({ token: TOKEN, expires_at_ms: NOW + 60 * 60 * 1000 });
+  }
+  if (method === 'GET' && pathname === '/session') {
+    return json(
+      state.signedIn
+        ? { authenticated: true, email: 'operator@gate.test', via: 'token' }
+        : { authenticated: false, access: { configured: false } }
+    );
+  }
+  if (method === 'POST' && pathname === '/logout') {
+    state.signedIn = false;
+    return { status: 204, body: null };
+  }
+  if (method === 'GET' && pathname === '/health') {
+    return json({ status: 'ok', devices: 1, online: 1, version: 'browser-gate' });
+  }
+  if (method === 'GET' && pathname === '/fleet') return json([DEVICE]);
+  if (method === 'GET' && /^\/fleet\/[^/]+\/connections$/.test(pathname)) return json([]);
+  if (method === 'GET' && pathname === '/tokens') return json([]);
+  if (method === 'GET' && pathname === '/audit') return json([]);
+  if (method === 'GET' && pathname === '/denials') return json([]);
+  if (method === 'GET' && pathname === '/tools') return json(TOOL_NAMES.map((name) => ({ name })));
+
+  if (method === 'POST' && pathname === '/mcp') {
+    const call = bodyOf(request)?.request?.params;
+    const name = call?.name;
+    const args = call?.arguments ?? {};
+    if (name === 'terminal.list') {
+      return json({ result: { content: [{ type: 'text', text: '[]' }] } });
+    }
+    if (name === 'terminal.create') {
+      state.opened = true;
+      return json({ result: { content: [{ type: 'text', text: JSON.stringify({ id: 'gate-pty-1' }) }] } });
+    }
+    if (name === 'terminal.resize') {
+      return json({ result: { content: [{ type: 'text', text: JSON.stringify({ rows: 24, cols: 80 }) }] } });
+    }
+    if (name === 'terminal.write') {
+      state.writes += String(args.data ?? '');
+      if (state.writes.includes(MARKER)) state.echoed = true;
+      return json({ result: { content: [{ type: 'text', text: '{}' }] } });
+    }
+    if (name === 'terminal.read') {
+      // THE ECHO. The marker the page typed is what comes back on the next read; this is not a
+      // shell and the script says so in its PASS line.
+      if (state.echoed && state.cursor === 0) {
+        state.cursor = MARKER.length + 2;
+        return json({
+          result: { content: [{ type: 'text', text: JSON.stringify({ data: MARKER + '\r\n', cursor: state.cursor }) }] }
+        });
+      }
+      return json({
+        result: { content: [{ type: 'text', text: JSON.stringify({ data: '', cursor: state.cursor }) }] }
+      });
+    }
+    if (name === 'terminal.close') {
+      return json({ result: { content: [{ type: 'text', text: '{}' }] } });
+    }
+    return json({ error: { code: -32601, message: `browser-gate has no ${name}` } }, 200);
+  }
+  return json({ error: 'not_found' }, 404);
+}
+
+await mkdir(OUT, { recursive: true });
+const server = http.createServer((request, response) => {
+  const url = new URL(request.url ?? '/', 'http://127.0.0.1');
+  if (request.method === 'GET' && (url.pathname === '/' || url.pathname === '/index.html')) {
+    response.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
+    response.end(indexHtml);
+    return;
+  }
+  if (request.method === 'GET' && url.pathname === '/favicon.ico') {
+    response.writeHead(200, { 'content-type': 'image/png', 'cache-control': 'no-store' });
+    response.end(ICON_PNG);
+    return;
+  }
+  response.writeHead(404, { 'content-type': 'text/plain' });
+  response.end('not found');
+});
+await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+const base = `http://127.0.0.1:${server.address().port}`;
+console.log(`browser-gate: page at ${base} (echo MCP, not a shell)`);
+
+const browser = await playwright.chromium.launch();
+const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+const errors = [];
+page.on('console', (message) => {
+  if (message.type() === 'error') errors.push(message.text());
+});
+page.on('pageerror', (error) => errors.push('pageerror: ' + error.message));
+page.on('response', (response) => {
+  if (response.status() >= 400) console.error('browser-gate: HTTP', response.status(), response.url());
+});
+
+await page.route('**/*', async (route) => {
+  const url = new URL(route.request().url());
+  if (url.origin !== base) return route.continue();
+  if (url.pathname === '/' || url.pathname === '/index.html') return route.continue();
+  const reply = apiReply(route.request(), url);
+  const headers = { 'cache-control': 'no-store' };
+  if (reply.status === 204) return route.fulfill({ status: 204, headers });
+  return route.fulfill({
+    status: reply.status,
+    headers: { ...headers, 'content-type': 'application/json; charset=utf-8' },
+    body: JSON.stringify(reply.body)
+  });
+});
+
+const steps = [];
+function step(name) {
+  steps.push(name);
+  console.log(`browser-gate: ${name}`);
+}
+
+try {
+  await page.goto(base + '/', { waitUntil: 'domcontentloaded' });
+  await page.getByRole('heading', { name: 'Sign in to the console' }).waitFor({ timeout: 10_000 });
+  step('login form rendered from an unauthenticated /session');
+  await page.screenshot({ path: path.join(OUT, '01-login.png') });
+
+  await page.getByLabel('Operator token').fill(TOKEN);
+  await page.getByRole('button', { name: 'Sign in' }).click();
+  await page.getByRole('heading', { name: 'Devices' }).waitFor({ timeout: 10_000 });
+  step('signed in through /auth; /session then answered authenticated');
+  await page.screenshot({ path: path.join(OUT, '02-devices.png') });
+
+  await page.getByRole('button', { name: 'Work on this' }).click();
+  await page.getByRole('heading', { name: 'Terminal' }).waitFor({ timeout: 10_000 });
+  step('selected gate-workshop; Terminal opened with a session-scoped grant');
+
+  await page.getByRole('button', { name: '+ New session' }).click();
+  const dialog = page.getByRole('dialog', { name: 'New terminal session' });
+  await dialog.getByRole('button', { name: 'Open' }).click();
+  await page.locator('.term-host .xterm').waitFor({ state: 'visible', timeout: 10_000 });
+  step('opened one pty; xterm mounted');
+
+  await page.locator('.term-host .xterm').click();
+  await page.keyboard.type(MARKER, { delay: 15 });
+  await page.waitForFunction(
+    (marker) => document.querySelector('.term-host .xterm-rows')?.textContent?.includes(marker) ?? false,
+    MARKER,
+    { timeout: 10_000 }
+  );
+  if (!state.writes.includes(MARKER)) throw new Error('the marker never reached terminal.write');
+  step('typed a marker; it reached terminal.write and returned through terminal.read');
+  await page.screenshot({ path: path.join(OUT, '03-terminal-marker.png') });
+
+  if (errors.length > 0) throw new Error('console errors: ' + errors.join(' ;; '));
+  console.log(`browser-gate: PASS — ${steps.length} steps, ${state.writes.length} bytes written, marker echoed`);
+  console.log(`browser-gate: screenshots in ${OUT}`);
+  process.exitCode = 0;
+} catch (error) {
+  console.error('browser-gate: FAIL —', error.message);
+  try {
+    await page.screenshot({ path: path.join(OUT, 'failure.png') });
+  } catch {
+    /* the page is already gone */
+  }
+  process.exitCode = 1;
+} finally {
+  await browser.close();
+  server.close();
+}
