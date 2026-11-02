@@ -29,6 +29,7 @@ import { ScreenPage } from "./ScreenPage";
 import { SystemPage } from "./SystemPage";
 import { HomePage } from "./HomePage";
 import { CapabilitiesPage } from "./CapabilitiesPage";
+import { PluginsPage } from "./PluginsPage";
 import { DevicePageShell } from "./DevicePageShell";
 import { AccountMenu } from "./AccountMenu";
 import { MachineMenu } from "./MachineMenu";
@@ -549,7 +550,15 @@ export function App() {
         )}
 
         {page === "plugins" && (
-          <PendingPage title="Plugins" hint="Plugins are managed on the selected machine through its own tools." />
+          <PluginsPage
+            devices={devices}
+            device={chosen}
+            onChoose={(id) => choose(id)}
+            onMachine={() => {
+              setPage("device");
+              setTab("machine");
+            }}
+          />
         )}
 
         {page === "activity" && (
@@ -709,20 +718,6 @@ export function App() {
           </div>
         </Modal>
       )}
-    </div>
-  );
-}
-
-/** A destination whose page is built in a later task; it states only what is true today. */
-function PendingPage({ title, hint }: { title: string; hint: string }) {
-  return (
-    <div className="page">
-      <header className="page-head">
-        <div>
-          <h1>{title}</h1>
-          <p className="page-sub">{hint}</p>
-        </div>
-      </header>
     </div>
   );
 }

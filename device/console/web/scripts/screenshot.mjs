@@ -103,7 +103,8 @@ function hexId(label) {
 const DEVICE = {
   workshop: hexId('device/workshop'),
   attic: hexId('device/attic'),
-  studio: hexId('device/studio')
+  studio: hexId('device/studio'),
+  legacy: hexId('device/legacy')
 };
 const TOKEN = {
   workshop: hexId('token/workshop'),
@@ -177,11 +178,11 @@ const DESTRUCTIVE_TOOLS = new Set([
   'plugins.restart'
 ]);
 
-/// The live catalogue for one device. `studio` is an older build: its list has no `plugins.*`, which
+/// The live catalogue for one device. `legacy` is an older build: its list has no `plugins.*`, which
 /// is exactly how the page detects the "newer Summrise" state.
 function liveToolsFor(deviceId) {
   const names =
-    deviceId === DEVICE.studio
+    deviceId === DEVICE.legacy
       ? TOOL_NAMES.filter((name) => !name.startsWith('plugins.'))
       : TOOL_NAMES;
   const tools = names.map((name) => ({
@@ -333,6 +334,22 @@ const DEVICES = [
         },
         repairs: []
       }
+    }
+  },
+  {
+    id: DEVICE.legacy,
+    name: 'legacy',
+    online: true,
+    version: '0.3.18',
+    last_seen_ms: NOW - 26_000,
+    registered_at_ms: NOW - 120 * DAY,
+    host: {
+      os: { name: 'Windows 11 Pro', version: '10.0.22631', arch: 'x86_64' },
+      machine: 'DESKTOP-LEGACY',
+      uptime_s: 9 * 86_400,
+      cpu: { cores: 8 },
+      memory: { total_bytes: 32 * GIB, available_bytes: 18 * GIB },
+      disks: [{ name: 'C:', total_bytes: 512 * GIB, free_bytes: 90 * GIB }]
     }
   }
 ];
@@ -1125,6 +1142,13 @@ async function boot(page, state, origin) {
   await settle(page, state);
 }
 
+async function chooseMachine(page, state, name) {
+  await page.locator('.machine-menu > summary').click();
+  const menu = page.locator('.machine-pop');
+  await menu.getByRole('button', { name: new RegExp(`^${name}`) }).click();
+  await settle(page, state, 350);
+}
+
 async function capturePage(page, state, meta, pass) {
   await settle(page, state);
   if (process.env.DEBUG_LAYOUT) {
@@ -1158,6 +1182,37 @@ async function capturePage(page, state, meta, pass) {
   await page.screenshot({ path: path.join(OUT, file), animations: 'disabled', fullPage: false });
   captures.push({ pass: pass.key, page: meta.id, file, note: meta.state });
   console.log(`  ${pass.key.padEnd(6)} ${file}`);
+
+  if (meta.id === 'plugins') {
+    // Three states, three machines: the populated list (workshop), the empty teaching state
+    // (attic) and an older build with no plugins.* (studio).
+    await chooseMachine(page, state, 'attic');
+    await page.getByText('No plugins yet. Add one when a built-in cannot do the job.').waitFor({ state: 'visible', timeout: 5_000 });
+    const emptyFile = `plugins-empty${pass.suffix}.png`;
+    await page.screenshot({ path: path.join(OUT, emptyFile), animations: 'disabled', fullPage: false });
+    captures.push({
+      pass: pass.key,
+      page: 'plugins-empty',
+      file: emptyFile,
+      note: 'the empty state: no manifest example, one Add plugin action'
+    });
+    console.log(`  ${pass.key.padEnd(6)} ${emptyFile}`);
+
+    await chooseMachine(page, state, 'legacy');
+    await page.getByText('This machine needs a newer Summrise to host plugins.').waitFor({ state: 'visible', timeout: 5_000 });
+    const oldFile = `plugins-old${pass.suffix}.png`;
+    await page.screenshot({ path: path.join(OUT, oldFile), animations: 'disabled', fullPage: false });
+    captures.push({
+      pass: pass.key,
+      page: 'plugins-old',
+      file: oldFile,
+      note: 'an older build: the sentence and Open Machine, never an Add button that would fail'
+    });
+    console.log(`  ${pass.key.padEnd(6)} ${oldFile}`);
+
+    await chooseMachine(page, state, 'workshop');
+    await page.locator('.plugin-name').filter({ hasText: 'Hello' }).first().waitFor({ state: 'visible', timeout: 5_000 });
+  }
 
   if (meta.id === 'capabilities') {
     // One tool's sheet: the detail and the generated Try it form in one frame. The first row is the

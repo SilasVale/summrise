@@ -260,9 +260,36 @@ pub async fn serve(
     .await
 }
 
-/// Wait for the one signal the app can handle itself.
+/// Wait for an orderly stop.
+///
+/// On Unix, SIGINT and SIGTERM let the run loop stop the plugin children before the process ends. On
+/// Windows a service stop is not a console event this process can observe (the launcher owns that
+/// lifecycle), and `ctrl_c` can fail on a process with no console: a failure must not mean "stop
+/// now", so the future then never completes and the device keeps serving until it is ended.
 async fn shutdown_signal() {
-    let _ = tokio::signal::ctrl_c().await;
+    #[cfg(unix)]
+    {
+        use tokio::signal::unix::{signal, SignalKind};
+        let mut terminate = match signal(SignalKind::terminate()) {
+            Ok(terminate) => terminate,
+            Err(_) => {
+                if tokio::signal::ctrl_c().await.is_err() {
+                    std::future::pending::<()>().await;
+                }
+                return;
+            }
+        };
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => {}
+            _ = terminate.recv() => {}
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        if tokio::signal::ctrl_c().await.is_err() {
+            std::future::pending::<()>().await;
+        }
+    }
 }
 
 fn loopback_addr(port: u16) -> SocketAddr {

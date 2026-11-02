@@ -1613,6 +1613,47 @@ button.toggle[aria-pressed="true"] { background: var(--panel-3); font-weight: va
 .result-error { color: var(--error); }
 .sheet-status { margin-right: auto; color: var(--ink-muted); font-size: var(--fs-sm); }
 
+/* ── Plugins: one row per installed server, and the three focused sheets ─────────────────────── */
+.plugin-list { display: grid; gap: var(--sp-2); min-width: 0; }
+.plugin-row {
+  display: flex; align-items: flex-start; gap: var(--sp-3);
+  padding: var(--sp-3); border: 1px solid var(--line); border-radius: var(--radius-sm);
+  background: var(--surface); min-width: 0;
+}
+.plugin-main { flex: 1; min-width: 0; display: grid; gap: var(--sp-1); }
+.plugin-head { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
+.plugin-name { font-size: var(--fs-base); font-weight: var(--fw-semi); }
+.plugin-meta { margin: 0; color: var(--ink-muted); font-size: var(--fs-sm); }
+.plugin-path {
+  margin: 0; color: var(--ink-faint); font-size: var(--fs-xs);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.plugin-error { margin: 0; color: var(--error); font-size: var(--fs-sm); }
+.plugin-actions { display: flex; align-items: flex-start; gap: var(--sp-1); flex: none; }
+.trust {
+  margin: 0; padding: var(--sp-3); border-radius: var(--radius-sm);
+  background: var(--panel-2); font-size: var(--fs-base); font-weight: var(--fw-medium);
+}
+.plugin-valid { margin: 0; color: var(--ok); font-size: var(--fs-sm); font-weight: var(--fw-medium); }
+.plugin-invalid { display: grid; gap: var(--sp-1); }
+.plugin-invalid p { margin: 0; }
+.plugin-invalid a { color: var(--accent); font-size: var(--fs-sm); }
+.add-plugin, .remove-plugin { display: grid; gap: var(--sp-3); min-width: 0; }
+.remove-plugin p { margin: 0; }
+.plugin-about summary { cursor: pointer; color: var(--ink-muted); font-size: var(--fs-sm); }
+.plugin-about p { margin: var(--sp-2) 0 0; }
+.plugin-about code { font-family: var(--font-mono); font-size: var(--fs-xs); }
+.plugin-logs { display: grid; gap: var(--sp-2); min-width: 0; }
+.logs {
+  margin: 0; padding: var(--sp-3); max-height: 60vh; overflow: auto;
+  border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--panel-2);
+  font-size: var(--fs-sm); line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.plugin-logs .hint p { margin: 0; }
+@media (max-width: 639px) {
+  .plugin-row { flex-direction: column; }
+  .plugin-actions { align-self: stretch; justify-content: flex-end; }
+}
 .screen-shot { max-width: 100%; border: 1px solid var(--line); border-radius: var(--radius); }
 
 /* Motion explains a state change; under the operator's reduced-motion preference the product is
