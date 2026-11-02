@@ -7,6 +7,9 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 cd device/console/web
+# THE WASM LOGIC IS PART OF THIS PAGE. A source edit that did not rebuild it is a stale artifact,
+# and this check needs only Node, so it belongs here rather than in a Rust-only job.
+node ../../../scripts/check-console-logic.mjs
 npm run build
 if [[ "${1:-}" == "--check" ]]; then
     git -C ../.. diff --exit-code -- device/console/web/dist/index.html

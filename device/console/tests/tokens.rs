@@ -157,7 +157,8 @@ fn every_text_pair_reads_on_the_surface_it_sits_on() {
                 continue;
             }
             let ink_value = value(sheet, ink).unwrap_or_else(|| panic!("--{ink} is missing"));
-            let surface_value = value(sheet, surface).unwrap_or_else(|| panic!("--{surface} is missing"));
+            let surface_value =
+                value(sheet, surface).unwrap_or_else(|| panic!("--{surface} is missing"));
             let measured = contrast(ink_value, surface_value);
             assert!(
                 measured >= 4.5,

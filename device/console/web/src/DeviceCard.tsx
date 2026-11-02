@@ -1,5 +1,6 @@
 import type { HostFacts } from "./api";
 import { age, shortId } from "./format";
+import { retrySentence } from "./logic";
 
 export type Device = {
   id: string;
@@ -106,16 +107,4 @@ function duration(seconds?: number): string {
   if (days > 0) return `${days}d ${hours}h`;
   const minutes = Math.floor((seconds % 3600) / 60);
   return hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
-}
-
-/**
- * The one sentence both surfaces use for a link that came back.
- *
- * The panel says it too — same words, same order — because an operator reading one surface and then the
- * other should not have to translate. "offline" alone is not a diagnosis; this is.
- */
-export function retrySentence(attempts: number, reason: string): string {
-  const noun = attempts === 1 ? "failed attempt" : "failed attempts";
-  const base = `reconnected after ${attempts} ${noun}`;
-  return reason ? `${base} — ${reason}` : base;
 }

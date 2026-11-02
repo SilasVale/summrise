@@ -12,7 +12,8 @@ import {
 } from "./api";
 import { copyText } from "./copy";
 import { shortId } from "./format";
-import { DeviceCard, retrySentence } from "./DeviceCard";
+import { DeviceCard } from "./DeviceCard";
+import { retrySentence } from "./logic";
 import { recordVitals, type VitalsSample } from "./vitals";
 import { AUDIT_WINDOW, AuditTable } from "./AuditTable";
 import { Rail, type Page } from "./Rail";

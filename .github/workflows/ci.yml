@@ -29,6 +29,12 @@ jobs:
       # in this file, and the same command pasted into a terminal would fail.
       - name: the device workspace (unit tests)
         run: cargo test --manifest-path device/Cargo.toml -p summrise-core -p summrise-device -p summrise-launch -p summrise-mesh -p summrise-release -p summrise-console -p summrise-winsec -p summrise-winsys -p summrise-shell
+      # The console page's pure decisions are a Rust crate outside the device workspace (its
+      # artifact is wasm). Its parity tests are Rust, so they run here rather than in a JS job.
+      - name: the console logic's Rust tests
+        run: |
+          cargo fmt --manifest-path device/console-logic/Cargo.toml -- --check
+          cargo test --manifest-path device/console-logic/Cargo.toml
       - name: the device workspace formats
         run: cargo fmt --manifest-path device/Cargo.toml --all -- --check
       - name: the device workspace is clippy-clean
@@ -68,10 +74,15 @@ jobs:
       - name: install the page's build dependencies
         working-directory: device/console/web
         run: npm ci
+      # THE LOGIC IS RUST, AND ITS ARTIFACT IS COMMITTED. This check needs only Node: it recomputes
+      # the source stamp and decodes the inlined base64 back to the committed wasm, so a source edit
+      # with no rebuild fails here. `build-web.sh --check` runs it again; this step names the failure.
+      - name: the wasm logic matches its sources
+        run: node scripts/check-console-logic.mjs
       - name: the page typechecks
         working-directory: device/console/web
         run: npm run typecheck
-      # **THE JSDOM SUITE IS NOT A REQUIRED GATE.** Its 334 tests assert markup and component
+      # **THE JSDOM SUITE IS NOT A REQUIRED GATE.** Its 326 tests assert markup and component
       # internals; the legacy record has a green jsdom suite beside a page whose buttons were dead.
       # Typecheck catches the type-level break, the Rust suite covers logic, the layout gate and a
       # small Playwright flow cover the browser. The suite stays in `npm test` for the author.
