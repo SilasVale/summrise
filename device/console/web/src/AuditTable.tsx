@@ -1,6 +1,8 @@
 import { Fragment, useMemo, useState } from "react";
 import type { AuditLine, Device, TokenMeta } from "./api";
 import { auditFailed, filterAudit, type AuditFilter } from "./auditFilter";
+import { auditCsv, auditCsvName } from "./audit-export";
+import { downloadFile } from "./download";
 import { shortId } from "./format";
 
 /**
@@ -170,6 +172,19 @@ export function AuditTable({
     setOpen(new Set());
   };
 
+  const exportCsv = () => {
+    if (shown.length === 0) return;
+    downloadFile(
+      auditCsvName(new Date()),
+      auditCsv(
+        shown,
+        (id) => (id ? (deviceNames.get(id) ?? shortId(id)) : ""),
+        (id) => (id ? tokenLabel(id, tokenNames) : "")
+      ),
+      "text/csv;charset=utf-8"
+    );
+  };
+
   const copyDevice = async (id: string, key: string) => {
     try {
       await navigator.clipboard.writeText(id);
@@ -274,6 +289,9 @@ export function AuditTable({
             <option value="failed">Failed</option>
           </select>
         </label>
+        <button type="button" disabled={shown.length === 0} onClick={exportCsv}>
+          Export CSV
+        </button>
         {hasFilter && (
           <button type="button" onClick={clear}>
             Clear
