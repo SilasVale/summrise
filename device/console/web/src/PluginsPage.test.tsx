@@ -108,6 +108,7 @@ beforeEach(() => {
 describe("PluginsPage", () => {
   it("teaches the empty state, with Add plugin as the header's action and no manifest example", async () => {
     draw();
+    expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
     expect(screen.getByRole("heading", { name: "Plugins", level: 1 })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Add plugin" })).toBeInTheDocument();
     expect(await screen.findByText("No plugins yet. Add one when a built-in cannot do the job.")).toBeInTheDocument();

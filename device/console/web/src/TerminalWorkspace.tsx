@@ -1195,41 +1195,35 @@ export function TerminalWorkspace({
       {tabs.length > 0 && (
         <div className="tabbar" role="tablist">
           {tabs.map((tab) => (
-            <button
+            <span
               key={tab.key}
-              type="button"
-              role="tab"
-              aria-selected={tab.key === active}
               className={"tab" + (tab.key === active ? " tab-active" : "")}
-              onClick={() => setActive(tab.key)}
             >
-              {tab.title}
-              {faults[tab.key]?.kind === "closed" && " · ended"}
-              {faults[tab.key] && faults[tab.key].kind !== "closed" && (
-                <span
-                  className={"tab-state state-" + faults[tab.key].kind}
-                  title={faults[tab.key].sentence}
-                >
-                  {FAULT_LABELS[faults[tab.key].kind]}
-                </span>
-              )}
-              <span
+              <button
+                type="button"
+                role="tab"
+                aria-selected={tab.key === active}
+                className="tab-main"
+                onClick={() => setActive(tab.key)}
+              >
+                {tab.title}
+                {faults[tab.key]?.kind === "closed" && " · ended"}
+                {faults[tab.key] && faults[tab.key].kind !== "closed" && (
+                  <span
+                    className={"tab-state state-" + faults[tab.key].kind}
+                    title={faults[tab.key].sentence}
+                  >
+                    {FAULT_LABELS[faults[tab.key].kind]}
+                  </span>
+                )}
+              </button>
+              <button
+                type="button"
                 className="tab-close"
-                role="button"
-                tabIndex={0}
                 aria-label={`Close ${tab.title}`}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  setClosing(tab);
-                }}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" || event.key === " ") {
-                    event.stopPropagation();
-                    setClosing(tab);
-                  }
-                }}
+                onClick={() => setClosing(tab)}
               />
-            </button>
+            </span>
           ))}
         </div>
       )}

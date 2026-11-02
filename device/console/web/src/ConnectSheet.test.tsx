@@ -197,6 +197,55 @@ describe("ConnectSheet", () => {
     ).toBeInTheDocument();
   });
 
+  it("rotates a token after naming the cost, then shows the new value once", async () => {
+    mocks.tokens.mockResolvedValue([
+      {
+        id: "tok-1",
+        name: "laptop",
+        device_id: WORKSHOP.id,
+        tools: ["files.read"],
+        allow_destructive: false,
+        created_at_ms: Date.UTC(2026, 10, 2)
+      }
+    ]);
+    mocks.rotateToken.mockResolvedValue({ ...CREATED, token: "srm_" + "b".repeat(64) });
+    draw({ initialSection: "tokens" });
+
+    fireEvent.click(await screen.findByRole("button", { name: "Rotate" }));
+    const dialog = await screen.findByRole("dialog", { name: 'Rotate "laptop"?' });
+    expect(within(dialog).getByText(/stops working/)).toBeInTheDocument();
+    expect(within(dialog).getByText(/shown once/)).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Rotate token" }));
+
+    await waitFor(() => expect(mocks.rotateToken).toHaveBeenCalledWith("tok-1"));
+    expect(await screen.findByText("Copy this token now. It is not shown again.")).toBeInTheDocument();
+    expect(screen.getByText("srm_" + "b".repeat(64))).toBeInTheDocument();
+  });
+
+  it("revokes a token only after the confirmation names the consequence", async () => {
+    mocks.tokens.mockResolvedValue([
+      {
+        id: "tok-1",
+        name: "laptop",
+        device_id: WORKSHOP.id,
+        tools: ["files.read"],
+        allow_destructive: false,
+        created_at_ms: Date.UTC(2026, 10, 2)
+      }
+    ]);
+    mocks.revokeToken.mockResolvedValue(undefined);
+    draw({ initialSection: "tokens" });
+
+    fireEvent.click(await screen.findByRole("button", { name: "Revoke" }));
+    const dialog = await screen.findByRole("dialog", { name: 'Revoke "laptop"?' });
+    expect(within(dialog).getByText(/cannot be recovered/)).toBeInTheDocument();
+    expect(mocks.revokeToken).not.toHaveBeenCalled();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Revoke token" }));
+
+    await waitFor(() => expect(mocks.revokeToken).toHaveBeenCalledWith("tok-1"));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: 'Revoke "laptop"?' })).not.toBeInTheDocument());
+  });
+
   it("keeps the fleet endpoint available when no machine is chosen", () => {
     draw({ device: null });
     expect(screen.getByText("http://localhost:3000/mcp/all")).toBeInTheDocument();

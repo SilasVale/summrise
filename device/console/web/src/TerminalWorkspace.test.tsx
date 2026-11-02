@@ -848,6 +848,15 @@ describe("TerminalWorkspace recovery", () => {
     expect(screen.queryByRole("tab")).not.toBeInTheDocument();
   });
 
+  it("keeps the tab's close control out of the tab button", async () => {
+    render(<TerminalWorkspace grant={GRANT} />);
+    await startPtyTab();
+    const close = screen.getByRole("button", { name: "Close pty 1" });
+    expect(close.tagName).toBe("BUTTON");
+    expect(close.closest("button")).toBe(close);
+    expect(screen.getByRole("tab", { name: "pty 1" }).contains(close)).toBe(false);
+  });
+
   it("asks before closing a live session, and keeps it when the operator declines", async () => {
     render(<TerminalWorkspace grant={GRANT} />);
     await startPtyTab();

@@ -71,6 +71,7 @@ describe("CapabilitiesPage", () => {
   it("lists every tool by capability, built-ins first, with the description and source", () => {
     draw();
 
+    expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
     expect(screen.getByRole("heading", { name: "Capabilities", level: 1 })).toBeInTheDocument();
     expect(screen.getByText("4 tools · 3 capabilities")).toBeInTheDocument();
     const groups = screen.getAllByRole("heading", { level: 2 }).map((heading) => heading.textContent);

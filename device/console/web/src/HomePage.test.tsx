@@ -93,6 +93,7 @@ describe("Home — the hub", () => {
   it("states the machine in one status line, with counts and the last three calls", async () => {
     draw();
 
+    expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
     expect(screen.getByRole("heading", { name: "Home", level: 1 })).toBeInTheDocument();
     expect(await screen.findByText("Running · v0.3.246")).toBeInTheDocument();
     // The counts line, not the status line, carries the counts: six tools across four capabilities
@@ -165,6 +166,24 @@ describe("Home — the hub", () => {
     ).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));
     expect(retry).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not print zero tools when the catalogue was never read", () => {
+    live.value = {
+      tools: [],
+      stale: false,
+      error: "the console could not read this machine's tools",
+      offline: false,
+      loading: false,
+      retry: vi.fn()
+    };
+    draw();
+
+    expect(screen.getByText("Running · v0.3.246")).toBeInTheDocument();
+    expect(
+      screen.getByText("Tool counts are unavailable until the console can read the machine's list.")
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/^0 tools/)).not.toBeInTheDocument();
   });
 
   it("counts zero plugins on an older build without plugins.list", async () => {

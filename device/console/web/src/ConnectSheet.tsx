@@ -542,20 +542,19 @@ function TokensSection({
               {mine.length > 0 && (
                 <ul>
                   {mine.map((entry) => (
-                    <li key={entry.id}>
-                      <div>
-                        <strong>{entry.name}</strong>{" "}
+                    <li className="token-row" key={entry.id}>
+                      <div className="token-row-head">
+                        <strong>{entry.name}</strong>
                         <span className="muted">
                           {new Date(entry.created_at_ms).toLocaleDateString()}
                         </span>
                       </div>
-                      <div>
-                        <span className="muted">
-                          {entry.tools.length} tools ·{" "}
-                          {entry.allow_destructive ? "destructive allowed" : "read-only"}
-                        </span>{" "}
-                        · <span className="muted">{expiry(entry)}</span> ·{" "}
-                        <span className="muted">{lastUsed(entry)}</span>{" "}
+                      <p className="token-row-meta">
+                        {entry.tools.length} tools ·{" "}
+                        {entry.allow_destructive ? "destructive allowed" : "read-only"} ·{" "}
+                        {expiry(entry)} · {lastUsed(entry)}
+                      </p>
+                      <div className="token-row-actions">
                         <button
                           type="button"
                           onClick={() => {
@@ -564,7 +563,7 @@ function TokensSection({
                           }}
                         >
                           Rotate
-                        </button>{" "}
+                        </button>
                         <button
                           type="button"
                           onClick={() => {

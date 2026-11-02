@@ -104,7 +104,8 @@ const DEVICE = {
   workshop: hexId('device/workshop'),
   attic: hexId('device/attic'),
   studio: hexId('device/studio'),
-  legacy: hexId('device/legacy')
+  legacy: hexId('device/legacy'),
+  stale: hexId('device/stale')
 };
 const TOKEN = {
   workshop: hexId('token/workshop'),
@@ -334,6 +335,22 @@ const DEVICES = [
         },
         repairs: []
       }
+    }
+  },
+  {
+    id: DEVICE.stale,
+    name: 'stale',
+    online: true,
+    version: '0.3.42',
+    last_seen_ms: NOW - 8_000,
+    registered_at_ms: NOW - 60 * DAY,
+    host: {
+      os: { name: 'Windows 11 Pro', version: '10.0.26100', arch: 'x86_64' },
+      machine: 'DESKTOP-STALE',
+      uptime_s: 2 * 86_400,
+      cpu: { cores: 12 },
+      memory: { total_bytes: 32 * GIB, available_bytes: 11 * GIB },
+      disks: [{ name: 'C:', total_bytes: 512 * GIB, free_bytes: 120 * GIB }]
     }
   },
   {
@@ -656,6 +673,20 @@ function replyFor(request, url) {
     if (name === 'system.process_list') {
       return json({ result: { content: [{ type: 'text', text: '[]' }] } });
     }
+    if (name === 'hello.echo') {
+      const text = String(body?.request?.params?.arguments?.text ?? '');
+      if (text === 'error') {
+        return json({
+          result: {
+            isError: true,
+            content: [{ type: 'text', text: 'the plugin refused: that text is not allowed' }]
+          }
+        });
+      }
+      return json({
+        result: { content: [{ type: 'text', text: JSON.stringify({ echo: text }) }] }
+      });
+    }
     if (name === 'plugins.list') {
       const deviceId = body?.device_id;
       const plugins = deviceId === DEVICE.workshop ? PLUGINS : [];
@@ -792,7 +823,11 @@ function replyFor(request, url) {
 
   const liveTools = /^\/fleet\/([^/]+)\/tools$/.exec(pathname);
   if (liveTools && method === 'GET') {
-    return json({ tools: liveToolsFor(decodeURIComponent(liveTools[1])) });
+    const id = decodeURIComponent(liveTools[1]);
+    if (id === DEVICE.stale) {
+      return json({ error: 'tools_unavailable', message: "the console could not read this machine's tools" }, 500);
+    }
+    return json({ tools: liveToolsFor(id) });
   }
 
   const fleet = /^\/fleet\/([^/]+)(?:\/(name|connections|mesh))?$/.exec(pathname);
@@ -924,29 +959,21 @@ const PAGES = [
   }
 ];
 
-const PASSES = [
-  {
-    key: 'light',
-    viewport: { width: 1280, height: 900 },
-    colorScheme: 'light',
-    suffix: '',
-    pages: PAGES
-  },
-  {
-    key: 'dark',
-    viewport: { width: 1280, height: 900 },
-    colorScheme: 'dark',
-    suffix: '-dark',
-    pages: PAGES
-  },
-  {
-    key: 'mobile',
-    viewport: { width: 390, height: 844 },
-    colorScheme: 'light',
-    suffix: '-390',
-    pages: PAGES.filter((page) => ['home', 'activity', 'terminal', 'capabilities', 'plugins'].includes(page.id))
+const PASSES = [];
+for (const width of [1280, 800, 390, 360]) {
+  for (const theme of ['light', 'dark']) {
+    const suffix =
+      width === 1280 ? (theme === 'light' ? '' : '-dark') : `-${width}${theme === 'dark' ? '-dark' : ''}`;
+    PASSES.push({
+      key: `${width}-${theme}`,
+      width,
+      viewport: { width, height: width < 640 ? 844 : 900 },
+      colorScheme: theme,
+      suffix,
+      pages: PAGES
+    });
   }
-];
+}
 
 function newState(pass) {
   return {
@@ -1021,6 +1048,12 @@ async function installPage(page, state, origin) {
     }
 
     try {
+      if (url.pathname === '/mcp') {
+        const body = requestBody(request);
+        const name = body?.request?.params?.name;
+        const text = body?.request?.params?.arguments?.text;
+        if (name === 'hello.echo' && text === 'slow') await delay(1200);
+      }
       const reply = replyFor(request, url);
       if (reply) {
         await fulfill(route, reply);
@@ -1232,6 +1265,79 @@ async function capturePage(page, state, meta, pass) {
     console.log(`  ${pass.key.padEnd(6)} ${toolFile}`);
     await page.locator('.sheet-close').click();
     await dialog.waitFor({ state: 'hidden', timeout: 5_000 }).catch(() => undefined);
+
+    // Empty search: the sentence and the one action that undoes it.
+    const search = page.getByLabel('Search tools');
+    await search.fill('zzz-no-such-tool');
+    await page.getByText('No tool matches "zzz-no-such-tool".').waitFor({ state: 'visible', timeout: 5_000 });
+    const emptySearch = `capabilities-empty-search${pass.suffix}.png`;
+    await page.screenshot({ path: path.join(OUT, emptySearch), animations: 'disabled', fullPage: false });
+    captures.push({
+      pass: pass.key,
+      page: 'capabilities-empty-search',
+      file: emptySearch,
+      note: 'the no-match state: the query is quoted and Clear restores the catalogue'
+    });
+    console.log(`  ${pass.key.padEnd(6)} ${emptySearch}`);
+    await page.getByRole('button', { name: 'Clear the search' }).click();
+
+    // A destructive tool's confirmation, with the exact JSON that will run.
+    await page.locator('.tool-row').filter({ hasText: 'files.write' }).first().click();
+    const destructive = page.getByRole('dialog');
+    await destructive.waitFor({ state: 'visible', timeout: 5_000 });
+    await destructive.getByRole('button', { name: 'Run' }).click();
+    await destructive
+      .getByText('This call can change this machine and cannot be undone. Run it?')
+      .waitFor({ state: 'visible', timeout: 5_000 });
+    const destructiveFile = `capability-tool-destructive${pass.suffix}.png`;
+    await page.screenshot({ path: path.join(OUT, destructiveFile), animations: 'disabled', fullPage: false });
+    captures.push({
+      pass: pass.key,
+      page: 'capability-tool-destructive',
+      file: destructiveFile,
+      note: 'the destructive confirmation: the exact JSON and Run once, inline in the sheet'
+    });
+    console.log(`  ${pass.key.padEnd(6)} ${destructiveFile}`);
+    await page.locator('.sheet-close').click();
+
+    // The plugin's refusal, verbatim in the result.
+    await page.locator('.tool-row').filter({ hasText: 'hello.echo' }).first().click();
+    const errorSheet = page.getByRole('dialog');
+    await errorSheet.waitFor({ state: 'visible', timeout: 5_000 });
+    await errorSheet.getByLabel(/^text/).fill('error');
+    await errorSheet.getByRole('button', { name: 'Run' }).click();
+    await errorSheet
+      .getByText('the plugin refused: that text is not allowed')
+      .waitFor({ state: 'visible', timeout: 5_000 });
+    const errorFile = `capability-tool-error${pass.suffix}.png`;
+    await page.screenshot({ path: path.join(OUT, errorFile), animations: 'disabled', fullPage: false });
+    captures.push({
+      pass: pass.key,
+      page: 'capability-tool-error',
+      file: errorFile,
+      note: "Try it's error state: the plugin's refusal verbatim"
+    });
+    console.log(`  ${pass.key.padEnd(6)} ${errorFile}`);
+    await page.locator('.sheet-close').click();
+
+    // The running state: the sheet owns the wait and says how long it may last.
+    await page.locator('.tool-row').filter({ hasText: 'hello.echo' }).first().click();
+    const runningSheet = page.getByRole('dialog');
+    await runningSheet.waitFor({ state: 'visible', timeout: 5_000 });
+    await runningSheet.getByLabel(/^text/).fill('slow');
+    await runningSheet.getByRole('button', { name: 'Run' }).click();
+    await runningSheet.getByRole('button', { name: /Running…/ }).waitFor({ state: 'visible', timeout: 3_000 });
+    const runningFile = `capability-tool-running${pass.suffix}.png`;
+    await page.screenshot({ path: path.join(OUT, runningFile), animations: 'disabled', fullPage: false });
+    captures.push({
+      pass: pass.key,
+      page: 'capability-tool-running',
+      file: runningFile,
+      note: 'the running state: Run pinned, the two-minute sentence beside it'
+    });
+    console.log(`  ${pass.key.padEnd(6)} ${runningFile}`);
+    await runningSheet.getByText(/Completed in/).waitFor({ state: 'visible', timeout: 10_000 });
+    await page.locator('.sheet-close').click();
   }
 
   if (meta.id === 'home') {
@@ -1279,6 +1385,37 @@ async function capturePage(page, state, meta, pass) {
     console.log(`  ${pass.key.padEnd(6)} ${tokensFile}`);
     await page.locator('.sheet-close').click();
     await connect.waitFor({ state: 'hidden', timeout: 5_000 }).catch(() => undefined);
+
+    await chooseMachine(page, state, 'studio');
+    await page
+      .getByText("studio is not connected. The console keeps trying; open the machine's panel if it stays offline.")
+      .waitFor({ state: 'visible', timeout: 5_000 });
+    const offlineFile = `home-offline${pass.suffix}.png`;
+    await page.screenshot({ path: path.join(OUT, offlineFile), animations: 'disabled', fullPage: false });
+    captures.push({
+      pass: pass.key,
+      page: 'home-offline',
+      file: offlineFile,
+      note: 'Home with an offline machine: the door dimmed, Copy disabled, one banner'
+    });
+    console.log(`  ${pass.key.padEnd(6)} ${offlineFile}`);
+
+    await chooseMachine(page, state, 'stale');
+    await page
+      .getByText('The machine is running. The console could not read its tool list, so these counts may be stale.')
+      .waitFor({ state: 'visible', timeout: 5_000 });
+    const staleFile = `home-stale${pass.suffix}.png`;
+    await page.screenshot({ path: path.join(OUT, staleFile), animations: 'disabled', fullPage: false });
+    captures.push({
+      pass: pass.key,
+      page: 'home-stale',
+      file: staleFile,
+      note: 'Home with a catalogue it could not read: the counts are labelled, not invented'
+    });
+    console.log(`  ${pass.key.padEnd(6)} ${staleFile}`);
+
+    await chooseMachine(page, state, 'workshop');
+    await page.locator('main .status-line').waitFor({ state: 'visible', timeout: 5_000 });
   }
 
   if (meta.id === 'activity') {
@@ -1422,59 +1559,68 @@ function buildGallery() {
       ? `<a href="${escapeHtml(file)}"><img src="${escapeHtml(file)}" alt="${escapeHtml(alt)}" loading="lazy"></a>`
       : '<p class="missing">not captured</p>';
 
+  const widths = [360, 390, 800, 1280];
+  const label = (meta) => (meta.tab ? `${meta.label} · ${meta.tab}` : meta.label);
+  const shot = (width, theme, id) => byKey.get(`${width}-${theme}:${id}`);
+
   const rows = PAGES.map((meta) => {
-    const light = byKey.get(`light:${meta.id}`);
-    const dark = byKey.get(`dark:${meta.id}`);
+    const pairs = widths
+      .map(
+        (width) => `
+        <div class="pair">
+          <figure><figcaption>light · ${width}px</figcaption>${image(shot(width, 'light', meta.id), `${label(meta)}, light, ${width}`)}</figure>
+          <figure><figcaption>dark · ${width}px</figcaption>${image(shot(width, 'dark', meta.id), `${label(meta)}, dark, ${width}`)}</figure>
+        </div>`
+      )
+      .join('');
     return `
       <section class="page">
-        <h2>${escapeHtml(meta.label)}</h2>
+        <h2>${escapeHtml(label(meta))}</h2>
         <p class="state">${escapeHtml(meta.state)}</p>
-        <div class="pair">
-          <figure><figcaption>light · 1280×900</figcaption>${image(light, `${meta.label}, light`)}</figure>
-          <figure><figcaption>dark · 1280×900</figcaption>${image(dark, `${meta.label}, dark`)}</figure>
-        </div>
+        ${pairs}
       </section>`;
   }).join('');
 
+  const workspaceKeys = [
+    ['terminal-workspace', 'the sessions-first empty state'],
+    ['terminal-session', 'one pty on the canvas'],
+    ['terminal-tools', 'the session menu'],
+    ['files-root', 'the real Files root'],
+    ['audit-detail', 'one Activity record open'],
+    ['activity-run', 'the run opened from Activity']
+  ];
   const workspaceRows = `
     <section class="page">
       <h2>Workspace</h2>
-      <p class="state">A selected device: the sessions-first empty state, and one pty's canvas (no output; no fake shell).</p>
-      <div class="pair">
-        <figure><figcaption>empty · light</figcaption>${image(byKey.get('light:terminal-workspace'), 'Terminal workspace empty, light')}</figure>
-        <figure><figcaption>empty · dark</figcaption>${image(byKey.get('dark:terminal-workspace'), 'Terminal workspace empty, dark')}</figure>
-      </div>
-      <div class="pair">
-        <figure><figcaption>pty open · light</figcaption>${image(byKey.get('light:terminal-session'), 'Terminal canvas, light')}</figure>
-        <figure><figcaption>pty open · dark</figcaption>${image(byKey.get('dark:terminal-session'), 'Terminal canvas, dark')}</figure>
-      </div>
-      <div class="pair">
-        <figure><figcaption>session menu · light</figcaption>${image(byKey.get('light:terminal-tools'), 'Session menu, light')}</figure>
-        <figure><figcaption>session menu · dark</figcaption>${image(byKey.get('dark:terminal-tools'), 'Session menu, dark')}</figure>
-      </div>
-      <div class="pair">
-        <figure><figcaption>files root · light</figcaption>${image(byKey.get('light:files-root'), 'Files root, light')}</figure>
-        <figure><figcaption>files root · dark</figcaption>${image(byKey.get('dark:files-root'), 'Files root, dark')}</figure>
-      </div>
-      <div class="pair">
-        <figure><figcaption>activity line open · light</figcaption>${image(byKey.get('light:audit-detail'), 'Activity detail, light')}</figure>
-        <figure><figcaption>activity line open · dark</figcaption>${image(byKey.get('dark:audit-detail'), 'Activity detail, dark')}</figure>
-      </div>
-      <div class="pair">
-        <figure><figcaption>run opened from Activity · light</figcaption>${image(byKey.get('light:activity-run'), 'Run opened from Activity, light')}</figure>
-        <figure><figcaption>run opened from Activity · dark</figcaption>${image(byKey.get('dark:activity-run'), 'Run opened from Activity, dark')}</figure>
-      </div>
+      <p class="state">A selected device, light and dark at 1280: the states the jsdom suite cannot see.</p>
+      ${workspaceKeys
+        .map(
+          ([id, note]) => `
+        <div class="pair">
+          <figure><figcaption>${escapeHtml(note)} · light</figcaption>${image(byKey.get(`1280-light:${id}`), `${note}, light`)}</figure>
+          <figure><figcaption>${escapeHtml(note)} · dark</figcaption>${image(byKey.get(`1280-dark:${id}`), `${note}, dark`)}</figure>
+        </div>`
+        )
+        .join('')}
     </section>`;
 
-  const mobileRows = PASSES.find((pass) => pass.key === 'mobile')
-    .pages.map((meta) => {
-      const file = byKey.get(`mobile:${meta.id}`);
-      return `
-        <figure class="mobile">
-          <figcaption>${escapeHtml(meta.label)} · light · 390×844</figcaption>
-          ${image(file, `${meta.label}, light, 390 by 844`)}
-        </figure>`;
-    })
+  const known = new Set([...PAGES.map((meta) => meta.id), ...workspaceKeys.map(([id]) => id)]);
+  const extras = [...new Set(captures.map((capture) => capture.page))].filter((id) => !known.has(id));
+  const stateRows = extras
+    .map(
+      (id) => `
+      <section class="page">
+        <h2>${escapeHtml(id)}</h2>
+        <div class="pair">
+          <figure><figcaption>light · 1280</figcaption>${image(byKey.get(`1280-light:${id}`), `${id}, light`)}</figure>
+          <figure><figcaption>dark · 1280</figcaption>${image(byKey.get(`1280-dark:${id}`), `${id}, dark`)}</figure>
+        </div>
+        <div class="pair">
+          <figure><figcaption>360 · light</figcaption>${image(byKey.get(`360-light:${id}`), `${id}, 360`)}</figure>
+          <figure><figcaption>800 · dark</figcaption>${image(byKey.get(`800-dark:${id}`), `${id}, 800 dark`)}</figure>
+        </div>
+      </section>`
+    )
     .join('');
 
   return `<!doctype html>
@@ -1507,16 +1653,12 @@ function buildGallery() {
   <h1>React console screenshots — ${escapeHtml(RAW_TAG)}</h1>
   <p class="meta">
     Rendered ${escapeHtml(new Date(NOW).toISOString())} from <code>dist/index.html</code> with stubbed console JSON.
-    Full-size pages are 1280×900, light and dark; Devices and Terminal also have a 390×844 light pass.
+    Every destination at 360, 390, 800 and 1280 px, light and dark, plus the states the plan names.
   </p>
 </header>
-${workspaceRows}
 ${rows}
-<section class="page">
-  <h2>Small screens</h2>
-  <p class="state">Light only, 390×844: the rail becomes a bottom strip and the columns collapse.</p>
-  ${mobileRows}
-</section>
+${workspaceRows}
+${stateRows}
 </body>
 </html>
 `;
@@ -1601,7 +1743,7 @@ try {
       for (const issue of state.pageErrors) pageErrors.push({ pass: pass.key, ...issue });
       for (const issue of state.apiFailures) apiFailures.push({ pass: pass.key, ...issue });
       for (const issue of state.consoleErrors) consoleErrors.push({ pass: pass.key, ...issue });
-      if (pass.key !== 'mobile') await captureWorkspace(page, state, pass);
+      if (pass.width >= 800) await captureWorkspace(page, state, pass);
       await context.close().catch(() => {});
     }
   }

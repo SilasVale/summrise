@@ -6,7 +6,7 @@ import { age, shortId } from "./format";
 import { listPlugins } from "./pluginApi";
 import { useLiveTools } from "./useLiveTools";
 
-/** A one-time enrolment code and the command that redeems it. */
+/** A one-time enrollment code and the command that redeems it. */
 export type Enrollment = { code: string; expires_at_ms: number } | null;
 
 type FleetProps = {
@@ -26,7 +26,7 @@ type FleetProps = {
 
 /**
  * Home before a machine is selected: the fleet. One row per machine, one accent for the action that
- * adds one, and the enrolment command when it exists. This is the previous Devices page kept because
+ * adds one, and the enrollment command when it exists. This is the previous Devices page kept because
  * it is the only way in — restyled to the hub's shell, not given a second dashboard.
  */
 function FleetHome(props: FleetProps) {
@@ -229,6 +229,8 @@ function HubHome(
       <div className="home-lower">
         {offline ? (
           <p className="hint">Tool counts are unavailable while the machine is offline.</p>
+        ) : live.error && live.tools.length === 0 ? (
+          <p className="hint">Tool counts are unavailable until the console can read the machine's list.</p>
         ) : (
           <button type="button" className="counts-line" onClick={props.onCapabilities}>
             {plural(live.tools.length, "tool")} · {plural(capabilities, "capability", "capabilities")}
