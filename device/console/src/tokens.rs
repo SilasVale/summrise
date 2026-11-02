@@ -149,6 +149,10 @@ pub(crate) struct Draft {
     pub(crate) name: String,
     pub(crate) scope: TokenScope,
     pub(crate) tools: Vec<String>,
+    /// Tools outside the static registry that the requested device advertised in its live
+    /// `tools/list`. The caller fills this from the device; empty means the static registry is the
+    /// whole scope. An aggregate token keeps it empty: plugin tools are per-device in v1.
+    pub(crate) advertised_tools: BTreeSet<String>,
     pub(crate) allow_destructive: bool,
     /// The requested lifetime in seconds; absent means the token never expires.
     pub(crate) expires_in_s: Option<u64>,
@@ -300,11 +304,9 @@ impl Tokens {
         if draft.tools.is_empty() {
             return Err(TokenError::EmptyTools);
         }
-        if draft
-            .tools
-            .iter()
-            .any(|tool| summrise_core::registry::tool(tool).is_none())
-        {
+        if draft.tools.iter().any(|tool| {
+            summrise_core::registry::tool(tool).is_none() && !draft.advertised_tools.contains(tool)
+        }) {
             return Err(TokenError::UnknownTool);
         }
         let (device_id, device_ids) = match draft.scope {
@@ -554,12 +556,11 @@ fn index(list: Vec<Token>) -> Result<(BTreeMap<String, Token>, usize), String> {
         if token.name.trim().is_empty() || token.name.chars().count() > MAX_NAME_CHARS {
             return Err("an entry has an empty or overlong name".to_owned());
         }
-        if token.tools.is_empty()
-            || token
-                .tools
-                .iter()
-                .any(|tool| summrise_core::registry::tool(tool).is_none())
-        {
+        // The registry is not the universe at load. A plugin tool belongs to a device and is not in
+        // this build's registry, so requiring a registry entry here would make a token that names
+        // one disappear on the next console start. Only the wire shape is a file invariant; a tool
+        // the device no longer advertises is refused by the device, not by a silent deletion.
+        if token.tools.is_empty() || token.tools.iter().any(|tool| !is_tool_name(tool)) {
             dropped += 1;
             continue;
         }
@@ -600,6 +601,18 @@ fn same_hash(token: &Token, hash: &str) -> bool {
     constant_time_eq(token.hash.as_bytes(), hash.as_bytes())
 }
 
+/// Whether `value` has the shape of an MCP tool name: `[A-Za-z0-9_.-]{1,64}` (spec §8.2).
+///
+/// The file's tool names are checked for this shape, never against the registry: a plugin tool is
+/// not in this build's registry, and a record that names one is valid.
+fn is_tool_name(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 64
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'.' | b'-'))
+}
+
 /// Whether `value` is exactly 64 lowercase hex characters: the only shape this build writes.
 fn is_lower_hex_64(value: &str) -> bool {
     value.len() == TOKEN_HEX_CHARS
@@ -638,6 +651,7 @@ mod tests {
             name: name.to_owned(),
             scope: TokenScope::Device(device_id.to_owned()),
             tools: tools.iter().map(|tool| (*tool).to_owned()).collect(),
+            advertised_tools: BTreeSet::new(),
             allow_destructive: false,
             expires_in_s: None,
         }
@@ -1056,6 +1070,43 @@ mod tests {
         std::fs::remove_dir_all(&data).ok();
     }
 
+    /// A plugin tool is a per-device fact the caller has already read from `tools/list`; the store
+    /// accepts it only when that read put it in the draft. The record's stored shape is unchanged:
+    /// the tools remain the same list of names, and a reload keeps them.
+    #[test]
+    fn a_token_may_scope_an_advertised_plugin_tool() {
+        let data = tempdir("plugin-tool");
+        let mut tokens = Tokens::load(&data).expect("an empty store loads");
+
+        let mut with_plugin = draft("hello", &device_id(), &["files.read", "hello.greet"]);
+        with_plugin
+            .advertised_tools
+            .insert("hello.greet".to_owned());
+        let (meta, secret) = tokens
+            .create(with_plugin, |_| true, 1_000)
+            .expect("the device advertised the plugin tool");
+        assert_eq!(meta.tools, vec!["files.read", "hello.greet"]);
+        assert!(is_token(&secret));
+
+        // The shape on disk is the token file's existing one: a restart still serves the scope.
+        let reloaded = Tokens::load(&data).expect("the file reloads");
+        assert_eq!(reloaded.list().len(), 1);
+        assert_eq!(reloaded.list()[0].tools, meta.tools);
+
+        // A name nobody advertised is still refused; the live read is what makes it valid.
+        assert_eq!(
+            tokens
+                .create(
+                    draft("typo", &device_id(), &["hello.greet"]),
+                    |_| true,
+                    2_000
+                )
+                .err(),
+            Some(TokenError::UnknownTool)
+        );
+        std::fs::remove_dir_all(&data).ok();
+    }
+
     /// A damaged file denies API clients but does not take the console down; the bytes are kept.
     #[test]
     fn a_damaged_tokens_file_starts_with_no_tokens_and_keeps_its_bytes() {
@@ -1114,10 +1165,11 @@ mod tests {
         std::fs::remove_dir_all(&data).ok();
     }
 
-    /// A tool that left the registry drops that record, not every token: fixed configurations for
-    /// other tools keep working after a registry change.
+    /// A record with a tool name the wire could never carry is dropped alone, not every token:
+    /// fixed configurations for other tools keep working. A name outside this build's registry is
+    /// NOT such a record: it may be a plugin tool, and the device, not this file, decides it.
     #[test]
-    fn a_record_with_a_tool_outside_the_registry_is_dropped_alone() {
+    fn a_record_with_a_malformed_tool_name_is_dropped_alone() {
         let data = tempdir("registry-drift");
         let path = data.join(TOKENS_FILE);
         let valid = serde_json::json!([{
@@ -1132,7 +1184,7 @@ mod tests {
             "id": "bb".repeat(32),
             "name": "drop",
             "device_id": "ab".repeat(32),
-            "tools": ["no.such.tool"],
+            "tools": ["not a tool name"],
             "allow_destructive": false,
             "created_at_ms": 1_000,
             "hash": "22".repeat(32),
@@ -1149,7 +1201,7 @@ mod tests {
 
         assert_eq!(tokens.list().len(), 1, "only the valid record is served");
         assert_eq!(tokens.list()[0].name, "keep");
-        assert!(path.exists(), "a registry change is not file corruption");
+        assert!(path.exists(), "a malformed record is not file corruption");
         assert!(
             !data.join("tokens.json.bad").exists(),
             "nothing is quarantined"
@@ -1722,6 +1774,7 @@ mod tests {
             name: "all".into(),
             scope: TokenScope::Devices(ids.iter().map(|id| (*id).to_owned()).collect()),
             tools: vec!["files.read".into()],
+            advertised_tools: BTreeSet::new(),
             allow_destructive: false,
             expires_in_s: None,
         }

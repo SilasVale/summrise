@@ -7305,7 +7305,7 @@ async fn a_token_expiry_outside_the_window_is_a_typed_400() {
     assert_eq!(list, json!([]), "a refused expiry mints nothing: {list}");
 }
 
-// ---- the live catalogue (capability hub B1) ----------------------------------------------------
+// ---- the live catalogue and plugin-tool token scopes (capability hub B1/B2) --------------------
 
 /// `GET /fleet/:id/tools` is a real `tools/list` over the device channel, under the operator's own
 /// scope. The console adds only the source/capability classification; the device's list is the
@@ -7490,6 +7490,199 @@ async fn the_live_catalogue_is_500_when_the_device_answers_malformed() {
     let (status, body) = read.await.expect("the read finishes");
     assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR, "{body}");
     assert_eq!(body["error"], json!("malformed_tools"));
+}
+
+/// A token may name a plugin tool only when the target device's live `tools/list` advertises it.
+/// The stored record is the existing shape; the plugin name is just another tool string.
+#[tokio::test]
+async fn a_token_can_scope_a_plugin_tool_the_device_advertises() {
+    let fixture = Fixture::new("plugin-token-online");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _device_token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xd0)).await;
+    let session = fixture.authenticate().await;
+
+    let app = fixture.app();
+    let session_for_create = session.clone();
+    let device_for_create = device_id.clone();
+    let create = tokio::spawn(async move {
+        send(
+            app,
+            post_json_bearer(
+                "/tokens",
+                &session_for_create,
+                json!({
+                    "name": "hello",
+                    "device_id": device_for_create,
+                    "tools": ["files.read", "hello.greet"],
+                    "allow_destructive": false,
+                }),
+            ),
+        )
+        .await
+    });
+
+    let frame = next_json(&mut device).await;
+    assert_eq!(frame["mcp"]["method"], json!("tools/list"), "{frame}");
+    assert_eq!(frame["token"]["token_id"], json!("operator"));
+    answer(
+        &mut device,
+        &frame,
+        json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": { "tools": [{
+                "name": "hello.greet",
+                "description": "Greet someone.",
+                "inputSchema": { "type": "object", "properties": {} },
+            }]},
+        }),
+    )
+    .await;
+
+    let (status, created) = create.await.expect("the create finishes");
+    assert_eq!(status, StatusCode::CREATED, "{created}");
+    assert_eq!(created["tools"], json!(["files.read", "hello.greet"]));
+    assert!(created["token"]
+        .as_str()
+        .expect("the plaintext is returned once")
+        .starts_with("srm_"));
+
+    let (_, list) = send(fixture.app(), get("/tokens", Some(&session))).await;
+    assert_eq!(list[0]["tools"], json!(["files.read", "hello.greet"]));
+
+    // The stored shape did not change: the plugin name is a string in the existing `tools` list.
+    let text = fs::read_to_string(fixture.config.data.join("tokens.json"))
+        .expect("the token file is written");
+    let stored: Value = serde_json::from_str(&text).expect("the token file is JSON");
+    let mut keys: Vec<&str> = stored[0]
+        .as_object()
+        .expect("a stored record")
+        .keys()
+        .map(String::as_str)
+        .collect();
+    keys.sort_unstable();
+    assert_eq!(
+        keys,
+        [
+            "allow_destructive",
+            "created_at_ms",
+            "device_id",
+            "hash",
+            "id",
+            "name",
+            "tools"
+        ],
+        "a plugin tool adds no field to the record: {stored}"
+    );
+}
+
+/// Offline with a plugin tool is a 400 that names the action, not a token minted against a list
+/// the console never read.
+#[tokio::test]
+async fn a_plugin_tool_is_refused_while_the_device_is_offline() {
+    let fixture = Fixture::new("plugin-token-offline");
+    let (device_id, _token) = fixture.register(&signing_key(0xd1)).await;
+    let session = fixture.authenticate().await;
+
+    let (status, body) = fixture
+        .create_token(&session, &device_id, "hello", &["hello.greet"], false)
+        .await;
+
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    assert_eq!(body["error"], json!("unknown_tool"));
+    let message = body["message"]
+        .as_str()
+        .expect("the refusal has a sentence");
+    assert!(message.contains("hello.greet"), "{message}");
+    assert!(
+        message.contains("connect the machine, then mint the token"),
+        "the sentence names the action: {message}"
+    );
+
+    let (_, list) = send(fixture.app(), get("/tokens", Some(&session))).await;
+    assert_eq!(list, json!([]), "a refused mint writes nothing: {list}");
+}
+
+/// Online but not advertising the name is still a 400: the live list is the authority, so a typo
+/// cannot become a token scope.
+#[tokio::test]
+async fn a_plugin_tool_the_device_does_not_advertise_is_refused() {
+    let fixture = Fixture::new("plugin-token-unknown");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xd2)).await;
+    let session = fixture.authenticate().await;
+
+    let app = fixture.app();
+    let session_for_create = session.clone();
+    let device_for_create = device_id.clone();
+    let create = tokio::spawn(async move {
+        send(
+            app,
+            post_json_bearer(
+                "/tokens",
+                &session_for_create,
+                json!({
+                    "name": "typo",
+                    "device_id": device_for_create,
+                    "tools": ["hello.nope"],
+                    "allow_destructive": false,
+                }),
+            ),
+        )
+        .await
+    });
+
+    let frame = next_json(&mut device).await;
+    assert_eq!(frame["mcp"]["method"], json!("tools/list"), "{frame}");
+    answer(
+        &mut device,
+        &frame,
+        json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": { "tools": [{
+                "name": "hello.greet",
+                "inputSchema": { "type": "object", "properties": {} },
+            }]},
+        }),
+    )
+    .await;
+
+    let (status, body) = create.await.expect("the create finishes");
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    assert_eq!(body["error"], json!("unknown_tool"));
+    assert_eq!(
+        body["message"],
+        json!("the device does not advertise hello.nope; connect it and try again")
+    );
+
+    let (_, list) = send(fixture.app(), get("/tokens", Some(&session))).await;
+    assert_eq!(list, json!([]), "a refused mint writes nothing: {list}");
+}
+
+/// An aggregate token's scope is one list for every device, so v1 keeps it registry-only and says
+/// plugin tools are per-device rather than minting a scope most of the fleet cannot honour.
+#[tokio::test]
+async fn an_aggregate_token_cannot_scope_a_plugin_tool() {
+    let fixture = Fixture::new("plugin-token-aggregate");
+    let (device_id, _token) = fixture.register(&signing_key(0xd3)).await;
+    let session = fixture.authenticate().await;
+
+    let (status, body) = fixture
+        .create_aggregate_token(&session, "all", &[device_id], &["hello.greet"])
+        .await;
+
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    assert_eq!(body["error"], json!("unknown_tool"));
+    let message = body["message"]
+        .as_str()
+        .expect("the refusal has a sentence");
+    assert!(
+        message.contains("per-device"),
+        "the sentence names the v1 rule: {message}"
+    );
 }
 
 /// The manual canary for the design's real-client claim.

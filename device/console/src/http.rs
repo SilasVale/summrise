@@ -4405,6 +4405,8 @@ async fn next_token_mint(
             name: form.name,
             scope: crate::tokens::TokenScope::Device(device_id.clone()),
             tools: every_tool(),
+            // The maud form's list is the static registry: it never offers a plugin tool.
+            advertised_tools: std::collections::BTreeSet::new(),
             allow_destructive: form.allow_destructive.is_some(),
             expires_in_s,
         },
@@ -4626,6 +4628,8 @@ async fn next_fleet_token_mint(
             name: field("name").unwrap_or_default().to_owned(),
             scope: crate::tokens::TokenScope::Devices(chosen),
             tools: every_tool(),
+            // An aggregate token stays registry-only in v1 (spec §8.4).
+            advertised_tools: std::collections::BTreeSet::new(),
             allow_destructive: field("allow_destructive").is_some(),
             expires_in_s,
         },
@@ -5223,11 +5227,81 @@ async fn create_token(
         .map(|device| device.id)
         .collect();
 
+    // The static registry is accepted offline, exactly as before. A name outside it is a plugin
+    // tool, and a plugin tool is a device fact: only the device that advertises it can vouch for it.
+    let plugin_tools: Vec<String> = request
+        .tools
+        .iter()
+        .filter(|tool| summrise_core::registry::tool(tool).is_none())
+        .cloned()
+        .collect();
+    let mut advertised_tools = std::collections::BTreeSet::new();
+    if let Some(tool) = plugin_tools.first() {
+        match &scope {
+            // An aggregate token's scope is one list applied to every device, and v1 keeps it on
+            // the static registry. A plugin tool is per-device, so this refusal says so.
+            crate::tokens::TokenScope::Devices(_) => {
+                let refusal = ApiError::bad_request("unknown_tool").saying(format!(
+                    "plugin tools are per-device in v1; mint a token for the device that advertises \
+                     {tool}"
+                ));
+                return Err(app.deny(audit_id.as_deref(), refusal).await);
+            }
+            crate::tokens::TokenScope::Device(device_id) => {
+                if !known.contains(device_id) {
+                    return Err(app
+                        .deny(audit_id.as_deref(), ApiError::not_found("unknown_device"))
+                        .await);
+                }
+                // The same read the catalogue route makes: the device's own `tools/list`, with the
+                // operator's scope. No cache, so the check sees what the device advertises now.
+                let live = match read_live_tools(&app, device_id).await {
+                    Ok(live) => live,
+                    Err(LiveToolsError::Unavailable) => {
+                        let refusal = ApiError::bad_request("unknown_tool").saying(format!(
+                            "the machine is not connected, so the console cannot check {tool}; \
+                             connect the machine, then mint the token"
+                        ));
+                        return Err(app.deny(audit_id.as_deref(), refusal).await);
+                    }
+                    Err(LiveToolsError::Timeout) => {
+                        let refusal = ApiError::bad_request("unknown_tool").saying(format!(
+                            "the device did not answer while the console checked {tool}; connect \
+                             the machine, then mint the token"
+                        ));
+                        return Err(app.deny(audit_id.as_deref(), refusal).await);
+                    }
+                    Err(LiveToolsError::Malformed) => {
+                        let refusal = ApiError::bad_request("unknown_tool").saying(
+                            "the device sent a tool list this console cannot read; update the \
+                             device, then mint the token",
+                        );
+                        return Err(app.deny(audit_id.as_deref(), refusal).await);
+                    }
+                };
+                let advertised: std::collections::BTreeSet<&str> = live
+                    .iter()
+                    .filter_map(|tool| tool.get("name").and_then(Value::as_str))
+                    .collect();
+                for tool in &plugin_tools {
+                    if !advertised.contains(tool.as_str()) {
+                        let refusal = ApiError::bad_request("unknown_tool").saying(format!(
+                            "the device does not advertise {tool}; connect it and try again"
+                        ));
+                        return Err(app.deny(audit_id.as_deref(), refusal).await);
+                    }
+                    advertised_tools.insert(tool.clone());
+                }
+            }
+        }
+    }
+
     let created = lock(&app.tokens).create(
         crate::tokens::Draft {
             name: request.name,
             scope,
             tools: request.tools,
+            advertised_tools,
             allow_destructive: request.allow_destructive,
             expires_in_s: request.expires_in_s,
         },
@@ -5242,7 +5316,9 @@ async fn create_token(
                 TokenError::NameEmpty => ApiError::bad_request("name_empty"),
                 TokenError::NameTooLong => ApiError::bad_request("invalid_name"),
                 TokenError::EmptyTools => ApiError::bad_request("empty_tools"),
-                TokenError::UnknownTool => ApiError::bad_request("unknown_tool"),
+                TokenError::UnknownTool => ApiError::bad_request("unknown_tool").saying(
+                    "that tool is not in this build's registry; pick a tool the device advertises",
+                ),
                 TokenError::UnknownDevice => ApiError::not_found("unknown_device"),
                 TokenError::EmptyDevices => ApiError::bad_request("empty_devices"),
                 TokenError::DuplicateDevice => ApiError::bad_request("duplicate_device"),
