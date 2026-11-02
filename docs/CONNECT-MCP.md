@@ -9,9 +9,10 @@ credential is a bearer the console accepts: a console-signed grant for a session
 for a configuration that must not change.
 
 The hub did not change that contract: the path and the bearer are the same. What can appear behind the
-endpoint is larger. The device advertises its built-in tools plus every running plugin's tools, and
-the console reads that live list for the page, the token form and `tools/list`. A plugin tool is
-called exactly like a built-in, with the same token scope and the same audit row.
+endpoint is larger. The device advertises its built-in tools plus every running plugin's tools; the
+console reads that live list for the page and the token form, and the endpoint forwards `tools/list`
+to the device so the client sees the same catalogue. A plugin tool is called exactly like a built-in,
+with the same token scope and the same audit row.
 
 ## The endpoint
 
