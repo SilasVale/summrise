@@ -350,7 +350,7 @@ main.terminal-main { display: grid; grid-template-rows: auto minmax(0, 1fr); ali
   padding: var(--sp-2) var(--sp-3);
   border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface);
 }
-.endpoint { flex: 1; min-width: 0; overflow-wrap: anywhere; font-size: var(--fs-sm); }
+.endpoint { flex: 1; min-width: 0; overflow-wrap: anywhere; word-break: break-all; white-space: normal; font-size: var(--fs-sm); }
 .endpoint.dim { color: var(--ink-faint); }
 .home-actions { display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap; }
 .home-lower { display: grid; gap: var(--sp-4); }
@@ -1648,6 +1648,46 @@ button.toggle[aria-pressed="true"] { background: var(--panel-3); font-weight: va
   margin: 0; padding: var(--sp-3); max-height: 60vh; overflow: auto;
   border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--panel-2);
   font-size: var(--fs-sm); line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere;
+}
+/* ── Connect: one sheet, three sections, one credential at a time ─────────────────────────────── */
+.connect-sheet { display: grid; gap: var(--sp-4); min-width: 0; }
+.connect-sheet .connect-tabs { flex-wrap: wrap; }
+.connect-config p { margin: var(--sp-2) 0 0; }
+.tokens-section { display: grid; gap: var(--sp-4); min-width: 0; }
+.token-create { display: grid; gap: var(--sp-3); min-width: 0; }
+.token-create h3, .token-list h3 {
+  margin: 0; font-size: var(--fs-base); font-weight: var(--fw-semi);
+  text-transform: none; letter-spacing: normal; color: var(--ink);
+}
+.token-warning { margin: 0; font-size: var(--fs-base); font-weight: var(--fw-semi); }
+.created-token {
+  display: grid; gap: var(--sp-2); padding: var(--sp-3);
+  border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--panel-2);
+}
+.scope-groups { display: grid; gap: var(--sp-3); }
+.scope-group {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(13rem, 1fr));
+  gap: var(--sp-1) var(--sp-2); margin: 0; padding: var(--sp-2) var(--sp-3);
+  border: 1px solid var(--line); border-radius: var(--radius-sm);
+}
+.scope-group legend { padding: 0 var(--sp-1); font-size: var(--fs-xs); font-weight: var(--fw-semi); color: var(--ink-muted); }
+.scope-group .check { font-size: var(--fs-xs); }
+.fleet-token-disclosure { border-top: 1px solid var(--line); padding-top: var(--sp-3); }
+.fleet-token-disclosure > summary { cursor: pointer; color: var(--ink-muted); font-size: var(--fs-sm); }
+.fleet-token-disclosure[open] > summary { margin-bottom: var(--sp-3); }
+/* In the device-token view the one accent is Create token; a fleet token is a second, quieter job. */
+.fleet-token-disclosure:not(.fleet-only) button.primary {
+  background: var(--surface); border-color: var(--line-strong); color: var(--ink);
+}
+.fleet-token-disclosure:not(.fleet-only) button.primary:hover {
+  background: var(--panel-3); border-color: var(--line-strong);
+}
+.fleet-token-disclosure .fleet-tokens { display: grid; gap: var(--sp-3); }
+.fleet-token-disclosure .token-list { display: grid; gap: var(--sp-2); }
+
+@media (max-width: 639px) {
+  .connect-sheet .connect-tabs button { flex: 1; text-align: center; }
+  .scope-group { grid-template-columns: 1fr; }
 }
 .plugin-logs .hint p { margin: 0; }
 @media (max-width: 639px) {

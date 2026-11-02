@@ -1249,6 +1249,36 @@ async function capturePage(page, state, meta, pass) {
       note: 'the hub: one status line, the endpoint with Copy, one accent, counts, the last three calls'
     });
     console.log(`  ${pass.key.padEnd(6)} ${hubFile}`);
+
+    // Connect is a sheet: the endpoint first, then the token job in the same sheet.
+    await page.getByRole('button', { name: 'Connect a client' }).click();
+    const connect = page.getByRole('dialog', { name: 'Connect a client' });
+    await connect.waitFor({ state: 'visible', timeout: 5_000 });
+    await settle(page, state, 250);
+    const endpointFile = `connect-endpoint${pass.suffix}.png`;
+    await page.screenshot({ path: path.join(OUT, endpointFile), animations: 'disabled', fullPage: false });
+    captures.push({
+      pass: pass.key,
+      page: 'connect-endpoint',
+      file: endpointFile,
+      note: 'Connect: the endpoint, Copy, and one sentence on the bearer'
+    });
+    console.log(`  ${pass.key.padEnd(6)} ${endpointFile}`);
+
+    await connect.getByRole('tab', { name: 'Tokens' }).click();
+    await connect.getByRole('heading', { name: 'Create a token' }).waitFor({ state: 'visible', timeout: 5_000 });
+    await settle(page, state, 250);
+    const tokensFile = `connect-tokens${pass.suffix}.png`;
+    await page.screenshot({ path: path.join(OUT, tokensFile), animations: 'disabled', fullPage: false });
+    captures.push({
+      pass: pass.key,
+      page: 'connect-tokens',
+      file: tokensFile,
+      note: 'Connect: the token list and create form, presets first'
+    });
+    console.log(`  ${pass.key.padEnd(6)} ${tokensFile}`);
+    await page.locator('.sheet-close').click();
+    await connect.waitFor({ state: 'hidden', timeout: 5_000 }).catch(() => undefined);
   }
 
   if (meta.id === 'audit') {

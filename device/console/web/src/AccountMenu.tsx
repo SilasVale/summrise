@@ -13,14 +13,14 @@ export function AccountMenu({
   consoleVersion,
   onSignOut,
   onConnect,
-  onFleetTokens,
+  onTokens,
   onNotice
 }: {
   session: Session;
   consoleVersion: string | null;
   onSignOut: () => void;
   onConnect: () => void;
-  onFleetTokens: () => void;
+  onTokens: () => void;
   onNotice: (sentence: string) => void;
 }) {
   const identity = session.email
@@ -47,8 +47,8 @@ export function AccountMenu({
         <button type="button" onClick={onConnect}>
           Connect a client
         </button>
-        <button type="button" onClick={onFleetTokens}>
-          Fleet tokens
+        <button type="button" onClick={onTokens}>
+          Tokens
         </button>
         <button
           type="button"

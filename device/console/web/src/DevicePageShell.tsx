@@ -15,6 +15,7 @@ export function DevicePageShell({
   devices,
   chosen,
   onChoose,
+  onConnect,
   children
 }: {
   tab: DeviceTab;
@@ -22,6 +23,7 @@ export function DevicePageShell({
   devices: Device[];
   chosen: Device | null;
   onChoose: (id: string) => void;
+  onConnect: () => void;
   children: (grant: Grant) => React.ReactNode;
 }) {
   const grant = grantFor(chosen);
@@ -29,6 +31,11 @@ export function DevicePageShell({
     <div className="page device-page">
       <header className="page-head device-head">
         <h1>{DEVICE_TAB_LABELS[tab]}</h1>
+        <div className="page-actions">
+          <button type="button" className="mini" onClick={onConnect}>
+            Connect
+          </button>
+        </div>
         <nav className="device-tabs" aria-label="Device views">
           {DEVICE_TABS.map((entry) => (
             <button

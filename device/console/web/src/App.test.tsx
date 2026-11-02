@@ -349,13 +349,13 @@ describe("App", () => {
     expect(screen.queryByText("No audit lines yet.")).not.toBeInTheDocument();
   });
 
-  it("opens the fleet-token form from the account menu", async () => {
+  it("opens the Tokens section of the Connect sheet from the account menu", async () => {
     await bootAndSignIn();
 
     openAccount();
-    fireEvent.click(screen.getByRole("button", { name: "Fleet tokens" }));
+    fireEvent.click(screen.getByRole("button", { name: "Tokens" }));
 
-    const dialog = await screen.findByRole("dialog", { name: "Fleet tokens" });
+    const dialog = await screen.findByRole("dialog", { name: "Tokens" });
     expect(within(dialog).getByRole("button", { name: "Create fleet token" })).toBeInTheDocument();
     expect(within(dialog).getByText(/accepted only on/)).toBeInTheDocument();
   });

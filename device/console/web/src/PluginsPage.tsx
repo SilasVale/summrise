@@ -18,7 +18,7 @@ import { Sheet } from "./Sheet";
 import { useLiveTools } from "./useLiveTools";
 
 const LOG_LINES = 200;
-const GUIDE_URL = "https://github.com/SilasVale/summrise/tree/main/docs/PLUGINS.md";
+const GUIDE_URL = "https://github.com/SilasVale/summrise/blob/main/docs/PLUGINS.md";
 
 const STATE_LABEL: Record<PluginRecord["state"], string> = {
   running: "Running",

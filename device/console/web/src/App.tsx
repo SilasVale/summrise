@@ -17,8 +17,7 @@ import { recordVitals, type VitalsSample } from "./vitals";
 import { AUDIT_WINDOW, AuditTable } from "./AuditTable";
 import { DEVICE_TAB_LABELS, PAGE_LABELS, Rail, type DeviceTab, type Page } from "./Rail";
 import { Modal } from "./Modal";
-import { ConnectCard } from "./ConnectCard";
-import { FleetTokens } from "./FleetTokens";
+import { ConnectSheet, type ConnectSection } from "./ConnectSheet";
 import { TerminalWorkspace } from "./TerminalWorkspace";
 import type { Grant } from "./terminal";
 import { FilesPage } from "./FilesPage";
@@ -91,8 +90,9 @@ export function App() {
   const [tokenInput, setTokenInput] = useState("");
   const [renaming, setRenaming] = useState<Device | null>(null);
   const [removing, setRemoving] = useState<Device | null>(null);
-  const [connecting, setConnecting] = useState<Device | null>(null);
-  const [fleetTokens, setFleetTokens] = useState(false);
+  const [connect, setConnect] = useState<{ section: ConnectSection; device: Device | null } | null>(
+    null
+  );
   const [draftName, setDraftName] = useState("");
   const [notice, setNotice] = useState<string | null>(null);
   const [code, setCode] = useState<{ code: string; expires_at_ms: number } | null>(null);
@@ -227,8 +227,7 @@ export function App() {
     setPage("home");
     setTab("terminal");
     setOpenTool(null);
-    setConnecting(null);
-    setFleetTokens(false);
+    setConnect(null);
     setCode(null);
     if (window.location.hash) {
       window.history.replaceState(null, "", window.location.pathname + window.location.search);
@@ -456,8 +455,8 @@ export function App() {
       session={session}
       consoleVersion={consoleVersion}
       onSignOut={signOut}
-      onConnect={() => setConnecting(chosen)}
-      onFleetTokens={() => setFleetTokens(true)}
+      onConnect={() => setConnect({ section: "endpoint", device: chosen })}
+      onTokens={() => setConnect({ section: "tokens", device: chosen })}
       onNotice={setNotice}
     />
   );
@@ -523,7 +522,7 @@ export function App() {
             onDismissCode={() => setCode(null)}
             onNotice={setNotice}
             audit={audit}
-            onConnect={() => setConnecting(chosen)}
+            onConnect={() => setConnect({ section: "endpoint", device: chosen })}
             onCapabilities={() => setPage("capabilities")}
             onPlugins={() => setPage("plugins")}
             onActivity={() => setPage("activity")}
@@ -590,6 +589,7 @@ export function App() {
             devices={devices}
             chosen={chosen}
             onChoose={(id) => choose(id)}
+            onConnect={() => setConnect({ section: "endpoint", device: chosen })}
           >
             {() => (
               <>
@@ -665,6 +665,15 @@ export function App() {
         )}
       </main>
 
+      {connect && (
+        <ConnectSheet
+          device={connect.device}
+          devices={devices}
+          initialSection={connect.section}
+          onClose={() => setConnect(null)}
+        />
+      )}
+
       {notice && (
         <div className="toast" role="status">
           {notice}
@@ -688,21 +697,6 @@ export function App() {
             <button type="button" onClick={() => setRenaming(null)}>Cancel</button>
             <button type="button" className="primary" onClick={() => void applyRename()}>Save</button>
           </div>
-        </Modal>
-      )}
-
-      {connecting && (
-        <ConnectCard device={connecting} onClose={() => setConnecting(null)} />
-      )}
-
-      {fleetTokens && (
-        <Modal title="Fleet tokens" onClose={() => setFleetTokens(false)}>
-          <FleetTokens
-            devices={devices}
-            tokens={tokens}
-            embedded
-            onChanged={() => void load()}
-          />
         </Modal>
       )}
 
