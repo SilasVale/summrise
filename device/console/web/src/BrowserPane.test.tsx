@@ -97,6 +97,21 @@ describe("BrowserPane", () => {
     expect(screen.getByText("https://a.test")).toBeInTheDocument();
   });
 
+  it("focuses the element a click on the picture lands on", async () => {
+    const { container } = await openPane();
+    fireEvent.click(screen.getByRole("button", { name: "Refresh view" }));
+    await waitFor(() => expect(container.querySelector(".browser-shot")).not.toBeNull());
+    const image = container.querySelector(".browser-shot") as HTMLImageElement;
+
+    fireEvent.click(image);
+
+    await waitFor(() =>
+      expect(callToolMock.mock.calls.some(([, name]) => name === "browser.eval")).toBe(true)
+    );
+    const call = callToolMock.mock.calls.find(([, name]) => name === "browser.eval");
+    expect((call?.[2] as { expression: string }).expression).toContain(".focus()");
+  });
+
   it("keeps Navigate disabled until there is both a target and an address", async () => {
     await openPane();
     const navigate = screen.getByRole("button", { name: "Navigate" });
