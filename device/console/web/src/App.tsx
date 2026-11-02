@@ -40,7 +40,7 @@ export function App() {
   // The operator's permanent tokens, fetched so the audit can name the token behind a call. Empty when
   // the console would not answer: the table falls back to record ids.
   const [tokens, setTokens] = useState<TokenMeta[]>([]);
-  const [page, setPage] = useState<Page>("devices");
+  const [page, setPage] = useState<Page>("terminal");
   const [selected, setSelected] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -327,104 +327,68 @@ export function App() {
 
         <main>
           {page === "devices" && (
-            <div className="columns">
-              <div className="col">
-                <section className="panel">
-                  <div className="panel-head">
-                    <h2>Devices</h2>
-                    <div className="actions">
-                      <button type="button" onClick={() => void load()}>Refresh</button>
-                    </div>
+            <div className="devices-page">
+              <section className="panel">
+                <div className="panel-head">
+                  <h2>Devices</h2>
+                  <div className="actions">
+                    <button type="button" onClick={() => void load()}>Refresh</button>
+                    <button type="button" className="primary" onClick={() => void mintCode()}>
+                      New enrollment code
+                    </button>
                   </div>
-                  <p className="summary">
-                    {devices.length} devices, {online} online
+                </div>
+                <p className="summary">
+                  {devices.length} devices, {online} online
+                </p>
+                {(versions.length > 1 || unreported > 0) && (
+                  <p className="hint" role="status">
+                    {versions.length > 1 &&
+                      `The fleet is running ${versions.length} builds (${versions.join(", ")}). `}
+                    {unreported > 0 &&
+                      `${unreported} device${unreported === 1 ? "" : "s"} did not report a build. `}
+                    Tools can differ by device; upgrade the older builds before relying on one
+                    shared tool surface.
                   </p>
-                  {(versions.length > 1 || unreported > 0) && (
-                    <p className="hint" role="status">
-                      {versions.length > 1 &&
-                        `The fleet is running ${versions.length} builds (${versions.join(", ")}). `}
-                      {unreported > 0 &&
-                        `${unreported} device${unreported === 1 ? "" : "s"} did not report a build. `}
-                      Tools can differ by device; upgrade the older builds before relying on one
-                      shared tool surface.
-                    </p>
-                  )}
-                  <div className="cards">
-                    {devices.map((device) => (
-                      <DeviceCard
-                        key={device.id}
-                        device={device}
-                        vitals={vitals[device.id] ?? []}
-                        newest={newest}
-                        selected={selected === device.id}
-                        onSelect={() => {
-                          setSelected(device.id);
-                          setPage("terminal");
-                        }}
-                        onRename={() => {
-                          setRenaming(device);
-                          setDraftName(device.name ?? "");
-                        }}
-                        onRemove={() => setRemoving(device)}
-                        onDiagnostics={() => void copyDiagnostics(device)}
-                        onConnect={() => setConnecting(device)}
-                      />
-                    ))}
-                  </div>
-                </section>
-              </div>
-
-              <div className="col">
-                {chosen ? (
-                  <section className="panel">
-                    <div className="panel-head">
-                      <h2>Working on {chosen.name ?? shortId(chosen.id)}</h2>
-                      <div className="actions">
-                        <button type="button" onClick={() => void copyDiagnostics(chosen)}>Copy diagnostics</button>
-                        <button type="button" onClick={() => setConnecting(chosen)}>Connect an AI client</button>
-                      </div>
-                    </div>
-                    <p className="hint">
-                      Grant what the console may do, then read its state, open a shell, or look at its
-                      browser.
-                    </p>
-                  </section>
-                ) : (
-                  <section className="panel empty">
-                    <p>No device selected.</p>
-                    <p className="hint">Choose one on the left and its controls appear here.</p>
-                  </section>
                 )}
-                <section className="panel">
-                  <div className="panel-head">
-                    <h2>Add a device</h2>
-                    <div className="actions">
-                      <button type="button" className="primary" onClick={() => void mintCode()}>
-                        New enrollment code
-                      </button>
-                    </div>
-                  </div>
-                  <p className="hint">
-                    A code is single-use and expires in minutes. Run the command on the new machine.
-                  </p>
-                  {code && (
-                    <pre className="code">
+                <div className="cards">
+                  {devices.map((device) => (
+                    <DeviceCard
+                      key={device.id}
+                      device={device}
+                      vitals={vitals[device.id] ?? []}
+                      newest={newest}
+                      selected={selected === device.id}
+                      onSelect={() => {
+                        setSelected(device.id);
+                        setPage("terminal");
+                      }}
+                      onRename={() => {
+                        setRenaming(device);
+                        setDraftName(device.name ?? "");
+                      }}
+                      onRemove={() => setRemoving(device)}
+                      onDiagnostics={() => void copyDiagnostics(device)}
+                      onConnect={() => setConnecting(device)}
+                    />
+                  ))}
+                </div>
+              </section>
+
+              <section className="panel">
+                <div className="panel-head">
+                  <h2>Add a device</h2>
+                </div>
+                <p className="hint">
+                  A code is single-use and expires in minutes. Run the command on the new machine.
+                </p>
+                {code && (
+                  <pre className="code">
 {`summrise-device --enroll ${location.origin} ${code.code}`}
 {`expires ${new Date(code.expires_at_ms).toLocaleTimeString()}`}
-                    </pre>
-                  )}
-                </section>
-
-                <section className="panel">
-                  <div className="panel-head">
-                    <h2>Activity</h2>
-                    <div className="actions">
-                      <button type="button" onClick={() => void load()}>Refresh</button>
-                    </div>
-                  </div>
-                  <AuditTable lines={audit} devices={devices} tokens={tokens} />
-                </section>
-              </div>
+                  </pre>
+                )}
+              </section>
             </div>
           )}
 
@@ -441,6 +405,25 @@ export function App() {
             >
               {(active) => <FilesPage grant={active} />}
             </DevicePage>
+          )}
+
+          {page === "terminal" && chosen && (
+            <section className="workspace-head">
+              <div className="workspace-identity">
+                <span className={"dot " + (chosen.online ? "dot-ok" : "dot-off")} />
+                <div>
+                  <h2>{chosen.name ?? shortId(chosen.id)}</h2>
+                  <p className="hint mono">
+                    {shortId(chosen.id)} · {chosen.version ?? "build unknown"}
+                  </p>
+                </div>
+              </div>
+              <div className="actions">
+                <button type="button" onClick={() => setPage("devices")}>All devices</button>
+                <button type="button" onClick={() => void copyDiagnostics(chosen)}>Copy diagnostics</button>
+                <button type="button" onClick={() => setConnecting(chosen)}>Connect AI client</button>
+              </div>
+            </section>
           )}
 
           {page === "terminal" && !chosen && (

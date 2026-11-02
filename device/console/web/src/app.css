@@ -99,6 +99,26 @@ main { flex: 1; max-width: 84rem; margin: 0 auto; padding: var(--sp-5); display:
   box-shadow: var(--shadow-1);
 }
 .panel.empty { border-style: dashed; color: var(--ink-muted); }
+
+/* The device list is a page, not a dashboard: one column of machines, then the one way to add one.
+   The terminal is the workspace the operator actually lives in, and it opens first. */
+.devices-page { display: grid; gap: var(--sp-4); min-width: 0; }
+
+/* The selected machine's identity, kept above the terminal and above the grant form: whichever of
+   the two is showing, the operator knows which machine it belongs to and can leave in one click. */
+.workspace-head {
+  display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap;
+  min-width: 0; padding: var(--sp-3) var(--sp-4);
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
+  box-shadow: var(--shadow-1);
+}
+.workspace-identity { display: flex; align-items: center; gap: var(--sp-2); min-width: 0; }
+.workspace-identity h2 { font-size: var(--fs-lg); overflow-wrap: anywhere; }
+.workspace-identity .hint { margin: 0; }
+.workspace-head .actions { margin-left: auto; }
+@media (max-width: 56rem) {
+  .workspace-head .actions { width: 100%; margin-left: 0; }
+}
 .panel-head { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; margin-bottom: var(--sp-1); }
 .actions { margin-left: auto; display: flex; gap: var(--sp-2); }
 

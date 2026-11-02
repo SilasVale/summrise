@@ -1066,7 +1066,9 @@ try {
 
       state.label = first.id;
       try {
-        await assertPage(page, first);
+        // The app opens on Terminal, not Devices; enter the first page through the rail so the
+        // harness does not depend on which page is the default.
+        await goTo(page, first);
         await capturePage(page, state, first, pass);
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);

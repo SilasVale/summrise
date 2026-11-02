@@ -160,6 +160,10 @@ async function bootAndSignIn() {
   // The status bar's count is the load signal: the device name is also an option in the audit's
   // device filter once there are lines, so it is not a unique way to wait for the fleet.
   await screen.findByText("2 devices");
+  // The app opens on the terminal workspace by design; these tests exercise the fleet pages, so
+  // they enter through the rail the way an operator would.
+  fireEvent.click(screen.getByRole("button", { name: "Devices" }));
+  await screen.findByRole("heading", { name: "Devices" });
   return view;
 }
 
@@ -395,8 +399,9 @@ describe("App", () => {
     mocks.audit.mockResolvedValue([tokenCall]);
     await bootAndSignIn();
 
-    // The devices page draws the audit table beside the fleet, so the name is there without a page
-    // change, and it is the name rather than the id the console recorded.
+    // Activity is its own page now, so the table is one rail click away; the name is the name the
+    // console recorded, not the short id.
+    fireEvent.click(screen.getByRole("button", { name: "Activity" }));
     expect(within(await screen.findByRole("table")).getByText("laptop-dsh")).toBeInTheDocument();
     expect(screen.queryByText(shortTokenId)).not.toBeInTheDocument();
     expect(mocks.tokens).toHaveBeenCalled();
@@ -409,10 +414,10 @@ describe("App", () => {
 
     // The list is a convenience: losing it leaves the page working and the table on record ids.
     expect(screen.getAllByRole("article")).toHaveLength(2);
-    expect(within(screen.getByRole("table")).getByText(shortTokenId)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Activity" }));
+    expect(within(await screen.findByRole("table")).getByText(shortTokenId)).toBeInTheDocument();
     expect(screen.queryByText("tokens_unavailable")).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Activity" }));
     const select = screen.getByLabelText("Token");
     // The filter still works and still matches the cell, on the short id, because that is all the page
     // knows once the list is gone. Nothing is named, and nothing is blank.
