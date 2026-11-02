@@ -301,10 +301,13 @@ describe("SystemPage", () => {
 
     expect(
       await screen.findByText(
-        "The device did not restart: the console never reached the device: fetch failed"
+        "The connection ended before the device confirmed the restart. It may be restarting; " +
+          "reload the page once it reconnects instead of asking again."
       )
     ).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Restart app" })).toBeEnabled();
+    // A transport failure is not a refusal: the app may already be exiting, and a second click would
+    // spend another of the launcher's three restarts.
+    expect(screen.getByRole("button", { name: "Restart app" })).toBeDisabled();
   });
 
   it("shows a net refusal and keeps the result of the last test that finished", async () => {

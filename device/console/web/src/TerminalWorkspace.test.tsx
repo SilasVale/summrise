@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import { TerminalWorkspace } from "./TerminalWorkspace";
+import { api } from "./api";
 import { callTool, ToolError, type Grant } from "./terminal";
 import { DEFAULT_FONT_SIZE, FONT_SIZE_KEY, MAX_FONT_SIZE, MIN_FONT_SIZE } from "./terminalFont";
 import { restoreGlobal } from "./test/dom";
@@ -824,5 +825,41 @@ describe("TerminalWorkspace search", () => {
     // No await between the bar's actions and this assertion, so the tab's poll cannot have run: every
     // call the workspace made was there before the search started.
     expect(callToolMock.mock.calls.length).toBe(before);
+  });
+});
+
+describe("TerminalWorkspace recovery", () => {
+  it("shows a preset's open failure even with no tab open", async () => {
+    const connections = vi.mocked(api.connections);
+    connections.mockResolvedValueOnce([
+      { id: "c1", name: "local shell", kind: "pty" }
+    ] as never);
+    callToolMock.mockImplementation(async (_grant, name) => {
+      if (name === "terminal.list") return JSON.stringify([]);
+      if (name === "terminal.create") throw new ToolError("device disconnected", 502);
+      throw new Error(`the test did not expect a ${name} call`);
+    });
+
+    render(<TerminalWorkspace grant={GRANT} />);
+    fireEvent.click(await screen.findByText("Saved connections (1)"));
+    fireEvent.click(screen.getByRole("button", { name: "Open" }));
+
+    expect(await screen.findByText("Could not open: device disconnected")).toBeInTheDocument();
+    expect(screen.queryByRole("tab")).not.toBeInTheDocument();
+  });
+
+  it("keeps the tab and says so when the device will not close the session", async () => {
+    const base = callToolMock.getMockImplementation();
+    callToolMock.mockImplementation(async (grant, name, args) => {
+      if (name === "terminal.close") throw new ToolError("device disconnected", 502);
+      return base!(grant, name, args);
+    });
+
+    render(<TerminalWorkspace grant={GRANT} />);
+    await startPtyTab();
+    fireEvent.click(screen.getByRole("button", { name: "Close pty 1" }));
+
+    expect(await screen.findByText(/Could not close pty 1: device disconnected/)).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "pty 1" })).toBeInTheDocument();
   });
 });

@@ -4,7 +4,7 @@ import { message } from "./format";
 import { HostFactsBlock } from "./HostFacts";
 import { Modal } from "./Modal";
 import { useRequestGate } from "./requests";
-import { callTool, type Grant } from "./terminal";
+import { callTool, ToolError, type Grant } from "./terminal";
 import type { VitalsSample } from "./vitals";
 
 /**
@@ -109,6 +109,10 @@ export function SystemPage({
   const [restartOpen, setRestartOpen] = useState(false);
   const [restarting, setRestarting] = useState(false);
   const [restarted, setRestarted] = useState(false);
+  // The request may have reached the device even though the answer did not: the app can be exiting
+  // while the connection carrying its answer disappears. Keeping the button disabled here is what
+  // stops a reflex second click from spending another of the launcher's three restarts.
+  const [restartUnknown, setRestartUnknown] = useState(false);
   const [restartError, setRestartError] = useState<string | null>(null);
 
   // A failed first read has nothing to keep showing; a failed refresh must leave the previous rows
@@ -292,7 +296,7 @@ export function SystemPage({
    * ended.
    */
   const confirmRestart = async () => {
-    if (restartingRef.current || restarted) return;
+    if (restartingRef.current || restarted || restartUnknown) return;
     restartingRef.current = true;
     const ticket = restartGate.begin();
     // The confirmation has made its decision; the outcome is kept in the section, where it stays
@@ -311,7 +315,17 @@ export function SystemPage({
       setRestarted(true);
     } catch (cause) {
       if (restartGate.stale(ticket)) return;
-      setRestartError("The device did not restart: " + message(cause));
+      // 0 is "no answer at all"; 502/503/504 are the console's own transport answers. In all four the
+      // request may already have restarted the app, so the page stops offering a second one.
+      if (cause instanceof ToolError && [0, 502, 503, 504].includes(cause.status)) {
+        setRestartUnknown(true);
+        setRestartError(
+          "The connection ended before the device confirmed the restart. It may be restarting; " +
+            "reload the page once it reconnects instead of asking again."
+        );
+      } else {
+        setRestartError("The device did not restart: " + message(cause));
+      }
     } finally {
       if (!restartGate.stale(ticket)) {
         restartingRef.current = false;
@@ -362,7 +376,7 @@ export function SystemPage({
           <button
             type="button"
             className="danger"
-            disabled={restarting || restarted}
+            disabled={restarting || restarted || restartUnknown}
             onClick={() => {
               setRestartError(null);
               setRestartOpen(true);

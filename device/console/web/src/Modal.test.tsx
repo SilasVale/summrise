@@ -142,3 +142,37 @@ describe("Modal", () => {
     expect(onClose).not.toHaveBeenCalled();
   });
 });
+
+describe("Modal stack", () => {
+  it("lets only the top dialog own Escape and aria-modal", () => {
+    function Page() {
+      const [inner, setInner] = useState(false);
+      return (
+        <Modal title="Outer" onClose={() => undefined}>
+          <button type="button" onClick={() => setInner(true)}>
+            Open inner
+          </button>
+          {inner && (
+            <Modal title="Inner" onClose={() => setInner(false)}>
+              <button type="button">Inner action</button>
+            </Modal>
+          )}
+        </Modal>
+      );
+    }
+
+    render(<Page />);
+    const outer = screen.getByRole("dialog", { name: "Outer" });
+    expect(outer).toHaveAttribute("aria-modal", "true");
+
+    fireEvent.click(screen.getByRole("button", { name: "Open inner" }));
+    const inner = screen.getByRole("dialog", { name: "Inner" });
+    expect(inner).toHaveAttribute("aria-modal", "true");
+    expect(outer).not.toHaveAttribute("aria-modal");
+    expect(screen.getByRole("button", { name: "Inner action" })).toHaveFocus();
+
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(screen.queryByRole("dialog", { name: "Inner" })).not.toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "Outer" })).toHaveAttribute("aria-modal", "true");
+  });
+});
