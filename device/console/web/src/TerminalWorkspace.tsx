@@ -330,6 +330,7 @@ export function TerminalWorkspace({
   const [active, setActive] = useState<string | null>(null);
   const [faults, setFaults] = useState<Record<string, Fault>>({});
   const [status, setStatus] = useState("");
+  const [closing, setClosing] = useState<Tab | null>(null);
   const [available, setAvailable] = useState<{ id: string; kind: string }[]>([]);
   // The device's session list is read on mount now, not behind an "Attach" click. These are the two
   // states that read has: a request in flight, and the sentence when it failed.
@@ -1039,7 +1040,6 @@ export function TerminalWorkspace({
   return (
     <div className={"terminal-workspace" + (tabs.length === 0 ? " terminal-workspace-empty" : "")}>
       <div className="panel-head">
-        <h2>Terminal</h2>
         <div className="actions">
           {/* THE TOOLBAR BELONGS TO A SESSION. Before one exists, the page's only action is the one
               that creates it; seven controls over an empty box were chrome pretending to be work. */}
@@ -1220,12 +1220,12 @@ export function TerminalWorkspace({
                 aria-label={`Close ${tab.title}`}
                 onClick={(event) => {
                   event.stopPropagation();
-                  void close(tab);
+                  setClosing(tab);
                 }}
                 onKeyDown={(event) => {
                   if (event.key === "Enter" || event.key === " ") {
                     event.stopPropagation();
-                    void close(tab);
+                    setClosing(tab);
                   }
                 }}
               />
@@ -1570,6 +1570,31 @@ export function TerminalWorkspace({
           <div className="modal-actions">
             <button type="button" onClick={() => setPresetDialog(false)}>Cancel</button>
             <button type="button" className="primary" onClick={() => void savePreset()}>Save</button>
+          </div>
+        </Modal>
+      )}
+
+      {closing && (
+        <Modal
+          title={`Close ${closing.title}?`}
+          onClose={() => setClosing(null)}
+        >
+          <p className="hint">Close this session? The process keeps running on the machine.</p>
+          <div className="modal-actions">
+            <button type="button" onClick={() => setClosing(null)}>
+              Keep it open
+            </button>
+            <button
+              type="button"
+              className="danger"
+              onClick={() => {
+                const tab = closing;
+                setClosing(null);
+                void close(tab);
+              }}
+            >
+              Close session
+            </button>
           </div>
         </Modal>
       )}

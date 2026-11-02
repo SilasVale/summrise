@@ -3,7 +3,7 @@ import type { AuditLine, Device, TokenMeta } from "./api";
 import { auditFailed, filterAudit, type AuditFilter } from "./auditFilter";
 import { auditCsv, auditCsvName } from "./audit-export";
 import { downloadFile } from "./download";
-import { shortId } from "./format";
+import { age, shortId } from "./format";
 
 /**
  * How many lines the page asks the console for. `/audit?limit=` accepts up to 1000; 200 is enough
@@ -65,42 +65,60 @@ function lineKeys(lines: AuditLine[]): Map<AuditLine, string> {
   return keys;
 }
 
-/// The cell's time, with the date only when the line is not from today. A 20-line window is usually
-/// one day; when it crosses midnight the date is the fact that keeps two 08:00 lines apart.
-function whenLabel(ms: number): { label: string; iso: string } {
-  const at = new Date(ms);
-  const now = new Date();
-  const sameDay =
-    at.getFullYear() === now.getFullYear() &&
-    at.getMonth() === now.getMonth() &&
-    at.getDate() === now.getDate();
-  return {
-    label: sameDay
-      ? at.toLocaleTimeString()
-      : at.toLocaleString(undefined, {
-          month: "short",
-          day: "numeric",
-          hour: "numeric",
-          minute: "2-digit"
-        }),
-    iso: at.toISOString()
-  };
-}
-
 /// The run id `run_detail` wrote into the audit line: `run <id> exited 0 in 42 ms`.
 function runIdFromDetail(detail: string | null | undefined): string | null {
   const match = /^run (\S+) /.exec(detail ?? "");
   return match ? match[1] : null;
 }
 
+/// The local day a line belongs to; the table groups by this, newest day first.
+function dayKey(ms: number): string {
+  const at = new Date(ms);
+  return `${at.getFullYear()}-${at.getMonth()}-${at.getDate()}`;
+}
+
+function dayLabel(ms: number): string {
+  const at = new Date(ms);
+  const now = new Date();
+  const sameDay = (left: Date, right: Date) =>
+    left.getFullYear() === right.getFullYear() &&
+    left.getMonth() === right.getMonth() &&
+    left.getDate() === right.getDate();
+  if (sameDay(at, now)) return "Today";
+  const yesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+  if (sameDay(at, yesterday)) return "Yesterday";
+  return at.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+}
+
+type Day = { key: string; label: string; lines: AuditLine[] };
+
+function byDay(lines: AuditLine[]): Day[] {
+  const days: Day[] = [];
+  for (const line of lines) {
+    const key = dayKey(line.ts_ms);
+    const current = days[days.length - 1];
+    if (current && current.key === key) current.lines.push(line);
+    else days.push({ key, label: dayLabel(line.ts_ms), lines: [line] });
+  }
+  return days;
+}
+
+/**
+ * The record: what was called, by which token, with what result.
+ *
+ * The row is the target — one chevron, no per-row Details button — and the record opens in place.
+ * There is no nested scroller: an open record belongs to the page, and the page scrolls. The device
+ * column shows the machine's name (the id stays in its title), the exact time is in the title of the
+ * relative one, and the record is a two-column grid rather than a fact list stretched across 900 px.
+ */
 export function AuditTable({
   lines,
   devices,
   tokens,
   selectedDeviceId = null,
   onOpenRun,
-  empty = "No audit lines yet.",
-  emptyFiltered = "No audit lines match."
+  empty = "No calls yet.",
+  emptyFiltered = "No calls match."
 }: {
   lines: AuditLine[];
   devices: Device[];
@@ -109,18 +127,17 @@ export function AuditTable({
   selectedDeviceId?: string | null;
   /** Open a run's record on the device; only the Activity page can navigate to Runs. */
   onOpenRun?: (deviceId: string, runId: string) => void;
-  /** The sentence for no lines at all. The audit keeps its own; Security names failed authentications. */
+  /** The sentence for no lines at all. */
   empty?: string;
-  /** The sentence for a filter that matches nothing. The table's default; a log may name its own. */
+  /** The sentence for a filter that matches nothing. */
   emptyFiltered?: string;
 }) {
   const [filter, setFilter] = useState<AuditFilter>(EMPTY);
   const [scope, setScope] = useState<"machine" | "all">(selectedDeviceId ? "machine" : "all");
   const [since, setSince] = useState<Since>("all");
   const [open, setOpen] = useState<ReadonlySet<string>>(new Set());
-  // THE SCOPE IS THE SELECTION. Activity used to be the one page that never learned which machine the
-  // operator was on: its Device filter started at "All devices" every mount, so the record of the
-  // machine in front of them was a fleet log they had to re-filter. This default costs one state.
+  // THE SCOPE IS THE SELECTION. Activity follows the machine in the header unless the operator asks
+  // for the fleet's record.
   const applied = scope === "machine" && selectedDeviceId ? { ...filter, device: selectedDeviceId } : filter;
   const windowed = useMemo(() => {
     if (since === "all") return lines;
@@ -130,6 +147,7 @@ export function AuditTable({
   const shown = useMemo(() => filterAudit(windowed, applied), [windowed, applied]);
   const keys = useMemo(() => lineKeys(lines), [lines]);
   const tokenNames = useMemo(() => new Map(tokens.map((entry) => [entry.id, entry.name])), [tokens]);
+  const days = useMemo(() => byDay(shown), [shown]);
 
   // Only the tokens that appear in the window the page holds: the control stays short, and an option
   // always matches at least one line. Sorted by the label the operator reads rather than by id, so a
@@ -203,7 +221,8 @@ export function AuditTable({
     });
   };
 
-  if (lines.length === 0) return <p className="hint">{empty}</p>;
+  const narrowed = filter.device !== "" || filter.token !== "" || filter.tool.trim() !== "" || filter.status !== "all";
+  const emptySentence = narrowed ? emptyFiltered : since !== "all" ? "No calls in this window." : empty;
 
   return (
     <div>
@@ -289,171 +308,177 @@ export function AuditTable({
             <option value="failed">Failed</option>
           </select>
         </label>
-        <button type="button" disabled={shown.length === 0} onClick={exportCsv}>
-          Export CSV
-        </button>
         {hasFilter && (
           <button type="button" onClick={clear}>
             Clear
           </button>
         )}
+        <details className="row-menu audit-overflow">
+          <summary aria-label="Audit actions" title="Audit actions">
+            ⋯
+          </summary>
+          <div className="row-menu-pop">
+            <button type="button" disabled={shown.length === 0} onClick={exportCsv}>
+              Export CSV
+            </button>
+          </div>
+        </details>
       </div>
 
-      <p className="hint audit-caption">
-        {shown.length} of {windowed.length} lines
-        {lines.length >= AUDIT_WINDOW && (
-          <>
-            {" "}
-            — the page loaded the newest {lines.length} lines; older lines are not loaded.
-          </>
-        )}
-      </p>
-
       {shown.length === 0 ? (
-        <p className="hint">{emptyFiltered}</p>
+        <div className="audit-empty">
+          <p className="hint">{emptySentence}</p>
+          {since !== "all" && (
+            <button type="button" className="link" onClick={() => setSince("week")}>
+              Last week
+            </button>
+          )}
+        </div>
       ) : (
-        <div className="scroll">
-          <div className="table-scroll" tabIndex={0} role="region" aria-label="Audit lines">
-          <table>
+        <div className="table-scroll" tabIndex={0} role="region" aria-label="Audit lines">
+          <table className="audit-table">
             <thead>
               <tr>
-                <th>when</th>
-                <th>kind</th>
-                <th>device</th>
-                <th>token</th>
-                <th>tool</th>
-                <th>status</th>
-                <th>details</th>
+                <th>When</th>
+                <th>Device</th>
+                <th>Token</th>
+                <th>Tool</th>
+                <th>Status</th>
+                <th>
+                  <span className="sr-only">Record</span>
+                </th>
               </tr>
             </thead>
-            <tbody>
-              {shown.map((line) => {
-                const key = keys.get(line) ?? String(line.ts_ms);
-                const isOpen = open.has(key);
-                const failed = auditFailed(line);
-                const deviceError = failed && line.status < 400;
-                const runId = line.tool === "runs.exec" ? runIdFromDetail(line.detail) : null;
-                return (
-                  <Fragment key={key}>
-                    <tr>
-                      <td className="mono" title={whenLabel(line.ts_ms).iso}>
-                        {whenLabel(line.ts_ms).label}
-                      </td>
-                      <td>{line.kind}</td>
-                      <td title={line.device_id ?? undefined}>
-                        {line.device_id
-                          ? deviceNames.get(line.device_id) ?? shortId(line.device_id)
-                          : ""}
-                      </td>
-                      <td className="mono">
-                        {line.token_id ? (
-                          <span title={line.token_id}>
-                            {tokenLabel(line.token_id, tokenNames)}
+            {days.map((day) => (
+              <tbody key={day.key}>
+                <tr className="audit-day">
+                  <th colSpan={6}>{day.label}</th>
+                </tr>
+                {day.lines.map((line) => {
+                  const key = keys.get(line) ?? String(line.ts_ms);
+                  const isOpen = open.has(key);
+                  const failed = auditFailed(line);
+                  const deviceError = failed && line.status < 400;
+                  const runId = line.tool === "runs.exec" ? runIdFromDetail(line.detail) : null;
+                  const deviceName = line.device_id
+                    ? deviceNames.get(line.device_id) ?? shortId(line.device_id)
+                    : "—";
+                  return (
+                    <Fragment key={key}>
+                      <tr
+                        className="audit-row"
+                        tabIndex={0}
+                        aria-expanded={isOpen}
+                        onClick={() => toggle(key)}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter" || event.key === " ") {
+                            event.preventDefault();
+                            toggle(key);
+                          }
+                        }}
+                      >
+                        <td className="audit-when" title={new Date(line.ts_ms).toISOString()}>
+                          {age(line.ts_ms)}
+                        </td>
+                        <td title={line.device_id ?? undefined}>{deviceName}</td>
+                        <td>
+                          {line.token_id ? (
+                            <span title={line.token_id}>{tokenLabel(line.token_id, tokenNames)}</span>
+                          ) : (
+                            "—"
+                          )}
+                        </td>
+                        <td className="mono">
+                          {line.tool ?? line.detail ?? ""}
+                          {deviceError && (
+                            <>
+                              {" "}
+                              <span className="chip chip-warn" title={line.detail ?? undefined}>
+                                error
+                              </span>
+                            </>
+                          )}
+                        </td>
+                        <td>
+                          <span
+                            className={
+                              "chip " +
+                              (line.status >= 400 ? "chip-bad" : deviceError ? "chip-warn" : "chip-ok")
+                            }
+                            title={
+                              deviceError
+                                ? "HTTP 200: the device answered with a JSON-RPC error, shown in the record"
+                                : undefined
+                            }
+                          >
+                            {line.status}
                           </span>
-                        ) : (
-                          "—"
-                        )}
-                      </td>
-                      <td className="mono">
-                        {line.tool ?? line.detail ?? ""}
-                        {deviceError && (
-                          <>
-                            {" "}
-                            <span className="chip chip-warn" title={line.detail ?? undefined}>
-                              error
-                            </span>
-                          </>
-                        )}
-                      </td>
-                      <td>
-                        <span
-                          className={
-                            "chip " +
-                            (line.status >= 400 ? "chip-bad" : deviceError ? "chip-warn" : "chip-ok")
-                          }
-                          title={
-                            deviceError
-                              ? "HTTP 200: the device answered with a JSON-RPC error, shown in the detail"
-                              : undefined
-                          }
-                        >
-                          {line.status}
-                        </span>
-                      </td>
-                      <td>
-                        <button
-                          type="button"
-                          className="mini"
-                          aria-expanded={isOpen}
-                          onClick={() => toggle(key)}
-                        >
-                          {isOpen ? "Hide" : "Details"}
-                        </button>
-                      </td>
-                    </tr>
-                    {isOpen && (
-                      <tr>
-                        <td colSpan={7}>
-                          <dl className="facts">
-                            <div>
-                              <dt>Timestamp</dt>
-                              <dd className="mono">{new Date(line.ts_ms).toISOString()}</dd>
-                            </div>
-                            <div>
-                              <dt>Kind</dt>
-                              <dd className="mono">{line.kind}</dd>
-                            </div>
-                            <div>
+                        </td>
+                        <td className="audit-chevron-cell">
+                          <span className="audit-chevron" aria-hidden="true">
+                            {isOpen ? "▾" : "›"}
+                          </span>
+                        </td>
+                      </tr>
+                      {isOpen && (
+                        <tr className="audit-record-row">
+                          <td colSpan={6}>
+                            <dl
+                              className="audit-record"
+                              onClick={(event) => event.stopPropagation()}
+                              onKeyDown={(event) => event.stopPropagation()}
+                            >
+                              <dt>Time</dt>
+                              <dd title={new Date(line.ts_ms).toISOString()}>
+                                {new Date(line.ts_ms).toLocaleString()} · {age(line.ts_ms)}
+                              </dd>
                               <dt>Device</dt>
-                              <dd className="mono">
-                                {line.device_id ?? "—"}
+                              <dd>
+                                {deviceName}
                                 {line.device_id && (
                                   <button
                                     type="button"
                                     className="mini audit-copy"
                                     onClick={() => void copyDevice(line.device_id!, key)}
                                   >
-                                    {copied === key ? "Copied" : "Copy"}
+                                    {copied === key ? "Copied" : "Copy id"}
                                   </button>
                                 )}
                               </dd>
-                            </div>
-                            <div>
+                              <dt>Token</dt>
+                              <dd>
+                                {line.token_id ? tokenLabel(line.token_id, tokenNames) : "operator session"}
+                              </dd>
                               <dt>Tool</dt>
                               <dd className="mono">{line.tool ?? "—"}</dd>
-                            </div>
-                            <div>
                               <dt>Detail</dt>
                               <dd className="mono">{line.detail ?? "—"}</dd>
-                            </div>
-                            {runId && line.device_id && onOpenRun && (
-                              <div>
-                                <dt>Run</dt>
-                                <dd>
-                                  <button
-                                    type="button"
-                                    className="mini"
-                                    onClick={() => onOpenRun(line.device_id!, runId)}
-                                  >
-                                    Open in Runs
-                                  </button>
-                                </dd>
-                              </div>
-                            )}
-                            <div>
+                              {runId && line.device_id && onOpenRun && (
+                                <>
+                                  <dt>Run</dt>
+                                  <dd>
+                                    <button
+                                      type="button"
+                                      className="mini"
+                                      onClick={() => onOpenRun(line.device_id!, runId)}
+                                    >
+                                      Open in Runs
+                                    </button>
+                                  </dd>
+                                </>
+                              )}
                               <dt>Status</dt>
                               <dd>{line.status}</dd>
-                            </div>
-                          </dl>
-                        </td>
-                      </tr>
-                    )}
-                  </Fragment>
-                );
-              })}
-            </tbody>
+                            </dl>
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
+                  );
+                })}
+              </tbody>
+            ))}
           </table>
-        </div>
         </div>
       )}
     </div>

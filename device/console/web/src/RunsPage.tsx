@@ -238,7 +238,6 @@ export function RunsPage({
   return (
     <div className="runs-page">
       <div className="panel-head">
-        <h2>Runs</h2>
         <div className="actions">
           <button
             type="button"
@@ -249,11 +248,6 @@ export function RunsPage({
           </button>
         </div>
       </div>
-      <p className="hint">
-        One command, run once on the device. The call blocks until the command has finished or its
-        timeout has expired; the history below records what ran, its exit and how much it wrote.
-      </p>
-
       {/*
         `noValidate`: the device owns the bounds. Its refusal — an empty command, a timeout outside
         1..600000 — is the sentence worth showing, and the browser's would replace it.
@@ -269,6 +263,9 @@ export function RunsPage({
             autoComplete="off"
             spellCheck={false}
           />
+          <span className="field-help">
+            {shell ? "Run through the platform shell." : "Split on whitespace; no quoting."}
+          </span>
         </div>
         <div className="runs-field cwd">
           <label htmlFor="runs-cwd">Working directory (optional)</label>
@@ -280,6 +277,7 @@ export function RunsPage({
             autoComplete="off"
             spellCheck={false}
           />
+          <span className="field-help">Relative to the files root; not a jail.</span>
         </div>
         <div className="runs-field timeout">
           <label htmlFor="runs-timeout">Timeout (ms)</label>
@@ -292,6 +290,7 @@ export function RunsPage({
             value={timeoutMs}
             onChange={(event) => setTimeoutMs(event.target.value)}
           />
+          <span className="field-help">1 to {MAX_TIMEOUT_MS} ms; default {DEFAULT_TIMEOUT_MS}.</span>
         </div>
         <label className="check runs-shell">
           <input
@@ -305,14 +304,6 @@ export function RunsPage({
           {running ? "Running…" : "Run"}
         </button>
       </form>
-
-      <p className="hint">
-        {shell
-          ? "The whole line is run through the device's platform shell (cmd /C on Windows, sh -c elsewhere), so the shell parses it. Do not put cmd /C (or sh -c) in the line yourself — the toggle already does that, and it would run twice."
-          : "The line is split on whitespace — the first word is the program, the rest are its arguments — and run without a shell, so $, * and ; are ordinary characters. There is no quoting."}{" "}
-        The working directory is where the process starts, relative to the device's files root; it is
-        not a jail. The timeout is 1 to {MAX_TIMEOUT_MS} ms and defaults to {DEFAULT_TIMEOUT_MS} ms.
-      </p>
 
       {running && (
         <p className="hint">

@@ -334,22 +334,12 @@ export function FilesPage({ grant }: { grant: Grant }) {
   return (
     <div className="files-page">
       <div className="panel-head">
-        <h2>Files</h2>
         <div className="actions">
           <button type="button" disabled={loadingDir} onClick={() => void read(dir)}>
             {loadingDir ? "Reading…" : "Refresh"}
           </button>
         </div>
       </div>
-      <p className="hint">
-        Paths are relative to the device's files root. A folder with more than 1000 entries is
-        refused with the device's sentence, and a UTF-8 read that refuses because the file is not
-        text can be opened as base64. The 1 MiB read cap applies to base64 too, so an over-cap file
-        cannot be opened or downloaded. Saving replaces the whole file; an upload replaces a file of
-        the same name. Both are capped at 1 MiB. The device has no delete or rename tool, so this
-        page offers neither.
-      </p>
-
       <nav className="files-crumbs" aria-label="Breadcrumb">
         {trail.map((crumb, index) => {
           const current = index === trail.length - 1;
@@ -586,6 +576,18 @@ export function FilesPage({ grant }: { grant: Grant }) {
           )}
         </section>
       )}
+
+      <details className="limits">
+        <summary>Limits</summary>
+        <p className="hint">
+          Paths are relative to the device's files root. A folder with more than 1000 entries is
+          refused with the device's sentence, and a UTF-8 read that refuses because the file is not
+          text can be opened as base64. The 1 MiB read cap applies to base64 too, so an over-cap file
+          cannot be opened or downloaded. Saving replaces the whole file; an upload replaces a file
+          of the same name. Both are capped at 1 MiB. The device has no delete or rename tool, so
+          this page offers neither.
+        </p>
+      </details>
     </div>
   );
 }

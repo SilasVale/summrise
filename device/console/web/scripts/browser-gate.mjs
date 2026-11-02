@@ -150,6 +150,18 @@ function apiReply(request, url) {
     return json({ status: 'ok', devices: 1, online: 1, version: 'browser-gate' });
   }
   if (method === 'GET' && pathname === '/fleet') return json([DEVICE]);
+  if (method === 'GET' && /^\/fleet\/[^/]+\/tools$/.test(pathname)) {
+    return json({
+      tools: TOOL_NAMES.map((name) => ({
+        name,
+        description: `${name} on the gate machine`,
+        inputSchema: { type: 'object', properties: {} },
+        source: 'builtin',
+        capability: name.split('.')[0],
+        destructive: name === 'terminal.write' || name === 'terminal.create'
+      }))
+    });
+  }
   if (method === 'GET' && /^\/fleet\/[^/]+\/connections$/.test(pathname)) return json([]);
   if (method === 'GET' && pathname === '/tokens') return json([]);
   if (method === 'GET' && pathname === '/audit') return json([AUDIT_LINE]);
@@ -261,13 +273,17 @@ try {
 
   await page.getByLabel('Operator token').fill(TOKEN);
   await page.getByRole('button', { name: 'Sign in' }).click();
-  await page.getByRole('heading', { name: 'Devices' }).waitFor({ timeout: 10_000 });
-  step('signed in through /auth; /session then answered authenticated');
-  await page.screenshot({ path: path.join(OUT, '02-devices.png') });
+  await page.getByRole('heading', { name: 'Machines' }).waitFor({ timeout: 10_000 });
+  step('signed in through /auth; the fleet is Home\'s zero state');
+  await page.screenshot({ path: path.join(OUT, '02-machines.png') });
 
-  await page.getByRole('button', { name: /^Work on / }).click();
-  await page.getByRole('heading', { name: 'Terminal' }).waitFor({ timeout: 10_000 });
-  step('selected gate-workshop; Terminal opened with a session-scoped grant');
+  await page.locator('.fleet-open').first().click();
+  await page.getByRole('heading', { name: 'Home' }).waitFor({ timeout: 10_000 });
+  step('opened gate-workshop; Home states the hub');
+
+  await page.getByRole('button', { name: 'Device' }).click();
+  await page.getByRole('heading', { name: 'Terminal', exact: true }).waitFor({ timeout: 10_000 });
+  step('opened Device → Terminal with a session-scoped grant');
 
   await page.getByRole('button', { name: '+ New session' }).click();
   const dialog = page.getByRole('dialog', { name: 'New terminal session' });
@@ -290,7 +306,7 @@ try {
   await page.getByRole('heading', { name: 'Activity' }).waitFor({ timeout: 10_000 });
   step('opened Activity; the audit window carries the run');
 
-  await page.getByRole('button', { name: 'Details' }).first().click();
+  await page.locator('.audit-row').first().click();
   await page.getByRole('button', { name: 'Open in Runs' }).click();
   await page.getByRole('heading', { name: 'Runs' }).waitFor({ timeout: 10_000 });
   await page.getByText('r-1', { exact: true }).first().waitFor({ timeout: 10_000 });

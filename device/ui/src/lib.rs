@@ -41,7 +41,7 @@ pub const TOKENS: &str = r#":root {
   --fs-2xs:10px; --fs-xs:11px; --fs-sm:12px; --fs-base:13px;
   --fs-md:14px; --fs-lg:17px; --fs-xl:22px;
   --fw-regular:400; --fw-medium:500; --fw-semi:600; --fw-bold:700;
-  --tracking-display:-0.011em; --tracking-micro:0.014em;
+  --tracking-display:-0.011em;
   --sp-0-5:2px; --sp-1:4px; --sp-1-5:6px; --sp-2:8px; --sp-2-5:10px;
   --sp-3:12px; --sp-3-5:14px; --sp-4:16px; --sp-5:24px;
 
@@ -76,7 +76,7 @@ pub const TOKENS: &str = r#":root {
     --shadow-1:var(--shadow);
     --shadow-2:0 8px 24px -18px rgba(0,0,0,.8);
     --hover:#2a2b32;
-    --term-canvas:#131418; --term-selection:rgba(255,163,107,.24);
+    --term-canvas:#0f1014; --term-selection:rgba(255,163,107,.24);
     --term-black:#2a2c33; --term-white:#e8e9ec;
     --term-red:#ff8b84; --term-green:#6edc8b; --term-yellow:#e0a44a;
     --term-blue:#7fb0ff; --term-magenta:#c9a3ff; --term-cyan:#6fd3e6;

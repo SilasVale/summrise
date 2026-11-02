@@ -31,11 +31,6 @@ export function DevicePageShell({
     <div className="page device-page">
       <header className="page-head device-head">
         <h1>{DEVICE_TAB_LABELS[tab]}</h1>
-        <div className="page-actions">
-          <button type="button" className="mini" onClick={onConnect}>
-            Connect
-          </button>
-        </div>
         <nav className="device-tabs" aria-label="Device views">
           {DEVICE_TABS.map((entry) => (
             <button
@@ -49,6 +44,11 @@ export function DevicePageShell({
             </button>
           ))}
         </nav>
+        <div className="page-actions device-connect">
+          <button type="button" className="mini" onClick={onConnect}>
+            Connect
+          </button>
+        </div>
       </header>
 
       {chosen && grant ? (

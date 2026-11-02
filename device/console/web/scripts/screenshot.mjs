@@ -1281,10 +1281,10 @@ async function capturePage(page, state, meta, pass) {
     await connect.waitFor({ state: 'hidden', timeout: 5_000 }).catch(() => undefined);
   }
 
-  if (meta.id === 'audit') {
+  if (meta.id === 'activity') {
     // The record is the row, but the full id lives in the disclosure. Photograph it open so the
     // name-to-id step and the copy button are reviewed, not just the summary table.
-    await page.getByRole('button', { name: 'Details' }).first().click();
+    await page.locator('.audit-row').first().click();
     await settle(page, state, 250);
     const detailFile = `audit-detail${pass.suffix}.png`;
     await page.screenshot({ path: path.join(OUT, detailFile), animations: 'disabled', fullPage: false });

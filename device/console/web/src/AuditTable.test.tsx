@@ -53,7 +53,21 @@ const lines: AuditLine[] = [
   }
 ];
 
-const detailButtons = () => screen.getAllByRole("button", { name: "Details" });
+const auditRows = () => Array.from(document.querySelectorAll<HTMLElement>("tr.audit-row"));
+
+/** The table row that carries a cell with this text (filters and records may show it too). */
+function rowOf(text: string): HTMLElement {
+  const row = auditRows().find((entry) => (entry.textContent ?? "").includes(text));
+  expect(row).toBeDefined();
+  return row as HTMLElement;
+}
+
+/** The whole row is the control: one click opens its record, a second closes it. */
+function toggleRow(text: string): HTMLElement {
+  const row = rowOf(text);
+  fireEvent.click(row);
+  return row;
+}
 
 // Two record ids as the console writes them: 64 lowercase hex, never the `srm_` secret.
 const tokenA = "a".repeat(64);
@@ -83,37 +97,31 @@ const tokens: TokenMeta[] = [
   }
 ];
 
-/** The table row that carries a token cell with this text (the token filter may show it too). */
-function rowOf(text: string): HTMLElement {
-  const row = within(screen.getByRole("table")).getByText(text).closest("tr");
-  expect(row).not.toBeNull();
-  return row as HTMLElement;
-}
-
-
 describe("AuditTable", () => {
   beforeEach(() => {
     vi.mocked(downloadFile).mockReset();
   });
 
-  it("shows a date when a line is not from today", () => {
+  it("shows a relative time and keeps the exact date in the title", () => {
     const ts = Date.now() - 3 * 24 * 60 * 60_000;
     render(
       <AuditTable lines={[line({ ts_ms: ts, device_id: alpha, status: 200 })]} devices={devices} tokens={[]} />
     );
 
     const cell = screen.getByTitle(new Date(ts).toISOString());
-    expect(cell).toHaveTextContent(
-      new Date(ts).toLocaleString(undefined, {
-        month: "short",
-        day: "numeric",
-        hour: "numeric",
-        minute: "2-digit"
-      })
-    );
+    expect(cell.textContent).toMatch(/ago|just now/);
+    expect(cell.textContent).toMatch(/\d+h ago/);
   });
 
-  it("exports the filtered view as CSV", () => {
+  it("groups the record by day, with one label for the day's lines", () => {
+    render(<AuditTable lines={lines} devices={devices} tokens={[]} />);
+
+    const days = document.querySelectorAll("tr.audit-day th");
+    expect(days).toHaveLength(1);
+    expect(days[0].textContent).toMatch(/2026|Today|Yesterday/);
+  });
+
+  it("exports the filtered view as CSV from the overflow", () => {
     render(<AuditTable lines={lines} devices={devices} tokens={[]} />);
 
     fireEvent.click(screen.getByRole("button", { name: "Export CSV" }));
@@ -158,7 +166,7 @@ describe("AuditTable", () => {
     expect(screen.getByText("terminal.write")).toBeInTheDocument();
   });
 
-  it("offers the run's record from a run audit line", () => {
+  it("opens a run's record from the whole row and follows it to Runs", () => {
     const onOpenRun = vi.fn();
     const run = line({
       kind: "mcp",
@@ -170,13 +178,13 @@ describe("AuditTable", () => {
     render(
       <AuditTable lines={[run]} devices={devices} tokens={[]} onOpenRun={onOpenRun} />
     );
-    fireEvent.click(screen.getByRole("button", { name: "Details" }));
+    fireEvent.click(rowOf("runs.exec"));
     fireEvent.click(screen.getByRole("button", { name: "Open in Runs" }));
 
     expect(onOpenRun).toHaveBeenCalledWith(alpha, "r-9");
   });
 
-  it("names the device in the row and keeps the full id for the detail", () => {
+  it("names the device in the row and keeps the full id for the record", () => {
     render(<AuditTable lines={lines} devices={devices} tokens={[]} />);
 
     const cell = within(screen.getByRole("table")).getAllByText("Alpha")[0];
@@ -184,20 +192,24 @@ describe("AuditTable", () => {
     const row = cell.closest("tr");
     expect(row).not.toBeNull();
     expect(within(row as HTMLElement).getByText("memory.export")).toBeInTheDocument();
+    // No KIND column: `mcp` on every row is not information.
+    expect(screen.queryByRole("columnheader", { name: /kind/i })).not.toBeInTheDocument();
   });
 
-  it("copies the full device id from an open line", async () => {
+  it("copies the full device id from an open line without collapsing it", async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     const original = Object.getOwnPropertyDescriptor(navigator, "clipboard");
     Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
     try {
       render(<AuditTable lines={lines} devices={devices} tokens={[]} />);
-      fireEvent.click(detailButtons()[0]);
+      const row = toggleRow("memory.export");
+      expect(row).toHaveAttribute("aria-expanded", "true");
 
-      fireEvent.click(screen.getByRole("button", { name: "Copy" }));
+      fireEvent.click(screen.getByRole("button", { name: "Copy id" }));
 
       expect(writeText).toHaveBeenCalledWith(alpha);
       expect(await screen.findByRole("button", { name: "Copied" })).toBeInTheDocument();
+      expect(row).toHaveAttribute("aria-expanded", "true");
     } finally {
       if (original) Object.defineProperty(navigator, "clipboard", original);
       else delete (navigator as { clipboard?: unknown }).clipboard;
@@ -206,36 +218,41 @@ describe("AuditTable", () => {
 
   it("filters by device, opens a line, and clears a filter that matches nothing", () => {
     render(<AuditTable lines={lines} devices={devices} tokens={[]} />);
-    expect(detailButtons()).toHaveLength(3);
+    expect(auditRows()).toHaveLength(3);
 
     fireEvent.change(screen.getByLabelText("Device"), { target: { value: alpha } });
-    expect(screen.getByText(/2 of 3 lines/)).toBeInTheDocument();
-    expect(detailButtons()).toHaveLength(2);
+    expect(auditRows()).toHaveLength(2);
 
-    fireEvent.click(detailButtons()[0]);
-    expect(screen.getByRole("button", { name: "Hide" })).toHaveAttribute("aria-expanded", "true");
+    const row = toggleRow("memory.export");
+    expect(row).toHaveAttribute("aria-expanded", "true");
 
-    const details = screen.getByText(alpha).closest("dl");
-    expect(details).not.toBeNull();
-    const expanded = within(details as HTMLElement);
-    expect(expanded.getByText("memory.export")).toBeInTheDocument();
-    expect(expanded.getByText(new Date(lines[0].ts_ms).toISOString())).toBeInTheDocument();
-    expect(expanded.getByText("200")).toBeInTheDocument();
+    const record = document.querySelector(".audit-record") as HTMLElement;
+    expect(record).not.toBeNull();
+    expect(within(record).getByText("memory.export")).toBeInTheDocument();
+    expect(within(record).getByTitle(new Date(lines[0].ts_ms).toISOString())).toBeInTheDocument();
+    expect(within(record).getByText("200")).toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText("Tool or detail"), { target: { value: "zzz-no-such-tool" } });
-    expect(screen.getByText("No audit lines match.")).toBeInTheDocument();
-    expect(screen.getByText(/0 of 3 lines/)).toBeInTheDocument();
+    expect(screen.getByText("No calls match.")).toBeInTheDocument();
+    expect(auditRows()).toHaveLength(0);
 
     fireEvent.click(screen.getByRole("button", { name: "Clear" }));
-    expect(detailButtons()).toHaveLength(3);
-    expect(screen.getByText(/3 of 3 lines/)).toBeInTheDocument();
-    expect(screen.queryByText("No audit lines match.")).not.toBeInTheDocument();
+    expect(auditRows()).toHaveLength(3);
+    expect(screen.queryByText("No calls match.")).not.toBeInTheDocument();
   });
 
   it("tells an empty audit apart from a filter with no matches", () => {
     render(<AuditTable lines={[]} devices={devices} tokens={[]} />);
-    expect(screen.getByText("No audit lines yet.")).toBeInTheDocument();
-    expect(screen.queryByText("No audit lines match.")).not.toBeInTheDocument();
+    expect(screen.getByText("No calls yet.")).toBeInTheDocument();
+    expect(screen.queryByText("No calls match.")).not.toBeInTheDocument();
+  });
+
+  it("offers Last week when the window is narrower than all time", () => {
+    render(<AuditTable lines={[line({ tool: "files.read", ts_ms: Date.now() - 10 * 86_400_000 })]} devices={devices} tokens={[]} />);
+    fireEvent.change(screen.getByLabelText("Time"), { target: { value: "hour" } });
+
+    expect(screen.getByText("No calls in this window.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Last week" })).toBeInTheDocument();
   });
 
   it("names the caller's log when a filter matches nothing", () => {
@@ -254,7 +271,6 @@ describe("AuditTable", () => {
     expect(
       screen.getByText("No failed authentication matches this filter.")
     ).toBeInTheDocument();
-    expect(screen.queryByText("No audit lines match.")).not.toBeInTheDocument();
   });
 
   it("hides the token filter when no line in the window carries a token", () => {
@@ -283,10 +299,10 @@ describe("AuditTable", () => {
       />
     );
     expect(screen.getByText("No failed authentications yet.")).toBeInTheDocument();
-    expect(screen.queryByText("No audit lines yet.")).not.toBeInTheDocument();
+    expect(screen.queryByText("No calls yet.")).not.toBeInTheDocument();
   });
 
-  it("says the page shows a bounded window when the window is full", () => {
+  it("renders the bounded window without a nested scroller and without a caption", () => {
     const many: AuditLine[] = Array.from({ length: 200 }, (_, index) => ({
       ts_ms: index,
       kind: "tool",
@@ -296,22 +312,22 @@ describe("AuditTable", () => {
       status: 200
     }));
     render(<AuditTable lines={many} devices={devices} tokens={[]} />);
-    const caption = screen.getByText(/loaded the newest 200 lines/);
-    expect(caption).toHaveTextContent(/older lines are not loaded/);
-    // The page knows how many it asked for, not what the console holds: it must not claim there are more.
-    expect(caption).not.toHaveTextContent(/keeps more/);
+
+    expect(auditRows()).toHaveLength(200);
+    expect(document.querySelector(".audit-table")?.closest(".scroll")).toBeNull();
+    expect(screen.queryByText(/loaded the newest/)).not.toBeInTheDocument();
   });
 
   it("keeps an open row open when a filter removes the rows above it", () => {
     render(<AuditTable lines={lines} devices={devices} tokens={[]} />);
-    fireEvent.change(screen.getByLabelText("Device"), { target: { value: alpha } });
-    fireEvent.click(detailButtons()[1]);
-    expect(screen.getByRole("button", { name: "Hide" })).toBeInTheDocument();
+    const row = toggleRow("terminal.list");
+    expect(row).toHaveAttribute("aria-expanded", "true");
 
     fireEvent.change(screen.getByLabelText("Tool or detail"), {
       target: { value: "terminal.list" }
     });
-    expect(screen.getByRole("button", { name: "Hide" })).toBeInTheDocument();
+    expect(auditRows()).toHaveLength(1);
+    expect(auditRows()[0]).toHaveAttribute("aria-expanded", "true");
   });
 
   it("marks a device error that arrived as HTTP 200", () => {
@@ -331,7 +347,7 @@ describe("AuditTable", () => {
     expect(screen.getByText("error")).toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText("Status"), { target: { value: "failed" } });
-    expect(screen.getByText(/1 of 1 lines/)).toBeInTheDocument();
+    expect(auditRows()).toHaveLength(1);
   });
 
   it("offers a retired device by the prefix of its id", () => {
@@ -347,7 +363,7 @@ describe("AuditTable", () => {
     );
     expect(screen.getByRole("option", { name: "retired-devi…" })).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText("Device"), { target: { value: retired } });
-    expect(screen.getByText(/1 of 1 lines/)).toBeInTheDocument();
+    expect(auditRows()).toHaveLength(1);
   });
 
   it("names the token that made a call, and shows an em dash when no token did", () => {
@@ -372,7 +388,6 @@ describe("AuditTable", () => {
 
     expect(within(screen.getByRole("table")).getByText(shortA)).toBeInTheDocument();
     expect(screen.getByText("—")).toBeInTheDocument();
-    // The id is the record, not the credential: the table never renders an `srm_` value.
     expect(screen.queryByText(/srm_/)).not.toBeInTheDocument();
   });
 
@@ -393,11 +408,9 @@ describe("AuditTable", () => {
       />
     );
 
-    fireEvent.click(within(rowOf(shortA)).getByRole("button", { name: "Details" }));
-    expect(within(rowOf(shortA)).getByRole("button", { name: "Hide" })).toBeInTheDocument();
+    fireEvent.click(rowOf(shortA));
+    expect(rowOf(shortA)).toHaveAttribute("aria-expanded", "true");
 
-    // The poll returns new objects, and a line's order can change: the open row is the token's row,
-    // not whichever line now happens to hold the same ordinal.
     rerender(
       <AuditTable
         lines={[{ ...base, token_id: tokenB }, { ...base, token_id: tokenA }]}
@@ -406,8 +419,8 @@ describe("AuditTable", () => {
       />
     );
 
-    expect(within(rowOf(shortA)).getByRole("button", { name: "Hide" })).toBeInTheDocument();
-    expect(within(rowOf(shortB)).getByRole("button", { name: "Details" })).toBeInTheDocument();
+    expect(rowOf(shortA)).toHaveAttribute("aria-expanded", "true");
+    expect(rowOf(shortB)).toHaveAttribute("aria-expanded", "false");
   });
 
   it("names the token that made a call, and keeps the short id when the list does not know it", () => {
@@ -426,11 +439,9 @@ describe("AuditTable", () => {
 
     const table = within(screen.getByRole("table"));
     expect(table.getByText("laptop-dsh")).toBeInTheDocument();
-    // The name is the convenience; the id is the fact, and an id the list cannot resolve is not blank.
     expect(table.getByText("c".repeat(12) + "…")).toBeInTheDocument();
     expect(table.queryByText(shortA)).not.toBeInTheDocument();
     expect(table.getByText("—")).toBeInTheDocument();
-    // Nothing on this table is the credential.
     expect(screen.queryByText(/srm_/)).not.toBeInTheDocument();
   });
 
@@ -445,30 +456,26 @@ describe("AuditTable", () => {
     render(<AuditTable lines={attributed} devices={devices} tokens={tokens} />);
 
     const select = screen.getByLabelText("Token");
-    // Sorted by the label the operator reads: a name where the list has one, the short id where it
-    // does not, and All tokens first.
     expect(within(select).getAllByRole("option").map((option) => option.textContent)).toEqual([
       "All tokens",
       "cccccccccccc…",
       "laptop-dsh",
       "spare-dsh"
     ]);
-    // The grant-authenticated line has no token and is not in any token's option list.
     expect(within(select).queryByRole("option", { name: /grant/i })).not.toBeInTheDocument();
 
     fireEvent.change(select, { target: { value: tokenA } });
-    expect(screen.getByText(/1 of 4 lines/)).toBeInTheDocument();
-    expect(detailButtons()).toHaveLength(1);
+    expect(auditRows()).toHaveLength(1);
 
     fireEvent.change(select, { target: { value: tokenB } });
-    expect(screen.getByText(/1 of 4 lines/)).toBeInTheDocument();
+    expect(auditRows()).toHaveLength(1);
 
     fireEvent.change(select, { target: { value: unknown } });
     expect(within(screen.getByRole("table")).getByText("cccccccccccc…")).toBeInTheDocument();
-    expect(screen.getByText(/1 of 4 lines/)).toBeInTheDocument();
+    expect(auditRows()).toHaveLength(1);
 
     fireEvent.click(screen.getByRole("button", { name: "Clear" }));
-    expect(screen.getByText(/4 of 4 lines/)).toBeInTheDocument();
+    expect(auditRows()).toHaveLength(4);
     expect((select as HTMLSelectElement).value).toBe("");
   });
 });

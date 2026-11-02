@@ -339,14 +339,14 @@ describe("App", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Activity" }));
     expect(screen.getByRole("heading", { name: "Activity", level: 1 })).toBeInTheDocument();
-    expect(screen.getByText("No audit lines yet.")).toBeInTheDocument();
+    expect(screen.getByText("No calls yet.")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Device" }));
     expect(screen.getByRole("heading", { name: "Terminal", level: 1 })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Choose a machine" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Screen" }));
     expect(screen.getByRole("heading", { name: "Screen", level: 1 })).toBeInTheDocument();
-    expect(screen.queryByText("No audit lines yet.")).not.toBeInTheDocument();
+    expect(screen.queryByText("No calls yet.")).not.toBeInTheDocument();
   });
 
   it("opens the Tokens section of the Connect sheet from the account menu", async () => {
@@ -408,7 +408,7 @@ describe("App", () => {
     expect(workspace).toHaveAttribute("data-visible", "yes");
 
     fireEvent.click(screen.getByRole("button", { name: "Activity" }));
-    expect(screen.getByText("No audit lines yet.")).toBeInTheDocument();
+    expect(screen.getByText("No calls yet.")).toBeInTheDocument();
     // Hidden, not unmounted: the tabs, their cursors and their names live in this subtree.
     expect(screen.getByTestId("workspace")).toBe(workspace);
     expect(workspace).toHaveAttribute("data-visible", "no");

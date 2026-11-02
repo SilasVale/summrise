@@ -71,7 +71,6 @@ export function ScreenPage({ grant }: { grant: Grant }) {
   return (
     <div>
       <div className="panel-head">
-        <h2>Screen</h2>
         <div className="actions">
           <div className="seg" role="group" aria-label="Screen view">
             <button

@@ -171,8 +171,8 @@ main.terminal-main { display: grid; grid-template-rows: auto minmax(0, 1fr); ali
 .page-sub { margin: var(--sp-1) 0 0; color: var(--ink-muted); font-size: var(--fs-sm); }
 .page-actions { margin-left: auto; display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
 .device-head { align-items: center; }
-.device-head h1 { margin-right: auto; }
-.device-head .device-tabs { margin-left: auto; border-bottom: 0; }
+.device-head .device-tabs { margin-left: 0; border-bottom: 0; }
+.device-connect { margin-left: auto; }
 .device-tabs { display: flex; gap: var(--sp-1); flex-wrap: wrap; border-bottom: 1px solid var(--line); }
 .device-tab {
   border: 0; border-bottom: 2px solid transparent; border-radius: 0;
@@ -251,6 +251,8 @@ main.terminal-main { display: grid; grid-template-rows: auto minmax(0, 1fr); ali
     width: 100%; margin-left: 0; flex-wrap: nowrap; overflow-x: auto;
     border-bottom: 1px solid var(--line); height: 40px;
   }
+  .audit-table { min-width: 44rem; }
+  .device-connect { display: none; }
   .device-tabs { gap: 0; }
   .device-tab { flex: 0 0 auto; padding: var(--sp-2) var(--sp-3); text-align: center; }
 }
@@ -1694,6 +1696,53 @@ button.toggle[aria-pressed="true"] { background: var(--panel-3); font-weight: va
   .plugin-row { flex-direction: column; }
   .plugin-actions { align-self: stretch; justify-content: flex-end; }
 }
+/* ── The Device workspace: one frame, one record ─────────────────────────────────────────────── */
+/* The terminal is ONE frame: the panel has no padding, the canvas is edge to edge under a 40 px
+   strip, and the canvas has no border or radius of its own. */
+.terminal-panel { padding: 0; overflow: hidden; }
+.terminal-panel .terminal-workspace { gap: 0; }
+.terminal-panel .panel-head {
+  min-height: 40px; padding: 0 var(--sp-3); margin: 0;
+  border-bottom: 1px solid var(--line);
+}
+.terminal-panel .tabbar {
+  min-height: 40px; align-items: center; padding: 0 var(--sp-3);
+  border-bottom: 1px solid var(--line);
+}
+.terminal-panel .term-host { border: 0; border-radius: 0; padding: 0; }
+.terminal-panel .term-host:focus-within { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
+.terminal-panel .terminal-start { padding: var(--sp-4); }
+.terminal-panel .find-bar { margin: 0; border-radius: 0; }
+.limits { border-top: 1px solid var(--line); padding-top: var(--sp-2); }
+.limits summary { cursor: pointer; color: var(--ink-muted); font-size: var(--fs-sm); }
+.limits p { margin: var(--sp-2) 0 0; }
+.runs-field .field-help { font-size: var(--fs-xs); color: var(--ink-muted); }
+
+/* The record: the page scrolls, the row opens, and the device is a name. */
+.audit-table th {
+  text-transform: none; letter-spacing: normal;
+  font-size: var(--fs-sm); font-weight: var(--fw-medium); color: var(--ink-muted);
+}
+.audit-day th {
+  padding: var(--sp-2); background: var(--panel-2);
+  color: var(--ink-muted); font-size: var(--fs-xs); font-weight: var(--fw-semi);
+}
+.audit-row { cursor: pointer; }
+.audit-row:hover td { background: var(--panel-2); }
+.audit-row:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
+.audit-when { white-space: nowrap; }
+.audit-chevron-cell { width: 1%; text-align: right; }
+.audit-chevron { color: var(--ink-faint); }
+.audit-record-row td { padding: var(--sp-3); background: var(--panel-2); }
+.audit-record {
+  display: grid; grid-template-columns: 10rem minmax(0, 1fr);
+  gap: var(--sp-2) var(--sp-4); max-width: 42rem; margin: 0;
+}
+.audit-record dt { color: var(--ink-muted); font-size: var(--fs-sm); }
+.audit-record dd { margin: 0; overflow-wrap: anywhere; }
+.audit-empty { display: grid; gap: var(--sp-2); justify-items: start; padding: var(--sp-3) 0; }
+.audit-overflow { margin-left: auto; }
+
 .screen-shot { max-width: 100%; border: 1px solid var(--line); border-radius: var(--radius); }
 
 /* Motion explains a state change; under the operator's reduced-motion preference the product is

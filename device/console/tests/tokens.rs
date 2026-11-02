@@ -122,7 +122,7 @@ fn the_dark_surfaces_are_restated_not_inherited() {
     assert_eq!(declared(dark, "panel"), Some("#1c1d22"));
     assert_eq!(declared(dark, "ink"), Some("#ecedef"));
     assert_eq!(declared(dark, "accent"), Some("#ffa36b"));
-    assert_eq!(declared(dark, "term-canvas"), Some("#131418"));
+    assert_eq!(declared(dark, "term-canvas"), Some("#0f1014"));
     // The aliases are not restated; they resolve through the panel tokens that are.
     assert_eq!(declared(dark, "surface"), None);
     assert_eq!(follows(dark, "surface"), Some("#1c1d22"));

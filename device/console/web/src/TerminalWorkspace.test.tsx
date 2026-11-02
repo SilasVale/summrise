@@ -848,6 +848,23 @@ describe("TerminalWorkspace recovery", () => {
     expect(screen.queryByRole("tab")).not.toBeInTheDocument();
   });
 
+  it("asks before closing a live session, and keeps it when the operator declines", async () => {
+    render(<TerminalWorkspace grant={GRANT} />);
+    await startPtyTab();
+
+    fireEvent.click(screen.getByRole("button", { name: "Close pty 1" }));
+    const dialog = await screen.findByRole("dialog", { name: "Close pty 1?" });
+    expect(
+      within(dialog).getByText("Close this session? The process keeps running on the machine.")
+    ).toBeInTheDocument();
+    expect(callToolMock.mock.calls.some(([, name]) => name === "terminal.close")).toBe(false);
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "Keep it open" }));
+    expect(screen.queryByRole("dialog", { name: "Close pty 1?" })).not.toBeInTheDocument();
+    expect(callToolMock.mock.calls.some(([, name]) => name === "terminal.close")).toBe(false);
+    expect(screen.getByRole("tab", { name: "pty 1" })).toBeInTheDocument();
+  });
+
   it("keeps the tab and says so when the device will not close the session", async () => {
     const base = callToolMock.getMockImplementation();
     callToolMock.mockImplementation(async (grant, name, args) => {
@@ -858,6 +875,13 @@ describe("TerminalWorkspace recovery", () => {
     render(<TerminalWorkspace grant={GRANT} />);
     await startPtyTab();
     fireEvent.click(screen.getByRole("button", { name: "Close pty 1" }));
+
+    // Closing a live pty asks first; the process keeps running on the machine.
+    const dialog = await screen.findByRole("dialog", { name: "Close pty 1?" });
+    expect(
+      within(dialog).getByText("Close this session? The process keeps running on the machine.")
+    ).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Close session" }));
 
     expect(await screen.findByText(/Could not close pty 1: device disconnected/)).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "pty 1" })).toBeInTheDocument();
