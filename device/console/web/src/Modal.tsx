@@ -1,29 +1,5 @@
-import { useEffect, useRef, useState } from "react";
-
-/**
- * The dialogs that are open, oldest first. Two Modal instances can be on screen at once — Fleet
- * tokens opens a Revoke confirmation inside itself — and each used to keep its own window listener,
- * so one Escape closed both and both claimed `aria-modal`. Only the last one pushed is the top.
- */
-const openModals: object[] = [];
-const topListeners = new Set<() => void>();
-
-function useTopModal(id: object): boolean {
-  const [top, setTop] = useState(false);
-  useEffect(() => {
-    openModals.push(id);
-    const sync = () => setTop(openModals[openModals.length - 1] === id);
-    topListeners.add(sync);
-    for (const listener of topListeners) listener();
-    return () => {
-      topListeners.delete(sync);
-      const at = openModals.indexOf(id);
-      if (at >= 0) openModals.splice(at, 1);
-      for (const listener of topListeners) listener();
-    };
-  }, [id]);
-  return top;
-}
+import { useEffect, useRef } from "react";
+import { useTopDialog } from "./dialogStack";
 
 // One dialog at a time, Escape closes it, focus goes to the first field, Tab stays inside, and the
 // trigger gets focus back on close — the things a hand-rolled dialog forgets. The legacy panel's
@@ -43,7 +19,7 @@ export function Modal({
   const close = useRef(onClose);
   const lastFocused = useRef<HTMLElement | null>(null);
   const id = useRef({});
-  const top = useTopModal(id.current);
+  const top = useTopDialog(id.current);
   // The key listener is registered once, so it reads the current top through a ref.
   const topRef = useRef(top);
   topRef.current = top;
