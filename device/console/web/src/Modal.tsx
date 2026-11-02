@@ -1,7 +1,8 @@
 import { useEffect, useRef } from "react";
 
-// One dialog at a time, Escape closes it, and focus goes to the first field — the three things a
-// hand-rolled dialog forgets. The legacy panel's `.modal` had the same shape.
+// One dialog at a time, Escape closes it, focus goes to the first field, Tab stays inside, and the
+// trigger gets focus back on close — the things a hand-rolled dialog forgets. The legacy panel's
+// `.modal` had the same shape.
 export function Modal({
   title,
   children,
@@ -15,28 +16,66 @@ export function Modal({
   // The caller's `onClose` is usually an inline arrow with a new identity every render, so the
   // window listener cannot depend on it: reading it through a ref keeps the listener mounted once.
   const close = useRef(onClose);
+  const lastFocused = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     close.current = onClose;
   });
 
   useEffect(() => {
+    lastFocused.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const dialog = ref.current;
+    const focusable = () =>
+      Array.from(
+        dialog?.querySelectorAll<HTMLElement>(
+          'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+        ) ?? []
+      );
+    dialog?.querySelector<HTMLElement>("input, select, textarea, button, a[href]")?.focus();
+
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") close.current();
+      if (event.key === "Escape") {
+        close.current();
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const items = focusable();
+      if (items.length === 0) {
+        event.preventDefault();
+        return;
+      }
+      const first = items[0];
+      const last = items[items.length - 1];
+      if (!dialog?.contains(document.activeElement)) {
+        event.preventDefault();
+        first.focus();
+        return;
+      }
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
     };
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, []);
-
-  // Once on mount: re-focusing on a parent render would pull the caret out of the field being typed
-  // in as soon as a controlled input changed.
-  useEffect(() => {
-    ref.current?.querySelector<HTMLElement>("input, select, textarea, button")?.focus();
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      lastFocused.current?.focus();
+    };
   }, []);
 
   return (
     <div className="scrim" data-testid="scrim" onMouseDown={onClose}>
-      <div className="modal" role="dialog" aria-modal="true" aria-label={title} ref={ref} onMouseDown={(event) => event.stopPropagation()}>
+      <div
+        className="modal"
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        ref={ref}
+        onMouseDown={(event) => event.stopPropagation()}
+      >
         <h2>{title}</h2>
         {children}
       </div>
