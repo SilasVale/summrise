@@ -946,13 +946,20 @@ mod assets {
 
 /// `GET /`: the console is the Rust page. `web/` is gone, so a bookmark to the old root is sent to
 /// the page that replaced it rather than to a 404.
-/// `GET /`: the React workspace. A query still goes to the Rust page, because `--login-link` puts
-/// an enrollment/login code there and the React page does not redeem it; dropping the query would
-/// turn a working link into a card with no explanation.
+/// `GET /`: the React workspace. A `code` query still goes to the Rust page, because
+/// `--login-link` puts an enrollment/login code there and the React page does not redeem it;
+/// dropping the query would turn a working link into a card with no explanation. Every other query
+/// stays on the React page: a cache-bust or a shared link must not become the legacy page.
 async fn root(uri: axum::http::Uri) -> Response {
-    match uri.query() {
-        Some(query) => Redirect::to(&format!("/next?{query}")).into_response(),
-        None => Html(REACT_PAGE).into_response(),
+    let login_code = uri.query().is_some_and(|query| {
+        query
+            .split('&')
+            .any(|part| part == "code" || part.starts_with("code="))
+    });
+    if login_code {
+        Redirect::to(&format!("/next?{}", uri.query().unwrap_or_default())).into_response()
+    } else {
+        Html(REACT_PAGE).into_response()
     }
 }
 
@@ -6799,6 +6806,25 @@ fn system_now_ms() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn root_sends_only_login_codes_to_the_legacy_page() {
+        use axum::http::{StatusCode, Uri};
+
+        let page = root(Uri::from_static("/")).await;
+        assert_eq!(page.status(), StatusCode::OK);
+
+        // A cache-bust or any other query is still the React page.
+        let cache_bust = root(Uri::from_static("/?v=236")).await;
+        assert_eq!(cache_bust.status(), StatusCode::OK);
+
+        let code = root(Uri::from_static("/?code=abc&next=%2F")).await;
+        assert_eq!(code.status(), StatusCode::SEE_OTHER);
+        assert_eq!(
+            code.headers().get("location").unwrap(),
+            "/next?code=abc&next=%2F"
+        );
+    }
 
     /// The page refuses a traversal itself; the device's canonicalization is the second half of the
     /// boundary, not the only half.
