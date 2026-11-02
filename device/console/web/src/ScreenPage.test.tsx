@@ -10,6 +10,8 @@ vi.mock("./terminal", async (importOriginal) => {
   return { ...actual, callTool: mocks.callTool };
 });
 
+vi.mock("./BrowserPane", () => ({ BrowserPane: () => <h3>Browser pane</h3> }));
+
 const grant: Grant = { deviceId: "device-1", envelope: { token: "envelope" } };
 
 describe("ScreenPage", () => {
@@ -63,6 +65,17 @@ describe("ScreenPage", () => {
     expect(await screen.findByText("the session is locked")).toBeInTheDocument();
     // An older picture under a refusal would read as the screen the device just failed to take.
     expect(screen.queryByRole("img")).not.toBeInTheDocument();
+  });
+
+  it("switches to the browser view without leaving Screen", () => {
+    render(<ScreenPage grant={grant} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Browser" }));
+    expect(screen.getByRole("heading", { name: "Browser pane" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Capture screen" })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Desktop" }));
+    expect(screen.getByRole("button", { name: "Capture screen" })).toBeInTheDocument();
   });
 
   it("says a transport failure never reached the device", async () => {
