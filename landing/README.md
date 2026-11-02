@@ -19,6 +19,7 @@ public/
   assets/site.css    the stylesheet; tokens match device/ui so the two cannot drift apart
   assets/site.js     the language switch, the newest-release lookup, the sticky-nav hairline
   assets/lang-zh.js  the Chinese strings, one dictionary
+  assets/console-home.png  the console's Home, captured from the screenshot harness
   assets/og.png      1200x630 social card, rendered from og.html
   _headers           cache policy: the page revalidates, the assets may sit for an hour
 check.mjs            the gate: translations, anchors, assets, contrast, social card

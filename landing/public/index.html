@@ -3,13 +3,13 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Summrise — a real machine under your AI</title>
-<meta name="description" content="Summrise turns a Windows machine into an AI-operable workspace: terminal, SSH, serial, browser and files over MCP — with one console to watch, intervene and take back control from anywhere.">
+<title>Summrise — the capability hub for AI on a real machine</title>
+<meta name="description" content="Summrise is one MCP endpoint for a real Windows machine: terminal, files, browser and runs work on install, plugins add what is missing, and a console records every call and lets you take the keyboard back.">
 <meta name="theme-color" content="#f7f4ee">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="Summrise">
-<meta property="og:title" content="Summrise — a real machine under your AI">
-<meta property="og:description" content="A Windows box your agent can actually drive — terminal, SSH, serial, browser, files — through one console that keeps the audit, the tokens and the off switch.">
+<meta property="og:title" content="Summrise — the capability hub for AI on a real machine">
+<meta property="og:description" content="One MCP endpoint on a real Windows machine. Hands that work on install, plugins when one is missing, and a console that records every call and lets you take the keyboard back.">
 <meta property="og:url" content="https://summrise.saisi.online/">
 <meta property="og:image" content="https://summrise.saisi.online/assets/og.png">
 <meta property="og:image:width" content="1200">
@@ -19,7 +19,7 @@
 <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="assets/site.css">
 <script type="application/ld+json">
-{"@context":"https://schema.org","@type":"SoftwareApplication","name":"Summrise","operatingSystem":"Windows 10, Windows 11","applicationCategory":"DeveloperApplication","downloadUrl":"https://github.com/SilasVale/summrise/releases","description":"A Windows runtime that makes a real machine an AI-operable workspace over MCP, with a console for watching, intervening and taking back control."}
+{"@context":"https://schema.org","@type":"SoftwareApplication","name":"Summrise","operatingSystem":"Windows 10, Windows 11","applicationCategory":"DeveloperApplication","downloadUrl":"https://github.com/SilasVale/summrise/releases","description":"A capability hub for AI on a real Windows machine: one MCP endpoint, plugins for the capability that is missing, and a console that records every call and lets the operator take the keyboard back."}
 </script>
 </head>
 <body>
@@ -39,7 +39,7 @@
       <a href="#capabilities" data-i18n="nav.product">Product</a>
       <a href="https://github.com/SilasVale/summrise/tree/main/docs" data-i18n="nav.docs">Docs</a>
       <a href="https://console.saisi.online" data-i18n="nav.console">Console</a>
-      <a href="#surfaces" data-i18n="nav.security">Security</a>
+      <a href="#surfaces" data-i18n="nav.security">Trust</a>
     </div>
     <div class="spacer"></div>
     <button class="lang" id="lang-toggle" type="button" aria-pressed="false" aria-label="切换到中文">
@@ -54,17 +54,17 @@
     <div class="grid-lines" aria-hidden="true"></div>
     <div class="hero-grid">
       <div>
-        <div class="eyebrow"><span class="bar"></span> <span data-i18n="hero.eyebrow">The Windows runtime for AI agents</span></div>
-        <h1 data-i18n="hero.title">Your AI.<br>A real machine<br><span class="sun">under it.</span></h1>
-        <p class="sub" data-i18n="hero.sub">A Windows box your agent can actually drive — terminal, SSH, serial, browser, files — reached through one console that keeps the audit, the grants and the off switch.</p>
+        <div class="eyebrow"><span class="bar"></span> <span data-i18n="hero.eyebrow">The capability hub for AI on a real machine</span></div>
+        <h1 data-i18n="hero.title">Your AI.<br>A real machine.<br><span class="sun">One endpoint.</span></h1>
+        <p class="sub" data-i18n="hero.sub">One MCP endpoint with hands that work on install: terminal, SSH, serial, browser and files. A plugin when a capability is missing. And a console that shows every call and lets you take the keyboard back.</p>
         <div class="cta">
           <a class="btn btn-accent" href="#download"><span data-i18n="hero.cta1">Download for Windows</span> <span aria-hidden="true">↓</span></a>
           <a class="btn btn-ghost" href="https://github.com/SilasVale/summrise/tree/main/docs" data-i18n="hero.cta2">Read the docs</a>
         </div>
-        <div class="meta" data-i18n="hero.meta">WINDOWS 10/11 · X64 · MCP-NATIVE · SIGNED UPDATES</div>
+        <div class="meta" data-i18n="hero.meta">WINDOWS 10/11 · X64 · MCP 2025-06-18 · SIGNED UPDATES</div>
       </div>
       <div>
-        <div class="terminal" role="img" aria-label="A terminal on the device enrolling it with the console, then an MCP client listing its tools">
+        <div class="terminal" role="img" aria-label="A terminal enrolling the device with the console, then an MCP client listing the hub's tools">
           <div class="bar"><i></i><i></i><i></i><span class="t">summrise — powershell</span></div>
           <div class="body">
             <div><span class="p">PS&gt;</span> summrise-device.exe --enroll <span class="c">https://console.saisi.online</span> <span class="b">9f2c&hellip;e1</span> --data <span class="c">C:\ProgramData\Summrise</span></div>
@@ -72,18 +72,19 @@
             <div><span class="p">PS&gt;</span> sc stop SummriseLaunch &amp;&amp; sc start SummriseLaunch</div>
             <div class="cmt">  online <span class="badge">online</span></div>
             <div><span class="p">PS&gt;</span> curl -s http://127.0.0.1:18080/api/health</div>
-            <div class="c">  {"status":"ok","version":"0.3.152","sessions":2}</div>
+            <div class="c">  {"status":"ok","version":"&hellip;","sessions":2}</div>
             <div><span class="p">PS&gt;</span> <span class="cmt"># from any MCP client</span></div>
             <div><span class="cmt">POST</span> https://console.saisi.online/mcp/9f3c1a2b4d&hellip;</div>
             <div><span class="cmt">Authorization:</span> Bearer srm_<span class="cmt">&hellip;</span></div>
-            <div class="g">  &rarr; tools: terminal · browser · files · serial · runs</div>
+            <div class="g">  &rarr; tools: terminal · files · browser · runs · plugins</div>
+            <div class="g">  &rarr; plugins: hello · 2 tools</div>
             <div><span class="p">PS&gt;</span> <span class="cursor"></span></div>
           </div>
         </div>
         <div class="float">
-          <div class="fcard"><div class="k" data-i18n="stats.devicesK">Devices</div><div class="v"><span class="dot"></span><span data-i18n="stats.devices">2 online · 1 offline</span></div></div>
-          <div class="fcard"><div class="k" data-i18n="stats.sessionsK">Sessions</div><div class="v" data-i18n="stats.sessions">4 live · 2 idle</div></div>
-          <div class="fcard"><div class="k" data-i18n="stats.auditK">Audit</div><div class="v" data-i18n="stats.audit">1 284 rows today</div></div>
+          <div class="fcard"><div class="k" data-i18n="stats.endpointK">Endpoint</div><div class="v" data-i18n="stats.endpoint">one MCP URL</div></div>
+          <div class="fcard"><div class="k" data-i18n="stats.pluginsK">Plugins</div><div class="v" data-i18n="stats.plugins">install by directory</div></div>
+          <div class="fcard"><div class="k" data-i18n="stats.recordK">Record</div><div class="v" data-i18n="stats.record">every call, one row</div></div>
         </div>
       </div>
     </div>
@@ -92,43 +93,43 @@
   <main id="main">
     <section class="shot" aria-labelledby="shot-caption">
       <div class="shot-frame">
-        <img src="assets/console-fleet.png" width="1280" height="900" loading="lazy"
-             alt="The Summrise console's Devices page: three machines, two online, each with its build and the one way in.">
+        <img src="assets/console-home.png" width="1280" height="900" loading="lazy"
+             alt="The Summrise console's Home for one machine: the status line, the MCP endpoint, the tool and plugin counts, and the last calls.">
       </div>
-      <p class="shot-caption" id="shot-caption" data-i18n="shot.caption">The console at a glance: which machines are online, what each runs, and the one button that puts you on it.</p>
+      <p class="shot-caption" id="shot-caption" data-i18n="shot.caption">The console's Home: one machine's door, what it can do, and what was just called. The five destinations are Home, Capabilities, Plugins, Activity and Device.</p>
     </section>
 
     <section id="capabilities">
-      <div class="kicker" data-i18n="cap.kicker">Capabilities</div>
-      <h2 class="big" data-i18n="cap.title">Everything the machine can do, one authorization check away.</h2>
+      <div class="kicker" data-i18n="cap.kicker">The hub</div>
+      <h2 class="big" data-i18n="cap.title">Hands that work on install. A door that opens wider.</h2>
       <div class="feat">
-        <div class="item"><div class="num" data-i18n="cap.n1">01 / SESSIONS</div><h3 data-i18n="cap.1t">Terminal, SSH, serial</h3><p data-i18n="cap.1b">Real PTYs with attach, resize and scrollback; SSH to the boxes behind it; serial for the hardware that never got a network stack.</p></div>
-        <div class="item"><div class="num" data-i18n="cap.n2">02 / BROWSER</div><h3 data-i18n="cap.2t">Headless by default</h3><p data-i18n="cap.2b">Chrome runs on the device&rsquo;s network and its own sessions. Visible windows only when an operator asks to watch — automation should not flash across someone&rsquo;s desktop.</p></div>
-        <div class="item"><div class="num" data-i18n="cap.n3">03 / CONTROL</div><h3 data-i18n="cap.3t">Consent and audit</h3><p data-i18n="cap.3b">A destructive call without token consent is refused, and the refusal says how to allow it. Every tool call lands in an audit row with who, what, when — and the console can hold the keyboard.</p></div>
-        <div class="item"><div class="num" data-i18n="cap.n4">04 / OPERATIONS</div><h3 data-i18n="cap.4t">Self-supervising</h3><p data-i18n="cap.4b">The launcher owns the app binary, verifies it at boot, repairs it when it is gone, and swaps only on a signed release. Nothing to babysit at 3 a.m.</p></div>
+        <div class="item"><div class="num" data-i18n="cap.n1">01 / HANDS</div><h3 data-i18n="cap.1t">Real hands, on install</h3><p data-i18n="cap.1b">Terminal, SSH and serial sessions; Chrome on the device&rsquo;s own network and profile; files under a declared root. Built in — no plugin, no Node runtime, no cloud VM between the agent and the machine.</p></div>
+        <div class="item"><div class="num" data-i18n="cap.n2">02 / ONE ENDPOINT</div><h3 data-i18n="cap.2t">One door for every client</h3><p data-i18n="cap.2b">One MCP endpoint per machine. Any streamable-HTTP client connects; the built-ins come first, and a plugin&rsquo;s tools appear behind the same door, under the same token, in the same record.</p></div>
+        <div class="item"><div class="num" data-i18n="cap.n3">03 / PLUGINS</div><h3 data-i18n="cap.3t">A plugin is an MCP server</h3><p data-i18n="cap.3b">Install one from a directory you trust. The hub starts it as a child, namespaces its tools, and runs it with this machine&rsquo;s privileges. v1 has no sandbox, signature or marketplace — and says so where you install.</p></div>
+        <div class="item"><div class="num" data-i18n="cap.n4">04 / THE BRAKE</div><h3 data-i18n="cap.4t">Record and brake</h3><p data-i18n="cap.4b">Every call leaves an audit row: what, on which machine, under which token, with what result. Revoke the token, or open the machine&rsquo;s own terminal and take the keyboard back.</p></div>
       </div>
       <div class="strip">
-        <div class="head"><b>Fleet</b><span>console.saisi.online</span><span class="right" data-i18n="fleet.meta">2 online · 1 offline</span></div>
+        <div class="head"><b data-i18n="cat.head">Catalogue</b><span data-i18n="cat.machine">selected machine</span><span class="right" data-i18n="cat.meta">live tools/list</span></div>
         <div class="rows">
-          <div class="row"><div class="name"><span class="dot"></span>STUDIO-PC</div><div class="sub2" data-i18n="fleet.d1s">d1 · Windows 11 · 3 sessions</div><div class="facts2"><span class="pill ok">0.3.152</span><span class="pill" data-i18n="fleet.busy">busy</span></div></div>
-          <div class="row"><div class="name"><span class="dot"></span>LAB-PC</div><div class="sub2" data-i18n="fleet.d14s">d14 · Windows 11 · 1 session</div><div class="facts2"><span class="pill ok">0.3.152</span><span class="pill" data-i18n="fleet.idle">idle</span></div></div>
-          <div class="row"><div class="name"><span class="dot off"></span>EDGE-PC</div><div class="sub2" data-i18n="fleet.lastseen">last seen 6 h ago</div><div class="facts2"><span class="pill warn" data-i18n="fleet.offline">offline</span><span class="pill">0.3.130</span></div></div>
+          <div class="row"><div class="name"><span class="dot"></span>terminal</div><div class="sub2" data-i18n="cat.t1s">built-in · sessions on the real machine</div><div class="facts2"><span class="pill ok" data-i18n="cat.t1a">7 tools</span><span class="pill" data-i18n="cat.t1b">2 can change</span></div></div>
+          <div class="row"><div class="name"><span class="dot"></span>browser</div><div class="sub2" data-i18n="cat.b1s">built-in · Chrome on its own network</div><div class="facts2"><span class="pill ok" data-i18n="cat.b1a">8 tools</span><span class="pill" data-i18n="cat.b1b">3 can change</span></div></div>
+          <div class="row"><div class="name"><span class="dot"></span>hello</div><div class="sub2" data-i18n="cat.p1s">plugin · installed from a directory</div><div class="facts2"><span class="pill ok" data-i18n="cat.p1a">2 tools</span><span class="pill" data-i18n="cat.p1b">read-only</span></div></div>
         </div>
       </div>
     </section>
 
     <section id="surfaces">
-      <div class="kicker" data-i18n="surf.kicker">Two surfaces, one product</div>
-      <h2 class="big" data-i18n="surf.title">The console watches the fleet. The panel knows the machine.</h2>
+      <div class="kicker" data-i18n="surf.kicker">The window and the brake</div>
+      <h2 class="big" data-i18n="surf.title">See every call. Take the keyboard back.</h2>
       <div class="surfaces">
         <div class="surface">
           <div class="tag">console.saisi.online</div>
           <h3 data-i18n="surf.ct">From anywhere</h3>
-          <p data-i18n="surf.cb">Devices dial out over one WebSocket; nothing listens inbound by default, and there is no per-device tunnel. Access in front, operator token behind, fleet and sessions and audit inside.</p>
+          <p data-i18n="surf.cb">Devices dial out over one WebSocket; nothing listens inbound by default, and there is no per-device tunnel. Access in front, the operator token behind, the record and the brake inside.</p>
           <ul>
-            <li><b data-i18n="surf.c1k">Fleet</b><span data-i18n="surf.c1v">who is online, what they run, and why the offline one is offline</span></li>
-            <li><b data-i18n="surf.c2k">Sessions</b><span data-i18n="surf.c2v">terminal, browser, files, runs, audit, tokens</span></li>
-            <li><b data-i18n="surf.c3k">Tokens</b><span data-i18n="surf.c3v">scoped to one device and its tools, expiring if you want, revoked in one click</span></li>
+            <li><b data-i18n="surf.c1k">Record</b><span data-i18n="surf.c1v">every call: what, on which machine, under which token, with what result</span></li>
+            <li><b data-i18n="surf.c2k">Brake</b><span data-i18n="surf.c2v">a token names its tools and whether they can change the machine; revoke it in one action</span></li>
+            <li><b data-i18n="surf.c3k">Hands</b><span data-i18n="surf.c3v">open the same machine&rsquo;s terminal or screen from Device and take over</span></li>
           </ul>
         </div>
         <div class="surface">
@@ -149,7 +150,7 @@
         <div>
           <div class="kicker" data-i18n="dl.kicker">Download</div>
           <h2 data-i18n="dl.title">Run it on the machine you already have.</h2>
-          <p data-i18n="dl.body">Windows 10/11 · x64. The installer puts the service in place; the signed release document means the device can update itself and still prove where the bytes came from.</p>
+          <p data-i18n="dl.body">Windows 10/11 · x64. The installer puts the service in place; the signed release document lets the device update itself and still prove where the bytes came from. The console is the window, and the free path stays free.</p>
           <div class="row2">
             <a class="btn btn-accent" id="dl-installer" href="https://github.com/SilasVale/summrise/releases"><span data-i18n="dl.cta1">Download for Windows</span> <span aria-hidden="true">↓</span></a>
             <a class="btn btn-ghost" id="dl-notes" href="https://github.com/SilasVale/summrise/releases" data-i18n="dl.cta2">Release notes</a>
@@ -160,7 +161,7 @@
           <div class="art"><div><div class="nm">SummriseSetup-&lt;version&gt;.exe</div><div class="sz" data-i18n="dl.a1s">installer · x64 · updates are signed</div></div><a class="get" id="art-installer" href="https://github.com/SilasVale/summrise/releases" data-i18n="dl.get">Download</a></div>
           <div class="art"><div><div class="nm">release-&lt;version&gt;.json</div><div class="sz" data-i18n="dl.a2s">the document the updater verifies</div></div><a class="get" id="art-doc" href="https://github.com/SilasVale/summrise/releases" data-i18n="dl.get2">Download</a></div>
           <div class="art"><div><div class="nm">SHA256SUMS</div><div class="sz" data-i18n="dl.a3s">check the bytes yourself</div></div><a class="get" id="art-sums" href="https://github.com/SilasVale/summrise/releases" data-i18n="dl.get3">Download</a></div>
-          <div class="art"><div><div class="nm" data-i18n="dl.a4n">Quick start</div><div class="sz" data-i18n="dl.a4s">five minutes to a connected client</div></div><a class="get" href="https://github.com/SilasVale/summrise/blob/main/docs/QUICKSTART.md" data-i18n="dl.read">Read</a></div>
+          <div class="art"><div><div class="nm" data-i18n="dl.a4n">Quick start</div><div class="sz" data-i18n="dl.a4s">five minutes to a first call</div></div><a class="get" href="https://github.com/SilasVale/summrise/blob/main/docs/QUICKSTART.md" data-i18n="dl.read">Read</a></div>
         </div>
       </div>
     </section>
