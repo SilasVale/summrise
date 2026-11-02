@@ -1,10 +1,10 @@
 # Deploying the console
 
-> **Status: verified, 2026-10-29 — `0.3.201` deployed to `DESKTOP-9VH92BJ` with this runbook.**
-> The digest matched, the script backed up `0.3.200`, `/health` reported `0.3.201` twelve seconds
-> after the restart, and three devices were back online inside a minute. The console is the
-> operator's control plane; a deploy restarts it. Everything below is measured on that host, not
-> assumed.
+> **Status: verified, 2026-11-02 — `0.3.232` deployed to `DESKTOP-9VH92BJ` with this runbook.**
+> The digest matched, the script backed up `0.3.231`, `/health` reported `0.3.232` after the restart,
+> the served page was the committed `dist/index.html` byte for byte (782,331 B), and the real-device
+> terminal check answered `REAL_TERMINAL_OK`. The console is the operator's control plane; a deploy
+> restarts it.
 
 ## Why the console deploys differently from a device
 
@@ -28,71 +28,99 @@ on the host; no bytes pass through an AI context.
 | host task | `SummriseConsole` (SYSTEM), action `C:\SummriseConsole\run-console.cmd` |
 | live binary | `C:\SummriseConsole\summrise-console.exe` |
 | log | `C:\SummriseConsole\console.log`, previous run in `console.log.1` (the wrapper rotates) |
+| operator token | `C:\SummriseConsole\operator.token` — read by the verification script, never printed |
 | mirror directory | `/tmp/canary-mirror` on the Linux box |
 | mirror address the host uses | `http://100.85.163.159:18100` (tailnet) |
 | version source | `SUMMRISE_BUILD_VERSION` at build time (`device/console/build.rs`); without it the binary reports `CARGO_PKG_VERSION` |
+| operator page | `/` — the React page; `/next` is the legacy page and is not the operator surface |
 
 ## Before you deploy
 
 - **There is no approval queue to check.** A deploy restarts the console, so a call that is in
-  flight fails once and the operator retries it; nothing is waiting on a person. Device channels
-  reconnect on their own.
+  flight fails once and the operator retries it; nothing is waiting on a person.
 - Device channels reconnect on their own; no device needs to be touched.
 - The **aggregate MCP goes through the console**, so restarting it drops the AI's own MCP connection
   for a few seconds. Observed on the first run: one `fetch failed` mid-deploy. The deploy script does
   not depend on MCP, so it completes regardless.
 
-## The procedure — two commands
+## The procedure
 
 1. **Stage** (Linux, once per version):
 
    ```bash
-   scripts/stage-console-deploy.bash 0.3.153
+   SUMMRISE_BUILD_VERSION=0.3.232 \
+     scripts/stage-console-deploy.bash 0.3.232 --mirror-dir /tmp/canary-mirror
    ```
 
    It builds with `cargo xwin`, refuses a binary whose bytes do not contain the version string,
-   copies it to the mirror, and writes `deploy-console-<version>.cmd` with the digest baked in. It
-   prints the next command.
+   copies it and `deploy-console-<version>.cmd` to the mirror directory, and prints the binary's
+   size and sha256. The `.cmd` bakes in that digest.
 
-2. **Run it on the host** (the command the script prints):
+2. **Run it on the host**:
 
-   ```powershell
-   powershell -NoProfile -Command "Invoke-WebRequest -UseBasicParsing http://100.85.163.159:18100/deploy-console-0.3.153.cmd -OutFile C:\Windows\Temp\deploy.cmd; cmd /c C:\Windows\Temp\deploy.cmd"
+   ```bat
+   curl.exe -f -sS -o C:\Windows\Temp\deploy.cmd http://100.85.163.159:18100/deploy-console-0.3.232.cmd
+   cmd /c C:\Windows\Temp\deploy.cmd
    ```
 
-   The script: downloads, verifies SHA-256 against the staged digest, reads the live version from
+   The script downloads, verifies SHA-256 against the staged digest, reads the live version from
    `/health`, **stops the task**, backs up to `summrise-console.exe.bak-<previous>`, replaces, starts
-   the task, waits 12 s and prints `/health`. It aborts on a hash mismatch before touching the live
+   the task, waits, and prints `/health`. It aborts on a hash mismatch before touching the live
    binary.
 
-3. **Verify** (from the device or here):
+3. **Verify**:
 
    ```bash
    curl -sS http://100.74.250.98:19000/health
-   # {"status":"ok","devices":3,...,"version":"0.3.153"}
+   # {"status":"ok","devices":3,...,"version":"0.3.232"}
+
+   curl -sS http://100.74.250.98:19000/ -o /tmp/live.html
+   wc -c < /tmp/live.html
+   stat -c %s device/console/web/dist/index.html   # must be the same number
    ```
 
-   The page at `/next` answers 200, `console.log` has the `listening on http://0.0.0.0:19000` line,
-   and the fleet page's markup carries the current UI (`rail_items=1`, `more_pages=True` were the
-   markers for the 0.3.153 change).
+   `console.log` has the `listening on http://0.0.0.0:19000` line. The page is the committed
+   `dist/index.html`, not a stale embedded copy: a mismatch means the binary and the built page came
+   from different trees.
 
-## Checking the UI as a signed-in operator, without the token entering a log
+## Real-device checks after a deploy
 
-The console's session is an HttpOnly cookie, so a browser check needs a session, and the operator
-token must not be quoted into a shell, an MCP call, or a document. A one-shot loopback hop sets the
-cookie without ever printing it:
+The browser gate proves the page's shape against an echo; it runs in CI (`npm run gate:browser`).
+The real device needs the other half.
 
-1. On the console host, a short PowerShell script reads `operator.token`, POSTs `/next/auth`, and
-   starts an `HttpListener` on `127.0.0.1:18099` that answers exactly one request with
-   `302 Location: /next` and the session cookie's `Set-Cookie` header.
-2. Point a headless browser at `http://127.0.0.1:18099/` once; it lands on `/next` signed in and the
-   listener exits.
-3. Drive the page with the device's browser tools (`browser_open`/`browser_eval`) and close the tab.
+**Terminal, through the console's own API.** The stage step publishes `real-device-check.ps1` next
+to the binary. On the console host:
 
-The token stays inside the script; the cookie stays inside that browser profile. Measured
-2026-10-28 on `0.3.160`: the terminal page created a session, the tab carried `aria-pressed="true"`,
-the close control was named "Close session powershell.exe" with no button nested in a button, and
-closing it returned focus to the kind selector.
+```bat
+curl.exe -f -sS -o C:\Windows\Temp\real-device-check.ps1 http://100.85.163.159:18100/real-device-check.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File C:\Windows\Temp\real-device-check.ps1
+```
+
+`scripts/real-device-check.ps1` reads the operator token file, mints a session through `/auth`,
+picks the first online device from `/fleet`, opens a pty through `/mcp`, writes a unique
+`echo <marker>`, reads it back, closes the pty, and prints:
+
+```
+device=DESKTOP-9VH92BJ id8=4c718d6e online=True
+terminal_created=session-9
+marker_seen=True bytes=542 cursor=542
+REAL_TERMINAL_OK
+```
+
+It never prints the operator token, the session token or the command output.
+
+**The page, by hand.** Open `/` in a browser on the host and sign in with the operator token. The
+React page keeps its bearer **in memory**, not in a cookie or storage; a reload asks for the token
+again. Do not quote the token into a shell, an MCP call or this document.
+
+Measured on `0.3.232`:
+
+- Files listed the real root (48 entries) and opened `console-transfer.txt` as
+  `transferred through the console`.
+- Screen refused with `screen.capture: the per-user helper has not registered this boot` and said
+  which session the helper needs; that host's desktop session is disconnected, so the refusal is
+  correct.
+- Activity → Open in Runs and `#run/<device>/<run>` both opened the same real run record.
 
 ## Rollback
 
@@ -114,15 +142,14 @@ Then the same `/health` check; the version line must name the backup's version.
   `SUMMRISE_BUILD_VERSION` would report yesterday's release.
 - It does not copy the binary through an MCP message.
 
-## The first run's numbers
+## Measured
 
-| step | reading |
+| step | 0.3.232 |
 |---|---|
-| build | 19.37 s incremental (release, `x86_64-pc-windows-msvc`) |
-| binary | 5 955 584 B, sha256 `63872992…513c80a0` |
-| swap | ~15 s from stop to `/health` |
-| after | version `0.3.153`, uptime reset to 33 s, 3 devices, `/next` 200 |
-| backup | `summrise-console.exe.bak-0.3.145` |
+| binary | 6,971,392 B, sha256 `491d7f63…32153d8e` |
+| page | 782,331 B |
+| stop → `/health` | ~20 s (the task's own restart) |
+| after | version `0.3.232`, 3 devices, 3 online; `REAL_TERMINAL_OK` |
 
-The directory had also accumulated old backups; `docs/RELEASE.md` asks for two. Keep the last two
-and delete the rest as part of a deploy.
+The directory accumulates `summrise-console.exe.bak-0.3.x` files; `docs/RELEASE.md` asks for two.
+Keep the last two and delete the rest as part of a deploy.

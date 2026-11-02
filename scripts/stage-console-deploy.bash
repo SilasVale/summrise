@@ -65,6 +65,9 @@ sha="$(sha256sum "$exe" | cut -d' ' -f1)"
 staged="$mirror_dir/summrise-console-$version.exe"
 deploy="$mirror_dir/deploy-console-$version.cmd"
 cp "$exe" "$staged"
+# The post-deploy real-device check travels with the deploy, so the runbook's command fetches the
+# same script that was tested with this tree instead of relying on a copy from an earlier session.
+cp scripts/real-device-check.ps1 "$mirror_dir/real-device-check.ps1"
 
 sed -e "s|__VERSION__|$version|g" \
     -e "s|__SHA256__|$sha|g" \
