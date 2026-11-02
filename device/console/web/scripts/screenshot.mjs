@@ -962,6 +962,20 @@ async function captureWorkspace(page, state, pass) {
       note: 'one pty open; the empty output is a canvas, not a fake shell'
     });
     console.log(`  ${pass.key.padEnd(6)} ${sessionFile}`);
+
+    // The one menu the session keeps: photograph it open, so its placement and its one-column
+    // action list are part of the review instead of a claim in a commit message.
+    await page.getByLabel('Session tools').click();
+    await settle(page, state, 250);
+    const toolsFile = `terminal-tools${pass.suffix}.png`;
+    await page.screenshot({ path: path.join(OUT, toolsFile), animations: 'disabled', fullPage: false });
+    captures.push({
+      pass: pass.key,
+      page: 'terminal-tools',
+      file: toolsFile,
+      note: 'the session menu open: Find is the only toolbar button left beside it'
+    });
+    console.log(`  ${pass.key.padEnd(6)} ${toolsFile}`);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     captureFailures.push({ pass: pass.key, page: 'terminal-workspace', message });
@@ -1022,6 +1036,10 @@ function buildGallery() {
       <div class="pair">
         <figure><figcaption>pty open · light</figcaption>${image(byKey.get('light:terminal-session'), 'Terminal canvas, light')}</figure>
         <figure><figcaption>pty open · dark</figcaption>${image(byKey.get('dark:terminal-session'), 'Terminal canvas, dark')}</figure>
+      </div>
+      <div class="pair">
+        <figure><figcaption>session menu · light</figcaption>${image(byKey.get('light:terminal-tools'), 'Session menu, light')}</figure>
+        <figure><figcaption>session menu · dark</figcaption>${image(byKey.get('dark:terminal-tools'), 'Session menu, dark')}</figure>
       </div>
     </section>`;
 

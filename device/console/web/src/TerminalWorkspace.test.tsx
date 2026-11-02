@@ -192,6 +192,33 @@ describe("TerminalWorkspace tab names", () => {
     expect(mockedXterm.instances[0].options.theme).toMatchObject({ background: "#ffffff" });
   });
 
+  it("keeps the session's secondary actions in one menu", async () => {
+    const { container } = render(<TerminalWorkspace grant={GRANT} />);
+    await startPtyTab();
+    await screen.findByRole("tab", { name: /pty 1/ });
+
+    const menu = container.querySelector("details.session-menu");
+    expect(menu).not.toBeNull();
+    expect(menu).not.toHaveAttribute("open");
+    expect(screen.getByLabelText("Session tools")).toBeInTheDocument();
+    // The actions exist inside the popover, not as a second row of toolbar buttons.
+    expect(within(menu as HTMLElement).getByRole("button", { name: "Rename tab" })).toBeInTheDocument();
+    expect(within(menu as HTMLElement).getByRole("button", { name: "Export log" })).toBeInTheDocument();
+  });
+
+  it("closes the menu once an action opens its dialog", async () => {
+    const { container } = render(<TerminalWorkspace grant={GRANT} />);
+    await startPtyTab();
+    await screen.findByRole("tab", { name: /pty 1/ });
+    const menu = container.querySelector("details.session-menu") as HTMLDetailsElement;
+    menu.open = true;
+
+    fireEvent.click(within(menu).getByRole("button", { name: "Rename tab" }));
+
+    expect(await screen.findByRole("dialog", { name: "Rename tab" })).toBeInTheDocument();
+    expect(menu.open).toBe(false);
+  });
+
   it("renames the active tab and the name survives the next poll", async () => {
     render(<TerminalWorkspace grant={GRANT} />);
     await startPtyTab();
