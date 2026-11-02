@@ -551,6 +551,21 @@ function replyFor(request, url) {
     // The workspace photographs need the two calls a pty open makes; the ANSWER is empty output, not
     // a fake shell. Every other tool is still a loud failure.
     if (name === 'terminal.list') return json({ result: { content: [{ type: 'text', text: '[]' }] } });
+    if (name === 'files.list') {
+      return json({
+        result: {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify([
+                { name: 'docs', kind: 'directory', len: 0 },
+                { name: 'notes.txt', kind: 'file', len: 12 }
+              ])
+            }
+          ]
+        }
+      });
+    }
     if (name === 'runs.list') {
       return json({
         result: {
@@ -1067,6 +1082,21 @@ async function captureWorkspace(page, state, pass) {
       note: 'the session menu open: Find is the only toolbar button left beside it'
     });
     console.log(`  ${pass.key.padEnd(6)} ${toolsFile}`);
+
+    // The Files root with the upload control: the one browser-shaped control on the page is now the
+    // console's button. The device is still selected, so Files lists without a second pick.
+    await goTo(page, PAGES.find((entry) => entry.id === 'files'));
+    await page.getByText('notes.txt').waitFor({ state: 'visible', timeout: 5_000 });
+    await settle(page, state, 300);
+    const filesFile = `files-root${pass.suffix}.png`;
+    await page.screenshot({ path: path.join(OUT, filesFile), animations: 'disabled', fullPage: false });
+    captures.push({
+      pass: pass.key,
+      page: 'files-root',
+      file: filesFile,
+      note: 'the real Files root with the upload control; the list is the stub fixture'
+    });
+    console.log(`  ${pass.key.padEnd(6)} ${filesFile}`);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     captureFailures.push({ pass: pass.key, page: 'terminal-workspace', message });
@@ -1131,6 +1161,10 @@ function buildGallery() {
       <div class="pair">
         <figure><figcaption>session menu · light</figcaption>${image(byKey.get('light:terminal-tools'), 'Session menu, light')}</figure>
         <figure><figcaption>session menu · dark</figcaption>${image(byKey.get('dark:terminal-tools'), 'Session menu, dark')}</figure>
+      </div>
+      <div class="pair">
+        <figure><figcaption>files root · light</figcaption>${image(byKey.get('light:files-root'), 'Files root, light')}</figure>
+        <figure><figcaption>files root · dark</figcaption>${image(byKey.get('dark:files-root'), 'Files root, dark')}</figure>
       </div>
       <div class="pair">
         <figure><figcaption>activity line open · light</figcaption>${image(byKey.get('light:audit-detail'), 'Activity detail, light')}</figure>
