@@ -339,6 +339,25 @@ export function App() {
         <Rail page={page} onPage={setPage} devices={devices.length} online={online} />
 
         <main>
+          {chosen && page !== "devices" && page !== "audit" && (
+            <section className="workspace-head">
+              <div className="workspace-identity">
+                <span className={"dot " + (chosen.online ? "dot-ok" : "dot-off")} />
+                <div>
+                  <h2>{chosen.name ?? shortId(chosen.id)}</h2>
+                  <p className="hint mono">
+                    {shortId(chosen.id)} · {chosen.version ?? "build unknown"}
+                  </p>
+                </div>
+              </div>
+              <div className="actions">
+                <button type="button" onClick={() => setPage("devices")}>All devices</button>
+                <button type="button" onClick={() => void copyDiagnostics(chosen)}>Copy diagnostics</button>
+                <button type="button" onClick={() => setConnecting(chosen)}>Connect AI client</button>
+              </div>
+            </section>
+          )}
+
           {page === "devices" && (
             <div className="devices-page">
               <section className="panel">
@@ -418,25 +437,6 @@ export function App() {
             >
               {(active) => <FilesPage grant={active} />}
             </DevicePage>
-          )}
-
-          {page === "terminal" && chosen && (
-            <section className="workspace-head">
-              <div className="workspace-identity">
-                <span className={"dot " + (chosen.online ? "dot-ok" : "dot-off")} />
-                <div>
-                  <h2>{chosen.name ?? shortId(chosen.id)}</h2>
-                  <p className="hint mono">
-                    {shortId(chosen.id)} · {chosen.version ?? "build unknown"}
-                  </p>
-                </div>
-              </div>
-              <div className="actions">
-                <button type="button" onClick={() => setPage("devices")}>All devices</button>
-                <button type="button" onClick={() => void copyDiagnostics(chosen)}>Copy diagnostics</button>
-                <button type="button" onClick={() => setConnecting(chosen)}>Connect AI client</button>
-              </div>
-            </section>
           )}
 
           {page === "terminal" && !chosen && (

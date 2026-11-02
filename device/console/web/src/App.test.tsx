@@ -280,6 +280,18 @@ describe("App", () => {
     expect(within(rail).getByRole("button", { name: "Terminal" })).toHaveAttribute("aria-current", "page");
   });
 
+  it("keeps the selected machine visible on every workspace page", async () => {
+    await bootAndSignIn();
+    selectDevice("workshop");
+
+    const rail = screen.getByRole("navigation", { name: "Sections" });
+    for (const section of ["Files", "Screen", "Runs", "Machine"]) {
+      fireEvent.click(within(rail).getByRole("button", { name: section }));
+      expect(screen.getByRole("heading", { name: "workshop" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "All devices" })).toBeInTheDocument();
+    }
+  });
+
   it("keeps the workspace mounted, hidden, across a page change", async () => {
     await bootAndSignIn();
     selectDevice("workshop");
