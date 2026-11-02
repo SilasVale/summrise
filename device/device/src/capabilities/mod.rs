@@ -10,6 +10,7 @@ pub mod browser;
 pub mod files;
 pub mod memory;
 pub mod monitor;
+pub mod plugins;
 pub mod runs;
 pub mod ssh;
 pub mod system;

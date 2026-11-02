@@ -13,7 +13,9 @@
 use std::fs::{self, OpenOptions};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+#[cfg(test)]
+use std::sync::Mutex;
 
 /// The largest a plugin log may become before it rotates.
 pub const MAX_LOG_BYTES: u64 = 4 * 1024 * 1024;
@@ -46,7 +48,8 @@ impl LogSink {
         }
     }
 
-    /// A sink that keeps its lines in memory, for tests and for a host built without a data dir.
+    /// A sink that keeps its lines in memory, for the tests.
+    #[cfg(test)]
     pub fn to_memory(lines: Arc<Mutex<Vec<String>>>) -> LogSink {
         LogSink {
             target: Arc::new(MemoryTarget { lines }),
@@ -77,10 +80,12 @@ impl Target for FileTarget {
     }
 }
 
+#[cfg(test)]
 struct MemoryTarget {
     lines: Arc<Mutex<Vec<String>>>,
 }
 
+#[cfg(test)]
 impl Target for MemoryTarget {
     fn write_line(&self, line: &str) {
         if let Ok(mut lines) = self.lines.lock() {

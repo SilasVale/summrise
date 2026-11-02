@@ -29,7 +29,8 @@ use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use rmcp::model::{
     CallToolRequestParams, CallToolResult, ContentBlock, ErrorCode, Implementation,
-    ListToolsResult, PaginatedRequestParams, ServerCapabilities, ServerInfo, Tool, ToolsCapability,
+    ListToolsResult, PaginatedRequestParams, ServerCapabilities, ServerInfo, Tool, ToolAnnotations,
+    ToolsCapability,
 };
 use rmcp::service::{RequestContext, RoleServer};
 use rmcp::transport::streamable_http_server::session::local::LocalSessionManager;
@@ -44,8 +45,11 @@ use summrise_core::{
 };
 use tokio::io::AsyncWriteExt;
 
-use crate::capabilities::{browser, files, memory, monitor, runs, ssh, system, terminal};
+use crate::capabilities::{
+    browser, files, memory, monitor, plugins as plugins_capability, runs, ssh, system, terminal,
+};
 use crate::config::{Config, Release};
+use crate::plugins::host::PluginHost;
 use crate::restart;
 use crate::store::{Store, EVENT_TAIL};
 
@@ -121,6 +125,8 @@ pub(crate) struct DeviceServer {
     /// What `host.restart` does after the answer is built. The production hook exits after a short
     /// delay; tests record the call instead.
     restart: restart::Hook,
+    /// The plugin host: the `plugins.*` tools and the namespaced tools of every running plugin.
+    plugins: Arc<PluginHost>,
 }
 
 /// Who is asking the handler to run a call.
@@ -333,7 +339,17 @@ impl DeviceServer {
             nonces: crate::remote::NonceLog::new(),
             supervised: config.supervised,
             restart: restart::none(),
+            // Boot starts nothing: `start_all` is the device's call, after it has decided to serve.
+            // A server built by a test (`console_server`, `restart_server`) gets an empty host.
+            plugins: Arc::new(PluginHost::load(&config.data)),
         }
+    }
+
+    /// Replace the plugin host. The device builds one host at boot and shares it with every MCP
+    /// session; a test injects a scripted one.
+    pub(crate) fn with_plugins(mut self, plugins: Arc<PluginHost>) -> DeviceServer {
+        self.plugins = plugins;
+        self
     }
 
     /// Install the router's one restart hook. `new` defaults to "never restart", so a server built
@@ -471,7 +487,7 @@ impl DeviceServer {
                 }),
             ),
             "ping" => jsonrpc_result(id, json!({})),
-            "tools/list" => jsonrpc_result(id, json!({ "tools": registry_tools() })),
+            "tools/list" => jsonrpc_result(id, json!({ "tools": self.advertised_tools() })),
             "tools/call" => {
                 let params = request.get("params");
                 let name = params
@@ -544,12 +560,21 @@ impl DeviceServer {
             Caller::Console { token_id, .. } => Some(*token_id),
             Caller::Owner | Caller::Granted { .. } => None,
         };
-        let Some(definition) = registry::tool(name) else {
-            self.audit_begin(id, now_ms, name, "deny", arrival, peer, token_id)
-                .await;
-            self.audit_end(id, false, Some("unknown_tool"), arrival, peer, token_id)
-                .await;
-            return Err(CallFailure::Arguments(format!("unknown tool: {name}")));
+        // A built-in's flag is the registry's; a plugin tool's is the one its running plugin
+        // advertises. `None` from both is a name the device does not offer, and a name it does not
+        // offer is denied before any capability runs.
+        let destructive = match registry::is_destructive(name) {
+            Some(destructive) => destructive,
+            None => match self.plugins.destructive(name) {
+                Some(destructive) => destructive,
+                None => {
+                    self.audit_begin(id, now_ms, name, "deny", arrival, peer, token_id)
+                        .await;
+                    self.audit_end(id, false, Some("unknown_tool"), arrival, peer, token_id)
+                        .await;
+                    return Err(CallFailure::Arguments(format!("unknown tool: {name}")));
+                }
+            },
         };
 
         // The policy grant is built here, beside the `Ctx` that borrows it, so the signed wire type
@@ -605,7 +630,7 @@ impl DeviceServer {
                 now_ms: now_ms.saturating_sub(CLOCK_SKEW_MS),
             },
         };
-        let call = ToolCall::new(name.to_owned(), definition.destructive);
+        let call = ToolCall::new(name.to_owned(), destructive);
         match authorize(&context, &call) {
             Decision::Allow => {}
             Decision::Deny { reason } => {
@@ -696,9 +721,7 @@ impl DeviceServer {
         arguments: Map<String, Value>,
     ) -> Result<String, ToolError> {
         let Some(handler) = handler(name) else {
-            return Err(ToolError::Internal(format!(
-                "{name} is in the registry but has no implementation"
-            )));
+            return self.dispatch_plugin(name, arguments).await;
         };
 
         match handler {
@@ -1334,6 +1357,17 @@ impl DeviceServer {
                 })
                 .to_string())
             }
+            Handler::Plugins => {
+                match plugins_capability::dispatch(&self.plugins, name, arguments).await {
+                    Ok(text) => Ok(text),
+                    Err(plugins_capability::PluginsError::Arguments(message)) => {
+                        Err(ToolError::Arguments(message))
+                    }
+                    Err(plugins_capability::PluginsError::Plugin(error)) => {
+                        Err(ToolError::Refused(error.to_text()))
+                    }
+                }
+            }
             Handler::StateGet => {
                 // The console's device page: the document an operator would read from
                 // `/api/state`, plus the readiness answer `/api/health` would give, and the last ten
@@ -1371,6 +1405,33 @@ impl DeviceServer {
                 };
                 Ok(json!({ "state": state, "health": health, "events": events }).to_string())
             }
+        }
+    }
+
+    /// Route one name the handler table does not own: a plugin tool, or a bug.
+    ///
+    /// Only a running plugin's tools reach here — [`DeviceServer::execute_call`] has already resolved
+    /// the destructive flag and denied a name neither the registry nor a live plugin advertises. The
+    /// plugin receives its own tool name; the device's namespaced name is the advertised and audited
+    /// one.
+    async fn dispatch_plugin(
+        &self,
+        name: &str,
+        arguments: Map<String, Value>,
+    ) -> Result<String, ToolError> {
+        let Some((namespace, _)) = name.split_once('.') else {
+            return Err(ToolError::Internal(format!(
+                "{name} is in the registry but has no implementation"
+            )));
+        };
+        if !self.plugins.is_running(namespace) {
+            return Err(ToolError::Internal(format!(
+                "{name} has no implementation: plugin {namespace} is not running"
+            )));
+        }
+        match self.plugins.call(name, Value::Object(arguments)).await {
+            Ok(text) => Ok(text),
+            Err(error) => Err(ToolError::Refused(error.to_text())),
         }
     }
 }
@@ -1483,6 +1544,8 @@ enum Handler {
     HostRestart,
     ScreenCapture,
     StateGet,
+    /// All six `plugins.*` tools; the capability's dispatch matches the exact name.
+    Plugins,
 }
 
 /// The names this surface implements, and their handlers.
@@ -1532,6 +1595,12 @@ const HANDLERS: &[(&str, Handler)] = &[
     ("host.restart", Handler::HostRestart),
     ("screen.capture", Handler::ScreenCapture),
     ("state.get", Handler::StateGet),
+    ("plugins.list", Handler::Plugins),
+    ("plugins.inspect", Handler::Plugins),
+    ("plugins.add", Handler::Plugins),
+    ("plugins.remove", Handler::Plugins),
+    ("plugins.restart", Handler::Plugins),
+    ("plugins.logs", Handler::Plugins),
 ];
 
 /// The handler for `name`, or `None` when the surface has no implementation.
@@ -1557,8 +1626,8 @@ impl ServerHandler for DeviceServer {
         let mut info = ServerInfo::default();
         info.instructions = Some(
             "Summrise device: files inside the device's files root, its append-only memory, \
-             terminal sessions (local PTY or SSH), a headless browser, reachability monitors, and
-             one-shot command runs with a short history."
+             terminal sessions (local PTY or SSH), a headless browser, reachability monitors, one-shot
+             command runs with a short history, and plugins that add tools under their own namespace."
                 .into(),
         );
         info.capabilities = ServerCapabilities::builder()
@@ -1577,7 +1646,7 @@ impl ServerHandler for DeviceServer {
         _request: Option<PaginatedRequestParams>,
         _context: RequestContext<RoleServer>,
     ) -> Result<ListToolsResult, McpError> {
-        Ok(ListToolsResult::with_all_items(registry_tools()))
+        Ok(ListToolsResult::with_all_items(self.advertised_tools()))
     }
 
     async fn call_tool(
@@ -1615,6 +1684,34 @@ fn registry_tools() -> Vec<Tool> {
             tool
         })
         .collect()
+}
+
+impl DeviceServer {
+    /// The catalogue: the registry's tools in registry order, then every running plugin's tools,
+    /// sorted by namespace and then tool name (the host guarantees the order).
+    ///
+    /// A plugin that is not `Running` contributes nothing, so a crashed plugin's tools leave
+    /// `tools/list` at once, as the spec's lifecycle says. Built-in tools keep the registry's schema;
+    /// a plugin tool carries the schema and annotation hints the plugin advertised.
+    fn advertised_tools(&self) -> Vec<Tool> {
+        let mut tools = registry_tools();
+        for view in self.plugins.tools() {
+            let mut tool = Tool::default();
+            tool.name = view.name.into();
+            tool.title = view.title;
+            tool.description = view.description.map(Into::into);
+            tool.input_schema =
+                Arc::new(view.input_schema.as_object().cloned().unwrap_or_default());
+            let mut annotations = ToolAnnotations::default();
+            annotations.read_only_hint = view.read_only;
+            annotations.destructive_hint = view.destructive_hint;
+            annotations.idempotent_hint = view.idempotent;
+            annotations.open_world_hint = view.open_world;
+            tool.annotations = Some(annotations);
+            tools.push(tool);
+        }
+        tools
+    }
 }
 
 /// The input schema for one registry tool.
@@ -2236,6 +2333,72 @@ fn input_schema(definition: &ToolDef) -> Value {
             "properties": {},
             "additionalProperties": false
         }),
+        "plugins.list" => json!({
+            "type": "object",
+            "properties": {},
+            "additionalProperties": false
+        }),
+        "plugins.inspect" => json!({
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": "The plugin directory to read; it must contain plugin.json. No process is started and no record is written."
+                }
+            },
+            "required": ["path"],
+            "additionalProperties": false
+        }),
+        "plugins.add" => json!({
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": "The plugin directory to install; it must contain plugin.json. Installing registers the path and runs its code with this machine's permissions."
+                }
+            },
+            "required": ["path"],
+            "additionalProperties": false
+        }),
+        "plugins.remove" => json!({
+            "type": "object",
+            "properties": {
+                "namespace": {
+                    "type": "string",
+                    "description": "The namespace plugins.list reports; its source directory is never deleted."
+                }
+            },
+            "required": ["namespace"],
+            "additionalProperties": false
+        }),
+        "plugins.restart" => json!({
+            "type": "object",
+            "properties": {
+                "namespace": {
+                    "type": "string",
+                    "description": "The namespace plugins.list reports; a manual restart resets the start budget."
+                }
+            },
+            "required": ["namespace"],
+            "additionalProperties": false
+        }),
+        "plugins.logs" => json!({
+            "type": "object",
+            "properties": {
+                "namespace": {
+                    "type": "string",
+                    "description": "The namespace plugins.list reports."
+                },
+                "lines": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": crate::plugins::logs::MAX_LOG_LINES,
+                    "description": format!("How many trailing lines to return (default {}).", crate::plugins::logs::DEFAULT_LOG_LINES)
+                }
+            },
+            "required": ["namespace"],
+            "additionalProperties": false
+        }),
         _ => json!({ "type": "object" }),
     }
 }
@@ -2802,6 +2965,7 @@ fn audit_tool(tool: &str) -> &str {
 #[cfg(test)]
 mod tests {
     use std::fs;
+    use std::path::PathBuf;
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::sync::Arc;
     // The PTY tests are Unix (or Linux) only, and they are the only users of these on Windows.
@@ -3413,6 +3577,12 @@ mod tests {
                 "host.restart",
                 "screen.capture",
                 "state.get",
+                "plugins.list",
+                "plugins.inspect",
+                "plugins.add",
+                "plugins.remove",
+                "plugins.restart",
+                "plugins.logs",
             ],
             "the wire surface is the registry's surface"
         );
@@ -5569,4 +5739,327 @@ mod tests {
             .collect::<Vec<_>>();
         assert_eq!(lines[0]["decision"], "allow");
     }
+
+    /// A server whose plugin host has one running scripted `hello` plugin.
+    ///
+    /// The host and the device share `config.data`, which is what boot does: the plugin registry,
+    /// the plugin logs and the audit are one directory.
+    async fn server_with_plugin(
+        label: &str,
+    ) -> (
+        super::DeviceServer,
+        Config,
+        TempDir,
+        Arc<crate::plugins::test_support::ScriptedLauncher>,
+        PathBuf,
+    ) {
+        let (server, config, dir) = console_server(label);
+        let launcher = crate::plugins::test_support::ScriptedLauncher::hello();
+        let host = crate::plugins::test_support::host(&dir, Arc::clone(&launcher));
+        let source = crate::plugins::test_support::plugin_dir(&dir, "hello");
+        host.add(&source).await.expect("the plugin starts");
+        (
+            server.with_plugins(Arc::new(host)),
+            config,
+            dir,
+            launcher,
+            source,
+        )
+    }
+
+    #[tokio::test]
+    async fn a_running_plugins_tools_are_advertised_after_the_built_ins_and_route_a_call() {
+        let (server, config, _dir, launcher, _source) =
+            server_with_plugin("mcp-plugin-route").await;
+
+        let reply = server
+            .handle(
+                &json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list" }),
+                super::Caller::Owner,
+            )
+            .await;
+        let tools = reply["result"]["tools"]
+            .as_array()
+            .unwrap_or_else(|| panic!("tools/list answers: {reply}"));
+        let names: Vec<&str> = tools
+            .iter()
+            .map(|tool| tool["name"].as_str().expect("a name"))
+            .collect();
+        let builtin_count: usize = CAPABILITIES
+            .iter()
+            .map(|capability| capability.tools.len())
+            .sum();
+        assert_eq!(
+            names.len(),
+            builtin_count + 1,
+            "the catalogue is the built-ins plus the running plugin's tools"
+        );
+        assert_eq!(
+            names[builtin_count], "hello.greet",
+            "plugin tools follow the built-ins: {names:?}"
+        );
+        let plugin = &tools[builtin_count];
+        assert_eq!(plugin["description"], "Say hello to a name.");
+        assert_eq!(plugin["title"], "Greet someone");
+        assert_eq!(plugin["annotations"]["readOnlyHint"], true);
+        assert_eq!(plugin["annotations"]["destructiveHint"], false);
+        assert_eq!(plugin["annotations"]["idempotentHint"], true);
+        assert_eq!(plugin["annotations"]["openWorldHint"], false);
+        assert_eq!(plugin["inputSchema"]["required"], json!(["name"]));
+
+        let schema = |name: &str| {
+            tools
+                .iter()
+                .find(|tool| tool["name"] == name)
+                .unwrap_or_else(|| panic!("{name} is advertised"))["inputSchema"]
+                .clone()
+        };
+        assert_eq!(schema("plugins.inspect")["required"], json!(["path"]));
+        assert_eq!(
+            schema("plugins.add")["required"],
+            json!(["path"]),
+            "adding names the directory"
+        );
+        for name in ["plugins.remove", "plugins.restart", "plugins.logs"] {
+            assert_eq!(schema(name)["required"], json!(["namespace"]), "{name}");
+        }
+        assert_eq!(schema("plugins.list")["properties"], json!({}));
+
+        let reply = server
+            .handle(
+                &json!({
+                    "jsonrpc": "2.0",
+                    "id": 2,
+                    "method": "tools/call",
+                    "params": { "name": "hello.greet", "arguments": { "name": "Bob" } }
+                }),
+                super::Caller::Owner,
+            )
+            .await;
+        assert_eq!(reply["result"]["isError"], false, "{reply}");
+        assert_eq!(text_of(&reply), "greet says hi Bob");
+        assert_eq!(launcher.launches.load(Ordering::SeqCst), 1);
+
+        // The audit names the namespaced tool exactly as the client called it.
+        let lines = audit_lines_of(&config);
+        let begin = lines
+            .iter()
+            .find(|line| line["event"] == "begin" && line["tool"] == "hello.greet")
+            .unwrap_or_else(|| panic!("the call has a begin line: {lines:?}"));
+        assert_eq!(begin["decision"], "allow");
+        let id = begin["id"].clone();
+        let end = lines
+            .iter()
+            .find(|line| line["event"] == "end" && line["id"] == id)
+            .unwrap_or_else(|| panic!("the call has an end line: {lines:?}"));
+        assert_eq!(end["ok"], true);
+
+        // A removed plugin's tools leave the same catalogue at once.
+        server
+            .plugins
+            .remove("hello")
+            .await
+            .expect("the plugin is removed");
+        let reply = server
+            .handle(
+                &json!({ "jsonrpc": "2.0", "id": 3, "method": "tools/list" }),
+                super::Caller::Owner,
+            )
+            .await;
+        let names: Vec<&str> = reply["result"]["tools"]
+            .as_array()
+            .expect("tools")
+            .iter()
+            .map(|tool| tool["name"].as_str().expect("a name"))
+            .collect();
+        assert!(
+            !names.contains(&"hello.greet"),
+            "a stopped plugin advertises nothing: {names:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_console_token_must_name_the_plugin_tool_and_an_unknown_plugin_tool_is_denied() {
+        let (server, config, _dir, _launcher, _source) =
+            server_with_plugin("mcp-plugin-auth").await;
+
+        let call = |id: u64, name: &'static str| {
+            json!({
+                "jsonrpc": "2.0",
+                "id": id,
+                "method": "tools/call",
+                "params": { "name": name, "arguments": { "name": "Bob" } }
+            })
+        };
+
+        // The token names a built-in, not the plugin tool: the same denial a built-in gets.
+        let scopes = vec!["files.read".to_owned()];
+        let reply = server
+            .handle(
+                &call(10, "hello.greet"),
+                super::Caller::Console {
+                    token_id: "tok-7",
+                    scopes: &scopes,
+                    allow_destructive: false,
+                    arrival: super::Arrival::Loopback,
+                },
+            )
+            .await;
+        assert_eq!(reply["error"]["code"], -32001, "{reply}");
+        assert!(
+            reply["error"]["message"]
+                .as_str()
+                .is_some_and(|message| message.contains("does not cover")),
+            "{reply}"
+        );
+
+        // A token that names it calls it: no plugin-specific authorization exists.
+        let scopes = vec!["hello.greet".to_owned()];
+        let reply = server
+            .handle(
+                &call(11, "hello.greet"),
+                super::Caller::Console {
+                    token_id: "tok-8",
+                    scopes: &scopes,
+                    allow_destructive: false,
+                    arrival: super::Arrival::Loopback,
+                },
+            )
+            .await;
+        assert_eq!(reply["result"]["isError"], false, "{reply}");
+        assert_eq!(text_of(&reply), "greet says hi Bob");
+
+        // A name no live plugin advertises is still "unknown tool", even if a token names it.
+        let scopes = vec!["hello.nope".to_owned()];
+        let reply = server
+            .handle(
+                &call(12, "hello.nope"),
+                super::Caller::Console {
+                    token_id: "tok-9",
+                    scopes: &scopes,
+                    allow_destructive: false,
+                    arrival: super::Arrival::Loopback,
+                },
+            )
+            .await;
+        assert_eq!(reply["error"]["message"], "unknown tool: hello.nope");
+
+        let lines = audit_lines_of(&config);
+        assert!(
+            lines.iter().any(|line| {
+                line["event"] == "end" && line["error_kind"] == "denied" && line["tool"].is_null()
+            }) || lines.iter().any(|line| line["event"] == "begin"
+                && line["tool"] == "hello.greet"
+                && line["decision"] == "deny"),
+            "the denied plugin call is audited: {lines:?}"
+        );
+        assert!(lines.iter().any(|line| {
+            line["event"] == "begin" && line["tool"] == "hello.greet" && line["decision"] == "allow"
+        }));
+        assert!(lines
+            .iter()
+            .any(|line| { line["event"] == "end" && line["error_kind"] == "unknown_tool" }));
+    }
+
+    #[tokio::test]
+    async fn plugins_add_list_inspect_logs_and_remove_are_the_same_tools_over_the_endpoint() {
+        let (server, _config, dir) = console_server("mcp-plugins-tools");
+        let launcher = crate::plugins::test_support::ScriptedLauncher::hello();
+        let host = crate::plugins::test_support::host(&dir, Arc::clone(&launcher));
+        let server = server.with_plugins(Arc::new(host));
+        let source = crate::plugins::test_support::plugin_dir(&dir, "hello");
+
+        let call = |id: u64, name: &'static str, arguments: Value| {
+            json!({
+                "jsonrpc": "2.0",
+                "id": id,
+                "method": "tools/call",
+                "params": { "name": name, "arguments": arguments }
+            })
+        };
+
+        // Inspect reads the manifest without starting the plugin or recording it.
+        let reply = server
+            .handle(
+                &call(
+                    20,
+                    "plugins.inspect",
+                    json!({ "path": source.display().to_string() }),
+                ),
+                super::Caller::Owner,
+            )
+            .await;
+        assert_eq!(reply["result"]["isError"], false, "{reply}");
+        let inspection: Value = serde_json::from_str(text_of(&reply)).expect("JSON");
+        assert_eq!(inspection["namespace"], "hello");
+        assert_eq!(
+            inspection["description"],
+            "A scripted plugin for the host tests."
+        );
+        assert_eq!(launcher.launches.load(Ordering::SeqCst), 0);
+
+        // Add starts it and reports the same row plugins.list returns.
+        let reply = server
+            .handle(
+                &call(
+                    21,
+                    "plugins.add",
+                    json!({ "path": source.display().to_string() }),
+                ),
+                super::Caller::Owner,
+            )
+            .await;
+        assert_eq!(reply["result"]["isError"], false, "{reply}");
+        let added: Value = serde_json::from_str(text_of(&reply)).expect("JSON");
+        assert_eq!(added["tools"], 1);
+        assert_eq!(added["plugin"]["namespace"], "hello");
+        assert_eq!(added["plugin"]["state"], "running");
+
+        let reply = server
+            .handle(&call(22, "plugins.list", json!({})), super::Caller::Owner)
+            .await;
+        let listed: Value = serde_json::from_str(text_of(&reply)).expect("JSON");
+        assert_eq!(listed[0]["namespace"], "hello");
+        assert_eq!(listed[0]["tools"], 1);
+
+        let reply = server
+            .handle(
+                &call(
+                    23,
+                    "plugins.logs",
+                    json!({ "namespace": "hello", "lines": 10 }),
+                ),
+                super::Caller::Owner,
+            )
+            .await;
+        let logged: Value = serde_json::from_str(text_of(&reply)).expect("JSON");
+        assert_eq!(logged["namespace"], "hello");
+        assert!(logged["lines"].is_array(), "{logged}");
+
+        let reply = server
+            .handle(
+                &call(24, "plugins.remove", json!({ "namespace": "hello" })),
+                super::Caller::Owner,
+            )
+            .await;
+        let removed: Value = serde_json::from_str(text_of(&reply)).expect("JSON");
+        assert_eq!(removed["plugin"]["state"], "stopped");
+        assert!(
+            source.join("plugin.json").is_file(),
+            "removal never deletes the operator's directory"
+        );
+
+        // A plugin error is the tool-text shape, not an MCP protocol error.
+        let reply = server
+            .handle(
+                &call(25, "plugins.remove", json!({ "namespace": "hello" })),
+                super::Caller::Owner,
+            )
+            .await;
+        assert_eq!(reply["result"]["isError"], true, "{reply}");
+        let error: Value = serde_json::from_str(text_of(&reply)).expect("JSON");
+        assert_eq!(error["code"], "PLUGIN_NOT_FOUND");
+        assert_eq!(error["action"], "plugins.list");
+    }
+
 }

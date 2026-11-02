@@ -272,48 +272,65 @@ pub enum ManifestError {
     },
 }
 
+impl ManifestError {
+    /// The manifest key the error is about.
+    ///
+    /// A caller that has to show "{field}: {reason}" (the console's inspect sheet does) can name the
+    /// field without matching on the variant; the display already leads with it.
+    pub fn field(&self) -> &'static str {
+        match self {
+            ManifestError::Malformed { .. } => MANIFEST_FILE,
+            ManifestError::Id { .. } => "id",
+            ManifestError::Namespace { .. } => "namespace",
+            ManifestError::Name { .. } => "name",
+            ManifestError::Version { .. } => "version",
+            ManifestError::EmptyCommand | ManifestError::CommandExecutable => "command",
+            ManifestError::Cwd { .. } => "cwd",
+            ManifestError::Transport { .. } => "transport",
+            ManifestError::EnvKey { .. } => "env",
+            ManifestError::ToolName { .. } => "tool",
+        }
+    }
+
+    /// The reason, without the field prefix: `{field}: {reason}` is the whole sentence.
+    pub fn reason(&self) -> String {
+        match self {
+            ManifestError::Malformed { detail } => detail.clone(),
+            ManifestError::Id { id } => {
+                format!("value {id:?} must match [a-z0-9][a-z0-9._-]{{2,63}}")
+            }
+            ManifestError::Namespace { namespace } => {
+                format!("value {namespace:?} must match [a-z][a-z0-9-]{{1,31}}")
+            }
+            ManifestError::Name { name } => {
+                format!("value {name:?} must be 1 to {MAX_NAME_CHARS} characters")
+            }
+            ManifestError::Version { version } => {
+                format!("value {version:?} must be x.y.z")
+            }
+            ManifestError::EmptyCommand => "must name an executable to run".to_owned(),
+            ManifestError::CommandExecutable => {
+                "the executable (command[0]) must not be empty".to_owned()
+            }
+            ManifestError::Cwd { cwd } => format!(
+                "value {cwd:?} must be relative to the plugin directory and must not use '..'"
+            ),
+            ManifestError::Transport { transport } => {
+                format!("value {transport:?} is not supported; the only transport is \"stdio\"")
+            }
+            ManifestError::EnvKey { key } => {
+                format!("key {key:?} must match [A-Za-z_][A-Za-z0-9_]*")
+            }
+            ManifestError::ToolName { tool } => {
+                format!("name {tool:?} must be 1 to {MAX_TOOL_BYTES} bytes from [A-Za-z0-9_.-]")
+            }
+        }
+    }
+}
+
 impl fmt::Display for ManifestError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            ManifestError::Malformed { detail } => write!(f, "plugin.json: {detail}"),
-            ManifestError::Id { id } => write!(
-                f,
-                "plugin.json: id {id:?} must match [a-z0-9][a-z0-9._-]{{2,63}}"
-            ),
-            ManifestError::Namespace { namespace } => write!(
-                f,
-                "plugin.json: namespace {namespace:?} must match [a-z][a-z0-9-]{{1,31}}"
-            ),
-            ManifestError::Name { name } => write!(
-                f,
-                "plugin.json: name {name:?} must be 1 to {MAX_NAME_CHARS} characters"
-            ),
-            ManifestError::Version { version } => {
-                write!(f, "plugin.json: version {version:?} must be x.y.z")
-            }
-            ManifestError::EmptyCommand => {
-                write!(f, "plugin.json: command must name an executable to run")
-            }
-            ManifestError::CommandExecutable => {
-                write!(f, "plugin.json: command[0] must not be empty")
-            }
-            ManifestError::Cwd { cwd } => write!(
-                f,
-                "plugin.json: cwd {cwd:?} must be relative to the plugin directory and must not use '..'"
-            ),
-            ManifestError::Transport { transport } => write!(
-                f,
-                "plugin.json: transport {transport:?} is not supported; the only transport is \"stdio\""
-            ),
-            ManifestError::EnvKey { key } => write!(
-                f,
-                "plugin.json: env key {key:?} must match [A-Za-z_][A-Za-z0-9_]*"
-            ),
-            ManifestError::ToolName { tool } => write!(
-                f,
-                "plugin.json: tool name {tool:?} must be 1 to {MAX_TOOL_BYTES} bytes from [A-Za-z0-9_.-]"
-            ),
-        }
+        write!(f, "{}: {}", self.field(), self.reason())
     }
 }
 
@@ -602,6 +619,31 @@ mod tests {
                 tool_name("hello", tool).expect(tool),
                 format!("hello.{tool}")
             );
+        }
+    }
+
+    #[test]
+    fn the_field_and_the_reason_compose_the_sentence() {
+        let mut manifest = parsed(HELLO);
+        manifest.namespace = "Hello".to_owned();
+        let error = manifest.check().expect_err("the namespace is invalid");
+        assert_eq!(error.field(), "namespace");
+        assert_eq!(
+            error.to_string(),
+            format!("{}: {}", error.field(), error.reason()),
+            "a caller can show the field and the reason without matching on the variant"
+        );
+        assert!(error.reason().contains("must match"), "{error}");
+
+        for (text, field) in [
+            (HELLO.replace("\"hello\"", "\"Hello\""), "namespace"),
+            (HELLO.replace("\"0.1.0\"", "\"0.1\""), "version"),
+            (HELLO.replace("\"id\"", "\"id2\""), "plugin.json"),
+        ] {
+            let error = PluginManifest::parse(&text)
+                .and_then(|manifest| manifest.check())
+                .expect_err("the manifest is invalid");
+            assert_eq!(error.field(), field, "{text}: {error}");
         }
     }
 

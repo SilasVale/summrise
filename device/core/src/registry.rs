@@ -342,6 +342,52 @@ pub const CAPABILITIES: &[Capability] = &[
                 "Read the device's state document plus its health: status (ok or degraded), release version, pid, whether the state document is poisoned (unreadable), and the last ten events the device recorded. A poisoned document is returned as null state with degraded health rather than a failed call.",
         }],
     },
+    Capability {
+        name: "plugins",
+        tools: &[
+            // A plugin is an MCP server installed by path. Adding, removing and restarting it are
+            // destructive in the registry's sense (they start or stop code, and a later read cannot
+            // undo that); listing, inspecting and reading a log only observe. The tools are ordinary
+            // registry tools, so the token scope, the audit record and the console need no special
+            // case: they are the operator's surface for the plugin host itself.
+            ToolDef {
+                name: "plugins.list",
+                destructive: false,
+                description:
+                    "List the installed plugins with their state and tool count; a plugin's tools are advertised only while it is running.",
+            },
+            ToolDef {
+                name: "plugins.inspect",
+                destructive: false,
+                description:
+                    "Read a plugin directory's plugin.json without starting it or recording it, so a path can be checked before plugins.add.",
+            },
+            ToolDef {
+                name: "plugins.add",
+                destructive: true,
+                description:
+                    "Install the MCP server in a directory: validate plugin.json, start it, and advertise its tools as <namespace>.<tool>; installing registers the path and runs its code with this machine's permissions.",
+            },
+            ToolDef {
+                name: "plugins.remove",
+                destructive: true,
+                description:
+                    "Remove a plugin by namespace: forget its record and stop its process, never deleting its source directory.",
+            },
+            ToolDef {
+                name: "plugins.restart",
+                destructive: true,
+                description:
+                    "Stop and start a plugin now, resetting its restart budget after a failure.",
+            },
+            ToolDef {
+                name: "plugins.logs",
+                destructive: false,
+                description:
+                    "Read the last lines of a plugin's log (default 200, at most 2000).",
+            },
+        ],
+    },
 ];
 
 /// The declaration for `name`, or `None` when no capability declares it.
@@ -363,7 +409,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_registry_declares_the_whole_surface_and_ten_capabilities() {
+    fn the_registry_declares_the_whole_surface_and_eleven_capabilities() {
         let tools: Vec<&str> = CAPABILITIES
             .iter()
             .flat_map(|capability| capability.tools)
@@ -372,10 +418,10 @@ mod tests {
 
         assert_eq!(
             CAPABILITIES.len(),
-            10,
-            "ten capabilities declare the surface"
+            11,
+            "eleven capabilities declare the surface"
         );
-        assert_eq!(tools.len(), 40, "the surface is 40 tools");
+        assert_eq!(tools.len(), 46, "the surface is 46 tools");
         assert_eq!(
             tools,
             [
@@ -419,6 +465,12 @@ mod tests {
                 "host.restart",
                 "screen.capture",
                 "state.get",
+                "plugins.list",
+                "plugins.inspect",
+                "plugins.add",
+                "plugins.remove",
+                "plugins.restart",
+                "plugins.logs",
             ],
             "the registry is the whole surface: no tool exists outside it"
         );
@@ -461,6 +513,12 @@ mod tests {
             ("host.restart", true),
             ("screen.capture", false),
             ("state.get", false),
+            ("plugins.list", false),
+            ("plugins.inspect", false),
+            ("plugins.add", true),
+            ("plugins.remove", true),
+            ("plugins.restart", true),
+            ("plugins.logs", false),
         ] {
             assert_eq!(
                 is_destructive(name),

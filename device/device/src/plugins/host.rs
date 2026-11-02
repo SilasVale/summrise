@@ -38,7 +38,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use summrise_core::plugins::{tool_name, PluginManifest, MANIFEST_FILE};
+use summrise_core::plugins::{tool_name, ManifestError, PluginManifest, MANIFEST_FILE};
 
 use super::logs::{self, LogSink};
 use super::session::{PluginTool, Session, SessionError};
@@ -133,12 +133,46 @@ pub struct PluginToolView {
     pub input_schema: Value,
     /// MCP's `readOnlyHint`, passed through.
     pub read_only: Option<bool>,
+    /// MCP's `destructiveHint`, passed through as the plugin wrote it (absent means the MCP default,
+    /// which is destructive); `destructive` is the fact computed with that default.
+    pub destructive_hint: Option<bool>,
     /// The destructive fact the device authorizes with.
     pub destructive: bool,
     /// MCP's `idempotentHint`, passed through.
     pub idempotent: Option<bool>,
     /// MCP's `openWorldHint`, passed through.
     pub open_world: Option<bool>,
+}
+
+/// One plugin directory's manifest, read without starting or recording anything.
+///
+/// The console's add sheet validates a path on blur with this shape; it is deliberately narrower than
+/// [`PluginStatus`] because nothing has been installed yet.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PluginInspection {
+    /// The manifest's `id`.
+    pub id: String,
+    /// The namespace the plugin would take.
+    pub namespace: String,
+    /// The human name.
+    pub name: String,
+    /// The plugin's version.
+    pub version: String,
+    /// The one-sentence description, when present.
+    pub description: Option<String>,
+}
+
+impl PluginInspection {
+    /// The exact object `plugins.inspect` returns.
+    pub fn to_json(&self) -> Value {
+        json!({
+            "id": self.id,
+            "namespace": self.namespace,
+            "name": self.name,
+            "version": self.version,
+            "description": self.description,
+        })
+    }
 }
 
 /// Why a plugin operation failed, in the product's shape.
@@ -193,6 +227,23 @@ pub enum PluginError {
         tool: String,
         /// Who already owns it.
         owner: String,
+    },
+    /// `plugins.inspect`: there is no directory at the path.
+    InspectNotFound {
+        /// The path as the caller wrote it.
+        path: String,
+    },
+    /// `plugins.inspect`: the directory has no `plugin.json`.
+    InspectNoManifest {
+        /// The resolved directory.
+        path: String,
+    },
+    /// `plugins.inspect`: the manifest is invalid.
+    InspectInvalidManifest {
+        /// The resolved directory.
+        path: String,
+        /// The rule that failed; its display is `{field}: {reason}`.
+        error: ManifestError,
     },
     /// No plugin has that namespace.
     NotFound {
@@ -277,6 +328,9 @@ impl PluginError {
             PluginError::CommandMissing { .. } => "PLUGIN_COMMAND_MISSING",
             PluginError::InvalidToolName { .. } => "PLUGIN_TOOL_NAME_INVALID",
             PluginError::ToolCollision { .. } => "PLUGIN_TOOL_COLLISION",
+            PluginError::InspectNotFound { .. } => "NOT_FOUND",
+            PluginError::InspectNoManifest { .. } => "NO_MANIFEST",
+            PluginError::InspectInvalidManifest { .. } => "INVALID_MANIFEST",
             PluginError::NotFound { .. } => "PLUGIN_NOT_FOUND",
             PluginError::NotRunning { .. } => "PLUGIN_NOT_RUNNING",
             PluginError::ToolNotFound { .. } => "PLUGIN_TOOL_NOT_FOUND",
@@ -302,6 +356,9 @@ impl PluginError {
             | PluginError::ToolCollision { .. } => {
                 "fix the plugin directory or its plugin.json, then plugins.add"
             }
+            PluginError::InspectNotFound { .. } => "plugins.add",
+            PluginError::InspectNoManifest { .. } => "add a plugin.json, then plugins.add",
+            PluginError::InspectInvalidManifest { .. } => "fix plugin.json, then plugins.add",
             PluginError::NotFound { .. } | PluginError::ToolNotFound { .. } => "plugins.list",
             PluginError::NotRunning { .. } => "plugins.restart",
             PluginError::Spawn { .. } | PluginError::Failed { .. } => {
@@ -396,6 +453,9 @@ impl fmt::Display for PluginError {
             PluginError::ToolCollision { tool, owner } => {
                 write!(f, "the tool {tool:?} is already provided by {owner}")
             }
+            PluginError::InspectNotFound { path } => write!(f, "no directory at {path}"),
+            PluginError::InspectNoManifest { path } => write!(f, "no plugin.json in {path}"),
+            PluginError::InspectInvalidManifest { error, .. } => write!(f, "{error}"),
             PluginError::NotFound { namespace } => write!(f, "no plugin named {namespace}"),
             PluginError::NotRunning { namespace, state } => {
                 write!(f, "plugin {namespace} is {state}, not running")
@@ -491,8 +551,6 @@ pub trait ChildProcess: Send + Sync {
 
 /// Everything a launcher needs to start one plugin.
 pub struct LaunchSpec {
-    /// The plugin's namespace, for the log.
-    pub namespace: String,
     /// The manifest's argv.
     pub command: Vec<String>,
     /// The resolved working directory.
@@ -567,11 +625,8 @@ impl Launcher for ProcessLauncher {
         tokio::spawn(async move {
             use tokio::io::AsyncBufReadExt as _;
             let mut lines = tokio::io::BufReader::new(stderr).lines();
-            loop {
-                match lines.next_line().await {
-                    Ok(Some(line)) => log.line(line),
-                    Ok(None) | Err(_) => break,
-                }
+            while let Ok(Some(line)) = lines.next_line().await {
+                log.line(line);
             }
         });
 
@@ -690,7 +745,8 @@ impl PluginHost {
         self.inner.state().plugins.values().map(status_of).collect()
     }
 
-    /// One plugin, or `None`.
+    /// One plugin, or `None`. Tests and diagnostics read a single row; the catalogue uses `list`.
+    #[cfg(test)]
     pub fn status(&self, namespace: &str) -> Option<PluginStatus> {
         self.inner.state().plugins.get(namespace).map(status_of)
     }
@@ -734,6 +790,51 @@ impl PluginHost {
             .plugins
             .get(namespace)
             .is_some_and(Entry::is_running)
+    }
+
+    /// Read one plugin directory's manifest, starting nothing and writing nothing.
+    ///
+    /// This is the add sheet's check-on-blur: the operator learns the path is wrong (or the namespace
+    /// is taken later, at add) before the trust sentence is agreed to. The two failure modes the
+    /// caller can act on are split from "invalid manifest" so the sentence can name the missing file.
+    pub async fn inspect(&self, source: &Path) -> Result<PluginInspection, PluginError> {
+        let given = source.display().to_string();
+        let canonical = fs::canonicalize(source).map_err(|_| PluginError::InspectNotFound {
+            path: given.clone(),
+        })?;
+        if !canonical.is_dir() {
+            return Err(PluginError::InspectNotFound { path: given });
+        }
+        let manifest_path = canonical.join(MANIFEST_FILE);
+        let text = match fs::read_to_string(&manifest_path) {
+            Ok(text) => text,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                return Err(PluginError::InspectNoManifest {
+                    path: canonical.display().to_string(),
+                });
+            }
+            Err(error) => {
+                return Err(PluginError::InspectInvalidManifest {
+                    path: canonical.display().to_string(),
+                    error: ManifestError::Malformed {
+                        detail: error.to_string(),
+                    },
+                });
+            }
+        };
+        let manifest = PluginManifest::parse(&text)
+            .and_then(|manifest| manifest.check().map(|()| manifest))
+            .map_err(|error| PluginError::InspectInvalidManifest {
+                path: canonical.display().to_string(),
+                error,
+            })?;
+        Ok(PluginInspection {
+            id: manifest.id,
+            namespace: manifest.namespace,
+            name: manifest.name,
+            version: manifest.version,
+            description: manifest.description,
+        })
     }
 
     /// Install the plugin directory at `source`: validate, start, check for collisions, persist.
@@ -1013,12 +1114,11 @@ impl PluginHost {
             state
                 .plugins
                 .values_mut()
-                .map(|entry| {
+                .filter_map(|entry| {
                     entry.phase = Phase::Stopped;
                     entry.tools.clear();
                     entry.live.take()
                 })
-                .flatten()
                 .collect()
         };
         let grace = self.inner.options.stop_grace;
@@ -1258,10 +1358,8 @@ impl Inner {
                     retry_at,
                     permanent,
                 } => {
-                    if !manual {
-                        if *permanent || retry_at.is_some_and(|retry_at| now < retry_at) {
-                            return Ok(status_of(entry));
-                        }
+                    if !manual && (*permanent || retry_at.is_some_and(|retry_at| now < retry_at)) {
+                        return Ok(status_of(entry));
                     }
                 }
                 Phase::Stopped => {}
@@ -1297,7 +1395,6 @@ impl Inner {
         }
 
         let spec = LaunchSpec {
-            namespace: namespace.to_owned(),
             command: record.manifest.command.clone(),
             cwd: resolve_cwd(&record.path, record.manifest.cwd.as_deref()),
             env: record.manifest.env.clone(),
@@ -1314,7 +1411,7 @@ impl Inner {
                     },
                 )
                 .await;
-                return Ok(self.status_or_not_found(namespace)?);
+                return self.status_or_not_found(namespace);
             }
         };
         let session = Arc::new(launched.session);
@@ -1331,7 +1428,7 @@ impl Inner {
                     },
                 )
                 .await;
-                return Ok(self.status_or_not_found(namespace)?);
+                return self.status_or_not_found(namespace);
             }
         };
         log.line(format!(
@@ -1349,7 +1446,7 @@ impl Inner {
                     },
                 )
                 .await;
-                return Ok(self.status_or_not_found(namespace)?);
+                return self.status_or_not_found(namespace);
             }
         };
 
@@ -1370,7 +1467,7 @@ impl Inner {
                         },
                     )
                     .await;
-                    return Ok(self.status_or_not_found(namespace)?);
+                    return self.status_or_not_found(namespace);
                 }
             };
             if !names.insert(full.clone()) {
@@ -1384,7 +1481,7 @@ impl Inner {
                     },
                 )
                 .await;
-                return Ok(self.status_or_not_found(namespace)?);
+                return self.status_or_not_found(namespace);
             }
         }
 
@@ -1775,6 +1872,7 @@ fn view_of(entry: &Entry, tool: &PluginTool) -> PluginToolView {
         description: tool.description.clone(),
         input_schema: tool.input_schema.clone(),
         read_only: tool.read_only,
+        destructive_hint: tool.destructive,
         destructive: tool.destructive(),
         idempotent: tool.idempotent,
         open_world: tool.open_world,
@@ -2049,10 +2147,7 @@ mod tests {
         assert_eq!(views.len(), 1);
         assert_eq!(views[0].name, "hello.greet");
         assert_eq!(views[0].title.as_deref(), Some("Greet someone"));
-        assert_eq!(
-            views[0].destructive, false,
-            "the plugin said it is read-only"
-        );
+        assert!(!views[0].destructive, "the plugin said it is read-only");
         assert_eq!(host.destructive("hello.greet"), Some(false));
         assert_eq!(host.destructive("hello.unknown"), None);
         assert_eq!(host.destructive("files.read"), None);
