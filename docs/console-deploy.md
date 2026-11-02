@@ -1,8 +1,8 @@
 # Deploying the console
 
-> **Status: verified, 2026-11-02 — `0.3.242` deployed to `DESKTOP-9VH92BJ` with this runbook.**
-> The digest matched, the script backed up `0.3.241`, `/health` reported `0.3.242` after the restart,
-> the served page was the committed `dist/index.html` byte for byte (784,276 B), `GET /?v=242`
+> **Status: verified, 2026-11-02 — `0.3.246` deployed to `DESKTOP-9VH92BJ` with this runbook.**
+> The digest matched, the script backed up `0.3.245`, `/health` reported `0.3.246` after the restart,
+> the served page was the committed `dist/index.html` byte for byte (786,744 B), `GET /?v=246`
 > stayed on the React page (200, no `/next` redirect), and the real-device terminal check answered
 > `REAL_TERMINAL_OK`. The console is the operator's control plane; a deploy restarts it.
 
@@ -42,26 +42,31 @@ on the host; no bytes pass through an AI context.
 - The **aggregate MCP goes through the console**, so restarting it drops the AI's own MCP connection
   for a few seconds. Observed on the first run: one `fetch failed` mid-deploy. The deploy script does
   not depend on MCP, so it completes regardless.
+- **Stage checks provenance first.** It refuses a dirty worktree, a `HEAD` that does not contain the
+  fetched `origin/main`, and a page that does not match its source (`scripts/build-web.sh --check`).
+  This was added after a local branch staged a page missing main's Activity export; build from a
+  clean tree that contains current `main`.
 
 ## The procedure
 
 1. **Stage** (Linux, once per version):
 
    ```bash
-   SUMMRISE_BUILD_VERSION=0.3.242 \
-     scripts/stage-console-deploy.bash 0.3.242 --mirror-dir /tmp/canary-mirror
+   SUMMRISE_BUILD_VERSION=0.3.246 \
+     scripts/stage-console-deploy.bash 0.3.246 --mirror-dir /tmp/canary-mirror
    ```
 
-   It builds with `cargo xwin`, refuses a binary whose bytes do not contain the version string,
-   copies it and `deploy-console-<version>.cmd` to the mirror directory, publishes
+   Before the Rust build it runs `scripts/build-web.sh --check`; a dirty or stale page aborts here
+   instead of shipping. It then builds with `cargo xwin`, refuses a binary whose bytes do not contain
+   the version string, copies it and `deploy-console-<version>.cmd` to the mirror directory, publishes
    `real-device-check.ps1` beside them, and prints the binary's size and sha256. The `.cmd` bakes in
    that digest.
 
 2. **Run it on the host**:
 
    ```bat
-   curl.exe -f -sS -o C:\Windows\Temp\deploy-242.cmd http://100.85.163.159:18100/deploy-console-0.3.242.cmd
-   cmd /c C:\Windows\Temp\deploy-242.cmd
+   curl.exe -f -sS -o C:\Windows\Temp\deploy-246.cmd http://100.85.163.159:18100/deploy-console-0.3.246.cmd
+   cmd /c C:\Windows\Temp\deploy-246.cmd
    ```
 
    The script downloads, verifies SHA-256 against the staged digest, reads the live version from
@@ -73,13 +78,13 @@ on the host; no bytes pass through an AI context.
 
    ```bash
    curl -sS http://100.74.250.98:19000/health
-   # {"status":"ok","devices":3,...,"version":"0.3.242"}
+   # {"status":"ok","devices":3,...,"version":"0.3.246"}
 
    curl -sS http://100.74.250.98:19000/ -o /tmp/live.html
    wc -c < /tmp/live.html
    stat -c %s device/console/web/dist/index.html   # must be the same number
 
-   curl -s -D - -o /dev/null 'http://100.74.250.98:19000/?v=242' | head -1
+   curl -s -D - -o /dev/null 'http://100.74.250.98:19000/?v=246' | head -1
    # HTTP/1.1 200 OK — only a `code` query goes to /next
    ```
 
@@ -106,7 +111,7 @@ picks the first online device from `/fleet`, opens a pty through `/mcp`, writes 
 
 ```
 device=DESKTOP-9VH92BJ id8=4c718d6e online=True
-terminal_created=session-20
+terminal_created=session-24
 marker_seen=True bytes=542 cursor=542
 REAL_TERMINAL_OK
 ```
@@ -117,20 +122,25 @@ It never prints the operator token, the session token or the command output.
 React page keeps its bearer **in memory**, not in a cookie or storage; a reload asks for the token
 again. Do not quote the token into a shell, an MCP call or this document.
 
-Measured on `0.3.242`:
+Measured on `0.3.246`:
 
 - **Files** listed the real root (48 entries), opened `console-transfer.txt`, then created
   `summrise-round-check-25`, uploaded a 28 B file, read it, edited it to 27 B, saved it, and the test
   folder was removed from the host.
 - **Runs** executed `cmd /c echo ui-run-33` through the form: exit 0, 40 ms, 11 B stdout
   (`ui-run-33`), and the same command appeared in the history. This is the `runs.exec` path the
-  Activity and deep-link checks open afterwards.
+  Activity and deep-link checks open afterwards. A result can copy stdout/stderr, and a past record
+  can copy its command.
+- **Activity** narrows to All time / Last hour / Last day / Last week, and **Export CSV** writes the
+  filtered view (quoted fields, ISO timestamps, names beside ids). The shell's first tab stop is
+  **Skip to content**.
 - **Screen → Desktop** refused with `screen.capture: the per-user helper has not registered this
   boot`; the page says which session the helper needs. That host's desktop session is disconnected,
   so the refusal is correct.
 - **Screen → Browser** opened `example.com`, captured 27,119 bytes, filtered the target list from six
   Chrome internals to the two real pages, showed the selected page's URL, and click/type reached the
-  page (`document.activeElement` became the input; its value became `hello via ui`).
+  page (`document.activeElement` became the input; its value became `hello via ui`). Three pages,
+  selecting, closing the selected page and navigating all updated the list and URL.
 - **Activity → Runs** and `#run/<device>/<run>` opened the same real run record. `#files`/`#terminal`
   survive a reload and sign-in as surface fragments.
 - A hidden browser target pauses live view by design; the frame counter does not advance while
@@ -158,12 +168,12 @@ Then the same `/health` check; the version line must name the backup's version.
 
 ## Measured
 
-| step | 0.3.242 |
+| step | 0.3.246 |
 |---|---|
-| binary | 6,971,904 B, sha256 `354fb34d…68f1c29a` |
-| page | 784,276 B |
+| binary | 6,976,000 B, sha256 `fd83ead5…ffa27d` |
+| page | 786,744 B |
 | stop → `/health` | ~20 s (the task's own restart) |
-| after | version `0.3.242`, 3 devices, 3 online; `REAL_TERMINAL_OK` |
+| after | version `0.3.246`, 3 devices, 3 online; `REAL_TERMINAL_OK` |
 
 The directory accumulates `summrise-console.exe.bak-0.3.x` files; `docs/RELEASE.md` asks for two.
 Keep the last two and delete the rest as part of a deploy.

@@ -45,6 +45,24 @@ command -v cargo >/dev/null 2>&1 || export PATH="$HOME/.cargo/bin:$PATH"
 command -v cargo-xwin >/dev/null 2>&1 || { echo "stage-console-deploy: cargo-xwin is not on PATH" >&2; exit 2; }
 [ -d "$mirror_dir" ] || { echo "stage-console-deploy: mirror dir does not exist: $mirror_dir" >&2; exit 2; }
 
+# THE PAGE IS EMBEDDED IN THE BINARY, SO A STALE TREE SHIPS YESTERDAY'S UI. This happened: a local
+# branch built a page that no longer carried main's Activity export and time window, and the only
+# symptom was a page-size drop at deploy time. Refuse a dirty tree, a HEAD that does not contain the
+# fetched main, and a page that does not match the committed source.
+if [ -n "$(git status --porcelain)" ]; then
+    echo "stage-console-deploy: the worktree is dirty; commit the page and source before staging" >&2
+    git status --short >&2
+    exit 2
+fi
+if git rev-parse --verify -q origin/main >/dev/null; then
+    if ! git merge-base --is-ancestor origin/main HEAD; then
+        echo "stage-console-deploy: HEAD does not contain origin/main; fetch and merge/rebase before staging" >&2
+        exit 2
+    fi
+fi
+echo "stage-console-deploy: checking the page against its source..."
+scripts/build-web.sh --check >/dev/null
+
 echo "stage-console-deploy: building $version for $target"
 SUMMRISE_BUILD_VERSION="$version" cargo xwin build --manifest-path device/Cargo.toml \
     --release --target "$target" -p summrise-console
