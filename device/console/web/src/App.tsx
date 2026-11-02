@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import logoUrl from "./logo.svg";
 import {
   api,
@@ -12,16 +12,13 @@ import {
 } from "./api";
 import { copyText } from "./copy";
 import { shortId } from "./format";
-import { DeviceCard } from "./DeviceCard";
 import { retrySentence } from "./logic";
 import { recordVitals, type VitalsSample } from "./vitals";
 import { AUDIT_WINDOW, AuditTable } from "./AuditTable";
-import { PAGE_LABELS, Rail, type Page } from "./Rail";
+import { DEVICE_TAB_LABELS, PAGE_LABELS, Rail, type DeviceTab, type Page } from "./Rail";
 import { Modal } from "./Modal";
 import { ConnectCard } from "./ConnectCard";
 import { FleetTokens } from "./FleetTokens";
-import { DevicePage } from "./DevicePage";
-import { DevicePicker } from "./DevicePicker";
 import { TerminalWorkspace } from "./TerminalWorkspace";
 import type { Grant } from "./terminal";
 import { FilesPage } from "./FilesPage";
@@ -30,34 +27,65 @@ import { parseRunLink, runLink } from "./run-link";
 import { parseSurfaceHash, surfaceHash } from "./surface-link";
 import { ScreenPage } from "./ScreenPage";
 import { SystemPage } from "./SystemPage";
+import { HomePage } from "./HomePage";
+import { DevicePageShell } from "./DevicePageShell";
+import { AccountMenu } from "./AccountMenu";
+import { MachineMenu } from "./MachineMenu";
+import { useMediaQuery } from "./useMediaQuery";
+
+/// The selected machine survives a reload; it is deliberately not in the URL. A deep link to a
+/// device-specific surface without one lands on the picker instead.
+const SELECTED_KEY = "summrise.selected.device";
+
+function readSelectedDevice(): string | null {
+  try {
+    return localStorage.getItem(SELECTED_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function storeSelectedDevice(id: string | null) {
+  try {
+    if (id === null) localStorage.removeItem(SELECTED_KEY);
+    else localStorage.setItem(SELECTED_KEY, id);
+  } catch {
+    /* a browser that refuses storage still gets a working session, minus the remembered machine */
+  }
+}
 
 export function App() {
   const [session, setSession] = useState<Session | null>(null);
   const [devices, setDevices] = useState<Device[]>([]);
   // The browser-local history sampled from the same fleet the page polls, one entry per device id.
-  // It lives in localStorage; this state is the copy the cards draw.
+  // It lives in localStorage; this state is the copy the pages draw.
   const [vitals, setVitals] = useState<Record<string, VitalsSample[]>>({});
   const [audit, setAudit] = useState<AuditLine[]>([]);
-  // Failed authentications, from their own log. Fetched with the audit because both are bounded
-  // windows the operator reads, and a poll that refreshed one and not the other would be half a story.
-  // The operator's permanent tokens, fetched so the audit can name the token behind a call. Empty when
-  // the console would not answer: the table falls back to record ids.
+  // The operator's permanent tokens, fetched so the audit can name the token behind a call and
+  // Connect can list what exists. Empty when the console would not answer: the table falls back to
+  // record ids.
   const [tokens, setTokens] = useState<TokenMeta[]>([]);
-  // THE FIRST SCREEN IS THE MACHINES, NOT A TERMINAL WITH NO MACHINE. PRODUCT.md's rule 5: a first
-  // visit shows the machines; the workspace appears once one is chosen. The old default was terminal,
-  // so a zero-device fleet taught the operator an icon-only rail before it taught them anything.
   // A run link in the fragment survives a reload (and the sign-in a reload needs). It names the
   // machine as well as the run, because a run id is only unique on its device.
   const [initialRun] = useState(() => parseRunLink(window.location.hash));
-  const [initialPage] = useState<Page>(
-    () => (initialRun ? "runs" : parseSurfaceHash(window.location.hash)) ?? "devices"
+  const [initialSurface] = useState(() => parseSurfaceHash(window.location.hash));
+  const [page, setPage] = useState<Page>(() =>
+    initialRun ? "device" : (initialSurface?.page ?? "home")
   );
-  const [page, setPage] = useState<Page>(initialPage);
-  const [selected, setSelected] = useState<string | null>(initialRun?.deviceId ?? null);
+  const [tab, setTab] = useState<DeviceTab>(() =>
+    initialRun ? "runs" : (initialSurface?.page === "device" ? initialSurface.tab ?? "terminal" : "terminal")
+  );
+  const [openTool, setOpenTool] = useState<string | null>(
+    initialSurface?.page === "capabilities" ? initialSurface.tool ?? null : null
+  );
+  const [selected, setSelected] = useState<string | null>(
+    () => initialRun?.deviceId ?? readSelectedDevice()
+  );
   // A run id handed from Activity to Runs; RunsPage consumes it once and clears it.
   const [runsFocus, setRunsFocus] = useState<string | null>(initialRun?.runId ?? null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [enrolling, setEnrolling] = useState(false);
   const [tokenInput, setTokenInput] = useState("");
   const [renaming, setRenaming] = useState<Device | null>(null);
   const [removing, setRemoving] = useState<Device | null>(null);
@@ -71,12 +99,14 @@ export function App() {
   const [grantStale, setGrantStale] = useState(false);
   const [consoleVersion, setConsoleVersion] = useState<string | null>(null);
   const [accessNote, setAccessNote] = useState<string | null>(null);
+  const phone = useMediaQuery("(max-width: 639px)");
+  const chosen = devices.find((device) => device.id === selected) ?? null;
 
   // The operator's session is the credential. Selecting a machine starts a session-scoped grant
   // (no envelope); `/mcp` treats an absent grant as full operator authority on that device, so every
-  // workspace page opens without a consent form. The legacy signed-grant path stays on the server for
-  // existing clients; the page mints a grant only for an AI client, in ConnectCard, where the consent
-  // is the point.
+  // workspace tab opens without a consent form. The legacy signed-grant path stays on the server for
+  // existing clients; the page mints a grant only for an AI client, in Connect, where consent is the
+  // point.
   useEffect(() => {
     if (selected === null) {
       setGrant(null);
@@ -87,44 +117,12 @@ export function App() {
     setGrantStale(false);
   }, [selected]);
 
-  const newest = useMemo(
-    () =>
-      devices.reduce<string | null>(
-        (best, device) =>
-          device.version && (best === null || compareVersions(device.version, best) > 0) ? device.version : best,
-        null
-      ),
-    [devices]
-  );
-
-  // The versions the fleet is actually running, oldest first. A mixed fleet is a real limitation:
-  // the console's tool registry is one list, while each device advertises its own — so a tool the
-  // page offers (or an aggregate token names) may not exist on the older build.
-  const versions = useMemo(
-    () =>
-      Array.from(
-        new Set(
-          devices
-            .map((device) => device.version)
-            .filter((version): version is string => Boolean(version))
-        )
-      ).sort(compareVersions),
-    [devices]
-  );
-
-  // A device whose channel hello predates the version field is not "the same build": it is a build
-  // the page cannot name, and a tool surface it may not share. Count it separately from the known
-  // versions rather than dropping it from the warning.
-  const unreported = devices.filter((device) => !device.version).length;
-
   // Ask who we are first, then ask for data. Fetching the device list before knowing whether there is
   // a session earns two 401s on every cold load — visible in the browser console as failures that are
   // not failures, and exactly the noise that hides a real one later.
   const refreshData = useCallback(async () => {
-    // EACH STREAM ANSWERS FOR ITSELF. A failed /audit used to reject the whole read, so the Devices
-    // page said "0 devices, 0 online" and Activity said "No audit lines yet" — two claims about the
-    // world made from a request that never arrived. The last known values now stay, and one banner
-    // says which read failed.
+    // EACH STREAM ANSWERS FOR ITSELF. A failed /audit must not turn the fleet into "0 devices" or
+    // Activity into "no calls": the last known values stay, and one banner says which read failed.
     const [list, lines, tokenList] = await Promise.allSettled([
       api.devices(),
       api.audit(AUDIT_WINDOW),
@@ -220,47 +218,71 @@ export function App() {
     setAudit([]);
     setTokens([]);
     setSelected(null);
+    storeSelectedDevice(null);
     setRunsFocus(null);
     setGrant(null);
     setGrantStale(false);
-    setPage("devices");
-    if (parseRunLink(window.location.hash)) {
+    setPage("home");
+    setTab("terminal");
+    setOpenTool(null);
+    setConnecting(null);
+    setFleetTokens(false);
+    setCode(null);
+    if (window.location.hash) {
       window.history.replaceState(null, "", window.location.pathname + window.location.search);
     }
+  };
+
+  /** Pick a machine (or All machines) and remember the choice, staying on the current destination. */
+  const choose = (id: string | null) => {
+    setSelected(id);
+    storeSelectedDevice(id);
+  };
+
+  const go = (next: Page) => {
+    setPage(next);
+    if (next === "device" && page !== "device") setTab("terminal");
+    if (next !== "capabilities") setOpenTool(null);
   };
 
   const openRun = (deviceId: string, runId: string) => {
     window.history.replaceState(null, "", runLink(deviceId, runId));
     setSelected(deviceId);
+    storeSelectedDevice(deviceId);
     setRunsFocus(runId);
-    setPage("runs");
+    setPage("device");
+    setTab("runs");
   };
 
-  // The fragment is the page's address: a reload keeps the surface, and a run link keeps both the
-  // machine and the run. Leaving Runs replaces the run link with the new surface instead of leaving a
-  // stale run in the URL. Devices is the bare path, which is also what the first visit gets.
+  // The fragment is the page's address: a reload keeps the destination and the Device tab, and a run
+  // link keeps both the machine and the run. Leaving Runs replaces the run link with the new surface
+  // instead of leaving a stale run in the URL.
   useEffect(() => {
-    const path = window.location.pathname + window.location.search;
-    if (parseRunLink(window.location.hash)) {
-      if (page === "runs") return;
-      window.history.replaceState(null, "", page === "devices" ? path : surfaceHash(page));
-      return;
-    }
-    if (page === "devices") {
-      if (window.location.hash) window.history.replaceState(null, "", path);
-      return;
-    }
-    const wanted = surfaceHash(page);
+    if (!session?.authenticated) return;
+    const run = parseRunLink(window.location.hash);
+    if (run && page === "device" && tab === "runs" && runsFocus) return;
+    const wanted = surfaceHash({
+      page,
+      tab: page === "device" ? tab : undefined,
+      tool: page === "capabilities" ? openTool ?? undefined : undefined
+    });
     if (window.location.hash !== wanted) window.history.replaceState(null, "", wanted);
-  }, [page]);
+  }, [page, tab, openTool, runsFocus, session?.authenticated]);
 
   // The tab is part of the surface: a window full of consoles should say which one this is, and
   // the signed-out tab should not claim a machine page it is not showing.
   useEffect(() => {
+    // The fleet's one h1 is its noun: Machines. Home is the hub state, once a machine is chosen.
+    const current =
+      page === "device"
+        ? DEVICE_TAB_LABELS[tab]
+        : page === "home" && chosen === null
+          ? "Machines"
+          : PAGE_LABELS[page];
     document.title = session?.authenticated
-      ? `${PAGE_LABELS[page]} · Summrise console`
+      ? `${current} · Summrise console`
       : "Sign in · Summrise console";
-  }, [page, session?.authenticated]);
+  }, [page, tab, chosen, session?.authenticated]);
 
   const signIn = async () => {
     setBusy(true);
@@ -297,7 +319,7 @@ export function App() {
       await api.remove(removing.id);
       setNotice(`${removing.name ?? shortId(removing.id)} was removed; its channel closed.`);
       setRemoving(null);
-      if (selected === removing.id) setSelected(null);
+      if (selected === removing.id) choose(null);
       await load();
     } catch (cause) {
       setError(describe(cause));
@@ -334,11 +356,20 @@ export function App() {
 
   const mintCode = async () => {
     setError(null);
+    setEnrolling(true);
     try {
       setCode(await api.enroll());
     } catch (cause) {
       setError(describe(cause));
+    } finally {
+      setEnrolling(false);
     }
+  };
+
+  /// Add a machine is one verb: Home owns the fleet, the code panel is part of it.
+  const addMachine = () => {
+    setPage("home");
+    void mintCode();
   };
 
   if (session === null) {
@@ -411,8 +442,6 @@ export function App() {
     );
   }
 
-  const online = devices.filter((device) => device.online).length;
-  const chosen = devices.find((device) => device.id === selected) ?? null;
   // THE COMMAND THE CONSOLE PRINTS IS THE ONE THE MANUAL PROVES. Without --data the code is spent
   // into a store beside the exe, and the installed SummriseLaunch service never sees it; without
   // .exe an elevated Command Prompt looks for a file name Windows does not resolve.
@@ -420,245 +449,99 @@ export function App() {
     ? `summrise-device.exe --enroll ${location.origin} ${code.code} --data C:\\ProgramData\\Summrise`
     : "";
 
+  const account = (
+    <AccountMenu
+      session={session}
+      consoleVersion={consoleVersion}
+      onSignOut={signOut}
+      onConnect={() => setConnecting(chosen)}
+      onFleetTokens={() => setFleetTokens(true)}
+      onNotice={setNotice}
+    />
+  );
+
   return (
     <div className="shell">
       <a className="skip-link" href="#main">Skip to content</a>
       {error && (
         // POST-SIGN-IN FAILURES HAD NO SURFACE: every handler wrote `error`, and only the signed-out
         // card ever drew it. A rejected enrollment or rename then looked like a click that did
-        // nothing. This banner sits above the shell (and over a modal scrim), says the sentence, and
-        // stays until dismissed or replaced by the next success.
+        // nothing. This banner sits above the shell, says the sentence, and stays until dismissed or
+        // replaced by the next success.
         <div className="alert-banner" role="alert">
           <span>{error}</span>
           <button type="button" onClick={() => setError(null)}>Dismiss</button>
         </div>
       )}
+
       <header className="topbar">
         <div className="topbar-inner">
-          <div className="brand">
-            <img src={logoUrl} alt="" width={26} height={26} />
-            <h1>Summrise</h1>
-            <span>console</span>
-          </div>
-          <p className="session">
-            <span className={"dot " + (online > 0 ? "dot-ok" : "dot-off")} />
-            {session.email ? session.email : `${online} of ${devices.length} devices online`}
-            <button type="button" onClick={signOut}>Sign out</button>
-          </p>
+          <button
+            type="button"
+            className="brand"
+            aria-label="Summrise home"
+            onClick={() => setPage("home")}
+          >
+            <img src={logoUrl} alt="" width={24} height={24} />
+            <span className="brand-name">Summrise</span>
+          </button>
+          <MachineMenu
+            devices={devices}
+            chosen={chosen}
+            onChoose={choose}
+            onAddMachine={addMachine}
+          />
+          <div className="topbar-actions">{phone && account}</div>
         </div>
       </header>
 
-      <div className="body">
-        <Rail page={page} onPage={setPage} devices={devices.length} online={online} />
+      <Rail page={page} onPage={go} footer={phone ? undefined : account} />
 
-        <main id="main" tabIndex={-1} className={page === "terminal" && chosen ? "terminal-main" : undefined}>
-          {chosen && page !== "devices" && (
-            <section className="workspace-head">
-              <div className="workspace-identity">
-                <span className={"dot " + (chosen.online ? "dot-ok" : "dot-off")} />
-                <div>
-                  <h2>{chosen.name ?? shortId(chosen.id)}</h2>
-                  <p className="hint mono">
-                    {shortId(chosen.id)} · {chosen.version ?? "build unknown"}
-                  </p>
-                </div>
+      <main
+        id="main"
+        tabIndex={-1}
+        className={page === "device" && tab === "terminal" ? "terminal-main" : undefined}
+      >
+        {page === "home" && (
+          <HomePage
+            device={chosen}
+            devices={devices}
+            selectedId={selected}
+            code={code}
+            enrollCommand={enrollCommand}
+            busy={enrolling}
+            onOpen={choose}
+            onRename={(device) => {
+              setRenaming(device);
+              setDraftName(device.name ?? "");
+            }}
+            onRemove={setRemoving}
+            onDiagnostics={(device) => void copyDiagnostics(device)}
+            onAddMachine={addMachine}
+            onDismissCode={() => setCode(null)}
+            onNotice={setNotice}
+          />
+        )}
+
+        {page === "capabilities" && (
+          <PendingPage title="Capabilities" hint="The catalogue is read from the selected machine's live tools/list." />
+        )}
+
+        {page === "plugins" && (
+          <PendingPage title="Plugins" hint="Plugins are managed on the selected machine through its own tools." />
+        )}
+
+        {page === "activity" && (
+          <div className="page">
+            <header className="page-head">
+              <div>
+                <h1>Activity</h1>
               </div>
-              <div className="actions">
-                <button type="button" onClick={() => setPage("devices")}>All devices</button>
-                <button type="button" onClick={() => void copyDiagnostics(chosen)}>Copy diagnostics</button>
-                <button type="button" onClick={() => setConnecting(chosen)}>Connect AI client</button>
+              <div className="page-actions">
+                <button type="button" onClick={() => void load()}>Refresh</button>
               </div>
-            </section>
-          )}
-
-          {page === "devices" && (
-            <div className="devices-page">
-              <section className="panel">
-                <div className="panel-head">
-                  <h2>Devices</h2>
-                  <div className="actions">
-                    <button type="button" onClick={() => void load()}>Refresh</button>
-                    <button type="button" onClick={() => setFleetTokens(true)}>Fleet tokens</button>
-                    <button type="button" className="primary" onClick={() => void mintCode()}>
-                      New enrollment code
-                    </button>
-                  </div>
-                </div>
-                <p className="summary">
-                  {devices.length} devices, {online} online
-                </p>
-                {code && (
-                  <div className="enroll">
-                    <p className="hint">
-                      This code works once, for 15 minutes. On the Windows machine, run this in an
-                      elevated Command Prompt, then restart the <code>SummriseLaunch</code> service.
-                    </p>
-                    <pre className="code">{enrollCommand}</pre>
-                    <div className="actions">
-                      <button
-                        type="button"
-                        onClick={() =>
-                          void copyText(enrollCommand).then((ok) =>
-                            setNotice(ok ? "Enrollment command copied." : "Could not copy the command.")
-                          )
-                        }
-                      >
-                        Copy command
-                      </button>
-                      <button type="button" onClick={() => setCode(null)}>Dismiss</button>
-                    </div>
-                    <p className="hint">
-                      Expires at {new Date(code.expires_at_ms).toLocaleTimeString()}.
-                    </p>
-                  </div>
-                )}
-                {(versions.length > 1 || unreported > 0) && (
-                  <p className="hint" role="status">
-                    {versions.length > 1 &&
-                      `The fleet is running ${versions.length} builds (${versions.join(", ")}). `}
-                    {unreported > 0 &&
-                      `${unreported} device${unreported === 1 ? "" : "s"} did not report a build. `}
-                    Tools can differ by device; upgrade the older builds before relying on one
-                    shared tool surface.
-                  </p>
-                )}
-                <div className="cards">
-                  {devices.map((device) => (
-                    <DeviceCard
-                      key={device.id}
-                      device={device}
-                      newest={newest}
-                      selected={selected === device.id}
-                      onSelect={() => {
-                        setSelected(device.id);
-                        setPage("terminal");
-                      }}
-                      onRename={() => {
-                        setRenaming(device);
-                        setDraftName(device.name ?? "");
-                      }}
-                      onRemove={() => setRemoving(device)}
-                      onDiagnostics={() => void copyDiagnostics(device)}
-                      onConnect={() => setConnecting(device)}
-                    />
-                  ))}
-                </div>
-              </section>
-            </div>
-          )}
-
-          {page === "files" && (
-            <DevicePage
-              title="Files"
-              pickHint="The files live on the device, so pick one. Your console session reaches it; the device checks that session on every list, read, write and mkdir."
-              devices={devices}
-              chosen={chosen}
-              onChoose={setSelected}
-            >
-              {(active) => <FilesPage grant={active} />}
-            </DevicePage>
-          )}
-
-          {page === "terminal" && !chosen && (
+            </header>
             <section className="panel">
-              <div className="panel-head">
-                <h2>Terminal</h2>
-              </div>
-              <p className="hint">
-                A terminal runs on a device, so pick one. Your console session reaches it; the device
-                checks that session on every call.
-              </p>
-              <DevicePicker devices={devices} onChoose={setSelected} />
-            </section>
-          )}
-          {page === "terminal" && chosen && grantStale && (
-            <section className="panel empty">
-              <div className="panel-head">
-                <h2>The console refused this session</h2>
-              </div>
-              <p className="hint">
-                The console no longer accepts this session's calls. Reconnect to start a fresh one; the
-                open tabs keep their place.
-              </p>
-              <button
-                type="button"
-                onClick={() => {
-                  setGrant({ deviceId: chosen.id, envelope: null });
-                  setGrantStale(false);
-                }}
-              >
-                Reconnect
-              </button>
-            </section>
-          )}
-          {/*
-            The workspace is rendered whichever page is showing, and hidden rather than unmounted:
-            a rail click used to destroy the tabs, their cursors and their xterms. The section is a
-            direct child of `main` so the page's grid keeps its gap; `hidden` takes it out of the
-            layout (and out of the modal's way) on every other page.
-          */}
-          {chosen && grant && grant.deviceId === chosen.id && (
-            <section className="panel terminal-panel" hidden={page !== "terminal"}>
-              <TerminalWorkspace
-                grant={grant}
-                visible={page === "terminal"}
-                onGrantRefused={() => setGrantStale(true)}
-              />
-            </section>
-          )}
-
-          {page === "screen" && (
-            <DevicePage
-              title="Screen"
-              pickHint="The screen belongs to the device's user session, so pick the device whose screen you want to see. Your console session reaches it; the device checks it on every capture."
-              devices={devices}
-              chosen={chosen}
-              onChoose={setSelected}
-            >
-              {(active) => <ScreenPage grant={active} />}
-            </DevicePage>
-          )}
-
-          {page === "runs" && (
-            <DevicePage
-              title="Runs"
-              pickHint="A run happens on the device, so pick one. Your console session reaches it; the device checks it on every call, and runs.exec is destructive and audited."
-              devices={devices}
-              chosen={chosen}
-              onChoose={setSelected}
-            >
-              {(active) => (
-                <RunsPage
-                  grant={active}
-                  focusRunId={runsFocus}
-                  onFocusConsumed={() => setRunsFocus(null)}
-                />
-              )}
-            </DevicePage>
-          )}
-
-          {page === "system" && (
-            <DevicePage
-              title="Machine"
-              pickHint="Processes and reachability live on the device, so pick one. Your console session reaches it; the device checks it on every read, every kill and every network test."
-              devices={devices}
-              chosen={chosen}
-              onChoose={setSelected}
-            >
-              {(active) => (
-                <SystemPage grant={active} device={chosen} vitals={chosen ? vitals[chosen.id] ?? [] : []} />
-              )}
-            </DevicePage>
-          )}
-
-          {page === "audit" && (
-            <section className="panel">
-              <div className="panel-head">
-                <h2>Activity</h2>
-                <div className="actions">
-                  <button type="button" onClick={() => void load()}>Refresh</button>
-                </div>
-              </div>
               <AuditTable
                 lines={audit}
                 devices={devices}
@@ -667,10 +550,90 @@ export function App() {
                 onOpenRun={openRun}
               />
             </section>
-          )}
+          </div>
+        )}
 
-        </main>
-      </div>
+        {page === "device" && (
+          <DevicePageShell
+            tab={tab}
+            onTab={setTab}
+            devices={devices}
+            chosen={chosen}
+            onChoose={(id) => choose(id)}
+          >
+            {() => (
+              <>
+                {grantStale && chosen && (
+                  <section className="panel empty">
+                    <h2>The console refused this session</h2>
+                    <p className="hint">
+                      The console no longer accepts this session's calls. Reconnect to start a fresh
+                      one; the open tabs keep their place.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setGrant({ deviceId: chosen.id, envelope: null });
+                        setGrantStale(false);
+                      }}
+                    >
+                      Reconnect
+                    </button>
+                  </section>
+                )}
+                {tab === "screen" && grant ? (
+                  <section className="panel">
+                    <ScreenPage grant={grant} />
+                  </section>
+                ) : null}
+                {tab === "files" && grant ? (
+                  <section className="panel">
+                    <FilesPage grant={grant} />
+                  </section>
+                ) : null}
+                {tab === "runs" && grant ? (
+                  <section className="panel">
+                    <RunsPage
+                      grant={grant}
+                      focusRunId={runsFocus}
+                      onFocusConsumed={() => setRunsFocus(null)}
+                    />
+                  </section>
+                ) : null}
+                {tab === "machine" && grant ? (
+                  <section className="panel">
+                    <SystemPage
+                      grant={grant}
+                      device={chosen}
+                      vitals={chosen ? vitals[chosen.id] ?? [] : []}
+                    />
+                  </section>
+                ) : null}
+              </>
+            )}
+          </DevicePageShell>
+        )}
+
+        {/*
+          The terminal stays mounted whichever destination is showing — a rail click used to destroy
+          its tabs, cursors and xterms. It is hidden rather than unmounted, and the page wrapper is
+          what gives it the destination's width and padding when it is visible.
+        */}
+        {chosen && grant && grant.deviceId === chosen.id && (
+          <div
+            className="page terminal-page"
+            hidden={!(page === "device" && tab === "terminal")}
+          >
+            <section className="panel terminal-panel">
+              <TerminalWorkspace
+                grant={grant}
+                visible={page === "device" && tab === "terminal"}
+                onGrantRefused={() => setGrantStale(true)}
+              />
+            </section>
+          </div>
+        )}
+      </main>
 
       {notice && (
         <div className="toast" role="status">
@@ -725,20 +688,20 @@ export function App() {
           </div>
         </Modal>
       )}
+    </div>
+  );
+}
 
-      <footer className="statusbar">
-        <span>{devices.length} devices</span>
-        <span className="sep" />
-        <span>{online} online</span>
-        <span className="sep" />
-        <span className="identity">
-          {session.via === "access" ? "signed in through Cloudflare Access" : "signed in with the operator token"}
-        </span>
-        <span className="grow" />
-        {/* The build's own number, from /health: a label typed into the page drifts exactly like the
-            one that was typed into the launcher script. */}
-        <span>console {consoleVersion ?? "…"}</span>
-      </footer>
+/** A destination whose page is built in a later task; it states only what is true today. */
+function PendingPage({ title, hint }: { title: string; hint: string }) {
+  return (
+    <div className="page">
+      <header className="page-head">
+        <div>
+          <h1>{title}</h1>
+          <p className="page-sub">{hint}</p>
+        </div>
+      </header>
     </div>
   );
 }
@@ -776,14 +739,4 @@ function reloadOnce(): boolean {
   } catch {
     return false;
   }
-}
-
-function compareVersions(left: string, right: string): number {
-  const a = left.split(/[.+-]/).map((part) => Number.parseInt(part, 10) || 0);
-  const b = right.split(/[.+-]/).map((part) => Number.parseInt(part, 10) || 0);
-  for (let index = 0; index < Math.max(a.length, b.length); index += 1) {
-    const difference = (a[index] ?? 0) - (b[index] ?? 0);
-    if (difference !== 0) return difference;
-  }
-  return 0;
 }

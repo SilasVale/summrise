@@ -718,32 +718,59 @@ const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const PAGES = [
   {
-    id: 'devices',
-    label: 'Devices',
-    heading: 'Devices',
-    state: 'the fleet picker: each machine\'s build, reachability and the way in'
+    id: 'home',
+    label: 'Home',
+    heading: 'Machines',
+    state: 'the fleet zero state: each machine\'s build, reachability and the way in'
   },
-  { id: 'files', label: 'Files', heading: 'Files', state: 'device picker (the tool surface is not exercised by this harness yet)' },
+  {
+    id: 'capabilities',
+    label: 'Capabilities',
+    heading: 'Capabilities',
+    state: 'the live tool catalogue, grouped by capability'
+  },
+  {
+    id: 'plugins',
+    label: 'Plugins',
+    heading: 'Plugins',
+    state: 'the plugins the selected machine hosts'
+  },
+  { id: 'activity', label: 'Activity', heading: 'Activity', state: 'the audit table' },
   {
     id: 'terminal',
-    label: 'Terminal',
+    label: 'Device',
+    tab: 'Terminal',
     heading: 'Terminal',
-    state: 'device picker (the tool surface is not exercised by this harness yet)'
+    state: 'the device workspace: terminal, the most direct way to take over'
   },
   {
     id: 'screen',
-    label: 'Screen',
+    label: 'Device',
+    tab: 'Screen',
     heading: 'Screen',
-    state: 'device picker (the tool surface is not exercised by this harness yet)'
+    state: 'the device workspace: the screen tab'
   },
-  { id: 'runs', label: 'Runs', heading: 'Runs', state: 'device picker (the tool surface is not exercised by this harness yet)' },
   {
-    id: 'system',
-    label: 'Machine',
-    heading: 'Machine',
-    state: 'device picker (the tool surface is not exercised by this harness yet)'
+    id: 'files',
+    label: 'Device',
+    tab: 'Files',
+    heading: 'Files',
+    state: 'the device workspace: the files tab'
   },
-  { id: 'audit', label: 'Activity', heading: 'Activity', state: 'audit table' },
+  {
+    id: 'runs',
+    label: 'Device',
+    tab: 'Runs',
+    heading: 'Runs',
+    state: 'the device workspace: the runs tab'
+  },
+  {
+    id: 'machine',
+    label: 'Device',
+    tab: 'Machine',
+    heading: 'Machine',
+    state: 'the device workspace: the machine tab'
+  }
 ];
 
 const PASSES = [
@@ -766,7 +793,7 @@ const PASSES = [
     viewport: { width: 390, height: 844 },
     colorScheme: 'light',
     suffix: '-390',
-    pages: PAGES.filter((page) => page.id === 'devices' || page.id === 'terminal')
+    pages: PAGES.filter((page) => ['home', 'activity', 'terminal', 'capabilities', 'plugins'].includes(page.id))
   }
 ];
 
@@ -913,7 +940,7 @@ async function assertPage(page, meta) {
   try {
     await page
       .locator('main')
-      .getByRole('heading', { name: meta.heading, exact: true })
+      .getByRole('heading', { name: meta.heading, exact: true, level: 1 })
       .first()
       .waitFor({ state: 'visible', timeout: 5_000 });
   } catch {
@@ -922,10 +949,15 @@ async function assertPage(page, meta) {
 }
 
 async function goTo(page, meta) {
-  // `title` carries the page's label: Rail.tsx sets `title={PAGE_LABELS[entry]}`.
+  // `title` carries the destination label: Rail.tsx sets `title={PAGE_LABELS[entry]}`.
   const button = page.locator(`nav.rail button[title=${JSON.stringify(meta.label)}]`);
   await button.waitFor({ state: 'visible', timeout: 5_000 });
   await button.click();
+  if (meta.tab) {
+    const tab = page.locator('nav.device-tabs').getByRole('button', { name: meta.tab, exact: true });
+    await tab.waitFor({ state: 'visible', timeout: 5_000 });
+    await tab.click();
+  }
   await assertPage(page, meta);
 }
 
@@ -942,17 +974,19 @@ async function boot(page, state, origin) {
   }
   await page.locator('nav.rail').waitFor({ state: 'visible', timeout: 10_000 });
   try {
+    // The fleet is the default; wait for its one h1 and for the fleet read to land.
+    await page.getByRole('heading', { name: 'Machines', exact: true, level: 1 }).waitFor({
+      state: 'visible',
+      timeout: 10_000
+    });
     await page.waitForFunction(
-      () => (document.querySelector('.statusbar')?.textContent ?? '').includes('3 devices'),
+      () => document.querySelectorAll('.fleet-row').length > 0 || document.querySelector('.empty-state'),
       null,
       { timeout: 10_000 }
     );
   } catch {
-    const text = await page
-      .locator('.statusbar')
-      .innerText()
-      .catch(() => '(no status bar)');
-    throw new Error(`the fleet did not load: status bar said ${JSON.stringify(text.replace(/\s+/g, ' '))}`);
+    const text = await page.locator('main').innerText().catch(() => '(no main)');
+    throw new Error(`the fleet did not load on Home: ${JSON.stringify(text.replace(/\s+/g, ' ').slice(0, 300))}`);
   }
   await settle(page, state);
 }

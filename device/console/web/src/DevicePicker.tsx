@@ -7,7 +7,7 @@ import { shortId } from "./format";
  */
 export function DevicePicker({ devices, onChoose }: { devices: Device[]; onChoose: (id: string) => void }) {
   if (devices.length === 0) {
-    return <p className="hint">No devices are enrolled yet. Add one from the Devices page.</p>;
+    return <p className="hint">No devices are enrolled yet. Add one from Home.</p>;
   }
   return (
     <ul className="picker">

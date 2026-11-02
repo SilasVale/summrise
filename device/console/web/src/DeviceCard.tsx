@@ -1,6 +1,5 @@
 import type { HostFacts } from "./api";
 import { age, shortId } from "./format";
-import { retrySentence } from "./logic";
 
 export type Device = {
   id: string;
@@ -14,111 +13,51 @@ export type Device = {
 
 type Props = {
   device: Device;
-  newest: string | null;
   selected: boolean;
   onSelect: () => void;
   onRename: () => void;
   onRemove: () => void;
   onDiagnostics: () => void;
-  onConnect: () => void;
 };
 
-export function DeviceCard({ device, newest, selected, onSelect, onRename, onRemove, onDiagnostics, onConnect }: Props) {
-  const behind = device.version !== null && newest !== null && device.version !== newest;
+/**
+ * One machine on the fleet. The row is the target: the main button opens the machine, and the
+ * overflow holds the three management actions. There is no per-row Connect and no accent on a row:
+ * the screen's one primary action is Add a machine.
+ */
+export function DeviceCard({ device, selected, onSelect, onRename, onRemove, onDiagnostics }: Props) {
   const label = device.name ?? shortId(device.id);
+  const attempt =
+    device.online && device.last_attempt && device.last_attempt.attempts > 0
+      ? `Reconnected after ${device.last_attempt.attempts} attempt${device.last_attempt.attempts === 1 ? "" : "s"}`
+      : null;
   return (
-    <article className={"card" + (selected ? " card-selected" : "")}>
-      <header>
+    <article className={"fleet-row" + (selected ? " is-current" : "")}>
+      <button type="button" className="fleet-open" aria-label={`Open ${label}`} onClick={onSelect}>
         <span className={"dot " + (device.online ? "dot-ok" : "dot-off")} aria-hidden="true" />
-        <strong>{label}</strong>
-        {behind && device.version && (
-          <span className="chip chip-warn" title={`Another device in this list runs ${newest}.`}>
-            v{device.version}
-          </span>
-        )}
-      </header>
-
-      {/* THE CARD ANSWERS THE PICKER'S QUESTION, NOT THE MACHINE PAGE'S. Name, reachability,
-          build and one machine line are what an operator chooses between; memory, disks, sessions,
-          swaps, repairs, the helper, the raw id and the vitals history live under Details, which is
-          a disclosure the operator opens deliberately. Before this, every card carried the whole
-          machine page and the picker read as a wall of diagnostics. */}
-      <p className="card-status">
-        <span className={device.online ? "ok" : "muted"}>{device.online ? "online" : "offline"}</span>
-        <span aria-hidden="true">·</span>
-        <span className="muted">seen {age(device.last_seen_ms)}</span>
-        {device.version && !behind && (
-          <>
-            <span aria-hidden="true">·</span>
-            <span className="muted">v{device.version}</span>
-          </>
-        )}
-        {device.host && (
-          <>
-            <span aria-hidden="true">·</span>
-            <span className="muted">{machineLine(device.host)}</span>
-          </>
-        )}
-      </p>
-
-      {device.last_attempt && device.last_attempt.attempts > 0 && (
-        // A device cannot report a failure on the connection that failed, so this is what it said the
-        // NEXT time it got through — the label is honest about being one attempt behind. Shown online
-        // as well, because "it flapped twice and came back" is the fact an operator wants before the
-        // next outage, not after it.
-        <p className="attempt" title={device.last_attempt.reason}>
-          {retrySentence(device.last_attempt.attempts, device.last_attempt.reason)}
-        </p>
-      )}
-
-      <footer>
-        <button type="button" className="primary" aria-label={`Work on ${label}`} onClick={onSelect}>
-          Work on this
-        </button>
-        <button
-          type="button"
-          aria-label={`Connect AI client to ${label}`}
-          onClick={onConnect}
-          title="Hand an AI client an MCP endpoint and a token"
-        >
-          Connect AI client
-        </button>
-        <details className="card-details">
-          <summary>Details</summary>
-          <div className="card-details-body">
-            <p className="hint">
-              Memory, disks, sessions and update state are on the Machine page. This device's id and
-              the console link are in Copy diagnostics.
-            </p>
-            <div className="card-details-actions">
-              <button type="button" aria-label={`Copy diagnostics for ${label}`} onClick={onDiagnostics}>
-                Copy diagnostics
-              </button>
-              <button type="button" aria-label={`Rename ${label}`} onClick={onRename}>
-                Rename
-              </button>
-              <button type="button" className="danger" aria-label={`Remove ${label}`} onClick={onRemove}>
-                Remove
-              </button>
-            </div>
-          </div>
-        </details>
-      </footer>
+        <span className="fleet-name">{label}</span>
+        <span className={"fleet-state" + (device.online ? " ok" : "")}>
+          {device.online ? "online" : "offline"} ·{" "}
+          {device.online ? `seen ${age(device.last_seen_ms)}` : `last seen ${age(device.last_seen_ms)}`}
+        </span>
+        {device.version && <span className="fleet-build mono">v{device.version}</span>}
+        <span className="fleet-chevron" aria-hidden="true">›</span>
+        {attempt && <span className="fleet-attempt">{attempt}</span>}
+      </button>
+      <details className="row-menu">
+        <summary aria-label={`More about ${label}`} title={`More about ${label}`}>⋯</summary>
+        <div className="row-menu-pop">
+          <button type="button" onClick={onDiagnostics}>
+            Copy diagnostics
+          </button>
+          <button type="button" onClick={onRename}>
+            Rename
+          </button>
+          <button type="button" className="danger" onClick={onRemove}>
+            Remove
+          </button>
+        </div>
+      </details>
     </article>
   );
-}
-
-/** The one machine line a picker needs: what it is and how long it has been up. */
-function machineLine(host: HostFacts): string {
-  const system = [host.os?.name, host.os?.version].filter(Boolean).join(" ") || "system unknown";
-  return host.uptime_s ? `${system} · up ${duration(host.uptime_s)}` : system;
-}
-
-function duration(seconds?: number): string {
-  if (!seconds) return "unknown";
-  const days = Math.floor(seconds / 86400);
-  const hours = Math.floor((seconds % 86400) / 3600);
-  if (days > 0) return `${days}d ${hours}h`;
-  const minutes = Math.floor((seconds % 3600) / 60);
-  return hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
 }

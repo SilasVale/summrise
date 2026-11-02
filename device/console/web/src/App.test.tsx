@@ -61,18 +61,10 @@ vi.mock("./api", () => ({
 
 // The workspace owns xterm and the tabs, and this file is about the shell around it. The stub is a
 // marker, so "a page change did not remount it" is a node-identity assertion rather than a guess;
-// `visible` is the prop App uses to hide it on every page that is not the terminal.
+// `visible` is the prop App uses to hide it on every tab that is not the terminal.
 vi.mock("./TerminalWorkspace", () => ({
   TerminalWorkspace: ({ visible }: { visible: boolean }) => (
     <div data-testid="workspace" data-visible={visible ? "yes" : "no"} />
-  )
-}));
-
-// The chip has its own poll and its own test; here it is a marker whose click must land on the
-// Monitors page without touching the grant or the selected device.
-vi.mock("./MonitorChip", () => ({
-  MonitorChip: ({ onOpen }: { onOpen: () => void }) => (
-    <button type="button" onClick={onOpen}>monitor-chip</button>
   )
 }));
 
@@ -116,6 +108,9 @@ const tokenCall = {
 
 beforeEach(() => {
   localStorage.clear();
+  // The fragment is the page's address; a test that leaves Device open must not decide where the
+  // next one boots.
+  window.history.replaceState(null, "", window.location.pathname);
   signedIn = false;
   mocks.session.mockImplementation(async () =>
     signedIn
@@ -139,8 +134,8 @@ beforeEach(() => {
   mocks.tokens.mockResolvedValue([]);
   mocks.createToken.mockResolvedValue({ id: "tok-1", token: "srm_" + "a".repeat(64) });
   mocks.revokeToken.mockResolvedValue(undefined);
-  // The grant form asks the client for the tool registry; that request is not this test's subject,
-  // so the client's answer fails and the form keeps its fallback list.
+  // The Connect sheet asks the client for the tool registry; that request is not this test's subject,
+  // so the client's answer fails and the sheet keeps its fallback list.
   mocks.tools.mockRejectedValue(new TypeError("Failed to fetch"));
 });
 
@@ -151,31 +146,31 @@ async function boot() {
   return view;
 }
 
-/** Boot signed out, sign in with the operator token, and wait for the fleet. */
+/** Boot signed out, sign in with the operator token, and wait for the fleet on Home. */
 async function bootAndSignIn() {
   const view = await boot();
   fireEvent.change(screen.getByLabelText("Operator token"), { target: { value: "operator-token" } });
   fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
-  await screen.findByRole("heading", { name: "Summrise" });
-  // The status bar's count is the load signal: the device name is also an option in the audit's
-  // device filter once there are lines, so it is not a unique way to wait for the fleet.
-  await screen.findByText("2 devices");
-  // The app opens on the terminal workspace by design; these tests exercise the fleet pages, so
-  // they enter through the rail the way an operator would.
-  fireEvent.click(screen.getByRole("button", { name: "Devices" }));
-  await screen.findByRole("heading", { name: "Devices" });
+  await screen.findByRole("heading", { name: "Machines", level: 1 });
+  await screen.findByText("2 machines · 2 online");
   return view;
 }
 
-/** Select a device from its card; App switches to the terminal and asks for a grant. */
+/** Select a machine from its fleet card; Home stays Home, as the hub's first screen. */
 function selectDevice(name: string) {
-  const card = screen.getByText(name).closest("article");
+  const label = screen.getAllByText(name).find((node) => node.closest("article"));
+  const card = label?.closest("article") ?? null;
   expect(card).not.toBeNull();
-  fireEvent.click(within(card as HTMLElement).getByRole("button", { name: /^Work on / }));
+  fireEvent.click(within(card as HTMLElement).getByRole("button", { name: new RegExp(`^Open `) }));
+}
+
+/** Open the account menu, where version, console URL, docs and sign out live now. */
+function openAccount() {
+  fireEvent.click(screen.getByLabelText("Account menu"));
 }
 
 describe("App", () => {
-  it("boots signed out, signs in with the operator token, and renders the fleet", async () => {
+  it("boots signed out, signs in with the operator token, and renders the fleet on Home", async () => {
     const { container } = await boot();
 
     expect(document.title).toBe("Sign in · Summrise console");
@@ -189,27 +184,26 @@ describe("App", () => {
     await waitFor(() => expect(mocks.signIn).toHaveBeenCalledWith({ token: "operator-token" }));
     expect(mocks.setToken).toHaveBeenCalledWith("fresh-token");
 
-    expect(await screen.findByText("workshop")).toBeInTheDocument();
-    expect(screen.getByText("attic")).toBeInTheDocument();
+    expect((await screen.findAllByText("workshop")).length).toBeGreaterThan(0);
+    expect(screen.getAllByText("attic").length).toBeGreaterThan(0);
     expect(screen.getByRole("link", { name: "Skip to content" })).toHaveAttribute("href", "#main");
     expect(screen.getByRole("main")).toHaveAttribute("id", "main");
-    // The status bar is where the page counts the fleet; the panel's own summary says the same numbers.
-    const statusbar = container.querySelector(".statusbar");
-    expect(statusbar).not.toBeNull();
-    expect(within(statusbar as HTMLElement).getByText("2 devices")).toBeInTheDocument();
-    expect(within(statusbar as HTMLElement).getByText("2 online")).toBeInTheDocument();
-    expect(within(statusbar as HTMLElement).getByText("signed in with the operator token")).toBeInTheDocument();
-    expect(document.title).toBe("Devices · Summrise console");
+    // THE STATUS STRIP IS DELETED. The fleet count is Home's job now, and there is no bar below the
+    // canvas repeating facts that already have a home.
+    expect(container.querySelector(".statusbar")).toBeNull();
+    expect(screen.getByText("2 machines · 2 online")).toBeInTheDocument();
+    expect(document.title).toBe("Machines · Summrise console");
+    expect(window.location.hash).toBe("#home");
   });
 
-  it("opens the surface named in the URL after sign-in", async () => {
+  it("opens the Device surface named in the URL after sign-in, through the legacy alias", async () => {
     window.history.replaceState(null, "", "#files");
     await boot();
     fireEvent.change(screen.getByLabelText("Operator token"), { target: { value: "operator-token" } });
     fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
 
-    expect(await screen.findByRole("heading", { name: "Files" })).toBeInTheDocument();
-    expect(window.location.hash).toBe("#files");
+    expect(await screen.findByRole("heading", { name: "Files", level: 1 })).toBeInTheDocument();
+    expect(window.location.hash).toBe("#device/files");
     window.history.replaceState(null, "", window.location.pathname);
   });
 
@@ -219,68 +213,51 @@ describe("App", () => {
     fireEvent.change(screen.getByLabelText("Operator token"), { target: { value: "operator-token" } });
     fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
 
-    expect(await screen.findByRole("heading", { name: "Runs" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Runs", level: 1 })).toBeInTheDocument();
     expect(window.location.hash).toBe("#run/workshop/r-1");
     window.history.replaceState(null, "", window.location.pathname);
   });
 
-  it("names the current surface in the tab title", async () => {
+  it("names the current destination in the tab title", async () => {
     await bootAndSignIn();
-    expect(document.title).toBe("Devices · Summrise console");
+    expect(document.title).toBe("Machines · Summrise console");
 
-    fireEvent.click(screen.getByRole("button", { name: "Files" }));
-    await screen.findByRole("heading", { name: "Files" });
-    expect(document.title).toBe("Files · Summrise console");
+    fireEvent.click(screen.getByRole("button", { name: "Activity" }));
+    await screen.findByRole("heading", { name: "Activity", level: 1 });
+    expect(document.title).toBe("Activity · Summrise console");
+
+    fireEvent.click(screen.getByRole("button", { name: "Device" }));
+    expect(document.title).toBe("Terminal · Summrise console");
   });
 
-  it("warns when the fleet runs more than one build", async () => {
-    mocks.devices.mockResolvedValue([
-      { ...workshop, version: "0.3.30" },
-      { ...attic, version: "0.1.3" }
-    ]);
-    await bootAndSignIn();
+  it("renders the whole shell: five destinations, one h1, the account menu and the build", async () => {
+    const { container } = await bootAndSignIn();
 
-    expect(screen.getByText(/running 2 builds/)).toBeInTheDocument();
-    expect(screen.getByText(/0.1.3, 0.3.30/)).toBeInTheDocument();
-  });
-
-  it("warns when a device does not report a build at all", async () => {
-    mocks.devices.mockResolvedValue([
-      { ...workshop, version: "0.3.30" },
-      { ...attic, version: undefined }
-    ]);
-    await bootAndSignIn();
-
-    expect(screen.getByText(/did not report a build/)).toBeInTheDocument();
-  });
-
-  it("does not warn when every device runs the same build", async () => {
-    await bootAndSignIn();
-
-    expect(screen.queryByText(/running 2 builds/)).not.toBeInTheDocument();
-  });
-
-  it("renders the whole shell: the seven rail sections, the brand, the build and the sign-in path", async () => {
-    await bootAndSignIn();
-
-    const rail = screen.getByRole("navigation", { name: "Sections" });
-    const sections = within(rail).getAllByRole("button");
-    expect(sections).toHaveLength(7);
+    const rail = screen.getByRole("navigation", { name: "Destinations" });
+    const sections = Array.from(container.querySelectorAll<HTMLButtonElement>(".rail-btn"));
     expect(sections.map((section) => section.textContent)).toEqual([
-      "Devices",
-      "Terminal",
-      "Screen",
-      "Files",
-      "Runs",
-      "Machine",
-      "Activity"
+      "Home",
+      "Capabilities",
+      "Plugins",
+      "Activity",
+      "Device"
     ]);
-    expect(within(rail).getByRole("button", { name: "Devices" })).toHaveAttribute("aria-current", "page");
+    expect(within(rail).getByRole("button", { name: "Home" })).toHaveAttribute(
+      "aria-current",
+      "page"
+    );
+    expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
+    expect(screen.getByRole("heading", { name: "Machines", level: 1 })).toBeInTheDocument();
+    expect(screen.getByLabelText("All machines")).toBeInTheDocument();
 
-    expect(screen.getByRole("heading", { name: "Summrise" })).toBeInTheDocument();
-    expect(screen.getByText("console 0.3.42")).toBeInTheDocument();
-    expect(screen.getByText("2 devices")).toBeInTheDocument();
-    expect(screen.getByText("signed in with the operator token")).toBeInTheDocument();
+    openAccount();
+    expect(screen.getByText("0.3.42")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Sign out" })).toBeInTheDocument();
+    // No standalone Devices or Connect destination survives the fold: the nav's own items are the
+    // five, and Connect is a verb in the account menu, not a rail seat.
+    const items = container.querySelectorAll<HTMLButtonElement>(".rail-items .rail-btn");
+    expect(Array.from(items).map((item) => item.textContent)).not.toContain("Devices");
+    expect(Array.from(items).map((item) => item.textContent)).not.toContain("Connect");
   });
 
   it("scopes Activity to the chosen machine", async () => {
@@ -288,7 +265,7 @@ describe("App", () => {
       {
         ts_ms: Date.now(),
         kind: "tool",
-        device_id: "dev-workshop",
+        device_id: workshop.id,
         token_id: null,
         tool: "terminal.create",
         detail: null,
@@ -302,32 +279,33 @@ describe("App", () => {
     const machine = await screen.findByRole("button", { name: "This machine" });
     expect(machine).toBeEnabled();
     expect(machine).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByRole("button", { name: "All machines" })).toHaveAttribute(
-      "aria-pressed",
-      "false"
-    );
+    // The header's machine menu also carries an All machines item; the Activity scope is the one
+    // with a pressed state.
+    const all = screen
+      .getAllByRole("button", { name: "All machines" })
+      .find((button) => button.hasAttribute("aria-pressed"));
+    expect(all).toHaveAttribute("aria-pressed", "false");
   });
 
-  it("navigates the rail to Activity and to the Screen picker", async () => {
+  it("navigates the rail to Activity and to the Device picker", async () => {
     await bootAndSignIn();
 
     fireEvent.click(screen.getByRole("button", { name: "Activity" }));
-    expect(screen.getByRole("heading", { name: "Activity" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Activity", level: 1 })).toBeInTheDocument();
     expect(screen.getByText("No audit lines yet.")).toBeInTheDocument();
 
+    fireEvent.click(screen.getByRole("button", { name: "Device" }));
+    expect(screen.getByRole("heading", { name: "Terminal", level: 1 })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Choose a machine" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Screen" }));
-    expect(screen.getByRole("heading", { name: "Screen" })).toBeInTheDocument();
-    expect(
-      screen.getByText(
-        "The screen belongs to the device's user session, so pick the device whose screen you want to see. Your console session reaches it; the device checks it on every capture."
-      )
-    ).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Screen", level: 1 })).toBeInTheDocument();
     expect(screen.queryByText("No audit lines yet.")).not.toBeInTheDocument();
   });
 
-  it("opens the fleet-token form from the Devices page", async () => {
+  it("opens the fleet-token form from the account menu", async () => {
     await bootAndSignIn();
 
+    openAccount();
     fireEvent.click(screen.getByRole("button", { name: "Fleet tokens" }));
 
     const dialog = await screen.findByRole("dialog", { name: "Fleet tokens" });
@@ -335,53 +313,63 @@ describe("App", () => {
     expect(within(dialog).getByText(/accepted only on/)).toBeInTheDocument();
   });
 
-  it("selects a device and opens its terminal without a grant form", async () => {
+  it("selects a machine without leaving Home, then opens its terminal from Device", async () => {
     await bootAndSignIn();
 
     selectDevice("workshop");
 
+    // Selecting stores the machine and stays on the same destination; the header is where it is now
+    // in context, as one control.
+    expect(screen.getByRole("heading", { name: "Machines", level: 1 })).toBeInTheDocument();
+    expect(screen.getByLabelText("Machine: workshop")).toBeInTheDocument();
+    expect(localStorage.getItem("summrise.selected.device")).toBe(workshop.id);
+    expect(window.location.hash).toBe("#home");
+
+    fireEvent.click(screen.getByRole("button", { name: "Device" }));
     const workspace = await screen.findByTestId("workspace");
     expect(workspace).toHaveAttribute("data-visible", "yes");
-    expect(screen.getByRole("heading", { name: "workshop" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Terminal", level: 1 })).toBeInTheDocument();
     expect(screen.queryByText(/Grant what the console may do/)).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Lifetime (seconds)")).not.toBeInTheDocument();
-    // The route to the workspace is the Terminal page, not a consent screen.
-    const rail = screen.getByRole("navigation", { name: "Sections" });
-    expect(within(rail).getByRole("button", { name: "Terminal" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("button", { name: "Terminal" })).toHaveAttribute(
+      "aria-current",
+      "page"
+    );
   });
 
-  it("keeps the selected machine visible on every workspace page", async () => {
+  it("keeps the selected machine visible on every Device tab", async () => {
     await bootAndSignIn();
     selectDevice("workshop");
+    fireEvent.click(screen.getByRole("button", { name: "Device" }));
 
-    const rail = screen.getByRole("navigation", { name: "Sections" });
-    for (const section of ["Files", "Screen", "Runs", "Machine"]) {
-      fireEvent.click(within(rail).getByRole("button", { name: section }));
-      expect(screen.getByRole("heading", { name: "workshop" })).toBeInTheDocument();
-      expect(screen.getByRole("button", { name: "All devices" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Machine: workshop")).toBeInTheDocument();
+    for (const tab of ["Files", "Screen", "Runs", "Machine", "Terminal"]) {
+      fireEvent.click(screen.getByRole("button", { name: tab }));
+      expect(screen.getByLabelText("Machine: workshop")).toBeInTheDocument();
+      expect(screen.getByRole("heading", { name: tab, level: 1 })).toBeInTheDocument();
     }
   });
 
-  it("keeps the workspace mounted, hidden, across a page change", async () => {
+  it("keeps the workspace mounted, hidden, across a destination change", async () => {
     await bootAndSignIn();
     selectDevice("workshop");
+    fireEvent.click(screen.getByRole("button", { name: "Device" }));
 
     const workspace = await screen.findByTestId("workspace");
     expect(mocks.grant).not.toHaveBeenCalled();
     expect(workspace).toHaveAttribute("data-visible", "yes");
 
-    const rail = screen.getByRole("navigation", { name: "Sections" });
-    fireEvent.click(within(rail).getByRole("button", { name: "Activity" }));
+    fireEvent.click(screen.getByRole("button", { name: "Activity" }));
     expect(screen.getByText("No audit lines yet.")).toBeInTheDocument();
     // Hidden, not unmounted: the tabs, their cursors and their names live in this subtree.
     expect(screen.getByTestId("workspace")).toBe(workspace);
     expect(workspace).toHaveAttribute("data-visible", "no");
-    expect(workspace.closest("section")).toHaveAttribute("hidden");
+    expect(workspace.closest(".terminal-page")).toHaveAttribute("hidden");
 
-    fireEvent.click(within(rail).getByRole("button", { name: "Terminal" }));
+    fireEvent.click(screen.getByRole("button", { name: "Device" }));
     expect(screen.getByTestId("workspace")).toBe(workspace);
     expect(workspace).toHaveAttribute("data-visible", "yes");
-    expect(workspace.closest("section")).not.toHaveAttribute("hidden");
+    expect(workspace.closest(".terminal-page")).not.toHaveAttribute("hidden");
   });
 
   it("clears its poll when the page unmounts", async () => {
@@ -402,14 +390,15 @@ describe("App", () => {
 
   it("signs out on the server and clears the fleet", async () => {
     await bootAndSignIn();
-    expect(screen.getByText("workshop")).toBeInTheDocument();
+    expect(screen.getAllByText("workshop").length).toBeGreaterThan(0);
 
+    openAccount();
     fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
 
     expect(mocks.logout).toHaveBeenCalledTimes(1);
     expect(screen.getByRole("heading", { name: "Sign in to the console" })).toBeInTheDocument();
     expect(screen.queryByText("workshop")).not.toBeInTheDocument();
-    expect(screen.queryByText("2 devices")).not.toBeInTheDocument();
+    expect(screen.queryByText("2 machines · 2 online")).not.toBeInTheDocument();
     expect(mocks.setToken).toHaveBeenLastCalledWith(null);
   });
 
@@ -418,6 +407,7 @@ describe("App", () => {
     await bootAndSignIn();
     selectDevice("workshop");
 
+    openAccount();
     fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
 
     // The session in this tab is memory; a server that is slow, down or refusing must not keep it
@@ -425,7 +415,7 @@ describe("App", () => {
     expect(mocks.logout).toHaveBeenCalledTimes(1);
     expect(screen.getByRole("heading", { name: "Sign in to the console" })).toBeInTheDocument();
     expect(screen.queryByText("workshop")).not.toBeInTheDocument();
-    expect(screen.queryByText("2 devices")).not.toBeInTheDocument();
+    expect(screen.queryByText("2 machines · 2 online")).not.toBeInTheDocument();
     expect(
       screen.queryByRole("heading", { name: "Grant what the console may do on workshop" })
     ).not.toBeInTheDocument();
@@ -438,8 +428,6 @@ describe("App", () => {
     mocks.audit.mockResolvedValue([tokenCall]);
     await bootAndSignIn();
 
-    // Activity is its own page now, so the table is one rail click away; the name is the name the
-    // console recorded, not the short id.
     fireEvent.click(screen.getByRole("button", { name: "Activity" }));
     expect(within(await screen.findByRole("table")).getByText("laptop-dsh")).toBeInTheDocument();
     expect(screen.queryByText(shortTokenId)).not.toBeInTheDocument();
@@ -503,8 +491,9 @@ describe("App", () => {
     expect(localStorage.getItem(VITALS_KEY_PREFIX + attic.id)).toBeNull();
 
     // A second refresh inside the 30 s window moves the fleet, not the history: there is no new
-    // interval, and the stored timestamp is the only cadence.
-    fireEvent.click(screen.getAllByRole("button", { name: "Refresh" })[0]);
+    // interval, and the stored timestamp is the only cadence. Activity's Refresh is the page's read.
+    fireEvent.click(screen.getByRole("button", { name: "Activity" }));
+    fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
     await waitFor(() => expect(mocks.devices).toHaveBeenCalledTimes(2));
     expect(JSON.parse(localStorage.getItem(VITALS_KEY_PREFIX + workshop.id) ?? "[]")).toHaveLength(2);
   });

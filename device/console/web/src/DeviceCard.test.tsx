@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { DeviceCard, type Device } from "./DeviceCard";
 
@@ -22,64 +22,66 @@ const callbacks = {
   onSelect: vi.fn(),
   onRename: vi.fn(),
   onRemove: vi.fn(),
-  onDiagnostics: vi.fn(),
-  onConnect: vi.fn()
+  onDiagnostics: vi.fn()
 };
 
 function draw(overrides: Partial<Device> = {}) {
   return render(
-    <DeviceCard device={{ ...device, ...overrides }} newest={null} selected={false} {...callbacks} />
+    <DeviceCard device={{ ...device, ...overrides }} selected={false} {...callbacks} />
   );
 }
 
-describe("DeviceCard — the picker's card, not the machine page", () => {
-  it("keeps only the decision facts on the card", () => {
+describe("DeviceCard — one row on the fleet", () => {
+  it("keeps only the decision facts on the row", () => {
     const { container } = draw();
 
     expect(screen.getByText("workshop")).toBeInTheDocument();
-    expect(screen.getByText("online")).toBeInTheDocument();
+    expect(screen.getByText("online", { exact: false })).toBeInTheDocument();
     expect(screen.getByText(/seen 15s ago/)).toBeInTheDocument();
-    expect(screen.getByText(/v0\.3\.42/)).toBeInTheDocument();
-    expect(screen.getByText(/Windows 11 · up 1d 1h/)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Work on workshop" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Connect AI client to workshop" })).toBeInTheDocument();
+    expect(screen.getByText("v0.3.42")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Open workshop" })).toBeInTheDocument();
 
-    // The machine's own facts are NOT on the picker any more. They have one home: Machine.
-    expect(screen.queryByText("2.0 GiB free of 8.0 GiB")).not.toBeInTheDocument();
+    // The row is the target; there is no second per-row Connect action competing with the screen's
+    // one primary action, and the machine's own facts have one home: Machine.
+    expect(screen.queryByRole("button", { name: /Connect/ })).not.toBeInTheDocument();
+    expect(screen.queryByText(/Gib free/)).not.toBeInTheDocument();
     expect(container.querySelector(".vitals-chart")).toBeNull();
-    expect(container.querySelector("svg")).toBeNull();
+    expect(container.querySelector("svg.vitals")).toBeNull();
   });
 
-  it("keeps the management actions behind Details", () => {
+  it("puts the management actions in the row's overflow", () => {
     const { container } = draw();
 
-    const details = container.querySelector("details.card-details");
-    expect(details).not.toBeNull();
-    expect(details).not.toHaveAttribute("open");
-    expect(details).toContainElement(screen.getByRole("button", { name: "Copy diagnostics for workshop" }));
-    expect(details).toContainElement(screen.getByRole("button", { name: "Rename workshop" }));
-    expect(details).toContainElement(screen.getByRole("button", { name: "Remove workshop" }));
-    // The raw id is not furniture on the picker.
-    expect(screen.queryByText("dev-1")).not.toBeInTheDocument();
+    const menu = container.querySelector("details.row-menu");
+    expect(menu).not.toBeNull();
+    expect(menu).not.toHaveAttribute("open");
+    expect(menu).toContainElement(screen.getByRole("button", { name: "Copy diagnostics" }));
+    expect(menu).toContainElement(screen.getByRole("button", { name: "Rename" }));
+    expect(menu).toContainElement(screen.getByRole("button", { name: "Remove" }));
+    // No paragraph explaining where the facts went: the row says everything it needs to.
+    expect(container.querySelector(".card-details-body")).toBeNull();
   });
 
-  it("shows a warning chip only when the build is behind the fleet", () => {
-    const { rerender } = draw();
-    // Current build: the version is a quiet fact on the status line, not an always-on badge.
-    expect(document.querySelector(".card header .chip")).toBeNull();
+  it("reports a reconnection as attempts, never the transport's failure sentence", () => {
+    draw({ last_attempt: { attempts: 2, reason: "connection reset by peer" } });
 
-    rerender(
-      <DeviceCard device={device} newest="0.3.99" selected={false} {...callbacks} />
-    );
-    const chip = document.querySelector(".card header .chip");
-    expect(chip).not.toBeNull();
-    expect(chip).toHaveTextContent("v0.3.42");
+    expect(screen.getByText("Reconnected after 2 attempts")).toBeInTheDocument();
+    expect(screen.queryByText(/connection reset by peer/)).not.toBeInTheDocument();
   });
 
   it("says offline in words, with when it was last seen", () => {
     draw({ online: false, last_seen_ms: Date.now() - 3 * 3600_000, version: null, host: null });
 
-    expect(screen.getByText("offline")).toBeInTheDocument();
-    expect(screen.getByText(/seen 3h ago/)).toBeInTheDocument();
+    expect(screen.getByText(/offline · last seen 3h ago/)).toBeInTheDocument();
+  });
+
+  it("opens the machine from the whole main row", () => {
+    const onSelect = vi.fn();
+    render(
+      <DeviceCard device={device} selected={false} {...callbacks} onSelect={onSelect} />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Open workshop" }));
+    expect(onSelect).toHaveBeenCalledTimes(1);
   });
 });
