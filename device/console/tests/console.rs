@@ -3326,6 +3326,16 @@ async fn the_tool_catalogue_is_not_served_without_an_operator() {
 }
 
 #[tokio::test]
+async fn the_react_page_is_served_as_one_embedded_html_file() {
+    let fixture = Fixture::new("page-react");
+    // `/app` is the React page during the migration; it is one file and carries no data of its own.
+    let (status, _, page) = send_text(fixture.app(), get("/app", None)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(page.contains("id=\"root\""));
+    assert!(page.contains("<title>Summrise console"));
+}
+
+#[tokio::test]
 async fn the_page_holds_no_secret_and_says_the_token_stays_in_memory() {
     let fixture = Fixture::new("page-secret");
     // The login page is what an unauthenticated visitor sees; the signed-in page is behind the cookie.

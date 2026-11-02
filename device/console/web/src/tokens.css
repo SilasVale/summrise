@@ -1,0 +1,131 @@
+/* Design tokens — the legacy panel's visual system, ported here unchanged.
+   The console and the panel already agreed on the sunrise amber and the neutral scale; this file
+   keeps that agreement while naming the type, spacing, radius and shadow steps the React page reads.
+   Every semantic colour has a dark value: a token with only a light value keeps its surface light in
+   the dark. The measured pairs live in legacy's token contract; the values here are the same. */
+:root {
+  color-scheme: light dark;
+
+  --accent: #bf3a0a;
+  --accent-solid: #b03a0a;
+  --accent-fg: #ffffff;
+  --accent-soft: #fff0e6;
+  --brand-grad-a: #c2410c;
+  --brand-grad-b: #9a3412;
+
+  --neutral-50: #fafafa;
+  --neutral-100: #f4f4f5;
+  --neutral-200: #e4e4e7;
+  --neutral-300: #d4d4d8;
+  --neutral-400: #a1a1aa;
+  --neutral-500: #71717a;
+  --neutral-600: #52525b;
+  --neutral-700: #3f3f46;
+  --neutral-800: #27272a;
+  --neutral-900: #18181b;
+
+  --bg: #fafafa;
+  --surface: #ffffff;
+  --surface-recessed: #fafafa;
+  --surface-chip: #f4f4f5;
+  --ink: #18181b;
+  --ink-muted: #71717a;
+  --ink-faint: #a1a1aa;
+  --line: rgba(0, 0, 0, 0.08);
+  --line-strong: rgba(0, 0, 0, 0.14);
+  --line-soft: rgba(0, 0, 0, 0.05);
+
+  --ok: #1d7a3c;
+  --ok-soft: #e7f6ec;
+  --warn: #a05d08;
+  --warn-soft: #fff4e5;
+  --error: #b3261e;
+  --error-soft: #fdecea;
+  --focus-ring: rgba(191, 58, 10, 0.5);
+
+  /* Named after the values the two surfaces already used; 8px is the button/input/row radius,
+     14px the pane, 20px the sheet. */
+  --radius-xs: 6px;
+  --radius-sm2: 8px;
+  --radius-sm: 10px;
+  --radius: 14px;
+  --radius-lg: 20px;
+  --radius-pill: 999px;
+
+  --shadow: 0 1px 3px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.04);
+  --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.12);
+  --shadow-1: var(--shadow);
+  --shadow-2: 0 6px 24px -18px rgba(16, 23, 33, 0.45);
+
+  --font:
+    -apple-system, "SF Pro Text", "PingFang SC", "Hiragino Sans GB",
+    "Microsoft YaHei", "Segoe UI", Roboto, sans-serif;
+  --font-mono:
+    "SF Mono", ui-monospace, "JetBrains Mono", Consolas, "PingFang SC",
+    "Microsoft YaHei", sans-serif;
+
+  /* Seven sizes, not eighteen. 13px body; the 10/11px floor is for labels, not prose. */
+  --fs-2xs: 10px;
+  --fs-xs: 11px;
+  --fs-sm: 12px;
+  --fs-base: 13px;
+  --fs-md: 14px;
+  --fs-lg: 17px;
+  --fs-xl: 22px;
+  --fw-medium: 500;
+  --fw-semi: 600;
+  --fw-bold: 700;
+  --tracking-display: -0.011em;
+  --tracking-micro: 0.014em;
+
+  /* The one spacing rhythm. Half-steps are named because the sheet leans on them more than on
+     some whole steps; a value outside this list is a mistake, not a nuance. */
+  --sp-0-5: 2px;
+  --sp-1: 4px;
+  --sp-1-5: 6px;
+  --sp-2: 8px;
+  --sp-2-5: 10px;
+  --sp-3: 12px;
+  --sp-3-5: 14px;
+  --sp-4: 16px;
+  --sp-5: 24px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #131418;
+    --surface: #1c1d22;
+    --surface-recessed: #16171b;
+    --surface-chip: #23242a;
+    --ink: #ecedef;
+    --ink-muted: #a2a3ac;
+    --ink-faint: #6f707a;
+    --line: rgba(255, 255, 255, 0.08);
+    --line-strong: rgba(255, 255, 255, 0.14);
+    --line-soft: rgba(255, 255, 255, 0.05);
+
+    /* The accent is a FOREGROUND in the dark theme; fills use --accent-solid, which is the pair
+       measured for white text. A single --accent fill put white on #ffa36b at 1.96:1. */
+    --accent: #ffa36b;
+    --accent-solid: #b03a0a;
+    --accent-fg: #ffffff;
+    --accent-soft: #3d2817;
+
+    --ok: #6edc8b;
+    --ok-soft: rgba(46, 160, 73, 0.16);
+    --warn: #e0a44a;
+    --warn-soft: #3a2a14;
+    --error: #ff8b84;
+    --error-soft: #2a1512;
+    --focus-ring: rgba(255, 163, 107, 0.55);
+
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+    --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.45);
+    --shadow-1: var(--shadow);
+    --shadow-2: 0 8px 24px -18px rgba(0, 0, 0, 0.8);
+  }
+}
+
+/* Digits share one width. This is a machine console: versions, uptimes, ids and timestamps sit in
+   columns and change while you watch, and proportional digits make every row re-flow. */
+body { font-variant-numeric: tabular-nums; }
