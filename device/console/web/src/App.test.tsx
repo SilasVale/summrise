@@ -178,6 +178,7 @@ describe("App", () => {
   it("boots signed out, signs in with the operator token, and renders the fleet", async () => {
     const { container } = await boot();
 
+    expect(document.title).toBe("Sign in · Summrise console");
     const token = screen.getByLabelText("Operator token");
     expect(token).toHaveAttribute("type", "password");
     expect(screen.getByRole("button", { name: "Sign in" })).toBeDisabled();
@@ -196,6 +197,7 @@ describe("App", () => {
     expect(within(statusbar as HTMLElement).getByText("2 devices")).toBeInTheDocument();
     expect(within(statusbar as HTMLElement).getByText("2 online")).toBeInTheDocument();
     expect(within(statusbar as HTMLElement).getByText("signed in with the operator token")).toBeInTheDocument();
+    expect(document.title).toBe("Devices · Summrise console");
   });
 
   it("opens the surface named in the URL after sign-in", async () => {
@@ -218,6 +220,15 @@ describe("App", () => {
     expect(await screen.findByRole("heading", { name: "Runs" })).toBeInTheDocument();
     expect(window.location.hash).toBe("#run/workshop/r-1");
     window.history.replaceState(null, "", window.location.pathname);
+  });
+
+  it("names the current surface in the tab title", async () => {
+    await bootAndSignIn();
+    expect(document.title).toBe("Devices · Summrise console");
+
+    fireEvent.click(screen.getByRole("button", { name: "Files" }));
+    await screen.findByRole("heading", { name: "Files" });
+    expect(document.title).toBe("Files · Summrise console");
   });
 
   it("warns when the fleet runs more than one build", async () => {
