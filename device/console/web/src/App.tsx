@@ -403,7 +403,7 @@ export function App() {
       <div className="body">
         <Rail page={page} onPage={setPage} devices={devices.length} online={online} />
 
-        <main>
+        <main className={page === "terminal" && chosen ? "terminal-main" : undefined}>
           {chosen && page !== "devices" && page !== "audit" && (
             <section className="workspace-head">
               <div className="workspace-identity">
@@ -550,7 +550,7 @@ export function App() {
             layout (and out of the modal's way) on every other page.
           */}
           {chosen && grant && grant.deviceId === chosen.id && (
-            <section className="panel" hidden={page !== "terminal"}>
+            <section className="panel terminal-panel" hidden={page !== "terminal"}>
               <TerminalWorkspace
                 grant={grant}
                 visible={page === "terminal"}

@@ -477,9 +477,9 @@ async function stopServer(server) {
 
 // ---------------------------------------------------------------------------------------------
 // Stub routes. A null answer means "no stub": the route handler turns that into a 404, records a
-// failed API request, and the run fails. `/mcp` is deliberately absent: a page that reaches it has
-// left the picker state this harness captures, and a fake terminal would be a worse answer than a
-// loud failure.
+// failed API request, and the run fails. `/mcp` answers exactly ONE tool, `terminal.list`, with an
+// empty list: the Terminal page now reads the device's sessions on mount, and "no sessions" is the
+// truthful state of a harness that does not fake a shell. Any other tool is still a loud failure.
 // ---------------------------------------------------------------------------------------------
 
 const API_PATHS = new Set([
@@ -539,6 +539,13 @@ function replyFor(request, url) {
   if (method === 'POST' && pathname === '/logout') return noContent();
   if (method === 'POST' && pathname === '/enroll') {
     return json({ code: '7F3K-9Q2M', expires_at_ms: NOW + 10 * MINUTE });
+  }
+  if (method === 'POST' && pathname === '/mcp') {
+    const body = requestBody(request);
+    if (body?.request?.params?.name === 'terminal.list') {
+      return json({ result: { content: [{ type: 'text', text: '[]' }] } });
+    }
+    return null;
   }
   if (method === 'POST' && pathname === '/grants') {
     const body = requestBody(request);

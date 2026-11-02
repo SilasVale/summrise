@@ -361,8 +361,9 @@ tr:last-child td { border-bottom: 0; }
 /* The pane follows the window: a fixed 22 rem is taller than a phone's whole viewport once the on-screen
    keyboard is up, which makes the prompt the part you cannot see. */
 .term-host {
-  background: #10151c; border-radius: var(--radius); padding: 0.5rem 0.6rem;
-  height: clamp(13rem, 52vh, 24rem); overflow: hidden;
+  flex: 1; min-height: 18rem; height: auto;
+  background: #10151c; border-radius: var(--radius); padding: var(--sp-2) var(--sp-2-5);
+  overflow: hidden;
 }
 @media (prefers-color-scheme: dark) { .term-host { background: #0e1319; } }
 
@@ -420,11 +421,36 @@ tr:last-child td { border-bottom: 0; }
 }
 
 /* Tabs over one terminal history: the workspace's shape, borrowed from the legacy panel. */
+/* THE TERMINAL IS THE PAGE, NOT A BOX IN IT. The panel is the grid's 1fr row, the workspace is a
+   flex column, and the host takes everything the tabs and the status do not. Before this the host
+   was capped at 24rem and the page kept its unused height as blank paper. */
+main.terminal-main { grid-template-rows: auto minmax(0, 1fr); align-content: stretch; }
+/* With no session there is nothing to fill, so the panel keeps its content height instead of drawing
+   a page-sized empty box under the one action. :has is supported by WebView2 and every target
+   browser; where it is not, the panel simply keeps the filled height, which is still usable. */
+main.terminal-main:has(.terminal-workspace-empty) { grid-template-rows: auto auto; align-content: start; }
+.terminal-panel { display: flex; flex-direction: column; min-height: 0; }
 .terminal-workspace {
-  display: grid;
-  gap: 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
   min-width: 0;
+  flex: 1;
+  min-height: 0;
 }
+.terminal-start { display: grid; gap: var(--sp-3); align-content: start; }
+.terminal-sessions { display: grid; gap: var(--sp-2); }
+.terminal-section-head {
+  display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap;
+}
+.terminal-section-head h3 { margin: 0; font-size: var(--fs-base); font-weight: var(--fw-semi); }
+.terminal-section-head .hint { margin: 0; }
+.terminal-presets {
+  border: 1px solid var(--line); border-radius: var(--radius-xs);
+  padding: var(--sp-2) var(--sp-3); background: var(--surface-recessed);
+}
+.terminal-presets > summary { cursor: pointer; font-size: var(--fs-sm); font-weight: var(--fw-semi); }
+.terminal-presets .picker { margin-top: var(--sp-2); }
 .tabbar {
   display: flex;
   gap: 0.25rem;

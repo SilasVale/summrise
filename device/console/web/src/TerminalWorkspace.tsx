@@ -292,8 +292,12 @@ export function TerminalWorkspace({
   const [tabs, setTabs] = useState<Tab[]>([]);
   const [active, setActive] = useState<string | null>(null);
   const [faults, setFaults] = useState<Record<string, Fault>>({});
-  const [status, setStatus] = useState("No session. Open one, or attach to a session this device already has.");
+  const [status, setStatus] = useState("");
   const [available, setAvailable] = useState<{ id: string; kind: string }[]>([]);
+  // The device's session list is read on mount now, not behind an "Attach" click. These are the two
+  // states that read has: a request in flight, and the sentence when it failed.
+  const [listing, setListing] = useState(true);
+  const [listError, setListError] = useState<string | null>(null);
   const [presets, setPresets] = useState<SavedConnection[]>([]);
   // A preference of the operator, not of a tab: every xterm and every tab opened later uses it.
   const [fontSize, setFontSize] = useState(() => loadFontSize(fontStorage()));
@@ -799,16 +803,33 @@ export function TerminalWorkspace({
     setPresets((previous) => previous.filter((entry) => entry.id !== saved.id));
   };
 
-  const attach = async () => {
+  const listSessions = useCallback(async (announce = false) => {
+    setListing(true);
+    setListError(null);
     try {
       const answer = JSON.parse(await callTool(grantRef.current, "terminal.list", {}));
       const sessions: { id: string; kind: string }[] = Array.isArray(answer) ? answer : [];
       setAvailable(sessions);
-      setStatus(sessions.length === 0 ? "No open session on this device." : `${sessions.length} session(s) on this device.`);
+      if (announce) {
+        setStatus(
+          sessions.length === 0
+            ? "No open session on this device."
+            : `${sessions.length} session${sessions.length === 1 ? "" : "s"} on this device.`
+        );
+      }
     } catch (cause) {
-      setStatus("List failed: " + message(cause));
+      setListError("Could not read this device's sessions: " + message(cause));
+    } finally {
+      setListing(false);
     }
-  };
+  }, []);
+
+  // THE SESSIONS ARE THE EMPTY STATE, so they are read without asking. "Attach to a session" was a
+  // button that fetched the list into a page that already showed nothing else — the operator had to
+  // press a control to learn what existed. The list refreshes on a device change and on demand.
+  useEffect(() => {
+    void listSessions();
+  }, [grant.deviceId, listSessions]);
 
   const attachTo = (session: string, kind: string) => {
     if (tabs.some((tab) => tab.session === session)) {
@@ -933,76 +954,125 @@ export function TerminalWorkspace({
   };
 
   return (
-    <div className="terminal-workspace">
+    <div className={"terminal-workspace" + (tabs.length === 0 ? " terminal-workspace-empty" : "")}>
       <div className="panel-head">
         <h2>Terminal</h2>
         <div className="actions">
-          <button type="button" onClick={() => void attach()}>Attach to a session</button>
-          <button type="button" onClick={() => setPresetDialog(true)}>Save a preset</button>
-          <button
-            type="button"
-            disabled={!activeTab}
-            onClick={() =>
-              activeTab && setRenaming({ key: activeTab.key, title: activeTab.title, error: null })
-            }
-          >
-            Rename tab
+          {/* THE TOOLBAR BELONGS TO A SESSION. Before one exists, the page's only action is the one
+              that creates it; seven controls over an empty box were chrome pretending to be work. */}
+          {tabs.length > 0 && (
+            <>
+              <button type="button" onClick={() => setPresetDialog(true)}>Save a preset</button>
+              <button
+                type="button"
+                disabled={!activeTab}
+                onClick={() =>
+                  activeTab && setRenaming({ key: activeTab.key, title: activeTab.title, error: null })
+                }
+              >
+                Rename tab
+              </button>
+              <button type="button" disabled={!activeTab} onClick={() => void exportLog()}>Export log</button>
+              <button type="button" disabled={!activeTab} onClick={toggleFind}>Find</button>
+              <button
+                type="button"
+                title={`Smaller terminal text (now ${fontSize})`}
+                disabled={fontSize <= MIN_FONT_SIZE}
+                onClick={() => setFontSize(clampFontSize(fontSize - 1))}
+              >
+                A−
+              </button>
+              <button
+                type="button"
+                title={`Larger terminal text (now ${fontSize})`}
+                disabled={fontSize >= MAX_FONT_SIZE}
+                onClick={() => setFontSize(clampFontSize(fontSize + 1))}
+              >
+                A+
+              </button>
+            </>
+          )}
+          <button type="button" className="primary" onClick={() => openDialog({}, null)}>
+            + New session
           </button>
-          <button type="button" disabled={!activeTab} onClick={() => void exportLog()}>Export log</button>
-          <button type="button" disabled={!activeTab} onClick={toggleFind}>Find</button>
-          <button
-            type="button"
-            title={`Smaller terminal text (now ${fontSize})`}
-            disabled={fontSize <= MIN_FONT_SIZE}
-            onClick={() => setFontSize(clampFontSize(fontSize - 1))}
-          >
-            A−
-          </button>
-          <button
-            type="button"
-            title={`Larger terminal text (now ${fontSize})`}
-            disabled={fontSize >= MAX_FONT_SIZE}
-            onClick={() => setFontSize(clampFontSize(fontSize + 1))}
-          >
-            A+
-          </button>
-          <button type="button" className="primary" onClick={() => openDialog({}, null)}>+ New</button>
         </div>
       </div>
-      <p className={status.startsWith("Could not") || status.startsWith("List failed") ? "error" : "hint"}>{status}</p>
 
-      {presets.length > 0 && (
-        <ul className="picker">
-          {presets.map((saved) => (
-            <li key={saved.id}>
-              <span className="mono">{saved.kind}</span>
-              <strong>{saved.name}</strong>
-              <span className="mono muted">
-                {saved.kind === "serial"
-                  ? `${saved.port_path ?? "?"} ${saved.baud ?? ""}`
-                  : saved.kind === "ssh"
-                    ? `${saved.user ?? "?"}@${saved.host ?? "?"}:${saved.port ?? 22}`
-                    : "local shell"}
-              </span>
-              <button type="button" className="mini" onClick={() => openPreset(saved)}>
-                Open
-              </button>
-              <button type="button" className="mini" onClick={() => void forgetPreset(saved)}>Forget</button>
-            </li>
-          ))}
-        </ul>
+      {tabs.length > 0 && status && (
+        <p className={status.startsWith("Could not") ? "error" : "hint"}>{status}</p>
       )}
 
-      {available.length > 0 && (
-        <ul className="picker">
-          {available.map((entry) => (
-            <li key={entry.id}>
-              <span className="mono">{entry.kind}</span>
-              <span className="mono muted">{entry.id}</span>
-              <button type="button" className="mini" onClick={() => attachTo(entry.id, entry.kind)}>Attach</button>
-            </li>
-          ))}
-        </ul>
+      {tabs.length === 0 && (
+        <div className="terminal-start">
+          <section className="terminal-sessions" aria-labelledby="terminal-sessions-heading">
+            <div className="terminal-section-head">
+              <h3 id="terminal-sessions-heading">Sessions on this device</h3>
+              <button
+                type="button"
+                className="mini"
+                disabled={listing}
+                onClick={() => void listSessions(true)}
+              >
+                {listing ? "Reading…" : "Refresh"}
+              </button>
+            </div>
+            {listError ? (
+              <p className="error">{listError}</p>
+            ) : available.length > 0 ? (
+              <ul className="picker">
+                {available.map((entry) => (
+                  <li key={entry.id}>
+                    <span className="mono">{entry.kind}</span>
+                    <span className="mono muted">{entry.id}</span>
+                    <button type="button" className="mini" onClick={() => attachTo(entry.id, entry.kind)}>
+                      Attach
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : listing ? (
+              <p className="hint">Reading this device's sessions…</p>
+            ) : (
+              <p className="hint">
+                No session is open on this device. <strong>New session</strong> opens a shell; it
+                appears here once it is running.
+              </p>
+            )}
+          </section>
+
+          <details className="terminal-presets">
+            <summary>Saved connections{presets.length > 0 ? ` (${presets.length})` : ""}</summary>
+            <div className="terminal-section-head">
+              <span className="hint">Remembered hosts, ports and serial lines.</span>
+              <button type="button" className="mini" onClick={() => setPresetDialog(true)}>
+                Save a preset
+              </button>
+            </div>
+            {presets.length === 0 ? (
+              <p className="hint">No saved connections yet.</p>
+            ) : (
+              <ul className="picker">
+                {presets.map((saved) => (
+                  <li key={saved.id}>
+                    <span className="mono">{saved.kind}</span>
+                    <strong>{saved.name}</strong>
+                    <span className="mono muted">
+                      {saved.kind === "serial"
+                        ? `${saved.port_path ?? "?"} ${saved.baud ?? ""}`
+                        : saved.kind === "ssh"
+                          ? `${saved.user ?? "?"}@${saved.host ?? "?"}:${saved.port ?? 22}`
+                          : "local shell"}
+                    </span>
+                    <button type="button" className="mini" onClick={() => openPreset(saved)}>
+                      Open
+                    </button>
+                    <button type="button" className="mini" onClick={() => void forgetPreset(saved)}>Forget</button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </details>
+        </div>
       )}
 
       {tabs.length > 0 && (
@@ -1385,13 +1455,6 @@ export function TerminalWorkspace({
             <button type="button" className="primary" onClick={() => void savePreset()}>Save</button>
           </div>
         </Modal>
-      )}
-
-      {tabs.length === 0 && (
-        <div className="panel empty">
-          <p>No session yet.</p>
-          <p className="hint">+ New opens a shell on the device; Attach picks up one that is already running.</p>
-        </div>
       )}
     </div>
   );
