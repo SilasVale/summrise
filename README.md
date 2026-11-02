@@ -51,36 +51,34 @@ Windows is the target: the lifecycle suite only runs there (`ci.yml`'s `device-w
 Linux `cargo test` proves the portable half. `--windows` compiles the Windows-only paths from Linux;
 it proves they build, not that they pass.
 
-The console page is Rust. `/` redirects to `/next`, which `summrise-console` renders from `maud`
-templates; there is no npm, no committed bundle and no second build. A page change is gated by the
-same `cargo test -p summrise-console` the rest of the crate uses.
-
-To look at every page at once — light and dark, at any width — the console renders itself into a
-directory and a browser photographs it:
+The console page is **React 19** (`device/console/web`). Vite builds it into one self-contained HTML
+file, `summrise-console` embeds that file with `include_str!`, and `/` serves it. `/next` is the Rust
+fallback that redeems a `--login-link` code; it is not the operator's normal path. There is no Node at
+runtime and no second process.
 
 ```bash
-scripts/console-screenshots.bash --out /tmp/console-shots          # 28 pages, light + dark
-scripts/console-screenshots.bash --out /tmp/console-shots --width 900 --light-only
-open /tmp/console-shots/index.html
+cd device/console/web
+npm ci && npm run typecheck && npm test && npm run build
+cd ../../..
+scripts/build-web.sh --check     # fail when the committed dist is stale
 ```
 
-A second run can say what moved: `--diff <previous run>` compares every screenshot, lists the pages
-whose pixels changed (with the share), writes a highlighted diff image per changed page under
-`<out>/diff/`, and `--fail-on-change` makes it an exit code for a gate. With no argument, `--diff`
-compares against the baseline (`--baseline`, default `$XDG_CACHE_HOME/summrise-console-shots`), which
-`--update-baseline` replaces with the run just made — so a styling change is two commands on a fresh
-checkout: `--update-baseline` once, `--diff` after every change.
+CI's `console-web` job runs the same build and the freshness check. The jsdom suite is a local tool,
+not a required gate; the Rust suite covers logic and the token contract.
 
-The only JavaScript left is vendored xterm and four pieces of page glue
-(`device/console/assets/`: approvals, browser, terminal; `device/device/assets/panel-terminal.js`). `scripts/console-smoke.mjs` drives the
-console in a browser — the fleet table, every device link, and a real shell typed into — and needs
-a machine where a browser can start (a signed-in desktop session, not the device service):
+To look at the React workspace without a live console, the page ships a stub-console screenshot
+harness. It serves the built file from loopback, answers the JSON routes with fixtures, and captures
+every rail page in light and dark plus a selected-device terminal workspace:
 
 ```bash
-CONSOLE_URL=http://127.0.0.1:19000 CONSOLE_TOKEN_FILE=/path/operator.token \
-CONSOLE_BROWSER='C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe' \
-node scripts/console-smoke.mjs            # add --terminal for the shell leg
+cd device/console/web
+node scripts/screenshot.mjs r13
+open /tmp/console-react-shot/r13/index.html
 ```
+
+The maud fallback still has its own renderer (`device/console/src/http/page.rs`) and the older
+`scripts/console-screenshots.bash` / `scripts/console-smoke.mjs` tools. They gate the fallback, not
+the React page; the differences between the two are a migration cost, not two products.
 
 ## The documents
 
@@ -185,6 +183,8 @@ The design is a record, not a wiki page: each document states a decision and wha
 
 * `docs/RELEASE.md` — how a release is published, deployed and **verified against the world**.
 * `docs/superpowers/specs/` — the designs and decisions, including the ones that were reversed.
-* `device/console/src/http/page.rs` — the console page's Rust renderers (maud), compiled into the
-  binary; `assets/` holds its three scripts and the vendored terminal.
+* `device/console/web/` — the React page and its screenshot harness; the built `dist/index.html` is
+  committed and embedded in the console binary.
+* `device/console/src/http/page.rs` — the maud fallback at `/next`, kept for login-code redemption
+  while the React page reaches full parity.
 * `device/device/src/panel.rs` — the device's own panel, rendered in Rust from the same design tokens.
