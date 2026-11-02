@@ -405,13 +405,15 @@ export function FilesPage({ grant }: { grant: Grant }) {
         </form>
 
         <div className="files-upload">
-          <label htmlFor="files-upload">Upload a file</label>
-          <input
-            id="files-upload"
-            type="file"
-            disabled={uploading}
-            onChange={(event) => void upload(event)}
-          />
+          <label className="upload-control">
+            Upload a file
+            <input
+              id="files-upload"
+              type="file"
+              disabled={uploading}
+              onChange={(event) => void upload(event)}
+            />
+          </label>
           {uploading && <span className="hint">Uploading…</span>}
         </div>
       </div>

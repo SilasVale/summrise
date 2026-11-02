@@ -38,6 +38,16 @@ describe("FilesPage listing", () => {
     mocked.mockReset();
   });
 
+  it("keeps the upload control labelled and focusable", async () => {
+    mocked.mockResolvedValue(JSON.stringify(ROOT));
+    render(<FilesPage grant={GRANT} />);
+    await screen.findByText("notes.txt");
+
+    const upload = screen.getByLabelText("Upload a file");
+    expect(upload).toHaveAttribute("type", "file");
+    expect(upload).not.toHaveAttribute("tabindex", "-1");
+  });
+
   it("lists the root, lists a clicked folder, and the breadcrumb says where the page is", async () => {
     const lists: string[] = [];
     mocked.mockImplementation(async (_grant, name, args) => {
