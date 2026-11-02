@@ -1154,6 +1154,7 @@ span.files-name {
   font: inherit;
 }
 .audit-field.tool input { width: 100%; }
+.audit-copy { margin-left: var(--sp-1); }
 .audit-caption { margin: 0 0 var(--sp-1-5); }
 
 /* The screen page: the capture is evidence, so it fills the panel but never overflows it. */
