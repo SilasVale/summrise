@@ -113,6 +113,24 @@ describe("RunsPage", () => {
     expect(called("runs.list")[1]).toEqual([GRANT, "runs.list", { limit: 20 }]);
   });
 
+  it("copies a past run's command from its detail", async () => {
+    mocked.mockImplementation(async (_grant, name) => {
+      if (name === "runs.list") return JSON.stringify([HELLO]);
+      if (name === "runs.get") return JSON.stringify(HELLO);
+      throw new Error(`the test did not expect ${name}`);
+    });
+
+    render(<RunsPage grant={GRANT} />);
+    fireEvent.click(await screen.findByRole("button", { name: "echo hello" }));
+    await waitFor(() => expect(called("runs.get")).toHaveLength(1));
+    await screen.findByRole("heading", { name: "Command" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Copy command" }));
+
+    await waitFor(() => expect(copyText).toHaveBeenCalledWith("echo hello"));
+    expect(screen.getByRole("button", { name: "Copied" })).toBeInTheDocument();
+  });
+
   it("opens the run id carried from Activity", async () => {
     mocked.mockImplementation(async (_grant, name) => {
       if (name === "runs.list") return JSON.stringify([]);
