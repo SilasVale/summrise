@@ -25,11 +25,12 @@ type Props = {
 
 export function DeviceCard({ device, newest, selected, onSelect, onRename, onRemove, onDiagnostics, onConnect }: Props) {
   const behind = device.version !== null && newest !== null && device.version !== newest;
+  const label = device.name ?? shortId(device.id);
   return (
     <article className={"card" + (selected ? " card-selected" : "")}>
       <header>
-        <span className={"dot " + (device.online ? "dot-ok" : "dot-off")} />
-        <strong>{device.name ?? shortId(device.id)}</strong>
+        <span className={"dot " + (device.online ? "dot-ok" : "dot-off")} aria-hidden="true" />
+        <strong>{label}</strong>
         {behind && device.version && (
           <span className="chip chip-warn" title={`Another device in this list runs ${newest}.`}>
             v{device.version}
@@ -71,8 +72,15 @@ export function DeviceCard({ device, newest, selected, onSelect, onRename, onRem
       )}
 
       <footer>
-        <button type="button" className="primary" onClick={onSelect}>Work on this</button>
-        <button type="button" onClick={onConnect} title="Hand an AI client an MCP endpoint and a token">
+        <button type="button" className="primary" aria-label={`Work on ${label}`} onClick={onSelect}>
+          Work on this
+        </button>
+        <button
+          type="button"
+          aria-label={`Connect AI client to ${label}`}
+          onClick={onConnect}
+          title="Hand an AI client an MCP endpoint and a token"
+        >
           Connect AI client
         </button>
         <details className="card-details">
@@ -83,9 +91,15 @@ export function DeviceCard({ device, newest, selected, onSelect, onRename, onRem
               the console link are in Copy diagnostics.
             </p>
             <div className="card-details-actions">
-              <button type="button" onClick={onDiagnostics}>Copy diagnostics</button>
-              <button type="button" onClick={onRename}>Rename</button>
-              <button type="button" className="danger" onClick={onRemove}>Remove</button>
+              <button type="button" aria-label={`Copy diagnostics for ${label}`} onClick={onDiagnostics}>
+                Copy diagnostics
+              </button>
+              <button type="button" aria-label={`Rename ${label}`} onClick={onRename}>
+                Rename
+              </button>
+              <button type="button" className="danger" aria-label={`Remove ${label}`} onClick={onRemove}>
+                Remove
+              </button>
             </div>
           </div>
         </details>

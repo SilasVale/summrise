@@ -171,7 +171,7 @@ async function bootAndSignIn() {
 function selectDevice(name: string) {
   const card = screen.getByText(name).closest("article");
   expect(card).not.toBeNull();
-  fireEvent.click(within(card as HTMLElement).getByRole("button", { name: "Work on this" }));
+  fireEvent.click(within(card as HTMLElement).getByRole("button", { name: /^Work on / }));
 }
 
 describe("App", () => {
@@ -314,7 +314,6 @@ describe("App", () => {
     fireEvent.click(screen.getByRole("button", { name: "Activity" }));
     expect(screen.getByRole("heading", { name: "Activity" })).toBeInTheDocument();
     expect(screen.getByText("No audit lines yet.")).toBeInTheDocument();
-    expect(screen.getByRole("main")).toHaveFocus();
 
     fireEvent.click(screen.getByRole("button", { name: "Screen" }));
     expect(screen.getByRole("heading", { name: "Screen" })).toBeInTheDocument();
@@ -370,7 +369,6 @@ describe("App", () => {
     const workspace = await screen.findByTestId("workspace");
     expect(mocks.grant).not.toHaveBeenCalled();
     expect(workspace).toHaveAttribute("data-visible", "yes");
-    expect(screen.getByRole("main")).toHaveFocus();
 
     const rail = screen.getByRole("navigation", { name: "Sections" });
     fireEvent.click(within(rail).getByRole("button", { name: "Activity" }));

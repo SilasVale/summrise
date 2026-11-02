@@ -38,7 +38,7 @@ describe("DevicePage", () => {
     expect(screen.getByText(pickHint)).toBeInTheDocument();
     expect(screen.queryByText(/^child for /)).not.toBeInTheDocument();
 
-    const use = screen.getAllByRole("button", { name: "Use" });
+    const use = screen.getAllByRole("button", { name: /^Use / });
     expect(use).toHaveLength(2);
     fireEvent.click(use[1]);
     expect(onChoose).toHaveBeenCalledWith(attic.id);
