@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
+import { copyText } from "./copy";
 import { message } from "./format";
 import { useRequestGate } from "./requests";
 import { callTool, type Grant } from "./terminal";
@@ -77,6 +78,7 @@ export function RunsPage({
   const [running, setRunning] = useState(false);
   const [runError, setRunError] = useState<string | null>(null);
   const [result, setResult] = useState<RunResult | null>(null);
+  const [copied, setCopied] = useState<"stdout" | "stderr" | null>(null);
 
   const [detail, setDetail] = useState<RunRecord | null>(null);
   const [detailId, setDetailId] = useState<string | null>(null);
@@ -177,6 +179,7 @@ export function RunsPage({
 
     setRunning(true);
     setRunError(null);
+    setCopied(null);
     try {
       const finished = JSON.parse(
         await callTool(grant, "runs.exec", request)
@@ -223,6 +226,10 @@ export function RunsPage({
   };
 
   showRef.current = show;
+
+  const copyStream = async (which: "stdout" | "stderr", text: string) => {
+    if (await copyText(text)) setCopied(which);
+  };
 
   return (
     <div className="runs-page">
@@ -356,7 +363,18 @@ export function RunsPage({
           )}
           <div className="runs-streams">
             <div className="runs-stream">
-              <h3>stdout</h3>
+              <div className="runs-stream-head">
+                <h3>stdout</h3>
+                {result.stdout !== "" && (
+                  <button
+                    type="button"
+                    className="mini"
+                    onClick={() => void copyStream("stdout", result.stdout)}
+                  >
+                    {copied === "stdout" ? "Copied" : "Copy stdout"}
+                  </button>
+                )}
+              </div>
               {result.stdout === "" ? (
                 <p className="hint">(no stdout)</p>
               ) : (
@@ -364,7 +382,18 @@ export function RunsPage({
               )}
             </div>
             <div className="runs-stream">
-              <h3>stderr</h3>
+              <div className="runs-stream-head">
+                <h3>stderr</h3>
+                {result.stderr !== "" && (
+                  <button
+                    type="button"
+                    className="mini"
+                    onClick={() => void copyStream("stderr", result.stderr)}
+                  >
+                    {copied === "stderr" ? "Copied" : "Copy stderr"}
+                  </button>
+                )}
+              </div>
               {result.stderr === "" ? (
                 <p className="hint">(no stderr)</p>
               ) : (
