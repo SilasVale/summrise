@@ -47,6 +47,7 @@ describe("ScreenPage", () => {
 
     const refusal = await screen.findByText("no per-user helper is running on this device");
     expect(refusal).toHaveClass("error");
+    expect(screen.getByText(/running in the signed-in user's desktop session/)).toBeInTheDocument();
     expect(screen.queryByRole("img")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Capture screen" })).toBeEnabled();
   });

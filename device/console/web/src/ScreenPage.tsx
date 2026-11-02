@@ -107,6 +107,13 @@ export function ScreenPage({ grant }: { grant: Grant }) {
           </p>
 
           {error && <p className="error">{error}</p>}
+          {error && /per-user helper/i.test(error) && (
+            <p className="hint">
+              A screen needs the per-user helper running in the signed-in user's desktop session.
+              The Machine page says whether this device's helper has registered; a service or
+              disconnected session cannot be captured.
+            </p>
+          )}
 
           {shot && (
             <>
