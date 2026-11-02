@@ -533,10 +533,13 @@ Findings are fixed before deploy. The review records what it deliberately leaves
 2. On the console host: fetch and run the deploy `.cmd`; verify `/health` version, served page size
    equals `device/console/web/dist/index.html`, `/?v=<n>` stays on the React page; run
    `scripts/real-device-check.ps1` → `REAL_TERMINAL_OK`.
-3. Device half: only with a supervised swap and a backup. Add the example plugin through the console
-   on a machine running the new device build; `hello.greet` appears in Capabilities, Try it returns
-   its answer, Activity shows the row, Remove makes it disappear, and the process is gone. If the
-   device build cannot be deployed safely, record the deferral and prove acceptance 12 on an old
-   build instead.
+   Then stage the example plugin on the device host at `C:\SummrisePlugin\hello` and run
+   `scripts/real-plugin-check.ps1` → `REAL_PLUGIN_OK` (it adds, lists, calls `hello.greet`, reads the
+   log, removes, and proves the tool disappears; it reads the operator token without printing it).
+3. Device half: only with a signed release document, or a supervised swap with a backup. Add the
+   example plugin through the console on a machine running the new device build; `hello.greet`
+   appears in Capabilities, Try it returns its answer, Activity shows the row, Remove makes it
+   disappear, and the process is gone. If the device build cannot be deployed safely, record the
+   deferral and prove acceptance 12 on an old build instead.
 4. Update `docs/console-deploy.md` with the measured facts and the rollback binary. Keep the last two
    backups.
