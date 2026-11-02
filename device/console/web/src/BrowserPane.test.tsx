@@ -34,7 +34,7 @@ function answerFor(name: string, args: Record<string, unknown>): string {
 
 async function openPane() {
   const view = render(<BrowserPane grant={grant} />);
-  await screen.findByText("1 target(s).");
+  await screen.findByText("1 page.");
   return view;
 }
 
@@ -90,10 +90,10 @@ describe("BrowserPane", () => {
     ]];
     await openPane();
 
-    const target = screen.getByLabelText("Target");
+    const target = screen.getByLabelText("Page");
     expect(target).toHaveValue("A");
     expect([...target.querySelectorAll("option")].map((option) => option.textContent)).toEqual(["A"]);
-    expect(screen.getByText("1 target(s).")).toBeInTheDocument();
+    expect(screen.getByText("1 page.")).toBeInTheDocument();
     expect(screen.getByText("https://a.test")).toBeInTheDocument();
   });
 
@@ -148,7 +148,7 @@ describe("BrowserPane", () => {
     await waitFor(() =>
       expect(callToolMock).toHaveBeenCalledWith(grant, "browser.screenshot", { target: "B" })
     );
-    expect(screen.getByLabelText("Target")).toHaveValue("B");
+    expect(screen.getByLabelText("Page")).toHaveValue("B");
   });
 
   it("stops the browser and clears the targets, the picture and the selection", async () => {
@@ -164,7 +164,7 @@ describe("BrowserPane", () => {
     const stopped = await screen.findByText(/No browser is open on this device/);
     expect(stopped).toHaveTextContent(/browser is stopped/i);
     expect(container.querySelector(".browser-shot")).toBeNull();
-    expect(screen.queryByLabelText("Target")).toBeNull();
+    expect(screen.queryByLabelText("Page")).toBeNull();
   });
 
   it("clears the previous picture when a screenshot fails", async () => {
@@ -343,7 +343,7 @@ describe("BrowserPane", () => {
   it("keeps watching when the selected target changes", async () => {
     listAnswers = [[A, B]];
     const view = render(<BrowserPane grant={grant} />);
-    await screen.findByText("2 target(s).");
+    await screen.findByText("2 pages.");
     vi.useFakeTimers();
     try {
       await startLive();
@@ -351,7 +351,7 @@ describe("BrowserPane", () => {
       const calls = shotCalls();
       expect(calls[calls.length - 1]?.[2]).toEqual({ target: "A" });
 
-      fireEvent.change(screen.getByLabelText("Target"), { target: { value: "B" } });
+      fireEvent.change(screen.getByLabelText("Page"), { target: { value: "B" } });
       await tick(0);
       expect(screen.getByRole("button", { name: "Stop live view" })).toBeInTheDocument();
 
@@ -375,7 +375,7 @@ describe("BrowserPane", () => {
       await tick();
       expect(shotCalls()).toHaveLength(1);
 
-      fireEvent.click(screen.getByRole("button", { name: "List targets" }));
+      fireEvent.click(screen.getByRole("button", { name: "Refresh pages" }));
       await act(async () => {
         await vi.advanceTimersByTimeAsync(0);
       });
