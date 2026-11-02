@@ -202,6 +202,7 @@ Every refusal is the product's shape, as the tool's text:
 | `PLUGIN_TOOL_NAME_INVALID` | `plugins.add` | A tool name is outside `[A-Za-z0-9_.-]` or longer than 64 bytes; the message names it. |
 | `PLUGIN_TOOL_COLLISION` | `plugins.add` | The namespaced tool would shadow a built-in or another running plugin's tool. Nothing is persisted. |
 | `PLUGIN_SPAWN_FAILED` | `plugins.add` | The operating system could not start the process. Check the argv and the executable's architecture. |
+| `PLUGIN_FAILED` | `plugins.add` | The process started but `initialize` or `tools/list` failed. The answer is a `failed` record with 0 tools and `last_error`; nothing is recorded, so a later boot does not retry it. |
 | `PLUGIN_NOT_FOUND` | `plugins.remove`, `plugins.restart`, `plugins.logs`, calls | No installed plugin has that namespace. `plugins.list` names the ones that do. |
 | `PLUGIN_NOT_RUNNING` | `tools/call` | The plugin is `starting`, `stopped` or `failed`. `plugins.restart` or read the log. |
 | `PLUGIN_TOOL_NOT_FOUND` | `tools/call` | The plugin does not advertise that tool. Compare with `plugins.list`/`tools/list`. |
