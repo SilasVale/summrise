@@ -922,7 +922,7 @@ trait SwapOwner {
     fn stop_current(&mut self) -> Result<(), String>;
     /// Kill the child this transaction started (the failed candidate, or a restored one before a
     /// service replaces it).
-    fn stop_started(&mut self);
+    fn stop_started(&mut self) -> Result<(), String>;
     /// Start a child from `sidecar` and return its pid.
     fn start(&mut self, sidecar: &Sidecar) -> Result<u32, String>;
     /// Settle the owner after a committed or rolled-back transaction (the supervisor does nothing;
@@ -951,14 +951,21 @@ impl SwapOwner for SupervisedOwner<'_> {
         Ok(())
     }
 
-    fn stop_started(&mut self) {
-        if let Err(error) = stop_child(self.child) {
-            eprintln!("launch: warning: {error}");
-        }
+    fn stop_started(&mut self) -> Result<(), String> {
+        // A child that would not stop is still running; saying "stopped" and starting a second one
+        // would leave it untracked, holding the port the replacement needs.
+        stop_child(self.child)?;
         let _ = fs::remove_file(app_pid_file(&self.config.data));
+        Ok(())
     }
 
     fn start(&mut self, sidecar: &Sidecar) -> Result<u32, String> {
+        if let Some(tracked) = self.child.as_ref() {
+            return Err(format!(
+                "a child (pid {}) is still tracked; refusing to start a second one",
+                tracked.id()
+            ));
+        }
         let spawned = spawn_app(self.config, sidecar, true)
             .map_err(|error| format!("cannot spawn the app: {error}"))?;
         if let Some(job) = self.job {
@@ -985,23 +992,36 @@ struct ManualOwner<'a> {
     config: &'a Config,
     service: &'a Option<Service>,
     child: Option<Child>,
+    /// Whether the service or the console supervisor has been stopped already: `apply` stops it
+    /// before it takes the supervisor lock, and stopping twice is not the same as stopping once.
+    owner_stopped: bool,
 }
 
 impl SwapOwner for ManualOwner<'_> {
     fn stop_current(&mut self) -> Result<(), String> {
         stop_child(&mut self.child)?;
         let _ = fs::remove_file(app_pid_file(&self.config.data));
-        stop_owner(self.config, self.service)
+        if self.owner_stopped {
+            return Ok(());
+        }
+        stop_owner(self.config, self.service)?;
+        self.owner_stopped = true;
+        Ok(())
     }
 
-    fn stop_started(&mut self) {
-        if let Err(error) = stop_child(&mut self.child) {
-            eprintln!("launch: warning: {error}");
-        }
+    fn stop_started(&mut self) -> Result<(), String> {
+        stop_child(&mut self.child)?;
         let _ = fs::remove_file(app_pid_file(&self.config.data));
+        Ok(())
     }
 
     fn start(&mut self, sidecar: &Sidecar) -> Result<u32, String> {
+        if let Some(tracked) = self.child.as_ref() {
+            return Err(format!(
+                "a child (pid {}) is still tracked; refusing to start a second one",
+                tracked.id()
+            ));
+        }
         let spawned = spawn_app(self.config, sidecar, true)
             .map_err(|error| format!("cannot spawn the app: {error}"))?;
         let pid = spawned.id();
@@ -1290,7 +1310,9 @@ fn run_swap<O: SwapOwner>(
         || stop.load(Ordering::SeqCst),
     ) {
         if stop.load(Ordering::SeqCst) {
-            owner.stop_started();
+            if let Err(error) = owner.stop_started() {
+                eprintln!("launch: warning: {error}");
+            }
             let _ = discard_pending(&config.install);
             return Err(SwapError::Stopped(
                 "a stop arrived while the new app was being probed".to_owned(),
@@ -1354,7 +1376,15 @@ fn roll_back<O: SwapOwner>(
             reason.clone(),
         ),
     );
-    owner.stop_started();
+    if let Err(error) = owner.stop_started() {
+        // Restarting over a process that did not stop would leave it untracked and holding the
+        // port. The result line is already published; say the rollback could not finish rather than
+        // pretend it did.
+        eprintln!("launch: CRITICAL: the failed candidate did not stop: {error}");
+        return SwapAct::RolledBack {
+            reason: format!("{reason}; and the failed candidate did not stop: {error}"),
+        };
+    }
     if let Err(error) = discard_pending(&config.install) {
         eprintln!("launch: warning: cannot discard the pending generation: {error}");
     }
@@ -1441,10 +1471,21 @@ pub fn apply(config: &Config, staged: &Path, sidecar_path: &Path) -> ExitCode {
         Err(error) => return exit_for(Err(error)),
     };
 
+    // The manual transaction is a supervisor for its duration. Without the lock, a console `run`
+    // supervisor or a second `--apply` can rotate the same generations while this one stops and
+    // starts the app; the owner is stopped first because it is the process holding the lock.
+    if let Err(error) = stop_owner(config, &service) {
+        return exit_for(Err(error));
+    }
+    let _lock = match SupervisorLock::acquire(&config.install) {
+        Ok(lock) => lock,
+        Err(error) => return fail(&error),
+    };
     let mut owner = ManualOwner {
         config,
         service: &service,
         child: None,
+        owner_stopped: true,
     };
     let no_stop = AtomicBool::new(false);
     match run_swap(config, &pair, &mut owner, &no_stop) {

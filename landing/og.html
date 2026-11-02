@@ -1,0 +1,55 @@
+<!doctype html>
+<!-- The social card's source. Rendered by `scripts/render-og.sh` into
+     `public/assets/og.png` at exactly 1200x630, which is the size the platforms crop to.
+     Kept as HTML so the card can be changed without an image editor, and checked by
+     `check.mjs` (the file must exist and be a PNG). -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<style>
+  :root {
+    --paper: #f7f4ee; --ink: #17161a; --muted: #5c5952; --faint: #6f6a60;
+    --accent: #bf3a0a; --line: rgba(23, 22, 26, 0.10);
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", Roboto, sans-serif;
+    --mono: ui-monospace, "SF Mono", Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; width: 1200px; height: 630px; }
+  body {
+    background: var(--paper); color: var(--ink); font-family: var(--sans);
+    position: relative; overflow: hidden;
+    background-image:
+      radial-gradient(42% 48% at 86% 8%, rgba(232, 89, 12, 0.16), rgba(232, 89, 12, 0) 70%),
+      radial-gradient(24% 28% at 70% 0%, rgba(245, 159, 0, 0.18), rgba(245, 159, 0, 0) 70%);
+  }
+  .grid { position: absolute; inset: 0; opacity: .55;
+    background-image: linear-gradient(rgba(23,22,26,.05) 1px, transparent 1px), linear-gradient(90deg, rgba(23,22,26,.05) 1px, transparent 1px);
+    background-size: 72px 72px; mask-image: linear-gradient(#000, transparent 62%); }
+  .inner { position: relative; padding: 64px 72px; height: 100%; display: flex; flex-direction: column; }
+  .brand { display: flex; align-items: center; gap: 12px; font-weight: 620; font-size: 24px; letter-spacing: -.02em; }
+  .brand svg { width: 40px; height: 40px; border-radius: 10px; }
+  h1 { font-size: 76px; line-height: 1.03; letter-spacing: -.04em; font-weight: 640; margin: 54px 0 0; }
+  h1 .sun { background: linear-gradient(100deg, #f59f00, #e8590c 55%, #bf3a0a); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .sub { margin-top: 26px; font-size: 22px; line-height: 1.5; color: var(--muted); max-width: 760px; }
+  .foot { margin-top: auto; display: flex; align-items: center; gap: 16px; font-family: var(--mono); font-size: 15px; color: var(--faint); }
+  .foot .url { color: var(--accent); }
+  .foot .sep { width: 4px; height: 4px; border-radius: 50%; background: var(--faint); }
+</style>
+</head>
+<body>
+<div class="grid"></div>
+<div class="inner">
+  <div class="brand">
+    <svg viewBox="0 0 48 48" aria-hidden="true"><defs>
+      <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#f59f00"/><stop offset="1" stop-color="#e8590c"/></linearGradient>
+      <radialGradient id="glowg" cx=".5" cy=".5" r=".5"><stop offset="0" stop-color="#fff8e1" stop-opacity=".55"/><stop offset="1" stop-color="#ffe8a3" stop-opacity="0"/></radialGradient>
+      <linearGradient id="sheen" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".25"/><stop offset=".45" stop-color="#fff" stop-opacity="0"/><stop offset="1" stop-color="#7c2d12" stop-opacity=".10"/></linearGradient>
+    </defs><rect width="48" height="48" rx="11" fill="url(#sky)"/><circle cx="21" cy="14" r="7.5" fill="url(#glowg)"/><circle cx="21" cy="14" r="4" fill="#fff8e1"/><path fill="#fff" opacity=".78" d="M14 41Q26 16 44 41Z"/><path fill="#fff" d="M2 41Q12 20 24 41Z"/><rect width="48" height="48" rx="11" fill="url(#sheen)"/></svg>
+    Summrise
+  </div>
+  <h1>Your AI.<br>A real machine<br><span class="sun">under it.</span></h1>
+  <p class="sub">Terminal, SSH, serial, browser and files over MCP — with one console to watch it work, approve what matters, and take the keyboard back.</p>
+  <div class="foot"><span class="url">summrise.saisi.online</span><span class="sep"></span><span>Windows 10/11 · x64</span></div>
+</div>
+</body>
+</html>

@@ -3,6 +3,11 @@
 //! A Windows user's eye-level view of one device: a dot that says whether the app is serving, and one
 //! click to the operator's console (or, when the console is unreachable, the device's own panel).
 //!
+//! **This binary is installer-owned.** The canary update swaps `summrise-device.exe` and nothing else, so
+//! a change here reaches a machine through `SummriseSetup`, not through a release document; docs/RELEASE.md
+//! carries the procedure and the reason. Its startup lines go to `%LOCALAPPDATA%\Summrise\shell.log`,
+//! because a tray that does not appear is otherwise a process with no message.
+//!
 //! The device itself is two runtimes with no UI: `summrise-launch` supervises `summrise-device`, and
 //! every action is granted and audited by the console. This binary is deliberately outside that
 //! boundary — it holds no credential and can do nothing but read a loopback health document and open
@@ -47,8 +52,22 @@ pub fn note(line: &str) {
 
 #[cfg(windows)]
 fn main() {
+    // A DIAGNOSTIC THAT OPENS THE WINDOW AND EXITS. The tray menu is a click on a machine this project
+    // is often not sitting at, so "Open console does nothing" was reported twice without a way to
+    // separate the menu wiring from the window: `--check-window` builds the same window and WebView2
+    // view the menu builds, waits for the page to load, and answers on the log and the exit code.
+    if std::env::args().any(|argument| argument == "--check-window") {
+        let code = app::check_window();
+        std::process::exit(code);
+    }
     if app::already_running() {
-        // The icon is already in the tray; a second one would be a second dot saying the same thing.
+        // A second instance is the session-reconnect task asking for the icon back, not a user
+        // double-clicking: signal the running instance to re-add the tray, and only then exit.
+        if app::signal_wake() {
+            note("another instance owns the tray; asked it to re-add the icon");
+        } else {
+            note("another instance owns the tray and did not answer the wake signal");
+        }
         return;
     }
     note("starting");

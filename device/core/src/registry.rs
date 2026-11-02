@@ -188,6 +188,12 @@ pub const CAPABILITIES: &[Capability] = &[
                     "Capture one tab as a base64 PNG; a capture over 8 MiB is refused.",
             },
             ToolDef {
+                name: "browser.cast",
+                destructive: false,
+                description:
+                    "The newest frame of a live screencast of one tab, as a base64 JPEG; a frame over 8 MiB is refused, and the stream stops itself after 60 s unpolled.",
+            },
+            ToolDef {
                 name: "browser.close",
                 destructive: false,
                 description:
@@ -369,7 +375,7 @@ mod tests {
             10,
             "ten capabilities declare the surface"
         );
-        assert_eq!(tools.len(), 39, "the surface is 39 tools");
+        assert_eq!(tools.len(), 40, "the surface is 40 tools");
         assert_eq!(
             tools,
             [
@@ -395,6 +401,7 @@ mod tests {
                 "browser.navigate",
                 "browser.eval",
                 "browser.screenshot",
+                "browser.cast",
                 "browser.close",
                 "browser.shutdown",
                 "monitor.add",
@@ -439,6 +446,7 @@ mod tests {
             ("browser.navigate", true),
             ("browser.eval", true),
             ("browser.screenshot", false),
+            ("browser.cast", false),
             ("browser.close", false),
             ("browser.shutdown", false),
             ("monitor.add", false),
@@ -518,6 +526,7 @@ mod tests {
             ("browser.open", &["8 tabs"][..]),
             ("browser.eval", &["1 MiB"][..]),
             ("browser.screenshot", &["8 MiB"][..]),
+            ("browser.cast", &["8 MiB", "60 s"][..]),
         ] {
             let description = tool(name).expect("the tool is declared").description;
             for cap in caps {

@@ -1,0 +1,15 @@
+{
+  // Summrise's public landing page. Static files only: no Worker script, no build step — the page
+  // is what a reader's browser parses, and `landing/check.mjs` is the gate that keeps the two
+  // languages in step. Deploying needs a Cloudflare API token with Workers Scripts:Edit
+  // (`~/cloudflare-token` on the operator's box) and the account id below.
+  "name": "summrise-landing",
+  "compatibility_date": "2026-08-01",
+  "assets": {
+    "directory": "./public"
+  },
+  // The preview URL is useless behind networks that poison workers.dev, so the page is reachable
+  // at its own name: one proxied DNS record, one certificate, both created by this entry.
+  "workers_dev": true,
+  "routes": [{ "pattern": "summrise.saisi.online", "custom_domain": true }]
+}

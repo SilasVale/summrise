@@ -36,7 +36,9 @@ mod store;
 mod tokens;
 
 pub use access::{Access, AccessError, ACCESS_HEADER};
-pub use config::{Config, ConfigError, StartupError, BIND_FLAG, DEFAULT_BIND, DEFAULT_PORT};
+pub use config::{
+    AccessConfig, Config, ConfigError, StartupError, BIND_FLAG, DEFAULT_BIND, DEFAULT_PORT,
+};
 pub use devices::Device;
 pub use grants::{
     canonical_message, Grant, GrantEnvelope, MAX_GRANT_LIFETIME_S, MIN_GRANT_LIFETIME_S,

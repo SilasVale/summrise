@@ -24,7 +24,7 @@ pub use paths::{
     flat_sidecar, generation_dir, generation_exe, generation_sidecar, install_token,
     launcher_pid_file, repair_log, staged_exe, staged_sidecar, swap_request, swap_result, APP_EXE,
     BASELINE_DIR, BASELINE_SIDECAR, CONSOLE_FILE, CURRENT_DIR, FLAT_SIDECAR, LAUNCHER_EXE,
-    PENDING_DIR, PREVIOUS_DIR, REPAIR_LOG,
+    PENDING_DIR, PREVIOUS_DIR, REPAIR_LOG, STAGING_DIR,
 };
 pub use self_check::{inspect, Check, Report};
 
@@ -797,9 +797,60 @@ pub fn verify_signature(sidecar: &Sidecar, pubkey: &VerifyingKey) -> Result<(), 
 }
 
 /// Read a sidecar JSON file.
+/// The most a sidecar may be. A sidecar is a version, a digest, a channel and a signature — a few
+/// hundred bytes; anything larger is not this file.
+pub const MAX_SIDECAR_BYTES: u64 = 64 * 1024;
+
+/// The most a swap request may be: two digests, a version and a timestamp.
+pub const MAX_SWAP_REQUEST_BYTES: u64 = 16 * 1024;
+
+/// What a bounded read found.
+enum CappedRead {
+    Bytes(Vec<u8>),
+    /// The file is not there. A caller decides whether that is an absent request or a broken sidecar.
+    Missing,
+    Failed(String),
+}
+
+/// Read at most `limit` bytes of `path`, refusing a file that is larger.
+///
+/// The staged sidecar and the swap request live in the install directory, which the app can write.
+/// A supervisor that reads whatever sits there into memory on every two-second poll trusts the app
+/// to be small; a multi-gigabyte file (or a hardlink to one) would be the whole machine's memory.
+fn read_capped(path: &Path, limit: u64) -> CappedRead {
+    let file = match fs::File::open(path) {
+        Ok(file) => file,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return CappedRead::Missing,
+        Err(error) => {
+            return CappedRead::Failed(format!("cannot read {}: {error}", path.display()))
+        }
+    };
+    let metadata = match file.metadata() {
+        Ok(metadata) => metadata,
+        Err(error) => {
+            return CappedRead::Failed(format!("cannot stat {}: {error}", path.display()))
+        }
+    };
+    if metadata.len() > limit {
+        return CappedRead::Failed(format!(
+            "{} is {} bytes; the limit is {limit}",
+            path.display(),
+            metadata.len()
+        ));
+    }
+    let mut bytes = Vec::with_capacity(metadata.len() as usize);
+    if let Err(error) = std::io::Read::take(file, limit).read_to_end(&mut bytes) {
+        return CappedRead::Failed(format!("cannot read {}: {error}", path.display()));
+    }
+    CappedRead::Bytes(bytes)
+}
+
 pub fn load_sidecar(path: &Path) -> Result<Sidecar, String> {
-    let bytes = fs::read(path)
-        .map_err(|error| format!("cannot read sidecar {}: {error}", path.display()))?;
+    let bytes = match read_capped(path, MAX_SIDECAR_BYTES) {
+        CappedRead::Bytes(bytes) => bytes,
+        CappedRead::Missing => return Err(format!("cannot read {}: not found", path.display())),
+        CappedRead::Failed(message) => return Err(message),
+    };
     serde_json::from_slice(&bytes)
         .map_err(|error| format!("cannot parse sidecar {}: {error}", path.display()))
 }
@@ -1144,6 +1195,56 @@ pub(crate) fn inspect_generation(
 /// `pending` is not a candidate here by construction: a generation is only promoted by a health
 /// probe, and a leftover `pending` is deleted unread at supervisor start.
 pub fn resolve_baseline(install: &Path) -> BaselineChoice {
+    // The baseline directory is the supervisor's own; an unkeyed build cannot check a signature at
+    // all and says so by shipping the placeholder, which no real sidecar was signed with. The
+    // hash-consistent check is then the whole answer, exactly as before this seam existed.
+    if LAUNCHER_PUBKEY_HEX == PLACEHOLDER_PUBKEY_HEX && RELEASE_PUBKEY_HEX == PLACEHOLDER_PUBKEY_HEX
+    {
+        resolve_baseline_hash_only(install)
+    } else {
+        resolve_baseline_signed(install)
+    }
+}
+
+/// [`resolve_baseline`] for a keyed build: a generation boots only when its sidecar verifies.
+///
+/// **TWO KEYS OWN THE BASELINE, NOT ONE.** The first generation is seeded by the installer and signed
+/// with the launcher key; every generation after it is promoted from `summrise-device.new.json`, which
+/// the *release* key signed and the supervisor verified at staging time. Checking only the launcher key
+/// here (as the first version of this function did) made a committed update unbootable: at the next
+/// supervisor start the new generation was called untrusted, the old one was restored over it, and a
+/// second update in the same supervisor lifetime left both generations release-signed and nothing
+/// bootable at all. Either key is this build's; a sidecar signed by neither is not.
+pub fn resolve_baseline_signed(install: &Path) -> BaselineChoice {
+    resolve_baseline_signed_with(install, &[LAUNCHER_PUBKEY_HEX, RELEASE_PUBKEY_HEX])
+}
+
+/// [`resolve_baseline_signed`] against an explicit list of keys — the test seam, and the form a build
+/// with only one key embedded still works through.
+pub fn resolve_baseline_signed_with(install: &Path, pubkeys_hex: &[&str]) -> BaselineChoice {
+    let inspect = |generation: Generation| -> Result<Baseline, String> {
+        let baseline = inspect_generation(install, generation)?;
+        verify_any_signature(&baseline.sidecar, pubkeys_hex).map_err(|error| {
+            format!(
+                "the {} baseline is not signed by this build: {error}",
+                generation.label()
+            )
+        })?;
+        Ok(baseline)
+    };
+    match inspect(Generation::Current) {
+        Ok(baseline) => BaselineChoice::Current(baseline),
+        Err(current_error) => match inspect(Generation::Previous) {
+            Ok(baseline) => BaselineChoice::Previous(baseline),
+            Err(previous_error) => BaselineChoice::NeedsHuman(format!(
+                "no baseline generation can be trusted: current: {current_error}; previous: {previous_error}"
+            )),
+        },
+    }
+}
+
+/// The hash-consistent answer, for a build with no launcher key to check against.
+fn resolve_baseline_hash_only(install: &Path) -> BaselineChoice {
     match inspect_generation(install, Generation::Current) {
         Ok(baseline) => BaselineChoice::Current(baseline),
         Err(current_error) => match inspect_generation(install, Generation::Previous) {
@@ -1178,6 +1279,21 @@ pub enum BaselineInstall {
     Seeded,
     /// `baseline/current` was replaced by the installer's pair; the old generation is `previous`.
     Replaced,
+}
+
+/// Whether any of `pubkeys_hex` signed `sidecar`, reporting the last refusal when none did.
+fn verify_any_signature(sidecar: &Sidecar, pubkeys_hex: &[&str]) -> Result<(), String> {
+    let mut last = String::from("no key is embedded in this build");
+    for key in pubkeys_hex {
+        if *key == PLACEHOLDER_PUBKEY_HEX {
+            continue;
+        }
+        match verify_seed_signature(sidecar, key) {
+            Ok(()) => return Ok(()),
+            Err(error) => last = error,
+        }
+    }
+    Err(last)
 }
 
 /// The one place the first-generation signature is checked, named for the failure it prevents (C1).
@@ -1274,6 +1390,10 @@ pub fn ensure_baseline(
     if legacy_exe.is_file() && legacy_sidecar.is_file() {
         let sidecar = load_sidecar(&legacy_sidecar)
             .map_err(|error| format!("cannot migrate the pre-generation baseline: {error}"))?;
+        // A migration is a seed by another name: the same key must have signed it, or the first
+        // generation would be whichever sidecar happened to sit beside the install.
+        verify_seed_signature(&sidecar, pubkey_hex)
+            .map_err(|error| format!("cannot migrate the pre-generation baseline: {error}"))?;
         install_generation_pair(install, &legacy_exe, &sidecar)
             .map_err(|error| format!("cannot migrate the pre-generation baseline: {error}"))?;
         return Ok(BaselineInstall::Migrated);
@@ -1310,6 +1430,17 @@ fn install_generation_pair(
     source_exe: &Path,
     sidecar: &Sidecar,
 ) -> Result<(), String> {
+    install_generation_pair_in(install, source_exe, sidecar, CURRENT_DIR)
+}
+
+/// Write one complete generation pair under `dir_name` of the baseline directory, verifying both the
+/// source and the copy against the sidecar's digest.
+fn install_generation_pair_in(
+    install: &Path,
+    source_exe: &Path,
+    sidecar: &Sidecar,
+    dir_name: &str,
+) -> Result<(), String> {
     match sha256_file(source_exe) {
         Ok(hash) if hash.eq_ignore_ascii_case(&sidecar.sha256) => {}
         Ok(hash) => {
@@ -1322,12 +1453,12 @@ fn install_generation_pair(
         Err(error) => return Err(format!("cannot hash {}: {error}", source_exe.display())),
     }
 
-    let current = generation_dir(install, CURRENT_DIR);
+    let current = generation_dir(install, dir_name);
     fs::create_dir_all(&current)
         .map_err(|error| format!("cannot create {}: {error}", current.display()))?;
-    save_sidecar(&generation_sidecar(install, CURRENT_DIR), sidecar)
-        .map_err(|error| format!("cannot write the current sidecar: {error}"))?;
-    let current_exe = generation_exe(install, CURRENT_DIR);
+    save_sidecar(&generation_sidecar(install, dir_name), sidecar)
+        .map_err(|error| format!("cannot write the sidecar of {}: {error}", current.display()))?;
+    let current_exe = generation_exe(install, dir_name);
     copy_file_synced(source_exe, &current_exe)
         .map_err(|error| format!("cannot write {}: {error}", current_exe.display()))?;
     match sha256_file(&current_exe) {
@@ -1850,10 +1981,10 @@ pub fn parse_swap_request(bytes: &[u8], now_ms: u64) -> SwapRequestState {
 /// Read a request file and judge its age. Only "not found" means missing; any other read error is a
 /// malformed request, because pretending it is absent would retry it forever.
 pub fn read_swap_request(path: &Path, now_ms: u64) -> SwapRequestState {
-    match fs::read(path) {
-        Ok(bytes) => parse_swap_request(&bytes, now_ms),
-        Err(error) if error.kind() == io::ErrorKind::NotFound => SwapRequestState::Missing,
-        Err(error) => SwapRequestState::Invalid(format!("cannot read {}: {error}", path.display())),
+    match read_capped(path, MAX_SWAP_REQUEST_BYTES) {
+        CappedRead::Bytes(bytes) => parse_swap_request(&bytes, now_ms),
+        CappedRead::Missing => SwapRequestState::Missing,
+        CappedRead::Failed(message) => SwapRequestState::Invalid(message),
     }
 }
 
@@ -2621,6 +2752,150 @@ mod tests {
             flat_exe(&install).is_file(),
             "migration copies; it does not delete the old pair"
         );
+    }
+
+    /// A migration is a seed by another name: the launcher key must have signed the pair, or the
+    /// "first generation" would be whichever sidecar sat beside the install.
+    #[test]
+    fn a_flat_pair_signed_by_another_key_is_not_migrated() {
+        let tmp = TempDir::new("ensure-migrate-foreign");
+        let install = install_dir(&tmp, "install");
+        fs::create_dir_all(baseline_dir(&install)).unwrap();
+        fs::write(flat_exe(&install), b"flat bytes").unwrap();
+        let sidecar = sidecar_for("2.0.3", b"flat bytes", &signing_key());
+        save_sidecar(&flat_sidecar(&install), &sidecar).unwrap();
+
+        let other = SigningKey::from_bytes(&[0x77; 32]);
+        let other_hex =
+            other
+                .verifying_key()
+                .as_bytes()
+                .iter()
+                .fold(String::new(), |mut hex, byte| {
+                    hex.push_str(&format!("{byte:02x}"));
+                    hex
+                });
+        let error = ensure_baseline(&install, None, &other_hex, false)
+            .expect_err("a foreign signature must not become the first generation");
+        assert!(
+            error.contains("cannot migrate the pre-generation baseline"),
+            "the refusal names the step and the key: {error}"
+        );
+        assert!(
+            !generation_dir(&install, CURRENT_DIR).exists(),
+            "nothing was promoted"
+        );
+    }
+
+    /// The supervisor boots a generation only when its sidecar verifies against the launcher key.
+    #[test]
+    fn a_generation_must_verify_before_it_can_boot() {
+        let tmp = TempDir::new("resolve-signed");
+        let install = install_dir(&tmp, "install");
+        fs::create_dir_all(baseline_dir(&install)).unwrap();
+        fs::write(flat_exe(&install), b"flat bytes").unwrap();
+        let sidecar = sidecar_for("2.0.3", b"flat bytes", &signing_key());
+        save_sidecar(&flat_sidecar(&install), &sidecar).unwrap();
+        ensure_baseline(&install, None, &test_pubkey_hex(), false).expect("the pair is seeded");
+
+        assert!(
+            matches!(
+                resolve_baseline_signed_with(&install, &[&test_pubkey_hex()]),
+                BaselineChoice::Current(_)
+            ),
+            "the launcher's own signature is bootable"
+        );
+        let other = SigningKey::from_bytes(&[0x66; 32]);
+        let other_hex =
+            other
+                .verifying_key()
+                .as_bytes()
+                .iter()
+                .fold(String::new(), |mut hex, byte| {
+                    hex.push_str(&format!("{byte:02x}"));
+                    hex
+                });
+        match resolve_baseline_signed_with(&install, &[&other_hex]) {
+            BaselineChoice::NeedsHuman(reason) => assert!(
+                reason.contains("not signed by this build"),
+                "the refusal says why: {reason}"
+            ),
+            other => panic!("an unsigned generation must not boot: {other:?}"),
+        }
+    }
+
+    /// A COMMITTED UPDATE IS RELEASE-SIGNED, AND IT MUST STILL BOOT. The first version of the boot
+    /// check only accepted the launcher key, so the generation a successful update promoted was called
+    /// untrusted at the next start, the old one was restored over it, and two updates in one supervisor
+    /// lifetime left nothing bootable. Both keys are this build's.
+    #[test]
+    fn a_release_signed_generation_boots_like_the_launcher_signed_one() {
+        let tmp = TempDir::new("two-key-baseline");
+        let install = install_dir(&tmp, "install");
+        fs::create_dir_all(baseline_dir(&install)).unwrap();
+        fs::write(flat_exe(&install), b"seed bytes").unwrap();
+        let seed = sidecar_for("1.0.0", b"seed bytes", &signing_key());
+        save_sidecar(&flat_sidecar(&install), &seed).unwrap();
+        ensure_baseline(&install, None, &test_pubkey_hex(), false).expect("the launcher seeds");
+
+        // The update: a pair signed with the release key, promoted into `baseline/current` exactly as
+        // `commit_pending` does after the probe.
+        let release_key = SigningKey::from_bytes(&[0x5a; 32]);
+        let release_hex =
+            release_key
+                .verifying_key()
+                .as_bytes()
+                .iter()
+                .fold(String::new(), |mut hex, byte| {
+                    hex.push_str(&format!("{byte:02x}"));
+                    hex
+                });
+        fs::write(app_exe(&install), b"updated bytes").unwrap();
+        let updated = sidecar_for("2.0.0", b"updated bytes", &release_key);
+        install_generation_pair(&install, &app_exe(&install), &updated)
+            .expect("the promoted pair is written");
+
+        let launcher_hex = test_pubkey_hex();
+        match resolve_baseline_signed_with(&install, &[&launcher_hex, &release_hex]) {
+            BaselineChoice::Current(current) => assert_eq!(current.sidecar.version, "2.0.0"),
+            other => panic!("a release-signed generation must boot: {other:?}"),
+        }
+        // And the bug it pins: the launcher key alone does not accept it.
+        assert!(matches!(
+            resolve_baseline_signed_with(&install, &[&launcher_hex]),
+            BaselineChoice::NeedsHuman(_)
+        ));
+    }
+
+    /// The staged sidecar and the swap request are app-writable; the supervisor must not read
+    /// whatever sits there into memory on every poll.
+    #[test]
+    fn an_oversized_sidecar_or_request_is_refused_without_a_full_read() {
+        let tmp = TempDir::new("capped-reads");
+        let install = install_dir(&tmp, "install");
+        fs::create_dir_all(&install).unwrap();
+        let big = MAX_SIDECAR_BYTES + 1;
+
+        let sidecar_path = install.join("summrise-device.new.json");
+        fs::write(&sidecar_path, vec![b' '; big as usize]).unwrap();
+        let error = load_sidecar(&sidecar_path).expect_err("a sidecar has a size limit");
+        assert!(
+            error.contains("the limit is"),
+            "the refusal names the bound: {error}"
+        );
+
+        let request_path = install.join("swap.request.json");
+        fs::write(
+            &request_path,
+            vec![b' '; (MAX_SWAP_REQUEST_BYTES + 1) as usize],
+        )
+        .unwrap();
+        match read_swap_request(&request_path, 1) {
+            SwapRequestState::Invalid(message) => {
+                assert!(message.contains("the limit is"), "{message}")
+            }
+            other => panic!("an oversized request is invalid, not missing: {other:?}"),
+        }
     }
 
     #[test]

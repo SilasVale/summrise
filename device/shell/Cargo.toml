@@ -27,7 +27,6 @@ tray-icon = "0.21"
 summrise-winsys = { path = "../winsys" }
 # Windows 11 keeps a new tray icon in the overflow until the app asks to be shown; that flag lives in
 # `HKCU\Control Panel\NotifyIconSettings`, and a safe registry client is the shortest way to set it.
-winreg = "0.52"
 windows-sys = { version = "0.52", features = [
     "Win32_Foundation",
     "Win32_Security",

@@ -47,6 +47,14 @@ pub struct Grant {
     /// without a per-call prompt. It is inside the signature: flipping it after signing changes the
     /// canonical message, and a grant that did not consent can never be replayed as one that did.
     pub allow_destructive: bool,
+    /// One random value per signed grant, so the device can tell a fresh frame from a replay.
+    ///
+    /// It is inside the signature (see [`canonical_message`]), which is what makes it useful: a
+    /// replayer of a captured frame cannot change it without breaking the signature, and a grant
+    /// built by a console that predates this field leaves it empty — the device then accepts it as
+    /// before, because a missing nonce is an old console, not a forged one.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub nonce: String,
 }
 
 /// A grant and the console's signature, as `POST /grants` returns it and the device channel carries
@@ -79,13 +87,20 @@ impl std::error::Error for SignatureError {}
 /// It takes the grant rather than its fields so there is one spelling of the message: a caller
 /// cannot join the tools differently, or forget a separator, without changing this function.
 pub fn canonical_message(grant: &Grant) -> String {
-    format!(
+    let facts = format!(
         "grant\n{}\n{}\n{}\n{}",
         grant.device_id,
         grant.tools.join(","),
         grant.expires_at_ms,
         grant.allow_destructive
-    )
+    );
+    // A fifth field only when there is one: a console that predates the nonce signs the four-field
+    // message, and those grants must keep verifying after a device update.
+    if grant.nonce.is_empty() {
+        facts
+    } else {
+        format!("{facts}\n{}", grant.nonce)
+    }
 }
 
 /// Verify a signature over `grant` against the console key the device pins.
@@ -136,6 +151,7 @@ mod tests {
             tools: vec!["files.read".to_owned(), "terminal.create".to_owned()],
             expires_at_ms: 1_700_000_000_000,
             allow_destructive: false,
+            nonce: String::new(),
         }
     }
 

@@ -39,7 +39,7 @@
 use std::collections::BTreeMap;
 use std::fmt;
 use std::fs;
-use std::io::{self, Read, Write};
+use std::io::{self, Read, Seek, Write};
 #[cfg(unix)]
 use std::os::unix::process::CommandExt;
 #[cfg(windows)]
@@ -74,7 +74,20 @@ pub const MAX_ENV_VARS: usize = 32;
 pub const MAX_ENV_VALUE_BYTES: usize = 4096;
 
 /// How many history rows the current file holds before it is rotated.
+/// The most bytes a command line and its arguments may carry together.
+///
+/// The history stores the command as it was given, so an unbounded one makes an unbounded row; 8 KiB is
+/// several times the longest real command line and far below anything that would turn a listing into a
+/// memory event.
+pub const MAX_COMMAND_BYTES: usize = 8 * 1024;
+
 pub const HISTORY_LINES: usize = 10_000;
+
+/// The most bytes one history read loads: the newest rows, not the whole file.
+///
+/// Ten thousand rows of a few hundred bytes each is a few megabytes; a file of rows with long environments
+/// or big outputs would otherwise be read whole before every `list`, `get` and `append`.
+pub const HISTORY_READ_BYTES: u64 = 8 * 1024 * 1024;
 
 /// How many rows `runs.list` returns when the caller names no limit.
 pub const DEFAULT_LIST_LIMIT: usize = 20;
@@ -107,6 +120,8 @@ pub struct Limits {
     pub max_env_vars: usize,
     /// The most bytes one environment value may carry.
     pub max_env_value_bytes: usize,
+    /// The most bytes a command line and its arguments may carry together.
+    pub max_command_bytes: usize,
     /// The rows the current history file holds before rotation.
     pub history_lines: usize,
 }
@@ -120,6 +135,7 @@ impl Default for Limits {
             max_timeout_ms: MAX_TIMEOUT_MS,
             max_env_vars: MAX_ENV_VARS,
             max_env_value_bytes: MAX_ENV_VALUE_BYTES,
+            max_command_bytes: MAX_COMMAND_BYTES,
             history_lines: HISTORY_LINES,
         }
     }
@@ -225,6 +241,13 @@ pub enum RunsError {
     },
     /// An environment name is empty or contains `=`, or a name or value contains NUL.
     InvalidEnv,
+    /// The command and its arguments exceed the cap together.
+    CommandTooLarge {
+        /// Its length in bytes, arguments included.
+        len: usize,
+        /// The cap.
+        max: usize,
+    },
     /// The working directory did not resolve to a directory inside the files root.
     Cwd(files::FilesError),
     /// The command could not be spawned or the history could not be read or written.
@@ -256,6 +279,9 @@ impl fmt::Display for RunsError {
             }
             RunsError::EnvValueTooLarge { len, max } => {
                 write!(f, "an environment value is {len} bytes; the cap is {max}")
+            }
+            RunsError::CommandTooLarge { len, max } => {
+                write!(f, "the command line is {len} bytes with its arguments; the cap is {max}")
             }
             RunsError::InvalidEnv => write!(
                 f,
@@ -504,6 +530,18 @@ fn validate(request: &ExecRequest, limits: &Limits) -> Result<(), RunsError> {
             });
         }
     }
+    let command_bytes: usize = request.command.len()
+        + request
+            .args
+            .iter()
+            .map(|argument| argument.len() + 1)
+            .sum::<usize>();
+    if command_bytes > limits.max_command_bytes {
+        return Err(RunsError::CommandTooLarge {
+            len: command_bytes,
+            max: limits.max_command_bytes,
+        });
+    }
     if request.env.len() > limits.max_env_vars {
         return Err(RunsError::TooManyEnv {
             count: request.env.len(),
@@ -579,12 +617,18 @@ fn kill_group(pid: u32, child: &mut Child) {
     {
         // A new Windows process group does not give a kill-tree; `taskkill /T` is the platform's
         // own answer. The direct kill below is the fallback when the process already ended.
-        let _ = Command::new("taskkill")
-            .args(["/F", "/T", "/PID", &pid.to_string()])
+        // `CREATE_NO_WINDOW`: the app normally runs under the service, where there is no desktop, but a
+        // `--enroll` or a debugging run from a console session would otherwise flash a taskkill window
+        // for every timed-out run.
+        let mut command = Command::new("taskkill");
+        command.args(["/F", "/T", "/PID", &pid.to_string()]);
+        command
             .stdin(Stdio::null())
             .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status();
+            .stderr(Stdio::null());
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        command.creation_flags(CREATE_NO_WINDOW);
+        let _ = command.status();
     }
     #[cfg(not(any(unix, windows)))]
     let _ = pid;
@@ -631,11 +675,31 @@ fn capture(mut stream: impl Read, cap: usize) -> Captured {
     captured
 }
 
-/// Join a capture thread, treating a panicked reader as an empty stream.
-fn join_capture(handle: Option<thread::JoinHandle<Captured>>) -> Captured {
-    handle
-        .and_then(|handle| handle.join().ok())
-        .unwrap_or_default()
+/// How long a capture thread may keep the call after the child has been reaped.
+///
+/// A child can exit while a DESCENDANT still holds the write end of its stdout — `daemon &` under
+/// `shell: true`, a `nohup`ed helper — and then the reader sits in `read` forever. An unbounded join
+/// therefore turns one background process into a call that never returns, holding the blocking pool and
+/// the console's request with it. Two seconds is longer than any real flush and shorter than the
+/// console's own bound.
+const CAPTURE_GRACE: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// Join a capture thread, treating a panicked or stuck reader as what it captured so far.
+fn join_capture(handle: Option<std::thread::JoinHandle<Captured>>) -> Captured {
+    let Some(handle) = handle else {
+        return Captured::default();
+    };
+    let deadline = std::time::Instant::now() + CAPTURE_GRACE;
+    while !handle.is_finished() {
+        if std::time::Instant::now() >= deadline {
+            // Detached on purpose: the thread is blocked in a `read` this process cannot interrupt, and
+            // leaking it is better than never answering the operator. Its buffer is already shared with
+            // the ring the run reports, so the bytes captured so far are not lost.
+            return Captured::default();
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    handle.join().unwrap_or_default()
 }
 
 /// The rows of one history file, newest first.
@@ -643,10 +707,9 @@ fn join_capture(handle: Option<thread::JoinHandle<Captured>>) -> Captured {
 /// A line that does not parse is skipped: a process stopped mid-append can leave a torn final line,
 /// and one unreadable row must not make the rest of the history unavailable.
 fn read_newest_first(path: &Path) -> Result<Vec<Record>, RunsError> {
-    let text = match fs::read_to_string(path) {
-        Ok(text) => text,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
-        Err(error) => return Err(RunsError::Io(error)),
+    let text = match read_capped(path, HISTORY_READ_BYTES)? {
+        Some(text) => text,
+        None => return Ok(Vec::new()),
     };
     let mut records: Vec<Record> = text
         .lines()
@@ -658,12 +721,66 @@ fn read_newest_first(path: &Path) -> Result<Vec<Record>, RunsError> {
 }
 
 /// How many rows a history file holds; an absent file is empty.
+///
+/// Counted by scanning in chunks rather than by reading the file: this runs before every append, and the
+/// file is the one thing in the data directory that grows to megabytes.
 fn count_lines(path: &Path) -> Result<usize, RunsError> {
-    match fs::read_to_string(path) {
-        Ok(text) => Ok(text.lines().count()),
-        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(0),
-        Err(error) => Err(RunsError::Io(error)),
+    let mut file = match fs::File::open(path) {
+        Ok(file) => file,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(0),
+        Err(error) => return Err(RunsError::Io(error)),
+    };
+    let mut buffer = [0u8; 64 * 1024];
+    let mut lines = 0;
+    let mut last_byte = b'\n';
+    loop {
+        let read = file.read(&mut buffer).map_err(RunsError::Io)?;
+        if read == 0 {
+            break;
+        }
+        for byte in &buffer[..read] {
+            if *byte == b'\n' {
+                lines += 1;
+            }
+            last_byte = *byte;
+        }
     }
+    // A file whose last line has no newline still holds a row (a crash between the two writes).
+    if last_byte != b'\n' {
+        lines += 1;
+    }
+    Ok(lines)
+}
+
+/// Read at most `cap` bytes of `path`, starting from the end, and drop the partial first line.
+///
+/// **THE HISTORY IS APPEND-ONLY AND NEWEST-LAST, SO THE TAIL IS WHAT A READER WANTS.** Reading the whole
+/// file put up to `HISTORY_LINES` rows of commands and output into memory on every `list` and `get`; the
+/// cap keeps the newest rows, which are the ones the page shows, and a file smaller than the cap reads
+/// exactly as before.
+fn read_capped(path: &Path, cap: u64) -> Result<Option<String>, RunsError> {
+    let mut file = match fs::File::open(path) {
+        Ok(file) => file,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(RunsError::Io(error)),
+    };
+    let len = file.metadata().map_err(RunsError::Io)?.len();
+    let mut text = String::new();
+    if len <= cap {
+        file.read_to_string(&mut text).map_err(RunsError::Io)?;
+        return Ok(Some(text));
+    }
+    file.seek(io::SeekFrom::Start(len - cap))
+        .map_err(RunsError::Io)?;
+    file.read_to_string(&mut text).map_err(RunsError::Io)?;
+    // The first line is a fragment: its beginning is before the window.
+    match text.find('\n') {
+        Some(at) => {
+            text.drain(..=at);
+        }
+        None => text.clear(),
+    }
+    Ok(Some(text))
 }
 
 /// Move a full current history aside, replacing any older rotated file.
@@ -752,6 +869,73 @@ mod tests {
             args: args.iter().map(|arg| (*arg).to_owned()).collect(),
             ..ExecRequest::default()
         }
+    }
+
+    #[cfg(unix)]
+    /// A command line is bounded before anything is spawned: the history stores it, so an unbounded one
+    /// is an unbounded row.
+    #[cfg(unix)]
+    #[test]
+    fn a_command_line_over_the_cap_is_refused_before_the_spawn() {
+        let limits = Limits::default();
+        let long = "x".repeat(limits.max_command_bytes + 1);
+        let request = ExecRequest {
+            command: long,
+            ..ExecRequest::default()
+        };
+        match validate(&request, &limits) {
+            Err(RunsError::CommandTooLarge { len, max }) => {
+                assert!(len > max);
+                assert_eq!(max, limits.max_command_bytes);
+            }
+            other => panic!("a huge command must be refused, got {other:?}"),
+        }
+
+        // Arguments count too, and the separator between them.
+        let argument = "y".repeat(limits.max_command_bytes);
+        let request = ExecRequest {
+            command: "cmd".to_owned(),
+            args: vec![argument],
+            ..ExecRequest::default()
+        };
+        assert!(matches!(
+            validate(&request, &limits),
+            Err(RunsError::CommandTooLarge { .. })
+        ));
+    }
+
+    /// The history read keeps the newest rows when the file is larger than the window.
+    #[cfg(unix)]
+    #[test]
+    fn a_history_read_keeps_the_tail_when_the_file_exceeds_the_window() {
+        let dir = TempDir::new("runs-history-window");
+        let path = dir.join("runs.jsonl");
+        let mut body = String::new();
+        for index in 0..50 {
+            body.push_str(&format!("{{\"index\":{index}}}\n"));
+        }
+        fs::write(&path, &body).expect("the history is writable");
+        // A window that can hold only the last few rows: the first line is a fragment and is dropped.
+        let text = read_capped(&path, 40)
+            .expect("the read succeeds")
+            .expect("a file");
+        assert!(
+            !text.starts_with("{\"index\":49"),
+            "the fragment is dropped: {text}"
+        );
+        assert!(
+            text.trim_end().ends_with("\"index\":49}"),
+            "the tail survives: {text}"
+        );
+        assert!(
+            !text.contains("\"index\":0}"),
+            "the head is not read: {text}"
+        );
+        assert_eq!(
+            text.lines().count(),
+            3,
+            "three whole rows fit in forty bytes"
+        );
     }
 
     #[cfg(unix)]

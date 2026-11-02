@@ -88,7 +88,9 @@ pub struct LoginCode {
 pub(crate) fn write_login_code(data: &Path, code: &LoginCode) -> std::io::Result<PathBuf> {
     create_data_dir(data)?;
     let path = data.join(LOGIN_CODE_FILE);
-    write_json_atomic(&path, code)?;
+    // No recovery copy: this file is a 256-bit one-time password with minutes to live, and a `.bak`
+    // would keep a superseded or spent code on disk for no recovery anyone wants.
+    write_json_atomic_without_backup(&path, code)?;
     Ok(path)
 }
 
@@ -109,6 +111,9 @@ pub(crate) fn spend_login_code(data: &Path, presented: &str, now_ms: u64) -> Res
         return Err("the login code does not match".to_owned());
     }
     let _ = fs::remove_file(&path);
+    // Older builds wrote the code with a backup; removing it here cleans those up as the file is
+    // spent, so no copy of a used code outlives the code itself.
+    let _ = fs::remove_file(backup_path(&path));
     Ok(())
 }
 

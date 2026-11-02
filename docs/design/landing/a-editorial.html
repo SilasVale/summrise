@@ -1,0 +1,326 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Summrise — the AI-operable Windows machine</title>
+<style>
+  :root{
+    --paper:#fbfaf7; --panel:#ffffff; --ink:#161513; --muted:#5c5952; --faint:#8a867d;
+    --line:#e7e2d9; --line-strong:#d8d2c6;
+    --accent:#bf3a0a; --accent-solid:#b03a0a; --accent-soft:#fff0e6;
+    --gold:#f59f00; --sun:#e8590c;
+    --rail:#17181c; --rail-ink:#9a9ba4;
+    --ok:#1d7a3c; --ok-soft:#e7f6ec; --danger:#b3261e;
+    --mono:ui-monospace,"SF Mono","JetBrains Mono",Consolas,"Cascadia Mono",monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",Roboto,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{background:var(--paper);color:var(--ink);font-family:var(--sans);-webkit-font-smoothing:antialiased;
+       font-variant-numeric:tabular-nums}
+  a{color:inherit;text-decoration:none}
+  .wrap{max-width:1140px;margin:0 auto;padding:0 32px}
+  /* ---------- nav ---------- */
+  nav{height:74px;display:flex;align-items:center;gap:36px;border-bottom:1px solid var(--line)}
+  .brand{display:flex;align-items:center;gap:10px;font-weight:620;font-size:17px;letter-spacing:-.02em}
+  .brand svg{width:28px;height:28px;border-radius:7px;box-shadow:0 1px 2px rgba(23,24,28,.18)}
+  nav .links{display:flex;gap:26px;font-size:14px;color:var(--muted)}
+  nav .links a:hover{color:var(--ink)}
+  nav .spacer{flex:1}
+  .btn{display:inline-flex;align-items:center;gap:8px;border-radius:9px;font-size:14.5px;font-weight:560;
+       padding:10px 16px;border:1px solid transparent;transition:.15s}
+  .btn-dark{background:#1c1b19;color:#fff}
+  .btn-accent{background:var(--accent-solid);color:#fff}
+  .btn-ghost{background:transparent;border-color:var(--line-strong);color:var(--ink)}
+  .btn:hover{transform:translateY(-1px)}
+  /* ---------- hero ---------- */
+  header{padding:92px 0 0}
+  .eyebrow{display:inline-flex;align-items:center;gap:9px;font-size:12px;letter-spacing:.14em;text-transform:uppercase;
+           color:var(--accent);font-weight:620}
+  .eyebrow .dot{width:6px;height:6px;border-radius:50%;background:var(--gold)}
+  h1{font-size:66px;line-height:1.03;letter-spacing:-.035em;font-weight:640;margin:22px 0 0;max-width:900px}
+  h1 em{font-style:normal;color:var(--accent)}
+  .sub{font-size:19px;line-height:1.6;color:var(--muted);max-width:700px;margin:24px 0 0}
+  .cta{display:flex;gap:12px;margin-top:34px;align-items:center}
+  .meta{font-size:13px;color:var(--faint);margin-top:18px;font-family:var(--mono)}
+  /* ---------- app frame ---------- */
+  .shot{margin-top:58px;border:1px solid var(--line-strong);border-radius:16px;background:var(--panel);
+        box-shadow:0 1px 2px rgba(23,24,28,.05),0 40px 80px -50px rgba(23,24,28,.45);overflow:hidden}
+  .shot-top{height:44px;display:flex;align-items:center;gap:10px;padding:0 16px;border-bottom:1px solid var(--line);
+            background:linear-gradient(#fdfcfa,#f7f5f0)}
+  .dots{display:flex;gap:6px}.dots i{width:9px;height:9px;border-radius:50%;background:#ded8cc;display:block}
+  .addr{margin-left:10px;font-family:var(--mono);font-size:11.5px;color:var(--faint);background:#fff;
+        border:1px solid var(--line);border-radius:6px;padding:3px 10px}
+  .app{display:grid;grid-template-columns:64px 1fr 430px;min-height:430px}
+  .rail{background:var(--rail);display:flex;flex-direction:column;align-items:center;gap:14px;padding:16px 0}
+  .rail .logo{width:26px;height:26px;border-radius:7px;margin-bottom:6px}
+  .rail i{width:22px;height:22px;border-radius:7px;background:#24252b;display:block}
+  .rail i.on{background:var(--accent);box-shadow:0 0 0 3px rgba(191,58,10,.22)}
+  .rail .foot{margin-top:auto;width:8px;height:8px;border-radius:50%;background:#3fbf6a}
+  .main{padding:18px 20px}
+  .main h2{font-size:15px;margin:0;font-weight:640}
+  .main .lede{font-size:12px;color:var(--faint);margin-top:3px}
+  .fleet{width:100%;border-collapse:collapse;margin-top:16px;font-size:12.5px}
+  .fleet th{text-align:left;font-weight:560;color:var(--faint);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;
+            padding:0 8px 8px;border-bottom:1px solid var(--line)}
+  .fleet td{padding:11px 8px;border-bottom:1px solid #f1ede6;vertical-align:middle}
+  .fleet tr:hover td{background:#fbf9f5}
+  .dev{display:flex;align-items:center;gap:9px;font-weight:560}
+  .dev .st{width:8px;height:8px;border-radius:50%;background:var(--ok)}
+  .dev .st.off{background:#b9b3a8}
+  .mono{font-family:var(--mono);font-size:11.5px;color:var(--muted)}
+  .chip{display:inline-flex;align-items:center;gap:4px;border-radius:999px;padding:2px 8px;font-size:10.5px;font-weight:600}
+  .chip.ok{background:var(--ok-soft);color:var(--ok)}
+  .chip.off{background:#f0ece4;color:#6f6a60}
+  .chip.warn{background:#fff4e5;color:#a8620a}
+  .link{color:var(--accent);font-weight:600;font-size:12px}
+  .side{border-left:1px solid var(--line);padding:18px;background:#fcfbf8}
+  .side .tabs{display:flex;gap:14px;font-size:11px;color:var(--faint);border-bottom:1px solid var(--line);padding-bottom:10px}
+  .side .tabs b{color:var(--ink)}
+  .term{margin-top:12px;font-family:var(--mono);font-size:11.5px;line-height:1.75;color:#2b2a27}
+  .term .p{color:var(--accent)}
+  .term .c{color:#8a867d}
+  .term .g{color:var(--ok)}
+  .term .w{color:#a8620a}
+  .sync{margin-top:18px;padding-top:12px;border-top:1px solid var(--line);font-family:var(--mono);font-size:10.5px;color:var(--faint)}
+  .hold{margin-top:14px;font-family:var(--mono);font-size:10.5px;color:var(--faint);border-top:1px solid var(--line);padding-top:10px}
+  /* ---------- sections ---------- */
+  section{padding:104px 0 0}
+  .kicker{font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);font-weight:620}
+  h2.big{font-size:38px;line-height:1.15;letter-spacing:-.03em;font-weight:630;margin:12px 0 0;max-width:640px}
+  .grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--line);border:1px solid var(--line);
+         border-radius:14px;overflow:hidden;margin-top:44px}
+  .cell{background:var(--panel);padding:28px 26px 30px}
+  .cell .ico{width:34px;height:34px;border-radius:9px;background:var(--accent-soft);display:flex;align-items:center;
+             justify-content:center;margin-bottom:18px}
+  .cell h3{font-size:16.5px;margin:0 0 8px;font-weight:620;letter-spacing:-.01em}
+  .cell p{font-size:14px;line-height:1.65;color:var(--muted);margin:0}
+  .split{display:grid;grid-template-columns:1fr 1fr;gap:64px;margin-top:44px;align-items:start}
+  .surf{border:1px solid var(--line);border-radius:14px;background:var(--panel);padding:26px}
+  .surf .tag{font-family:var(--mono);font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--faint)}
+  .surf h3{font-size:19px;margin:8px 0 10px;letter-spacing:-.02em}
+  .surf p{font-size:14px;line-height:1.7;color:var(--muted);margin:0}
+  .surf ul{margin:14px 0 0;padding:0;list-style:none;font-size:13.5px;color:var(--muted)}
+  .surf li{padding:7px 0;border-top:1px solid #f1ede6;display:flex;gap:9px}
+  .surf li b{color:var(--ink);font-weight:560}
+  .steps{display:grid;grid-template-columns:repeat(3,1fr);gap:40px;margin-top:44px}
+  .step .n{font-family:var(--mono);font-size:11.5px;color:var(--accent);letter-spacing:.1em}
+  .step h3{font-size:17px;margin:10px 0 8px}
+  .step p{font-size:14px;line-height:1.65;color:var(--muted);margin:0}
+  .code{margin-top:12px;font-family:var(--mono);font-size:11.5px;background:#17181c;color:#e9e6df;border-radius:8px;
+        padding:10px 12px;line-height:1.7;overflow:auto}
+  .code .p{color:#ffa36b}
+  /* ---------- download ---------- */
+  .dl{margin-top:104px;border:1px solid var(--line-strong);border-radius:18px;background:
+      radial-gradient(120% 160% at 0% 0%,#fff6ec 0%,#ffffff 46%);padding:44px 46px;display:grid;
+      grid-template-columns:1.15fr .85fr;gap:52px}
+  .dl h2{font-size:34px;letter-spacing:-.03em;margin:10px 0 12px;line-height:1.12}
+  .dl p{font-size:14.5px;line-height:1.65;color:var(--muted);margin:0;max-width:440px}
+  .dl .row{display:flex;gap:12px;margin-top:24px}
+  .art{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:13px 0;border-top:1px solid var(--line)}
+  .art:first-child{border-top:0;padding-top:0}
+  .art .nm{font-family:var(--mono);font-size:12px}
+  .art .sz{font-family:var(--mono);font-size:11px;color:var(--faint)}
+  .art .get{font-size:12.5px;color:var(--accent);font-weight:620}
+  footer{margin-top:96px;border-top:1px solid var(--line);padding:34px 0 60px;display:flex;gap:24px;
+         align-items:center;font-size:13px;color:var(--faint)}
+  footer .spacer{flex:1}
+  footer a:hover{color:var(--ink)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <nav>
+    <div class="brand">
+      <svg viewBox="0 0 48 48" aria-hidden="true"><defs>
+        <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#f59f00"/><stop offset="1" stop-color="#e8590c"/></linearGradient>
+        <radialGradient id="glow" cx=".5" cy=".5" r=".5"><stop offset="0" stop-color="#fff8e1" stop-opacity=".55"/><stop offset="1" stop-color="#ffe8a3" stop-opacity="0"/></radialGradient>
+        <linearGradient id="sheen" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".25"/><stop offset=".45" stop-color="#fff" stop-opacity="0"/><stop offset="1" stop-color="#7c2d12" stop-opacity=".10"/></linearGradient>
+      </defs>
+      <rect width="48" height="48" rx="11" fill="url(#sky)"/>
+      <circle cx="21" cy="14" r="7.5" fill="url(#glow)"/><circle cx="21" cy="14" r="4" fill="#fff8e1"/>
+      <path fill="#fff" opacity=".78" d="M14 41Q26 16 44 41Z"/><path fill="#fff" d="M2 41Q12 20 24 41Z"/>
+      <rect width="48" height="48" rx="11" fill="url(#sheen)"/></svg>
+      Summrise
+    </div>
+    <div class="links"><a>Product</a><a>Docs</a><a>Console</a><a>Changelog</a></div>
+    <div class="spacer"></div>
+    <a class="btn btn-dark">Download</a>
+  </nav>
+
+  <header>
+    <div class="eyebrow"><span class="dot"></span> The Windows runtime for AI agents</div>
+    <h1>Give your AI a real<br>Windows machine.<br><em>And keep the keys.</em></h1>
+    <p class="sub">Summrise turns a Windows box into an AI-operable workspace — a real terminal, SSH, serial
+      ports, files and a browser — with one console to watch it work, approve what matters, and take the
+      keyboard back from anywhere.</p>
+    <div class="cta">
+      <a class="btn btn-accent">Download for Windows <span style="font-family:var(--mono);font-size:12px;opacity:.8">↓</span></a>
+      <a class="btn btn-ghost">Read the docs →</a>
+    </div>
+    <div class="meta">Windows 10/11 · x64 · free · signed updates · MCP-native</div>
+
+    <div class="shot">
+      <div class="shot-top"><div class="dots"><i></i><i></i><i></i></div><span class="addr">console.saisi.online/fleet</span></div>
+      <div class="app">
+        <div class="rail">
+          <svg class="logo" viewBox="0 0 48 48"><rect width="48" height="48" rx="11" fill="url(#sky)"/><circle cx="21" cy="14" r="4" fill="#fff8e1"/><path fill="#fff" d="M14 41Q26 16 44 41Z" opacity=".78"/><path fill="#fff" d="M2 41Q12 20 24 41Z"/></svg>
+          <i class="on"></i><i></i><i></i><i></i>
+          <div class="foot"></div>
+        </div>
+        <div class="main">
+          <h2>Fleet</h2>
+          <div class="lede">2 online · 1 offline · 3 enrolled</div>
+          <table class="fleet">
+            <thead><tr><th>Device</th><th>Version</th><th>State</th><th>Sessions</th><th></th></tr></thead>
+            <tbody>
+              <tr><td><span class="dev"><span class="st"></span> STUDIO-PC</span><div class="mono">d1.agent · Windows 11</div></td>
+                <td><span class="chip ok">0.3.152</span></td><td>online</td><td class="mono">3</td><td><span class="link">Connect</span></td></tr>
+              <tr><td><span class="dev"><span class="st"></span> LAB-PC</span><div class="mono">d14 · Windows 11</div></td>
+                <td><span class="chip ok">0.3.152</span></td><td>online</td><td class="mono">1</td><td><span class="link">Connect</span></td></tr>
+              <tr><td><span class="dev"><span class="st off"></span> EDGE-PC</span><div class="mono">d2 · Windows 11</div></td>
+                <td><span class="chip off">0.3.130</span></td><td><span class="chip warn">offline</span></td><td class="mono">0</td><td><span class="link">Why?</span></td></tr>
+            </tbody>
+          </table>
+          <div class="sync">last sync 4 s ago · 4 sessions open · 1 284 audit rows today</div>
+        </div>
+        <div class="side">
+          <div class="tabs"><b>Session 7f2a</b><span>Audit</span><span>Files</span><span>Browser</span></div>
+          <div class="term">
+            <div><span class="p">PS&gt;</span> git status --short</div>
+            <div><span class="c"> M device/console/src/http/page.rs</span></div>
+            <div><span class="p">PS&gt;</span> cargo test -p summrise-console</div>
+            <div><span class="g">test result: ok. 187 passed</span></div>
+            <div><span class="p">PS&gt;</span> .\publish.ps1 -Channel canary</div>
+            <div><span class="w">approval requested — 1 destructive tool</span></div>
+            <div><span class="p">PS&gt;</span> <span style="display:inline-block;width:7px;height:12px;background:#bf3a0a;vertical-align:-1px"></span></div>
+          </div>
+          <div class="hold">held by AI · approval gate on · token srm_…</div>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <section>
+    <div class="kicker">What the AI gets</div>
+    <h2 class="big">A real machine, not a sandbox with a screen.</h2>
+    <div class="grid3">
+      <div class="cell">
+        <div class="ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#bf3a0a" stroke-width="1.8"><path d="M4 5h16v14H4z"/><path d="M8 9l3 3-3 3M13 15h4"/></svg></div>
+        <h3>Real sessions</h3>
+        <p>PTY, SSH and serial lines with attach, resize and scrollback. The same shell a person would type into.</p>
+      </div>
+      <div class="cell">
+        <div class="ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#bf3a0a" stroke-width="1.8"><circle cx="12" cy="12" r="8"/><path d="M4 12h16M12 4c3 3 3 13 0 16"/></svg></div>
+        <h3>A browser it can drive</h3>
+        <p>Headless Chrome by default, on the machine's own network and sessions. Visible only when someone asks to watch.</p>
+      </div>
+      <div class="cell">
+        <div class="ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#bf3a0a" stroke-width="1.8"><path d="M4 7h16M4 12h10M4 17h7"/></svg></div>
+        <h3>Files, memory, monitors</h3>
+        <p>Read and write within a declared root, keep device-local facts, and watch a long job without holding a session open.</p>
+      </div>
+      <div class="cell">
+        <div class="ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#bf3a0a" stroke-width="1.8"><path d="M12 3l7 4v5c0 4-3 7-7 9-4-2-7-5-7-9V7z"/><path d="M9 12l2 2 4-4"/></svg></div>
+        <h3>Consent by construction</h3>
+        <p>Every call is a signed grant and an audit row. Destructive tools are refused unless the token says otherwise.</p>
+      </div>
+      <div class="cell">
+        <div class="ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#bf3a0a" stroke-width="1.8"><path d="M8 9l-4 3 4 3M16 9l4 3-4 3M13 5l-2 14"/></svg></div>
+        <h3>MCP-native</h3>
+        <p>One streamable-HTTP endpoint per device, or <span class="mono" style="font-size:12px">/mcp/all</span> for a fleet. Any client, no bespoke SDK.</p>
+      </div>
+      <div class="cell">
+        <div class="ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#bf3a0a" stroke-width="1.8"><path d="M2 12s3-6 10-6 10 6 10 6-3 6-10 6S2 12 2 12z"/><circle cx="12" cy="12" r="2.6"/></svg></div>
+        <h3>Watch, and take over</h3>
+        <p>See the live session in the console. Hold the keyboard when it matters, then hand it back — the AI waits.</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="kicker">Two surfaces, one product</div>
+    <h2 class="big">The console sees the fleet. The panel sees the machine.</h2>
+    <div class="split">
+      <div class="surf">
+        <div class="tag">console.saisi.online</div>
+        <h3>From anywhere</h3>
+        <p>Devices dial out to the console — no inbound port, no per-device tunnel. Sign in through Access or an
+          operator token, and every device is one row away.</p>
+        <ul>
+          <li><b>Fleet</b> — who is online, what they run, what to do about the one that is not</li>
+          <li><b>Sessions</b> — terminal, browser, files, runs, audit, approvals</li>
+          <li><b>Grants</b> — signed, scoped, revoked in one click</li>
+        </ul>
+      </div>
+      <div class="surf">
+        <div class="tag">127.0.0.1:18090</div>
+        <h3>On the machine</h3>
+        <p>The panel is loopback-only and has no login: if you can read it, you are on the box. It keeps working
+          when the console does not — which is the only way to answer why the console cannot.</p>
+        <ul>
+          <li><b>Live state</b> — sessions, CPU, monitors, channel health</li>
+          <li><b>Enrol</b> — paste the code, replace a lost enrolment</li>
+          <li><b>Repair</b> — start, stop, update, read the last failure</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="kicker">Five minutes</div>
+    <h2 class="big">Install, enrol, point a client at it.</h2>
+    <div class="steps">
+      <div class="step">
+        <div class="n">01 / INSTALL</div>
+        <h3>One installer</h3>
+        <p>A signed NSIS build puts the launcher in the SCM and the app under it. No Node, no Electron, no toolchain.</p>
+        <div class="code"><span class="p">&gt;</span> SummriseSetup-0.3.152.exe /S</div>
+      </div>
+      <div class="step">
+        <div class="n">02 / ENROL</div>
+        <h3>One code</h3>
+        <p>Create a single-use code in the console, spend it at the machine — or from an elevated prompt.</p>
+        <div class="code"><span class="p">&gt;</span> summrise-device.exe --enroll <span style="color:#8a867d">https://console…</span> AB12-CD34</div>
+      </div>
+      <div class="step">
+        <div class="n">03 / CONNECT</div>
+        <h3>One endpoint</h3>
+        <p>Mint a token and give your MCP client two facts: the device's URL and the token.</p>
+        <div class="code">POST /mcp/9f3c1a2b4d…<br>Authorization: Bearer srm_…</div>
+      </div>
+    </div>
+  </section>
+
+  <div class="dl">
+    <div>
+      <div class="kicker">Download</div>
+      <h2>Summrise 0.3.152<br>for Windows 10/11</h2>
+      <p>The installer, the signed release document and the checksums. The device updates itself from then on —
+        and never without a verified signature.</p>
+      <div class="row">
+        <a class="btn btn-accent">Download the installer</a>
+        <a class="btn btn-ghost">Release notes</a>
+      </div>
+    </div>
+    <div>
+      <div class="art"><div><div class="nm">SummriseSetup-0.3.152.exe</div><div class="sz">windows installer · x64</div></div><span class="get">Download</span></div>
+      <div class="art"><div><div class="nm">SHA256SUMS</div><div class="sz">verify what you downloaded</div></div><span class="get">Download</span></div>
+      <div class="art"><div><div class="nm">release-0.3.152.json</div><div class="sz">the signed document the updater checks</div></div><span class="get">Download</span></div>
+      <div class="art"><div><div class="nm">Docs</div><div class="sz">quick start · connect an AI client · release runbook</div></div><span class="get">Read</span></div>
+    </div>
+  </div>
+
+  <footer>
+    <div class="brand" style="font-size:14px">
+      <svg viewBox="0 0 48 48" style="width:20px;height:20px"><rect width="48" height="48" rx="11" fill="url(#sky)"/><circle cx="21" cy="14" r="4" fill="#fff8e1"/><path fill="#fff" d="M14 41Q26 16 44 41Z" opacity=".78"/><path fill="#fff" d="M2 41Q12 20 24 41Z"/></svg>
+      Summrise
+    </div>
+    <span>© 2026 Summrise</span>
+    <div class="spacer"></div>
+    <a>Docs</a><a>Console</a><a>Security</a><a>License</a>
+  </footer>
+</div>
+</body>
+</html>

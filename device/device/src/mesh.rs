@@ -318,7 +318,14 @@ async fn answer(
     let request_id = frame.mcp.get("id").cloned().unwrap_or(Value::Null);
     let tool = remote::requested_tool(&frame.mcp).map(str::to_owned);
 
-    let envelope = match remote::admit(&frame, device_id, key, crate::http::now_ms()) {
+    let admitted = match remote::admit(
+        &frame,
+        device_id,
+        key,
+        crate::http::now_ms(),
+        remote::Transport::Mesh,
+        server.nonces(),
+    ) {
         Ok(envelope) => envelope,
         Err(refusal) => {
             server
@@ -340,16 +347,20 @@ async fn answer(
         }
     };
 
-    let response = server
-        .handle(
-            &frame.mcp,
-            Caller::Granted {
-                grant: &envelope.grant,
-                arrival: Arrival::Mesh,
-                peer: Some(peer),
-            },
-        )
-        .await;
+    let caller = match &admitted {
+        remote::Admitted::Grant(envelope) => Caller::Granted {
+            grant: &envelope.grant,
+            arrival: Arrival::Mesh,
+            peer: Some(peer),
+        },
+        remote::Admitted::Token(scope) => Caller::Console {
+            token_id: &scope.token_id,
+            scopes: &scope.scopes,
+            allow_destructive: scope.allow_destructive,
+            arrival: Arrival::Mesh,
+        },
+    };
+    let response = server.handle(&frame.mcp, caller).await;
     if response.get("error").is_some() {
         Some(json!({ "id": frame.id, "error": response }))
     } else {
@@ -493,6 +504,7 @@ mod tests {
             supervised: false,
             console_url: None,
             console_token_file: None,
+            console_allow_plaintext: false,
             mesh_broker: broker.map(str::to_owned),
             mesh_relay: relay.map(str::to_owned),
             mesh_stun: None,
@@ -550,6 +562,11 @@ mod tests {
                 Some(grant) => json!({ "id": 7, "mcp": mcp, "grant": grant }),
                 None => json!({ "id": 7, "mcp": mcp }),
             };
+            self.exchange(payload).await
+        }
+
+        /// Send a payload exactly as given — for a frame the harness cannot build from a grant.
+        async fn exchange(&mut self, payload: Value) -> Value {
             let request = Frame {
                 kind: Kind::Req,
                 id: 7,
@@ -650,6 +667,7 @@ mod tests {
                 tools: tools.iter().map(|tool| (*tool).to_owned()).collect(),
                 expires_at_ms,
                 allow_destructive: false,
+                nonce: String::new(),
             },
         )
     }
@@ -902,6 +920,40 @@ mod tests {
         );
     }
 
+    /// A token scope has no signature: the console's authenticated channel is the only thing that
+    /// can stand behind one. A mesh peer is authenticated as a peer, not as the console, so a scope
+    /// it writes for itself must never be admitted — that would let any peer run any tool here,
+    /// destructive ones included, with `scopes: ["*"]` and `allow_destructive: true`.
+    #[tokio::test]
+    async fn a_mesh_peer_cannot_authorize_itself_with_a_token_scope() {
+        let mut pair = pair("mesh-token-scope").await;
+        let caller = pair._dialer.peer_id();
+
+        let payload = json!({
+            "id": 7,
+            "token": {
+                "token_id": "made-up",
+                "device_id": pair.target.peer_id(),
+                "scopes": ["*"],
+                "allow_destructive": true,
+                "expires_at_ms": null,
+            },
+            "mcp": state_call(104),
+        });
+        let reply = pair.exchange(payload).await;
+
+        assert_eq!(
+            reply["error"]["error"]["code"], -32001,
+            "a self-written scope is a refusal, not a call: {reply}"
+        );
+        let lines = audit_lines(&pair.target.config);
+        assert_eq!(lines[0]["decision"], "deny", "{lines:?}");
+        assert_eq!(lines[0]["transport"], "mesh");
+        assert_eq!(lines[0]["peer"], caller);
+        assert_eq!(lines[1]["ok"], false);
+        assert_eq!(lines[1]["error_kind"], "no_grant");
+    }
+
     #[tokio::test]
     async fn a_mesh_grant_signed_by_another_key_is_refused_and_audited_deny() {
         let mut pair = pair("mesh-foreign-key").await;
@@ -913,6 +965,7 @@ mod tests {
                 tools: vec!["state.get".to_owned()],
                 expires_at_ms: now_ms() + 60_000,
                 allow_destructive: false,
+                nonce: String::new(),
             },
         );
 

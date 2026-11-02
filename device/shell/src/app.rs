@@ -22,9 +22,12 @@ use wry::WebViewBuilder;
 use crate::health::{self, State};
 use crate::helper;
 
-/// Where the operator console lives.
-const CONSOLE: &str = "https://console.saisi.online/";
-/// Where the device's own panel lives: what works when the console does not.
+/// Where the product console lives: the 0.3.4x console (fleet, terminal, `/next`), not the legacy
+/// SPA. The shell and the device sit on the same tailnet; a public hostname, when there is one, is
+/// the console's to publish.
+const CONSOLE: &str = "http://100.74.250.98:19000/";
+/// Where the device's own panel lives: what works when the console does not. This is the product's
+/// panel (0.3.49 lists the live terminal sessions), never the legacy panel.
 const PANEL: &str = "http://127.0.0.1:18090/";
 /// The loopback address the health probe asks.
 const HEALTH: &str = "127.0.0.1:18090";
@@ -41,6 +44,10 @@ enum Wake {
     Health(State),
     Tray(TrayIconEvent),
     Menu(MenuEvent),
+    /// The `--check-window` self-test's stop button.
+    Quit,
+    /// Another instance asked this one to put its icon back (see `signal_wake`).
+    Repaint,
 }
 
 /// The brand mark, rendered from `brand/icon.png` at the two sizes the shell needs. The tray is 16 px
@@ -54,31 +61,80 @@ const OK: [u8; 4] = [0x2f, 0xbf, 0x6f, 0xff];
 const BAD: [u8; 4] = [0xd7, 0x3a, 0x2a, 0xff];
 const UNKNOWN: [u8; 4] = [0x9a, 0x9a, 0x9a, 0xff];
 
+/// How long the tray may take to appear before the process gives up and says so.
+///
+/// A tray the user cannot see is a process the user cannot quit. On 2026-10-28 a shell started by a
+/// scheduled task logged `starting` and showed nothing for at least forty seconds; the same process
+/// then logged `tray built` some minutes later, so a first build in a fresh session is SLOW rather
+/// than reliably hung. Three minutes is the line between slow and never: long enough not to kill a
+/// working tray, short enough that a process which will never draw one exits and is retried at the
+/// next logon instead of lingering invisibly.
+const TRAY_WATCHDOG: Duration = Duration::from_secs(180);
+
 pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     let event_loop = EventLoopBuilder::<Wake>::with_user_event().build();
-
-    let console_item = MenuItem::new("Open console", true, None);
-    let panel_item = MenuItem::new("Open local panel", true, None);
-    let quit_item = MenuItem::new("Quit", true, None);
-    let menu = Menu::with_items(&[
-        &console_item,
-        &panel_item,
-        &PredefinedMenuItem::separator(),
-        &quit_item,
-    ])?;
+    crate::note("event loop built");
 
     // The window is created the first time the operator asks for it, and again after they close it:
     // `tao` 0.34 destroys a window on its close request and offers no way to veto that, so the tray
     // outlives the window and the window is rebuilt on demand.
+    // The WebView2 profile context outlives the view, so it is owned here rather than in the builder:
+    // a context dropped after `build` takes the cookies with it.
     let mut ui: Option<(tao::window::Window, wry::WebView)> = None;
+    let mut profile: Option<wry::WebContext> = None;
 
-    let tray = TrayIconBuilder::new()
-        .with_menu(Box::new(menu))
-        .with_icon(tray_icon(UNKNOWN)?)
-        .with_tooltip("Summrise: checking this device…")
-        .build()?;
+    crate::note("menu built");
+
+    // Armed before the build, disarmed after it: a build that hangs leaves a line that names the
+    // stage and an exit the operator can see in the log, rather than a process with no icon.
+    // A SECOND INSTANCE IS A REQUEST, NOT A MISTAKE. The session-reconnect task starts this binary
+    // when the operator comes back; the first instance holds the mutex and, before this, the second
+    // one simply exited and the icon stayed missing. It now signals this event instead, and the
+    // listener below re-adds the tray.
+    if let Some(event) = wake_event() {
+        let proxy = event_loop.create_proxy();
+        std::thread::spawn(move || loop {
+            // SAFETY: `event` is a valid handle for this process's lifetime and INFINITE is a constant.
+            let waited = unsafe {
+                windows_sys::Win32::System::Threading::WaitForSingleObject(event, 0xFFFF_FFFF)
+            };
+            if waited != 0 {
+                return;
+            }
+            let _ = proxy.send_event(Wake::Repaint);
+        });
+    }
+
+    let tray_ready = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    {
+        let tray_ready = tray_ready.clone();
+        std::thread::spawn(move || {
+            let deadline = std::time::Instant::now() + TRAY_WATCHDOG;
+            while std::time::Instant::now() < deadline {
+                if tray_ready.load(std::sync::atomic::Ordering::SeqCst) {
+                    return;
+                }
+                std::thread::sleep(Duration::from_millis(100));
+            }
+            if !tray_ready.load(std::sync::atomic::Ordering::SeqCst) {
+                crate::note(&format!(
+                    "the tray was not built within {} s (stopped before 'tray built'); exiting",
+                    TRAY_WATCHDOG.as_secs()
+                ));
+                std::process::exit(1);
+            }
+        });
+    }
+
+    let mut tray = build_tray("Summrise: checking this device…")?;
     crate::note(&format!("tray built: pid={}", std::process::id()));
-    promote_own_icon();
+    tray_ready.store(true, std::sync::atomic::Ordering::SeqCst);
+    // THE SHELL DOES NOT ASK FOR A PLACE IN THE TASKBAR. Windows' default for a new tray icon is the
+    // overflow, and that is where this one belongs: the operator said so plainly on 2026-10-28 ("it
+    // should be inside the chevron"), after a promotion to the visible area made it sit among the
+    // system icons instead. Pinning it is the operator's decision, made once, and Windows remembers.
+    // The old promotion code is gone with the behaviour: writing another program's notification-icon
+    // settings is a private protocol, and the "visible area" was never ours to choose.
 
     // The tray and its menu report through channels, not through tao's event enum. Connecting each
     // handler to the proxy is what makes `ControlFlow::Wait` wake up for a click.
@@ -99,6 +155,13 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
 
     register_with_the_device();
 
+    // THE TRAY HAS TO COME BACK WHEN THE OPERATOR DOES. A per-machine Run key fires at logon, and a
+    // session that was disconnected (an RDP session left open) reconnects without one — the tray
+    // simply is not there, and on 2026-10-28 Windows refused to start it from a task for that reason
+    // (`0x80070005`). Registering a task on the session-reconnection event, as the user this process
+    // already runs as, is what makes the next reconnect restore the icon.
+    ensure_reconnect_task();
+
     let mut last: Option<State> = None;
     event_loop.run(move |event, target, control_flow| {
         *control_flow = ControlFlow::Wait;
@@ -117,10 +180,28 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
                 button: tray_icon::MouseButton::Left,
                 button_state: tray_icon::MouseButtonState::Up,
                 ..
-            })) => open_console(target, &mut ui),
+            })) => open_url(PANEL),
             Event::UserEvent(Wake::Tray(_)) => {}
+            Event::UserEvent(Wake::Repaint) => {
+                // A second instance (the session-reconnect task) asked for the icon to be added
+                // again: Windows re-creates the notification area on reconnect, and an icon added
+                // before that is not there afterwards. Rebuilding the tray is the only re-add the
+                // tray crate offers.
+                let tooltip = last
+                    .as_ref()
+                    .map(|state| describe(state).1)
+                    .unwrap_or_else(|| "Summrise: checking this device…".to_owned());
+                match build_tray(&tooltip) {
+                    Ok(fresh) => {
+                        tray = fresh;
+                        crate::note("tray re-added after a wake signal");
+                    }
+                    Err(error) => crate::note(&format!("cannot re-add the tray: {error}")),
+                }
+            }
+            Event::UserEvent(Wake::Quit) => *control_flow = ControlFlow::Exit,
             Event::UserEvent(Wake::Menu(event)) => match event.id.as_ref() {
-                OPEN_CONSOLE => open_console(target, &mut ui),
+                OPEN_CONSOLE => open_console(target, &mut ui, &mut profile),
                 OPEN_PANEL => open_url(PANEL),
                 QUIT => *control_flow = ControlFlow::Exit,
                 _ => {}
@@ -138,62 +219,49 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     });
 }
 
-/// Windows 11 files every new tray icon under the overflow chevron and keeps it there until the app
-/// asks otherwise. An icon nobody sees is the same as no icon, so the shell promotes its own entry —
-/// only its own, matched by executable path, and only when it is not already shown.
+/// Run a console program without giving it a window.
 ///
-/// The entry is written by Explorer shortly after the icon is added, which is why this retries: the
-/// first attempt is usually too early.
-#[cfg(windows)]
-fn promote_own_icon() {
-    std::thread::spawn(|| {
-        for _ in 0..20 {
-            if set_own_icon_promoted() {
-                return;
-            }
-            std::thread::sleep(Duration::from_millis(500));
-        }
-    });
-}
-
-#[cfg(windows)]
-fn set_own_icon_promoted() -> bool {
-    use winreg::enums::{HKEY_CURRENT_USER, KEY_READ, KEY_WRITE};
-    use winreg::RegKey;
-
-    let Ok(own) = std::env::current_exe() else {
-        return false;
-    };
-    let own = own.to_string_lossy().to_lowercase();
-    let Ok(settings) = RegKey::predef(HKEY_CURRENT_USER)
-        .open_subkey_with_flags(r"Control Panel\NotifyIconSettings", KEY_READ | KEY_WRITE)
-    else {
-        return false;
-    };
-    for name in settings.enum_keys().flatten() {
-        let Ok(entry) = settings.open_subkey_with_flags(&name, KEY_READ | KEY_WRITE) else {
-            continue;
-        };
-        let Ok(path) = entry.get_value::<String, _>("ExecutablePath") else {
-            continue;
-        };
-        if path.to_lowercase() != own {
-            continue;
-        }
-        if entry.get_value::<u32, _>("IsPromoted").unwrap_or(0) != 0 {
-            return true;
-        }
-        if entry.set_value("IsPromoted", &1u32).is_ok() {
-            crate::note("tray promoted to the visible area");
-            return true;
-        }
-        return false;
+/// **THIS PROCESS IS A GUI SUBSYSTEM BINARY, SO A CONSOLE CHILD GETS A VISIBLE WINDOW.** `schtasks` is a
+/// console program: every call from the tray opened a black window for as long as it ran, which the
+/// operator reported on 2026-10-28 as "something black flashing" after the shell learned to register its
+/// reconnect task on each start.
+fn hidden(command: &mut std::process::Command) -> &mut std::process::Command {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        command.creation_flags(CREATE_NO_WINDOW);
     }
-    false
+    command
 }
 
-#[cfg(not(windows))]
-fn promote_own_icon() {}
+/// The name of the task that starts a tray after a session reconnects.
+const RECONNECT_TASK: &str = "SummriseShellOnReconnect";
+
+/// The `schtasks` arguments that register the reconnect task for `exe`.
+///
+/// A function so the wiring can be read and tested: the trigger is Windows' own *session reconnection*
+/// event (TerminalServices-LocalSessionManager, id 25), because a reconnected session has no logon for the
+/// Run key to fire on, and "run only when the user is logged on" is what puts the icon in that session.
+fn reconnect_task_args(exe: &str) -> Vec<String> {
+    [
+        "/create",
+        "/tn",
+        RECONNECT_TASK,
+        "/tr",
+        exe,
+        "/sc",
+        "onevent",
+        "/ec",
+        "Microsoft-Windows-TerminalServices-LocalSessionManager/Operational",
+        "/mo",
+        "*[System[EventID=25]]",
+        "/f",
+    ]
+    .iter()
+    .map(|argument| (*argument).to_owned())
+    .collect()
+}
 
 /// Keep this process registered with the device.
 ///
@@ -204,6 +272,10 @@ fn promote_own_icon() {}
 fn register_with_the_device() {
     std::thread::spawn(|| {
         let mut current: Option<(String, helper::Server)> = None;
+        // The last failure, so a permanent 401 is said ONCE instead of every thirty seconds or not at
+        // all: the registration is what lets the device launch Chrome for the operator, and a silent
+        // failure there is a feature that quietly stops working.
+        let mut last_error: Option<String> = None;
         loop {
             if let Some(token) = helper::read_token() {
                 let unchanged = current.as_ref().is_some_and(|(known, _)| known == &token);
@@ -213,8 +285,18 @@ fn register_with_the_device() {
                         .map(|server| (token.clone(), server));
                 }
                 if let Some((token, server)) = current.as_ref() {
-                    let _ =
+                    let outcome =
                         helper::register(helper::DEVICE, token, server.port(), std::process::id());
+                    let failure = outcome.err().map(|error| error.to_string());
+                    if failure != last_error {
+                        match &failure {
+                            Some(reason) => crate::note(&format!(
+                                "the device did not accept the helper registration: {reason}"
+                            )),
+                            None => crate::note("the device accepted the helper registration"),
+                        }
+                        last_error = failure;
+                    }
                 }
             }
             std::thread::sleep(Duration::from_secs(30));
@@ -222,27 +304,228 @@ fn register_with_the_device() {
     });
 }
 
+/// Make sure a task starts this shell when the user reconnects to their session.
+///
+/// Best effort on purpose: a machine whose policy forbids scheduled tasks still gets a tray, and the
+/// only thing lost is the automatic return after a reconnect. The task is created as *this* user
+/// with an interactive token, so no password or elevation is involved, and it does nothing when it
+/// already exists (the check is what makes the "at every start" cost a `query` rather than a rewrite).
+#[cfg(windows)]
+fn ensure_reconnect_task() {
+    use std::process::{Command, Stdio};
+
+    std::thread::spawn(|| {
+        // The task is RECREATED rather than kept when it exists: an install that moved this binary
+        // leaves the old action pointing at a path that no longer exists, and a reconnection would then
+        // start nothing. `/f` makes the registration idempotent, and the cost is one `schtasks` call at
+        // startup.
+        let existed = hidden(&mut Command::new("schtasks"))
+            .args(["/query", "/tn", RECONNECT_TASK])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .is_ok_and(|status| status.success());
+        let Ok(exe) = std::env::current_exe() else {
+            return;
+        };
+        let created = hidden(&mut Command::new("schtasks"))
+            .args(reconnect_task_args(&exe.to_string_lossy()))
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+        match created {
+            Ok(status) if status.success() && !existed => {
+                crate::note("registered the session-reconnect task")
+            }
+            Ok(status) if status.success() => {}
+            Ok(status) => crate::note(&format!(
+                "could not register the session-reconnect task (schtasks exit {status})"
+            )),
+            Err(error) => crate::note(&format!(
+                "could not register the session-reconnect task: {error}"
+            )),
+        }
+    });
+}
+
+#[cfg(not(windows))]
+fn ensure_reconnect_task() {}
+
+/// Build the console window once, then exit — the menu's own code path without a menu.
+///
+/// Answers through the log (which a headless machine can be asked for) and through the exit code: 0
+/// means a window and a WebView2 view were created for [`CONSOLE`], 1 means one of the two failed and
+/// the log names which. The event loop runs for a moment because a tao window is only real once it is
+/// pumping messages.
+#[cfg(windows)]
+pub fn check_window() -> i32 {
+    // SESSION 0 HAS NO WINDOW STATION A GUI CAN USE. Run from a service context, the event loop never
+    // arrives at its first `NewEvents(Init)` and the process hangs; the answer is to refuse by name,
+    // not to wait. A caller that wants the real answer runs this in the operator's session.
+    match current_session_id() {
+        Some(0) => {
+            crate::note("check-window: this is session 0, which has no interactive desktop");
+            return 2;
+        }
+        None => {
+            crate::note("check-window: cannot read the session id");
+            return 2;
+        }
+        Some(_) => {}
+    }
+    // `build()` is not fallible in tao 0.34; the call can panic on a thread that already owns an
+    // event loop, which is a programming error this diagnostic cannot see from inside.
+    let event_loop = EventLoopBuilder::<Wake>::with_user_event().build();
+    let proxy = event_loop.create_proxy();
+    // `run` never returns: every exit this diagnostic has is a `process::exit` in an arm, so there is
+    // no success value to carry out of it.
+    event_loop.run(move |event, target, control_flow| {
+        *control_flow = ControlFlow::Wait;
+        match event {
+            Event::NewEvents(StartCause::Init) => {
+                let Ok(window) = WindowBuilder::new()
+                    .with_title("Summrise console")
+                    .with_window_icon(window_icon())
+                    .with_visible(true)
+                    .build(target)
+                else {
+                    crate::note("check-window: the window could not be built");
+                    std::process::exit(1);
+                };
+                // A PERSISTENT PROFILE, so the operator signs in once. The default is a per-process temporary
+                // directory: every "Open console" was a new, logged-out browser, and the console's token page was
+                // what the window showed every time.
+                let mut context = profile_dir().map(|dir| wry::WebContext::new(Some(dir)));
+                let built = match context.as_mut() {
+                    Some(context) => WebViewBuilder::new_with_web_context(context)
+                        .with_url(CONSOLE)
+                        .build(&window),
+                    None => WebViewBuilder::new().with_url(CONSOLE).build(&window),
+                };
+                match built {
+                    Ok(_view) => crate::note(&format!(
+                        "check-window: window and view built for {CONSOLE}"
+                    )),
+                    Err(error) => {
+                        crate::note(&format!("check-window: no WebView2 view: {error}"));
+                        std::process::exit(1);
+                    }
+                }
+                let proxy = proxy.clone();
+                std::thread::spawn(move || {
+                    std::thread::sleep(Duration::from_secs(3));
+                    let _ = proxy.send_event(Wake::Quit);
+                    // A DIAGNOSTIC MUST NOT BE ABLE TO HANG. On a session-0 desktop this process
+                    // blocked in the event loop after the window was created and never came back;
+                    // the hard stop is what turns "no answer" into an exit code.
+                    std::thread::sleep(Duration::from_secs(2));
+                    std::process::exit(0);
+                });
+            }
+            Event::UserEvent(Wake::Quit) => *control_flow = ControlFlow::Exit,
+            _ => {}
+        }
+    })
+}
+
+#[cfg(not(windows))]
+pub fn check_window() -> i32 {
+    1
+}
+
+/// Where the console window keeps its profile — cookies, storage, the signed-in session.
+#[cfg(windows)]
+fn profile_dir() -> Option<std::path::PathBuf> {
+    // `%LOCALAPPDATA%\Summrise` is the per-user directory this process owns; when the environment does
+    // not name one, a signed-in browser profile in `%TEMP%` is a cookie jar other local users can read,
+    // so the answer is "no persistent profile" rather than "somewhere else".
+    let base = std::path::PathBuf::from(std::env::var_os("LOCALAPPDATA")?);
+    let dir = base.join("Summrise").join("webview");
+    std::fs::create_dir_all(&dir).ok()?;
+    Some(dir)
+}
+
+/// The session this process runs in, for the one diagnostic that can only run in a visible one.
+#[cfg(windows)]
+fn current_session_id() -> Option<u32> {
+    let mut session = 0u32;
+    let ok = unsafe {
+        windows_sys::Win32::System::RemoteDesktop::ProcessIdToSessionId(
+            std::process::id(),
+            &mut session,
+        )
+    };
+    (ok != 0).then_some(session)
+}
+
+/// The three items, with the ids the event handler matches.
+///
+/// **THE IDS ARE EXPLICIT, AND THAT IS THE FIX FOR "THE MENU DOES NOTHING".** `MenuItem::new` with
+/// `None` mints an id of its own, so the handler compared `open-console` against a generated string
+/// and no item — Quit included — ever ran. A menu item without the id the handler matches is a
+/// button wired to nothing, so the wiring is a function that a test can read.
+fn menu_items() -> (MenuItem, MenuItem, MenuItem) {
+    (
+        MenuItem::with_id(OPEN_CONSOLE, "Open console", true, None),
+        MenuItem::with_id(OPEN_PANEL, "Open local panel", true, None),
+        MenuItem::with_id(QUIT, "Quit", true, None),
+    )
+}
+
 /// Show the console window, building it if this is the first time (or the last one was closed).
 fn open_console(
     target: &tao::event_loop::EventLoopWindowTarget<Wake>,
     ui: &mut Option<(tao::window::Window, wry::WebView)>,
+    profile: &mut Option<wry::WebContext>,
 ) {
     if let Some((window, _)) = ui.as_ref() {
+        // **A MINIMIZED WINDOW IGNORES `set_visible(true)` AND `set_focus()`.** tao's `apply_diff`
+        // returns early when no flag changed, and its `set_focus` skips activating a minimized window,
+        // so a click on "Open console" with the window minimized looked exactly like a dead menu item.
+        window.set_minimized(false);
         window.set_visible(true);
         window.set_focus();
         return;
     }
-    let Ok(window) = WindowBuilder::new()
+    let window = match WindowBuilder::new()
         .with_title("Summrise console")
         .with_window_icon(window_icon())
         .with_visible(true)
         .build(target)
-    else {
-        return;
+    {
+        Ok(window) => window,
+        Err(error) => {
+            // A menu click that does nothing is a dead button; the log is where it says why.
+            crate::note(&format!("cannot build the console window: {error}"));
+            return;
+        }
     };
-    match WebViewBuilder::new().with_url(CONSOLE).build(&window) {
-        Ok(view) => *ui = Some((window, view)),
-        Err(_) => window.set_visible(false),
+    // THE PROFILE IS THE POINT: without it every "Open console" is a new, logged-out browser and the
+    // console's token page is what the operator sees each time.
+    let built = match profile_dir() {
+        Some(dir) => {
+            let context = profile.get_or_insert_with(|| wry::WebContext::new(Some(dir)));
+            WebViewBuilder::new_with_web_context(context)
+                .with_url(CONSOLE)
+                .build(&window)
+        }
+        None => WebViewBuilder::new().with_url(CONSOLE).build(&window),
+    };
+    match built {
+        Ok(view) => {
+            // A click that worked leaves a line too: without it, "the menu does nothing" and "the
+            // menu opened a window I closed" look the same from this side of the machine.
+            crate::note(&format!("console window built for {CONSOLE}"));
+            *ui = Some((window, view))
+        }
+        Err(error) => {
+            // WebView2 is part of Windows 10 and later, but a machine can have the runtime removed
+            // or broken; without this line the window closes itself and the menu looks dead.
+            crate::note(&format!(
+                "cannot build the WebView2 view for {CONSOLE}: {error}"
+            ));
+            window.set_visible(false);
+        }
     }
 }
 
@@ -309,17 +592,30 @@ fn open_url(url: &str) {
             .chain(std::iter::once(0))
             .collect()
     };
-    // SAFETY: both strings are NUL-terminated and outlive the call; the return value is only a
-    // success hint and is deliberately ignored (a failure to open a browser must not stop the tray).
-    unsafe {
+    // Kept as text for the failure line: the UTF-16 buffer below is what goes to the shell, and
+    // printing that buffer wrote code units into the log instead of the address that failed.
+    let shown = url.to_owned();
+    let url = wide(url);
+    let verb = wide("open");
+    // SAFETY: both strings are NUL-terminated and outlive the call.
+    let answer = unsafe {
         windows_sys::Win32::UI::Shell::ShellExecuteW(
             0,
-            wide("open").as_ptr(),
-            wide(url).as_ptr(),
+            verb.as_ptr(),
+            url.as_ptr(),
             std::ptr::null(),
             std::ptr::null(),
             windows_sys::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL,
-        );
+        )
+    };
+    // The return is an HINSTANCE whose value above 32 means "started". A failure here used to be
+    // invisible — the menu item simply did nothing, which is exactly the report it produced — so the
+    // log now carries the code, and the tray boot is unaffected either way.
+    if answer as usize <= 32 {
+        crate::note(&format!(
+            "cannot open {shown} in the browser (ShellExecuteW answered {})",
+            answer as usize
+        ));
     }
 }
 
@@ -345,8 +641,116 @@ pub fn already_running() -> bool {
     last == windows_sys::Win32::Foundation::ERROR_ALREADY_EXISTS
 }
 
+/// The tray, built from scratch: the menu, the icon and the tooltip.
+///
+/// It is a function rather than three lines in `run` because a re-add after a reconnect needs a
+/// SECOND tray object, and a tray without its menu is a tray whose items do nothing.
+fn build_tray(tooltip: &str) -> Result<tray_icon::TrayIcon, Box<dyn std::error::Error>> {
+    let (console_item, panel_item, quit_item) = menu_items();
+    let menu = Menu::with_items(&[
+        &console_item,
+        &panel_item,
+        &PredefinedMenuItem::separator(),
+        &quit_item,
+    ])?;
+    Ok(TrayIconBuilder::new()
+        .with_menu(Box::new(menu))
+        .with_icon(tray_icon(UNKNOWN)?)
+        .with_tooltip(tooltip)
+        .build()?)
+}
+
+/// The name of the event a second instance signals.
+fn wake_name() -> Vec<u16> {
+    use std::ffi::OsStr;
+    use std::os::windows::ffi::OsStrExt;
+    OsStr::new("Local\\SummriseShell.Wake")
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect()
+}
+
+/// Create (or open) this session's wake event and return its handle for the listener thread.
+fn wake_event() -> Option<windows_sys::Win32::Foundation::HANDLE> {
+    let name = wake_name();
+    // SAFETY: a NUL-terminated name and a null security descriptor; the handle is a real handle or 0.
+    let handle = unsafe {
+        windows_sys::Win32::System::Threading::CreateEventW(
+            std::ptr::null_mut(),
+            0,
+            0,
+            name.as_ptr(),
+        )
+    };
+    (handle != 0).then_some(handle)
+}
+
+/// Tell the running instance to put its icon back; returns false when there is none to tell.
+pub fn signal_wake() -> bool {
+    let name = wake_name();
+    // SAFETY: `EVENT_MODIFY_STATE` is the minimal access for `SetEvent`; the handle is closed here.
+    let handle = unsafe {
+        windows_sys::Win32::System::Threading::OpenEventW(
+            windows_sys::Win32::System::Threading::EVENT_MODIFY_STATE,
+            0,
+            name.as_ptr(),
+        )
+    };
+    if handle == 0 {
+        return false;
+    }
+    let signalled = unsafe { windows_sys::Win32::System::Threading::SetEvent(handle) } != 0;
+    unsafe { windows_sys::Win32::Foundation::CloseHandle(handle) };
+    signalled
+}
+
 #[cfg(test)]
 mod tests {
+
+    /// **A RECONNECTED SESSION HAS NO LOGON, SO THE RUN KEY NEVER FIRES FOR IT.** The task this process
+    /// registers is the answer, and its trigger is the part that makes it work: Windows' session
+    /// reconnection event, not a logon, not a schedule.
+    #[test]
+    fn the_reconnect_task_listens_for_the_session_reconnection_event() {
+        let args = reconnect_task_args("C:\\SummriseCanary\\summrise-shell.exe");
+        let joined = args.join(" ");
+
+        assert_eq!(args[0], "/create", "it creates the task: {joined}");
+        assert!(
+            joined.contains(RECONNECT_TASK),
+            "it names the task: {joined}"
+        );
+        assert!(
+            joined.contains("C:\\SummriseCanary\\summrise-shell.exe"),
+            "it names this binary: {joined}"
+        );
+        assert!(
+            joined.contains("/sc onevent"),
+            "it is event-driven, not scheduled: {joined}"
+        );
+        assert!(
+            joined.contains("Microsoft-Windows-TerminalServices-LocalSessionManager/Operational"),
+            "the session manager's own log: {joined}"
+        );
+        assert!(
+            joined.contains("*[System[EventID=25]]"),
+            "session reconnection is event 25: {joined}"
+        );
+        assert!(
+            args.contains(&"/f".to_owned()),
+            "a re-registration replaces the old action instead of failing: {joined}"
+        );
+    }
+    #[test]
+    fn the_default_targets_are_the_product_surfaces() {
+        assert!(
+            CONSOLE.contains(":19000"),
+            "the product console, not the legacy SPA: {CONSOLE}"
+        );
+        assert!(!CONSOLE.contains("console.saisi.online"), "{CONSOLE}");
+        assert!(PANEL.contains(":18090"), "the device's own panel: {PANEL}");
+    }
+
     use super::*;
     use crate::health::Health;
 
@@ -379,5 +783,13 @@ mod tests {
         let (colour, tooltip) = describe(&State::Down("connection refused".to_owned()));
         assert_eq!(colour, BAD);
         assert!(tooltip.contains("connection refused"), "{tooltip}");
+    }
+
+    #[test]
+    fn every_menu_item_carries_the_id_its_handler_matches() {
+        let (console, panel, quit) = menu_items();
+        assert_eq!(console.id().as_ref(), OPEN_CONSOLE);
+        assert_eq!(panel.id().as_ref(), OPEN_PANEL);
+        assert_eq!(quit.id().as_ref(), QUIT);
     }
 }

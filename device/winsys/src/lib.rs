@@ -282,9 +282,18 @@ pub struct HostFacts {
     pub uptime_s: u64,
     pub memory_total_bytes: u64,
     pub memory_available_bytes: u64,
+    /// The machine's CPU busy share over a short sample, or `None` when the counter could not be read.
+    ///
+    /// Sampled twice, [`CPU_SAMPLE_MS`] apart: `GetSystemTimes` reports monotonically increasing
+    /// counters, so one reading says nothing and two say the share of the interval that was not idle.
+    pub cpu_percent: Option<u8>,
     pub volumes: Vec<Volume>,
     pub sessions: Vec<Session>,
 }
+
+/// How long the CPU sample interval is. Long enough to average out a scheduling burst, short enough
+/// that a caller waiting for the facts does not notice.
+pub const CPU_SAMPLE_MS: u64 = 200;
 
 /// Gather the host facts; a fact that cannot be read is zero, not an error, because a device that
 /// answers with five of six facts is more useful than one that answers with none.
@@ -298,9 +307,53 @@ pub fn host_facts() -> io::Result<HostFacts> {
         uptime_s: uptime_seconds(),
         memory_total_bytes: memory().map(|(total, _)| total).unwrap_or(0),
         memory_available_bytes: memory().map(|(_, available)| available).unwrap_or(0),
+        cpu_percent: cpu_percent(),
         volumes: volumes(),
         sessions: sessions(),
     })
+}
+
+/// The machine's CPU busy share over [`CPU_SAMPLE_MS`], or `None` when the counters cannot be read.
+///
+/// `GetSystemTimes` reports three FILE_TIME counters since boot: idle, kernel and user. Kernel time
+/// INCLUDES idle time, so busy is `(kernel - idle) + user` and total is `kernel + user`.
+pub fn cpu_percent() -> Option<u8> {
+    use windows_sys::Win32::System::Threading::GetSystemTimes;
+
+    /// One reading of the three counters, in 100 ns units.
+    fn sample() -> Option<(u64, u64, u64)> {
+        let mut idle = windows_sys::Win32::Foundation::FILETIME {
+            dwLowDateTime: 0,
+            dwHighDateTime: 0,
+        };
+        let mut kernel = idle;
+        let mut user = idle;
+        // SAFETY: three out pointers, each valid for the call's duration.
+        let ok = unsafe { GetSystemTimes(&mut idle, &mut kernel, &mut user) };
+        if ok == 0 {
+            return None;
+        }
+        // FILETIME holds two 32-bit halves; the counter fits in 64 bits assembled the same way.
+        let plain = |time: windows_sys::Win32::Foundation::FILETIME| {
+            ((time.dwHighDateTime as u64) << 32) | time.dwLowDateTime as u64
+        };
+        Some((plain(idle), plain(kernel), plain(user)))
+    }
+
+    let (idle_before, kernel_before, user_before) = sample()?;
+    std::thread::sleep(std::time::Duration::from_millis(CPU_SAMPLE_MS));
+    let (idle_after, kernel_after, user_after) = sample()?;
+
+    let idle = idle_after.saturating_sub(idle_before);
+    // Kernel includes idle on both readings, so the subtraction is the busy part of kernel time.
+    let kernel = kernel_after.saturating_sub(kernel_before);
+    let user = user_after.saturating_sub(user_before);
+    let total = kernel.saturating_add(user);
+    if total == 0 {
+        return None;
+    }
+    let busy = total.saturating_sub(idle);
+    Some(((busy.saturating_mul(100) + total / 2) / total).min(100) as u8)
 }
 
 /// The session a process is in, which is how the device knows where its helper landed.

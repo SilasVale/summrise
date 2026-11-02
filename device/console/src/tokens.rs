@@ -59,12 +59,6 @@ pub(crate) const TOKEN_HEX_CHARS: usize = 64;
 /// The full length of a token: the prefix plus its 32 bytes.
 pub(crate) const TOKEN_LEN: usize = TOKEN_PREFIX.len() + TOKEN_HEX_CHARS;
 
-/// How long the grant minted for one token request lives.
-///
-/// Sixty seconds is [`crate::grants::MIN_GRANT_LIFETIME_S`], the shortest a grant may live: the point
-/// of a long-lived token is that the *token* is long-lived, not the grant it is exchanged for.
-pub(crate) const MINTED_GRANT_LIFETIME_S: u64 = 60;
-
 /// How often a token's last use is allowed to rewrite the file.
 ///
 /// Every successful exchange updates the in-memory fact; the file is written only when the value it
@@ -433,7 +427,17 @@ impl Tokens {
         let removed: Vec<Token> = self
             .tokens
             .values()
-            .filter(|token| token.device_id == device_id)
+            // An aggregate token names its devices in `device_ids`; one that lists the retired
+            // device must not survive it, or re-registering the same id (same key, new code) would
+            // make an old bearer reach it again — and its page only lists `device_id` tokens, so
+            // nobody would see it to revoke.
+            .filter(|token| {
+                token.device_id == device_id
+                    || token
+                        .device_ids
+                        .as_ref()
+                        .is_some_and(|ids| ids.iter().any(|id| id == device_id))
+            })
             .cloned()
             .collect();
         if removed.is_empty() {
@@ -448,6 +452,14 @@ impl Tokens {
     }
 
     /// The token whose hash is `hash`, if any.
+    /// The record with this id, if it still exists: a revoked one is gone, an expired one is not.
+    ///
+    /// The approval gate holds a call for up to ninety seconds and must re-read what it decided on;
+    /// the id it kept is enough, because the caller was authenticated when the record was found.
+    pub(crate) fn find_by_id(&self, id: &str) -> Option<Token> {
+        self.tokens.get(id).cloned()
+    }
+
     pub(crate) fn find_by_hash(&self, hash: &str) -> Option<Token> {
         // The comparison walks the whole hash, as every credential comparison in this service does.
         self.tokens

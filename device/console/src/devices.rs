@@ -40,6 +40,13 @@ pub struct Device {
     pub registered_at_ms: u64,
     /// When the console last heard from the device, in Unix milliseconds.
     pub last_seen_ms: u64,
+    /// The last version the device announced on its channel, remembered across console restarts.
+    ///
+    /// The channel knows the *live* version; this is the fallback that keeps an offline device from
+    /// reading "no version" after the console is restarted — exactly when the operator is looking at
+    /// a machine that is down and wants to know what it was running.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_version: Option<String>,
 }
 
 /// One device as it is stored: the public facts plus the hash of its channel token.
@@ -148,6 +155,7 @@ impl DeviceRegistry {
                     name: name.or_else(|| existing.device.name.clone()),
                     registered_at_ms: existing.device.registered_at_ms,
                     last_seen_ms: now_ms,
+                    last_version: existing.device.last_version.clone(),
                 }
             }
             None => Device {
@@ -156,6 +164,7 @@ impl DeviceRegistry {
                 name,
                 registered_at_ms: now_ms,
                 last_seen_ms: now_ms,
+                last_version: None,
             },
         };
 
@@ -189,7 +198,7 @@ impl DeviceRegistry {
     /// Give a device the name the operator knows it by, or clear it.
     ///
     /// The name is the console's label, not the device's claim: a machine that announces
-    /// `DESKTOP-14RJCR8` can be recorded as `studio`. `None` clears it, which lets the announced name
+    /// `STUDIO-PC` can be recorded as `studio`. `None` clears it, which lets the announced name
     /// show through again. The write happens before the in-memory list changes, so a failed write
     /// leaves the registry serving what is still on disk.
     pub(crate) fn rename(
@@ -231,6 +240,34 @@ impl DeviceRegistry {
     /// One device's record, by id.
     pub(crate) fn get(&self, id: &str) -> Option<&Device> {
         self.devices.get(id).map(|stored| &stored.device)
+    }
+
+    /// Remember the version a device announced, when it differs from what is stored.
+    ///
+    /// Persisted like a rename, so a console restart does not lose it; the write happens only when the
+    /// value changes, which is once per upgrade rather than once per reconnect.
+    pub(crate) fn record_version(&mut self, id: &str, version: &str) -> Result<(), RegisterError> {
+        let Some(existing) = self.devices.get(id).cloned() else {
+            return Ok(());
+        };
+        if existing.device.last_version.as_deref() == Some(version) {
+            return Ok(());
+        }
+        let mut next = self.devices.clone();
+        let updated = Device {
+            last_version: Some(version.to_owned()),
+            ..existing.device.clone()
+        };
+        next.insert(
+            id.to_owned(),
+            StoredDevice {
+                device: updated,
+                token_hash: existing.token_hash.clone(),
+            },
+        );
+        self.persist(&next).map_err(|_| RegisterError::Storage)?;
+        self.devices = next;
+        Ok(())
     }
 
     pub(crate) fn touch(&mut self, id: &str, now_ms: u64) {
@@ -343,6 +380,48 @@ mod remove_tests {
                 .list()
                 .is_empty(),
             "a lost primary recovered from the backup does not admit the removed device"
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// The version an offline device last announced survives a console restart: the channel's answer
+    /// is memory, and the registry is the file.
+    #[test]
+    fn the_last_announced_version_survives_a_reload() {
+        let dir = std::env::temp_dir().join(format!("summrise-version-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let mut registry = DeviceRegistry::load(&dir).expect("an empty registry loads");
+        let key = ed25519_dalek::SigningKey::from_bytes(&[8u8; 32]);
+        let public = hex::encode(&key.verifying_key().to_bytes());
+        registry
+            .register(&public, &public, None, &[9u8; 32], 1_000)
+            .expect("the device registers");
+
+        registry
+            .record_version(&public, "0.3.133")
+            .expect("the write succeeds");
+        assert_eq!(
+            DeviceRegistry::load(&dir)
+                .expect("the registry reloads")
+                .list()[0]
+                .last_version
+                .as_deref(),
+            Some("0.3.133"),
+            "the version is on disk, where an offline device is read from"
+        );
+
+        // A second record of the same version is not a write, and an unknown device is not created.
+        registry
+            .record_version(&public, "0.3.133")
+            .expect("no second write");
+        let unknown = "00".repeat(32);
+        registry
+            .record_version(&unknown, "9.9.9")
+            .expect("an unknown device is not an error");
+        assert_eq!(
+            DeviceRegistry::load(&dir).expect("still one device").len(),
+            1
         );
         std::fs::remove_dir_all(&dir).ok();
     }

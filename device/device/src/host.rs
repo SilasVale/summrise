@@ -28,8 +28,20 @@ const BASELINE_SIDECAR: &str = "baseline.json";
 const RECENT_REPAIRS: usize = 5;
 
 /// The machine facts, as the wire sees them.
-pub fn facts() -> serde_json::Value {
+pub fn facts(data: &std::path::Path) -> serde_json::Value {
     let mut document = platform_facts();
+    // This app's own boots, newest first: the half of "why did it restart" the launcher does not
+    // keep. An unreadable journal contributes an empty list rather than failing the facts.
+    document["restarts"] =
+        serde_json::json!(crate::restarts::recent(data, crate::restarts::IN_FACTS)
+            .into_iter()
+            .map(|entry| serde_json::json!({
+                "at_ms": entry.at_ms,
+                "version": entry.version,
+                "channel": entry.channel,
+                "pid": entry.pid,
+            }))
+            .collect::<Vec<_>>());
     if let Some(helper) = crate::helper::current() {
         let pid = helper.pid();
         let registered = helper.port().is_some();
@@ -58,12 +70,36 @@ pub fn facts() -> serde_json::Value {
             "repairs": [],
         }),
     };
+    // The tray half's file, as this install has it. The canary update does NOT carry the shell, so
+    // its digest is the one fact that tells an operator whether the icon on the machine is the build
+    // they think it is; without it, "the tray is old" is indistinguishable from "the tray is right"
+    // until someone reports a missing menu entry.
+    document["shell"] = match install.as_deref() {
+        Some(install) => shell_state(install),
+        None => serde_json::json!({ "present": false }),
+    };
     document
 }
 
+/// The installed `summrise-shell.exe`'s digest and size, for the console to show beside the app's own
+/// release facts. Absent on a machine whose tray was never installed.
+fn shell_state(install: &Path) -> serde_json::Value {
+    let path = install.join("summrise-shell.exe");
+    let Ok(bytes) = std::fs::read(&path) else {
+        return serde_json::json!({ "present": false });
+    };
+    use sha2::{Digest, Sha256};
+    let digest = Sha256::digest(&bytes);
+    serde_json::json!({
+        "present": true,
+        "sha256": digest.iter().map(|byte| format!("{byte:02x}")).collect::<String>(),
+        "bytes": bytes.len(),
+    })
+}
+
 /// The frame the device sends on its channel: the console reads `host` and stores it per device.
-pub fn frame() -> String {
-    serde_json::json!({ "host": facts() }).to_string()
+pub fn frame(data: &std::path::Path) -> String {
+    serde_json::json!({ "host": facts(data) }).to_string()
 }
 
 /// What the launcher's records say, for display.
@@ -235,7 +271,12 @@ fn platform_facts() -> serde_json::Value {
             },
             "machine": facts.machine,
             "uptime_s": facts.uptime_s,
-            "cpu": { "cores": std::thread::available_parallelism().map(|n| n.get()).unwrap_or(0) },
+            "cpu": {
+                "cores": std::thread::available_parallelism().map(|n| n.get()).unwrap_or(0),
+                // Sampled over a short interval: a count of cores says what the machine has, this says
+                // what it is doing, which is the question an operator asks before trusting a slow call.
+                "percent_used": facts.cpu_percent,
+            },
             "memory": {
                 "total_bytes": facts.memory_total_bytes,
                 "available_bytes": facts.memory_available_bytes,
@@ -257,6 +298,40 @@ fn platform_facts() -> serde_json::Value {
 
 /// The same document where `/proc` is the only source. It exists so the shape and the tool can be
 /// tested on the machines CI runs on; the device only ships on Windows.
+#[cfg(not(windows))]
+/// The CPU busy share over [`CPU_SAMPLE_MS`] from `/proc/stat`, or `None` when it cannot be read.
+///
+/// The first `cpu` line holds the counters in jiffies since boot: user, nice, system, idle, iowait,
+/// irq, softirq, steal. Busy is everything except idle and iowait, which is the same definition the
+/// Windows sampler uses (kernel time minus idle).
+#[cfg(not(windows))]
+fn cpu_percent() -> Option<u8> {
+    fn sample() -> Option<(u64, u64)> {
+        let text = std::fs::read_to_string("/proc/stat").ok()?;
+        let line = text.lines().next()?;
+        let mut fields = line.split_whitespace();
+        if fields.next()? != "cpu" {
+            return None;
+        }
+        let values: Vec<u64> = fields.filter_map(|value| value.parse().ok()).collect();
+        if values.len() < 4 {
+            return None;
+        }
+        let idle = values[3] + values.get(4).copied().unwrap_or(0);
+        Some((values.iter().sum::<u64>(), idle))
+    }
+
+    let (total_before, idle_before) = sample()?;
+    std::thread::sleep(std::time::Duration::from_millis(200));
+    let (total_after, idle_after) = sample()?;
+    let total = total_after.saturating_sub(total_before);
+    let idle = idle_after.saturating_sub(idle_before);
+    if total == 0 {
+        return None;
+    }
+    Some((((total - idle) * 100 + total / 2) / total).min(100) as u8)
+}
+
 #[cfg(not(windows))]
 fn platform_facts() -> serde_json::Value {
     use serde_json::json;
@@ -289,7 +364,10 @@ fn platform_facts() -> serde_json::Value {
             .map(|text| text.trim().to_owned())
             .unwrap_or_default(),
         "uptime_s": uptime,
-        "cpu": { "cores": std::thread::available_parallelism().map(|n| n.get()).unwrap_or(0) },
+        "cpu": {
+            "cores": std::thread::available_parallelism().map(|n| n.get()).unwrap_or(0),
+            "percent_used": cpu_percent(),
+        },
         "memory": {
             "total_bytes": memory.map(|(total, _)| total).unwrap_or(0),
             "available_bytes": memory.map(|(_, available)| available).unwrap_or(0),
@@ -301,6 +379,14 @@ fn platform_facts() -> serde_json::Value {
 
 #[cfg(test)]
 mod tests {
+
+    /// The CPU sampler answers on a machine that has a `/proc/stat`, and the value is a percentage.
+    #[cfg(not(windows))]
+    #[test]
+    fn the_cpu_sample_is_a_percentage_of_a_real_machine() {
+        let percent = cpu_percent().expect("this machine has /proc/stat");
+        assert!(percent <= 100, "a share cannot exceed the whole: {percent}");
+    }
     use super::*;
 
     use crate::test_support::TempDir;
@@ -617,8 +703,36 @@ mod tests {
     }
 
     #[test]
+    fn the_facts_report_the_installed_shell_and_its_digest() {
+        let dir = std::env::temp_dir().join(format!("summrise-shell-facts-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("the fixture install is creatable");
+
+        // No shell beside the app: the fact says so rather than naming an empty digest.
+        let absent = shell_state(&dir);
+        assert_eq!(absent["present"], serde_json::json!(false), "{absent}");
+
+        std::fs::write(dir.join("summrise-shell.exe"), b"a tray binary")
+            .expect("the fixture shell is writable");
+        let present = shell_state(&dir);
+        assert_eq!(present["present"], serde_json::json!(true), "{present}");
+        assert_eq!(
+            present["bytes"],
+            serde_json::json!(13),
+            "the size is the file's: {present}"
+        );
+        assert_eq!(
+            present["sha256"].as_str().map(str::len),
+            Some(64),
+            "a digest, in the same hex the release documents use: {present}"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn the_facts_report_the_update_state() {
-        let facts = facts();
+        let dir = std::env::temp_dir().join(format!("summrise-facts-{}", std::process::id()));
+        let facts = facts(&dir);
         let update = &facts["update"];
         assert!(update.is_object(), "{facts}");
         for generation in ["current", "previous", "pending"] {
@@ -641,7 +755,7 @@ mod tests {
 
     #[test]
     fn the_facts_are_a_document_a_console_can_render() {
-        let facts = facts();
+        let facts = facts(&std::env::temp_dir());
         assert!(facts["os"]["name"].is_string(), "{facts}");
         assert!(facts["os"]["arch"].is_string(), "{facts}");
         assert!(facts["uptime_s"].is_u64(), "{facts}");
@@ -655,13 +769,14 @@ mod tests {
 
     #[test]
     fn the_frame_carries_the_facts_under_host() {
-        let frame: serde_json::Value = serde_json::from_str(&frame()).expect("the frame is JSON");
+        let frame: serde_json::Value =
+            serde_json::from_str(&frame(&std::env::temp_dir())).expect("the frame is JSON");
         assert!(frame["host"]["os"]["name"].is_string(), "{frame}");
     }
 
     #[test]
     fn the_uptime_is_a_positive_number_on_any_real_machine() {
-        let facts = facts();
+        let facts = facts(&std::env::temp_dir());
         let uptime = facts["uptime_s"].as_u64().unwrap_or(0);
         assert!(uptime > 0, "{facts}");
     }

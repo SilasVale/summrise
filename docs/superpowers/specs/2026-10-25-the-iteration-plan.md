@@ -6,12 +6,80 @@
 > architecture, and the first week of canary work. The plan is ordered by what an operator loses
 > first, not by what is cheapest to build.
 
+## 0. Where this plan stands now (2026-10-28)
+
+Written when the plan was new; kept because a plan that is silently rewritten cannot be judged.
+
+- **Fleet**: three devices on the console (two online, one offline since an installer run of 0.3.130).
+  Both online machines run **0.3.152** with the launcher and shell the installer ships (`fc3f22ef…`), and the
+  console runs **0.3.145** with its stderr going to `console.log` (a 504 is diagnosable now; before, its own two
+  diagnostic lines went to a handle nobody could read). `browser.*` serves every call from the service's own
+  headless Chrome; `SUMMRISE_BROWSER_VISIBLE=1` asks for the visible one.
+- **The plan's §2 workspace gaps are closed**: terminal (sessions, presets, attach, resize), files,
+  memory, monitors, runs, audit, approvals, tokens, channels — each with its own page and its own
+  handler, and the UI they share lives in `device/ui` (tokens, chips, cards, the page shell).
+- **The runtime is proven in every install shape**: replace (twice), seed (once, from an emptied
+  directory), uninstall, the repair task after a deleted service, and the canary's own device update.
+- **Enrollment is proven on both sides.** The console's half: a one-time code (`POST /enroll`), a fresh
+  Ed25519 key signing `register\n{id}\n{code}\n{ts_ms}`, `POST /devices` accepted it (200, id = public
+  key), the fleet showed it offline, `DELETE /fleet/:id` removed it. The device's half, on a scratch data
+  directory against the real console: `summrise-device --enroll http://127.0.0.1:19000 <code> --data …
+  --allow-plaintext --force` printed `enrolled 1deb3887…`, wrote `console.json`, `console-token.json` and
+  `identity.key`, and the id it printed was in the fleet (removed afterwards, 204).
+- **What is NOT proven**: the session-reconnect path end to end (the hand-off is measured, the
+  Windows-side trigger is not), and DESKTOP-CPH4KB2's
+  recovery — that machine has been offline since an install left it with no runtime, and the
+  installer/repair discipline above is the answer it is waiting for.
+
+## 0b. What 2026-10-27/28 delivered
+
+The two days' work, in the shape a reader can check against `git log` (144 commits, all under
+`device/`):
+
+- **The runtime's install discipline**: every shape exercised on real machines — replace, seed (from an
+  emptied directory), uninstall, the repair task after a deleted service, and the canary's own device
+  update. The installer now kills the app before rotating the baseline, registers a repair task, and
+  runs its own log under a name that does not collide with the launcher's.
+- **The launcher's five crash bugs** (`--apply` indexing, the swap wait's clock, `stop_started`, the
+  rollback message, the boot check's key set) and the release-signed generation it now accepts.
+- **The shell**: menu ids that match their handler, one WebView2 profile (sign in once), a minimized
+  window that comes back, a wake hand-off so a reconnection can re-add the tray, a reconnect task that
+  repairs its own action, and no visible console window for its `schtasks` children.
+- **The console**: a shared `summrise-ui` crate (tokens, chips, cards, the page shell) so the device's
+  panel and the console cannot drift; 28 pages rendered and compared on every UI change; a ninety-second
+  proxy bound under Cloudflare's ceiling; its own stderr in a file; sessions that say what happened while
+  they were gone; CPU share and monitor state duration on the pages.
+- **The device**: six capability fixes from a review (write-through-rename, bounded capture join,
+  `net_test` off the reactor, bounded history reads, pty reaping, bounded cast table), and a Windows test
+  target that compiles for the first time because three tests were gated to Unix.
+- **The measures**: enrollment proven on both sides (console protocol + the device's own CLI), a
+  ninety-second proxy answer timed end to end, and the 504 rate after the fixes (1 in 78, attributable to
+  a deploy window; before, 4 in 6).
+
+## 0a. What is left, and how to start
+
+Four operator-visible gaps against the legacy panel remain, in the order they were judged to hurt:
+
+1. **Session replay** — legacy could reopen a finished session's command-by-command trail with output and exit
+   codes; the device keeps `runs.jsonl` rows without output and the console says so. This needs a device-side
+   decision (what to retain, for how long) before any page.
+2. **Settings** — buffer size, start-on-logon, memory caps, gateway URL: a device tool plus a console page.
+   The registry has no settings tools, so this is a new capability, not a page.
+3. **Update check/apply** — the device reports `current`/`previous`/`pending` and the launcher owns the swap;
+   nothing asks it to check a channel or to apply, and the console has no route for either.
+4. **Remote workspaces** — the legacy panel could browse and edit another machine over SSH; the files page
+   here is the device's own `files_root`.
+
+Two things need a human, not code: DESKTOP-CPH4KB2's recovery (one elevated `recover.cmd` on that machine), and
+one real RDP disconnect to prove the reconnect trigger fires (the hand-off itself is measured; the tasks'
+"last run" is still 1999).
+
 ## 1. Where the project stands
 
 Proven on the canary (device 0.3.29, console 0.3.32, helper in the user's session):
 
 - **The runtime**: `summrise-launch` (SCM service, sole writer of the app binary) supervises
-  `summrise-device` (38 tools in 10 capabilities); the console is the only control plane and every
+  `summrise-device` (40 tools in 10 capabilities); the console is the only control plane and every
   action is a signed grant plus an audit row.
 - **The face**: a web console with five pages (Devices, Terminal, Browser, Memory, Audit) that an operator
   reaches through Cloudflare Access or the operator token; the device's own panel at
@@ -92,7 +160,7 @@ and workspace UI, not device capabilities.
 ### P2 — Memory, and the two tools nobody chose — **done 2026-10-25**
 
 Landed as `memory.update` / `memory.delete` with entry ids and a journal store, and the console's Memory
-page (`memory.jsonl` replay, compaction, 38 tools / 10 capabilities). Evidence:
+page (`memory.jsonl` replay, compaction, 40 tools / 10 capabilities). Evidence:
 `2026-10-25-memory-entries-get-ids-design.md` § "Verified on the canary".
 
 **Goal**: the memory store is browsable, and an entry can be corrected or retired.
@@ -167,3 +235,194 @@ absence the operator feels least; updates and restarts ride along because they a
 
 One phase per iteration, each with: the tool tests, the console page, the canary evidence, and the
 spec updated in the same commit series. A phase that cannot be observed on the canary is not done.
+
+## 9. Status (2026-10-27)
+
+Written after the console rounds that took P1–P6 from "planned" to "shipped, with two deviations
+from the acceptance text above". The deviations are the point of this section.
+
+| Phase | State | What differs from §5 |
+|---|---|---|
+| P1 terminal, P2 tools, P3 monitors, P4 runs | shipped | as specified; `runs.get` opens a history row (rows, not output — the device keeps no output) |
+| P5 approvals | shipped | the console HOLDS the client's call and re-sends it with consent for that call only, instead of signing a decision; a token keeps saying no to the next call. The deadline is **90 s**, not the legacy 15 min: the console is behind Cloudflare Access, whose origin bound cuts a request at about 100 s, so a longer hold would answer a request nobody holds. Expiry fails closed; the badge on every page reports a held call |
+| P6 updates | shipped | the Install card on Vitals (generations, last swap with its reason, repairs), from `host.facts`; the console keeps no copy |
+| P6 restarts | **met, observed** | the device journals each boot (when, from which release and digest, pid) in `<data>/restarts.jsonl`, bounded at 50 records, and `host.facts` carries the last ten; the Vitals page's Install card lists them under **Restarts**, beside the launcher's swap outcome and repairs. Observed on canary 0.3.128 (2026-10-28): after the update both DESKTOP-9VH92BJ and DESKTOP-14RJCR8 answer `/api/health` 0.3.128 and their Vitals pages render the card with the boot that the upgrade wrote (`{"at_ms":1793156311919,"version":"0.3.128","pid":14824}` on 14RJCR8); a device still on an older runtime renders no card, which is the honest answer |
+| P6 browser live view | **met, observed** | `browser.cast` is a real CDP `Page.startScreencast` stream: a reader per tab, newest frame returned, every frame acked, idle stop after 60 s, closed with the tab. The pane polls at 5 fps while a stream serves it and falls back to 1 fps screenshots on a device without the tool. Observed on canary 0.3.124 (9vh92bj, 2026-10-28): the frame route answered `200 format=jpeg stream=true 764×485` in 27 ms; ten polls 200 ms apart while scrolling returned **ten distinct frames** at 9–13 ms each, and the same ten polls on a still page returned **one** frame — the stream serves the newest paint instead of forcing captures |
+
+### The fleet at the end of the session (2026-10-28)
+
+Three canaries, one runtime each, the legacy desktop/agent retired from all three (see RELEASE.md):
+
+| device | runtime | tray | notes |
+|---|---|---|---|
+| DESKTOP-9VH92BJ | 0.3.130, online | running (session 2, user 13122) | also runs the console at `C:\SummriseConsole` and the canary mirror |
+| DESKTOP-14RJCR8 | 0.3.130, online | running | its console link is a tailnet address, which is why the plaintext rule had to learn that private links are private |
+| DESKTOP-CPH4KB2 | 0.3.129, **offline** | not running | installer 0.3.130 removed its service and then failed; the recovery is in RELEASE.md and needs one command at the machine |
+
+**Second install, DESKTOP-9VH92BJ, 0.3.141:** hash `a121f922…` verified before it ran, `install exit 0`,
+launcher `61c0931e…` and shell `bdb026fb…` installed, `repair.cmd` now writes `repair-task.log` (the rename
+reaches a machine for the first time), `SummriseRepair` registered, device answered `0.3.141` with a new pid
+nine seconds after the task started, dead-man deleted. Both installs were driven from a scheduled task with
+a hash check, so a partial download cannot reach NSIS again.
+
+**The installer was first exercised end to end (2026-10-28, DESKTOP-14RJCR8, 0.3.139):** silent,
+hash-verified, `install exit 0`; the launcher was replaced (`7b50ac60…` → `61c0931e…`), the tray binary
+(`bdb026fb…`), `repair.cmd` and the `SummriseRepair` task were installed, the baseline was rotated by the
+new staged path (`replaced baseline/current from the installer's pair`), and the device answered
+`/api/health` with a new pid. That machine is the first in the fleet running the fixed launcher. One
+known gap: the installer it used predates the log rename, so its `repair.cmd` still appends to
+`repair.log`; the next install carries `repair-task.log`.
+
+The installer is the only stream that had not been exercised end to end before that attempt, and the
+attempt is what found the ordering bug (service removed before the replacement was ready) and the
+missing step (the app was not killed before its image was rotated). Since 0.3.131 the registration is
+kept and the app is killed first; since 0.3.132 a boot-time `SummriseRepair` task re-registers a
+missing service. Neither has run on a machine yet: CPH4KB2 is the next test, and the other two are
+deliberately not touched until it passes.
+
+### The inbound authorization findings (2026-10-28)
+
+A read-only review of the device's inbound path and of the console's credential core found nine
+defects; all nine are fixed, tested, and on the canary (0.3.127). The two that mattered most:
+
+- **A mesh peer could authorize itself.** A token scope (`{"token":{...}}`) carries no signature —
+  the console's authenticated channel is what stands behind it — and `admit` accepted one on every
+  wire. Any joined peer could send `scopes:["*"]`, `allow_destructive:true` and run anything here.
+  `admit` now takes the transport, and a scope is admitted only over the console channel.
+- **A captured frame ran twice.** Grants had no one-shot property: the same signed frame replayed
+  into the device ran again, and the audit showed two ordinary `allow` lines. A grant now carries a
+  signed nonce; the device keeps the ones it admitted (pruned by the grant's expiry + skew, capped)
+  and refuses a repeat with `error_kind:"replay"`. A grant without a nonce (an older console) is
+  still admitted, so a rollout cannot strand a live console.
+
+The rest: plaintext `ws://` to a public host needs `"allow_plaintext": true` (private links — LAN,
+tailnet, ULA — do not, which a rollback taught us: refusing the tailnet address stopped the app from
+starting on DESKTOP-14RJCR8 and the launcher reverted to the previous generation by itself), the
+device's audit lines name the token that authorized a call, panel terminal operations are audited as
+their own transport, logout persists before adopting, removing a device revokes the aggregate tokens
+that list it, and an approved call re-reads the token before it is re-sent.
+
+Two decisions made during those rounds belong beside the phases:
+
+- **The pages stay static except two scripts** (`assets/approvals.js` badge poll, `assets/browser.js`
+  frame pump). A held call waits 90 s, and no static page can report a window that short.
+- **A held call cannot outlive its request**: a `Held` guard removes the approval row when the
+  holding future drops, and the client is told the outcome is unknown (504) rather than "needs
+  approval" when the re-send fails — a retry after that answer could run the command twice.
+
+### Phase 2 outcome: the console, the panel and the front door (2026-10-28)
+
+What the design pass changed, measured rather than described:
+
+- **The console's information architecture.** The rail shows one page until a device is chosen; a
+  fleet row offers `Terminal · Screen · Files · Connect` with the other seven behind `More`; the
+  token page is "Connect" at the door, in the rail and on the page. A wrong address — or a device
+  that was removed — answers a card with a way back instead of an empty 404.
+- **One of each scale, gated.** Eight type sizes, seven radii, a 4/8/12/16/24/32 spacing rhythm, one
+  filled action per surface. Two gates parse the stylesheet and fail on a literal; both were
+  mutation-tested, and the first version of one of them was vacuous and said so in a follow-up
+  commit.
+- **The copy says what the code does.** Ten sentences changed after an audit compared every
+  explanatory line with its implementation: "read-only" became "no destructive tools", the
+  launcher's three-restart limit is printed where Restart is pressed, and a kill renders the pids
+  the device returned (it had always said "0").
+- **The approval card is decided in ninety seconds.** One sentence says what the call does
+  (`Start a pty session…`, `End process 4242.`, `Run cmd /c dir in work.`), the JSON stays as
+  evidence, and the decision is announced after the redirect.
+- **Accessibility.** xterm reads with `screenReaderMode`, every repeated destructive button names
+  its row, the approvals badge announces through a live region, the menus close on Escape, the
+  terminal has a visible focus ring, and every reflowed table keeps its captions and headers.
+- **The device panel**, which had never been rendered for review: the submit button uses the
+  measured `--accent-solid` pair (it was 1.96:1), the panel is on the console's type scale, the
+  browser-drawn terminal controls are styled, the "connected" chip no longer claims a connection it
+  did not observe, and the two terminal cards became one.
+- **The front door.** The landing page shows the product (its own renderer, sanitized devices), its
+  hero states the enrollment command that actually works, and the page no longer runs 20px wider than
+  a phone at 390px.
+
+Verification for all of it: the Linux CI job run locally (1329 tests passed, 0 failed; fmt and
+clippy clean across nine crates), the landing's own gate (78 bilingual strings, 14 contrast pairs),
+the console's 30-page screenshot set at 390/800/1280, the panel's new review renderer, and the live
+console at each deploy.
+
+### An open finding: the Browser view costs ten seconds on the live device
+
+Measured 2026-10-29 against DESKTOP-9VH92BJ: `/next/browser/<id>` answers in 10.0 s. The thumbnail
+call was bounded to 1.5 s first and the page still took 10.0 s, so the cost is `browser.list` itself.
+Chrome's own `/json/list` answers in 93 ms on the device, so it is not the CDP read: the device's
+`BrowserRegistry::list` **launches Chrome when none is running** (the code says so), and on this
+machine a launch does not finish inside the tool's 10 s bound — two profiles exist, a run-scoped one
+under `C:\ProgramData\Summrise\chrome-profile\run-…` and a user-session one under
+`%LOCALAPPDATA%\Summrise\chrome`, and the running Chromium (port 57251) lives in the latter. The
+console renders seven targets after the wait, so the launch does succeed, slowly.
+
+The fix is device-side and needs the launch path read, not guessed: either adopt the browser the
+user session already runs, or make the service-session launch fail fast with a sentence the console
+can show. It is recorded here so it is not found again from scratch.
+
+One more measurement narrows it: while the page's `browser.list` sits at the bound, the pane's
+`browser.cast` calls are answered every ~205 ms in the device's own audit log — so the browser is
+running and answering CDP, and only `list` is slow. The console now waits 3 s for the list and says
+the targets are unknown (it answered in 3.0 s instead of 10.0 s, measured), rather than hanging the
+page; that bound is a usability fix, not the root fix.
+
+**FOUND IT, 2026-10-29: the page was never slow.** Fetched with a session cookie and no device
+browser in the way — `Invoke-WebRequest … -WebSession` on the console host — `/next/browser/<id>`
+answers in **34 ms** with its five targets and no notice in the HTML. The ten seconds were
+measurement bias: every load I timed went through `/next/browser` being navigated *by the device's own
+browser tool*, and that tool call holds the device's browser while the page's `browser.list` waits
+behind it. The serialized tool call is the device by design; the page had nothing to do with it.
+
+The 3 s bound stays as a backstop. The sentence that explained it — "it starts its browser on the
+first call, and that launch can take longer" — was written on the strength of a false measurement and
+is deleted; the page says only that the device did not answer.
+
+**Two hypotheses tested and disproved before that**, so the next attempt does not repeat them:
+
+- *"The launcher exits and the handle lies."* A fresh headless Chromium launched on the device
+  (`--remote-debugging-port=57999`, own profile) stayed alive (`alive=True`) and answered
+  `/json/version` with 200 after three seconds. The registry's `alive()` (which trusts the child
+  handle) is not obviously wrong; the change that would have made it probe the endpoint was written,
+  tested green, and reverted because the experiment contradicted its rationale.
+- *"Chrome's `/json/list` is slow."* Measured directly on the device: 93 ms, then 0 ms warm.
+
+What remains: the registry's browser slot and the cast path share a mutex (`cast_slot` takes it while
+resolving a page endpoint, and `page_url` calls `targets()`), so a wedged resolve would make a later
+`list` wait behind it. That is the next thing to instrument — with timings inside the device, not
+guesses from outside it.
+
+### Incident, 2026-10-29 02:26 UTC: the device channel went away and stayed away
+
+The console on DESKTOP-9VH92BJ stayed healthy throughout — `/health` answered 200 with
+`{"status":"ok","devices":3,…}` — while every tool call that needed the device answered
+`device reconnecting`. The channel has not come back in the forty minutes observed.
+
+Two things this made visible:
+
+- **`devices` is not `online`.** The health document counted the registry, so "three known" and
+  "three up" were the same number; an agent or supervisor reading it could not tell the difference.
+  `/health` answers `online` now, and a test asserts a registered device with no channel is
+  `devices: 1, online: 0`.
+- **There is no remote path back.** The machine's SSH port is closed, the panel binds loopback, and
+  the console's own "Restart the device" needs the channel that is down. The launcher is the last
+  line of self-healing; if it has given up, only a person at the machine can start the agent again
+  (`sc stop SummriseLaunch && sc start SummriseLaunch`). The fleet row is where the reason would be
+  read, and it cannot be read without a device to render it — the console's own pages for a device
+  are rendered by the console, not the device, but the session that reaches them is established
+  through it.
+
+The deploy of the `online` change waits for the device; the commit is pushed and CI is green.
+
+### What is deliberately not done
+
+- **The device fleet still runs 0.3.152.** A canary 0.3.167 was built, signed and verified against a
+  loopback mirror, and the publish is one command — but it moves the channel pointer for every
+  device, which is the operator's call.
+- **The three navigational cuts are made**: Audit + Denials is one `Records` page with
+  Actions/Refusals segments; the state document is a card on the System page (the old
+  `/next/state/…` address redirects there); and the desktop and the device's browser are one
+  `Screen` page with Desktop/Browser segments, so the rail lists ten destinations instead of eleven
+  (the `/next/browser/…` route still renders on its own).
+- **The public download still points at the newest published release (v0.3.12).** The page is
+  honest about that ("latest published release"); closing the gap is a release decision, not a page
+  edit.

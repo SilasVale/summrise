@@ -54,6 +54,16 @@ if [[ -n "$mirror" ]]; then
                 fail "the artifact hashes to $served, the document says $artifact_sha"
             fi
         fi
+        # The installer is the ONLY channel that carries `summrise-shell.exe`: the canary update
+        # swaps the app and nothing else. A publish without it (no makensis on the host) can still
+        # update the app, but a shell fix reaches a device only through this file.
+        installer="SummriseSetup-$version.exe"
+        if curl -fsS --max-time 20 -o /dev/null "$mirror/$installer"; then
+            digest="$(curl -fsS --max-time 300 "$mirror/$installer" | sha256sum | cut -d' ' -f1)"
+            pass "$installer is served (sha256 $digest) — the tray's only update channel"
+        else
+            note "warn" "$installer is not served: this publish cannot deliver a tray change"
+        fi
     fi
 fi
 

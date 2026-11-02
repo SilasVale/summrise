@@ -30,12 +30,44 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
 use axum::extract::ws::{close_code, CloseFrame, Message, WebSocket};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tokio::sync::mpsc::error::TrySendError;
 use tokio::sync::{mpsc, oneshot, Notify};
 
 use crate::grants::GrantEnvelope;
+
+/// What authorizes one request on the wire: the legacy signed grant, or the console's permanent
+/// token scope. The device accepts both (`remote::Admitted`); the console sends whichever the
+/// caller's credential is.
+// The Token arm lands before the /mcp handlers switch to it (both ship together); until then only
+// the tests construct it.
+pub(crate) enum RequestAuth<'a> {
+    Grant(&'a GrantEnvelope),
+    Token(&'a TokenScope),
+}
+
+impl RequestAuth<'_> {
+    /// The tool patterns this request authorizes, in the order the credential named them.
+    pub(crate) fn tools(&self) -> &[String] {
+        match self {
+            RequestAuth::Grant(grant) => &grant.grant.tools,
+            RequestAuth::Token(scope) => &scope.scopes,
+        }
+    }
+}
+
+/// A permanent token's scope, as the console forwards it. The device checks the same facts it
+/// checks on a grant: device, expiry, tool coverage.
+#[derive(Serialize)]
+pub(crate) struct TokenScope {
+    pub(crate) token_id: String,
+    pub(crate) device_id: String,
+    pub(crate) scopes: Vec<String>,
+    pub(crate) allow_destructive: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) expires_at_ms: Option<u64>,
+}
 
 /// How long a request waits for a channel to exist before it is refused as retryable.
 pub(crate) const RECONNECT_WAIT: Duration = Duration::from_secs(2);
@@ -110,7 +142,23 @@ struct Live {
 /// The requests waiting for an answer, keyed by the envelope id.
 type Pending = Arc<Mutex<HashMap<u64, oneshot::Sender<Answer>>>>;
 
-/// Every live channel, keyed by device id.
+/// Milliseconds since the Unix epoch, for the two moments an outage has. The registry keeps no
+/// injected clock: both moments are real ones, and a test that needs a duration waits for it.
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+/// One outage: when a device's channel went away, and how long it stayed away. `duration_ms` is
+/// `None` while the device is still down.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Outage {
+    pub started_ms: u64,
+    pub duration_ms: Option<u64>,
+}
+
 /// How the attempt before a device's current one ended, as that device reported it on connecting.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct RetryNote {
@@ -140,6 +188,10 @@ pub(crate) struct ChannelRegistry {
     /// a device cannot report a failure over the connection that failed, so the story is one attempt
     /// behind, and the label in the page says so.
     retries: Mutex<HashMap<String, RetryNote>>,
+    /// The last outage each device had: when it began and how long it lasted. A live channel leaves
+    /// no trace of the hours it was gone, and the fleet row that says `online` is answering a
+    /// different question than "was this machine away, and for how long".
+    outages: Mutex<HashMap<String, Outage>>,
     /// Wakes a request waiting for a channel to open.
     changed: Notify,
     send_timeout: Duration,
@@ -169,10 +221,16 @@ impl ChannelRegistry {
             names: Mutex::new(HashMap::new()),
             retries: Mutex::new(HashMap::new()),
             hosts: Mutex::new(HashMap::new()),
+            outages: Mutex::new(HashMap::new()),
             changed: Notify::new(),
             send_timeout,
             reply_timeout,
         }
+    }
+
+    /// The last outage of one device, if the console saw it go away and come back.
+    pub(crate) fn last_outage(&self, device_id: &str) -> Option<Outage> {
+        lock(&self.outages).get(device_id).copied()
     }
 
     /// The deepest any outbound queue has been since the console started.
@@ -295,9 +353,9 @@ impl ChannelRegistry {
         &self,
         device_id: &str,
         mcp: Value,
-        grant: &GrantEnvelope,
+        auth: &RequestAuth<'_>,
     ) -> Result<Reply, RequestError> {
-        self.request_within(device_id, mcp, grant, self.reply_timeout)
+        self.request_within(device_id, mcp, auth, self.reply_timeout)
             .await
     }
 
@@ -311,7 +369,7 @@ impl ChannelRegistry {
         &self,
         device_id: &str,
         mcp: Value,
-        grant: &GrantEnvelope,
+        auth: &RequestAuth<'_>,
         reply: Duration,
     ) -> Result<Reply, RequestError> {
         let _in_flight = InFlight::begin(self, device_id)?;
@@ -327,7 +385,11 @@ impl ChannelRegistry {
         };
 
         let (accepted, accepted_rx) = oneshot::channel();
-        let frame = json!({ "id": id, "mcp": mcp, "grant": grant }).to_string();
+        let frame = match auth {
+            RequestAuth::Grant(grant) => json!({ "id": id, "mcp": mcp, "grant": grant }),
+            RequestAuth::Token(scope) => json!({ "id": id, "mcp": mcp, "token": scope }),
+        }
+        .to_string();
         let queued = outbound.max_capacity().saturating_sub(outbound.capacity());
         match outbound.try_send(Outbound::Text {
             id,
@@ -423,6 +485,17 @@ impl ChannelRegistry {
 
     /// Register a socket as the device's live channel, replacing and closing any predecessor.
     fn open(&self, device_id: &str) -> OpenChannel {
+        // **AN OUTAGE ENDS HERE, NOT WHEN THE PAGE IS NEXT OPENED.** The close is the moment the
+        // console learns the device is gone; this is the moment it learns it is back, which is the
+        // pair the fleet row needs to say "back after 4h 05m".
+        {
+            let mut outages = lock(&self.outages);
+            if let Some(outage) = outages.get_mut(device_id) {
+                if outage.duration_ms.is_none() {
+                    outage.duration_ms = Some(now_ms().saturating_sub(outage.started_ms));
+                }
+            }
+        }
         let generation = self.next_generation.fetch_add(1, Ordering::Relaxed);
         let (outbound, commands) = mpsc::channel(CHANNEL_CAPACITY);
         let pending: Pending = Arc::new(Mutex::new(HashMap::new()));
@@ -459,10 +532,22 @@ impl ChannelRegistry {
     /// Forget the channel if it is still the one this task opened.
     fn close(&self, device_id: &str, generation: u64) {
         let mut live = lock(&self.live);
-        if live.get(device_id).map(|channel| channel.generation) == Some(generation) {
+        let closed = live.get(device_id).map(|channel| channel.generation) == Some(generation);
+        if closed {
             live.remove(device_id);
         }
         drop(live);
+        if closed {
+            // The device is gone as of now. A replaced channel never reaches this branch: its
+            // generation is not the live one any more, and the replacement already ended the outage.
+            lock(&self.outages).insert(
+                device_id.to_owned(),
+                Outage {
+                    started_ms: now_ms(),
+                    duration_ms: None,
+                },
+            );
+        }
         self.changed.notify_waiters();
     }
 }
@@ -604,6 +689,7 @@ mod tests {
                 tools: vec!["files.read".to_owned()],
                 expires_at_ms: u64::MAX,
                 allow_destructive: false,
+                nonce: String::new(),
             },
             signature: "00".repeat(64),
         }
@@ -665,7 +751,7 @@ mod tests {
             .request(
                 &device_id(),
                 json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list" }),
-                &grant(),
+                &RequestAuth::Grant(&grant()),
             )
             .await;
 
@@ -700,7 +786,7 @@ mod tests {
             .request(
                 &device_id(),
                 json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list" }),
-                &grant(),
+                &RequestAuth::Grant(&grant()),
             )
             .await;
 
@@ -746,7 +832,7 @@ mod tests {
             .request(
                 &device_id(),
                 json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list" }),
-                &grant(),
+                &RequestAuth::Grant(&grant()),
             )
             .await;
         assert_eq!(general, Err(RequestError::ReplyTimeout));
@@ -756,7 +842,7 @@ mod tests {
             .request_within(
                 &device_id(),
                 json!({ "jsonrpc": "2.0", "id": 2, "method": "tools/call" }),
-                &grant(),
+                &RequestAuth::Grant(&grant()),
                 Duration::from_millis(500),
             )
             .await;
@@ -782,7 +868,7 @@ mod tests {
                     .request(
                         &device_id(),
                         json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list" }),
-                        &grant(),
+                        &RequestAuth::Grant(&grant()),
                     )
                     .await
             }));
@@ -806,7 +892,7 @@ mod tests {
             .request(
                 &device_id(),
                 json!({ "jsonrpc": "2.0", "id": 2, "method": "tools/list" }),
-                &grant(),
+                &RequestAuth::Grant(&grant()),
             )
             .await;
         assert_eq!(

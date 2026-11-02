@@ -32,6 +32,26 @@ pub(crate) struct RemoteFrame {
     pub(crate) mcp: Value,
     /// The grant the sender says authorizes the request, when it sent one.
     pub(crate) grant: Option<GrantEnvelope>,
+    /// The console's permanent-token scope, when the frame carries one instead of a grant.
+    pub(crate) token: Option<TokenScope>,
+}
+
+/// A permanent token's scope, as the console's authenticated channel forwards it.
+///
+/// It is not a credential on the wire: the console authenticated the token and this channel is the
+/// console's, so the scope says what the token may do, not who holds it.
+#[derive(Clone, Debug, Deserialize)]
+pub(crate) struct TokenScope {
+    /// The token record's id (never the `srm_` secret), for the audit line.
+    pub(crate) token_id: String,
+    /// The device the console resolved the token to.
+    pub(crate) device_id: String,
+    /// The registry tools the token allows.
+    pub(crate) scopes: Vec<String>,
+    /// Whether the token's record consented to destructive tools.
+    pub(crate) allow_destructive: bool,
+    /// The token's expiry in Unix milliseconds, when it has one.
+    pub(crate) expires_at_ms: Option<u64>,
 }
 
 /// Why a frame was refused before the request could run.
@@ -47,6 +67,9 @@ pub(crate) enum GrantRefusal {
     Expired,
     /// The grant is authentic and live, but does not cover the tool the request names.
     ToolNotCovered,
+    /// The grant is authentic and live, and this device has already admitted it. A captured frame
+    /// run twice is two side effects from one consent, which is what the nonce exists to stop.
+    Replay,
 }
 
 impl GrantRefusal {
@@ -58,6 +81,7 @@ impl GrantRefusal {
             GrantRefusal::DeviceMismatch => "grant_device_mismatch",
             GrantRefusal::Expired => "grant_expired",
             GrantRefusal::ToolNotCovered => "tool_not_covered",
+            GrantRefusal::Replay => "replay",
         }
     }
 
@@ -69,6 +93,7 @@ impl GrantRefusal {
             GrantRefusal::DeviceMismatch => "the console grant is for a different device",
             GrantRefusal::Expired => "the console grant has expired",
             GrantRefusal::ToolNotCovered => "tool not permitted by grant",
+            GrantRefusal::Replay => "this console grant has already been used on this device",
         }
     }
 }
@@ -78,12 +103,113 @@ impl GrantRefusal {
 /// The order is the console's, unchanged: the signature first, because nothing in the grant is
 /// believed before the bytes are the console's; then the device it names; then its expiry; and last
 /// the tool, which is only meaningful once the grant is authentic and live.
+#[derive(Clone, Debug)]
+pub(crate) enum Admitted<'a> {
+    Grant(&'a GrantEnvelope),
+    Token(&'a TokenScope),
+}
+
+impl PartialEq for Admitted<'_> {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Admitted::Grant(a), Admitted::Grant(b)) => a == b,
+            (Admitted::Token(a), Admitted::Token(b)) => {
+                a.token_id == b.token_id && a.scopes == b.scopes
+            }
+            _ => false,
+        }
+    }
+}
+
+/// How many admitted nonces are remembered. One entry is 16 bytes plus a string, and the log is
+/// pruned by the grant's own expiry, so this is a ceiling on a burst, not a growing history.
+const NONCE_LOG_CAP: usize = 4096;
+
+/// The unexpired grant nonces this device has already admitted.
+///
+/// A grant is a bearer: anyone holding a frame can present it again, and the signature will verify
+/// just as it did the first time. The nonce is signed along with the rest of the grant, so the
+/// device can answer "I have seen this exact grant" and refuse the second arrival; a replayer cannot
+/// change the nonce without invalidating the signature.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct NonceLog {
+    /// Shared, so a cloned server (the MCP service clones one per session) sees one log.
+    seen: std::sync::Arc<std::sync::Mutex<std::collections::VecDeque<(String, u64)>>>,
+}
+
+impl NonceLog {
+    pub(crate) fn new() -> NonceLog {
+        NonceLog::default()
+    }
+
+    /// Record one nonce; `false` when it was already admitted and its grant is still live.
+    ///
+    /// `expires_at_ms` is the grant's own expiry: once it passes, an admission of that grant is no
+    /// longer something a replay could act on, so the entry is dropped and a nonce reused by a
+    /// later grant is a new grant.
+    pub(crate) fn first_use(&self, nonce: &str, expires_at_ms: u64, now_ms: i64) -> bool {
+        let now = now_ms.max(0) as u64;
+        let mut seen = self.seen.lock().expect("the nonce log");
+        // The same skew the expiry check allows: an entry stays until its grant could no longer run.
+        seen.retain(|(_, expires)| expires.saturating_add(CLOCK_SKEW_MS as u64) > now);
+        if seen.iter().any(|(known, _)| known == nonce) {
+            return false;
+        }
+        if seen.len() >= NONCE_LOG_CAP {
+            seen.pop_front();
+        }
+        seen.push_back((nonce.to_owned(), expires_at_ms));
+        true
+    }
+}
+
+/// Where a frame came from, which decides what may authorize it.
+///
+/// A GRANT is self-authenticating: the console's key signed it, so it is admitted on any transport.
+/// A TOKEN SCOPE has no signature at all — the console's authenticated channel is what stands behind
+/// it — so it is admitted only when the frame arrived over that channel. A mesh peer is
+/// authenticated as a peer, not as the console, and must never be able to name its own scopes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Transport {
+    Console,
+    Mesh,
+}
+
 pub(crate) fn admit<'a>(
     frame: &'a RemoteFrame,
     device_id: &str,
     key: &VerifyingKey,
     now_ms: i64,
-) -> Result<&'a GrantEnvelope, GrantRefusal> {
+    transport: Transport,
+    nonces: &NonceLog,
+) -> Result<Admitted<'a>, GrantRefusal> {
+    if let Some(scope) = frame.token.as_ref() {
+        if transport != Transport::Console {
+            return Err(GrantRefusal::NoGrant);
+        }
+        // The console authenticated the token; the device still checks the facts the console's
+        // record promised, exactly as it checks a grant's: the device, the expiry, the tool.
+        if scope.device_id != device_id {
+            return Err(GrantRefusal::DeviceMismatch);
+        }
+        if scope.expires_at_ms.is_some_and(|expires_at| {
+            now_ms.saturating_sub(CLOCK_SKEW_MS) >= i64::try_from(expires_at).unwrap_or(i64::MAX)
+        }) {
+            return Err(GrantRefusal::Expired);
+        }
+        if let Some(tool) = requested_tool(&frame.mcp) {
+            // `*` is a wildcard here too: the console's operator scope is exactly that, and an
+            // exact comparison refused every grantless call before it reached a capability.
+            if !scope
+                .scopes
+                .iter()
+                .any(|allowed| summrise_core::auth::pattern_matches(allowed, tool))
+            {
+                return Err(GrantRefusal::ToolNotCovered);
+            }
+        }
+        return Ok(Admitted::Token(scope));
+    }
     let envelope = frame.grant.as_ref().ok_or(GrantRefusal::NoGrant)?;
     grant::verify(&envelope.grant, &envelope.signature, key)
         .map_err(|_| GrantRefusal::BadSignature)?;
@@ -104,7 +230,14 @@ pub(crate) fn admit<'a>(
             return Err(GrantRefusal::ToolNotCovered);
         }
     }
-    Ok(envelope)
+    // A grant with an empty nonce came from a console that predates the field; refusing it would
+    // break a live console during a rolling update, so it is admitted exactly as before.
+    if !envelope.grant.nonce.is_empty()
+        && !nonces.first_use(&envelope.grant.nonce, envelope.grant.expires_at_ms, now_ms)
+    {
+        return Err(GrantRefusal::Replay);
+    }
+    Ok(Admitted::Grant(envelope))
 }
 
 /// The tool a JSON-RPC `tools/call` names, when it names one.
@@ -173,6 +306,7 @@ mod tests {
                 tools: tools.iter().map(|tool| (*tool).to_owned()).collect(),
                 expires_at_ms,
                 allow_destructive: false,
+                nonce: String::new(),
             },
         )
     }
@@ -187,7 +321,12 @@ mod tests {
     }
 
     fn remote_frame(mcp: Value, grant: Option<GrantEnvelope>) -> RemoteFrame {
-        RemoteFrame { id: 7, mcp, grant }
+        RemoteFrame {
+            id: 7,
+            mcp,
+            grant,
+            token: None,
+        }
     }
 
     #[test]
@@ -196,8 +335,133 @@ mod tests {
         let frame = remote_frame(call("state.get"), Some(grant.clone()));
 
         assert_eq!(
-            admit(&frame, &device_id(), &signing().verifying_key(), now_ms()),
-            Ok(&grant)
+            admit(
+                &frame,
+                &device_id(),
+                &signing().verifying_key(),
+                now_ms(),
+                Transport::Console,
+                &NonceLog::new()
+            ),
+            Ok(Admitted::Grant(&grant))
+        );
+    }
+
+    #[test]
+    fn a_wildcard_token_scope_covers_every_tool() {
+        let scope = TokenScope {
+            token_id: "operator".to_owned(),
+            device_id: device_id(),
+            scopes: vec!["*".to_owned()],
+            allow_destructive: true,
+            expires_at_ms: None,
+        };
+        let frame = RemoteFrame {
+            id: 7,
+            mcp: call("terminal.create"),
+            grant: None,
+            token: Some(scope),
+        };
+        assert!(
+            matches!(
+                admit(&frame, &device_id(), &signing().verifying_key(), now_ms(), Transport::Console, &NonceLog::new()),
+                Ok(Admitted::Token(scope)) if scope.token_id == "operator"
+            ),
+            "the operator scope is a wildcard, not the literal tool name `*`"
+        );
+
+        // And a narrower pattern still scopes: `files.*` covers files.read and not runs.exec.
+        let narrowed = TokenScope {
+            token_id: "narrow".to_owned(),
+            device_id: device_id(),
+            scopes: vec!["files.*".to_owned()],
+            allow_destructive: false,
+            expires_at_ms: None,
+        };
+        let covered = RemoteFrame {
+            id: 8,
+            mcp: call("files.read"),
+            grant: None,
+            token: Some(TokenScope {
+                token_id: narrowed.token_id.clone(),
+                device_id: narrowed.device_id.clone(),
+                scopes: narrowed.scopes.clone(),
+                allow_destructive: false,
+                expires_at_ms: None,
+            }),
+        };
+        assert!(admit(
+            &covered,
+            &device_id(),
+            &signing().verifying_key(),
+            now_ms(),
+            Transport::Console,
+            &NonceLog::new()
+        )
+        .is_ok());
+        let outside = RemoteFrame {
+            id: 9,
+            mcp: call("runs.exec"),
+            grant: None,
+            token: Some(narrowed),
+        };
+        assert_eq!(
+            admit(
+                &outside,
+                &device_id(),
+                &signing().verifying_key(),
+                now_ms(),
+                Transport::Console,
+                &NonceLog::new()
+            ),
+            Err(GrantRefusal::ToolNotCovered)
+        );
+    }
+
+    #[test]
+    fn a_nonce_is_admitted_once_and_forgotten_when_its_grant_expires() {
+        let log = NonceLog::new();
+        let expires = 10_000u64;
+        assert!(log.first_use("aa", expires, 1_000), "the first use is new");
+        assert!(
+            !log.first_use("aa", expires, 2_000),
+            "the same nonce inside its grant's life is a replay"
+        );
+        assert!(
+            log.first_use("bb", expires, 2_000),
+            "another nonce is another grant"
+        );
+
+        // Past the grant's expiry (plus the skew the expiry check allows), the entry is dropped: a
+        // replay of it could no longer run, so remembering it would only grow the log.
+        let later = expires + CLOCK_SKEW_MS as u64 + 1;
+        assert!(
+            log.first_use("aa", later, later as i64),
+            "an expired grant's nonce is forgotten"
+        );
+    }
+
+    #[test]
+    fn the_nonce_log_is_bounded() {
+        let log = NonceLog::new();
+        for index in 0..(super::NONCE_LOG_CAP + 10) {
+            let nonce = format!("{index:08x}");
+            assert!(log.first_use(&nonce, u64::MAX, 1_000), "{nonce}");
+        }
+        // The newest entries are still refused as replays; the oldest were evicted, which is the
+        // documented bound: 4096 live grants is more than one console can have in flight, and an
+        // evicted nonce could only be replayed by a holder of that grant inside its life.
+        assert!(
+            !log.first_use(
+                &format!("{:08x}", super::NONCE_LOG_CAP + 9),
+                u64::MAX,
+                1_000
+            ),
+            "the newest nonce is remembered"
+        );
+        assert!(
+            log.first_use(&format!("{:08x}", 5), u64::MAX, 1_000),
+            "the oldest was evicted at the cap"
         );
     }
 
@@ -206,7 +470,14 @@ mod tests {
         let frame = remote_frame(call("state.get"), None);
 
         assert_eq!(
-            admit(&frame, &device_id(), &signing().verifying_key(), now_ms()),
+            admit(
+                &frame,
+                &device_id(),
+                &signing().verifying_key(),
+                now_ms(),
+                Transport::Console,
+                &NonceLog::new()
+            ),
             Err(GrantRefusal::NoGrant)
         );
     }
@@ -221,12 +492,20 @@ mod tests {
                 tools: vec!["state.get".to_owned()],
                 expires_at_ms: now_ms() as u64 + 60_000,
                 allow_destructive: false,
+                nonce: String::new(),
             },
         );
         let frame = remote_frame(call("state.get"), Some(grant));
 
         assert_eq!(
-            admit(&frame, &device_id(), &signing().verifying_key(), now_ms()),
+            admit(
+                &frame,
+                &device_id(),
+                &signing().verifying_key(),
+                now_ms(),
+                Transport::Console,
+                &NonceLog::new()
+            ),
             Err(GrantRefusal::BadSignature)
         );
     }
@@ -237,7 +516,14 @@ mod tests {
         let frame = remote_frame(call("state.get"), Some(grant));
 
         assert_eq!(
-            admit(&frame, &device_id(), &signing().verifying_key(), now_ms()),
+            admit(
+                &frame,
+                &device_id(),
+                &signing().verifying_key(),
+                now_ms(),
+                Transport::Console,
+                &NonceLog::new()
+            ),
             Err(GrantRefusal::DeviceMismatch)
         );
     }
@@ -247,7 +533,14 @@ mod tests {
         let stale = grant_for(&device_id(), &["state.get"], (now_ms() - 600_000) as u64);
         let frame = remote_frame(call("state.get"), Some(stale));
         assert_eq!(
-            admit(&frame, &device_id(), &signing().verifying_key(), now_ms()),
+            admit(
+                &frame,
+                &device_id(),
+                &signing().verifying_key(),
+                now_ms(),
+                Transport::Console,
+                &NonceLog::new()
+            ),
             Err(GrantRefusal::Expired)
         );
 
@@ -257,7 +550,15 @@ mod tests {
         let recent = grant_for(&device_id(), &["state.get"], (now_ms() - 60_000) as u64);
         let frame = remote_frame(call("state.get"), Some(recent));
         assert!(
-            admit(&frame, &device_id(), &signing().verifying_key(), now_ms()).is_ok(),
+            admit(
+                &frame,
+                &device_id(),
+                &signing().verifying_key(),
+                now_ms(),
+                Transport::Console,
+                &NonceLog::new()
+            )
+            .is_ok(),
             "a minute past the stated expiry is inside the five-minute allowance"
         );
     }
@@ -268,7 +569,14 @@ mod tests {
         let frame = remote_frame(call("state.get"), Some(grant));
 
         assert_eq!(
-            admit(&frame, &device_id(), &signing().verifying_key(), now_ms()),
+            admit(
+                &frame,
+                &device_id(),
+                &signing().verifying_key(),
+                now_ms(),
+                Transport::Console,
+                &NonceLog::new()
+            ),
             Err(GrantRefusal::ToolNotCovered)
         );
     }
@@ -282,7 +590,15 @@ mod tests {
         ] {
             let frame = remote_frame(mcp.clone(), Some(grant.clone()));
             assert!(
-                admit(&frame, &device_id(), &signing().verifying_key(), now_ms()).is_ok(),
+                admit(
+                    &frame,
+                    &device_id(),
+                    &signing().verifying_key(),
+                    now_ms(),
+                    Transport::Console,
+                    &NonceLog::new()
+                )
+                .is_ok(),
                 "{mcp}"
             );
         }
