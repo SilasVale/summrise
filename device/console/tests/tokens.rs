@@ -312,3 +312,50 @@ fn spacing_uses_the_rhythm_when_the_value_is_already_on_it() {
         }
     }
 }
+
+#[test]
+fn spacing_is_the_rhythm_or_a_documented_exception() {
+    // Six lengths are not on the nine-step rhythm, and each is a structural measurement rather than
+    // a spacing choice: the 0.05/0.1rem control hairlines, the 1.1/1.2rem sheet padding, the 2rem
+    // boot/login padding and the 2.6rem offset above the status bar. Everything else must be a
+    // --sp-* token; a new 0.35rem is a new decision, and it has to be made here.
+    let allowed = ["0.05rem", "0.1rem", "1.1rem", "1.2rem", "2rem", "2.6rem"];
+    let properties = [
+        "padding",
+        "margin",
+        "gap",
+        "row-gap",
+        "column-gap",
+        "top",
+        "right",
+        "bottom",
+        "left",
+        "inset",
+    ];
+    for line in APP.lines() {
+        // A line can carry a width and a padding (`max-width:84rem; padding:...`); the width is not
+        // a spacing decision, so only the value of a spacing PROPERTY is inspected.
+        for declaration in line.split(';') {
+            let Some((name, value)) = declaration.split_once(':') else {
+                continue;
+            };
+            let name = name.trim();
+            if !properties
+                .iter()
+                .any(|property| name == *property || name.starts_with(&format!("{property}-")))
+            {
+                continue;
+            }
+            for word in value.split_whitespace() {
+                let Some(number) = word.strip_suffix("rem") else {
+                    continue;
+                };
+                let value = format!("{number}rem");
+                assert!(
+                    allowed.contains(&value.as_str()),
+                    "spacing length {value} is neither a --sp-* token nor a documented exception: {line}"
+                );
+            }
+        }
+    }
+}
