@@ -28,6 +28,7 @@ import { parseSurfaceHash, surfaceHash } from "./surface-link";
 import { ScreenPage } from "./ScreenPage";
 import { SystemPage } from "./SystemPage";
 import { HomePage } from "./HomePage";
+import { CapabilitiesPage } from "./CapabilitiesPage";
 import { DevicePageShell } from "./DevicePageShell";
 import { AccountMenu } from "./AccountMenu";
 import { MachineMenu } from "./MachineMenu";
@@ -529,7 +530,22 @@ export function App() {
         )}
 
         {page === "capabilities" && (
-          <PendingPage title="Capabilities" hint="The catalogue is read from the selected machine's live tools/list." />
+          <CapabilitiesPage
+            devices={devices}
+            device={chosen}
+            tool={openTool}
+            onChoose={(id) => choose(id)}
+            onTool={(name) => setOpenTool(name)}
+            onMachine={() => {
+              setOpenTool(null);
+              setPage("device");
+              setTab("machine");
+            }}
+            onActivity={() => {
+              setOpenTool(null);
+              setPage("activity");
+            }}
+          />
         )}
 
         {page === "plugins" && (

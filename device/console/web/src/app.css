@@ -244,6 +244,8 @@ main.terminal-main { display: grid; grid-template-rows: auto minmax(0, 1fr); ali
   .rail-label { display: block; font-size: var(--fs-xs); font-weight: var(--fw-medium); }
   .page { padding: var(--sp-4); padding-bottom: var(--sp-5); gap: var(--sp-4); }
   .page-actions { width: 100%; margin-left: 0; }
+  .search-field { width: 100%; margin-left: 0; }
+  .search-field input { width: 100%; }
   .device-head { align-items: flex-start; }
   .device-head .device-tabs {
     width: 100%; margin-left: 0; flex-wrap: nowrap; overflow-x: auto;
@@ -516,6 +518,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 
 .chip {
   display: inline-block; padding: 0.05rem var(--sp-2); border-radius: 999px;
+  background: var(--panel-3); color: var(--ink-muted);
   font-size: var(--fs-xs); font-weight: var(--fw-semi); line-height: 1.6; white-space: nowrap;
 }
 .chip-ok { background: var(--ok-soft); color: var(--ok); }
@@ -1515,6 +1518,101 @@ span.files-name {
 .audit-caption { margin: 0 0 var(--sp-1-5); }
 
 /* The screen page: the capture is evidence, so it fills the panel but never overflows it. */
+/* ── Capabilities: the catalogue, and one tool's generated form ───────────────────────────────── */
+.search-field { margin-left: auto; min-width: 0; }
+.search-field input {
+  width: 18rem; max-width: 100%;
+  padding: var(--sp-2) var(--sp-2-5);
+  border: 1px solid var(--line-strong); border-radius: var(--radius-xs);
+  background: var(--surface); color: var(--ink); font: inherit; font-size: var(--fs-sm);
+}
+.cap-groups { display: grid; gap: var(--sp-5); min-width: 0; }
+.cap-group { display: grid; gap: var(--sp-1); min-width: 0; }
+.cap-group-head { display: flex; align-items: baseline; gap: var(--sp-2); flex-wrap: wrap; min-width: 0; }
+.cap-group-head h2 { font-size: var(--fs-md); font-weight: var(--fw-semi); }
+.cap-summary { color: var(--ink-muted); font-size: var(--fs-sm); }
+.cap-job { margin: 0; color: var(--ink-muted); font-size: var(--fs-sm); }
+.tool-list {
+  margin-top: var(--sp-1); border: 1px solid var(--line); border-radius: var(--radius-sm);
+  background: var(--surface); overflow: hidden;
+}
+.tool-row {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: auto auto;
+  gap: 0 var(--sp-3); width: 100%; padding: var(--sp-2) var(--sp-3);
+  border: 0; border-bottom: 1px solid var(--line-soft); border-radius: 0;
+  background: transparent; color: var(--ink); font: inherit; text-align: left; cursor: pointer;
+}
+.tool-row:last-child { border-bottom: 0; }
+.tool-row:hover { background: var(--panel-2); border-color: transparent; }
+.tool-name { grid-column: 1; font-size: var(--fs-base); }
+.tool-description {
+  grid-column: 1; color: var(--ink-muted); font-size: var(--fs-sm);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
+}
+.tool-chevron { grid-column: 2; grid-row: 1 / 3; align-self: center; color: var(--ink-faint); font-size: var(--fs-md); }
+.skeleton-list { display: grid; gap: var(--sp-2); }
+.skeleton-row {
+  display: grid; gap: var(--sp-2); padding: var(--sp-3);
+  border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface);
+}
+.skeleton { display: block; height: 0.7rem; border-radius: var(--radius-xs); background: var(--panel-3); }
+.skeleton-name { width: 11rem; max-width: 60%; height: 0.9rem; }
+.skeleton-line { width: 22rem; max-width: 90%; }
+
+.tool-detail { display: grid; gap: var(--sp-3); min-width: 0; }
+.tool-meta { margin: 0; color: var(--ink-muted); font-size: var(--fs-sm); }
+.chips { display: flex; gap: var(--sp-1); flex-wrap: wrap; }
+.schema, .try { display: grid; gap: var(--sp-2); min-width: 0; }
+.schema h3, .try h3 { margin: 0; font-size: var(--fs-base); font-weight: var(--fw-semi); }
+.schema-fields {
+  list-style: none; margin: 0; padding: 0;
+  border: 1px solid var(--line); border-radius: var(--radius-sm); overflow: hidden;
+}
+.schema-fields li {
+  display: flex; align-items: baseline; gap: var(--sp-2); flex-wrap: wrap;
+  padding: var(--sp-2) var(--sp-3); border-bottom: 1px solid var(--line-soft);
+}
+.schema-fields li:last-child { border-bottom: 0; }
+.schema-help { flex-basis: 100%; color: var(--ink-muted); font-size: var(--fs-sm); }
+.schema-required { color: var(--ink-muted); font-size: var(--fs-xs); font-weight: var(--fw-semi); }
+.try-head { display: flex; align-items: center; gap: var(--sp-2); }
+.try-head h3 { margin-right: auto; }
+button.toggle {
+  border: 1px solid var(--line-strong); background: var(--surface);
+  font-size: var(--fs-xs); padding: var(--sp-1) var(--sp-2);
+}
+button.toggle[aria-pressed="true"] { background: var(--panel-3); font-weight: var(--fw-semi); }
+.form-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr)); gap: var(--sp-3); }
+.field { display: grid; gap: var(--sp-1); align-content: start; font-size: var(--fs-sm); }
+.field-label { font-weight: var(--fw-medium); }
+.field .required { color: var(--ink-muted); font-weight: var(--fw-regular); }
+.field input, .field select, .field textarea {
+  width: 100%; min-width: 0;
+  padding: var(--sp-2) var(--sp-2-5);
+  border: 1px solid var(--line-strong); border-radius: var(--radius-xs);
+  background: var(--surface); color: var(--ink); font: inherit; font-size: var(--fs-sm);
+}
+.field textarea { min-height: 10rem; resize: vertical; font-family: var(--font-mono); font-size: var(--fs-xs); }
+.field-help { color: var(--ink-muted); font-size: var(--fs-xs); }
+.confirm-run {
+  display: grid; gap: var(--sp-2); padding: var(--sp-3);
+  border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: var(--panel-2);
+}
+.confirm-run p { margin: 0; font-size: var(--fs-sm); }
+.confirm-run .actions { justify-content: flex-end; }
+.result { display: grid; gap: var(--sp-2); min-width: 0; }
+.result-head { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
+.result-head .hint { margin: 0 auto 0 0; }
+.result-pre, .result-error {
+  margin: 0; padding: var(--sp-3); max-height: 40vh; overflow: auto;
+  border: 1px solid var(--line); border-radius: var(--radius-sm);
+  background: var(--panel-2); font-size: var(--fs-xs); line-height: 1.5;
+  white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.result-pre.expanded { max-height: none; }
+.result-error { color: var(--error); }
+.sheet-status { margin-right: auto; color: var(--ink-muted); font-size: var(--fs-sm); }
+
 .screen-shot { max-width: 100%; border: 1px solid var(--line); border-radius: var(--radius); }
 
 /* Motion explains a state change; under the operator's reduced-motion preference the product is

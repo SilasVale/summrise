@@ -1159,6 +1159,26 @@ async function capturePage(page, state, meta, pass) {
   captures.push({ pass: pass.key, page: meta.id, file, note: meta.state });
   console.log(`  ${pass.key.padEnd(6)} ${file}`);
 
+  if (meta.id === 'capabilities') {
+    // One tool's sheet: the detail and the generated Try it form in one frame. The first row is the
+    // operator's first question, not a destructive call.
+    await page.locator('.tool-row').first().click();
+    const dialog = page.getByRole('dialog');
+    await dialog.waitFor({ state: 'visible', timeout: 5_000 });
+    await settle(page, state, 250);
+    const toolFile = `capability-tool${pass.suffix}.png`;
+    await page.screenshot({ path: path.join(OUT, toolFile), animations: 'disabled', fullPage: false });
+    captures.push({
+      pass: pass.key,
+      page: 'capability-tool',
+      file: toolFile,
+      note: 'one tool: detail, annotations, schema and the generated Try it form'
+    });
+    console.log(`  ${pass.key.padEnd(6)} ${toolFile}`);
+    await page.locator('.sheet-close').click();
+    await dialog.waitFor({ state: 'hidden', timeout: 5_000 }).catch(() => undefined);
+  }
+
   if (meta.id === 'home') {
     // Home is two states: the fleet (zero machines chosen) and the hub. Open the first machine once,
     // then photograph the hub; the rest of the pass continues with that machine selected.

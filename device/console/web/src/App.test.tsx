@@ -277,6 +277,36 @@ describe("App", () => {
     await waitFor(() => expect(mocks.enroll).toHaveBeenCalledTimes(1));
   });
 
+  it("opens a tool's sheet from a capabilities deep link", async () => {
+    window.history.replaceState(null, "", "#capabilities/files.read");
+    // A device-specific catalogue needs a machine; the selection survives a reload.
+    localStorage.setItem("summrise.selected.device", workshop.id);
+    mocks.liveTools.mockResolvedValue({
+      tools: [
+        {
+          name: "files.read",
+          description: "read a file",
+          inputSchema: {
+            type: "object",
+            properties: { path: { type: "string" } },
+            required: ["path"]
+          },
+          source: "builtin",
+          capability: "files",
+          destructive: false
+        }
+      ]
+    });
+    await boot();
+    fireEvent.change(screen.getByLabelText("Operator token"), { target: { value: "operator-token" } });
+    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+
+    expect(await screen.findByRole("heading", { name: "Capabilities", level: 1 })).toBeInTheDocument();
+    expect(await screen.findByRole("dialog", { name: "files.read" })).toBeInTheDocument();
+    expect(window.location.hash).toBe("#capabilities/files.read");
+    window.history.replaceState(null, "", window.location.pathname);
+  });
+
   it("scopes Activity to the chosen machine", async () => {
     mocks.audit.mockResolvedValue([
       {
