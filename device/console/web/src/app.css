@@ -69,20 +69,20 @@ main { flex: 1; max-width: 84rem; margin: 0 auto; padding: var(--sp-5); display:
 .statusbar .grow { flex: 1; }
 
 .boot { padding: 2rem; color: var(--ink-muted); }
-.login-wrap { min-height: 100vh; display: grid; place-items: center; padding: 1.5rem; }
-.login { width: min(30rem, 100%); display: grid; gap: 0.5rem; }
+.login-wrap { min-height: 100vh; display: grid; place-items: center; padding: var(--sp-5); }
+.login { width: min(30rem, 100%); display: grid; gap: var(--sp-2); }
 .login h1, .login h2 { margin: 0.2rem 0 0; font-size: var(--fs-lg); }
 .login label { font-size: var(--fs-sm); font-weight: var(--fw-medium); margin-top: 0.4rem; }
 .login input {
-  width: 100%; padding: 0.5rem 0.65rem; border: 1px solid var(--line-strong); border-radius: var(--radius-xs);
+  width: 100%; padding: var(--sp-2) 0.65rem; border: 1px solid var(--line-strong); border-radius: var(--radius-xs);
   background: var(--surface); color: var(--ink); font: inherit;
 }
 .login button { justify-self: start; margin-top: 0.3rem; }
 .error { color: var(--error); font-size: var(--fs-sm); }
 .lede { color: var(--ink-muted); margin: 0; }
 
-.columns { display: grid; gap: 1rem; align-items: start; min-width: 0; }
-.col { display: grid; gap: 1rem; align-content: start; min-width: 0; }
+.columns { display: grid; gap: var(--sp-4); align-items: start; min-width: 0; }
+.col { display: grid; gap: var(--sp-4); align-content: start; min-width: 0; }
 /* A grid/flex item's automatic minimum is its content's min-content width. The device facts hold a
    Windows build string and a long disk figure; without these zeroes that one row widened the whole
    page to 431px on a 390px phone. */
@@ -177,7 +177,7 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--focus-ring); ou
   transition: border-color 0.15s ease, transform 0.15s ease;
 }
 .card:hover { border-color: var(--line-strong); transform: translateY(-1px); }.card-selected { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
-.card header { display: flex; align-items: center; gap: 0.5rem; }
+.card header { display: flex; align-items: center; gap: var(--sp-2); }
 .card header strong { font-size: var(--fs-base); font-weight: var(--fw-semi); overflow-wrap: anywhere; }
 .card header .chip { margin-left: auto; }
 .card footer { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: auto; }
@@ -190,7 +190,7 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--focus-ring); ou
 .card-details { margin-left: auto; }
 .card-details > summary { cursor: pointer; color: var(--ink-muted); font-size: var(--fs-sm); padding: 0.2rem 0.4rem; border-radius: var(--radius-xs); list-style: none; }
 .card-details > summary::-webkit-details-marker { display: none; }
-.card-details > summary::before { content: "▸"; display: inline-block; margin-right: 0.25rem; transition: transform 0.15s ease; }
+.card-details > summary::before { content: "▸"; display: inline-block; margin-right: var(--sp-1); transition: transform 0.15s ease; }
 .card-details[open] > summary::before { transform: rotate(90deg); }
 .card-details > summary:hover { color: var(--ink); background: var(--surface-chip); }
 .card-details > summary:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
@@ -207,7 +207,7 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--focus-ring); ou
   background: var(--surface); padding: 0.45rem 0.6rem; margin: 0;
   display: grid; gap: 0.15rem; font-size: var(--fs-sm);
 }
-.facts > div { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 0.25rem 1rem; min-width: 0; }
+.facts > div { display: flex; flex-wrap: wrap; justify-content: space-between; gap: var(--sp-1) var(--sp-4); min-width: 0; }
 .facts dt { color: var(--ink-muted); }
 .facts dd { margin: 0; min-width: 0; overflow-wrap: anywhere; text-align: right; }
 
@@ -219,17 +219,17 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--focus-ring); ou
 .vitals-key::before { content: ""; width: 0.6rem; height: 2px; border-radius: 1px; flex: none; }
 .vitals-key-memory::before { background: var(--ink-muted); }
 .vitals-key-disk::before { background: var(--warn); }
-.vitals-chart { display: block; width: 100%; height: 2.75rem; margin-top: 0.25rem; }
+.vitals-chart { display: block; width: 100%; height: 2.75rem; margin-top: var(--sp-1); }
 .vitals-line { fill: none; stroke-width: 1.5; stroke-linejoin: round; stroke-linecap: round; }
 .vitals-line-memory { stroke: var(--ink-muted); }
 .vitals-line-disk { stroke: var(--warn); }
 .vitals-dot { stroke: none; }
 .vitals-dot-memory { fill: var(--ink-muted); }
 .vitals-dot-disk { fill: var(--warn); }
-.vitals-caption, .vitals-collecting { margin: 0.25rem 0 0; color: var(--ink-muted); font-size: var(--fs-xs); line-height: 1.4; }
+.vitals-caption, .vitals-collecting { margin: var(--sp-1) 0 0; color: var(--ink-muted); font-size: var(--fs-xs); line-height: 1.4; }
 
 .chip {
-  display: inline-block; padding: 0.05rem 0.5rem; border-radius: 999px;
+  display: inline-block; padding: 0.05rem var(--sp-2); border-radius: 999px;
   font-size: var(--fs-xs); font-weight: var(--fw-semi); line-height: 1.6; white-space: nowrap;
 }
 .chip-ok { background: var(--ok-soft); color: var(--ok); }
@@ -248,7 +248,7 @@ table { width: 100%; border-collapse: collapse; }
    page. A table that pushes the page sideways hides the rail and the status bar with it. */
 .table-scroll { max-width: 100%; overflow-x: auto; }
 .table-scroll:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; border-radius: var(--radius-xs); }
-th, td { text-align: left; padding: 0.4rem 0.5rem; border-bottom: 1px solid var(--line); }
+th, td { text-align: left; padding: 0.4rem var(--sp-2); border-bottom: 1px solid var(--line); }
 th {
   position: sticky; top: 0; background: var(--surface); z-index: 1;
   font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: 0.05em;
@@ -257,29 +257,29 @@ th {
 tr:last-child td { border-bottom: 0; }
 
 .code {
-  margin: 0.5rem 0 0; padding: 0.6rem 0.7rem; border-radius: var(--radius-xs);
+  margin: var(--sp-2) 0 0; padding: 0.6rem 0.7rem; border-radius: var(--radius-xs);
   background: var(--surface-recessed); border: 1px solid var(--line);
   font-family: var(--font-mono); font-size: var(--fs-xs); white-space: pre-wrap; overflow-wrap: anywhere;
 }
 
 .scrim {
   position: fixed; inset: 0; background: rgba(12, 16, 20, 0.38);
-  display: grid; place-items: center; padding: 1.5rem; z-index: 50;
+  display: grid; place-items: center; padding: var(--sp-5); z-index: 50;
 }
 .modal {
   width: min(28rem, 100%); max-height: calc(100vh - 3rem); overflow: auto;
   background: var(--surface); border: 1px solid var(--line);
   border-radius: var(--radius-lg); padding: 1.1rem 1.2rem; box-shadow: var(--shadow-2);
-  display: grid; gap: 0.5rem;
+  display: grid; gap: var(--sp-2);
 }
 .modal h2 { font-size: var(--fs-lg); }
 .modal label { font-size: var(--fs-sm); font-weight: var(--fw-medium); }
 .modal input {
-  width: 100%; padding: 0.5rem 0.6rem; border: 1px solid var(--line-strong);
+  width: 100%; padding: var(--sp-2) 0.6rem; border: 1px solid var(--line-strong);
   border-radius: var(--radius-xs); background: var(--surface); color: var(--ink); font: inherit;
 }
 .modal select {
-  width: 100%; padding: 0.5rem 0.6rem; border: 1px solid var(--line-strong);
+  width: 100%; padding: var(--sp-2) 0.6rem; border: 1px solid var(--line-strong);
   border-radius: var(--radius-xs); background: var(--surface); color: var(--ink); font: inherit;
 }
 /* A radio is a choice, not a field: the modal's full-width input rule would stretch it. */
@@ -292,12 +292,12 @@ tr:last-child td { border-bottom: 0; }
   margin: 0; padding: 0.4rem 0.6rem 0.55rem; border: 1px solid var(--line);
   border-radius: var(--radius-xs); display: grid; gap: 0.2rem;
 }
-.modal .auth-choice legend { padding: 0 0.25rem; font-size: var(--fs-sm); font-weight: var(--fw-medium); }
+.modal .auth-choice legend { padding: 0 var(--sp-1); font-size: var(--fs-sm); font-weight: var(--fw-medium); }
 /* Serial framing is four short values, not four full-width lines. */
-.serial-framing { display: grid; grid-template-columns: repeat(auto-fit, minmax(6rem, 1fr)); gap: 0.5rem; }
+.serial-framing { display: grid; grid-template-columns: repeat(auto-fit, minmax(6rem, 1fr)); gap: var(--sp-2); }
 .serial-framing > div { display: grid; gap: 0.2rem; min-width: 0; }
 .serial-framing label { font-size: var(--fs-xs); font-weight: var(--fw-medium); color: var(--ink-muted); }
-.modal-actions { display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 0.4rem; }
+.modal-actions { display: flex; justify-content: flex-end; gap: var(--sp-2); margin-top: 0.4rem; }
 
 /* The AI-client card: one column of form, then the two facts and their copy buttons. */
 .connect { display: grid; gap: 0.55rem; }
@@ -320,7 +320,7 @@ tr:last-child td { border-bottom: 0; }
   display: grid; gap: 0.15rem; padding: 0.45rem 0.55rem;
   border: 1px solid var(--line); border-radius: var(--radius-xs); background: var(--surface-recessed);
 }
-.token-list li > div { display: flex; align-items: baseline; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap; }
+.token-list li > div { display: flex; align-items: baseline; justify-content: space-between; gap: var(--sp-2); flex-wrap: wrap; }
 .connect .grant-row select { width: auto; min-width: 9rem; }
 .connect-actions { display: flex; flex-wrap: wrap; gap: 0.45rem; }
 /* The header is a credential, not a document: a phone must still see the actions below it. */
@@ -330,32 +330,32 @@ tr:last-child td { border-bottom: 0; }
 
 .toast {
   position: fixed; left: 50%; transform: translateX(-50%); bottom: 2.6rem; z-index: 60;
-  display: flex; align-items: center; gap: 0.75rem;
+  display: flex; align-items: center; gap: var(--sp-3);
   background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
-  padding: 0.5rem 0.75rem; box-shadow: var(--shadow-2); font-size: var(--fs-sm);
+  padding: var(--sp-2) var(--sp-3); box-shadow: var(--shadow-2); font-size: var(--fs-sm);
 }
 
 .grant { display: grid; gap: 0.6rem; }
 .grant-row { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
 .grant-row input[type="number"] {
-  width: 7rem; padding: 0.35rem 0.5rem; border: 1px solid var(--line-strong);
+  width: 7rem; padding: 0.35rem var(--sp-2); border: 1px solid var(--line-strong);
   border-radius: var(--radius-xs); background: var(--surface); color: var(--ink); font: inherit;
 }
 .check { display: inline-flex; align-items: center; gap: 0.4rem; font-size: var(--fs-sm); font-weight: var(--fw-regular); }
-.tools { border: 1px solid var(--line); border-radius: var(--radius); padding: 0.5rem 0.7rem 0.7rem; background: var(--surface-recessed); }
+.tools { border: 1px solid var(--line); border-radius: var(--radius); padding: var(--sp-2) 0.7rem 0.7rem; background: var(--surface-recessed); }
 .tools legend { font-size: var(--fs-sm); font-weight: var(--fw-semi); color: var(--ink-muted); padding: 0 0.3rem; display: flex; align-items: center; gap: 0.4rem; }
 .tools .mini { padding: 0.1rem 0.45rem; font-size: var(--fs-xs); }
 .tool-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(12rem, 1fr)); gap: 0.15rem 0.8rem; margin-top: 0.35rem; }
 .tool-grid .check { font-size: var(--fs-xs); }
 
-.terminal-pane { display: grid; gap: 0.5rem; min-width: 0; }
+.terminal-pane { display: grid; gap: var(--sp-2); min-width: 0; }
 /* A select, a list button, an open button and a close button are 500 px of controls on one line: at 420 px
    they push the page sideways. The row wraps instead. */
 .terminal-pane .actions { flex-wrap: wrap; }
 .terminal-pane .actions select { max-width: 100%; }
 .terminal-pane .actions select,
 .terminal-pane > select {
-  padding: 0.35rem 0.5rem; border: 1px solid var(--line-strong); border-radius: var(--radius-xs);
+  padding: 0.35rem var(--sp-2); border: 1px solid var(--line-strong); border-radius: var(--radius-xs);
   background: var(--surface); color: var(--ink); font: inherit; font-size: var(--fs-sm);
 }
 /* The pane follows the window: a fixed 22 rem is taller than a phone's whole viewport once the on-screen
@@ -367,9 +367,9 @@ tr:last-child td { border-bottom: 0; }
   overflow: hidden;
 }
 
-.session button { margin-left: 0.5rem; padding: 0.2rem 0.55rem; font-size: var(--fs-xs); }
-.browser-pane { display: grid; gap: 0.5rem; }
-.browser-pane .row { display: flex; gap: 0.5rem; }
+.session button { margin-left: var(--sp-2); padding: 0.2rem 0.55rem; font-size: var(--fs-xs); }
+.browser-pane { display: grid; gap: var(--sp-2); }
+.browser-pane .row { display: flex; gap: var(--sp-2); }
 .browser-pane .row input {
   flex: 1; padding: 0.45rem 0.6rem; border: 1px solid var(--line-strong);
   border-radius: var(--radius-xs); background: var(--surface); color: var(--ink); font: inherit;
@@ -382,7 +382,7 @@ tr:last-child td { border-bottom: 0; }
   .body { flex-direction: column-reverse; }
   /* Eleven destinations do not fit a 320-390 px strip: wrapping keeps every one reachable without the
      page growing a horizontal scrollbar. */
-  .rail { width: 100%; flex-direction: row; flex-wrap: wrap; justify-content: center; gap: 0.2rem; border-right: 0; border-top: 1px solid var(--line); padding: 0.3rem 0.5rem; }
+  .rail { width: 100%; flex-direction: row; flex-wrap: wrap; justify-content: center; gap: 0.2rem; border-right: 0; border-top: 1px solid var(--line); padding: 0.3rem var(--sp-2); }
   .rail-btn { width: auto; min-width: 52px; height: 44px; }
   .rail-spacer { display: none; }
   .rail-dot { margin: 0 0.4rem; }
@@ -403,7 +403,7 @@ tr:last-child td { border-bottom: 0; }
 /* A device list inside a page that needs one, so the rail is never a dead end. */
 .picker {
   list-style: none;
-  margin: 0.75rem 0 0;
+  margin: var(--sp-3) 0 0;
   padding: 0;
   display: grid;
   gap: 0.4rem;
@@ -411,8 +411,8 @@ tr:last-child td { border-bottom: 0; }
 .picker li {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  padding: 0.5rem 0.65rem;
+  gap: var(--sp-2);
+  padding: var(--sp-2) 0.65rem;
   border: 1px solid var(--line, #e3e1dc);
   border-radius: 8px;
 }
@@ -453,10 +453,10 @@ main.terminal-main:has(.terminal-workspace-empty) { grid-template-rows: auto aut
 .terminal-presets .picker { margin-top: var(--sp-2); }
 .tabbar {
   display: flex;
-  gap: 0.25rem;
+  gap: var(--sp-1);
   flex-wrap: wrap;
   border-bottom: 1px solid var(--line);
-  padding-bottom: 0.25rem;
+  padding-bottom: var(--sp-1);
 }
 .tab {
   display: inline-flex;
@@ -507,7 +507,7 @@ main.terminal-main:has(.terminal-workspace-empty) { grid-template-rows: auto aut
 .find-bar input {
   flex: 1;
   min-width: 9rem;
-  padding: 0.3rem 0.5rem;
+  padding: 0.3rem var(--sp-2);
   border: 1px solid var(--line-strong);
   border-radius: var(--radius-xs);
   background: var(--surface);
@@ -516,7 +516,7 @@ main.terminal-main:has(.terminal-workspace-empty) { grid-template-rows: auto aut
   font-size: var(--fs-sm);
 }
 .find-bar button {
-  padding: 0.25rem 0.5rem;
+  padding: var(--sp-1) var(--sp-2);
   border: 1px solid var(--line-strong);
   border-radius: var(--radius-xs);
   background: var(--surface);
@@ -549,7 +549,7 @@ main.terminal-main:has(.terminal-workspace-empty) { grid-template-rows: auto aut
 .terminal-fault {
   display: grid;
   gap: 0.35rem;
-  padding: 0.5rem 0.65rem;
+  padding: var(--sp-2) 0.65rem;
   border: 1px solid var(--line-strong);
   border-radius: var(--radius-xs);
   background: var(--surface-recessed);
@@ -568,7 +568,7 @@ main.terminal-main:has(.terminal-workspace-empty) { grid-template-rows: auto aut
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 0.5rem;
+  gap: var(--sp-2);
   flex-wrap: wrap;
 }
 
@@ -593,7 +593,7 @@ main.terminal-main:has(.terminal-workspace-empty) { grid-template-rows: auto aut
 .memory-toolbar {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: var(--sp-2);
   flex-wrap: wrap;
 }
 .memory-toolbar input {
@@ -675,7 +675,7 @@ button.chip-tag:hover {
   display: flex;
   flex-wrap: wrap;
   align-items: end;
-  gap: 0.5rem;
+  gap: var(--sp-2);
 }
 .monitors-field {
   display: grid;
@@ -723,7 +723,7 @@ button.chip-tag:hover {
   display: flex;
   flex-wrap: wrap;
   align-items: end;
-  gap: 0.5rem;
+  gap: var(--sp-2);
 }
 .runs-field {
   display: grid;
@@ -774,7 +774,7 @@ button.chip-tag:hover {
   color: var(--ink-faint);
 }
 .runs-stream pre {
-  margin: 0.25rem 0 0;
+  margin: var(--sp-1) 0 0;
   padding: 0.6rem 0.7rem;
   max-height: 22rem;
   overflow: auto;
@@ -796,7 +796,7 @@ button.chip-tag:hover {
 }
 .runs-detail-command {
   display: grid;
-  gap: 0.25rem;
+  gap: var(--sp-1);
 }
 .runs-detail-command p {
   margin: 0;
@@ -870,7 +870,7 @@ button.files-crumb:hover {
   display: flex;
   flex-wrap: wrap;
   align-items: end;
-  gap: 0.75rem;
+  gap: var(--sp-3);
 }
 .files-new {
   display: grid;
@@ -979,7 +979,7 @@ span.files-name {
 
 .files-viewer {
   display: grid;
-  gap: 0.5rem;
+  gap: var(--sp-2);
 }
 .files-viewer header .mono {
   flex: 1 1 auto;
@@ -992,7 +992,7 @@ span.files-name {
 .files-editor {
   width: 100%;
   min-height: 18rem;
-  padding: 0.5rem 0.6rem;
+  padding: var(--sp-2) 0.6rem;
   resize: vertical;
   border: 1px solid var(--line-strong);
   border-radius: var(--radius-xs);
@@ -1009,7 +1009,7 @@ span.files-name {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 0.5rem;
+  gap: var(--sp-2);
 }
 
 /* The system page: a process table whose rows can end a process, and one TCP connect with its
@@ -1025,7 +1025,7 @@ span.files-name {
   min-width: 0;
 }
 .system-section > h3 {
-  margin: 0.25rem 0 0;
+  margin: var(--sp-1) 0 0;
   font-size: var(--fs-base);
   font-weight: var(--fw-semi);
 }
@@ -1034,7 +1034,7 @@ span.files-name {
   display: flex;
   flex-wrap: wrap;
   align-items: end;
-  gap: 0.5rem;
+  gap: var(--sp-2);
 }
 .system-field {
   display: grid;
@@ -1101,7 +1101,7 @@ span.files-name {
   display: flex;
   align-items: end;
   flex-wrap: wrap;
-  gap: 0.5rem;
+  gap: var(--sp-2);
   margin: 0.55rem 0 0.45rem;
 }
 .audit-field {
