@@ -26,6 +26,7 @@ import { TerminalWorkspace } from "./TerminalWorkspace";
 import type { Grant } from "./terminal";
 import { FilesPage } from "./FilesPage";
 import { RunsPage } from "./RunsPage";
+import { parseRunLink, runLink } from "./run-link";
 import { ScreenPage } from "./ScreenPage";
 import { SystemPage } from "./SystemPage";
 
@@ -44,10 +45,13 @@ export function App() {
   // THE FIRST SCREEN IS THE MACHINES, NOT A TERMINAL WITH NO MACHINE. PRODUCT.md's rule 5: a first
   // visit shows the machines; the workspace appears once one is chosen. The old default was terminal,
   // so a zero-device fleet taught the operator an icon-only rail before it taught them anything.
-  const [page, setPage] = useState<Page>("devices");
-  const [selected, setSelected] = useState<string | null>(null);
+  // A run link in the fragment survives a reload (and the sign-in a reload needs). It names the
+  // machine as well as the run, because a run id is only unique on its device.
+  const [initialRun] = useState(() => parseRunLink(window.location.hash));
+  const [page, setPage] = useState<Page>(initialRun ? "runs" : "devices");
+  const [selected, setSelected] = useState<string | null>(initialRun?.deviceId ?? null);
   // A run id handed from Activity to Runs; RunsPage consumes it once and clears it.
-  const [runsFocus, setRunsFocus] = useState<string | null>(null);
+  const [runsFocus, setRunsFocus] = useState<string | null>(initialRun?.runId ?? null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [tokenInput, setTokenInput] = useState("");
@@ -216,13 +220,26 @@ export function App() {
     setGrant(null);
     setGrantStale(false);
     setPage("devices");
+    if (parseRunLink(window.location.hash)) {
+      window.history.replaceState(null, "", window.location.pathname + window.location.search);
+    }
   };
 
   const openRun = (deviceId: string, runId: string) => {
+    window.history.replaceState(null, "", runLink(deviceId, runId));
     setSelected(deviceId);
     setRunsFocus(runId);
     setPage("runs");
   };
+
+  // Leaving Runs forgets the link, so a later reload opens the first screen rather than a run the
+  // operator has moved on from. While Runs is the page, the fragment stays and reloads stay deep.
+  useEffect(() => {
+    if (page === "runs") return;
+    if (parseRunLink(window.location.hash)) {
+      window.history.replaceState(null, "", window.location.pathname + window.location.search);
+    }
+  }, [page]);
 
   const signIn = async () => {
     setBusy(true);
