@@ -18,7 +18,7 @@ fn value<'a>(block: &'a str, name: &str) -> Option<&'a str> {
     })
 }
 
-fn block<'a>(css: &'a str, start: usize) -> &'a str {
+fn block(css: &str, start: usize) -> &str {
     &css[start..]
 }
 
