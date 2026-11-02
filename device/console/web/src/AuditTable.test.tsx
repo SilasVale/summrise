@@ -89,6 +89,23 @@ function rowOf(text: string): HTMLElement {
 
 
 describe("AuditTable", () => {
+  it("shows a date when a line is not from today", () => {
+    const ts = Date.now() - 3 * 24 * 60 * 60_000;
+    render(
+      <AuditTable lines={[line({ ts_ms: ts, device_id: alpha, status: 200 })]} devices={devices} tokens={[]} />
+    );
+
+    const cell = screen.getByTitle(new Date(ts).toISOString());
+    expect(cell).toHaveTextContent(
+      new Date(ts).toLocaleString(undefined, {
+        month: "short",
+        day: "numeric",
+        hour: "numeric",
+        minute: "2-digit"
+      })
+    );
+  });
+
   it("opens scoped to the selected machine and can widen to the fleet", () => {
     render(<AuditTable lines={lines} devices={devices} tokens={[]} selectedDeviceId={alpha} />);
 

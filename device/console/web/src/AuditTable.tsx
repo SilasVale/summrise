@@ -54,6 +54,28 @@ function lineKeys(lines: AuditLine[]): Map<AuditLine, string> {
   return keys;
 }
 
+/// The cell's time, with the date only when the line is not from today. A 20-line window is usually
+/// one day; when it crosses midnight the date is the fact that keeps two 08:00 lines apart.
+function whenLabel(ms: number): { label: string; iso: string } {
+  const at = new Date(ms);
+  const now = new Date();
+  const sameDay =
+    at.getFullYear() === now.getFullYear() &&
+    at.getMonth() === now.getMonth() &&
+    at.getDate() === now.getDate();
+  return {
+    label: sameDay
+      ? at.toLocaleTimeString()
+      : at.toLocaleString(undefined, {
+          month: "short",
+          day: "numeric",
+          hour: "numeric",
+          minute: "2-digit"
+        }),
+    iso: at.toISOString()
+  };
+}
+
 /// The run id `run_detail` wrote into the audit line: `run <id> exited 0 in 42 ms`.
 function runIdFromDetail(detail: string | null | undefined): string | null {
   const match = /^run (\S+) /.exec(detail ?? "");
@@ -267,7 +289,9 @@ export function AuditTable({
                 return (
                   <Fragment key={key}>
                     <tr>
-                      <td className="mono">{new Date(line.ts_ms).toLocaleTimeString()}</td>
+                      <td className="mono" title={whenLabel(line.ts_ms).iso}>
+                        {whenLabel(line.ts_ms).label}
+                      </td>
                       <td>{line.kind}</td>
                       <td title={line.device_id ?? undefined}>
                         {line.device_id
