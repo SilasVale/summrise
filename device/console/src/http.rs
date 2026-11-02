@@ -431,6 +431,10 @@ impl Console {
                 "/fleet/:id/connections/:connection",
                 axum::routing::delete(remove_connection),
             )
+            // The page's live catalogue: the selected device's own `tools/list`, read over the same
+            // channel and operator scope `/mcp` uses. The console keeps no copy and no cache; a
+            // device that cannot answer is an offline state, never a fabricated list.
+            .route("/fleet/:id/tools", get(live_tool_catalogue))
             .route("/fleet/:id", axum::routing::delete(remove_device))
             // The tool catalogue the grant form reads. It is the device's own registry — the console
             // depends on `summrise-core`, so there is one list, not a copy in the page and another in
@@ -781,10 +785,13 @@ impl axum::extract::FromRequestParts<AppState> for OperatorSession {
     }
 }
 
-/// A refusal the console renders as `{"error": "<code>"}`.
+/// A refusal the console renders as `{"error": "<code>"}`, plus an optional sentence a page can
+/// show verbatim. The sentence is additive: callers that switch on `error` are unchanged, and a
+/// refusal whose next step is not obvious from its code carries the action in words.
 pub(crate) struct ApiError {
     status: StatusCode,
     code: &'static str,
+    message: Option<String>,
 }
 
 impl ApiError {
@@ -792,6 +799,7 @@ impl ApiError {
         ApiError {
             status: StatusCode::UNAUTHORIZED,
             code: "unauthorized",
+            message: None,
         }
     }
 
@@ -799,6 +807,7 @@ impl ApiError {
         ApiError {
             status: StatusCode::FORBIDDEN,
             code,
+            message: None,
         }
     }
 
@@ -806,6 +815,7 @@ impl ApiError {
         ApiError {
             status: StatusCode::BAD_REQUEST,
             code,
+            message: None,
         }
     }
 
@@ -813,6 +823,7 @@ impl ApiError {
         ApiError {
             status: StatusCode::NOT_FOUND,
             code,
+            message: None,
         }
     }
 
@@ -820,6 +831,15 @@ impl ApiError {
         ApiError {
             status: StatusCode::TOO_MANY_REQUESTS,
             code,
+            message: None,
+        }
+    }
+
+    fn unavailable(code: &'static str) -> Self {
+        ApiError {
+            status: StatusCode::SERVICE_UNAVAILABLE,
+            code,
+            message: None,
         }
     }
 
@@ -827,6 +847,7 @@ impl ApiError {
         ApiError {
             status: StatusCode::GATEWAY_TIMEOUT,
             code,
+            message: None,
         }
     }
 
@@ -834,13 +855,32 @@ impl ApiError {
         ApiError {
             status: StatusCode::INTERNAL_SERVER_ERROR,
             code: "internal",
+            message: None,
         }
+    }
+
+    fn internal_code(code: &'static str) -> Self {
+        ApiError {
+            status: StatusCode::INTERNAL_SERVER_ERROR,
+            code,
+            message: None,
+        }
+    }
+
+    /// Attach the sentence a person reads. It names the next action, never only the failure.
+    fn saying(mut self, message: impl Into<String>) -> Self {
+        self.message = Some(message.into());
+        self
     }
 }
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
-        (self.status, Json(json!({ "error": self.code }))).into_response()
+        let mut body = json!({ "error": self.code });
+        if let Some(message) = self.message {
+            body["message"] = json!(message);
+        }
+        (self.status, Json(body)).into_response()
     }
 }
 
@@ -5182,6 +5222,7 @@ async fn create_token(
         .into_iter()
         .map(|device| device.id)
         .collect();
+
     let created = lock(&app.tokens).create(
         crate::tokens::Draft {
             name: request.name,
@@ -5478,6 +5519,21 @@ fn ensure_registered(app: &AppState, device_id: &str) -> Result<(), ApiError> {
         Ok(())
     } else {
         Err(ApiError::not_found("unknown_device"))
+    }
+}
+
+/// The operator's own scope on one device: every tool, destructive allowed.
+///
+/// The operator session is the credential on `/mcp`, and the live catalogue is the same operator
+/// asking the same device a read-only question. One shape, built once, so the catalogue cannot
+/// become a second authorization path with weaker rules than the proxy.
+fn operator_scope(device_id: &str) -> crate::channels::TokenScope {
+    crate::channels::TokenScope {
+        token_id: "operator".to_owned(),
+        device_id: device_id.to_owned(),
+        scopes: vec!["*".to_owned()],
+        allow_destructive: true,
+        expires_at_ms: None,
     }
 }
 
@@ -5840,13 +5896,7 @@ async fn proxy_mcp(
         }
         None => None,
     };
-    let operator_scope = crate::channels::TokenScope {
-        token_id: "operator".to_owned(),
-        device_id: body.device_id.clone(),
-        scopes: vec!["*".to_owned()],
-        allow_destructive: true,
-        expires_at_ms: None,
-    };
+    let operator_scope = operator_scope(&body.device_id);
     let auth = match legacy {
         Some(grant) => RequestAuth::Grant(grant),
         None => RequestAuth::Token(&operator_scope),
@@ -6514,6 +6564,188 @@ struct ToolView {
     description: &'static str,
 }
 
+/// `GET /fleet/:id/tools`: the selected device's live `tools/list`, classified by the console.
+///
+/// The device is the authority on what it advertises. The console adds only the two facts a page
+/// cannot derive: where the tool comes from (`builtin`, or the plugin namespace) and, for a
+/// built-in, the capability group the registry declares it under. A read never falls back to the
+/// static registry: an offline device is an offline state, not a shorter list.
+async fn live_tool_catalogue(
+    State(app): State<AppState>,
+    Path(device_id): Path<String>,
+    _: OperatorSession,
+) -> Response {
+    if !app.has_device(&device_id) {
+        return ApiError::not_found("unknown_device").into_response();
+    }
+    match read_live_tools(&app, &device_id).await {
+        Ok(tools) => match catalogue_from_tools(&tools) {
+            Ok(tools) => (StatusCode::OK, Json(json!({ "tools": tools }))).into_response(),
+            Err(()) => LiveToolsError::Malformed.refusal().into_response(),
+        },
+        Err(error) => error.refusal().into_response(),
+    }
+}
+
+/// One tool as `GET /fleet/:id/tools` serves it: the device's advertisement, plus the console's
+/// source/capability classification. Field names are the fixed wire contract the page reads.
+#[derive(Debug, PartialEq, serde::Serialize)]
+struct LiveToolView {
+    name: String,
+    description: String,
+    #[serde(rename = "inputSchema")]
+    input_schema: Value,
+    source: String,
+    capability: String,
+    destructive: bool,
+}
+
+/// Why a live `tools/list` read produced no list.
+#[derive(Debug, PartialEq, Eq)]
+enum LiveToolsError {
+    /// No channel, a queue at its cap, or a channel that closed: nothing was read.
+    Unavailable,
+    /// The device took the frame and did not answer inside the console's bound.
+    Timeout,
+    /// The device answered with something that is not a tool list.
+    Malformed,
+}
+
+impl LiveToolsError {
+    /// The catalogue route's answer: 503 offline, 504 timeout, 500 malformed, each with a sentence.
+    fn refusal(self) -> ApiError {
+        match self {
+            LiveToolsError::Unavailable => ApiError::unavailable("device reconnecting")
+                .saying("this machine is not connected; connect it, then try again"),
+            LiveToolsError::Timeout => ApiError::gateway_timeout("device timeout")
+                .saying("the device did not answer; it may still be working, so try again"),
+            LiveToolsError::Malformed => ApiError::internal_code("malformed_tools").saying(
+                "the device sent a tool list this console cannot read; update the device, then try again",
+            ),
+        }
+    }
+}
+
+/// Send `tools/list` over the device's channel with the operator's own scope and return the raw
+/// tool objects. The same helper answers the token form's plugin-tool check, so both read the one
+/// list the device actually advertises.
+async fn read_live_tools(app: &AppState, device_id: &str) -> Result<Vec<Value>, LiveToolsError> {
+    // A registered but disconnected device is offline now; asking the channel would wait out the
+    // reconnect bound before saying the same thing.
+    if !app.channels.online(device_id) {
+        return Err(LiveToolsError::Unavailable);
+    }
+
+    let scope = operator_scope(device_id);
+    let request = json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list" });
+    let answer = tokio::time::timeout(
+        app.mcp_timeout,
+        app.channels
+            .request(device_id, request, &RequestAuth::Token(&scope)),
+    )
+    .await;
+
+    let reply = match answer {
+        Err(_) => return Err(LiveToolsError::Timeout),
+        Ok(Err(RequestError::Offline | RequestError::Busy | RequestError::Disconnected)) => {
+            return Err(LiveToolsError::Unavailable)
+        }
+        Ok(Err(RequestError::SendTimeout | RequestError::ReplyTimeout)) => {
+            return Err(LiveToolsError::Timeout)
+        }
+        Ok(Ok(reply)) => reply,
+    };
+
+    let Reply::Result(response) = reply else {
+        // A JSON-RPC error envelope for `tools/list` is not a list. It is the device's answer, so
+        // it is malformed upstream rather than a transport failure.
+        return Err(LiveToolsError::Malformed);
+    };
+    response
+        .get("result")
+        .and_then(|result| result.get("tools"))
+        .and_then(Value::as_array)
+        .cloned()
+        .ok_or(LiveToolsError::Malformed)
+}
+
+/// Map the device's advertised tools onto the catalogue contract, or `Err(())` when one entry is
+/// not a tool object with a non-empty name.
+fn catalogue_from_tools(tools: &[Value]) -> Result<Vec<LiveToolView>, ()> {
+    tools
+        .iter()
+        .map(|tool| live_tool_view(tool).ok_or(()))
+        .collect()
+}
+
+/// One advertised tool, classified. `None` when the entry cannot be a tool.
+fn live_tool_view(tool: &Value) -> Option<LiveToolView> {
+    let name = tool.get("name")?.as_str()?;
+    if name.is_empty() {
+        return None;
+    }
+    let description = tool
+        .get("description")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_owned();
+    // MCP requires `inputSchema`; a device that omits it still advertises a callable object, so
+    // the contract's field gets the empty object schema rather than disappearing.
+    let input_schema = tool
+        .get("inputSchema")
+        .cloned()
+        .unwrap_or_else(|| json!({ "type": "object", "properties": {} }));
+    let (source, capability, destructive) = match summrise_core::registry::tool(name) {
+        Some(definition) => (
+            "builtin".to_owned(),
+            registry_capability(name).unwrap_or_default().to_owned(),
+            definition.destructive,
+        ),
+        None => {
+            // A plugin tool is `<namespace>.<X>` (spec §8.2). The first segment is the capability
+            // the page groups it under and the source the row carries.
+            let namespace = name.split('.').next().unwrap_or(name);
+            (
+                format!("plugin:{namespace}"),
+                namespace.to_owned(),
+                plugin_tool_destructive(tool),
+            )
+        }
+    };
+    Some(LiveToolView {
+        name: name.to_owned(),
+        description,
+        input_schema,
+        source,
+        capability,
+        destructive,
+    })
+}
+
+/// The capability whose registry entry declares `name`.
+fn registry_capability(name: &str) -> Option<&'static str> {
+    summrise_core::registry::CAPABILITIES
+        .iter()
+        .find(|capability| capability.tools.iter().any(|tool| tool.name == name))
+        .map(|capability| capability.name)
+}
+
+/// A plugin tool's destructive flag, by MCP's own default: a read-only tool is not destructive, and
+/// a tool that omits `destructiveHint` is destructive. This is the device's rule, restated here
+/// because the console classifies the row the device advertises.
+fn plugin_tool_destructive(tool: &Value) -> bool {
+    let annotations = tool.get("annotations");
+    let read_only = annotations
+        .and_then(|annotations| annotations.get("readOnlyHint"))
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let destructive_hint = annotations
+        .and_then(|annotations| annotations.get("destructiveHint"))
+        .and_then(Value::as_bool)
+        .unwrap_or(true);
+    !read_only && destructive_hint
+}
+
 /// `GET /mesh`: whether this console has a mesh view at all.
 ///
 /// It answers 200 in both cases: "the operator did not configure it" is a fact about this console, not a
@@ -7095,5 +7327,94 @@ mod tests {
             Some("jsonrpc error -32603")
         );
         assert_eq!(run_detail(&result("not json")), None);
+    }
+
+    /// The live catalogue's classification: the device's advertisement plus the console's source,
+    /// capability and destructive rule. Built-ins come from the registry; a plugin tool's
+    /// destructive flag is MCP's default, and its namespace is the first name segment.
+    #[test]
+    fn the_live_catalogue_classifies_builtins_and_plugin_tools() {
+        let tools = vec![
+            json!({
+                "name": "terminal.create",
+                "description": "Start a session.",
+                "inputSchema": { "type": "object", "properties": {} },
+            }),
+            json!({
+                "name": "hello.greet",
+                "description": "Greet someone.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": { "who": { "type": "string" } },
+                    "required": ["who"],
+                },
+                "annotations": { "destructiveHint": false },
+            }),
+            json!({
+                "name": "hello.peek",
+                "annotations": { "readOnlyHint": true, "destructiveHint": true },
+            }),
+            json!({ "name": "hello.boom" }),
+        ];
+
+        let views = catalogue_from_tools(&tools).expect("every entry is a tool");
+        let served = serde_json::to_value(&views).expect("the views serialize");
+        assert_eq!(
+            served,
+            json!([
+                {
+                    "name": "terminal.create",
+                    "description": "Start a session.",
+                    "inputSchema": { "type": "object", "properties": {} },
+                    "source": "builtin",
+                    "capability": "terminal",
+                    "destructive": true,
+                },
+                {
+                    "name": "hello.greet",
+                    "description": "Greet someone.",
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": { "who": { "type": "string" } },
+                        "required": ["who"],
+                    },
+                    "source": "plugin:hello",
+                    "capability": "hello",
+                    "destructive": false,
+                },
+                {
+                    // A read-only tool is not destructive even when the other hint says it is.
+                    "name": "hello.peek",
+                    "description": "",
+                    "inputSchema": { "type": "object", "properties": {} },
+                    "source": "plugin:hello",
+                    "capability": "hello",
+                    "destructive": false,
+                },
+                {
+                    // MCP's default for a plugin that says nothing: destructive.
+                    "name": "hello.boom",
+                    "description": "",
+                    "inputSchema": { "type": "object", "properties": {} },
+                    "source": "plugin:hello",
+                    "capability": "hello",
+                    "destructive": true,
+                },
+            ]),
+            "the wire contract is six fields, exactly"
+        );
+    }
+
+    /// A tool list the page cannot render is a 500 upstream fault, not a partial list: a tool with
+    /// no name would otherwise reach the page as a nameless row.
+    #[test]
+    fn a_tool_without_a_name_makes_the_whole_list_malformed() {
+        assert!(catalogue_from_tools(&[json!({ "name": "" })]).is_err());
+        assert!(catalogue_from_tools(&[json!({ "description": "no name" })]).is_err());
+        assert!(catalogue_from_tools(&[json!({ "name": 7 })]).is_err());
+        assert_eq!(
+            catalogue_from_tools(&[]).expect("an empty list is valid"),
+            Vec::new()
+        );
     }
 }

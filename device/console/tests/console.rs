@@ -7305,6 +7305,193 @@ async fn a_token_expiry_outside_the_window_is_a_typed_400() {
     assert_eq!(list, json!([]), "a refused expiry mints nothing: {list}");
 }
 
+// ---- the live catalogue (capability hub B1) ----------------------------------------------------
+
+/// `GET /fleet/:id/tools` is a real `tools/list` over the device channel, under the operator's own
+/// scope. The console adds only the source/capability classification; the device's list is the
+/// list.
+#[tokio::test]
+async fn the_live_catalogue_reads_the_devices_own_tools_list() {
+    let fixture = Fixture::new("live-catalogue");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xb6)).await;
+    let session = fixture.authenticate().await;
+
+    let app = fixture.app();
+    let uri = format!("/fleet/{device_id}/tools");
+    let session_for_read = session.clone();
+    let read = tokio::spawn(async move { send(app, get(&uri, Some(&session_for_read))).await });
+
+    let frame = next_json(&mut device).await;
+    assert_eq!(frame["mcp"]["method"], json!("tools/list"), "{frame}");
+    assert_eq!(
+        frame["token"]["token_id"],
+        json!("operator"),
+        "the live read uses the operator's existing scope, not a second credential"
+    );
+    assert_eq!(frame["token"]["device_id"], json!(device_id));
+    assert_eq!(frame["token"]["scopes"], json!(["*"]));
+    answer(
+        &mut device,
+        &frame,
+        json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": { "tools": [
+                {
+                    "name": "terminal.create",
+                    "description": "Start a session.",
+                    "inputSchema": { "type": "object", "properties": {} },
+                },
+                {
+                    "name": "hello.greet",
+                    "description": "Greet someone.",
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": { "who": { "type": "string" } },
+                        "required": ["who"],
+                    },
+                    "annotations": { "destructiveHint": false },
+                },
+            ]},
+        }),
+    )
+    .await;
+
+    let (status, body) = read.await.expect("the read finishes");
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(
+        body,
+        json!({ "tools": [
+            {
+                "name": "terminal.create",
+                "description": "Start a session.",
+                "inputSchema": { "type": "object", "properties": {} },
+                "source": "builtin",
+                "capability": "terminal",
+                "destructive": true,
+            },
+            {
+                "name": "hello.greet",
+                "description": "Greet someone.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": { "who": { "type": "string" } },
+                    "required": ["who"],
+                },
+                "source": "plugin:hello",
+                "capability": "hello",
+                "destructive": false,
+            },
+        ]}),
+        "the page's contract is name/description/inputSchema/source/capability/destructive"
+    );
+}
+
+/// An empty advertisement is a 200 with `[]`: the page uses the empty list to detect an older
+/// build, so it must not be an error.
+#[tokio::test]
+async fn the_live_catalogue_serves_an_empty_device_list_as_200() {
+    let fixture = Fixture::new("live-catalogue-empty");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xb7)).await;
+    let session = fixture.authenticate().await;
+
+    let app = fixture.app();
+    let uri = format!("/fleet/{device_id}/tools");
+    let session_for_read = session.clone();
+    let read = tokio::spawn(async move { send(app, get(&uri, Some(&session_for_read))).await });
+    let frame = next_json(&mut device).await;
+    answer(
+        &mut device,
+        &frame,
+        json!({ "jsonrpc": "2.0", "id": 1, "result": { "tools": [] } }),
+    )
+    .await;
+
+    let (status, body) = read.await.expect("the read finishes");
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body, json!({ "tools": [] }));
+}
+
+/// A device with no channel is 503 with a sentence, never a cached or static list.
+#[tokio::test]
+async fn the_live_catalogue_is_503_when_the_device_is_offline() {
+    let fixture = Fixture::new("live-catalogue-offline");
+    let (device_id, _token) = fixture.register(&signing_key(0xb8)).await;
+    let session = fixture.authenticate().await;
+
+    let (status, body) = send(
+        fixture.app(),
+        get(&format!("/fleet/{device_id}/tools"), Some(&session)),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "{body}");
+    assert_eq!(body["error"], json!("device reconnecting"));
+    let message = body["message"]
+        .as_str()
+        .expect("the refusal has a sentence");
+    assert!(message.contains("not connected"), "{message}");
+    assert!(
+        message.contains("connect"),
+        "the sentence names the action: {message}"
+    );
+}
+
+/// A device that takes the frame and does not answer inside the console's bound is 504.
+#[tokio::test]
+async fn the_live_catalogue_is_504_when_the_device_does_not_answer() {
+    let fixture = Fixture::with_timeout("live-catalogue-timeout", Duration::from_millis(50));
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, _device) =
+        connected_device(&fixture, &server, &signing_key(0xb9)).await;
+    let session = fixture.authenticate().await;
+
+    let (status, body) = send(
+        fixture.app(),
+        get(&format!("/fleet/{device_id}/tools"), Some(&session)),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::GATEWAY_TIMEOUT, "{body}");
+    assert_eq!(body["error"], json!("device timeout"));
+    assert!(
+        body["message"]
+            .as_str()
+            .is_some_and(|message| message.contains("did not answer")),
+        "the refusal says what happened: {body}"
+    );
+}
+
+/// An answer that is not a tool list is a 500 upstream fault, not an empty catalogue.
+#[tokio::test]
+async fn the_live_catalogue_is_500_when_the_device_answers_malformed() {
+    let fixture = Fixture::new("live-catalogue-malformed");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xba)).await;
+    let session = fixture.authenticate().await;
+
+    let app = fixture.app();
+    let uri = format!("/fleet/{device_id}/tools");
+    let session_for_read = session.clone();
+    let read = tokio::spawn(async move { send(app, get(&uri, Some(&session_for_read))).await });
+    let frame = next_json(&mut device).await;
+    answer(
+        &mut device,
+        &frame,
+        json!({ "jsonrpc": "2.0", "id": 1, "result": { "tools": "not a list" } }),
+    )
+    .await;
+
+    let (status, body) = read.await.expect("the read finishes");
+    assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR, "{body}");
+    assert_eq!(body["error"], json!("malformed_tools"));
+}
+
 /// The manual canary for the design's real-client claim.
 ///
 /// It is `#[ignore]`d because it waits for a process outside this test (an official MCP client) and
