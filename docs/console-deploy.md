@@ -128,16 +128,21 @@ REAL_TERMINAL_OK
 It never prints the operator token, the session token or the command output.
 
 **Plugins, when the device carries the plugin host.** Stage the example on the device host at
-`C:\SummrisePlugin\hello` (copy `examples/plugins/hello` there), copy the check to the console host,
-then run it:
+`C:\SummrisePlugin\hello` (copy `examples/plugins/hello` there). The staging step publishes the
+terminal check only, so copy the plugin check to the mirror first:
+
+```bash
+cp scripts/real-plugin-check.ps1 /tmp/canary-mirror/
+```
+
+Then, on the console host:
 
 ```bat
 curl.exe -f -sS -o C:\Windows\Temp\real-plugin-check.ps1 http://100.85.163.159:18100/real-plugin-check.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File C:\Windows\Temp\real-plugin-check.ps1
 ```
 
-The staging step publishes the terminal check only, so put `real-plugin-check.ps1` on the mirror or
-copy it from the build tree. It adds the plugin through the deployed console,
+It adds the plugin through the deployed console,
 lists it, calls `hello.greet`, reads its log, removes it, proves the tool disappeared, and prints
 `REAL_PLUGIN_OK`. It reads the operator token from its file and never prints it. If the device build
 does not carry the plugin host yet, record the deferral and verify the old-build state on Plugins
