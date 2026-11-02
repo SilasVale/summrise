@@ -11,6 +11,7 @@ pub mod auth;
 pub mod grant;
 pub mod manifest;
 pub mod mesh;
+pub mod plugins;
 pub mod registry;
 pub mod session;
 pub mod state;
