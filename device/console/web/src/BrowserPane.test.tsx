@@ -94,6 +94,7 @@ describe("BrowserPane", () => {
     expect(target).toHaveValue("A");
     expect([...target.querySelectorAll("option")].map((option) => option.textContent)).toEqual(["A"]);
     expect(screen.getByText("1 target(s).")).toBeInTheDocument();
+    expect(screen.getByText("https://a.test")).toBeInTheDocument();
   });
 
   it("keeps Navigate disabled until there is both a target and an address", async () => {

@@ -875,6 +875,7 @@ button.runs-open:disabled {
   display: grid;
   gap: var(--sp-2);
 }
+.browser-url { margin: 0; overflow-wrap: anywhere; }
 .files-crumbs {
   display: flex;
   align-items: center;

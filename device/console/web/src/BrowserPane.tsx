@@ -345,6 +345,9 @@ export function BrowserPane({ grant }: { grant: Grant }) {
               </option>
             ))}
           </select>
+          {targets.find((entry) => entry.id === target)?.url && (
+            <p className="hint browser-url">{targets.find((entry) => entry.id === target)?.url}</p>
+          )}
         </div>
       )}
 
