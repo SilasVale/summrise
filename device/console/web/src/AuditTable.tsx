@@ -58,20 +58,28 @@ export function AuditTable({
   lines,
   devices,
   tokens,
+  selectedDeviceId = null,
   empty = "No audit lines yet.",
   emptyFiltered = "No audit lines match."
 }: {
   lines: AuditLine[];
   devices: Device[];
   tokens: TokenMeta[];
+  /** The machine the operator is on; the default scope follows it when it exists. */
+  selectedDeviceId?: string | null;
   /** The sentence for no lines at all. The audit keeps its own; Security names failed authentications. */
   empty?: string;
   /** The sentence for a filter that matches nothing. The table's default; a log may name its own. */
   emptyFiltered?: string;
 }) {
   const [filter, setFilter] = useState<AuditFilter>(EMPTY);
+  const [scope, setScope] = useState<"machine" | "all">(selectedDeviceId ? "machine" : "all");
   const [open, setOpen] = useState<ReadonlySet<string>>(new Set());
-  const shown = useMemo(() => filterAudit(lines, filter), [lines, filter]);
+  // THE SCOPE IS THE SELECTION. Activity used to be the one page that never learned which machine the
+  // operator was on: its Device filter started at "All devices" every mount, so the record of the
+  // machine in front of them was a fleet log they had to re-filter. This default costs one state.
+  const applied = scope === "machine" && selectedDeviceId ? { ...filter, device: selectedDeviceId } : filter;
+  const shown = useMemo(() => filterAudit(lines, applied), [lines, applied]);
   const keys = useMemo(() => lineKeys(lines), [lines]);
   const tokenNames = useMemo(() => new Map(tokens.map((entry) => [entry.id, entry.name])), [tokens]);
 
@@ -120,25 +128,40 @@ export function AuditTable({
   return (
     <div>
       <div className="audit-toolbar">
-        <label className="audit-field">
-          <span>Device</span>
-          <select
-            value={filter.device}
-            onChange={(event) => setFilter({ ...filter, device: event.target.value })}
+        <div className="seg" role="group" aria-label="Audit scope">
+          <button
+            type="button"
+            aria-pressed={scope === "machine"}
+            disabled={!selectedDeviceId}
+            onClick={() => setScope("machine")}
           >
-            <option value="">All devices</option>
-            {devices.map((device) => (
-              <option key={device.id} value={device.id}>
-                {device.name ?? shortId(device.id)}
-              </option>
-            ))}
-            {retired.map((id) => (
-              <option key={id} value={id}>
-                {shortId(id)}
-              </option>
-            ))}
-          </select>
-        </label>
+            This machine
+          </button>
+          <button type="button" aria-pressed={scope === "all"} onClick={() => setScope("all")}>
+            All machines
+          </button>
+        </div>
+        {scope === "all" && (
+          <label className="audit-field">
+            <span>Device</span>
+            <select
+              value={filter.device}
+              onChange={(event) => setFilter({ ...filter, device: event.target.value })}
+            >
+              <option value="">All devices</option>
+              {devices.map((device) => (
+                <option key={device.id} value={device.id}>
+                  {device.name ?? shortId(device.id)}
+                </option>
+              ))}
+              {retired.map((id) => (
+                <option key={id} value={id}>
+                  {shortId(id)}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
         {tokenOptions.length > 0 && (
           <label className="audit-field">
             <span>Token</span>

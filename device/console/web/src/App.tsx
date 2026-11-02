@@ -404,7 +404,7 @@ export function App() {
         <Rail page={page} onPage={setPage} devices={devices.length} online={online} />
 
         <main className={page === "terminal" && chosen ? "terminal-main" : undefined}>
-          {chosen && page !== "devices" && page !== "audit" && (
+          {chosen && page !== "devices" && (
             <section className="workspace-head">
               <div className="workspace-identity">
                 <span className={"dot " + (chosen.online ? "dot-ok" : "dot-off")} />
