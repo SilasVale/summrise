@@ -46,6 +46,8 @@ export function App() {
   // so a zero-device fleet taught the operator an icon-only rail before it taught them anything.
   const [page, setPage] = useState<Page>("devices");
   const [selected, setSelected] = useState<string | null>(null);
+  // A run id handed from Activity to Runs; RunsPage consumes it once and clears it.
+  const [runsFocus, setRunsFocus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [tokenInput, setTokenInput] = useState("");
@@ -210,9 +212,16 @@ export function App() {
     setAudit([]);
     setTokens([]);
     setSelected(null);
+    setRunsFocus(null);
     setGrant(null);
     setGrantStale(false);
     setPage("devices");
+  };
+
+  const openRun = (deviceId: string, runId: string) => {
+    setSelected(deviceId);
+    setRunsFocus(runId);
+    setPage("runs");
   };
 
   const signIn = async () => {
@@ -579,7 +588,13 @@ export function App() {
               chosen={chosen}
               onChoose={setSelected}
             >
-              {(active) => <RunsPage grant={active} />}
+              {(active) => (
+                <RunsPage
+                  grant={active}
+                  focusRunId={runsFocus}
+                  onFocusConsumed={() => setRunsFocus(null)}
+                />
+              )}
             </DevicePage>
           )}
 
@@ -605,7 +620,12 @@ export function App() {
                   <button type="button" onClick={() => void load()}>Refresh</button>
                 </div>
               </div>
-              <AuditTable lines={audit} devices={devices} tokens={tokens} />
+              <AuditTable
+                lines={audit}
+                devices={devices}
+                tokens={tokens}
+                onOpenRun={openRun}
+              />
             </section>
           )}
 

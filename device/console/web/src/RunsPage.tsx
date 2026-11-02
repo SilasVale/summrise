@@ -55,7 +55,16 @@ const MAX_TIMEOUT_MS = 600_000;
  * keeps no output bodies, so this page never grows an output box for a past run: it says why there
  * is nothing to show instead.
  */
-export function RunsPage({ grant }: { grant: Grant }) {
+export function RunsPage({
+  grant,
+  focusRunId = null,
+  onFocusConsumed
+}: {
+  grant: Grant;
+  /** A run id carried from Activity; the page opens its record once, on arrival. */
+  focusRunId?: string | null;
+  onFocusConsumed?: () => void;
+}) {
   const [history, setHistory] = useState<RunRecord[]>([]);
   const [historyNote, setHistoryNote] = useState("Reading the device's run history…");
   const [historyError, setHistoryError] = useState<string | null>(null);
@@ -85,6 +94,14 @@ export function RunsPage({ grant }: { grant: Grant }) {
   const historyGate = useRequestGate();
   const runGate = useRequestGate();
   const detailGate = useRequestGate();
+  // The Activity → Runs handoff is consumed once. `show` is re-created every render, so the effect
+  // reads the latest one through a ref instead of taking it as a dependency.
+  const showRef = useRef<(row: RunRecord) => Promise<void>>(async () => {});
+  const focused = useRef<string | null>(null);
+  const focusRef = useRef<string | null>(focusRunId);
+  const onFocusConsumedRef = useRef(onFocusConsumed);
+  focusRef.current = focusRunId;
+  onFocusConsumedRef.current = onFocusConsumed;
 
   const read = useCallback(async () => {
     const ticket = historyGate.begin();
@@ -98,6 +115,12 @@ export function RunsPage({ grant }: { grant: Grant }) {
       listed.current = true;
       setHistory(rows);
       setHistoryNote(historyNoteFor(rows));
+      const target = focusRef.current;
+      if (target && focused.current !== target) {
+        focused.current = target;
+        void showRef.current({ id: target } as RunRecord);
+        onFocusConsumedRef.current?.();
+      }
     } catch (cause) {
       if (historyGate.stale(ticket)) return;
       if (!listed.current) setHistoryNote("The device's run history could not be read.");
@@ -115,6 +138,7 @@ export function RunsPage({ grant }: { grant: Grant }) {
     runningRef.current = false;
     setRunning(false);
     listed.current = false;
+    focused.current = null;
     setHistory([]);
     setHistoryNote("Reading the device's run history…");
     setHistoryError(null);
@@ -197,6 +221,8 @@ export function RunsPage({ grant }: { grant: Grant }) {
       if (!detailGate.stale(ticket)) setDetailId(null);
     }
   };
+
+  showRef.current = show;
 
   return (
     <div className="runs-page">

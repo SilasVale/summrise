@@ -101,6 +101,24 @@ describe("AuditTable", () => {
     expect(screen.getByText("terminal.write")).toBeInTheDocument();
   });
 
+  it("offers the run's record from a run audit line", () => {
+    const onOpenRun = vi.fn();
+    const run = line({
+      kind: "mcp",
+      device_id: alpha,
+      tool: "runs.exec",
+      detail: "run r-9 exited 0 in 42 ms",
+      status: 200
+    });
+    render(
+      <AuditTable lines={[run]} devices={devices} tokens={[]} onOpenRun={onOpenRun} />
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Details" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open in Runs" }));
+
+    expect(onOpenRun).toHaveBeenCalledWith(alpha, "r-9");
+  });
+
   it("names the device in the row and keeps the full id for the detail", () => {
     render(<AuditTable lines={lines} devices={devices} tokens={[]} />);
 

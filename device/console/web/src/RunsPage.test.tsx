@@ -110,6 +110,23 @@ describe("RunsPage", () => {
     expect(called("runs.list")[1]).toEqual([GRANT, "runs.list", { limit: 20 }]);
   });
 
+  it("opens the run id carried from Activity", async () => {
+    mocked.mockImplementation(async (_grant, name) => {
+      if (name === "runs.list") return JSON.stringify([]);
+      if (name === "runs.get") return JSON.stringify({ ...HELLO, id: "run-9" });
+      throw new Error(`the test did not expect ${name}`);
+    });
+    const consumed = vi.fn();
+
+    render(<RunsPage grant={GRANT} focusRunId="run-9" onFocusConsumed={consumed} />);
+
+    await waitFor(() =>
+      expect(called("runs.get")[0]).toEqual([GRANT, "runs.get", { id: "run-9" }])
+    );
+    expect(await screen.findByText("echo hello")).toBeInTheDocument();
+    expect(consumed).toHaveBeenCalled();
+  });
+
   it("runs an argv line as command plus args, shows the result and reads the history again", async () => {
     let lists = 0;
     mocked.mockImplementation(async (_grant, name) => {
