@@ -1,16 +1,25 @@
-// The page has one hand-rolled dialog, and its comment claims three things: it is a modal dialog,
-// Escape closes it, and focus lands on the first field. These tests pin those, plus the two ways it
-// must NOT close (a mousedown inside the dialog) and the listener it must leave behind on unmount.
+// The page has one hand-rolled dialog, and its comment claims five things: it is a modal dialog,
+// Escape closes it, focus lands on the first field, Tab stays inside and focus returns to the
+// trigger. These tests pin those, plus the two ways it must NOT close and the listener it must
+// leave behind on unmount.
 import { fireEvent, render, screen } from "@testing-library/react";
 import { useState } from "react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { Modal } from "./Modal";
+
+const triggers: HTMLElement[] = [];
+
+afterEach(() => {
+  for (const trigger of triggers.splice(0)) trigger.remove();
+  document.body.innerHTML = "";
+});
 
 function renderModal(): {
   onClose: ReturnType<typeof vi.fn>;
   unmount: () => void;
   dialog: HTMLElement;
   field: HTMLElement;
+  button: HTMLElement;
 } {
   const onClose = vi.fn();
   const { unmount } = render(
@@ -23,7 +32,8 @@ function renderModal(): {
     onClose,
     unmount,
     dialog: screen.getByRole("dialog", { name: "Rename the tab" }),
-    field: screen.getByLabelText("Name")
+    field: screen.getByLabelText("Name"),
+    button: screen.getByRole("button", { name: "Rename" })
   };
 }
 
@@ -99,6 +109,28 @@ describe("Modal", () => {
     fireEvent.mouseDown(field);
 
     expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("keeps Tab inside and gives focus back to the trigger on unmount", () => {
+    const trigger = document.createElement("button");
+    trigger.textContent = "open";
+    document.body.append(trigger);
+    triggers.push(trigger);
+    trigger.focus();
+
+    const { field, button, unmount } = renderModal();
+    expect(field).toHaveFocus();
+
+    button.focus();
+    fireEvent.keyDown(window, { key: "Tab" });
+    expect(field).toHaveFocus();
+
+    field.focus();
+    fireEvent.keyDown(window, { key: "Tab", shiftKey: true });
+    expect(button).toHaveFocus();
+
+    unmount();
+    expect(trigger).toHaveFocus();
   });
 
   it("stops listening for Escape once unmounted", () => {
