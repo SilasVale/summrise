@@ -7,5 +7,9 @@
 //! The protocol implementation is one code path: the tests run the real [`session::Session`] against
 //! `tokio::io::duplex`, not a second implementation of the handshake.
 
+pub mod host;
 pub mod logs;
 pub mod session;
+
+#[cfg(test)]
+pub(crate) mod test_support;
