@@ -81,8 +81,12 @@ main { flex: 1; max-width: 84rem; margin: 0 auto; padding: var(--sp-5); display:
 .error { color: var(--error); font-size: var(--fs-sm); }
 .lede { color: var(--ink-muted); margin: 0; }
 
-.columns { display: grid; gap: 1rem; align-items: start; }
+.columns { display: grid; gap: 1rem; align-items: start; min-width: 0; }
 .col { display: grid; gap: 1rem; align-content: start; min-width: 0; }
+/* A grid/flex item's automatic minimum is its content's min-content width. The device facts hold a
+   Windows build string and a long disk figure; without these zeroes that one row widened the whole
+   page to 431px on a 390px phone. */
+.panel, .cards, .card, .facts, .panel-head { min-width: 0; }
 @media (min-width: 68rem) {
   .columns { grid-template-columns: minmax(22rem, 5fr) minmax(26rem, 7fr); }
 }
@@ -145,9 +149,9 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--focus-ring); ou
   background: var(--surface); padding: 0.45rem 0.6rem; margin: 0;
   display: grid; gap: 0.15rem; font-size: var(--fs-sm);
 }
-.facts > div { display: flex; justify-content: space-between; gap: 1rem; }
+.facts > div { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 0.25rem 1rem; min-width: 0; }
 .facts dt { color: var(--ink-muted); }
-.facts dd { margin: 0; }
+.facts dd { margin: 0; min-width: 0; overflow-wrap: anywhere; text-align: right; }
 
 /* The device card's vitals history: the latest values as text, then a two-line sparkline. The chart
    is anchored to the two-hour window, so a short history sits at the right edge instead of being
@@ -182,6 +186,10 @@ button.chip-bad.chip-action:hover { background-color: var(--error-soft); }
 
 .scroll { max-height: 17rem; overflow: auto; }
 table { width: 100%; border-collapse: collapse; }
+/* The audit table keeps its columns on a phone by scrolling inside its card, not by widening the
+   page. A table that pushes the page sideways hides the rail and the status bar with it. */
+.table-scroll { max-width: 100%; overflow-x: auto; }
+.table-scroll:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; border-radius: var(--radius-xs); }
 th, td { text-align: left; padding: 0.4rem 0.5rem; border-bottom: 1px solid var(--line); }
 th {
   position: sticky; top: 0; background: var(--surface); z-index: 1;

@@ -114,17 +114,6 @@ const tokenCall = {
   token_id: tokenId
 };
 
-// A refusal as denials.jsonl holds it: the audit line's shape, no token id, and a short code — not a
-// credential — in the detail.
-const denial = {
-  ts_ms: 2,
-  kind: "denied",
-  device_id: null,
-  tool: null,
-  detail: "bad_operator_token",
-  status: 401
-};
-
 beforeEach(() => {
   localStorage.clear();
   signedIn = false;
@@ -232,25 +221,21 @@ describe("App", () => {
     expect(screen.queryByText(/running 2 builds/)).not.toBeInTheDocument();
   });
 
-  it("renders the whole shell: the twelve rail sections, the brand, the build and the sign-in path", async () => {
+  it("renders the whole shell: the eight rail sections, the brand, the build and the sign-in path", async () => {
     await bootAndSignIn();
 
     const rail = screen.getByRole("navigation", { name: "Sections" });
     const sections = within(rail).getAllByRole("button");
-    expect(sections).toHaveLength(12);
+    expect(sections).toHaveLength(8);
     expect(sections.map((section) => section.textContent)).toEqual([
       "Devices",
       "Files",
       "Terminal",
       "Browser",
       "Screen",
-      "Memory",
-      "Monitors",
       "Runs",
       "System",
-      "Audit",
-      "Events",
-      "Security"
+      "Activity"
     ]);
     expect(within(rail).getByRole("button", { name: "Devices" })).toHaveAttribute("aria-current", "page");
 
@@ -260,18 +245,12 @@ describe("App", () => {
     expect(screen.getByText("signed in with the operator token")).toBeInTheDocument();
   });
 
-  it("navigates the rail to the audit panel and to the memory, screen and events pickers", async () => {
+  it("navigates the rail to Activity and to the Screen picker", async () => {
     await bootAndSignIn();
 
-    fireEvent.click(screen.getByRole("button", { name: "Audit" }));
-    expect(screen.getByRole("heading", { name: "Audit" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Activity" }));
+    expect(screen.getByRole("heading", { name: "Activity" })).toBeInTheDocument();
     expect(screen.getByText("No audit lines yet.")).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("button", { name: "Memory" }));
-    expect(screen.getByRole("heading", { name: "Memory" })).toBeInTheDocument();
-    expect(screen.getByText(/Memory is kept on the device/)).toBeInTheDocument();
-    expect(screen.getAllByRole("button", { name: "Use" })).toHaveLength(2);
-    expect(screen.queryByText("No audit lines yet.")).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Screen" }));
     expect(screen.getByRole("heading", { name: "Screen" })).toBeInTheDocument();
@@ -280,35 +259,7 @@ describe("App", () => {
         "The screen belongs to the device's user session, so pick the device whose screen you want to see. The console signs a grant for the capture tool, and the device checks that grant on every call."
       )
     ).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("button", { name: "Events" }));
-    expect(screen.getByRole("heading", { name: "Events" })).toBeInTheDocument();
-    expect(screen.getByText(/The events are the device's own/)).toBeInTheDocument();
-    expect(screen.queryByText(/Memory is kept on the device/)).not.toBeInTheDocument();
-  });
-
-  it("navigates to Security and shows the denial the console returned, not an audit line", async () => {
-    mocks.denials.mockResolvedValue([denial]);
-    await bootAndSignIn();
-    expect(mocks.denials).toHaveBeenCalledWith(200);
-
-    fireEvent.click(screen.getByRole("button", { name: "Security" }));
-    expect(screen.getByRole("heading", { name: "Security" })).toBeInTheDocument();
-    expect(screen.getByText(/rate-limited to 100\/minute/)).toBeInTheDocument();
-    expect(screen.getByText(/suppressed N line means N refusals were not written/)).toBeInTheDocument();
-
-    const table = within(screen.getByRole("table"));
-    expect(table.getByText("denied")).toBeInTheDocument();
-    expect(table.getByText("bad_operator_token")).toBeInTheDocument();
-    expect(table.getByText("401")).toBeInTheDocument();
-    expect(table.getByText("—")).toBeInTheDocument();
-    expect(screen.queryByText("No failed authentications yet.")).not.toBeInTheDocument();
-
-    // The audit is the other file: the denial is not in it, and its own empty sentence is unchanged.
-    fireEvent.click(screen.getByRole("button", { name: "Audit" }));
-    expect(screen.getByRole("heading", { name: "Audit" })).toBeInTheDocument();
-    expect(screen.getByText("No audit lines yet.")).toBeInTheDocument();
-    expect(screen.queryByText("bad_operator_token")).not.toBeInTheDocument();
+    expect(screen.queryByText("No audit lines yet.")).not.toBeInTheDocument();
   });
 
   it("selects a device and lands on the terminal with that device's grant form", async () => {
@@ -338,20 +289,8 @@ describe("App", () => {
         "A grant is signed by the console, names the tools and expires. The device checks it on every call. Everything is selected by default: press the button and the screen can be captured."
       ],
       [
-        "Memory",
-        "A grant is signed by the console, names the tools and expires. The device checks it on every call. Everything is selected by default: press the button and the entries appear."
-      ],
-      [
-        "Events",
-        "A grant is signed by the console, names the tools and expires. The device checks it on every call. Everything is selected by default: press the button and the device's health and its last ten events appear."
-      ],
-      [
         "Files",
         "A grant is signed by the console, names the tools and expires. The device checks it on every call. Everything is selected by default: press the button and the files appear."
-      ],
-      [
-        "Monitors",
-        "A grant is signed by the console, names the tools and expires. The device checks it on every call. Everything is selected by default: press the button and the targets appear."
       ],
       [
         "Runs",
@@ -388,23 +327,8 @@ describe("App", () => {
     expect(mocks.grant).toHaveBeenCalledWith("dev-workshop-0001", expect.any(Array), 3600, true);
     expect(workspace).toHaveAttribute("data-visible", "yes");
 
-    // The chip appears with the grant, and its click is navigation only: no second grant, same page
-    // shell, and the Monitors page itself (the heading alone is also the picker's).
-    const chip = await screen.findByRole("button", { name: "monitor-chip" });
-    fireEvent.click(chip);
-    expect(screen.getByRole("heading", { name: "Monitors" })).toBeInTheDocument();
-    expect(
-      screen.getByText(
-        "The device probes each target on its own interval and keeps the last 60 probes for the summary. A down target is a fact, not a failure of this page: the dot is its newest probe, and the numbers are the device's."
-      )
-    ).toBeInTheDocument();
-    expect(screen.getByLabelText("Host")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Add target" })).toBeInTheDocument();
-    expect(screen.queryByText(/^Monitors run on the device, so pick one\./)).not.toBeInTheDocument();
-    expect(mocks.grant).toHaveBeenCalledTimes(1);
-
     const rail = screen.getByRole("navigation", { name: "Sections" });
-    fireEvent.click(within(rail).getByRole("button", { name: "Audit" }));
+    fireEvent.click(within(rail).getByRole("button", { name: "Activity" }));
     expect(screen.getByText("No audit lines yet.")).toBeInTheDocument();
     // Hidden, not unmounted: the tabs, their cursors and their names live in this subtree.
     expect(screen.getByTestId("workspace")).toBe(workspace);
@@ -415,24 +339,6 @@ describe("App", () => {
     expect(screen.getByTestId("workspace")).toBe(workspace);
     expect(workspace).toHaveAttribute("data-visible", "yes");
     expect(workspace.closest("section")).not.toHaveAttribute("hidden");
-  });
-
-  it("shows the chip only for the device the grant names", async () => {
-    await bootAndSignIn();
-    selectDevice("workshop");
-    fireEvent.click(screen.getByRole("button", { name: "Grant access" }));
-    await screen.findByRole("button", { name: "monitor-chip" });
-
-    // The console moves to another device while the workshop grant is still in force: the chip must
-    // not show workshop's monitors under attic, and attic's page asks for its own grant.
-    const rail = screen.getByRole("navigation", { name: "Sections" });
-    fireEvent.click(within(rail).getByRole("button", { name: "Devices" }));
-    selectDevice("attic");
-
-    expect(
-      screen.getByRole("heading", { name: "Grant what the console may do on attic" })
-    ).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "monitor-chip" })).not.toBeInTheDocument();
   });
 
   it("clears its poll when the page unmounts", async () => {
@@ -506,7 +412,7 @@ describe("App", () => {
     expect(within(screen.getByRole("table")).getByText(shortTokenId)).toBeInTheDocument();
     expect(screen.queryByText("tokens_unavailable")).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Audit" }));
+    fireEvent.click(screen.getByRole("button", { name: "Activity" }));
     const select = screen.getByLabelText("Token");
     // The filter still works and still matches the cell, on the short id, because that is all the page
     // knows once the list is gone. Nothing is named, and nothing is blank.

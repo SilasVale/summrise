@@ -653,18 +653,6 @@ const PAGES = [
     heading: 'Screen',
     state: 'device picker (no grant; capture not exercised)'
   },
-  {
-    id: 'memory',
-    label: 'Memory',
-    heading: 'Memory',
-    state: 'device picker (no grant; memory pane not exercised)'
-  },
-  {
-    id: 'monitors',
-    label: 'Monitors',
-    heading: 'Monitors',
-    state: 'device picker (no grant; monitors not exercised)'
-  },
   { id: 'runs', label: 'Runs', heading: 'Runs', state: 'device picker (no grant; runs not exercised)' },
   {
     id: 'system',
@@ -672,19 +660,7 @@ const PAGES = [
     heading: 'System',
     state: 'device picker (no grant; system pane not exercised)'
   },
-  { id: 'audit', label: 'Audit', heading: 'Audit', state: 'audit table' },
-  {
-    id: 'events',
-    label: 'Events',
-    heading: 'Events',
-    state: 'device picker (no grant; event tail not exercised)'
-  },
-  {
-    id: 'security',
-    label: 'Security',
-    heading: 'Fleet tokens',
-    state: 'fleet-token form, existing tokens, and the denial table'
-  }
+  { id: 'audit', label: 'Activity', heading: 'Activity', state: 'audit table' },
 ];
 
 const PASSES = [
@@ -829,7 +805,7 @@ async function settle(page, state, quietMs = 150) {
 }
 
 async function assertPage(page, meta) {
-  // The rail button's `title` is the lowercase page id; the top bar's crumb is the label. Both must
+  // The rail button's `title` is the page's label; the top bar's crumb is the same label. Both must
   // name the page the caller asked for.
   try {
     await page.waitForFunction(
@@ -838,7 +814,7 @@ async function assertPage(page, meta) {
         const crumb = document.querySelector('.topbar .crumb');
         return (
           active !== null &&
-          active.getAttribute('title') === id &&
+          active.getAttribute('title') === label &&
           crumb !== null &&
           (crumb.textContent ?? '').trim() === label
         );
@@ -873,8 +849,8 @@ async function assertPage(page, meta) {
 }
 
 async function goTo(page, meta) {
-  // `title` carries the page id, not the label: Rail.tsx sets `title={entry}`.
-  const button = page.locator(`nav.rail button[title=${JSON.stringify(meta.id)}]`);
+  // `title` carries the page's label: Rail.tsx sets `title={PAGE_LABELS[entry]}`.
+  const button = page.locator(`nav.rail button[title=${JSON.stringify(meta.label)}]`);
   await button.waitFor({ state: 'visible', timeout: 5_000 });
   await button.click();
   await assertPage(page, meta);
@@ -910,6 +886,26 @@ async function boot(page, state, origin) {
 
 async function capturePage(page, state, meta, pass) {
   await settle(page, state);
+  if (process.env.DEBUG_LAYOUT) {
+    const overflow = await page.evaluate(() => {
+      const vw = document.documentElement.clientWidth;
+      const bad = [...document.querySelectorAll('*')]
+        .map((el) => {
+          const r = el.getBoundingClientRect();
+          return {
+            tag: el.tagName,
+            cls: typeof el.className === 'string' ? el.className : el.className?.baseVal ?? '',
+            left: Math.round(r.left),
+            right: Math.round(r.right),
+            width: Math.round(r.width)
+          };
+        })
+        .filter((x) => x.right > vw + 1 || x.left < -1 || x.width > vw + 1)
+        .slice(0, 25);
+      return { vw, scrollWidth: document.documentElement.scrollWidth, bad };
+    });
+    console.log('DEBUG ' + JSON.stringify({ pass: pass.key, page: meta.id, ...overflow }));
+  }
   await page.evaluate(() => {
     for (const node of document.querySelectorAll('main, .body, .shell')) {
       if (node instanceof HTMLElement) node.scrollTop = 0;

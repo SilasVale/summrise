@@ -198,6 +198,7 @@ export function AuditTable({
         <p className="hint">{emptyFiltered}</p>
       ) : (
         <div className="scroll">
+          <div className="table-scroll" tabIndex={0} role="region" aria-label="Audit lines">
           <table>
             <thead>
               <tr>
@@ -307,6 +308,7 @@ export function AuditTable({
               })}
             </tbody>
           </table>
+        </div>
         </div>
       )}
     </div>

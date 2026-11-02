@@ -15,7 +15,6 @@ import { shortId } from "./format";
 import { DeviceCard, retrySentence } from "./DeviceCard";
 import { recordVitals, type VitalsSample } from "./vitals";
 import { AUDIT_WINDOW, AuditTable } from "./AuditTable";
-import { EventsPage } from "./EventsPage";
 import { PAGE_LABELS, Rail, type Page } from "./Rail";
 import { Modal } from "./Modal";
 import { GrantForm } from "./GrantForm";
@@ -25,12 +24,8 @@ import { DevicePicker } from "./DevicePicker";
 import { TerminalWorkspace } from "./TerminalWorkspace";
 import { BrowserPane } from "./BrowserPane";
 import { FilesPage } from "./FilesPage";
-import { MemoryPage } from "./MemoryPage";
-import { MonitorChip } from "./MonitorChip";
-import { MonitorsPage } from "./MonitorsPage";
 import { RunsPage } from "./RunsPage";
 import { ScreenPage } from "./ScreenPage";
-import { SecurityPage } from "./SecurityPage";
 import { SystemPage } from "./SystemPage";
 
 export function App() {
@@ -42,7 +37,6 @@ export function App() {
   const [audit, setAudit] = useState<AuditLine[]>([]);
   // Failed authentications, from their own log. Fetched with the audit because both are bounded
   // windows the operator reads, and a poll that refreshed one and not the other would be half a story.
-  const [denials, setDenials] = useState<AuditLine[]>([]);
   // The operator's permanent tokens, fetched so the audit can name the token behind a call. Empty when
   // the console would not answer: the table falls back to record ids.
   const [tokens, setTokens] = useState<TokenMeta[]>([]);
@@ -97,10 +91,9 @@ export function App() {
   // a session earns two 401s on every cold load — visible in the browser console as failures that are
   // not failures, and exactly the noise that hides a real one later.
   const refreshData = useCallback(async () => {
-    const [list, lines, refusals, tokenList] = await Promise.all([
+    const [list, lines, tokenList] = await Promise.all([
       api.devices(),
       api.audit(AUDIT_WINDOW),
-      api.denials(AUDIT_WINDOW),
       tokensOrEmpty()
     ]);
     setDevices(list);
@@ -108,7 +101,6 @@ export function App() {
     // after a successful fleet fetch is what keeps an offline device from adding a stale point.
     setVitals(recordVitals(list, Date.now()));
     setAudit(lines);
-    setDenials(refusals);
     setTokens(tokenList);
   }, []);
 
@@ -175,7 +167,6 @@ export function App() {
     setDevices([]);
     setVitals({});
     setAudit([]);
-    setDenials([]);
     setTokens([]);
     setSelected(null);
     setGrant(null);
@@ -324,9 +315,6 @@ export function App() {
             <span className="crumb">{PAGE_LABELS[page]}</span>
           </div>
           <p className="session">
-            {chosen && grant && grant.deviceId === chosen.id && (
-              <MonitorChip grant={grant} onOpen={() => setPage("monitors")} />
-            )}
             <span className={"dot " + (online > 0 ? "dot-ok" : "dot-off")} />
             {session.email ? session.email : `${online} of ${devices.length} devices online`}
             <button type="button" onClick={signOut}>Sign out</button>
@@ -429,7 +417,7 @@ export function App() {
 
                 <section className="panel">
                   <div className="panel-head">
-                    <h2>Audit</h2>
+                    <h2>Activity</h2>
                     <div className="actions">
                       <button type="button" onClick={() => void load()}>Refresh</button>
                     </div>
@@ -537,36 +525,6 @@ export function App() {
             </DevicePage>
           )}
 
-          {page === "memory" && (
-            <DevicePage
-              title="Memory"
-              pickHint="Memory is kept on the device, so pick one. The console signs a grant for the memory tools, and the device checks that grant on every read and every edit."
-              grantHint="A grant is signed by the console, names the tools and expires. The device checks it on every call. Everything is selected by default: press the button and the entries appear."
-              devices={devices}
-              chosen={chosen}
-              grant={grant}
-              onChoose={setSelected}
-              onGrant={(deviceId, envelope) => setGrant({ deviceId, envelope })}
-            >
-              {(active) => <MemoryPage grant={active} />}
-            </DevicePage>
-          )}
-
-          {page === "monitors" && (
-            <DevicePage
-              title="Monitors"
-              pickHint="Monitors run on the device, so pick one. The console signs a grant for the monitor tools, and the device checks that grant on every add, probe and removal."
-              grantHint="A grant is signed by the console, names the tools and expires. The device checks it on every call. Everything is selected by default: press the button and the targets appear."
-              devices={devices}
-              chosen={chosen}
-              grant={grant}
-              onChoose={setSelected}
-              onGrant={(deviceId, envelope) => setGrant({ deviceId, envelope })}
-            >
-              {(active) => <MonitorsPage grant={active} />}
-            </DevicePage>
-          )}
-
           {page === "runs" && (
             <DevicePage
               title="Runs"
@@ -600,7 +558,7 @@ export function App() {
           {page === "audit" && (
             <section className="panel">
               <div className="panel-head">
-                <h2>Audit</h2>
+                <h2>Activity</h2>
                 <div className="actions">
                   <button type="button" onClick={() => void load()}>Refresh</button>
                 </div>
@@ -609,29 +567,6 @@ export function App() {
             </section>
           )}
 
-          {page === "security" && (
-            <SecurityPage
-              lines={denials}
-              devices={devices}
-              tokens={tokens}
-              onTokensChanged={refreshData}
-            />
-          )}
-
-          {page === "events" && (
-            <DevicePage
-              title="Events"
-              pickHint="The events are the device's own, so pick one. The console signs a grant for the state tool, and the device checks that grant on every read."
-              grantHint="A grant is signed by the console, names the tools and expires. The device checks it on every call. Everything is selected by default: press the button and the device's health and its last ten events appear."
-              devices={devices}
-              chosen={chosen}
-              grant={grant}
-              onChoose={setSelected}
-              onGrant={(deviceId, envelope) => setGrant({ deviceId, envelope })}
-            >
-              {(active) => <EventsPage grant={active} />}
-            </DevicePage>
-          )}
         </main>
       </div>
 
