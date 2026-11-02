@@ -34,12 +34,12 @@
     var zh = lang === "zh";
 
     document.documentElement.lang = zh ? "zh-CN" : "en";
-    document.title = zh ? "Summrise — AI 在真机器上的能力中枢" : "Summrise — the capability hub for AI on a real machine";
+    document.title = zh ? ZH["meta.title"] : "Summrise — the capability hub for AI on a real machine";
 
     var desc = document.querySelector('meta[name="description"]');
     if (desc) {
       desc.setAttribute("content", zh
-        ? "Summrise 是为真机器上的 AI 准备的能力中枢：一个 MCP 端点，装上就能用的终端、文件、浏览器与运行能力；缺一项能力就装一个插件；一个控制台记录每次调用，也随时能把键盘拿回来。"
+        ? ZH["meta.description"]
         : "Summrise is one MCP endpoint for a real Windows machine: terminal, files, browser and runs work on install, plugins add what is missing, and a console records every call and lets you take the keyboard back.");
     }
 

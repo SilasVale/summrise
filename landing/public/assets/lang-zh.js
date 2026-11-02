@@ -1,6 +1,9 @@
 /* Chinese copy for the landing page. One dictionary, checked against the markup by
    ../check.mjs so a key that exists on only one side fails the build rather than a reader's visit. */
 window.SUMMRISE_ZH = {
+    "meta.title": "Summrise — AI 在真机器上的能力中枢",
+    "meta.description": "Summrise 是为真机器上的 AI 准备的能力中枢：一个 MCP 端点，装上就能用的终端、文件、浏览器与运行能力；缺一项能力就装一个插件；一个控制台记录每次调用，也随时能把键盘拿回来。",
+
     "a11y.skip": "跳到正文",
     "nav.product": "产品",
     "nav.docs": "文档",
