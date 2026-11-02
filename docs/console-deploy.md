@@ -1,10 +1,9 @@
 # Deploying the console
 
-> **Status: verified, 2026-11-02 — `0.3.246` deployed to `DESKTOP-9VH92BJ` with this runbook.**
-> The digest matched, the script backed up `0.3.245`, `/health` reported `0.3.246` after the restart,
-> the served page was the committed `dist/index.html` byte for byte (786,744 B), `GET /?v=246`
-> stayed on the React page (200, no `/next` redirect), and the real-device terminal check answered
-> `REAL_TERMINAL_OK`. The console is the operator's control plane; a deploy restarts it.
+> **Status: the hub build is not deployed yet.** The last verified deploy was `0.3.246` on 2026-11-02;
+> its facts are kept below as the baseline, not as this build's result. The Lead fills the **Measured**
+> table after the deploy. A version is called deployed only when `/health` names it, the served page
+> is the committed `dist/index.html` byte for byte, and the real-device checks pass.
 
 ## Why the console deploys differently from a device
 
@@ -36,24 +35,33 @@ on the host; no bytes pass through an AI context.
 
 ## Before you deploy
 
-- **There is no approval queue to check.** A deploy restarts the console, so a call that is in
-  flight fails once and the operator retries it; nothing is waiting on a person.
+- **There is no approval queue to check.** A deploy restarts the console, so a call that is in flight
+  fails once and the operator retries it; nothing is waiting on a person.
 - Device channels reconnect on their own; no device needs to be touched.
 - The **aggregate MCP goes through the console**, so restarting it drops the AI's own MCP connection
-  for a few seconds. Observed on the first run: one `fetch failed` mid-deploy. The deploy script does
-  not depend on MCP, so it completes regardless.
+  for a few seconds. A deploy may surface one `fetch failed`; the deploy script does not depend on
+  MCP, so it completes regardless.
 - **Stage checks provenance first.** It refuses a dirty worktree, a `HEAD` that does not contain the
   fetched `origin/main`, and a page that does not match its source (`scripts/build-web.sh --check`).
-  This was added after a local branch staged a page missing main's Activity export; build from a
-  clean tree that contains current `main`.
+  Build from a clean tree that contains current `main`.
+- **The console may ship before the device half.** The page degrades on an older device: no
+  `plugins.*` in the live catalogue means Plugins states that the machine needs a newer Summrise and
+  the Add button is not shown. The endpoint and built-ins are unchanged. Acceptance 12 in
+  `docs/design/capability-hub-2026-11-02.md` is the check.
+- **The page is new.** The five destinations, Home, Capabilities, Plugins, Connect and the Device tabs
+  are a page change, so the deploy is the first place the whole shell is read against a real device.
+  Do not deploy a device feature the device build does not have.
 
 ## The procedure
 
-1. **Stage** (Linux, once per version):
+Replace `<version>` with the release being deployed in every command below. The staging script
+accepts digits and dots only.
+
+1. **Stage** (Linux, once per version, from a clean tree):
 
    ```bash
-   SUMMRISE_BUILD_VERSION=0.3.246 \
-     scripts/stage-console-deploy.bash 0.3.246 --mirror-dir /tmp/canary-mirror
+   SUMMRISE_BUILD_VERSION=<version> \
+     scripts/stage-console-deploy.bash <version> --mirror-dir /tmp/canary-mirror
    ```
 
    Before the Rust build it runs `scripts/build-web.sh --check`; a dirty or stale page aborts here
@@ -65,8 +73,8 @@ on the host; no bytes pass through an AI context.
 2. **Run it on the host**:
 
    ```bat
-   curl.exe -f -sS -o C:\Windows\Temp\deploy-246.cmd http://100.85.163.159:18100/deploy-console-0.3.246.cmd
-   cmd /c C:\Windows\Temp\deploy-246.cmd
+   curl.exe -f -sS -o C:\Windows\Temp\deploy-<version>.cmd http://100.85.163.159:18100/deploy-console-<version>.cmd
+   cmd /c C:\Windows\Temp\deploy-<version>.cmd
    ```
 
    The script downloads, verifies SHA-256 against the staged digest, reads the live version from
@@ -78,19 +86,20 @@ on the host; no bytes pass through an AI context.
 
    ```bash
    curl -sS http://100.74.250.98:19000/health
-   # {"status":"ok","devices":3,...,"version":"0.3.246"}
+   # {"status":"ok","devices":<n>,...,"version":"<version>"}
 
    curl -sS http://100.74.250.98:19000/ -o /tmp/live.html
    wc -c < /tmp/live.html
    stat -c %s device/console/web/dist/index.html   # must be the same number
 
-   curl -s -D - -o /dev/null 'http://100.74.250.98:19000/?v=246' | head -1
+   curl -s -D - -o /dev/null 'http://100.74.250.98:19000/?v=<version digits>' | head -1
    # HTTP/1.1 200 OK — only a `code` query goes to /next
    ```
 
    `console.log` has the `listening on http://0.0.0.0:19000` line. The page is the committed
    `dist/index.html`, not a stale embedded copy: a mismatch means the binary and the built page came
-   from different trees.
+   from different trees. Record the version, the served page's byte count and the binary's sha256 in
+   the Measured table; do not copy the previous version's numbers.
 
 ## Real-device checks after a deploy
 
@@ -110,41 +119,52 @@ picks the first online device from `/fleet`, opens a pty through `/mcp`, writes 
 `echo <marker>`, reads it back, closes the pty, and prints:
 
 ```
-device=DESKTOP-9VH92BJ id8=4c718d6e online=True
-terminal_created=session-24
-marker_seen=True bytes=542 cursor=542
+device=<name> id8=<8 hex> online=True
+terminal_created=session-<n>
+marker_seen=True bytes=<n> cursor=<n>
 REAL_TERMINAL_OK
 ```
 
 It never prints the operator token, the session token or the command output.
 
+**Plugins, when the device carries the plugin host.** Stage the example on the device host at
+`C:\SummrisePlugin\hello` (copy `examples/plugins/hello` there), copy the check to the console host,
+then run it:
+
+```bat
+curl.exe -f -sS -o C:\Windows\Temp\real-plugin-check.ps1 http://100.85.163.159:18100/real-plugin-check.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File C:\Windows\Temp\real-plugin-check.ps1
+```
+
+The staging step publishes the terminal check only, so put `real-plugin-check.ps1` on the mirror or
+copy it from the build tree. It adds the plugin through the deployed console,
+lists it, calls `hello.greet`, reads its log, removes it, proves the tool disappeared, and prints
+`REAL_PLUGIN_OK`. It reads the operator token from its file and never prints it. If the device build
+does not carry the plugin host yet, record the deferral and verify the old-build state on Plugins
+instead: the page says the machine needs a newer Summrise and shows no Add button. Do not report a
+plugin success the device cannot produce.
+
 **The page, by hand.** Open `/` in a browser on the host and sign in with the operator token. The
 React page keeps its bearer **in memory**, not in a cookie or storage; a reload asks for the token
 again. Do not quote the token into a shell, an MCP call or this document.
 
-Measured on `0.3.246`:
+Read these against a real machine, in the order a first visit takes them:
 
-- **Files** listed the real root (48 entries), opened `console-transfer.txt`, then created
-  `summrise-round-check-25`, uploaded a 28 B file, read it, edited it to 27 B, saved it, and the test
-  folder was removed from the host.
-- **Runs** executed `cmd /c echo ui-run-33` through the form: exit 0, 40 ms, 11 B stdout
-  (`ui-run-33`), and the same command appeared in the history. This is the `runs.exec` path the
-  Activity and deep-link checks open afterwards. A result can copy stdout/stderr, and a past record
-  can copy its command.
-- **Activity** narrows to All time / Last hour / Last day / Last week, and **Export CSV** writes the
-  filtered view (quoted fields, ISO timestamps, names beside ids). The shell's first tab stop is
-  **Skip to content**.
-- **Screen → Desktop** refused with `screen.capture: the per-user helper has not registered this
-  boot`; the page says which session the helper needs. That host's desktop session is disconnected,
-  so the refusal is correct.
-- **Screen → Browser** opened `example.com`, captured 27,119 bytes, filtered the target list from six
-  Chrome internals to the two real pages, showed the selected page's URL, and click/type reached the
-  page (`document.activeElement` became the input; its value became `hello via ui`). Three pages,
-  selecting, closing the selected page and navigating all updated the list and URL.
-- **Activity → Runs** and `#run/<device>/<run>` opened the same real run record. `#files`/`#terminal`
-  survive a reload and sign-in as surface fragments.
-- A hidden browser target pauses live view by design; the frame counter does not advance while
-  `document.hidden` is true.
+- **Home** with no machine chosen: the fleet, one row per machine, **Add a machine** as the only
+  accent. With a machine chosen: the status line, the endpoint with Copy, the counts line, the last
+  three calls, and the two actions **Connect a client** / **Add a capability**.
+- **Capabilities**: the device's live tools grouped by capability, built-ins first, plugin tools with
+  their source badge; a tool sheet shows the schema, annotations and **Try it**.
+- **Plugins**: the empty state, or the running `hello` row with its tool count; **Add plugin** opens
+  the sheet, the trust sentence is above the button, and a bad path is refused before anything runs.
+- **Activity**: the record, one row per call, the device's name rather than its id, and the token
+  that made the call.
+- **Device**: Terminal · Screen · Files · Runs · Machine in one workspace; the header never loses the
+  machine, and Terminal is the default tab.
+- **Connect**: Endpoint / Clients / Tokens in one sheet. The token is shown once, and closing the
+  sheet drops it.
+- **The five destinations are the only rail items.** There is no status strip and no second machine
+  picker inside Device.
 
 ## Rollback
 
@@ -157,7 +177,10 @@ copy /Y C:\SummriseConsole\summrise-console.exe.bak-<previous> C:\SummriseConsol
 schtasks /run /tn SummriseConsole
 ```
 
-Then the same `/health` check; the version line must name the backup's version.
+Then the same `/health` check; the version line must name the backup's version. Rollback is a console
+rollback only: a device already running the new plugin host keeps it, and the console's page must
+still speak to it. If the page and the device disagree, roll the console back first, then decide the
+device half separately (it has its own backup and update document).
 
 ## What the script deliberately does not do
 
@@ -165,8 +188,13 @@ Then the same `/health` check; the version line must name the backup's version.
 - It does not deploy a binary whose version string is not in the bytes — a build that ignored
   `SUMMRISE_BUILD_VERSION` would report yesterday's release.
 - It does not copy the binary through an MCP message.
+- It does not deploy the device runtime. The plugin host is a device build; the console half degrades
+  when the device does not have it.
 
 ## Measured
+
+**Last verified: `0.3.246`, 2026-11-02.** Kept as the baseline for comparison; these are not this
+build's numbers.
 
 | step | 0.3.246 |
 |---|---|
@@ -174,6 +202,20 @@ Then the same `/health` check; the version line must name the backup's version.
 | page | 786,744 B |
 | stop → `/health` | ~20 s (the task's own restart) |
 | after | version `0.3.246`, 3 devices, 3 online; `REAL_TERMINAL_OK` |
+
+**This deploy: `<version>`, `<date>`.** Fill every cell from the deployed host; do not infer a value.
+`—` means the check was not run, and a note must say why.
+
+| step | `<version>` |
+|---|---|
+| binary | `<bytes>` B, sha256 `<12 hex>…<6 hex>` |
+| page (`dist/index.html`) | `<bytes>` B |
+| `/health` after restart | `{"status":"ok","devices":<n>,"version":"<version>"}` |
+| stop → `/health` | `<seconds>` s |
+| real terminal check | `<REAL_TERMINAL_OK or the first failing line>` |
+| real plugin check | `<REAL_PLUGIN_OK, deferred with reason, or not applicable>` |
+| page by hand | `<which destinations and states were read, and the finding>` |
+| rollback binary kept | `summrise-console.exe.bak-<previous>` |
 
 The directory accumulates `summrise-console.exe.bak-0.3.x` files; `docs/RELEASE.md` asks for two.
 Keep the last two and delete the rest as part of a deploy.
