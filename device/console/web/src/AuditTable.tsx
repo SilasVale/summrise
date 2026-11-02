@@ -11,6 +11,15 @@ export const AUDIT_WINDOW = 200;
 
 const EMPTY: AuditFilter = { device: "", token: "", tool: "", status: "all" };
 
+/// The toolbar's time window. The table already holds the newest 200 lines, so this only narrows
+/// what is on screen; it never asks the console for a different slice.
+type Since = "all" | "hour" | "day" | "week";
+const SINCE_MS: Record<Exclude<Since, "all">, number> = {
+  hour: 60 * 60_000,
+  day: 24 * 60 * 60_000,
+  week: 7 * 24 * 60 * 60_000
+};
+
 /**
  * What to call one token in a cell or an option.
  *
@@ -105,12 +114,18 @@ export function AuditTable({
 }) {
   const [filter, setFilter] = useState<AuditFilter>(EMPTY);
   const [scope, setScope] = useState<"machine" | "all">(selectedDeviceId ? "machine" : "all");
+  const [since, setSince] = useState<Since>("all");
   const [open, setOpen] = useState<ReadonlySet<string>>(new Set());
   // THE SCOPE IS THE SELECTION. Activity used to be the one page that never learned which machine the
   // operator was on: its Device filter started at "All devices" every mount, so the record of the
   // machine in front of them was a fleet log they had to re-filter. This default costs one state.
   const applied = scope === "machine" && selectedDeviceId ? { ...filter, device: selectedDeviceId } : filter;
-  const shown = useMemo(() => filterAudit(lines, applied), [lines, applied]);
+  const windowed = useMemo(() => {
+    if (since === "all") return lines;
+    const cutoff = Date.now() - SINCE_MS[since];
+    return lines.filter((line) => line.ts_ms >= cutoff);
+  }, [lines, since]);
+  const shown = useMemo(() => filterAudit(windowed, applied), [windowed, applied]);
   const keys = useMemo(() => lineKeys(lines), [lines]);
   const tokenNames = useMemo(() => new Map(tokens.map((entry) => [entry.id, entry.name])), [tokens]);
 
@@ -143,10 +158,15 @@ export function AuditTable({
   ).sort();
 
   const hasFilter =
-    filter.device !== "" || filter.token !== "" || filter.tool.trim() !== "" || filter.status !== "all";
+    filter.device !== "" ||
+    filter.token !== "" ||
+    filter.tool.trim() !== "" ||
+    filter.status !== "all" ||
+    since !== "all";
 
   const clear = () => {
     setFilter(EMPTY);
+    setSince("all");
     setOpen(new Set());
   };
 
@@ -186,6 +206,15 @@ export function AuditTable({
             All machines
           </button>
         </div>
+        <label className="audit-field">
+          <span>Time</span>
+          <select value={since} onChange={(event) => setSince(event.target.value as Since)}>
+            <option value="all">All time</option>
+            <option value="hour">Last hour</option>
+            <option value="day">Last day</option>
+            <option value="week">Last week</option>
+          </select>
+        </label>
         {scope === "all" && (
           <label className="audit-field">
             <span>Device</span>
@@ -253,7 +282,7 @@ export function AuditTable({
       </div>
 
       <p className="hint audit-caption">
-        {shown.length} of {lines.length} lines
+        {shown.length} of {windowed.length} lines
         {lines.length >= AUDIT_WINDOW && (
           <>
             {" "}
