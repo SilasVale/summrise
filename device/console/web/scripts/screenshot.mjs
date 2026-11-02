@@ -318,7 +318,12 @@ function auditLine(agoMs, kind, { device, status = 200, tool = null, detail = nu
 }
 
 const AUDIT = [
-  auditLine(50_000, 'mcp', { device: DEVICE.workshop, tool: 'system.process_list', token: TOKEN.workshop }),
+  auditLine(50_000, 'mcp', {
+    device: DEVICE.workshop,
+    tool: 'runs.exec',
+    detail: 'run r-1 exited 0 in 42 ms',
+    token: TOKEN.workshop
+  }),
   auditLine(2 * MINUTE, 'mcp', { device: DEVICE.workshop, tool: 'terminal.write' }),
   auditLine(5 * MINUTE, 'mcp', { device: DEVICE.attic, tool: 'files.list', token: TOKEN.fleet }),
   auditLine(8 * MINUTE, 'mcp', { device: DEVICE.attic, tool: 'runs.exec', token: TOKEN.attic }),
