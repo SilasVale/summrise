@@ -265,6 +265,16 @@ describe("App", () => {
     expect(screen.queryByText("No audit lines yet.")).not.toBeInTheDocument();
   });
 
+  it("opens the fleet-token form from the Devices page", async () => {
+    await bootAndSignIn();
+
+    fireEvent.click(screen.getByRole("button", { name: "Fleet tokens" }));
+
+    const dialog = await screen.findByRole("dialog", { name: "Fleet tokens" });
+    expect(within(dialog).getByRole("button", { name: "Create fleet token" })).toBeInTheDocument();
+    expect(within(dialog).getByText(/accepted only on/)).toBeInTheDocument();
+  });
+
   it("selects a device and opens its terminal without a grant form", async () => {
     await bootAndSignIn();
 
