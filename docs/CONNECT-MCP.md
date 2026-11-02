@@ -8,6 +8,11 @@ This endpoint is for an MCP client (DeepSeek Harness, any `StreamableHTTPClientT
 credential is a bearer the console accepts: a console-signed grant for a session, or a permanent token
 for a configuration that must not change.
 
+The hub did not change that contract: the path and the bearer are the same. What can appear behind the
+endpoint is larger. The device advertises its built-in tools plus every running plugin's tools, and
+the console reads that live list for the page, the token form and `tools/list`. A plugin tool is
+called exactly like a built-in, with the same token scope and the same audit row.
+
 ## The endpoint
 
 ```
@@ -21,10 +26,11 @@ The path is the device id: 64 lowercase hex characters, the registered public ke
 MCP `2025-06-18`; it answers JSON (no SSE), and every request carries a grant, or a token the console
 turns into one — there is no session.
 
-The console page has the same flow without the curl for the token half: the device's **Connect an AI
-client** page (rail: **Tokens**) mints a permanent token through the page's own operator session and
-shows the endpoint and the header. It does not mint session grants — those are one API call with the
-operator session, below. The curl is for a script or an operator on a machine without the page.
+The console page has the same flow without the curl for the token half: **Home → Connect a client**
+opens the sheet, and its **Tokens** section mints a permanent token through the page's own operator
+session and shows the endpoint and the header. It does not mint session grants — those are one API
+call with the operator session, below. The curl is for a script or an operator on a machine without
+the page.
 
 ## Mint a grant
 
@@ -60,11 +66,11 @@ A grant expires, so a configuration built around one has to be rebuilt. A **perm
 console's answer for a client whose configuration must stay fixed: the console issues it once, the
 client sends it on every request, and the console turns it into a short grant each time.
 
-Create it in the console: the device's **Connect AI client** dialog (Devices → **Connect AI
-client**). Name it, tick the destructive consent (the same `allow_destructive` a grant carries —
-unticked means a destructive call is refused immediately, and the refusal names the consent it
-needs), and press **Create token**. The token is `srm_` followed by 64 lowercase hex characters (68
-in all), returned once at creation:
+Create it in the console: **Home → Connect a client → Tokens**. Name it, choose the tools it names,
+tick the destructive consent (the same `allow_destructive` a grant carries — unticked means a
+destructive call is refused immediately, and the refusal names the consent it needs), and press
+**Create token**. The token is `srm_` followed by 64 lowercase hex characters (68 in all), returned
+once at creation:
 
 ```
 srm_<64 lowercase hex characters>
@@ -117,14 +123,29 @@ a tool outside its set never reaches the device, because the minted grant does n
 A token is not an operator session: it cannot mint grants, list devices, read the audit, or create
 another token. The console accepts at most 64 tokens.
 
+### Plugin tools in the scope
+
+A plugin tool enters a token's scope the same way a built-in does, with one device-side fact the
+console checks first. When a token names a tool outside the built-in registry, the console reads the
+device's live `tools/list` at mint time: the name is accepted only if the device advertises it. If
+the machine is offline the request is refused with `unknown_tool` and "connect the machine, then mint
+the token" — rather than minting a scope that may be a typo. An **aggregate** token stays on the
+static registry in v1: a plugin tool is per-device, so it is refused with a sentence that says so.
+
+The same live read is what the page shows. `GET /fleet/:id/tools` returns the device's `tools/list`
+with `source` (`builtin` or `plugin:<namespace>`), `capability` and `destructive`; Home's counts,
+Capabilities and the token form share it. An offline device answers `503`, a channel timeout `504`,
+and the page labels a stale catalogue instead of hiding it. The static `GET /tools` registry remains
+the fallback for the built-in flag, not the list the page renders.
+
 A token is **permanent by default**. Creation may give it an **expiry** between one hour and 365
-days; the card's **Expires** select offers never, 30, 90 and 365 days, and the list's Expires column
+days; the sheet's **Expires** select offers never, 30, 90 and 365 days, and the list's Expires column
 says the date (with its year) or `never`. An expired token is refused with `401` (the denial log keeps `expired_api_token`) before it
 can mint a grant; expiry is checked before the device match. **Rotate** keeps the lifetime policy —
 the new value gets the same duration counted from the rotation, not the old absolute date.
 
-Revocation is the only withdrawal for a permanent token. The device card's token list shows each
-token's name, creation date, tool set, expiry and **last use** (`last used <date>`, or `never used`) —
+Revocation is the only withdrawal for a permanent token. Connect's token list shows each token's
+name, creation date, tool set, expiry and **last use** (`last used <date>`, or `never used`) —
 never the token — and **Revoke** asks for confirmation. The in-memory list is current; the file is
 written at most once a minute, so a reload may show a last-use value up to a minute old. After it, the next request with that token is
 `401` and the token is gone from the list: neither the page nor the audit can show it again.
@@ -184,10 +205,17 @@ The answer carries the plaintext once. Use it as the bearer on `/mcp/all`:
 
 The device list is the scope: a call naming a device outside it is refused before a frame is sent,
 and a name shared by two allowed devices is ambiguous and refused, never guessed. A device token is
-refused on `/mcp/all`; an aggregate token is refused on `/mcp/<device-id>`. **Devices →
-Fleet tokens** creates, lists and revokes aggregate tokens (the same operations are on the API:
-`POST /tokens` with `device_ids`, `GET /tokens`, `DELETE /tokens/<id>`); the per-device dialog
+refused on `/mcp/all`; an aggregate token is refused on `/mcp/<device-id>`. **Account menu → Fleet
+tokens** creates, lists and revokes aggregate tokens (the same operations are on the API:
+`POST /tokens` with `device_ids`, `GET /tokens`, `DELETE /tokens/<id>`); the per-device Connect sheet
 creates one-device tokens only.
+
+## Older devices
+
+A device running a build without the plugin host advertises no `plugins.*` tools. The endpoint, the
+bearer and the built-in tools are unchanged; the console's **Plugins** destination says *This machine
+needs a newer Summrise to host plugins* and shows no Add button. A token cannot name a plugin tool,
+because the device never advertises one. Nothing about `/mcp/<device-id>` or `/mcp/all` changes.
 
 ## DeepSeek Harness
 
@@ -243,9 +271,12 @@ A loopback or tunnel deployment without Access needs no dashboard step.
   frame leaves (for a token, outside the token's tool set), and the device re-verifies the same signed
   bytes offline.
 - **Grants cannot be revoked before expiry.** Rotate by minting a new grant and letting the old one
-  expire. A token is permanent unless created with an expiry; **Revoke** in the device card withdraws
+  expire. A token is permanent unless created with an expiry; **Revoke** in Connect withdraws
   it, and its next request is
   `401`.
+- **A plugin tool has no separate policy.** It is authorized by the same token scope and destructive
+  flag as a built-in, and the audit names the namespaced tool (`hello.greet`), so the call is
+  attributable. Installing the plugin is the trust decision; the token is the runtime brake.
 - **HTTPS only.** The bearer is a secret in a header; never put it in a URL, a shell history, a
   repository or a screenshot.
 - **A frame runs once.** Every grant carries a signed nonce; the device remembers the ones it has
@@ -263,7 +294,10 @@ A loopback or tunnel deployment without Access needs no dashboard step.
 
 - A per-device endpoint reaches one device; `/mcp/all` reaches the aggregate token's device list.
 - No SSE: a `GET` on the path is `405`, and the official client tolerates that.
-- `tools/list` is answered by the device, so an offline device cannot list its tools.
+- `tools/list` is answered by the device, so an offline device cannot list its tools. A plugin's
+  tools are in that list only while it is `running`.
+- A plugin call is one at a time per plugin and times out after 120 s with `PLUGIN_TIMEOUT`; the
+  device stays healthy and the plugin is not killed for a slow call.
 - The body cap is 8 MiB (the device's own `/mcp` cap); files are base64 and capped at 1 MiB.
 - `runs.exec` may block for its own timeout, up to ten minutes.
 
