@@ -72,7 +72,7 @@ main { flex: 1; max-width: 84rem; margin: 0 auto; padding: var(--sp-5); display:
 .login-wrap { min-height: 100vh; display: grid; place-items: center; padding: 1.5rem; }
 .login { width: min(30rem, 100%); display: grid; gap: 0.5rem; }
 .login h1, .login h2 { margin: 0.2rem 0 0; font-size: var(--fs-lg); }
-.login label { font-size: var(--fs-sm); font-weight: 550; margin-top: 0.4rem; }
+.login label { font-size: var(--fs-sm); font-weight: var(--fw-medium); margin-top: 0.4rem; }
 .login input {
   width: 100%; padding: 0.5rem 0.65rem; border: 1px solid var(--line-strong); border-radius: var(--radius-xs);
   background: var(--surface); color: var(--ink); font: inherit;
@@ -217,20 +217,20 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--focus-ring); ou
 .vitals-keys { display: flex; flex-wrap: wrap; gap: 0.1rem 0.9rem; font-size: var(--fs-xs); }
 .vitals-key { display: inline-flex; align-items: center; gap: 0.35rem; }
 .vitals-key::before { content: ""; width: 0.6rem; height: 2px; border-radius: 1px; flex: none; }
-.vitals-key-memory::before { background: var(--accent); }
+.vitals-key-memory::before { background: var(--ink-muted); }
 .vitals-key-disk::before { background: var(--warn); }
 .vitals-chart { display: block; width: 100%; height: 2.75rem; margin-top: 0.25rem; }
 .vitals-line { fill: none; stroke-width: 1.5; stroke-linejoin: round; stroke-linecap: round; }
-.vitals-line-memory { stroke: var(--accent); }
+.vitals-line-memory { stroke: var(--ink-muted); }
 .vitals-line-disk { stroke: var(--warn); }
 .vitals-dot { stroke: none; }
-.vitals-dot-memory { fill: var(--accent); }
+.vitals-dot-memory { fill: var(--ink-muted); }
 .vitals-dot-disk { fill: var(--warn); }
 .vitals-caption, .vitals-collecting { margin: 0.25rem 0 0; color: var(--ink-muted); font-size: var(--fs-xs); line-height: 1.4; }
 
 .chip {
   display: inline-block; padding: 0.05rem 0.5rem; border-radius: 999px;
-  font-size: var(--fs-xs); font-weight: 600; line-height: 1.6; white-space: nowrap;
+  font-size: var(--fs-xs); font-weight: var(--fw-semi); line-height: 1.6; white-space: nowrap;
 }
 .chip-ok { background: var(--ok-soft); color: var(--ok); }
 .chip-warn { background: var(--warn-soft); color: var(--warn); }
@@ -252,7 +252,7 @@ th, td { text-align: left; padding: 0.4rem 0.5rem; border-bottom: 1px solid var(
 th {
   position: sticky; top: 0; background: var(--surface); z-index: 1;
   font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: 0.05em;
-  color: var(--ink-faint); font-weight: 600;
+  color: var(--ink-faint); font-weight: var(--fw-semi);
 }
 tr:last-child td { border-bottom: 0; }
 
@@ -273,7 +273,7 @@ tr:last-child td { border-bottom: 0; }
   display: grid; gap: 0.5rem;
 }
 .modal h2 { font-size: var(--fs-lg); }
-.modal label { font-size: var(--fs-sm); font-weight: 550; }
+.modal label { font-size: var(--fs-sm); font-weight: var(--fw-medium); }
 .modal input {
   width: 100%; padding: 0.5rem 0.6rem; border: 1px solid var(--line-strong);
   border-radius: var(--radius-xs); background: var(--surface); color: var(--ink); font: inherit;
@@ -285,18 +285,18 @@ tr:last-child td { border-bottom: 0; }
 /* A radio is a choice, not a field: the modal's full-width input rule would stretch it. */
 .modal input[type="radio"] { width: auto; padding: 0; }
 .modal input[type="checkbox"] { width: auto; padding: 0; }
-.modal .check { font-weight: 450; }
+.modal .check { font-weight: var(--fw-regular); }
 /* The SSH credential is one of two, so it is a fieldset with two radios and only the chosen
    field below it. */
 .modal .auth-choice {
   margin: 0; padding: 0.4rem 0.6rem 0.55rem; border: 1px solid var(--line);
   border-radius: var(--radius-xs); display: grid; gap: 0.2rem;
 }
-.modal .auth-choice legend { padding: 0 0.25rem; font-size: var(--fs-sm); font-weight: 550; }
+.modal .auth-choice legend { padding: 0 0.25rem; font-size: var(--fs-sm); font-weight: var(--fw-medium); }
 /* Serial framing is four short values, not four full-width lines. */
 .serial-framing { display: grid; grid-template-columns: repeat(auto-fit, minmax(6rem, 1fr)); gap: 0.5rem; }
 .serial-framing > div { display: grid; gap: 0.2rem; min-width: 0; }
-.serial-framing label { font-size: var(--fs-xs); font-weight: 550; color: var(--ink-muted); }
+.serial-framing label { font-size: var(--fs-xs); font-weight: var(--fw-medium); color: var(--ink-muted); }
 .modal-actions { display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 0.4rem; }
 
 /* The AI-client card: one column of form, then the two facts and their copy buttons. */
@@ -308,11 +308,11 @@ tr:last-child td { border-bottom: 0; }
   background: none; color: var(--ink-muted);
   padding: 0.3rem 0.55rem; font: inherit; font-size: var(--fs-sm); cursor: pointer;
 }
-.connect-tabs button[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--accent); font-weight: 600; }
+.connect-tabs button[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--accent); font-weight: var(--fw-semi); }
 /* The tokens this device already has: metadata rows, one revoke action each, never a value. */
 .token-list { display: grid; gap: 0.4rem; }
 .token-list h3 {
-  font-size: var(--fs-xs); font-weight: 600; color: var(--ink-faint);
+  font-size: var(--fs-xs); font-weight: var(--fw-semi); color: var(--ink-faint);
   text-transform: uppercase; letter-spacing: 0.05em;
 }
 .token-list ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.35rem; }
@@ -341,9 +341,9 @@ tr:last-child td { border-bottom: 0; }
   width: 7rem; padding: 0.35rem 0.5rem; border: 1px solid var(--line-strong);
   border-radius: var(--radius-xs); background: var(--surface); color: var(--ink); font: inherit;
 }
-.check { display: inline-flex; align-items: center; gap: 0.4rem; font-size: var(--fs-sm); font-weight: 450; }
+.check { display: inline-flex; align-items: center; gap: 0.4rem; font-size: var(--fs-sm); font-weight: var(--fw-regular); }
 .tools { border: 1px solid var(--line); border-radius: var(--radius); padding: 0.5rem 0.7rem 0.7rem; background: var(--surface-recessed); }
-.tools legend { font-size: var(--fs-sm); font-weight: 600; color: var(--ink-muted); padding: 0 0.3rem; display: flex; align-items: center; gap: 0.4rem; }
+.tools legend { font-size: var(--fs-sm); font-weight: var(--fw-semi); color: var(--ink-muted); padding: 0 0.3rem; display: flex; align-items: center; gap: 0.4rem; }
 .tools .mini { padding: 0.1rem 0.45rem; font-size: var(--fs-xs); }
 .tool-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(12rem, 1fr)); gap: 0.15rem 0.8rem; margin-top: 0.35rem; }
 .tool-grid .check { font-size: var(--fs-xs); }
@@ -481,7 +481,7 @@ main.terminal-main:has(.terminal-workspace-empty) { grid-template-rows: auto aut
   background: transparent;
   color: var(--ink-faint);
   padding: 0 0.1rem;
-  font-size: 0.95rem;
+  font-size: var(--fs-md);
   line-height: 1;
   cursor: pointer;
 }
@@ -535,8 +535,8 @@ main.terminal-main:has(.terminal-workspace-empty) { grid-template-rows: auto aut
 .tab-state {
   padding: 0 0.35rem;
   border-radius: 999px;
-  font-size: 0.65rem;
-  font-weight: 650;
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-semi);
   line-height: 1.5;
   white-space: nowrap;
 }
@@ -644,7 +644,7 @@ button.chip-tag:hover {
 }
 .memory-edit label {
   font-size: var(--fs-sm);
-  font-weight: 550;
+  font-weight: var(--fw-medium);
 }
 .memory-edit input,
 .memory-edit textarea {
@@ -688,7 +688,7 @@ button.chip-tag:hover {
 .monitors-field.expect { flex: 1 1 12rem; }
 .monitors-field > label {
   font-size: var(--fs-xs);
-  font-weight: 550;
+  font-weight: var(--fw-medium);
   color: var(--ink-muted);
 }
 .monitors-field input,
@@ -707,7 +707,7 @@ button.chip-tag:hover {
   margin-left: auto;
   color: var(--ink-faint);
   font-size: var(--fs-xs);
-  font-weight: 600;
+  font-weight: var(--fw-semi);
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
@@ -735,7 +735,7 @@ button.chip-tag:hover {
 .runs-field.cwd { flex: 1 1 10rem; }
 .runs-field > label {
   font-size: var(--fs-xs);
-  font-weight: 550;
+  font-weight: var(--fw-medium);
   color: var(--ink-muted);
 }
 .runs-field input {
@@ -768,7 +768,7 @@ button.chip-tag:hover {
 .runs-detail-command h3 {
   margin: 0;
   font-size: var(--fs-xs);
-  font-weight: 600;
+  font-weight: var(--fw-semi);
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: var(--ink-faint);
@@ -851,7 +851,7 @@ button.files-crumb {
   color: var(--accent);
   padding: 0.1rem 0.3rem;
   font-size: var(--fs-sm);
-  font-weight: 550;
+  font-weight: var(--fw-medium);
 }
 button.files-crumb:hover {
   background: var(--accent-soft);
@@ -860,7 +860,7 @@ button.files-crumb:hover {
 .files-crumb-current {
   padding: 0.1rem 0.3rem;
   font-size: var(--fs-sm);
-  font-weight: 650;
+  font-weight: var(--fw-semi);
 }
 .files-crumb-sep {
   color: var(--ink-faint);
@@ -879,7 +879,7 @@ button.files-crumb:hover {
 .files-new > label,
 .files-upload > label {
   font-size: var(--fs-xs);
-  font-weight: 550;
+  font-weight: var(--fw-medium);
   color: var(--ink-muted);
 }
 .files-new-row {
@@ -951,20 +951,20 @@ button.files-name:hover {
   text-decoration: underline;
 }
 .files-directory button.files-name {
-  font-weight: 600;
+  font-weight: var(--fw-semi);
 }
 span.files-name {
   color: var(--ink-muted);
 }
 .files-up button.files-name {
   color: var(--ink-muted);
-  font-weight: 550;
+  font-weight: var(--fw-medium);
 }
 .files-kind {
   flex: none;
   color: var(--ink-faint);
   font-size: var(--fs-xs);
-  font-weight: 600;
+  font-weight: var(--fw-semi);
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
@@ -987,7 +987,7 @@ span.files-name {
 }
 .files-viewer label {
   font-size: var(--fs-sm);
-  font-weight: 550;
+  font-weight: var(--fw-medium);
 }
 .files-editor {
   width: 100%;
@@ -1027,7 +1027,7 @@ span.files-name {
 .system-section > h3 {
   margin: 0.25rem 0 0;
   font-size: var(--fs-base);
-  font-weight: 650;
+  font-weight: var(--fw-semi);
 }
 .system-toolbar,
 .system-net {
@@ -1046,7 +1046,7 @@ span.files-name {
 .system-field.host { flex: 1 1 13rem; }
 .system-field > label {
   font-size: var(--fs-xs);
-  font-weight: 550;
+  font-weight: var(--fw-medium);
   color: var(--ink-muted);
 }
 .system-field input {
