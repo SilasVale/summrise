@@ -78,7 +78,7 @@ export function RunsPage({
   const [running, setRunning] = useState(false);
   const [runError, setRunError] = useState<string | null>(null);
   const [result, setResult] = useState<RunResult | null>(null);
-  const [copied, setCopied] = useState<"stdout" | "stderr" | null>(null);
+  const [copied, setCopied] = useState<"stdout" | "stderr" | "command" | null>(null);
 
   const [detail, setDetail] = useState<RunRecord | null>(null);
   const [detailId, setDetailId] = useState<string | null>(null);
@@ -229,6 +229,10 @@ export function RunsPage({
 
   const copyStream = async (which: "stdout" | "stderr", text: string) => {
     if (await copyText(text)) setCopied(which);
+  };
+
+  const copyCommand = async (text: string) => {
+    if (await copyText(text)) setCopied("command");
   };
 
   return (
@@ -414,6 +418,13 @@ export function RunsPage({
           <header>
             <strong className="mono">{detail.id}</strong>
             <div className="actions">
+              <button
+                type="button"
+                className="mini"
+                onClick={() => void copyCommand(commandLine(detail))}
+              >
+                {copied === "command" ? "Copied" : "Copy command"}
+              </button>
               <button type="button" className="mini" onClick={() => setDetail(null)}>
                 Close
               </button>
