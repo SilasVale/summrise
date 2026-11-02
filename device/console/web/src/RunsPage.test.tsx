@@ -1,7 +1,10 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { RunsPage } from "./RunsPage";
+import { copyText } from "./copy";
 import { callTool, ToolError, type Grant } from "./terminal";
+
+vi.mock("./copy", () => ({ copyText: vi.fn().mockResolvedValue(true) }));
 
 // The page's whole device surface is `callTool`; the real `ToolError` stays so a refusal is the class
 // the page actually receives from `./terminal`.
@@ -158,6 +161,9 @@ describe("RunsPage", () => {
     expect(within(result).getByText("exit 0")).toBeInTheDocument();
     expect(within(result).getByText("recorded")).toBeInTheDocument();
     expect(within(result).getByText("hello")).toBeInTheDocument();
+    fireEvent.click(within(result).getByRole("button", { name: "Copy stdout" }));
+    await waitFor(() => expect(copyText).toHaveBeenCalledWith("hello\n"));
+    expect(within(result).getByRole("button", { name: "Copied" })).toBeInTheDocument();
 
     // The run's row arrives only from the re-read the page does after a successful run.
     expect(await screen.findByText("echo hello")).toBeInTheDocument();

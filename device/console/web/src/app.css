@@ -818,6 +818,12 @@ button.chip-tag:hover {
   grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));
 }
 .runs-stream { min-width: 0; }
+.runs-stream-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+}
 .runs-stream h3,
 .runs-detail-command h3 {
   margin: 0;
