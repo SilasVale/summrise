@@ -1,10 +1,10 @@
 # Deploying the console
 
-> **Status: verified, 2026-11-02 — `0.3.232` deployed to `DESKTOP-9VH92BJ` with this runbook.**
-> The digest matched, the script backed up `0.3.231`, `/health` reported `0.3.232` after the restart,
-> the served page was the committed `dist/index.html` byte for byte (782,331 B), and the real-device
-> terminal check answered `REAL_TERMINAL_OK`. The console is the operator's control plane; a deploy
-> restarts it.
+> **Status: verified, 2026-11-02 — `0.3.240` deployed to `DESKTOP-9VH92BJ` with this runbook.**
+> The digest matched, the script backed up `0.3.239`, `/health` reported `0.3.240` after the restart,
+> the served page was the committed `dist/index.html` byte for byte (784,189 B), `GET /?v=240`
+> stayed on the React page (200, no `/next` redirect), and the real-device terminal check answered
+> `REAL_TERMINAL_OK`. The console is the operator's control plane; a deploy restarts it.
 
 ## Why the console deploys differently from a device
 
@@ -32,7 +32,7 @@ on the host; no bytes pass through an AI context.
 | mirror directory | `/tmp/canary-mirror` on the Linux box |
 | mirror address the host uses | `http://100.85.163.159:18100` (tailnet) |
 | version source | `SUMMRISE_BUILD_VERSION` at build time (`device/console/build.rs`); without it the binary reports `CARGO_PKG_VERSION` |
-| operator page | `/` — the React page; `/next` is the legacy page and is not the operator surface |
+| operator page | `/` — the React page; `/next` is the legacy page and only a `code` query goes there |
 
 ## Before you deploy
 
@@ -48,19 +48,20 @@ on the host; no bytes pass through an AI context.
 1. **Stage** (Linux, once per version):
 
    ```bash
-   SUMMRISE_BUILD_VERSION=0.3.232 \
-     scripts/stage-console-deploy.bash 0.3.232 --mirror-dir /tmp/canary-mirror
+   SUMMRISE_BUILD_VERSION=0.3.240 \
+     scripts/stage-console-deploy.bash 0.3.240 --mirror-dir /tmp/canary-mirror
    ```
 
    It builds with `cargo xwin`, refuses a binary whose bytes do not contain the version string,
-   copies it and `deploy-console-<version>.cmd` to the mirror directory, and prints the binary's
-   size and sha256. The `.cmd` bakes in that digest.
+   copies it and `deploy-console-<version>.cmd` to the mirror directory, publishes
+   `real-device-check.ps1` beside them, and prints the binary's size and sha256. The `.cmd` bakes in
+   that digest.
 
 2. **Run it on the host**:
 
    ```bat
-   curl.exe -f -sS -o C:\Windows\Temp\deploy.cmd http://100.85.163.159:18100/deploy-console-0.3.232.cmd
-   cmd /c C:\Windows\Temp\deploy.cmd
+   curl.exe -f -sS -o C:\Windows\Temp\deploy-240.cmd http://100.85.163.159:18100/deploy-console-0.3.240.cmd
+   cmd /c C:\Windows\Temp\deploy-240.cmd
    ```
 
    The script downloads, verifies SHA-256 against the staged digest, reads the live version from
@@ -72,11 +73,14 @@ on the host; no bytes pass through an AI context.
 
    ```bash
    curl -sS http://100.74.250.98:19000/health
-   # {"status":"ok","devices":3,...,"version":"0.3.232"}
+   # {"status":"ok","devices":3,...,"version":"0.3.240"}
 
    curl -sS http://100.74.250.98:19000/ -o /tmp/live.html
    wc -c < /tmp/live.html
    stat -c %s device/console/web/dist/index.html   # must be the same number
+
+   curl -s -D - -o /dev/null 'http://100.74.250.98:19000/?v=240' | head -1
+   # HTTP/1.1 200 OK — only a `code` query goes to /next
    ```
 
    `console.log` has the `listening on http://0.0.0.0:19000` line. The page is the committed
@@ -102,7 +106,7 @@ picks the first online device from `/fleet`, opens a pty through `/mcp`, writes 
 
 ```
 device=DESKTOP-9VH92BJ id8=4c718d6e online=True
-terminal_created=session-9
+terminal_created=session-18
 marker_seen=True bytes=542 cursor=542
 REAL_TERMINAL_OK
 ```
@@ -113,14 +117,21 @@ It never prints the operator token, the session token or the command output.
 React page keeps its bearer **in memory**, not in a cookie or storage; a reload asks for the token
 again. Do not quote the token into a shell, an MCP call or this document.
 
-Measured on `0.3.232`:
+Measured on `0.3.240`:
 
-- Files listed the real root (48 entries) and opened `console-transfer.txt` as
-  `transferred through the console`.
-- Screen refused with `screen.capture: the per-user helper has not registered this boot` and said
-  which session the helper needs; that host's desktop session is disconnected, so the refusal is
-  correct.
-- Activity → Open in Runs and `#run/<device>/<run>` both opened the same real run record.
+- **Files** listed the real root (48 entries), opened `console-transfer.txt`, then created
+  `summrise-round-check-25`, uploaded a 28 B file, read it, edited it to 27 B, saved it, and the test
+  folder was removed from the host.
+- **Screen → Desktop** refused with `screen.capture: the per-user helper has not registered this
+  boot`; the page says which session the helper needs. That host's desktop session is disconnected,
+  so the refusal is correct.
+- **Screen → Browser** opened `example.com`, captured 27,119 bytes, filtered the target list from six
+  Chrome internals to the two real pages, showed the selected page's URL, and click/type reached the
+  page (`document.activeElement` became the input; its value became `hello via ui`).
+- **Activity → Runs** and `#run/<device>/<run>` opened the same real run record. `#files`/`#terminal`
+  survive a reload and sign-in as surface fragments.
+- A hidden browser target pauses live view by design; the frame counter does not advance while
+  `document.hidden` is true.
 
 ## Rollback
 
@@ -144,12 +155,12 @@ Then the same `/health` check; the version line must name the backup's version.
 
 ## Measured
 
-| step | 0.3.232 |
+| step | 0.3.240 |
 |---|---|
-| binary | 6,971,392 B, sha256 `491d7f63…32153d8e` |
-| page | 782,331 B |
+| binary | 6,971,904 B, sha256 `b39454fb…fa8a70ad` |
+| page | 784,189 B |
 | stop → `/health` | ~20 s (the task's own restart) |
-| after | version `0.3.232`, 3 devices, 3 online; `REAL_TERMINAL_OK` |
+| after | version `0.3.240`, 3 devices, 3 online; `REAL_TERMINAL_OK` |
 
 The directory accumulates `summrise-console.exe.bak-0.3.x` files; `docs/RELEASE.md` asks for two.
 Keep the last two and delete the rest as part of a deploy.
