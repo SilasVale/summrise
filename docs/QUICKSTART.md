@@ -19,7 +19,7 @@ It is loopback only and has no login — if you can read it, you are on the box.
 
 ## 2. Enroll the machine
 
-In the console: the Fleet page's **New enrollment code**. The code is single-use and expires in
+In the console: the Devices page's **New enrollment code**. The code is single-use and expires in
 minutes. Spend it either way:
 
 - **At the machine:** in the panel, open **Console link → Enrol this machine**, paste the console URL
@@ -46,10 +46,10 @@ sc start SummriseLaunch
 
 ## 3. Create a permanent token
 
-In the console, open the device's **Connect an AI client** page (the fleet row's **Connect** link, or
-the rail's **Tokens**). Name the token, decide whether destructive tools are allowed (unticked means
-a destructive call is held for approval, and refused if nobody answers within ninety seconds), and
-press **Mint a token**.
+In the console, open the device's **Connect AI client** dialog (Devices → the card's **Connect AI
+client**). Name the token, decide whether destructive tools are allowed (unticked means
+a destructive call is refused immediately, and the refusal says how to allow it), and press
+**Create token**.
 
 The value is `srm_` plus 64 lowercase hex characters, shown once and stored only as a hash: neither the
 list nor the audit can produce it again, so keep it in a secret, not a repository or a screenshot. It
@@ -57,9 +57,9 @@ is permanent by default; the card's **Expires** select gives it 30, 90 or 365 da
 `expires_in_s` takes anything from one hour to 365 days), and revocation is the only withdrawal for a
 permanent token ([the scope rules](CONNECT-MCP.md#scope-and-revocation)).
 
-To reach several devices with one client, open the fleet page's **Fleet tokens** link, name the
-token, tick the machines it should reach, and point the client at `https://<console>/mcp/all`; every
-tool takes a `device` argument. The per-device card still creates one-device tokens.
+To reach several devices with one client, open **Devices → Fleet tokens**, name the token, tick the
+machines it should reach, and point the client at `https://<console>/mcp/all`; every tool takes a
+`device` argument. The per-device card still creates one-device tokens.
 
 ## 4. Point the client at the endpoint
 
@@ -122,7 +122,8 @@ call; [`CONNECT-MCP.md#a-quick-check`](CONNECT-MCP.md#a-quick-check) has `initia
 
 ## 6. Revoke
 
-On the device's **Connect an AI client** page (the rail's **Tokens**), the token's row has **Revoke**.
+In the device's **Connect AI client** dialog (Devices → **Connect AI client**), the token's row has
+**Revoke**.
 The next request with that token is `401`, and the value is never shown again. Create a new token and
 update the client's configuration if the client should keep working.
 
