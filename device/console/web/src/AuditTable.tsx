@@ -98,6 +98,11 @@ export function AuditTable({
   }, [lines, tokenNames]);
 
   const fleet = new Set(devices.map((device) => device.id));
+  const deviceNames = useMemo(
+    () => new Map(devices.map((device) => [device.id, device.name ?? shortId(device.id)])),
+    [devices]
+  );
+  const [copied, setCopied] = useState<string | null>(null);
   const retired = Array.from(
     new Set(
       lines
@@ -112,6 +117,15 @@ export function AuditTable({
   const clear = () => {
     setFilter(EMPTY);
     setOpen(new Set());
+  };
+
+  const copyDevice = async (id: string, key: string) => {
+    try {
+      await navigator.clipboard.writeText(id);
+      setCopied(key);
+    } catch {
+      // The id is selectable text; a refused clipboard is not an error the table should shout about.
+    }
   };
 
   const toggle = (key: string) => {
@@ -245,8 +259,10 @@ export function AuditTable({
                     <tr>
                       <td className="mono">{new Date(line.ts_ms).toLocaleTimeString()}</td>
                       <td>{line.kind}</td>
-                      <td className="mono">
-                        {line.device_id ? shortId(line.device_id) : ""}
+                      <td title={line.device_id ?? undefined}>
+                        {line.device_id
+                          ? deviceNames.get(line.device_id) ?? shortId(line.device_id)
+                          : ""}
                       </td>
                       <td className="mono">
                         {line.token_id ? (
@@ -308,7 +324,18 @@ export function AuditTable({
                             </div>
                             <div>
                               <dt>Device</dt>
-                              <dd className="mono">{line.device_id ?? "—"}</dd>
+                              <dd className="mono">
+                                {line.device_id ?? "—"}
+                                {line.device_id && (
+                                  <button
+                                    type="button"
+                                    className="mini audit-copy"
+                                    onClick={() => void copyDevice(line.device_id!, key)}
+                                  >
+                                    {copied === key ? "Copied" : "Copy"}
+                                  </button>
+                                )}
+                              </dd>
                             </div>
                             <div>
                               <dt>Tool</dt>

@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { AuditLine, Device, TokenMeta } from "./api";
 import { AuditTable } from "./AuditTable";
 
@@ -99,6 +99,34 @@ describe("AuditTable", () => {
 
     expect(screen.getByRole("button", { name: "All machines" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByText("terminal.write")).toBeInTheDocument();
+  });
+
+  it("names the device in the row and keeps the full id for the detail", () => {
+    render(<AuditTable lines={lines} devices={devices} tokens={[]} />);
+
+    const cell = within(screen.getByRole("table")).getAllByText("Alpha")[0];
+    expect(cell).toHaveAttribute("title", alpha);
+    const row = cell.closest("tr");
+    expect(row).not.toBeNull();
+    expect(within(row as HTMLElement).getByText("memory.export")).toBeInTheDocument();
+  });
+
+  it("copies the full device id from an open line", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    const original = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
+    try {
+      render(<AuditTable lines={lines} devices={devices} tokens={[]} />);
+      fireEvent.click(detailButtons()[0]);
+
+      fireEvent.click(screen.getByRole("button", { name: "Copy" }));
+
+      expect(writeText).toHaveBeenCalledWith(alpha);
+      expect(await screen.findByRole("button", { name: "Copied" })).toBeInTheDocument();
+    } finally {
+      if (original) Object.defineProperty(navigator, "clipboard", original);
+      else delete (navigator as { clipboard?: unknown }).clipboard;
+    }
   });
 
   it("filters by device, opens a line, and clears a filter that matches nothing", () => {

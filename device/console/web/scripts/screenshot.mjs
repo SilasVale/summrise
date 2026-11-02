@@ -921,6 +921,22 @@ async function capturePage(page, state, meta, pass) {
   await page.screenshot({ path: path.join(OUT, file), animations: 'disabled', fullPage: false });
   captures.push({ pass: pass.key, page: meta.id, file, note: meta.state });
   console.log(`  ${pass.key.padEnd(6)} ${file}`);
+
+  if (meta.id === 'audit') {
+    // The record is the row, but the full id lives in the disclosure. Photograph it open so the
+    // name-to-id step and the copy button are reviewed, not just the summary table.
+    await page.getByRole('button', { name: 'Details' }).first().click();
+    await settle(page, state, 250);
+    const detailFile = `audit-detail${pass.suffix}.png`;
+    await page.screenshot({ path: path.join(OUT, detailFile), animations: 'disabled', fullPage: false });
+    captures.push({
+      pass: pass.key,
+      page: 'audit-detail',
+      file: detailFile,
+      note: 'one line open: full device id and its copy button'
+    });
+    console.log(`  ${pass.key.padEnd(6)} ${detailFile}`);
+  }
 }
 
 async function captureWorkspace(page, state, pass) {
@@ -1040,6 +1056,10 @@ function buildGallery() {
       <div class="pair">
         <figure><figcaption>session menu · light</figcaption>${image(byKey.get('light:terminal-tools'), 'Session menu, light')}</figure>
         <figure><figcaption>session menu · dark</figcaption>${image(byKey.get('dark:terminal-tools'), 'Session menu, dark')}</figure>
+      </div>
+      <div class="pair">
+        <figure><figcaption>activity line open · light</figcaption>${image(byKey.get('light:audit-detail'), 'Activity detail, light')}</figure>
+        <figure><figcaption>activity line open · dark</figcaption>${image(byKey.get('dark:audit-detail'), 'Activity detail, dark')}</figure>
       </div>
     </section>`;
 
