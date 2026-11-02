@@ -230,10 +230,13 @@ out. They do not earn a destination; nothing there is a daily job.
 
 ### 5.2 The shell
 
-- **Rail (≥768 px):** a 200 px labelled sidebar. 20 px icons, 13 px labels, one accent for the
-  current item. Labels are not optional at this width: an icon-only column is a memory test, and the
-  product's own audit found ten icons that led back to the page the reader was on.
-- **Rail (640–767 px):** a 56 px icon rail, labels on hover/focus and as accessible names.
+- **Rail (≥768 px):** a 200 px labelled sidebar. 20 px icons, 13 px labels. The current item is ink
+  with a 3 px inset bar, not an accent fill: the page's primary action owns the accent, and a filled
+  current item would be a second one. Labels are not optional at this width: an icon-only column is a
+  memory test, and the product's own audit found ten icons that led back to the page the reader was
+  on.
+- **Rail (640–767 px):** a 56 px icon rail; the label appears on hover and on keyboard focus, and is
+  always the accessible name. No label is available only through a native `title` tooltip.
 - **<640 px:** a bottom tab bar with five items, 20 px icon + 11 px label. Home is the first tab; the
   account menu moves to the header. The content gets the full width; no 56 px left gutter. The bar
   does not wrap, and there is no status strip beneath it.
@@ -274,7 +277,7 @@ out. They do not earn a destination; nothing there is a daily job.
 screen, without repeating the shell.
 
 - **No second header.** The shell's machine control owns identity; Home starts with one status line:
-  `Running · v0.3.246 · 50 tools · 2 plugins`.
+  `Running · v0.3.246` — the counts have their own line below, so the same fact is not printed twice.
 - **Endpoint:** the console's MCP URL in one code row with Copy. Offline: the line says why, the
   endpoint is dimmed, and Copy is disabled rather than copying a door that does not open.
 - **One accent:** **Connect a client** (opens the sheet). **Add a capability** is a quiet link to
@@ -339,12 +342,13 @@ screen, without repeating the shell.
   `Stopped`, `Failed`), tool count, source path (truncated, title has the full path); actions
   `Logs`, `Restart`, `Remove` in an overflow menu. A failed row is a real row: name, `Stopped 2m ago`,
   one-line reason, a visible **Restart**, and Logs in the overflow.
-- **Add sheet:** a path field that is validated on blur; under it, either the manifest summary
-  (`hello · v0.1.0 · 2 tools · runs with this machine's privileges`) or the failure and its action
-  (`No plugin.json in that folder.` + `Open the guide`). **Add and run** (accent) stays disabled until
-  the path is valid. Trust copy leads with the consequence: `This runs the plugin's code with this
-  machine's privileges. Install only code you trust.` Then a disclosure `What is a plugin?` for the
-  definition and the manifest keys.
+- **Add sheet:** a path field whose blur calls `plugins.inspect` (read-only; it parses the manifest,
+  does not start anything); under it, either `hello · v0.1.0 · runs with this machine's privileges` —
+  the tool count is only known after the plugin starts, so it is not promised here — or the failure
+  and its action (`No plugin.json in that folder.` + `Open the guide`). **Add and run** (accent) stays
+  disabled until the path is valid. Trust copy leads with the consequence: `This runs the plugin's
+  code with this machine's privileges. Install only code you trust.` Then a disclosure
+  `What is a plugin?` for the definition and the manifest keys.
 - **Logs sheet:** loaded when the sheet opens, last 200 lines, mono 12 px / 1.5, scrolled to the last
   line when the plugin failed; **Copy**; **Refresh** only while `Starting`; empty: "No output yet." +
   "The plugin has not written anything since it started."
@@ -391,7 +395,7 @@ deep link to Runs). The shell gives it one `h1` and the new spacing. Fix the rec
   with a live summary `12 tools · 3 can change the machine`, the full grid only behind
   `Choose tools`, and destructive consent. The created value is shown once in a copy block with a
   warning; closing the sheet forgets it.
-- The sheet is wide on desktop (720 px), full-screen on phone; Escape closes; focus returns to the
+- The sheet is 600 px wide on desktop and full-screen on phone; Escape closes; focus returns to the
   trigger.
 
 ### 6.6 Device
@@ -421,8 +425,9 @@ deep link to Runs). The shell gives it one `h1` and the new spacing. Fix the rec
 
 | Context | Copy |
 |---|---|
-| Home, running | `Running · v0.3.246 · 50 tools · 2 plugins` |
+| Home, running | `Running · v0.3.246` (counts are the next line) |
 | Home, no calls | `No calls yet.` (points at the one Connect action) |
+| Activity, no calls | `No calls yet.` (never `No audit lines yet.`) |
 | Connect, primary | `Connect a client` |
 | Fleet, primary | `Add a machine` |
 | Capabilities, empty search | `No tool matches "{query}".` + `Clear the search` |
@@ -460,8 +465,8 @@ action that grants it; no sentence that describes the UI ("this page lets you…
   restore it.
 - **Hover and press:** the primary darkens (`--accent-hover`), the secondary raises its surface and
   border, and a card does not lift. Motion explains change, not decoration.
-- **Sheets:** right-side drawer at ≥800 px (480 px wide), bottom sheet below; backdrop 40% black;
-  Escape and backdrop click close (unless a call is running); the title is the sheet's `h2`.
+- **Sheets:** one width — right-side drawer 600 px at ≥800 px, bottom sheet below; backdrop 40%
+  black; Escape and backdrop click close (unless a call is running); the title is the sheet's `h2`.
 - **Loading:** skeletons for lists, inline "Running…" for actions, no full-page spinner.
 - **Errors:** inline where the action is, one sentence + one action; a failed read never renders as
   an empty state.
@@ -588,17 +593,22 @@ audit line uses the namespaced name, so a plugin's calls are attributable withou
 **Authorization:** the device's existing rule applies unchanged. An operator loopback call and a
 console token are checked against the tool's destructive flag; a token that does not name the plugin
 tool cannot call it. No new policy object. `plugins.*` are ordinary built-ins with their own
-destructive flags (`add`, `remove`, `restart` destructive; `list`, `logs` read-only).
+destructive flags (`add`, `remove`, `restart` destructive; `list`, `inspect`, `logs` read-only).
 
 ### 8.3 The `plugins.*` tools
 
 | Tool | Input | Output | Destructive |
 |---|---|---|---|
 | `plugins.list` | `{}` | `[{id,namespace,name,version,description,state,tools,path,last_error}]` | no |
+| `plugins.inspect` | `{path}` | `{id,namespace,name,version,description}` (manifest fields; nothing is started) | no |
 | `plugins.add` | `{path}` | `{plugin, tools}` | yes |
 | `plugins.remove` | `{namespace}` | `{removed, stopped}` | yes |
 | `plugins.restart` | `{namespace}` | `{plugin}` | yes |
 | `plugins.logs` | `{namespace, lines?}` | `{namespace, lines: [string]}` | no |
+
+`plugins.inspect` is what the add sheet's blur reads: it resolves the directory, reads and validates
+`plugin.json`, and refuses with `NO_MANIFEST`, `NOT_FOUND` or `INVALID_MANIFEST` plus the field that
+is wrong. It is a read: no record is written, nothing is spawned.
 
 Errors are the product's shape: `{code, message, action}` in the tool text, e.g.
 `PLUGIN_NOT_FOUND` → "no plugin named hello" → `plugins.list`.

@@ -36,6 +36,9 @@ with `include_str!`), PowerShell for the shipped example plugin, no new runtime 
   - `plugins.list` → `[{ "id", "namespace", "name", "version", "description", "state", "tools", "path", "last_error" }]`
     (`state` is one of `running|starting|stopped|failed`; `tools` is a number; `last_error` is a
     string or null).
+  - `plugins.inspect` → `{ "id", "namespace", "name", "version", "description" }` — read-only: it
+    resolves the directory and validates `plugin.json`, starts nothing and writes no record. The
+    add sheet's blur calls it.
   - `plugins.add` → `{ "plugin": <list entry>, "tools": <number> }`.
   - `plugins.remove` / `plugins.restart` → `{ "plugin": <list entry> }` (remove's entry has state
     `stopped`).
@@ -220,9 +223,10 @@ pub trait Launcher: Send + Sync { /* spawn -> SessionHandle; tests replace it */
 - Test: `device/device/src/mcp.rs` tests + `device/device/src/capabilities/plugins.rs` tests
 
 **Interfaces:**
-- `registry::CAPABILITIES` gains `plugins` with `plugins.list` (read), `plugins.add` (destructive),
-  `plugins.remove` (destructive), `plugins.restart` (destructive), `plugins.logs` (read). Descriptions
-  are the operator's sentences (one sentence each, namespaced, actionable).
+- `registry::CAPABILITIES` gains `plugins` with `plugins.list` (read), `plugins.inspect` (read),
+  `plugins.add` (destructive), `plugins.remove` (destructive), `plugins.restart` (destructive),
+  `plugins.logs` (read). Descriptions are the operator's sentences (one sentence each, namespaced,
+  actionable). `inspect` resolves and validates the manifest without spawning or recording.
 - `DeviceServer` gains `plugins: Arc<PluginHost>`; `new` takes it or builds it from `Config.data`.
 - `tools/list` = registry tools in registry order, then plugin tools sorted by namespace then name.
   Built-in tools keep their `input_schema(name)`; plugin tools use the plugin's `inputSchema`,
@@ -237,7 +241,7 @@ pub trait Launcher: Send + Sync { /* spawn -> SessionHandle; tests replace it */
   `every_implementation_is_registered`, `dispatch_supports`) include the five new tools.
 
 **Steps:**
-- [ ] Failing tests: registry contains the five tools; a fake host advertising `hello.greet` makes
+- [ ] Failing tests: registry contains the six tools; a fake host advertising `hello.greet` makes
       `tools/list` contain it after the built-ins; `tools/call` for `hello.greet` reaches the fake
       host; a token without the tool is denied; an unknown plugin tool is denied.
 - [ ] Implement the capability module and the MCP changes; fix the alignment tests.
@@ -330,7 +334,9 @@ sentence that says so. The check must not change the token's stored shape.
 - `#terminal` (legacy) maps to `device/terminal`; `#audit` maps to `activity`; `#run/<device>/<id>`
   selects the device and opens `device/runs` with the run focus; `#files` etc. map to `device/<tab>`.
 - The rail: 200 px labelled at ≥768, 56 px icons between 640 and 767, bottom tabs below 640. Five
-  items. The account menu at the foot holds version, docs, sign out. No status strip.
+  items. The current item is ink with a 3 px inset bar, never an accent fill (the page's primary
+  action owns the accent). The account menu at the foot holds version, docs, sign out. No status
+  strip.
 - The header is one control — `[● workshop · Running · v0.3.246 ▾]` — whose menu lists All machines,
   each machine, and Add a machine. No second `.machine-head` row and no `<select>` beside it.
 - One `h1` per page: **Machines** for Home's fleet zero state, **Home** for the hub state, then the destination name. The machine's name is part of the header control, not an h1.
@@ -401,9 +407,10 @@ tool call, required-error, destructive confirm, timeout copy); implement; commit
 **Files:** Create `PluginsPage.tsx`, `PluginsPage.test.tsx`; modify `App.tsx`, `app.css`, `api.ts`
 (plugin tool calls through the operator MCP helper).
 
-**Behaviour:** spec §6.3. `plugins.list` drives the page. Add sheet validates the path on blur and
-shows the manifest summary or the failure before `Add and run` enables; the trust sentence leads with
-the consequence. Row overflow (Logs, Restart, Remove with confirmation); a failed row shows its reason
+**Behaviour:** spec §6.3. `plugins.list` drives the page. The add sheet's path blur calls
+`plugins.inspect` (read-only) and shows the manifest summary (name, version, privileges — no tool
+count before start) or the failure before `Add and run` enables; the trust sentence leads with the
+consequence. Row overflow (Logs, Restart, Remove with confirmation); a failed row shows its reason
 and a visible Restart. Logs sheet loads on open, scrolled to the last line on failure, Refresh only
 while Starting. States: empty (no manifest example), loading, failed, offline. Old build: if the live
 catalogue has no `plugins.*`, show the "newer Summrise" sentence and no Add. Add a
