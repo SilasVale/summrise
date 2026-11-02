@@ -106,6 +106,27 @@ describe("AuditTable", () => {
     );
   });
 
+  it("narrows the table to a time window", () => {
+    const now = Date.now();
+    render(
+      <AuditTable
+        lines={[
+          line({ ts_ms: now - 2 * 24 * 60 * 60_000, tool: "old.tool", status: 200 }),
+          line({ ts_ms: now - 60_000, tool: "recent.tool", status: 200 })
+        ]}
+        devices={devices}
+        tokens={[]}
+      />
+    );
+    expect(screen.getByText("old.tool")).toBeInTheDocument();
+    expect(screen.getByText("recent.tool")).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText("Time"), { target: { value: "hour" } });
+
+    expect(screen.queryByText("old.tool")).not.toBeInTheDocument();
+    expect(screen.getByText("recent.tool")).toBeInTheDocument();
+  });
+
   it("opens scoped to the selected machine and can widen to the fleet", () => {
     render(<AuditTable lines={lines} devices={devices} tokens={[]} selectedDeviceId={alpha} />);
 
