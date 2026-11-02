@@ -187,6 +187,11 @@ export function BrowserPane({ grant }: { grant: Grant }) {
       if (!el) return "nothing at ${x},${y}";
       ["mousedown", "mouseup", "click"].forEach((type) =>
         el.dispatchEvent(new MouseEvent(type, { clientX: ${x}, clientY: ${y}, bubbles: true, cancelable: true, view: window })));
+      // Synthetic events do not run the browser's default focus action; without this a click on an
+      // input left the Type box saying no field was focused. Only focus what a click could focus.
+      if (el instanceof HTMLElement) {
+        if (el.matches("input, textarea, select, button") || el.isContentEditable) el.focus();
+      }
       return el.tagName + " at ${x},${y}";
     })()`;
     try {
