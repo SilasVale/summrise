@@ -3,9 +3,9 @@ import { describe, expect, it, vi } from "vitest";
 import { Sheet } from "./Sheet";
 import { Modal } from "./Modal";
 
-function open(onClose = vi.fn(), busy = false, wide = false) {
+function open(onClose = vi.fn(), busy = false) {
   return render(
-    <Sheet title="Try a tool" onClose={onClose} busy={busy} wide={wide}>
+    <Sheet title="Try a tool" onClose={onClose} busy={busy}>
       <label htmlFor="path">Path</label>
       <input id="path" defaultValue="" />
       <button type="button">Run</button>
@@ -74,11 +74,6 @@ describe("Sheet", () => {
 
     expect(onClose).not.toHaveBeenCalled();
     expect(screen.getByRole("button", { name: "Close" })).toBeDisabled();
-  });
-
-  it("makes a wide sheet wide without changing its dialog semantics", () => {
-    open(vi.fn(), false, true);
-    expect(screen.getByRole("dialog")).toHaveClass("sheet-wide");
   });
 
   it("lets only the top dialog own Escape when a Modal opens over it", () => {

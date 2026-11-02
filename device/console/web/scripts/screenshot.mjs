@@ -151,7 +151,92 @@ const TOOL_NAMES = [
   'system.net_test',
   'host.facts',
   'screen.capture',
-  'state.get'
+  'state.get',
+  'plugins.list',
+  'plugins.inspect',
+  'plugins.add',
+  'plugins.remove',
+  'plugins.restart',
+  'plugins.logs'
+];
+
+// What a plugin exposes once it is running: two friendly tools, and the screenshot of a hub with
+// something a built-in cannot do.
+const PLUGIN_TOOL_NAMES = ['hello.greet', 'hello.echo'];
+const DESTRUCTIVE_TOOLS = new Set([
+  'files.write',
+  'terminal.create',
+  'terminal.write',
+  'browser.open',
+  'browser.navigate',
+  'browser.eval',
+  'runs.exec',
+  'system.process_kill',
+  'plugins.add',
+  'plugins.remove',
+  'plugins.restart'
+]);
+
+/// The live catalogue for one device. `studio` is an older build: its list has no `plugins.*`, which
+/// is exactly how the page detects the "newer Summrise" state.
+function liveToolsFor(deviceId) {
+  const names =
+    deviceId === DEVICE.studio
+      ? TOOL_NAMES.filter((name) => !name.startsWith('plugins.'))
+      : TOOL_NAMES;
+  const tools = names.map((name) => ({
+    name,
+    description: `${name} on this machine`,
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+    source: 'builtin',
+    capability: name.split('.')[0],
+    destructive: DESTRUCTIVE_TOOLS.has(name)
+  }));
+  if (deviceId === DEVICE.workshop) {
+    for (const name of PLUGIN_TOOL_NAMES) {
+      tools.push({
+        name,
+        description: `${name} from the Hello plugin`,
+        inputSchema: {
+          type: 'object',
+          properties:
+            name === 'hello.greet'
+              ? { name: { type: 'string', description: 'Who to greet' } }
+              : { text: { type: 'string', description: 'Text to echo' } },
+          required: name === 'hello.echo' ? ['text'] : []
+        },
+        source: 'plugin:hello',
+        capability: 'hello',
+        destructive: false
+      });
+    }
+  }
+  return tools;
+}
+
+const PLUGINS = [
+  {
+    id: 'com.example.hello',
+    namespace: 'hello',
+    name: 'Hello',
+    version: '0.1.0',
+    description: 'Two friendly tools, and the reference for writing a plugin.',
+    state: 'running',
+    tools: 2,
+    path: 'C:\\dev\\plugins\\hello',
+    last_error: null
+  },
+  {
+    id: 'com.example.image',
+    namespace: 'image',
+    name: 'Image',
+    version: '0.2.1',
+    description: 'Resize an image on the machine.',
+    state: 'failed',
+    tools: 0,
+    path: 'C:\\work\\image-tools\\plugin',
+    last_error: 'initialize timed out after 10s'
+  }
 ];
 
 const DEVICES = [
@@ -551,6 +636,50 @@ function replyFor(request, url) {
     // The workspace photographs need the two calls a pty open makes; the ANSWER is empty output, not
     // a fake shell. Every other tool is still a loud failure.
     if (name === 'terminal.list') return json({ result: { content: [{ type: 'text', text: '[]' }] } });
+    if (name === 'system.process_list') {
+      return json({ result: { content: [{ type: 'text', text: '[]' }] } });
+    }
+    if (name === 'plugins.list') {
+      const deviceId = body?.device_id;
+      const plugins = deviceId === DEVICE.workshop ? PLUGINS : [];
+      return json({ result: { content: [{ type: 'text', text: JSON.stringify(plugins) }] } });
+    }
+    if (name === 'plugins.inspect') {
+      const path = String(body?.request?.params?.arguments?.path ?? '');
+      if (path.toLowerCase().includes('hello')) {
+        return json({
+          result: {
+            content: [
+              {
+                type: 'text',
+                text: JSON.stringify({
+                  id: 'com.example.hello',
+                  namespace: 'hello',
+                  name: 'Hello',
+                  version: '0.1.0',
+                  description: 'Two friendly tools, and the reference for writing a plugin.'
+                })
+              }
+            ]
+          }
+        });
+      }
+      return json({
+        result: {
+          isError: true,
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify({
+                code: 'NO_MANIFEST',
+                message: 'No plugin.json in that folder.',
+                action: 'Open the guide'
+              })
+            }
+          ]
+        }
+      });
+    }
     if (name === 'files.list') {
       return json({
         result: {
@@ -643,6 +772,11 @@ function replyFor(request, url) {
   }
 
   if (method === 'GET' && pathname === '/fleet') return json(DEVICES);
+
+  const liveTools = /^\/fleet\/([^/]+)\/tools$/.exec(pathname);
+  if (liveTools && method === 'GET') {
+    return json({ tools: liveToolsFor(decodeURIComponent(liveTools[1])) });
+  }
 
   const fleet = /^\/fleet\/([^/]+)(?:\/(name|connections|mesh))?$/.exec(pathname);
   if (fleet) {
@@ -1024,6 +1158,23 @@ async function capturePage(page, state, meta, pass) {
   await page.screenshot({ path: path.join(OUT, file), animations: 'disabled', fullPage: false });
   captures.push({ pass: pass.key, page: meta.id, file, note: meta.state });
   console.log(`  ${pass.key.padEnd(6)} ${file}`);
+
+  if (meta.id === 'home') {
+    // Home is two states: the fleet (zero machines chosen) and the hub. Open the first machine once,
+    // then photograph the hub; the rest of the pass continues with that machine selected.
+    await page.locator('.fleet-open').first().click();
+    await page.getByRole('heading', { name: 'Home', exact: true, level: 1 }).waitFor({ state: 'visible', timeout: 5_000 });
+    await settle(page, state, 350);
+    const hubFile = `home-hub${pass.suffix}.png`;
+    await page.screenshot({ path: path.join(OUT, hubFile), animations: 'disabled', fullPage: false });
+    captures.push({
+      pass: pass.key,
+      page: 'home-hub',
+      file: hubFile,
+      note: 'the hub: one status line, the endpoint with Copy, one accent, counts, the last three calls'
+    });
+    console.log(`  ${pass.key.padEnd(6)} ${hubFile}`);
+  }
 
   if (meta.id === 'audit') {
     // The record is the row, but the full id lives in the disclosure. Photograph it open so the

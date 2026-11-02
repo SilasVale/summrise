@@ -19,6 +19,7 @@ const mocks = vi.hoisted(() => ({
   rename: vi.fn(),
   remove: vi.fn(),
   tools: vi.fn(),
+  liveTools: vi.fn(),
   grant: vi.fn(),
   tokens: vi.fn(),
   createToken: vi.fn(),
@@ -41,6 +42,7 @@ vi.mock("./api", () => ({
     rename: mocks.rename,
     remove: mocks.remove,
     tools: mocks.tools,
+    liveTools: mocks.liveTools,
     grant: mocks.grant,
     tokens: mocks.tokens,
     createToken: mocks.createToken,
@@ -137,6 +139,9 @@ beforeEach(() => {
   // The Connect sheet asks the client for the tool registry; that request is not this test's subject,
   // so the client's answer fails and the sheet keeps its fallback list.
   mocks.tools.mockRejectedValue(new TypeError("Failed to fetch"));
+  // The hub reads the selected machine's live catalogue. An empty list is a real answer; these tests
+  // are about the shell, not about what the device advertises.
+  mocks.liveTools.mockResolvedValue({ tools: [] });
 });
 
 /** Render the page and wait for the signed-out boot to settle on the login form. */
@@ -260,6 +265,18 @@ describe("App", () => {
     expect(Array.from(items).map((item) => item.textContent)).not.toContain("Connect");
   });
 
+  it("lists the machines and Add a machine in the one header control", async () => {
+    await bootAndSignIn();
+
+    fireEvent.click(screen.getByLabelText("All machines"));
+    const menu = screen.getByLabelText("Machines");
+    expect(within(menu).getByRole("button", { name: "All machines" })).toBeInTheDocument();
+    expect(within(menu).getByRole("button", { name: /workshop/ })).toBeInTheDocument();
+    expect(within(menu).getByRole("button", { name: /attic/ })).toBeInTheDocument();
+    fireEvent.click(within(menu).getByRole("button", { name: "Add a machine" }));
+    await waitFor(() => expect(mocks.enroll).toHaveBeenCalledTimes(1));
+  });
+
   it("scopes Activity to the chosen machine", async () => {
     mocks.audit.mockResolvedValue([
       {
@@ -318,9 +335,10 @@ describe("App", () => {
 
     selectDevice("workshop");
 
-    // Selecting stores the machine and stays on the same destination; the header is where it is now
-    // in context, as one control.
-    expect(screen.getByRole("heading", { name: "Machines", level: 1 })).toBeInTheDocument();
+    // Selecting stores the machine and stays on Home, which becomes the hub; the header is where
+    // the machine is now in context, as one control.
+    expect(screen.getByRole("heading", { name: "Home", level: 1 })).toBeInTheDocument();
+    expect(within(screen.getByRole("main")).getByText("Running · v0.3.42")).toBeInTheDocument();
     expect(screen.getByLabelText("Machine: workshop")).toBeInTheDocument();
     expect(localStorage.getItem("summrise.selected.device")).toBe(workshop.id);
     expect(window.location.hash).toBe("#home");

@@ -139,6 +139,50 @@ describe("the answers", () => {
     expect(failure).toMatchObject({ status: 403, code: "grant_denied" });
   });
 
+  it("keeps the console's recovery sentence beside the stable error code", async () => {
+    fetchMock.mockResolvedValue(
+      answer({
+        status: 503,
+        statusText: "Service Unavailable",
+        json: {
+          error: "device_offline",
+          message: "this machine is not connected; connect it, then try again"
+        }
+      })
+    );
+    const failure = await failureOf(api.liveTools("dev-1"));
+    expect(failure).toBeInstanceOf(HttpError);
+    expect(failure).toMatchObject({
+      status: 503,
+      code: "device_offline",
+      message: "this machine is not connected; connect it, then try again"
+    });
+  });
+
+  it("reads the selected device's live catalogue from its own route", async () => {
+    fetchMock.mockResolvedValue(
+      answer({
+        json: {
+          tools: [
+            {
+              name: "terminal.create",
+              description: "open a shell",
+              inputSchema: { type: "object", properties: {} },
+              source: "builtin",
+              capability: "terminal",
+              destructive: true
+            }
+          ]
+        }
+      })
+    );
+
+    const result = await api.liveTools("dev one");
+    expect(result.tools[0].name).toBe("terminal.create");
+    expect(result.tools[0].capability).toBe("terminal");
+    expect(lastRequest().path).toBe("/fleet/dev%20one/tools");
+  });
+
   it("falls back to statusText when a failing answer is empty", async () => {
     fetchMock.mockResolvedValue(answer({ status: 503, statusText: "Service Unavailable" }));
     const failure = await failureOf(api.session());

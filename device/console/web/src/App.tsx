@@ -520,6 +520,11 @@ export function App() {
             onAddMachine={addMachine}
             onDismissCode={() => setCode(null)}
             onNotice={setNotice}
+            audit={audit}
+            onConnect={() => setConnecting(chosen)}
+            onCapabilities={() => setPage("capabilities")}
+            onPlugins={() => setPage("plugins")}
+            onActivity={() => setPage("activity")}
           />
         )}
 

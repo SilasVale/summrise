@@ -80,6 +80,20 @@ export type SavedConnection = {
   baud?: number;
 };
 
+/**
+ * One tool as the device's live `tools/list` advertises it, plus the console's two computed fields.
+ * `source` is `"builtin"` or `"plugin:<namespace>"`; `capability` is the built-in group or the
+ * plugin's namespace. This is the page's source of truth: the static registry is a fallback only.
+ */
+export type LiveTool = {
+  name: string;
+  description: string;
+  inputSchema: unknown;
+  source: string;
+  capability: string;
+  destructive: boolean;
+};
+
 export type Device = {
   id: string;
   name: string | null;
@@ -156,9 +170,13 @@ export class NoAnswer extends Error {}
 class HttpError extends Error {
   constructor(
     readonly status: number,
-    readonly code: string
+    readonly code: string,
+    /// The console's additive recovery sentence beside the stable machine code. Falls back to the
+    /// code, so a caller that only reads `message` still gets something true.
+    message?: string
   ) {
-    super(code);
+    super(message ?? code);
+    this.name = "HttpError";
   }
 }
 
@@ -175,8 +193,9 @@ async function call<T>(path: string, init: RequestInit = {}): Promise<T> {
     throw new NoAnswer(path);
   }
   if (!response.ok) {
-    const code = (body as { error?: string } | null)?.error ?? response.statusText;
-    throw new HttpError(response.status, code);
+    const failure = body as { error?: string; message?: string } | null;
+    const code = failure?.error ?? response.statusText;
+    throw new HttpError(response.status, code, failure?.message);
   }
   return body as T;
 }
@@ -194,6 +213,11 @@ export const api = {
   // `/fleet`, not `/devices`: the device namespace is behind Cloudflare Access's bypass (a
   // device has no email login), and a bypassed request carries no identity for the page to use.
   devices: () => call<Device[]>("/fleet"),
+  // The device's live catalogue. An empty list is a valid answer (an older build advertises no
+  // plugin tools but still has built-ins); 503 means the device is offline, and the body carries the
+  // recovery sentence beside its code.
+  liveTools: (id: string) =>
+    call<{ tools: LiveTool[] }>(`/fleet/${encodeURIComponent(id)}/tools`),
   audit: (limit = 20) => call<AuditLine[]>(`/audit?limit=${limit}`),
   // The refusal log is a separate file with the audit line's shape: same route rules, same limit, and
   // no token id because the caller never authenticated.

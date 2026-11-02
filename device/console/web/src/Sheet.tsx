@@ -8,8 +8,7 @@ const FOCUSABLE =
 /**
  * One sheet for every focused job: Connect, Try it, Add plugin, Logs and Remove.
  *
- * Right drawer at ≥800 px (480 px, 720 px for Connect), bottom sheet between 640 and 799, full screen
- * on a phone. It traps Tab, closes on Escape and a backdrop press (not while `busy`), locks the body,
+ * Right drawer at ≥800 px (600 px), bottom sheet between 640 and 799, full screen on a phone. It traps Tab, closes on Escape and a backdrop press (not while `busy`), locks the body,
  * returns focus to the trigger and is labelled by its title. `prefers-reduced-motion` removes the
  * entrance; the product is complete without it.
  */
@@ -18,8 +17,7 @@ export function Sheet({
   children,
   footer,
   onClose,
-  busy = false,
-  wide = false
+  busy = false
 }: {
   title: string;
   children: ReactNode;
@@ -28,7 +26,6 @@ export function Sheet({
   onClose: () => void;
   /// A running call: Escape, the close button and the backdrop are inert until it answers.
   busy?: boolean;
-  wide?: boolean;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const panel = useRef({});
@@ -105,7 +102,7 @@ export function Sheet({
       }}
     >
       <div
-        className={"sheet" + (wide ? " sheet-wide" : "")}
+        className="sheet"
         role="dialog"
         aria-modal={top ? "true" : undefined}
         aria-labelledby={titleId}
