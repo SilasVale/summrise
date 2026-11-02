@@ -283,7 +283,7 @@ impl Console {
     /// Build the router. It carries no socket and no runtime: the caller decides where it listens.
     pub fn router(&self) -> Router {
         Router::new()
-            .route("/", get(root_redirect))
+            .route("/", get(root))
             // The terminal emulator, served from the binary: the page needs a real terminal for
             // interactive prompts (sudo, ssh host keys), and fetching it from a CDN would make the
             // console depend on a third party at run time. Two files, no build step.
@@ -963,12 +963,13 @@ mod assets {
 
 /// `GET /`: the console is the Rust page. `web/` is gone, so a bookmark to the old root is sent to
 /// the page that replaced it rather than to a 404.
-async fn root_redirect(uri: axum::http::Uri) -> Redirect {
-    // The root is what `--login-link https://console.saisi.online` prints, and its code rides in the
-    // query: a redirect that drops the query turns a working link into a card with no explanation.
+/// `GET /`: the React workspace. A query still goes to the Rust page, because `--login-link` puts
+/// an enrollment/login code there and the React page does not redeem it; dropping the query would
+/// turn a working link into a card with no explanation.
+async fn root(uri: axum::http::Uri) -> Response {
     match uri.query() {
-        Some(query) => Redirect::to(&format!("/next?{query}")),
-        None => Redirect::to("/next"),
+        Some(query) => Redirect::to(&format!("/next?{query}")).into_response(),
+        None => Html(REACT_PAGE).into_response(),
     }
 }
 
