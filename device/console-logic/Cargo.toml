@@ -1,0 +1,25 @@
+[package]
+name = "console-logic"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+# This crate sits inside `device/`, whose Cargo.toml is a workspace. The empty table opts out, so a
+# Windows release build never tries to compile a wasm cdylib and this crate is never built for the
+# host: its whole surface is the wasm boundary the page calls.
+[workspace]
+
+[dependencies]
+# Pinned to the CLI on PATH (`wasm-bindgen --version` -> 0.2.129). wasm-pack refuses a mismatch, and
+# an unpinned crate makes it fetch a matching CLI from GitHub releases — the download that never
+# finishes on this box.
+wasm-bindgen = "=0.2.129"
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"

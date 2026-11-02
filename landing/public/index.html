@@ -4,12 +4,12 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Summrise — a real machine under your AI</title>
-<meta name="description" content="Summrise turns a Windows machine into an AI-operable workspace: terminal, SSH, serial, browser and files over MCP — with one console to watch, approve and take back control from anywhere.">
+<meta name="description" content="Summrise turns a Windows machine into an AI-operable workspace: terminal, SSH, serial, browser and files over MCP — with one console to watch, intervene and take back control from anywhere.">
 <meta name="theme-color" content="#f7f4ee">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="Summrise">
 <meta property="og:title" content="Summrise — a real machine under your AI">
-<meta property="og:description" content="A Windows box your agent can actually drive — terminal, SSH, serial, browser, files — through one console that keeps the audit, the grants and the off switch.">
+<meta property="og:description" content="A Windows box your agent can actually drive — terminal, SSH, serial, browser, files — through one console that keeps the audit, the tokens and the off switch.">
 <meta property="og:url" content="https://summrise.saisi.online/">
 <meta property="og:image" content="https://summrise.saisi.online/assets/og.png">
 <meta property="og:image:width" content="1200">
@@ -19,7 +19,7 @@
 <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="assets/site.css">
 <script type="application/ld+json">
-{"@context":"https://schema.org","@type":"SoftwareApplication","name":"Summrise","operatingSystem":"Windows 10, Windows 11","applicationCategory":"DeveloperApplication","downloadUrl":"https://github.com/SilasVale/summrise/releases","description":"A Windows runtime that makes a real machine an AI-operable workspace over MCP, with a console for watching, approving and taking back control."}
+{"@context":"https://schema.org","@type":"SoftwareApplication","name":"Summrise","operatingSystem":"Windows 10, Windows 11","applicationCategory":"DeveloperApplication","downloadUrl":"https://github.com/SilasVale/summrise/releases","description":"A Windows runtime that makes a real machine an AI-operable workspace over MCP, with a console for watching, intervening and taking back control."}
 </script>
 </head>
 <body>
@@ -82,7 +82,7 @@
         </div>
         <div class="float">
           <div class="fcard"><div class="k" data-i18n="stats.devicesK">Devices</div><div class="v"><span class="dot"></span><span data-i18n="stats.devices">2 online · 1 offline</span></div></div>
-          <div class="fcard"><div class="k" data-i18n="stats.sessionsK">Sessions</div><div class="v" data-i18n="stats.sessions">4 live · 1 waiting</div></div>
+          <div class="fcard"><div class="k" data-i18n="stats.sessionsK">Sessions</div><div class="v" data-i18n="stats.sessions">4 live · 2 idle</div></div>
           <div class="fcard"><div class="k" data-i18n="stats.auditK">Audit</div><div class="v" data-i18n="stats.audit">1 284 rows today</div></div>
         </div>
       </div>
@@ -92,10 +92,10 @@
   <main id="main">
     <section class="shot" aria-labelledby="shot-caption">
       <div class="shot-frame">
-        <img src="assets/console-fleet.png" width="1280" height="912" loading="lazy"
-             alt="The Summrise console's Fleet page: a destructive call waiting for approval, two devices online and one offline, each with its pages one click away. One of the online machines says it was away for four hours and has come back.">
+        <img src="assets/console-fleet.png" width="1280" height="900" loading="lazy"
+             alt="The Summrise console's Devices page: three machines, two online, each with its build and the one way in.">
       </div>
-      <p class="shot-caption" id="shot-caption" data-i18n="shot.caption">The console at a glance: who is online, what each machine runs, and the one call <em>waiting for you</em>.</p>
+      <p class="shot-caption" id="shot-caption" data-i18n="shot.caption">The console at a glance: which machines are online, what each runs, and the one button that puts you on it.</p>
     </section>
 
     <section id="capabilities">
@@ -104,7 +104,7 @@
       <div class="feat">
         <div class="item"><div class="num" data-i18n="cap.n1">01 / SESSIONS</div><h3 data-i18n="cap.1t">Terminal, SSH, serial</h3><p data-i18n="cap.1b">Real PTYs with attach, resize and scrollback; SSH to the boxes behind it; serial for the hardware that never got a network stack.</p></div>
         <div class="item"><div class="num" data-i18n="cap.n2">02 / BROWSER</div><h3 data-i18n="cap.2t">Headless by default</h3><p data-i18n="cap.2b">Chrome runs on the device&rsquo;s network and its own sessions. Visible windows only when an operator asks to watch — automation should not flash across someone&rsquo;s desktop.</p></div>
-        <div class="item"><div class="num" data-i18n="cap.n3">03 / CONTROL</div><h3 data-i18n="cap.3t">Approvals and audit</h3><p data-i18n="cap.3b">A destructive call without token consent is held for approval — ninety seconds, then refused, never run. Every tool call lands in an audit row with who, what, when — and the console can hold the keyboard.</p></div>
+        <div class="item"><div class="num" data-i18n="cap.n3">03 / CONTROL</div><h3 data-i18n="cap.3t">Consent and audit</h3><p data-i18n="cap.3b">A destructive call without token consent is refused, and the refusal says how to allow it. Every tool call lands in an audit row with who, what, when — and the console can hold the keyboard.</p></div>
         <div class="item"><div class="num" data-i18n="cap.n4">04 / OPERATIONS</div><h3 data-i18n="cap.4t">Self-supervising</h3><p data-i18n="cap.4b">The launcher owns the app binary, verifies it at boot, repairs it when it is gone, and swaps only on a signed release. Nothing to babysit at 3 a.m.</p></div>
       </div>
       <div class="strip">
@@ -127,8 +127,8 @@
           <p data-i18n="surf.cb">Devices dial out over one WebSocket; nothing listens inbound by default, and there is no per-device tunnel. Access in front, operator token behind, fleet and sessions and audit inside.</p>
           <ul>
             <li><b data-i18n="surf.c1k">Fleet</b><span data-i18n="surf.c1v">who is online, what they run, and why the offline one is offline</span></li>
-            <li><b data-i18n="surf.c2k">Sessions</b><span data-i18n="surf.c2v">terminal, browser, files, runs, audit, approvals</span></li>
-            <li><b data-i18n="surf.c3k">Grants</b><span data-i18n="surf.c3v">signed, scoped, expiring; a token revoked in one click</span></li>
+            <li><b data-i18n="surf.c2k">Sessions</b><span data-i18n="surf.c2v">terminal, browser, files, runs, audit, tokens</span></li>
+            <li><b data-i18n="surf.c3k">Tokens</b><span data-i18n="surf.c3v">scoped to one device and its tools, expiring if you want, revoked in one click</span></li>
           </ul>
         </div>
         <div class="surface">

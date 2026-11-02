@@ -92,7 +92,7 @@ export function ConnectCard({ device, onClose }: { device: Device; onClose: () =
   // The registry is the list, as it is for the grant form; the fallback keeps the card usable when
   // the console cannot answer, and the mint's own `unknown_tool` refusal is the last word.
   const tools = useToolNames();
-  const [mode, setMode] = useState<Mode>("session");
+  const [mode, setMode] = useState<Mode>("token");
 
   // The session-grant half. Untouched by the token mode beside it.
   const [lifetime, setLifetime] = useState(3600);
@@ -106,7 +106,7 @@ export function ConnectCard({ device, onClose }: { device: Device; onClose: () =
   const [tokenName, setTokenName] = useState("");
   const [tokenExpiry, setTokenExpiry] = useState(0);
   const [chosen, setChosen] = useState<Set<string>>(new Set(tools));
-  const [tokenDestructive, setTokenDestructive] = useState(false);
+  const [tokenDestructive, setTokenDestructive] = useState(true);
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
   const [created, setCreated] = useState<Created | null>(null);
@@ -274,13 +274,11 @@ export function ConnectCard({ device, onClose }: { device: Device; onClose: () =
               </div>
               <label className="check">
                 <input type="checkbox" checked={destructive} onChange={(event) => setDestructive(event.target.checked)} />
-                Allow destructive tools
+                Let the AI type commands and change files
               </label>
               <p className="hint">
-                The grant covers every tool the device declares. Without destructive consent the device refuses{" "}
-                <span className="mono">terminal.create</span>, <span className="mono">terminal.write</span>,{" "}
-                <span className="mono">files.write</span>, <span className="mono">browser.navigate</span>,{" "}
-                <span className="mono">runs.exec</span> and the memory writes; the read tools still work.
+                Without this, the device refuses anything that changes the machine; read-only tools
+                still work.
               </p>
               <button type="button" className="primary" disabled={busy} onClick={() => void mint()}>
                 {busy ? "Signing…" : "Mint a grant and show the config"}
@@ -373,7 +371,7 @@ export function ConnectCard({ device, onClose }: { device: Device; onClose: () =
 
               <label className="check">
                 <input type="checkbox" checked={tokenDestructive} onChange={(event) => setTokenDestructive(event.target.checked)} />
-                Allow destructive tools
+                Let the AI type commands and change files
               </label>
 
               <button

@@ -60,10 +60,10 @@ A grant expires, so a configuration built around one has to be rebuilt. A **perm
 console's answer for a client whose configuration must stay fixed: the console issues it once, the
 client sends it on every request, and the console turns it into a short grant each time.
 
-Create it in the console page: the device's **Connect an AI client** page (rail: **Tokens**). Name
-it, tick the destructive consent (the same `allow_destructive` a grant carries — unticked means a
-destructive call is held for approval and refused if nobody answers within ninety seconds), and press
-**Mint a token**. The token is `srm_` followed by 64 lowercase hex characters (68
+Create it in the console: the device's **Connect AI client** dialog (Devices → **Connect AI
+client**). Name it, tick the destructive consent (the same `allow_destructive` a grant carries —
+unticked means a destructive call is refused immediately, and the refusal names the consent it
+needs), and press **Create token**. The token is `srm_` followed by 64 lowercase hex characters (68
 in all), returned once at creation:
 
 ```
@@ -184,9 +184,9 @@ The answer carries the plaintext once. Use it as the bearer on `/mcp/all`:
 
 The device list is the scope: a call naming a device outside it is refused before a frame is sent,
 and a name shared by two allowed devices is ambiguous and refused, never guessed. A device token is
-refused on `/mcp/all`; an aggregate token is refused on `/mcp/<device-id>`. The fleet page's
-**Fleet tokens** link creates, lists and revokes aggregate tokens (the same operations are on the
-API: `POST /tokens` with `device_ids`, `GET /tokens`, `DELETE /tokens/<id>`); the per-device card
+refused on `/mcp/all`; an aggregate token is refused on `/mcp/<device-id>`. **Devices →
+Fleet tokens** creates, lists and revokes aggregate tokens (the same operations are on the API:
+`POST /tokens` with `device_ids`, `GET /tokens`, `DELETE /tokens/<id>`); the per-device dialog
 creates one-device tokens only.
 
 ## DeepSeek Harness

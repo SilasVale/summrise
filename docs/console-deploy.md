@@ -14,7 +14,7 @@ Three version streams ship from this repository and none of them is deployed by 
 |---|---|
 | device runtime | the installer, or the device's own update check against the mirror |
 | **console** | **built here, fetched by the host over the tailnet, swapped by a `.cmd`** |
-| console page | inside the console binary (`maud`, server-rendered) — no separate deploy |
+| console page | React 19, built into one HTML file and embedded in the console binary — no separate deploy |
 
 The console host has **no Rust toolchain**: `cargo`, `rustc` and `git` are absent (measured
 2026-10-28). So the binary is built on the Linux box for `x86_64-pc-windows-msvc`, staged on the
@@ -34,9 +34,9 @@ on the host; no bytes pass through an AI context.
 
 ## Before you deploy
 
-- **A pending approval does not survive.** Held destructive calls live in memory; the restart loses
-  one that a person has not answered yet. Check the fleet page's *Waiting for your approval* card
-  first, or deploy when nobody is driving.
+- **There is no approval queue to check.** A deploy restarts the console, so a call that is in
+  flight fails once and the operator retries it; nothing is waiting on a person. Device channels
+  reconnect on their own.
 - Device channels reconnect on their own; no device needs to be touched.
 - The **aggregate MCP goes through the console**, so restarting it drops the AI's own MCP connection
   for a few seconds. Observed on the first run: one `fetch failed` mid-deploy. The deploy script does

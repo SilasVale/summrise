@@ -2,6 +2,10 @@
 
 `device/` (the runtime) and `docs/superpowers/specs/` (the design record).
 
+**THE PRODUCT STATEMENT IS `docs/PRODUCT.md`** — the one sentence, the four nouns, the seven
+surfaces and the nine design rules. A UI change that has not read it is a guess. The README is the
+build/run map; this file carries only the rules that are not discoverable from the tree.
+
 **THE REPOSITORY IS WRITTEN IN ENGLISH** — commits, comments, docs. **TALKING TO THE OPERATOR IS IN CHINESE.**
 
 **READ THE EXIT CODE, NOT THE OUTPUT.** `cargo test` -> `test result: ok. N passed`. Grepping for the
@@ -10,31 +14,39 @@ wrong line returns nothing, which looks exactly like a suite that passed silentl
 **RUN THE COMMAND THE OTHER END RUNS.** A local check that is not CI's check is not the same check.
 
 **PREFER RUST.** The runtime is Rust; a change that adds another language needs a reason, not a habit.
+The console page is the one deliberate exception — see below.
 
 **WINDOWS IS THE TARGET.** The lifecycle suite runs on `windows-latest` only. `cargo xwin check
 --workspace --target x86_64-pc-windows-msvc` is the Linux-side compile check, not execution proof.
 
 **THE DISK IS THE CONSTRAINT, NOT THE CPU.** `device/target` grows; clean it after a full run.
 
-**THE CONSOLE PAGE IS RUST.** `/` redirects to `/next`, which the console renders from `maud`
-templates; there is no npm, no committed bundle and no second build. A page change is a Rust change,
-gated by `cargo test -p summrise-console` like everything else. The only JavaScript left is vendored
-xterm and the two terminal pages' glue (`device/console/assets/`, `device/device/assets/`), and
-`scripts/console-smoke.mjs --terminal` is its browser check.
+**THE CONSOLE PAGE IS REACT 19, BUILT INTO ONE HTML FILE.** `device/console/web` is the operator's
+page; Vite builds `dist/index.html`, `summrise-console` embeds it with `include_str!`, and there is
+no Node at runtime. A page change is a change in that tree followed by `scripts/build-web.sh
+--check` — CI's `console-web` job runs the same typecheck and fails on a stale committed bundle.
+`/next` is the maud fallback that redeems a login code; it is not the operator's path. The vendored
+xterm and the device's own pages are separate.
 
-**THE PAGE'S LOOK IS TESTED, NOT ARGUED.** Three tools answer "did this styling change break
-something", and a change that skips them is a guess:
+**THE PAGE'S LOOK IS TESTED, NOT ARGUED.** A styling change that skips these is a guess:
 
-- `cargo test -p summrise-console` runs `every_text_colour_reads_on_the_surface_it_sits_on`, which
-  measures eleven pairs in each theme (ink, muted, faint, accent, the three status colours, the
-  rail's ink, and a primary button's label) against WCAG AA (4.5:1) — a colour that fails it is
-  unreadable in one theme, which is not a matter of taste;
-- `scripts/console-screenshots.bash --out DIR` renders every page and photographs it light and dark,
-  writing `DIR/index.html` — the gallery is how a change gets looked at, not described;
-- the same script with `--diff` (against the baseline `--update-baseline` wrote) lists the pages a
-  change moved, with the share of pixels and a highlighted image per page. A change that moves a page
-  nobody meant to touch is the bug this catches.
+- `cd device/console/web && npm run typecheck && npm test && npm run build` — the page compiles, its
+  component suite passes, and the bundle is rebuilt. CI gates typecheck and the freshness check; the
+  jsdom suite is a local author's tool, not a browser proof.
+- `node device/console/web/scripts/screenshot.mjs <tag>` — the rendered gallery in
+  `/tmp/console-react-shot/<tag>/` (light, dark, 390). Look at it; a change that moves a page nobody
+  meant to touch is the finding.
+- `scripts/build-web.sh --check` — the committed page is the source; the binary cannot ship
+  yesterday's UI silently.
+- `cargo test -p summrise-console` — the console suite and the token contract
+  (`tests/tokens.rs`: seven type sizes, one spacing rhythm, the radii, the dark surfaces). The maud
+  fallback's ink pairs are measured by `every_text_colour_reads_on_the_surface_it_sits_on` in
+  `src/http/page.rs`; **the React page's own colour pairs are not yet behind a gate**, so measure a
+  new pair before it lands.
+- `node scripts/layout-gate.mjs <pages-dir> <width…>` — the rendered Rust pages and the landing at
+  every width; a page that scrolls sideways fails.
 
-The page's shape is three columns — a 52px icon rail, a 244px context rail, a canvas, a status strip —
-and the context rail holds the page's own subject (sessions, runs, processes, targets, entries,
-disks), never a second copy of the navigation. Below 1000px the context rail goes first.
+The page's shape is one compact icon rail with seven destinations — Devices, Terminal, Screen, Files,
+Runs, Machine, Activity — a canvas, and a status strip. The selected machine's header sits above
+every workspace page, so a rail click never loses the machine the calls will hit. There is no second
+navigation rail inside the page.

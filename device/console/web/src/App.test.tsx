@@ -259,10 +259,20 @@ describe("App", () => {
     expect(screen.getByRole("heading", { name: "Screen" })).toBeInTheDocument();
     expect(
       screen.getByText(
-        "The screen belongs to the device's user session, so pick the device whose screen you want to see. The console signs a grant for the capture tool, and the device checks that grant on every call."
+        "The screen belongs to the device's user session, so pick the device whose screen you want to see. Your console session reaches it; the device checks it on every capture."
       )
     ).toBeInTheDocument();
     expect(screen.queryByText("No audit lines yet.")).not.toBeInTheDocument();
+  });
+
+  it("opens the fleet-token form from the Devices page", async () => {
+    await bootAndSignIn();
+
+    fireEvent.click(screen.getByRole("button", { name: "Fleet tokens" }));
+
+    const dialog = await screen.findByRole("dialog", { name: "Fleet tokens" });
+    expect(within(dialog).getByRole("button", { name: "Create fleet token" })).toBeInTheDocument();
+    expect(within(dialog).getByText(/accepted only on/)).toBeInTheDocument();
   });
 
   it("selects a device and opens its terminal without a grant form", async () => {
@@ -397,7 +407,7 @@ describe("App", () => {
     expect(within(screen.getByRole("table")).getByText(shortTokenId)).toBeInTheDocument();
   });
 
-  it("samples host facts into the browser-local history and draws the card's chart", async () => {
+  it("samples host facts into the browser-local history, per device", async () => {
     const gib = 1024 ** 3;
     mocks.devices.mockResolvedValue([
       {
@@ -423,11 +433,8 @@ describe("App", () => {
 
     await bootAndSignIn();
 
-    // One sample was already in this browser; the refresh appended this poll's, so the chart has the
-    // two points it needs. The device without host facts has no key at all.
-    expect(screen.getByText("Memory available 50.0%")).toBeInTheDocument();
-    expect(screen.getByText("Tightest disk / 25.0% free")).toBeInTheDocument();
-
+    // One sample was already in this browser; the refresh appended this poll's, so the history has
+    // the two points the Machine page draws. The device without host facts has no key at all.
     const stored = JSON.parse(
       localStorage.getItem(VITALS_KEY_PREFIX + workshop.id) ?? "[]"
     ) as VitalsSample[];
