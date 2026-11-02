@@ -430,6 +430,9 @@ main.terminal-main { grid-template-rows: auto minmax(0, 1fr); align-content: str
    browser; where it is not, the panel simply keeps the filled height, which is still usable. */
 main.terminal-main:has(.terminal-workspace-empty) { grid-template-rows: auto auto; align-content: start; }
 .terminal-panel { display: flex; flex-direction: column; min-height: 0; }
+/* `hidden` is a UA `display:none`; the flex rule above would otherwise outrank it, and the terminal
+   would sit above every other workspace page. This is the one place the attribute needs help. */
+.terminal-panel[hidden] { display: none; }
 .terminal-workspace {
   display: flex;
   flex-direction: column;

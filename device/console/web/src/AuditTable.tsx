@@ -54,11 +54,18 @@ function lineKeys(lines: AuditLine[]): Map<AuditLine, string> {
   return keys;
 }
 
+/// The run id `run_detail` wrote into the audit line: `run <id> exited 0 in 42 ms`.
+function runIdFromDetail(detail: string | null | undefined): string | null {
+  const match = /^run (\S+) /.exec(detail ?? "");
+  return match ? match[1] : null;
+}
+
 export function AuditTable({
   lines,
   devices,
   tokens,
   selectedDeviceId = null,
+  onOpenRun,
   empty = "No audit lines yet.",
   emptyFiltered = "No audit lines match."
 }: {
@@ -67,6 +74,8 @@ export function AuditTable({
   tokens: TokenMeta[];
   /** The machine the operator is on; the default scope follows it when it exists. */
   selectedDeviceId?: string | null;
+  /** Open a run's record on the device; only the Activity page can navigate to Runs. */
+  onOpenRun?: (deviceId: string, runId: string) => void;
   /** The sentence for no lines at all. The audit keeps its own; Security names failed authentications. */
   empty?: string;
   /** The sentence for a filter that matches nothing. The table's default; a log may name its own. */
@@ -254,6 +263,7 @@ export function AuditTable({
                 const isOpen = open.has(key);
                 const failed = auditFailed(line);
                 const deviceError = failed && line.status < 400;
+                const runId = line.tool === "runs.exec" ? runIdFromDetail(line.detail) : null;
                 return (
                   <Fragment key={key}>
                     <tr>
@@ -345,6 +355,20 @@ export function AuditTable({
                               <dt>Detail</dt>
                               <dd className="mono">{line.detail ?? "—"}</dd>
                             </div>
+                            {runId && line.device_id && onOpenRun && (
+                              <div>
+                                <dt>Run</dt>
+                                <dd>
+                                  <button
+                                    type="button"
+                                    className="mini"
+                                    onClick={() => onOpenRun(line.device_id!, runId)}
+                                  >
+                                    Open in Runs
+                                  </button>
+                                </dd>
+                              </div>
+                            )}
                             <div>
                               <dt>Status</dt>
                               <dd>{line.status}</dd>
