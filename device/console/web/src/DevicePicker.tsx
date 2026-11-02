@@ -13,10 +13,16 @@ export function DevicePicker({ devices, onChoose }: { devices: Device[]; onChoos
     <ul className="picker">
       {devices.map((device) => (
         <li key={device.id}>
-          <span className={"dot " + (device.online ? "dot-ok" : "dot-off")} />
+          <span className={"dot " + (device.online ? "dot-ok" : "dot-off")} aria-hidden="true" />
           <strong>{device.name ?? shortId(device.id)}</strong>
+          <span className="sr-only">{device.online ? "online" : "offline"}</span>
           {device.version && <span className="chip">{device.version}</span>}
-          <button type="button" className="mini" onClick={() => onChoose(device.id)}>
+          <button
+            type="button"
+            className="mini"
+            aria-label={`Use ${device.name ?? shortId(device.id)}`}
+            onClick={() => onChoose(device.id)}
+          >
             Use
           </button>
         </li>

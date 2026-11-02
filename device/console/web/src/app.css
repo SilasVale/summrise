@@ -1222,3 +1222,16 @@ span.files-name {
   }
   .card:hover, button:active:not(:disabled) { transform: none; }
 }
+
+/* Text a screen reader needs but the layout does not: the device picker's state is a coloured dot. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
