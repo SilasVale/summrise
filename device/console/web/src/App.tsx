@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import logoUrl from "./logo.svg";
 import {
   api,
@@ -54,6 +54,8 @@ export function App() {
   );
   const [page, setPage] = useState<Page>(initialPage);
   const [selected, setSelected] = useState<string | null>(initialRun?.deviceId ?? null);
+  const mainRef = useRef<HTMLElement>(null);
+  const mounted = useRef(false);
   // A run id handed from Activity to Runs; RunsPage consumes it once and clears it.
   const [runsFocus, setRunsFocus] = useState<string | null>(initialRun?.runId ?? null);
   const [error, setError] = useState<string | null>(null);
@@ -254,6 +256,18 @@ export function App() {
     if (window.location.hash !== wanted) window.history.replaceState(null, "", wanted);
   }, [page]);
 
+  // A surface or device change replaces the control the operator just pressed. Put focus on the new
+  // page instead of letting it fall to <body>; the heading and the first control are then one Tab
+  // away rather than a full traversal from the top. The first render is exempt so sign-in keeps the
+  // browser's own focus.
+  useEffect(() => {
+    if (!mounted.current) {
+      mounted.current = true;
+      return;
+    }
+    mainRef.current?.focus();
+  }, [page, selected]);
+
   // The tab is part of the surface: a window full of consoles should say which one this is, and
   // the signed-out tab should not claim a machine page it is not showing.
   useEffect(() => {
@@ -451,7 +465,12 @@ export function App() {
       <div className="body">
         <Rail page={page} onPage={setPage} devices={devices.length} online={online} />
 
-        <main id="main" tabIndex={-1} className={page === "terminal" && chosen ? "terminal-main" : undefined}>
+        <main
+          id="main"
+          ref={mainRef}
+          tabIndex={-1}
+          className={page === "terminal" && chosen ? "terminal-main" : undefined}
+        >
           {chosen && page !== "devices" && (
             <section className="workspace-head">
               <div className="workspace-identity">

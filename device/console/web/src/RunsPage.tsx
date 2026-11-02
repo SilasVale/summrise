@@ -83,6 +83,7 @@ export function RunsPage({
   const [detail, setDetail] = useState<RunRecord | null>(null);
   const [detailId, setDetailId] = useState<string | null>(null);
   const [detailError, setDetailError] = useState<string | null>(null);
+  const detailRef = useRef<HTMLElement>(null);
 
   // A failed first read has nothing to keep showing; a failed refresh must leave the previous rows
   // where they are, so the two cases are told apart by whether a list ever arrived.
@@ -104,6 +105,10 @@ export function RunsPage({
   const onFocusConsumedRef = useRef(onFocusConsumed);
   focusRef.current = focusRunId;
   onFocusConsumedRef.current = onFocusConsumed;
+
+  useEffect(() => {
+    if (detail) detailRef.current?.focus();
+  }, [detail?.id]);
 
   const read = useCallback(async () => {
     const ticket = historyGate.begin();
@@ -410,11 +415,15 @@ export function RunsPage({
 
       <p className="hint">{historyNote}</p>
       {historyError && <p className="error">{historyError}</p>}
-      {detailId && <p className="hint">Reading run {detailId}…</p>}
+      {detailId && (
+        <p className="hint" role="status">
+          Reading run {detailId}…
+        </p>
+      )}
       {detailError && <p className="error">{detailError}</p>}
 
       {detail && (
-        <section className="card runs-detail">
+        <section className="card runs-detail" ref={detailRef} tabIndex={-1}>
           <header>
             <strong className="mono">{detail.id}</strong>
             <div className="actions">
@@ -485,13 +494,15 @@ export function RunsPage({
                 <tr
                   key={row.id}
                   className={"runs-row" + (detail?.id === row.id ? " runs-row-active" : "")}
-                  onClick={() => void show(row)}
+                  onClick={() => {
+                    if (detailId === null) void show(row);
+                  }}
                 >
                   <td>
                     <button
                       type="button"
                       className="runs-open"
-                      disabled={detailId !== null}
+                      aria-disabled={detailId !== null}
                       title={"runs.get " + row.id}
                     >
                       {commandLine(row)}
