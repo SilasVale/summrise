@@ -2,7 +2,17 @@ import { useEffect, useRef, useState } from "react";
 import { useRequestGate } from "./requests";
 import { callTool, toolFailure, type Grant } from "./terminal";
 
-type Target = { id: string; url?: string; title?: string };
+type Target = { id: string; url?: string; title?: string; type?: string };
+
+/// Chrome's own targets are not pages the operator can use. A real device listed the new-tab page,
+/// `chrome-untrusted://new-tab-page/...`, `chrome://webui-toolbar.top-chrome` and the omnibox popup
+/// beside the actual page; selecting one gives a picture that click/eval cannot drive.
+const INTERNAL_SCHEMES = ["chrome://", "chrome-untrusted://", "devtools://", "edge://", "about:"];
+function isPageTarget(entry: Target): boolean {
+  if (entry.type !== undefined && entry.type !== "page") return false;
+  const url = (entry.url ?? "").toLowerCase();
+  return !INTERNAL_SCHEMES.some((scheme) => url.startsWith(scheme));
+}
 
 /** How slow "live" is: one screenshot per interval, because a CDP screencast is a transport of its own. */
 const LIVE_MS = 1_500;
@@ -41,17 +51,22 @@ export function BrowserPane({ grant }: { grant: Grant }) {
     try {
       const answer = JSON.parse(await callTool(grant, "browser.list", {})) as Target[];
       if (listGate.stale(ticket)) return null;
-      setTargets(answer);
-      if (answer.length === 0) {
+      const pages = answer.filter(isPageTarget);
+      setTargets(pages);
+      if (pages.length === 0) {
         setTarget("");
         setShot(null);
-        setStatus("No browser is open on this device.");
-        return answer;
+        setStatus(
+          answer.length === 0
+            ? "No browser is open on this device."
+            : "No browser page is open on this device."
+        );
+        return pages;
       }
-      const next = prefer && answer.some((entry) => entry.id === prefer) ? prefer : answer[0].id;
+      const next = prefer && pages.some((entry) => entry.id === prefer) ? prefer : pages[0].id;
       setTarget(next);
-      setStatus(`${answer.length} target(s).`);
-      return answer;
+      setStatus(`${pages.length} target(s).`);
+      return pages;
     } catch (cause) {
       // A stale error describes a view that is gone, exactly like stale data does.
       if (listGate.stale(ticket)) return null;

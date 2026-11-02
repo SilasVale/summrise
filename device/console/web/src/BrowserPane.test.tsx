@@ -81,6 +81,21 @@ describe("BrowserPane", () => {
     expect(screen.getByText("Captured 3 bytes.")).toBeInTheDocument();
   });
 
+  it("hides the browser's own internal targets", async () => {
+    listAnswers = [[
+      A,
+      { id: "newtab", title: "New Tab", url: "chrome://newtab/" },
+      { id: "untrusted", title: "New Tab", url: "chrome-untrusted://new-tab-page/" },
+      { id: "toolbar", title: "Omnibox Popup", url: "chrome://webui-toolbar.top-chrome" }
+    ]];
+    await openPane();
+
+    const target = screen.getByLabelText("Target");
+    expect(target).toHaveValue("A");
+    expect([...target.querySelectorAll("option")].map((option) => option.textContent)).toEqual(["A"]);
+    expect(screen.getByText("1 target(s).")).toBeInTheDocument();
+  });
+
   it("keeps Navigate disabled until there is both a target and an address", async () => {
     await openPane();
     const navigate = screen.getByRole("button", { name: "Navigate" });
