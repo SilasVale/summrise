@@ -1,7 +1,10 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AuditLine, Device, TokenMeta } from "./api";
 import { AuditTable } from "./AuditTable";
+import { downloadFile } from "./download";
+
+vi.mock("./download", () => ({ downloadFile: vi.fn() }));
 
 const alpha = "device-a-0123456789ab";
 const beta = "device-b-0123456789ab";
@@ -89,6 +92,10 @@ function rowOf(text: string): HTMLElement {
 
 
 describe("AuditTable", () => {
+  beforeEach(() => {
+    vi.mocked(downloadFile).mockReset();
+  });
+
   it("shows a date when a line is not from today", () => {
     const ts = Date.now() - 3 * 24 * 60 * 60_000;
     render(
@@ -104,6 +111,18 @@ describe("AuditTable", () => {
         minute: "2-digit"
       })
     );
+  });
+
+  it("exports the filtered view as CSV", () => {
+    render(<AuditTable lines={lines} devices={devices} tokens={[]} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Export CSV" }));
+
+    expect(downloadFile).toHaveBeenCalledTimes(1);
+    const [name, body, type] = vi.mocked(downloadFile).mock.calls[0];
+    expect(name).toMatch(/^summrise-audit-\d{8}-\d{6}\.csv$/);
+    expect(body).toContain('"tool"');
+    expect(type).toBe("text/csv;charset=utf-8");
   });
 
   it("narrows the table to a time window", () => {
