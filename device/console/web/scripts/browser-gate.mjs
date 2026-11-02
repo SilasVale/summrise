@@ -10,6 +10,7 @@
 // The browser is the Playwright runtime already on this machine (same resolution as the screenshot
 // harness); no dependency is added to package.json.
 
+import { existsSync } from 'node:fs';
 import { mkdir, readFile } from 'node:fs/promises';
 import http from 'node:http';
 import { createRequire } from 'node:module';
@@ -38,7 +39,15 @@ const PLAYWRIGHT_CANDIDATES = [
 let playwright = null;
 for (const candidate of PLAYWRIGHT_CANDIDATES) {
   try {
-    playwright = require(candidate);
+    const runtime = require(candidate);
+    // The `playwright` package is the CI candidate and is installed WITH its browser; a dev box may
+    // have it without one, so that candidate is checked. `playwright-core` is the legacy runtime on
+    // this box and can launch the headless shell without a full chrome at executablePath().
+    if (path.basename(candidate) === 'playwright') {
+      const executable = runtime.chromium?.executablePath?.();
+      if (executable && !existsSync(executable)) continue;
+    }
+    playwright = runtime;
     break;
   } catch {
     /* the next candidate */

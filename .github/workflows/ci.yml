@@ -74,6 +74,11 @@ jobs:
       - name: install the page's build dependencies
         working-directory: device/console/web
         run: npm ci
+      # The gate is a browser proof, not a jsdom one; the browser is installed explicitly so the
+      # cache does not have to carry it and the version is the one package-lock pins.
+      - name: install the browser the gate drives
+        working-directory: device/console/web
+        run: npx playwright install --with-deps chromium
       # THE LOGIC IS RUST, AND ITS ARTIFACT IS COMMITTED. This check needs only Node: it recomputes
       # the source stamp and decodes the inlined base64 back to the committed wasm, so a source edit
       # with no rebuild fails here. `build-web.sh --check` runs it again; this step names the failure.
@@ -82,14 +87,19 @@ jobs:
       - name: the page typechecks
         working-directory: device/console/web
         run: npm run typecheck
-      # **THE JSDOM SUITE IS NOT A REQUIRED GATE.** Its 326 tests assert markup and component
+      # **THE JSDOM SUITE IS NOT A REQUIRED GATE.** Its 334 tests assert markup and component
       # internals; the legacy record has a green jsdom suite beside a page whose buttons were dead.
-      # Typecheck catches the type-level break, the Rust suite covers logic, the layout gate and a
-      # small Playwright flow cover the browser. The suite stays in `npm test` for the author.
+      # Typecheck catches the type-level break, the Rust suite covers logic, the layout gate and the
+      # Playwright gate below cover the browser. The suite stays in `npm test` for the author.
       # The page is embedded in the console binary with include_str!, so a source change that does
       # not update dist/index.html still compiles and still ships yesterday's UI. This is the gate.
       - name: the committed page is this source
         run: ./scripts/build-web.sh --check
+      # SIGN IN → DEVICE → PTY → MARKER. The `/mcp` answer is an echo, not a shell; the gate fails on
+      # any console error, which is how the missing saved-connections stub was found.
+      - name: sign in, open a pty, and read the marker back
+        working-directory: device/console/web
+        run: npm run gate:browser
 
   device-windows:
     name: device (the Windows lifecycle)
