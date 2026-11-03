@@ -180,6 +180,9 @@ fn every_text_pair_reads_on_the_surface_it_sits_on() {
         ("primary button label", "accent-fg", "accent-solid"),
         ("success on its wash", "ok", "ok-soft"),
         ("warning on its wash", "warn", "warn-soft"),
+        // The offline notice puts a SENTENCE on the warning wash, not just its label: the body is
+        // --ink, and a future palette that darkened the wash would have to keep that pair readable.
+        ("body on the warning wash", "ink", "warn-soft"),
         ("error on its wash", "error", "error-soft"),
     ];
     for dark in [false, true] {
