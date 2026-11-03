@@ -342,6 +342,31 @@ scripts/publish-canary.bash \
     --console http://127.0.0.1:19000        # optional: verify the world at the end
 ```
 
+The browser pack is optional but is the supported clean-machine path:
+
+```bash
+export SUMMRISE_BROWSER_SOURCE=/path/to/chrome-headless-shell-win64
+```
+
+With it, the installer carries `chrome-headless-shell` under `browser\current` (the 0.3.254 installer
+measured 100,152,244 B and 326,202,576 B of install data; without a pack the installer stays ~6.8 MB).
+Without it, a hand install still discovers system Chrome/Edge and `SUMMRISE_CHROME`.
+
+The pack used by 0.3.254 is pinned and reproducible from the mirror:
+
+```bash
+mkdir -p /tmp/browser-pack && cd /tmp/browser-pack
+curl -fL -o chrome-headless-shell.zip \
+  https://registry.npmmirror.com/-/binary/chrome-for-testing/158.0.8120.0/win64/chrome-headless-shell-win64.zip
+echo "1bdd1b02c008e69d8fdf013a2832fb0ff637a96f4b18e58f46a7ae07b28cc736  chrome-headless-shell.zip" | sha256sum -c
+unzip -q chrome-headless-shell.zip
+export SUMMRISE_BROWSER_SOURCE=/tmp/browser-pack/chrome-headless-shell-win64
+```
+
+This is Chrome for Testing (Chrome-branded) for the internal canary; a public distribution should
+replace it with a redistributable Chromium build. The runtime contract is the same: a headless
+Chromium with CDP under `browser/current`.
+
 The page is React 19 built to one `dist/index.html` and embedded in the console binary, so there is
 no separate page artifact at runtime; `scripts/build-web.sh --check` refuses a stale committed
 bundle before a build. What the publish still checks is the version it signs and the mirror it names.
@@ -508,12 +533,20 @@ C:\SummriseInstall\summrise-device.exe --check-update http://…/release-canary.
 document's signature, fetches the artifact, checks the digest, stages it, and asks the supervisor to swap;
 the supervisor swaps, health-checks, and rolls back if the new build does not answer.
 
-## The browser pane needs a browser on the device
+## The browser comes from the installer
 
-`browser.*` drives a real Chrome/Chromium **on the device**, not in the console. Without one, every call
-answers `no Chrome, Chromium or Edge was found; install one or set SUMMRISE_CHROME to its executable` — which is a deployment
-requirement, not a bug, and the pane shows that sentence verbatim. Windows 11 carries Edge, so a
-machine with only Edge is served by the candidate list rather than refused.
+`browser.*` drives a real Chromium **on the device**, not in the console. The supported path is the
+installer's pack: `SummriseSetup` writes `chrome-headless-shell` to `<install>\browser\current`, and the
+device prefers it over any system browser. The pack is a headless shell (same Blink/V8 and CDP, no UI);
+the installer's LZMA payload carries it, and the manifest records the pack version and the source zip's
+SHA-256. A publish without `SUMMRISE_BROWSER_SOURCE` still produces the small installer; that path falls
+back to system Chrome/Edge and is for a hand install, not the clean-machine story.
+
+`DESKTOP-14RJCR8` measured why the fallback is not enough: Edge 156 exits **1002** when a SYSTEM service
+launches it headless, even with `--no-sandbox`, while the managed shell answers immediately. The
+capability now reports `browser did not start` for that case, not `ChromeNotFound`.
+
+`SUMMRISE_CHROME` remains the development override:
 
 ```
 # on the device, as an administrator
@@ -528,10 +561,11 @@ Two traps, both measured:
   looks like "the variable did not take".
 * **The variable is read when the process starts.** The launcher must be restarted, not just the app: it
   is the launcher that spawns the app, and a child inherits the launcher's environment.
-* Google's `ChromeStandaloneSetup64.exe` link returns **404** now. The Chromium snapshot
-  (`https://storage.googleapis.com/chromium-browser-snapshots/Win_x64/LAST_CHANGE` then
+* Google's `ChromeStandaloneSetup64.exe` link returns **404** now. For a hand-seeded pack, the Chromium
+  snapshot (`https://storage.googleapis.com/chromium-browser-snapshots/Win_x64/LAST_CHANGE` then
   `.../<rev>/chrome-win.zip`, ~369 MB) needs no installer: unzip it anywhere and point `SUMMRISE_CHROME`
-  at `chrome-win\chrome.exe`.
+  at `chrome-win\chrome.exe`. Do not use the 871 MB Chromium test tree on `DESKTOP-9VH92BJ` as a pack;
+  `interactive_ui_tests.exe` alone is 374 MB.
 
 ## Onboarding a machine
 
