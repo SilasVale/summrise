@@ -356,7 +356,9 @@ impl PluginError {
             | PluginError::ToolCollision { .. } => {
                 "fix the plugin directory or its plugin.json, then plugins.add"
             }
-            PluginError::InspectNotFound { .. } => "plugins.add",
+            PluginError::InspectNotFound { .. } => {
+                "check the directory path, then inspect it again"
+            }
             PluginError::InspectNoManifest { .. } => "add a plugin.json, then plugins.add",
             PluginError::InspectInvalidManifest { .. } => "fix plugin.json, then plugins.add",
             PluginError::NotFound { .. } | PluginError::ToolNotFound { .. } => "plugins.list",
@@ -2081,6 +2083,24 @@ mod tests {
         host, options as test_options, plugin_dir, wait_until, ScriptedLauncher,
     };
     use crate::test_support::TempDir;
+
+    #[test]
+    fn a_missing_directory_asks_for_the_path_not_another_plugins_add() {
+        let error = PluginError::InspectNotFound {
+            path: "C:\\no-such-plugin".to_owned(),
+        };
+        assert_eq!(error.code(), "NOT_FOUND");
+        assert!(
+            error.action().contains("check the directory path"),
+            "the next action names the fix: {}",
+            error.action()
+        );
+        let text: Value = serde_json::from_str(&error.to_text()).expect("JSON");
+        assert!(text["message"]
+            .as_str()
+            .unwrap()
+            .contains("no directory at"));
+    }
 
     /// The longest a test waits for a state change. The supervisor's timings are milliseconds, so
     /// this is only a guard against a real hang, not a budget the machine is expected to use.
