@@ -222,6 +222,16 @@ page's tool list is compared with `summrise_core::registry` by a test, and every
 table is probed against the router, so a renamed tool or a missing route fails CI rather than a
 browser.
 
+### Looking at it without a release
+
+`screenshot.mjs` photographs the page against fixtures; `scripts/console-live-check.sh` runs it
+against a live device. The script builds a console and one device with a grant key it generates,
+enrols them over loopback, and drives the real page in Chromium: it signs in, opens the machine's
+Terminal, starts a shell, types a command and asserts its output is on screen; then it stops the
+device and asserts the page says the machine is down, disables the actions that cannot work, and
+makes no `/mcp` request to it. Screenshots land in `$CONSOLE_LIVE_OUT` (default: a work directory it
+prints and removes unless `--keep`).
+
 ## Reading a device's state
 
 The console has no state route of its own, by design: the operator page at `/` reads a device by
