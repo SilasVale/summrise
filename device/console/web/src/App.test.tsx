@@ -25,7 +25,6 @@ const mocks = vi.hoisted(() => ({
   createToken: vi.fn(),
   revokeToken: vi.fn(),
   meshReadiness: vi.fn(),
-  setToken: vi.fn()
 }));
 
 vi.mock("./api", () => ({
@@ -49,7 +48,6 @@ vi.mock("./api", () => ({
     revokeToken: mocks.revokeToken
   },
   meshReadiness: mocks.meshReadiness,
-  setToken: mocks.setToken,
   HttpError: class HttpError extends Error {
     constructor(
       readonly status: number,
@@ -187,7 +185,8 @@ describe("App", () => {
     fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
 
     await waitFor(() => expect(mocks.signIn).toHaveBeenCalledWith({ token: "operator-token" }));
-    expect(mocks.setToken).toHaveBeenCalledWith("fresh-token");
+    // The session is the console's cookie, set by the answer; the page keeps nothing and learns it
+    // is signed in by re-reading /session.
 
     expect((await screen.findAllByText("workshop")).length).toBeGreaterThan(0);
     expect(screen.getAllByText("attic").length).toBeGreaterThan(0);
@@ -447,7 +446,6 @@ describe("App", () => {
     expect(screen.getByRole("heading", { name: "Sign in to the console" })).toBeInTheDocument();
     expect(screen.queryByText("workshop")).not.toBeInTheDocument();
     expect(screen.queryByText("2 machines · 2 online")).not.toBeInTheDocument();
-    expect(mocks.setToken).toHaveBeenLastCalledWith(null);
   });
 
   it("clears the page even when the logout request is rejected", async () => {
@@ -458,8 +456,9 @@ describe("App", () => {
     openAccount();
     fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
 
-    // The session in this tab is memory; a server that is slow, down or refusing must not keep it
-    // alive here. The grant, the selected device and the page go with the token.
+    // The page forgets the session it was showing; a server that is slow, down or refusing must not
+    // keep the operator on a screen they signed out of. The grant, the selected device and the page
+    // go with it — the cookie is the server's to end, and the page does not wait for that.
     expect(mocks.logout).toHaveBeenCalledTimes(1);
     expect(screen.getByRole("heading", { name: "Sign in to the console" })).toBeInTheDocument();
     expect(screen.queryByText("workshop")).not.toBeInTheDocument();
@@ -467,7 +466,6 @@ describe("App", () => {
     expect(
       screen.queryByRole("heading", { name: "Grant what the console may do on workshop" })
     ).not.toBeInTheDocument();
-    expect(mocks.setToken).toHaveBeenLastCalledWith(null);
     expect(document.body.textContent).not.toMatch(/srm_|fresh-token/);
   });
 

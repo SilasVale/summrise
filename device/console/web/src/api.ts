@@ -154,14 +154,6 @@ export type AuditLine = {
   status: number;
 };
 
-let token: string | null = null;
-export function setToken(next: string | null) {
-  token = next;
-}
-export function getToken(): string {
-  return token ?? "";
-}
-
 /// The console did not answer with JSON: the edge answered instead — an Access login page after the
 /// session lapsed, or a proxy's error page. The page reloads once through Access rather than telling
 /// the operator to find a token.
@@ -181,9 +173,11 @@ class HttpError extends Error {
 }
 
 async function call<T>(path: string, init: RequestInit = {}): Promise<T> {
+  // NO AUTHORIZATION HEADER. The session is the console's HttpOnly cookie, which the browser
+  // attaches on its own; a bearer held in a JavaScript variable was lost on every reload and cost
+  // the operator the 64-character token again.
   const headers: Record<string, string> = {};
   if (init.body !== undefined) headers["content-type"] = "application/json";
-  if (token) headers.authorization = `Bearer ${token}`;
   const response = await fetch(path, { ...init, headers });
   const text = await response.text();
   let body: T | { error?: string } | null;

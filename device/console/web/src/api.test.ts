@@ -7,12 +7,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   api,
-  getToken,
   HttpError,
   meshReadiness,
   meshStatus,
   NoAnswer,
-  setToken,
   type TokenMeta
 } from "./api";
 
@@ -67,45 +65,37 @@ async function failureOf(promise: Promise<unknown>): Promise<unknown> {
 }
 
 beforeEach(() => {
-  setToken(null);
   fetchMock = vi.fn();
   vi.stubGlobal("fetch", fetchMock);
 });
 
 afterEach(() => {
   vi.unstubAllGlobals();
-  setToken(null);
 });
 
-describe("the token", () => {
-  it("is empty before one is set, the value after, and empty again after null", () => {
-    expect(getToken()).toBe("");
-    setToken("session-token");
-    expect(getToken()).toBe("session-token");
-    setToken(null);
-    expect(getToken()).toBe("");
+describe("the credential", () => {
+  // THE SESSION IS A COOKIE THE BROWSER ATTACHES. Nothing in this module holds a token: a bearer in
+  // a JavaScript variable is lost on a reload, and the design's target is the HttpOnly cookie.
+  it("is never an authorization header the client sets", async () => {
+    for (const call of [() => api.session(), () => api.devices(), () => api.logout()]) {
+      fetchMock.mockClear();
+      fetchMock.mockResolvedValue(answer({ text: "null" }));
+      await call();
+      const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+      expect(headers(init)).toEqual({});
+    }
   });
 });
 
 describe("the request the client builds", () => {
-  it("sends no authorization header before a token, and no content-type on a GET", async () => {
+  it("sends no authorization header and no content-type on a GET", async () => {
     const init = await request(() => api.session(), "/session");
     expect(headers(init)).toEqual({});
   });
 
-  it("sends a token as a Bearer header, still without a GET content-type", async () => {
-    setToken("session-token");
-    const init = await request(() => api.session(), "/session");
-    expect(headers(init)).toEqual({ authorization: "Bearer session-token" });
-  });
-
   it("declares JSON and sends exactly the body a POST passes", async () => {
-    setToken("session-token");
     const init = await request(() => api.signIn({ code: "ABC123" }), "/auth", "POST");
-    expect(headers(init)).toEqual({
-      authorization: "Bearer session-token",
-      "content-type": "application/json"
-    });
+    expect(headers(init)).toEqual({ "content-type": "application/json" });
     expect(init.body).toBe(JSON.stringify({ code: "ABC123" }));
   });
 
@@ -219,11 +209,10 @@ describe("the endpoints", () => {
     expect(init.body).toBe(JSON.stringify({ token: "credential" }));
   });
 
-  it("logout POSTs /logout with the token and no body", async () => {
-    setToken("session-token");
+  it("logout POSTs /logout with no body; the cookie is the credential", async () => {
     const init = await request(() => api.logout(), "/logout", "POST");
     expect(init.body).toBeUndefined();
-    expect(headers(init)).toEqual({ authorization: "Bearer session-token" });
+    expect(headers(init)).toEqual({});
   });
 
   it("devices reads /fleet, not /devices", async () => {
@@ -393,8 +382,7 @@ describe("the endpoints", () => {
     expect(init.body).toBeUndefined();
   });
 
-  it("tools GETs the registry with the token and parses the names", async () => {
-    setToken("session-token");
+  it("tools GETs the registry and parses the names", async () => {
     fetchMock.mockResolvedValue(
       answer({ json: [{ name: "files.read" }, { name: "host.facts" }] })
     );
@@ -402,7 +390,7 @@ describe("the endpoints", () => {
     const { path, init } = lastRequest();
     expect(path).toBe("/tools");
     expect(init.method).toBeUndefined();
-    expect(headers(init)).toEqual({ authorization: "Bearer session-token" });
+    expect(headers(init)).toEqual({});
   });
 
   it("meshStatus GETs /mesh", async () => {

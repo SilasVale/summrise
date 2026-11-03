@@ -11,8 +11,6 @@
  */
 export type Grant = { deviceId: string; envelope: unknown | null };
 
-import { getToken } from "./api";
-
 /**
  * A failed tool call, with the parts a page needs to tell its refusals apart.
  *
@@ -62,7 +60,8 @@ export async function callTool(grant: Grant, name: string, args: Record<string, 
   try {
     response = await fetch("/mcp", {
       method: "POST",
-      headers: { "content-type": "application/json", authorization: `Bearer ${getToken()}` },
+      // The session cookie rides along; nothing here holds a credential.
+      headers: { "content-type": "application/json" },
       body: JSON.stringify({
         device_id: grant.deviceId,
         // Omit the field entirely for a session grant: `/mcp` distinguishes absent (operator

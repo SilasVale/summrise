@@ -7862,7 +7862,10 @@ async fn the_rust_page_signs_in_with_a_cookie_and_signs_out_with_csrf() {
         !cookie.contains("Secure"),
         "plain HTTP must not set Secure: {cookie}"
     );
-    assert!(cookie.contains("Path=/next"), "{cookie}");
+    assert!(
+        cookie.contains("Path=/"),
+        "the page cookie covers the page and its JSON API: {cookie}"
+    );
     assert!(cookie.contains("Max-Age=2592000"), "{cookie}");
     let cookie = cookie
         .split(';')
@@ -7893,6 +7896,72 @@ async fn the_rust_page_signs_in_with_a_cookie_and_signs_out_with_csrf() {
     assert!(
         body.contains("Sign in"),
         "the ended session is signed out: {body}"
+    );
+}
+
+/// The JSON sign-in is the page's door too: it sets the same page cookie, and a request carrying only
+/// that cookie is an operator session. This is what keeps a bearer out of the page's JavaScript and a
+/// reload from asking for the 64-character operator token again.
+#[tokio::test]
+async fn the_api_sign_in_sets_the_page_cookie_and_a_cookie_alone_is_a_session() {
+    let fixture = Fixture::new("api-signin-cookie");
+    let (status, headers, _) = send_text(
+        fixture.app(),
+        post_json("/auth", json!({ "token": hex(&OPERATOR_TOKEN) })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let cookie = headers
+        .get(header::SET_COOKIE)
+        .expect("the sign-in sets the page cookie")
+        .to_str()
+        .expect("a cookie is ASCII")
+        .to_owned();
+    assert!(cookie.contains("HttpOnly"), "{cookie}");
+    assert!(cookie.contains("SameSite=Lax"), "{cookie}");
+    assert!(
+        cookie.contains("Path=/"),
+        "the page and its JSON API share one cookie: {cookie}"
+    );
+    let pair = cookie
+        .split(';')
+        .next()
+        .expect("the name=value pair")
+        .to_owned();
+
+    // No Authorization header in anything below: the cookie is the credential.
+    let (status, _, body) = send_text(fixture.app(), get_with_cookie("/session", &pair)).await;
+    assert_eq!(status, StatusCode::OK);
+    let probe: Value = serde_json::from_str(&body).expect("the probe is JSON");
+    assert_eq!(probe["authenticated"], json!(true), "{body}");
+
+    let (status, _, _) = send_text(fixture.app(), get_with_cookie("/fleet", &pair)).await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "an operator route accepts the cookie alone"
+    );
+
+    let logout = Request::builder()
+        .method("POST")
+        .uri("/logout")
+        .header(header::COOKIE, pair.as_str())
+        .body(Body::empty())
+        .expect("the request builds");
+    let (status, headers, _) = send_text(fixture.app(), logout).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    let cleared = headers
+        .get(header::SET_COOKIE)
+        .expect("the sign-out clears the cookie")
+        .to_str()
+        .expect("a cookie is ASCII")
+        .to_owned();
+    assert!(cleared.contains("Max-Age=0"), "{cleared}");
+    let (status, _, _) = send_text(fixture.app(), get_with_cookie("/fleet", &pair)).await;
+    assert_eq!(
+        status,
+        StatusCode::UNAUTHORIZED,
+        "the ended session is not a session"
     );
 }
 

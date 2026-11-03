@@ -574,7 +574,10 @@ impl Inner {
 
     /// The operator a live console session names, if any.
     fn session_operator(&self, headers: &HeaderMap) -> Option<Operator> {
-        if self.session_valid(headers) {
+        // BOTH WAYS IN, ONE SESSION STORE. The header is what an API client presents; the cookie is
+        // what the page has, because a page that has to hold its own token in JavaScript loses it on
+        // every reload and asks the operator for a 64-character secret again.
+        if self.session_valid(headers) || cookie_session(self, headers).is_some() {
             return Some(Operator {
                 email: None,
                 via: "session",
@@ -1210,15 +1213,24 @@ fn end_session(app: &AppState, token_hash: &[u8; 32]) -> Result<(), String> {
 /// untouched. It answers 204 whether or not there was a token to remove: an Access identity has no
 /// in-memory token (the identity provider owns that session), and the page clears regardless of the
 /// answer. No audit line on purpose — session lifecycle is not a device action.
-async fn logout(State(app): State<AppState>, _: OperatorSession, headers: HeaderMap) -> StatusCode {
-    if let Some(presented) = bearer_secret(&headers) {
-        let token_hash = hash_of(&presented);
+async fn logout(State(app): State<AppState>, _: OperatorSession, headers: HeaderMap) -> Response {
+    // Either credential identifies the session to end; the cookie is also cleared so the browser
+    // stops presenting a session the console has already forgotten.
+    let token_hash = bearer_secret(&headers)
+        .map(|presented| hash_of(&presented))
+        .or_else(|| cookie_session(&app, &headers).map(|session| session.token_hash));
+    if let Some(token_hash) = token_hash {
         if let Err(error) = end_session(&app, &token_hash) {
             eprintln!("summrise-console: the sessions could not be persisted: {error}");
-            return StatusCode::INTERNAL_SERVER_ERROR;
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
         }
     }
-    StatusCode::NO_CONTENT
+    let mut response = StatusCode::NO_CONTENT.into_response();
+    response.headers_mut().insert(
+        header::SET_COOKIE,
+        clear_session_cookie(secure_request(&headers)),
+    );
+    response
 }
 
 /// Verify the operator's secret: a typed token, or a one-time login code. One outcome for both
@@ -1298,23 +1310,33 @@ fn hash_of(token: &[u8; 32]) -> [u8; 32] {
 
 async fn authenticate(
     State(app): State<AppState>,
+    headers: HeaderMap,
     Json(request): Json<AuthRequest>,
-) -> Result<Json<AuthResponse>, ApiError> {
+) -> Result<Response, ApiError> {
     operator_from_credentials(&app, request.code.as_deref(), request.token.as_deref()).await?;
     // A session is a thing that happened. It has no device, so it goes in as `auth` with the
     // detail a reader needs and nothing about the credential itself.
     let (session, token) = new_session(&app, "token").await;
-    Ok(Json(AuthResponse {
+    // THE COOKIE IS THE SESSION, and the token in the body is for clients that already speak the
+    // header. Keeping a bearer in the page's JavaScript was the half-step the React port shipped
+    // with: it costs a re-typed operator token on every reload, and the design's target is an
+    // HttpOnly cookie the page cannot read and does not have to remember.
+    let mut response = Json(AuthResponse {
         token: hex::encode(&token),
         expires_at_ms: session.expires_at_ms,
-    }))
+    })
+    .into_response();
+    response.headers_mut().insert(
+        header::SET_COOKIE,
+        session_cookie(&token, secure_request(&headers)),
+    );
+    Ok(response)
 }
 
-/// The cookie name the page uses. A page cookie, not an API credential: nothing outside `/next`
-/// reads it.
+/// The cookie name the page uses. The console's own session, for the page and for the JSON API.
 const SESSION_COOKIE: &str = "summrise_session";
 
-fn cookie_session(app: &AppState, headers: &HeaderMap) -> Option<Session> {
+fn cookie_session(app: &Inner, headers: &HeaderMap) -> Option<Session> {
     let presented = headers
         .get(header::COOKIE)?
         .to_str()
@@ -1342,7 +1364,7 @@ fn secure_request(headers: &HeaderMap) -> bool {
 
 fn session_cookie(token: &[u8; 32], secure: bool) -> HeaderValue {
     let mut cookie = format!(
-        "{SESSION_COOKIE}={}; Path=/next; HttpOnly; SameSite=Lax; Max-Age={}",
+        "{SESSION_COOKIE}={}; Path=/; HttpOnly; SameSite=Lax; Max-Age={}",
         hex::encode(token),
         SESSION_LIFETIME_MS / 1000
     );
@@ -1355,7 +1377,7 @@ fn session_cookie(token: &[u8; 32], secure: bool) -> HeaderValue {
 /// The clear mirrors [`session_cookie`]'s attributes, `Secure` included: a clear that drops them is
 /// a different cookie in every browser that checks.
 fn clear_session_cookie(secure: bool) -> HeaderValue {
-    let mut cookie = format!("{SESSION_COOKIE}=; Path=/next; HttpOnly; SameSite=Lax; Max-Age=0");
+    let mut cookie = format!("{SESSION_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0");
     if secure {
         cookie.push_str("; Secure");
     }

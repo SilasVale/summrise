@@ -4,7 +4,6 @@ import {
   api,
   HttpError,
   NoAnswer,
-  setToken,
   type AuditLine,
   type Device,
   type Session,
@@ -220,7 +219,6 @@ export function App() {
     // and the page clears whether it answers, fails or never arrives. A slow console must not leave
     // a live session in this tab.
     api.logout().catch(() => {});
-    setToken(null);
     setSession({ authenticated: false });
     setDevices([]);
     setVitals({});
@@ -296,8 +294,9 @@ export function App() {
   const signIn = async () => {
     setBusy(true);
     try {
-      const answer = await api.signIn({ token: tokenInput.trim() });
-      setToken(answer.token);
+      // The console answers with Set-Cookie; the page keeps nothing. `load` re-probes `/session`,
+      // which now carries the cookie, so the fleet appears without a token in this tab.
+      await api.signIn({ token: tokenInput.trim() });
       setTokenInput("");
       await load();
     } catch (cause) {
