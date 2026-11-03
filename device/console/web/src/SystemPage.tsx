@@ -23,6 +23,34 @@ type DeviceProcess = {
 /** A kill the platform refused, with the device's own reason. */
 type KillFailure = { pid: number; reason: string };
 
+/** The processes the device refuses to end; the row says so instead of offering a dead action. */
+const PROTECTED_PROCESS_NAMES = new Set([
+  "system",
+  "system idle process",
+  "registry",
+  "memory compression",
+  "secure system",
+  "smss.exe",
+  "csrss.exe",
+  "wininit.exe",
+  "services.exe",
+  "lsass.exe",
+  "winlogon.exe",
+  "systemd",
+  "init",
+  "launchd",
+  "kthreadd"
+]);
+
+function protectedProcess(process: DeviceProcess): boolean {
+  return (
+    process.pid === 0 ||
+    process.pid === 1 ||
+    process.pid === 4 ||
+    PROTECTED_PROCESS_NAMES.has(process.name.toLowerCase())
+  );
+}
+
 /** What `system.process_kill` did: the pids it signalled and the ones it could not. */
 type KillReport = { killed: number[]; failed: KillFailure[] };
 
@@ -480,18 +508,24 @@ export function SystemPage({
                       {megabytes(process.memory_kb)}
                     </td>
                     <td className="system-kill-cell">
-                      <button
-                        type="button"
-                        className="mini danger"
-                        disabled={killing}
-                        aria-label={`Kill PID ${process.pid} (${process.name})`}
-                        onClick={() => {
-                          setKillError(null);
-                          setKillTarget(process);
-                        }}
-                      >
-                        Kill
-                      </button>
+                      {protectedProcess(process) ? (
+                        <span className="hint" title="The device refuses to end an operating-system process">
+                          Protected
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          className="mini danger"
+                          disabled={killing}
+                          aria-label={`Kill PID ${process.pid} (${process.name})`}
+                          onClick={() => {
+                            setKillError(null);
+                            setKillTarget(process);
+                          }}
+                        >
+                          Kill
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))}

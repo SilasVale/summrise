@@ -78,6 +78,22 @@ describe("SystemPage", () => {
     expect(within(screen.getByRole("table")).getByText("sshd")).toBeInTheDocument();
   });
 
+  it("does not offer Kill for an operating-system process", async () => {
+    const system = { pid: 4, name: "System", memory_kb: 0 };
+    device((name) => {
+      if (name === "system.process_list") return JSON.stringify([system, NGINX]);
+      throw new Error(`the test did not expect a ${name} call`);
+    });
+    render(<SystemPage grant={GRANT} />);
+    await screen.findByText("2 processes on the device, by pid.");
+
+    const row = screen.getByText("System").closest("tr") as HTMLElement;
+    expect(within(row).getByText("Protected")).toBeInTheDocument();
+    expect(within(row).queryByRole("button", { name: /Kill/ })).not.toBeInTheDocument();
+    // The ordinary process next to it still has its action.
+    expect(screen.getByRole("button", { name: "Kill PID 4242 (nginx)" })).toBeInTheDocument();
+  });
+
   it("kills the pid the device reported, only after the confirmation, then re-reads", async () => {
     let killed = false;
     device((name) => {
