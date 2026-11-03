@@ -84,6 +84,7 @@ const UNKNOWN: [u8; 4] = [0x9a, 0x9a, 0x9a, 0xff];
 const TRAY_WATCHDOG: Duration = Duration::from_secs(180);
 
 pub fn run() -> Result<(), Box<dyn std::error::Error>> {
+    let first_run = first_run_pending();
     let event_loop = EventLoopBuilder::<Wake>::with_user_event().build();
     crate::note("event loop built");
 
@@ -178,7 +179,18 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     event_loop.run(move |event, target, control_flow| {
         *control_flow = ControlFlow::Wait;
         match event {
-            Event::NewEvents(StartCause::Init) => {}
+            Event::NewEvents(StartCause::Init) => {
+                if first_run {
+                    // The tray lives in the overflow by Windows' choice, so an install can look like
+                    // nothing happened. Open the local panel once per user: it is the device's own
+                    // page, it needs no credential, and it is the shortest proof the product is
+                    // running. The marker is written whatever the browser did, so a machine with no
+                    // default browser does not try again at every logon.
+                    open_url(PANEL);
+                    mark_first_run();
+                    crate::note("first run: opened the local panel");
+                }
+            }
             Event::UserEvent(Wake::Health(state)) => {
                 if last.as_ref() == Some(&state) {
                     return;
@@ -453,6 +465,40 @@ pub fn check_window() -> i32 {
 pub fn check_window() -> i32 {
     1
 }
+
+/// Whether this user has seen the first-run panel.
+#[cfg(windows)]
+fn first_run_pending() -> bool {
+    let Some(base) = std::env::var_os("LOCALAPPDATA") else {
+        return false;
+    };
+    !std::path::PathBuf::from(base)
+        .join("Summrise")
+        .join("first-run")
+        .exists()
+}
+
+#[cfg(not(windows))]
+fn first_run_pending() -> bool {
+    false
+}
+
+/// Record that the first-run panel was attempted, so it is a one-time event rather than a browser
+/// tab at every logon.
+#[cfg(windows)]
+fn mark_first_run() {
+    let Some(base) = std::env::var_os("LOCALAPPDATA") else {
+        return;
+    };
+    let directory = std::path::PathBuf::from(base).join("Summrise");
+    let _ = std::fs::create_dir_all(&directory);
+    if let Err(error) = std::fs::write(directory.join("first-run"), b"opened\n") {
+        crate::note(&format!("cannot record the first-run marker: {error}"));
+    }
+}
+
+#[cfg(not(windows))]
+fn mark_first_run() {}
 
 /// Where the console window keeps its profile — cookies, storage, the signed-in session.
 #[cfg(windows)]
