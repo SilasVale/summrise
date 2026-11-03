@@ -32,6 +32,19 @@ Unicode true
 
 !define PRODUCT "Summrise Device Runtime"
 !define COMPANY "Summrise"
+
+; Windows' file properties and the wizard's icon come from the installer, not from the shell:
+; a signed release is the artifact an operator double-clicks, and "unknown publisher / no icon"
+; was the first impression it gave.
+!define MUI_ICON "assets\summrise.ico"
+!define MUI_UNICON "assets\summrise.ico"
+VIProductVersion "${VERSION}.0"
+VIAddVersionKey "ProductName" "${PRODUCT}"
+VIAddVersionKey "CompanyName" "${COMPANY}"
+VIAddVersionKey "FileDescription" "Summrise device installer"
+VIAddVersionKey "FileVersion" "${VERSION}"
+VIAddVersionKey "ProductVersion" "${VERSION}"
+VIAddVersionKey "LegalCopyright" "Summrise"
 !define UNINST_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\Summrise"
 ; With `SetShellVarContext all`, `$APPDATA` is the machine's ProgramData. NSIS has no
 ; `$COMMONAPPDATA` constant: writing one compiles to a literal path and puts the data
@@ -206,7 +219,7 @@ Section "Summrise runtime" SecRuntime
   WriteRegStr HKLM "${UNINST_KEY}" "DisplayName" "${PRODUCT}"
   WriteRegStr HKLM "${UNINST_KEY}" "DisplayVersion" "${VERSION}"
   WriteRegStr HKLM "${UNINST_KEY}" "Publisher" "${COMPANY}"
-  WriteRegStr HKLM "${UNINST_KEY}" "DisplayIcon" "$INSTDIR\summrise-launch.exe"
+  WriteRegStr HKLM "${UNINST_KEY}" "DisplayIcon" "$INSTDIR\uninstall.exe"
   WriteRegStr HKLM "${UNINST_KEY}" "InstallLocation" "$INSTDIR"
   WriteRegStr HKLM "${UNINST_KEY}" "UninstallString" '"$INSTDIR\uninstall.exe"'
   WriteRegDWORD HKLM "${UNINST_KEY}" "NoModify" 1
