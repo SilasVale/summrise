@@ -36,7 +36,9 @@ const POLL: Duration = Duration::from_secs(10);
 
 const OPEN_CONSOLE: &str = "open-console";
 const OPEN_PANEL: &str = "open-panel";
+const COPY_PANEL: &str = "copy-panel";
 const ABOUT: &str = "about";
+const OPEN_LOGS: &str = "open-logs";
 const QUIT: &str = "quit";
 
 /// The release version when the build names one, the crate version otherwise. `publish-canary.bash`
@@ -227,7 +229,9 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             Event::UserEvent(Wake::Menu(event)) => match event.id.as_ref() {
                 OPEN_CONSOLE => open_console(target, &mut ui, &mut profile),
                 OPEN_PANEL => open_url(PANEL),
+                COPY_PANEL => copy_panel_address(),
                 ABOUT => show_about(),
+                OPEN_LOGS => open_log_folder(),
                 QUIT => {
                     if let Some((window, _)) = ui.as_ref() {
                         save_window_size(window);
@@ -531,11 +535,13 @@ fn current_session_id() -> Option<u32> {
 /// `None` mints an id of its own, so the handler compared `open-console` against a generated string
 /// and no item — Quit included — ever ran. A menu item without the id the handler matches is a
 /// button wired to nothing, so the wiring is a function that a test can read.
-fn menu_items() -> (MenuItem, MenuItem, MenuItem, MenuItem) {
+fn menu_items() -> (MenuItem, MenuItem, MenuItem, MenuItem, MenuItem, MenuItem) {
     (
         MenuItem::with_id(OPEN_CONSOLE, "Open console", true, None),
         MenuItem::with_id(OPEN_PANEL, "Open local panel", true, None),
+        MenuItem::with_id(COPY_PANEL, "Copy local panel address", true, None),
         MenuItem::with_id(ABOUT, format!("About Summrise {VERSION}"), true, None),
+        MenuItem::with_id(OPEN_LOGS, "Open log folder", true, None),
         MenuItem::with_id(QUIT, "Quit", true, None),
     )
 }
@@ -685,6 +691,71 @@ fn save_window_size(window: &tao::window::Window) {
     }
 }
 
+/// Put the local panel's address on the clipboard. It is the one address an operator can paste into
+/// a browser on this machine without knowing the port or the install layout.
+#[cfg(windows)]
+fn copy_panel_address() {
+    use windows_sys::Win32::Foundation::GlobalFree;
+    use windows_sys::Win32::System::DataExchange::{
+        CloseClipboard, EmptyClipboard, OpenClipboard, SetClipboardData,
+    };
+    use windows_sys::Win32::System::Memory::{
+        GlobalAlloc, GlobalLock, GlobalUnlock, GMEM_MOVEABLE,
+    };
+    use windows_sys::Win32::System::Ole::CF_UNICODETEXT;
+
+    let text: Vec<u16> = PANEL.encode_utf16().chain(Some(0)).collect();
+    // SAFETY: the strings live through the calls; the clipboard owns the allocation only after
+    // SetClipboardData succeeds, and every failure path frees what was allocated.
+    unsafe {
+        if OpenClipboard(0) == 0 {
+            crate::note("cannot open the clipboard to copy the local panel address");
+            return;
+        }
+        let _ = EmptyClipboard();
+        let bytes = text.len() * std::mem::size_of::<u16>();
+        let handle = GlobalAlloc(GMEM_MOVEABLE, bytes);
+        if handle.is_null() {
+            let _ = CloseClipboard();
+            crate::note("cannot allocate the clipboard buffer");
+            return;
+        }
+        let target = GlobalLock(handle);
+        if target.is_null() {
+            let _ = GlobalFree(handle);
+            let _ = CloseClipboard();
+            crate::note("cannot lock the clipboard buffer");
+            return;
+        }
+        std::ptr::copy_nonoverlapping(text.as_ptr(), target as *mut u16, text.len());
+        let _ = GlobalUnlock(handle);
+        if SetClipboardData(CF_UNICODETEXT as u32, handle as isize) == 0 {
+            let _ = CloseClipboard();
+            crate::note("cannot put the local panel address on the clipboard");
+            return;
+        }
+        let _ = CloseClipboard();
+        crate::note("copied the local panel address");
+    }
+}
+
+#[cfg(not(windows))]
+fn copy_panel_address() {}
+
+/// Open the per-user directory that holds `shell.log`; the first thing support asks for.
+#[cfg(windows)]
+fn open_log_folder() {
+    let Some(base) = std::env::var_os("LOCALAPPDATA") else {
+        return;
+    };
+    let directory = std::path::PathBuf::from(base).join("Summrise");
+    let _ = std::fs::create_dir_all(&directory);
+    open_url(&directory.to_string_lossy());
+}
+
+#[cfg(not(windows))]
+fn open_log_folder() {}
+
 /// The dot's colour and the sentence under the cursor.
 fn describe(state: &State) -> ([u8; 4], String) {
     match state {
@@ -802,12 +873,14 @@ pub fn already_running() -> bool {
 /// It is a function rather than three lines in `run` because a re-add after a reconnect needs a
 /// SECOND tray object, and a tray without its menu is a tray whose items do nothing.
 fn build_tray(tooltip: &str) -> Result<tray_icon::TrayIcon, Box<dyn std::error::Error>> {
-    let (console_item, panel_item, about_item, quit_item) = menu_items();
+    let (console_item, panel_item, copy_item, about_item, logs_item, quit_item) = menu_items();
     let menu = Menu::with_items(&[
         &console_item,
         &panel_item,
+        &copy_item,
         &PredefinedMenuItem::separator(),
         &about_item,
+        &logs_item,
         &PredefinedMenuItem::separator(),
         &quit_item,
     ])?;
@@ -952,10 +1025,12 @@ mod tests {
 
     #[test]
     fn every_menu_item_carries_the_id_its_handler_matches() {
-        let (console, panel, about, quit) = menu_items();
+        let (console, panel, copy, about, logs, quit) = menu_items();
         assert_eq!(console.id().as_ref(), OPEN_CONSOLE);
         assert_eq!(panel.id().as_ref(), OPEN_PANEL);
+        assert_eq!(copy.id().as_ref(), COPY_PANEL);
         assert_eq!(about.id().as_ref(), ABOUT);
+        assert_eq!(logs.id().as_ref(), OPEN_LOGS);
         assert_eq!(quit.id().as_ref(), QUIT);
     }
 }
