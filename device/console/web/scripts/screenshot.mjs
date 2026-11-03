@@ -673,6 +673,11 @@ function replyFor(request, url) {
     if (name === 'system.process_list') {
       return json({ result: { content: [{ type: 'text', text: '[]' }] } });
     }
+    // The browser view is photographed without a runtime: the empty sentence and the install/retry
+    // affordances are the state an operator hits on a clean machine.
+    if (name === 'browser.list') {
+      return json({ result: { content: [{ type: 'text', text: '[]' }] } });
+    }
     if (name === 'hello.echo') {
       const text = String(body?.request?.params?.arguments?.text ?? '');
       if (text === 'error') {
@@ -937,6 +942,14 @@ const PAGES = [
     state: 'the device workspace: the screen tab'
   },
   {
+    id: 'browser',
+    label: 'Device',
+    tab: 'Screen',
+    view: 'Browser',
+    heading: 'Screen',
+    state: 'the device workspace: the browser view, reachable as its own fragment'
+  },
+  {
     id: 'files',
     label: 'Device',
     tab: 'Files',
@@ -1141,6 +1154,11 @@ async function goTo(page, meta) {
     const tab = page.locator('nav.device-tabs').getByRole('button', { name: meta.tab, exact: true });
     await tab.waitFor({ state: 'visible', timeout: 5_000 });
     await tab.click();
+  }
+  if (meta.view) {
+    const view = page.getByRole('button', { name: meta.view, exact: true });
+    await view.waitFor({ state: 'visible', timeout: 5_000 });
+    await view.click();
   }
   await assertPage(page, meta);
 }
@@ -1560,7 +1578,10 @@ function buildGallery() {
       : '<p class="missing">not captured</p>';
 
   const widths = [360, 390, 800, 1280];
-  const label = (meta) => (meta.tab ? `${meta.label} · ${meta.tab}` : meta.label);
+  const label = (meta) =>
+    meta.tab
+      ? `${meta.label} · ${meta.tab}${meta.view ? ` · ${meta.view}` : ''}`
+      : meta.label;
   const shot = (width, theme, id) => byKey.get(`${width}-${theme}:${id}`);
 
   const rows = PAGES.map((meta) => {

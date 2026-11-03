@@ -168,7 +168,11 @@ const MAX_URL_IN_ERROR_BYTES: usize = 512;
 /// Comparing the encoded prefix avoids decoding a megabyte only to throw it away.
 const PNG_BASE64_PREFIX: &str = "iVBORw0KGgo";
 
-/// The Chrome executables [`discover_chrome`] tries, in order, when `SUMMRISE_CHROME` names none.
+/// The Chromium executables [`discover_chrome`] tries, in order, when `SUMMRISE_CHROME` names none.
+///
+/// Edge is Chromium: it takes the same `--headless=new` flags and the same CDP, and Windows 11
+/// carries it without Chrome. A machine with only Edge used to answer ChromeNotFound; that is a
+/// missing candidate, not a missing browser.
 ///
 /// Paths for both platforms are listed unconditionally: a path for the other platform simply does
 /// not exist, so the check stays one `is_file` per candidate and the function is not a `cfg` maze.
@@ -177,6 +181,8 @@ const CHROME_CANDIDATES: &[&str] = &[
     "/usr/bin/chromium",
     r"C:\Program Files\Google\Chrome\Application\chrome.exe",
     r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+    r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
+    r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
 ];
 
 /// One target, as `browser.list` reports it.
@@ -313,7 +319,7 @@ impl fmt::Display for BrowserError {
         match self {
             BrowserError::ChromeNotFound => write!(
                 f,
-                "no Chrome or Chromium was found; set SUMMRISE_CHROME to its executable"
+                "no Chrome, Chromium or Edge was found; install one or set SUMMRISE_CHROME to its executable"
             ),
             BrowserError::Spawn { path, message } => {
                 write!(f, "cannot start {path}: {message}")
@@ -1871,7 +1877,7 @@ pub(crate) fn chrome_or_skip() -> Option<PathBuf> {
             }
             static ANNOUNCED: std::sync::Once = std::sync::Once::new();
             ANNOUNCED.call_once(|| {
-                let line = "SKIP browser.cdp: no Chrome/Chromium was found (set \
+                let line = "SKIP browser.cdp: no Chrome/Chromium/Edge was found (set \
                             SUMMRISE_CHROME); the browser tests did not run\n";
                 if fs::write("/dev/stderr", line).is_err() {
                     eprintln!("{line}");
@@ -2039,6 +2045,18 @@ mod tests {
             "any other value asks for it"
         );
     }
+    /// Edge is Chromium and Windows 11 carries it; dropping it from the candidates is how a
+    /// machine with a working browser answers ChromeNotFound again.
+    #[test]
+    fn edge_is_a_candidate_on_windows() {
+        assert!(
+            CHROME_CANDIDATES
+                .iter()
+                .any(|path| path.ends_with(r"Microsoft\Edge\Application\msedge.exe")),
+            "the Windows candidates must include Edge"
+        );
+    }
+
     use std::fs;
     use std::path::{Path, PathBuf};
     use std::time::{Duration, Instant};

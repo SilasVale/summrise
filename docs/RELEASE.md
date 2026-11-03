@@ -511,8 +511,9 @@ the supervisor swaps, health-checks, and rolls back if the new build does not an
 ## The browser pane needs a browser on the device
 
 `browser.*` drives a real Chrome/Chromium **on the device**, not in the console. Without one, every call
-answers `no Chrome or Chromium was found; set SUMMRISE_CHROME to its executable` — which is a deployment
-requirement, not a bug, and the pane shows that sentence verbatim.
+answers `no Chrome, Chromium or Edge was found; install one or set SUMMRISE_CHROME to its executable` — which is a deployment
+requirement, not a bug, and the pane shows that sentence verbatim. Windows 11 carries Edge, so a
+machine with only Edge is served by the candidate list rather than refused.
 
 ```
 # on the device, as an administrator
