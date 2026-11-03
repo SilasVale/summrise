@@ -208,13 +208,16 @@ fn print_usage() {
 summrise-launch — repair, supervise and swap summrise-device.exe
 
   summrise-launch run [--install DIR] [--data DIR] [--port N]
+                      [--files-shared-root PATH]
                       [--console-url URL --console-token-file PATH]
                       [--mesh-broker ORIGIN [--mesh-relay ADDR] [--mesh-stun ADDR]]
   summrise-launch service [--service-name NAME]
   summrise-launch --apply <staged> <sidecar> [--install DIR] [--data DIR] [--port N]
+                      [--files-shared-root PATH]
   summrise-launch --start-shell [--install <dir>]
   summrise-launch --install-service [--replace-baseline] [--seed-sidecar <path>]
                       [--install DIR] [--data DIR] [--port N]
+                      [--files-shared-root PATH]
                       [--console-url URL --console-token-file PATH]
                       [--mesh-broker ORIGIN [--mesh-relay ADDR] [--mesh-stun ADDR]]
   summrise-launch --uninstall-service
@@ -223,8 +226,9 @@ The port defaults to SUMMRISE_PORT, then 18080. The install directory defaults t
 own directory, and the data directory to <install>/data. The service name defaults to SummriseLaunch;
 a service registered under another name must pass that name to `service`.
 
---console-url/--console-token-file and --mesh-broker/--mesh-relay/--mesh-stun are persisted as
-<data>/console.json for the app to read; the service argv carries none of them. A broker must be an
+--files-shared-root, --console-url/--console-token-file and
+--mesh-broker/--mesh-relay/--mesh-stun are persisted as <data>/console.json for the app to read;
+the service argv carries none of them. A broker must be an
 http://host:port origin, a relay or STUN reflector must be host:port, and either without a broker
 is refused. Running without these flags leaves an existing link in place; remove the file to disarm
 it.

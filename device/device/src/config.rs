@@ -376,7 +376,8 @@ impl Config {
         // the other.
         let console_named = self.console_url.is_some() || self.console_token_file.is_some();
         let mesh_named = self.mesh_broker.is_some();
-        if console_named && mesh_named {
+        let files_named = self.files_shared_root.is_some();
+        if console_named && mesh_named && files_named {
             return Ok(());
         }
         let path = self.data.join(CONSOLE_FILE);
@@ -492,16 +493,29 @@ impl Config {
             }
         }
 
+        if !files_named {
+            if let Some(root) = &link.files_shared_root {
+                if root.as_os_str().is_empty() {
+                    return Err(ConfigError::ConsoleFile {
+                        path: path.clone(),
+                        detail: "the files_shared_root is empty".to_owned(),
+                    });
+                }
+                self.files_shared_root = Some(root.clone());
+            }
+        }
+
         if link.url.is_none()
             && link.token_file.is_none()
             && link.mesh_broker.is_none()
             && link.mesh_relay.is_none()
             && link.mesh_stun.is_none()
+            && link.files_shared_root.is_none()
         {
             return Err(ConfigError::ConsoleFile {
                 path,
-                detail: "names neither the console (url, token_file) nor the mesh (mesh_broker, \
-                         mesh_relay, mesh_stun)"
+                detail: "names neither the console (url, token_file), the mesh (mesh_broker, \
+                         mesh_relay, mesh_stun) nor a files_shared_root"
                     .to_owned(),
             });
         }
@@ -550,6 +564,9 @@ struct ConsoleLinkFile {
     mesh_relay: Option<String>,
     #[serde(default)]
     mesh_stun: Option<String>,
+    /// A second files root the operator configured, e.g. `H:\\tmp`.
+    #[serde(default)]
+    files_shared_root: Option<PathBuf>,
 }
 
 /// The fourteen flags the app accepts, so an unknown argument can be refused by name.
@@ -1306,6 +1323,34 @@ mod tests {
             (config.console_url, config.console_token_file),
             (None, None),
             "a mesh-only install arms no console"
+        );
+    }
+
+    #[test]
+    fn a_supervised_install_reads_the_files_shared_root_from_the_link() {
+        let dir = crate::test_support::TempDir::new("link-files-shared");
+        let data = dir.join("data");
+        std::fs::create_dir_all(&data).expect("the data directory is creatable");
+        write_link_fixture(&data, r#"{"files_shared_root":"/srv/summrise/shared"}"#);
+
+        let mut config = parse(
+            &[
+                "--install",
+                "/opt/summrise",
+                "--data",
+                data.to_str().expect("the fixture path is UTF-8"),
+            ],
+            &[],
+        )
+        .expect("the supervised command line parses");
+        config
+            .resolve_console_file()
+            .expect("the persisted files root is readable");
+
+        assert_eq!(
+            config.files_shared_root.as_deref(),
+            Some(std::path::Path::new("/srv/summrise/shared")),
+            "a supervised install can carry the second root without an environment variable"
         );
     }
 

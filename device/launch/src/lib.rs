@@ -329,6 +329,9 @@ pub struct ConsoleLink {
     /// The mesh STUN reflector's address, when one is configured.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mesh_stun: Option<String>,
+    /// A second files root (`shared`, e.g. `H:\\tmp`) for supervised installs.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub files_shared_root: Option<PathBuf>,
 }
 
 /// Check a broker value is the plain-HTTP origin the rendezvous client dials.
@@ -401,6 +404,7 @@ pub fn split_console_args(args: &[String]) -> Result<(Vec<String>, Option<Consol
     let mut mesh_broker: Option<String> = None;
     let mut mesh_relay: Option<String> = None;
     let mut mesh_stun: Option<String> = None;
+    let mut files_shared_root: Option<PathBuf> = None;
     let mut index = 0;
     while index < args.len() {
         match args[index].as_str() {
@@ -437,6 +441,16 @@ pub fn split_console_args(args: &[String]) -> Result<(Vec<String>, Option<Consol
                     .get(index + 1)
                     .ok_or_else(|| "--mesh-stun needs a value".to_string())?;
                 mesh_stun = Some(value.clone());
+                index += 2;
+            }
+            "--files-shared-root" => {
+                let value = args
+                    .get(index + 1)
+                    .ok_or_else(|| "--files-shared-root needs a value".to_string())?;
+                if value.trim().is_empty() {
+                    return Err("--files-shared-root is empty".to_string());
+                }
+                files_shared_root = Some(PathBuf::from(value));
                 index += 2;
             }
             _ => {
@@ -498,6 +512,7 @@ pub fn split_console_args(args: &[String]) -> Result<(Vec<String>, Option<Consol
         && mesh_broker.is_none()
         && mesh_relay.is_none()
         && mesh_stun.is_none()
+        && files_shared_root.is_none()
     {
         // Nothing to persist: an install with no remote facts leaves any previous link alone (the
         // operator's only disarm is to remove the file).
@@ -511,6 +526,7 @@ pub fn split_console_args(args: &[String]) -> Result<(Vec<String>, Option<Consol
             mesh_broker,
             mesh_relay,
             mesh_stun,
+            files_shared_root,
         }),
     ))
 }
@@ -572,6 +588,7 @@ pub fn link_to_persist(data: &Path, link: &ConsoleLink) -> Result<ConsoleLink, S
         mesh_broker: link.mesh_broker.clone(),
         mesh_relay: link.mesh_relay.clone(),
         mesh_stun: link.mesh_stun.clone(),
+        files_shared_root: link.files_shared_root.as_deref().map(absolute),
     };
     if link.mesh_broker.is_some() && link.mesh_stun.is_none() {
         link.mesh_stun = read_persisted_mesh_stun(data)?;
@@ -4449,6 +4466,7 @@ mod tests {
             mesh_broker: Some("http://127.0.0.1:8080".to_string()),
             mesh_relay: Some("127.0.0.1:9000".to_string()),
             mesh_stun: Some("203.0.113.10:3478".to_string()),
+            files_shared_root: None,
         };
 
         write_console_link(&data, &link).expect("the mesh link is writable");
@@ -4504,6 +4522,34 @@ mod tests {
         assert_eq!(written.mesh_stun.as_deref(), Some("203.0.113.10:3478"));
     }
 
+    #[test]
+    fn a_files_shared_root_is_split_and_persisted() {
+        let args = vec![
+            "--files-shared-root".to_string(),
+            "/srv/summrise/shared".to_string(),
+        ];
+        let (rest, link) = split_console_args(&args).expect("the files root parses");
+        assert!(rest.is_empty(), "the launcher owns the files flag");
+        let link = link.expect("a files root alone is a link to persist");
+        assert_eq!(
+            link.files_shared_root.as_deref(),
+            Some(std::path::Path::new("/srv/summrise/shared"))
+        );
+
+        let tmp = TempDir::new("files-shared-link");
+        let data = tmp.path().join("data");
+        let prepared = link_to_persist(&data, &link).expect("the root is made absolute");
+        write_console_link(&data, &prepared).expect("the link is written");
+        let written: ConsoleLink = serde_json::from_str(
+            &fs::read_to_string(console_link(&data)).expect("the link is readable"),
+        )
+        .expect("the link is the launcher's type");
+        assert_eq!(
+            written.files_shared_root.as_deref(),
+            Some(std::path::Path::new("/srv/summrise/shared"))
+        );
+    }
+
     /// A rewrite that names the mesh but not a reflector must carry the installed one forward:
     /// dropping it would silently disable the direct path the previous install configured.
     #[test]
@@ -4516,6 +4562,7 @@ mod tests {
             mesh_broker: Some("http://127.0.0.1:8080".to_string()),
             mesh_relay: Some("127.0.0.1:9000".to_string()),
             mesh_stun: Some("203.0.113.10:3478".to_string()),
+            files_shared_root: None,
         };
         write_console_link(&data, &installed).expect("the installed link is writable");
 
@@ -4525,6 +4572,7 @@ mod tests {
             mesh_broker: Some("http://127.0.0.1:9090".to_string()),
             mesh_relay: Some("127.0.0.1:9001".to_string()),
             mesh_stun: None,
+            files_shared_root: None,
         };
         let prepared = link_to_persist(&data, &rewrite).expect("the rewrite is prepared");
         assert_eq!(
@@ -4565,6 +4613,7 @@ mod tests {
                 mesh_broker: Some("http://127.0.0.1:8080".to_string()),
                 mesh_relay: None,
                 mesh_stun: Some("203.0.113.10:3478".to_string()),
+                files_shared_root: None,
             },
         )
         .expect("the installed link is writable");
@@ -4575,6 +4624,7 @@ mod tests {
             mesh_broker: None,
             mesh_relay: None,
             mesh_stun: None,
+            files_shared_root: None,
         };
         let prepared = link_to_persist(&data, &rewrite).expect("the rewrite is prepared");
         assert_eq!(prepared.mesh_stun, None);
@@ -4671,6 +4721,7 @@ mod tests {
             mesh_broker: None,
             mesh_relay: None,
             mesh_stun: None,
+            files_shared_root: None,
         };
 
         write_console_link(&data, &link).expect("the console link is writable");
