@@ -2,6 +2,7 @@
 //!
 //! The launcher starts the app with `--install`, `--data`, `--port`, `--release-version`,
 //! `--release-sha` and `--release-channel`; an operator may add `--token-file`, `--files-root`,
+//! `--files-shared-root` (a second, named `shared` root such as `H:\tmp`),
 //! `--console-url`/`--console-token-file` or `--mesh-broker`/`--mesh-relay`/`--mesh-stun`. A human
 //! starting it by hand may set most facts through the environment. Flags win over the
 //! environment, one spelling for each fact, and a missing install or data directory is a typed
@@ -96,6 +97,9 @@ pub struct Config {
     pub token_file: PathBuf,
     /// The root the `files` capability is sandboxed to; defaults to `<data>/workspace`.
     pub files_root: PathBuf,
+    /// An optional second, operator-configured root (`--files-shared-root`, e.g. `H:\tmp`). It is
+    /// exposed to `files.*` as `root: "shared"` and never enabled by the AI: only this flag does.
+    pub files_shared_root: Option<PathBuf>,
     /// `--release-version` from the launcher, or `None` for a standalone development start.
     pub release_version: Option<String>,
     /// `--release-sha` from the launcher, or `None` for a standalone development start.
@@ -223,6 +227,7 @@ impl Config {
         let mut port = None;
         let mut token_file = None;
         let mut files_root = None;
+        let mut files_shared_root = None;
         let mut release_version = None;
         let mut release_sha = None;
         let mut release_channel = None;
@@ -252,6 +257,7 @@ impl Config {
                 Flag::Port => port = Some(parse_port(&value)?),
                 Flag::TokenFile => token_file = Some(PathBuf::from(value)),
                 Flag::FilesRoot => files_root = Some(PathBuf::from(value)),
+                Flag::FilesSharedRoot => files_shared_root = Some(PathBuf::from(value)),
                 Flag::ReleaseVersion => release_version = Some(text_value(&value, flag.name())?),
                 Flag::ReleaseSha => release_sha = Some(text_value(&value, flag.name())?),
                 Flag::ReleaseChannel => release_channel = Some(parse_channel(&value)?),
@@ -290,6 +296,8 @@ impl Config {
         let files_root = files_root
             .or_else(|| env("SUMMRISE_FILES_ROOT").map(PathBuf::from))
             .unwrap_or_else(|| data.join("workspace"));
+        let files_shared_root =
+            files_shared_root.or_else(|| env("SUMMRISE_FILES_SHARED_ROOT").map(PathBuf::from));
 
         let console_url = console_url.or_else(|| {
             env("SUMMRISE_CONSOLE_URL").and_then(|value| value.to_str().map(str::to_owned))
@@ -340,6 +348,7 @@ impl Config {
             port,
             token_file,
             files_root,
+            files_shared_root,
             release_version,
             release_sha,
             release_channel,
@@ -543,7 +552,7 @@ struct ConsoleLinkFile {
     mesh_stun: Option<String>,
 }
 
-/// The thirteen flags the app accepts, so an unknown argument can be refused by name.
+/// The fourteen flags the app accepts, so an unknown argument can be refused by name.
 #[derive(Clone, Copy)]
 enum Flag {
     Install,
@@ -551,6 +560,7 @@ enum Flag {
     Port,
     TokenFile,
     FilesRoot,
+    FilesSharedRoot,
     ReleaseVersion,
     ReleaseSha,
     ReleaseChannel,
@@ -569,6 +579,7 @@ impl Flag {
             "--port" => Some(Flag::Port),
             "--token-file" => Some(Flag::TokenFile),
             "--files-root" => Some(Flag::FilesRoot),
+            "--files-shared-root" => Some(Flag::FilesSharedRoot),
             "--release-version" => Some(Flag::ReleaseVersion),
             "--release-sha" => Some(Flag::ReleaseSha),
             "--release-channel" => Some(Flag::ReleaseChannel),
@@ -588,6 +599,7 @@ impl Flag {
             Flag::Port => "--port",
             Flag::TokenFile => "--token-file",
             Flag::FilesRoot => "--files-root",
+            Flag::FilesSharedRoot => "--files-shared-root",
             Flag::ReleaseVersion => "--release-version",
             Flag::ReleaseSha => "--release-sha",
             Flag::ReleaseChannel => "--release-channel",
@@ -658,7 +670,7 @@ mod tests {
     }
 
     #[test]
-    fn all_thirteen_flags_are_parsed() {
+    fn all_fourteen_flags_are_parsed() {
         let config = parse(
             &[
                 "--install",
@@ -671,6 +683,8 @@ mod tests {
                 "/etc/summrise/token",
                 "--files-root",
                 "/srv/summrise/workspace",
+                "--files-shared-root",
+                "/srv/summrise/shared",
                 "--release-version",
                 "2.0.3",
                 "--release-sha",
@@ -696,6 +710,7 @@ mod tests {
                 port: 18_081,
                 token_file: PathBuf::from("/etc/summrise/token"),
                 files_root: PathBuf::from("/srv/summrise/workspace"),
+                files_shared_root: Some(PathBuf::from("/srv/summrise/shared")),
                 release_version: Some("2.0.3".to_owned()),
                 release_sha: Some("b1946ac92492d2347c6235b4d2611184".to_owned()),
                 release_channel: Some(Channel::Canary),
@@ -974,6 +989,7 @@ mod tests {
                 port: 18_082,
                 token_file: PathBuf::from("/etc/summrise/token"),
                 files_root: PathBuf::from("/srv/summrise/workspace"),
+                files_shared_root: None,
                 release_version: None,
                 release_sha: None,
                 release_channel: None,

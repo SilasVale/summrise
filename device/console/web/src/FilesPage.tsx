@@ -50,6 +50,11 @@ const MAX_FILE_BYTES = 1024 * 1024;
  * gated so the newest listing or file wins; a failed listing keeps the previous one where it is.
  */
 export function FilesPage({ grant }: { grant: Grant }) {
+  // Files are read from one of the operator-configured roots. `workspace` is the default and the
+  // only one always present; `shared` is H:\tmp-style storage that the device exposes only when
+  // `--files-shared-root` was set. The page does not guess: sending `shared` to a device without it
+  // returns the device's sentence, which is the honest answer.
+  const [root, setRoot] = useState<"workspace" | "shared">("workspace");
   const [dir, setDir] = useState("");
   const [entries, setEntries] = useState<Entry[]>([]);
   const [note, setNote] = useState("Reading the device's files root…");
@@ -82,6 +87,7 @@ export function FilesPage({ grant }: { grant: Grant }) {
   const listGate = useRequestGate();
   const fileGate = useRequestGate();
 
+  const rootArg = root === "workspace" ? {} : { root };
   const read = useCallback(
     async (wanted: string) => {
       const ticket = listGate.begin();
@@ -89,7 +95,11 @@ export function FilesPage({ grant }: { grant: Grant }) {
       setListError(null);
       try {
         const rows = JSON.parse(
-          await callTool(grant, "files.list", { path: wanted })
+          await callTool(
+            grant,
+            "files.list",
+            root === "workspace" ? { path: wanted } : { path: wanted, root }
+          )
         ) as Entry[];
         if (listGate.stale(ticket)) return;
         listed.current = true;
@@ -110,8 +120,23 @@ export function FilesPage({ grant }: { grant: Grant }) {
         if (!listGate.stale(ticket)) setLoadingDir(false);
       }
     },
-    [grant, listGate]
+    [grant, listGate, root]
   );
+
+  const switchRoot = (next: "workspace" | "shared") => {
+    if (next === root) return;
+    fileGate.begin();
+    listed.current = false;
+    dirRef.current = "";
+    setRoot(next);
+    setDir("");
+    setEntries([]);
+    setOpen(null);
+    setOpening(null);
+    setFileError(null);
+    setListError(null);
+    setNote("Reading the device's files root…");
+  };
 
   // A different grant is a different device's tree: its listing, its open file and its draft.
   useEffect(() => {
@@ -158,7 +183,7 @@ export function FilesPage({ grant }: { grant: Grant }) {
     setOpening(path);
     setFileError(null);
     try {
-      const text = await callTool(grant, "files.read", { path });
+      const text = await callTool(grant, "files.read", { path, ...rootArg });
       if (fileGate.stale(ticket)) return;
       // A textarea's value uses LF; normalising here keeps a CRLF file from looking dirty on the
       // first render, when nothing has been edited yet.
@@ -188,7 +213,7 @@ export function FilesPage({ grant }: { grant: Grant }) {
     setOpening(path);
     setFileError(null);
     try {
-      const data = await callTool(grant, "files.read", { path, encoding: "base64" });
+      const data = await callTool(grant, "files.read", { path, encoding: "base64", ...rootArg });
       if (fileGate.stale(ticket)) return;
       setOpen({ path, mode: "base64", data });
     } catch (cause) {
@@ -234,7 +259,7 @@ export function FilesPage({ grant }: { grant: Grant }) {
     setActionNote(null);
     try {
       const answer = JSON.parse(
-        await callTool(grant, "files.write", { path, content })
+        await callTool(grant, "files.write", { path, content, ...rootArg })
       ) as { path: string; bytes: number };
       if (grantRef.current !== grant) return;
       // The text may have moved on while the write was on the wire; only the bytes that were sent
@@ -270,7 +295,7 @@ export function FilesPage({ grant }: { grant: Grant }) {
     setActionError(null);
     setActionNote(null);
     try {
-      await callTool(grant, "files.mkdir", { path });
+      await callTool(grant, "files.mkdir", { path, ...rootArg });
       if (grantRef.current !== grant) return;
       setFolderName("");
       setActionNote(`Created ${displayFile(path)}.`);
@@ -314,7 +339,7 @@ export function FilesPage({ grant }: { grant: Grant }) {
     setActionNote(null);
     try {
       const content = await readAsBase64(file);
-      await callTool(grant, "files.write", { path, content, encoding: "base64" });
+      await callTool(grant, "files.write", { path, content, encoding: "base64", ...rootArg });
       if (grantRef.current !== grant) return;
       setActionNote(`Uploaded ${name} (${bytes(file.size)}) to ${displayFile(path)}.`);
       if (dirRef.current === folder) await read(folder);
@@ -335,6 +360,17 @@ export function FilesPage({ grant }: { grant: Grant }) {
     <div className="files-page">
       <div className="panel-head">
         <div className="actions">
+          <label className="files-root">
+            Root
+            <select
+              value={root}
+              disabled={loadingDir}
+              onChange={(event) => switchRoot(event.target.value as "workspace" | "shared")}
+            >
+              <option value="workspace">Workspace</option>
+              <option value="shared">Shared</option>
+            </select>
+          </label>
           <button type="button" disabled={loadingDir} onClick={() => void read(dir)}>
             {loadingDir ? "Reading…" : "Refresh"}
           </button>

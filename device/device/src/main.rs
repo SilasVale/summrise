@@ -1066,10 +1066,13 @@ impl std::error::Error for StartupError {
 /// a file, or whose parents cannot be created, is a typed startup error that names the configured
 /// path: the device refuses to serve a files capability whose sandbox cannot be established.
 fn ensure_files_root(config: &Config) -> Result<(), StartupError> {
-    fs::create_dir_all(&config.files_root).map_err(|source| StartupError::FilesRoot {
-        path: config.files_root.clone(),
-        source,
-    })
+    for root in std::iter::once(&config.files_root).chain(config.files_shared_root.iter()) {
+        fs::create_dir_all(root).map_err(|source| StartupError::FilesRoot {
+            path: root.clone(),
+            source,
+        })?;
+    }
+    Ok(())
 }
 
 /// Write the initial state document when there is none, record every later start, and fold in the

@@ -98,6 +98,8 @@ const MAX_AUDIT_TOOL_BYTES: usize = 128;
 pub(crate) struct DeviceServer {
     /// The root `files` is sandboxed to.
     files_root: PathBuf,
+    /// An optional second root, exposed as `shared`; only the operator's config enables it.
+    files_shared_root: Option<PathBuf>,
     /// The state document; `state.get` is the console's device page (there is no console route).
     store: Store,
     /// The release facts `state.get`'s health half reports, the same ones `/api/health` uses.
@@ -339,6 +341,7 @@ impl DeviceServer {
         let audit = Arc::new(Audit::new(&config.data));
         DeviceServer {
             files_root: config.files_root.clone(),
+            files_shared_root: config.files_shared_root.clone(),
             store: Store::new(&config.install, &config.data, config.release()),
             release: config.release(),
             memory: Arc::new(memory::Memory::new(&config.data)),
@@ -722,6 +725,23 @@ impl DeviceServer {
         }
     }
 
+    /// Resolve a `files.*` call's root. The default is the workspace; `shared` exists only when the
+    /// operator configured `--files-shared-root`, so the AI cannot invent a root.
+    fn files_root_for(&self, requested: Option<&str>) -> Result<&Path, ToolError> {
+        match requested.unwrap_or("workspace") {
+            "workspace" => Ok(&self.files_root),
+            "shared" => self.files_shared_root.as_deref().ok_or_else(|| {
+                ToolError::Refused(
+                    "files: no shared root is configured on this device; use root \"workspace\""
+                        .to_owned(),
+                )
+            }),
+            other => Err(ToolError::Refused(format!(
+                "files: root {other:?} is not configured; use \"workspace\" or \"shared\""
+            ))),
+        }
+    }
+
     /// Route one already-authorized call to its capability.
     ///
     /// The name was resolved against the registry by the caller; [`handler`] is the one table that
@@ -741,9 +761,9 @@ impl DeviceServer {
         match handler {
             Handler::FilesRead => {
                 let arguments: ReadArgs = parse(arguments, name)?;
-                let bytes =
-                    files::read(&self.files_root, Path::new(&arguments.path), MAX_FILE_BYTES)
-                        .map_err(|error| refused(name, error))?;
+                let root = self.files_root_for(arguments.root.as_deref())?;
+                let bytes = files::read(root, Path::new(&arguments.path), MAX_FILE_BYTES)
+                    .map_err(|error| refused(name, error))?;
                 match arguments.encoding {
                     Encoding::Utf8 => String::from_utf8(bytes).map_err(|_| {
                         ToolError::Refused(format!(
@@ -761,13 +781,9 @@ impl DeviceServer {
                         ToolError::Refused(format!("{name}: the content is not valid base64"))
                     })?,
                 };
-                files::write(
-                    &self.files_root,
-                    Path::new(&arguments.path),
-                    &bytes,
-                    MAX_FILE_BYTES,
-                )
-                .map_err(|error| refused(name, error))?;
+                let root = self.files_root_for(arguments.root.as_deref())?;
+                files::write(root, Path::new(&arguments.path), &bytes, MAX_FILE_BYTES)
+                    .map_err(|error| refused(name, error))?;
                 Ok(json!({
                     "path": arguments.path,
                     "bytes": bytes.len(),
@@ -776,13 +792,15 @@ impl DeviceServer {
             }
             Handler::FilesMkdir => {
                 let arguments: PathArgs = parse(arguments, name)?;
-                files::mkdir(&self.files_root, Path::new(&arguments.path))
+                let root = self.files_root_for(arguments.root.as_deref())?;
+                files::mkdir(root, Path::new(&arguments.path))
                     .map_err(|error| refused(name, error))?;
                 Ok(json!({ "path": arguments.path, "created": true }).to_string())
             }
             Handler::FilesList => {
                 let arguments: PathArgs = parse(arguments, name)?;
-                let entries = files::list(&self.files_root, Path::new(&arguments.path))
+                let root = self.files_root_for(arguments.root.as_deref())?;
+                let entries = files::list(root, Path::new(&arguments.path))
                     .map_err(|error| refused(name, error))?;
                 let entries: Vec<Value> = entries
                     .iter()
@@ -1744,6 +1762,11 @@ fn input_schema(definition: &ToolDef) -> Value {
                     "type": "string",
                     "description": "A path relative to the device's files root, e.g. notes/todo.txt."
                 },
+                "root": {
+                    "type": "string",
+                    "enum": ["workspace", "shared"],
+                    "description": "Which configured root the path is relative to. workspace is the default; shared exists only when the operator configured it."
+                },
                 "encoding": {
                     "type": "string",
                     "enum": ["utf8", "base64"],
@@ -1759,6 +1782,11 @@ fn input_schema(definition: &ToolDef) -> Value {
                 "path": {
                     "type": "string",
                     "description": "A path relative to the device's files root; its parent must exist (create it with files.mkdir)."
+                },
+                "root": {
+                    "type": "string",
+                    "enum": ["workspace", "shared"],
+                    "description": "Which configured root the path is relative to. workspace is the default; shared exists only when the operator configured it."
                 },
                 "content": {
                     "type": "string",
@@ -1779,6 +1807,11 @@ fn input_schema(definition: &ToolDef) -> Value {
                 "path": {
                     "type": "string",
                     "description": "One directory relative to the files root, e.g. notes; its parent must exist. It never overwrites or deletes."
+                },
+                "root": {
+                    "type": "string",
+                    "enum": ["workspace", "shared"],
+                    "description": "Which configured root the path is relative to. workspace is the default; shared exists only when the operator configured it."
                 }
             },
             "required": ["path"],
@@ -2482,6 +2515,8 @@ fn refused(tool: &str, error: impl std::fmt::Display) -> ToolError {
 #[serde(deny_unknown_fields)]
 struct PathArgs {
     path: String,
+    /// `workspace` (the default) or the operator-configured `shared` root.
+    root: Option<String>,
 }
 
 /// The arguments `files.write` takes.
@@ -2489,6 +2524,7 @@ struct PathArgs {
 #[serde(deny_unknown_fields)]
 struct WriteArgs {
     path: String,
+    root: Option<String>,
     content: String,
     /// How `content` encodes the bytes: text (the default) or base64.
     #[serde(default)]
@@ -2511,6 +2547,7 @@ enum Encoding {
 #[serde(deny_unknown_fields)]
 struct ReadArgs {
     path: String,
+    root: Option<String>,
     /// How to return the bytes: text (the default) or base64.
     #[serde(default)]
     encoding: Encoding,
@@ -3041,14 +3078,31 @@ mod tests {
         start_with_limits(label, terminal::Limits::default()).await
     }
 
+    /// The same device with a second, operator-configured root — the `H:\tmp` shape.
+    async fn start_with_shared(label: &str) -> Device {
+        start_with_limits_and_shared(label, terminal::Limits::default(), true).await
+    }
+
     /// The same device, with the terminal capability's limits replaced.
     async fn start_with_limits(label: &str, limits: terminal::Limits) -> Device {
+        start_with_limits_and_shared(label, limits, false).await
+    }
+
+    async fn start_with_limits_and_shared(
+        label: &str,
+        limits: terminal::Limits,
+        shared: bool,
+    ) -> Device {
         let dir = TempDir::new(label);
         let install = dir.join("install");
         let data = dir.join("data");
         let files_root = dir.join("workspace");
+        let files_shared_root = shared.then(|| dir.join("shared"));
         for path in [&install, &data, &files_root] {
             fs::create_dir_all(path).expect("the fixture directory is creatable");
+        }
+        if let Some(shared) = &files_shared_root {
+            fs::create_dir_all(shared).expect("the shared fixture directory is creatable");
         }
         let token_file = dir.join("token");
         fs::write(&token_file, token_hex()).expect("the token fixture is written");
@@ -3059,6 +3113,7 @@ mod tests {
             port: 0,
             token_file,
             files_root,
+            files_shared_root,
             release_version: None,
             release_sha: None,
             release_channel: None,
@@ -3814,6 +3869,48 @@ mod tests {
         assert_eq!(
             document["events"][1]["tool"], "state.get",
             "the events half still answers even though the document half is poisoned: {document}"
+        );
+    }
+
+    #[tokio::test]
+    async fn the_shared_root_is_opt_in_and_its_paths_stay_inside_it() {
+        let device = start_with_shared("mcp-files-shared").await;
+        let mut client = Client::authorized(&device);
+        client.initialize().await;
+
+        let written = client
+            .call(
+                "files.write",
+                json!({ "root": "shared", "path": "tmp.txt", "content": "shared bytes" }),
+            )
+            .await;
+        assert!(written.get("error").is_none(), "{written}");
+        assert_eq!(written["result"]["isError"], false, "{written}");
+        assert_eq!(
+            fs::read_to_string(
+                device
+                    .config
+                    .files_shared_root
+                    .as_ref()
+                    .expect("the fixture configured a shared root")
+                    .join("tmp.txt")
+            )
+            .expect("the shared file exists"),
+            "shared bytes"
+        );
+
+        // The workspace is still separate, and a root the operator did not configure is refused.
+        let workspace = client.call("files.list", json!({ "path": "" })).await;
+        assert!(!text_of(&workspace).contains("tmp.txt"));
+        let refused = client
+            .call(
+                "files.write",
+                json!({ "root": "elsewhere", "path": "x.txt", "content": "x" }),
+            )
+            .await;
+        assert!(
+            refused.get("error").is_some() || refused["result"]["isError"] == json!(true),
+            "{refused}"
         );
     }
 
@@ -4982,6 +5079,7 @@ mod tests {
             port: 0,
             token_file: dir.join("token"),
             files_root,
+            files_shared_root: None,
             release_version: None,
             release_sha: None,
             release_channel: None,
@@ -5453,6 +5551,7 @@ mod tests {
             port: 0,
             token_file: dir.join("token"),
             files_root,
+            files_shared_root: None,
             release_version: None,
             release_sha: None,
             release_channel: None,
@@ -5486,6 +5585,7 @@ mod tests {
             port: 0,
             token_file: dir.join("token"),
             files_root,
+            files_shared_root: None,
             release_version: None,
             release_sha: None,
             release_channel: None,

@@ -498,6 +498,7 @@ mod tests {
             port: 0,
             token_file: dir.join("token"),
             files_root,
+            files_shared_root: None,
             release_version: None,
             release_sha: None,
             release_channel: None,

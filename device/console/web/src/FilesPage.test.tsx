@@ -48,6 +48,26 @@ describe("FilesPage listing", () => {
     expect(upload).not.toHaveAttribute("tabindex", "-1");
   });
 
+  it("selects the shared root and sends it on the listing", async () => {
+    const calls: Record<string, unknown>[] = [];
+    mocked.mockImplementation(async (_grant, name, args) => {
+      if (name !== "files.list") throw new Error(`the test did not expect a ${name} call`);
+      calls.push(args);
+      if (args.root === "shared") return JSON.stringify([{ name: "shared.txt", kind: "file", len: 1 }]);
+      return JSON.stringify(ROOT);
+    });
+
+    render(<FilesPage grant={GRANT} />);
+    await screen.findByText("notes.txt");
+    expect(calls[0]).toEqual({ path: "" });
+
+    fireEvent.change(screen.getByLabelText("Root"), { target: { value: "shared" } });
+
+    expect(await screen.findByText("shared.txt")).toBeInTheDocument();
+    expect(calls[calls.length - 1]).toEqual({ path: "", root: "shared" });
+    expect(screen.queryByText("notes.txt")).not.toBeInTheDocument();
+  });
+
   it("lists the root, lists a clicked folder, and the breadcrumb says where the page is", async () => {
     const lists: string[] = [];
     mocked.mockImplementation(async (_grant, name, args) => {

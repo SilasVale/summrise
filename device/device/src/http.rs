@@ -1440,6 +1440,7 @@ mod tests {
             port: 0,
             token_file: token_path,
             files_root,
+            files_shared_root: None,
             release_version: release_version.map(str::to_owned),
             release_sha: release_sha.map(str::to_owned),
             release_channel,
