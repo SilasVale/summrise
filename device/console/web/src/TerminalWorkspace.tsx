@@ -919,10 +919,24 @@ export function TerminalWorkspace({
       setActive(session);
       return;
     }
-    setTabs((previous) => [...previous, { key: session, session, kind, title: nextTabTitle(kind, previous) }]);
+    setTabs((previous) =>
+      previous.some((tab) => tab.session === session)
+        ? previous
+        : [...previous, { key: session, session, kind, title: nextTabTitle(kind, previous) }]
+    );
     setActive(session);
     setAvailable((previous) => previous.filter((entry) => entry.id !== session));
   };
+
+  // **A SESSION THAT EXISTS SHOULD BE ON SCREEN, NOT BEHIND AN ATTACH CLICK.** The panel now attaches
+  // the first live session on load; the console's Terminal page is the default tab, so a person who
+  // opens it with a shell already running should see that shell, not a session count and a button.
+  // Only when there is no tab yet and the page is visible: switching away must not open another.
+  useEffect(() => {
+    if (!visible || active !== null || tabs.length > 0 || available.length === 0) return;
+    const first = available[0];
+    attachTo(first.id, first.kind);
+  }, [visible, active, tabs.length, available, attachTo]);
 
   const close = async (tab: Tab) => {
     // Flush what was typed before the session goes away; a keystroke queued behind the close would

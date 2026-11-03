@@ -157,7 +157,7 @@ describe("TerminalWorkspace tab names", () => {
     expect(screen.queryByRole("button", { name: "Attach to a session" })).not.toBeInTheDocument();
   });
 
-  it("lists the device's sessions without an Attach click", async () => {
+  it("attaches the device's only live session without an Attach click", async () => {
     callToolMock.mockImplementation(async (_grant, name) => {
       if (name === "terminal.list") return JSON.stringify([{ id: "live-1", kind: "pty" }]);
       if (name === "terminal.resize") return JSON.stringify({ rows: 24, cols: 80 });
@@ -166,11 +166,10 @@ describe("TerminalWorkspace tab names", () => {
     });
     render(<TerminalWorkspace grant={GRANT} />);
 
-    // The list is the empty state: the session appears without a control being pressed to fetch it.
-    expect(await screen.findByText("live-1")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Attach" }));
-
+    // The session is on screen, not a row with an Attach button: the console's default page should
+    // show a shell that is already running; the panel already does the same.
     expect(await screen.findByRole("tab", { name: /pty 1/ })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Attach" })).not.toBeInTheDocument();
     expect(callToolMock).toHaveBeenCalledWith(GRANT, "terminal.list", {});
   });
 
