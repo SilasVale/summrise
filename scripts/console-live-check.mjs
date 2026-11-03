@@ -98,6 +98,17 @@ try {
       failures.push('the terminal did not show the command and its output');
     }
     await shot('terminal-live');
+
+    // A RELOAD IS THE OPERATOR'S MOST COMMON GESTURE. What the page does with it is photographed
+    // here rather than asserted: whether the session survives is a product decision, and the check
+    // exists to show which one the page makes.
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await page.waitForTimeout(2500);
+    const afterReload = await page.locator('body').innerText().catch(() => '');
+    const backAtSignIn = (await page.locator('input#token').count()) > 0;
+    console.log(`console-live-check: reload -> ${backAtSignIn ? 'sign-in form' : 'still in the console'}`);
+    await shot(backAtSignIn ? 'terminal-reload-signin' : 'terminal-reload');
+    void afterReload;
   } else {
     const notice = page.locator('.offline-notice').first();
     const visible = await notice.isVisible().catch(() => false);
