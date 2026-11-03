@@ -76,3 +76,24 @@ Decision for the next change: the capture helper is started by `summrise-launch`
 service) with the user's token and `winsta0\default`, exactly like the shell start path. It writes a
 PNG and exits; the device reads it. Do not create the helper from the shell's HTTP handler and do not
 use `schtasks /create` to obtain the interactive desktop.
+
+## Round 5: the device cannot start the helper either
+
+Two more paths were measured and rejected:
+
+- `summrise-launch --capture` run through the device's `runs.exec` fails at
+  `CreateProcessAsUserW` with ERROR_ACCESS_DENIED. Enabling
+  `SeAssignPrimaryTokenPrivilege`/`SeIncreaseQuotaPrivilege` in the launcher did not change it;
+  the service host's job does not permit a child in another session. `--start-shell` from the same
+  context fails identically, while the installer's one-shot SYSTEM task succeeds.
+- A SYSTEM task can run the launcher, but the launcher's PowerShell child then fails
+  `CopyFromScreen` with "invalid parameter" (the user desktop is not the one its token receives).
+  The same GDI+ script run by a task registered directly for the user produces a 25,174-byte PNG.
+- A device-side fallback that registers that task from `tokio::process::Command` failed with empty
+  stdout/stderr from the registration child, so it was reverted rather than shipped unverified.
+
+The working primitive remains: **a task registered for the logged-in user with an Interactive
+principal, whose action is PowerShell GDI+**. The next implementation must register that task from a
+process outside the device's job (the installer's SYSTEM task is the proven host), or replace the
+path with Windows Graphics Capture. Raw GDI, launcher `CreateProcessAsUser`, and shell-side task
+creation are all closed.
