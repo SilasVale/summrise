@@ -35,6 +35,10 @@ jobs:
       # boots", which no test that only calls functions can prove.
       - name: the device core serves on Linux
         run: ./scripts/device-linux-smoke.sh
+      # The systemd unit is what makes that binary a service; verify its syntax and ExecStart with
+      # the binary this job just built, without root or a running systemd.
+      - name: the Linux service unit is valid
+        run: ./scripts/verify-linux-unit.sh
 
       # The console page's pure decisions are a Rust crate outside the device workspace (its
       # artifact is wasm). Its parity tests are Rust, so they run here rather than in a JS job.
