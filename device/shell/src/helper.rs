@@ -180,19 +180,8 @@ fn capture() -> Result<Picture, String> {
         let station = summrise_winsys::process_window_station_name().unwrap_or_else(|_| "?".into());
         let thread_desktop =
             summrise_winsys::current_thread_desktop_name().unwrap_or_else(|_| "?".into());
-        let screen = summrise_winsys::capture_primary_screen().map_err(|error| {
-            // A disconnected RDP session passes the desktop check and then has no surface to copy:
-            // Windows answers ERROR_INVALID_HANDLE. That is the same fact as a locked session — no
-            // desktop is being displayed — so it gets the same sentence rather than an OS message.
-            if error.raw_os_error() == Some(6) {
-                "the session is not being displayed: the desktop has no surface to capture"
-                    .to_owned()
-            } else {
-                format!(
-                    "the screen could not be captured: {error} (winsta={station}, desktop={thread_desktop})"
-                )
-            }
-        })?;
+        let screen = summrise_winsys::capture_primary_screen()
+            .map_err(|error| capture_refusal(&error, &station, &thread_desktop))?;
         if is_uniform(&screen.rgba) {
             return Err("the session is not being displayed: every pixel is the same".to_owned());
         }
@@ -207,6 +196,23 @@ fn capture() -> Result<Picture, String> {
     #[cfg(not(windows))]
     {
         Err("screen capture is Windows-only".to_owned())
+    }
+}
+
+/// The sentence a capture refusal gets. A displayed desktop never reaches this; a session with no
+/// surface fails inside GDI, and the operator needs to know that the session is the problem, not the
+/// command. The raw stage stays available only when it is not a surface failure.
+fn capture_refusal(error: &std::io::Error, station: &str, desktop: &str) -> String {
+    let detail = error.to_string();
+    let surface = error.raw_os_error() == Some(6)
+        || detail.contains("BitBlt")
+        || detail.contains("GetDC")
+        || detail.contains("CreateDIBSection")
+        || detail.contains("SelectObject");
+    if surface {
+        "the session is not being displayed: the desktop has no surface to capture".to_owned()
+    } else {
+        format!("the screen could not be captured: {error} (winsta={station}, desktop={desktop})")
     }
 }
 
@@ -591,5 +597,23 @@ mod tests {
         assert!(!same(b"abc", b"abcd"));
         assert!(same(b"abc", b"abc"));
         assert!(!same(b"abc", b"abd"));
+    }
+    #[test]
+    fn a_missing_surface_is_said_as_a_session_not_an_os_error() {
+        for detail in [
+            "BitBlt: a",
+            "GetDC: a",
+            "CreateDIBSection: a",
+            "SelectObject: a",
+        ] {
+            let error = std::io::Error::other(detail);
+            assert_eq!(
+                capture_refusal(&error, "WinSta0", "Default"),
+                "the session is not being displayed: the desktop has no surface to capture"
+            );
+        }
+        let other = std::io::Error::other("the profile could not be written");
+        assert!(capture_refusal(&other, "WinSta0", "Default")
+            .contains("the screen could not be captured"));
     }
 }
