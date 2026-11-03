@@ -178,7 +178,12 @@ const PNG_BASE64_PREFIX: &str = "iVBORw0KGgo";
 /// not exist, so the check stays one `is_file` per candidate and the function is not a `cfg` maze.
 const CHROME_CANDIDATES: &[&str] = &[
     "/usr/bin/google-chrome",
+    "/usr/bin/google-chrome-stable",
     "/usr/bin/chromium",
+    "/usr/bin/chromium-browser",
+    "/snap/bin/chromium",
+    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "/Applications/Chromium.app/Contents/MacOS/Chromium",
     r"C:\Program Files\Google\Chrome\Application\chrome.exe",
     r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
     r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
@@ -414,10 +419,19 @@ pub fn discover_chrome(install: Option<&Path>) -> Option<PathBuf> {
 /// installer preserves `current` across upgrades; a missing pack is a fallback, not an error here.
 fn managed_chrome(install: &Path) -> Option<PathBuf> {
     let current = install.join("browser").join("current");
-    ["chrome-headless-shell.exe", "chrome.exe"]
-        .into_iter()
-        .map(|name| current.join(name))
-        .find(|path| path.is_file())
+    // The Windows pack carries `.exe`; the Unix packs do not. Both spellings are listed on every
+    // platform (a name that is not there costs one `is_file`), so the same resolver serves all three
+    // and an installer that lays down either layout is found.
+    [
+        "chrome-headless-shell.exe",
+        "chrome.exe",
+        "chrome-headless-shell",
+        "chrome",
+        "Chromium",
+    ]
+    .into_iter()
+    .map(|name| current.join(name))
+    .find(|path| path.is_file())
 }
 
 /// One target as `/json/list` spells it.
@@ -1264,6 +1278,21 @@ async fn launch_in_the_user_session(readiness_timeout_ms: u64) -> Option<Browser
     })
 }
 
+/// Whether the executable is `chrome-headless-shell`, which is already headless and rejects the
+/// flag that asks a full Chrome to become headless. The Unix pack has no `.exe`; both are the same
+/// binary under different names.
+fn is_headless_shell(executable: &Path) -> bool {
+    executable
+        .file_name()
+        .map(|name| {
+            name.to_string_lossy()
+                .to_ascii_lowercase()
+                .trim_end_matches(".exe")
+                == "chrome-headless-shell"
+        })
+        .unwrap_or(false)
+}
+
 async fn launch_once(
     executable: &Path,
     profiles: &Path,
@@ -1282,13 +1311,7 @@ async fn launch_once(
 
     // The pack is `chrome-headless-shell`, which is already headless and rejects the flag that asks
     // a full Chrome to become headless. The other flags are shared.
-    let headless_shell = executable
-        .file_name()
-        .map(|name| {
-            name.to_string_lossy()
-                .eq_ignore_ascii_case("chrome-headless-shell.exe")
-        })
-        .unwrap_or(false);
+    let headless_shell = is_headless_shell(executable);
     let mut command = Command::new(executable);
     if !headless_shell {
         command.arg("--headless=new");
@@ -2078,6 +2101,32 @@ mod tests {
         let shell = current.join("chrome-headless-shell.exe");
         fs::write(&shell, b"not a real browser").expect("the pack executable is writable");
         assert_eq!(managed_chrome(&install), Some(shell));
+    }
+
+    /// The Unix pack has no `.exe`; the resolver must not depend on the Windows spelling.
+    #[test]
+    fn the_unix_pack_name_is_managed_too() {
+        let dir = TempDir::new("browser-managed-pack-unix");
+        let install = dir.join("install");
+        let current = install.join("browser").join("current");
+        fs::create_dir_all(&current).expect("the pack directory is creatable");
+        let shell = current.join("chrome-headless-shell");
+        fs::write(&shell, b"not a real browser").expect("the pack executable is writable");
+        assert_eq!(managed_chrome(&install), Some(shell.clone()));
+        assert!(is_headless_shell(&shell));
+        assert!(is_headless_shell(Path::new("chrome-headless-shell.exe")));
+        assert!(!is_headless_shell(Path::new("chrome")));
+    }
+
+    /// macOS carries Chrome in an application bundle, not `/usr/bin`; the path belongs in the list.
+    #[test]
+    fn macos_chrome_is_a_candidate() {
+        assert!(
+            CHROME_CANDIDATES
+                .iter()
+                .any(|path| path.contains("Google Chrome.app/Contents/MacOS/Google Chrome")),
+            "the macOS bundle path must be a candidate"
+        );
     }
 
     /// The visible browser is opt-in: absent means headless, `0` means headless, anything else means the
