@@ -195,6 +195,11 @@ try {
       if (!text.includes('cannot be read until it reconnects')) {
         failures.push(`${label} on an offline machine does not say it cannot be read`);
       }
+      if (label === 'Machine' && text.includes('Collecting memory and disk history')) {
+        // The vitals are this browser's samples of the host facts; an offline machine produces none,
+        // so the caption must not claim to be collecting them.
+        failures.push('Machine claims to be sampling vitals from an offline machine');
+      }
       await shot(`offline-${key}`);
     }
 

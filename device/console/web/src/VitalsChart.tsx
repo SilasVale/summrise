@@ -23,12 +23,23 @@ const CAPTION =
 /** A gap longer than three sampling intervals is a real absence, not a slow poll. */
 const GAP_MS = VITALS_MIN_INTERVAL_MS * 3;
 
-export function VitalsChart({ samples }: { samples: VitalsSample[] }) {
+export function VitalsChart({
+  samples,
+  collecting = true
+}: {
+  samples: VitalsSample[];
+  /**
+   * Whether the console is still sampling. A machine that is offline stops producing host facts, so
+   * "Collecting…" would be a claim about work that is not happening; the sentence says so instead.
+   */
+  collecting?: boolean;
+}) {
   if (samples.length < 2) {
     return (
       <p className="vitals-collecting">
-        Collecting memory and disk history while this page is open — one sample every 30 s; the chart
-        starts at the second sample.
+        {collecting
+          ? "Collecting memory and disk history while this page is open — one sample every 30 s; the chart starts at the second sample."
+          : "No history yet. It is sampled while this page is open and the machine is reachable; nothing is sampled while the machine is offline."}
       </p>
     );
   }

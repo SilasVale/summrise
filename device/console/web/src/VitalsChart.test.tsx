@@ -36,6 +36,16 @@ describe("VitalsChart", () => {
     expect(container.querySelector("svg")).toBeNull();
   });
 
+  it("does not claim to be collecting from a machine that is offline", () => {
+    render(<VitalsChart samples={[]} collecting={false} />);
+    // The console cannot sample a host it cannot reach; "Collecting…" would describe work that is
+    // not happening.
+    expect(screen.queryByText(/Collecting memory and disk history/)).not.toBeInTheDocument();
+    expect(
+      screen.getByText(/nothing is sampled while the machine is offline/)
+    ).toBeInTheDocument();
+  });
+
   it("draws two aria-hidden polylines and names the latest values in text", () => {
     const samples = [
       sample(NOW - 60_000, { memory_available_bytes: 2 * GIB, disk_free_bytes: 40 * GIB }),

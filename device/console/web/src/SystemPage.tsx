@@ -380,7 +380,7 @@ export function SystemPage({
       <section className="system-section" aria-labelledby="system-this-machine">
         <h3 id="system-this-machine">This machine</h3>
         {device?.host ? (
-          <HostFactsBlock host={device.host} vitals={vitals} />
+          <HostFactsBlock host={device.host} vitals={vitals} collecting={!offline} />
         ) : (
           <p className="hint">
             This device has not reported machine facts yet. They arrive with the fleet read; refresh

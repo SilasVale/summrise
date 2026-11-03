@@ -34,7 +34,16 @@ const REPAIR_LIMIT = 5;
  * The vitals chart is not a device fact: it is this browser's own sample of the two rows above it,
  * drawn after them because the live numbers are the current truth and the line is the history.
  */
-export function HostFactsBlock({ host, vitals }: { host: HostFacts; vitals: VitalsSample[] }) {
+export function HostFactsBlock({
+  host,
+  vitals,
+  collecting = true
+}: {
+  host: HostFacts;
+  vitals: VitalsSample[];
+  /** False when the machine is offline: the vitals caption must not promise sampling. */
+  collecting?: boolean;
+}) {
   const memory = host.memory;
   const sessions = host.sessions ?? [];
   const update = updateSentence(host.update);
@@ -88,13 +97,19 @@ export function HostFactsBlock({ host, vitals }: { host: HostFacts; vitals: Vita
           </div>
         )}
         <div>
-          <dt>Helper</dt>
+          <dt
+            title={
+              "The per-user desktop helper: it takes screenshots and runs commands in the signed-in Windows session, which the device service cannot see. The Screen page needs it; nothing else does."
+            }
+          >
+            Helper
+          </dt>
           <dd className={host.helper?.registered ? undefined : "muted"}>
             {host.helper?.registered ? `session ${host.helper.session ?? "?"}` : "not running"}
           </dd>
         </div>
       </dl>
-      <VitalsChart samples={vitals} />
+      <VitalsChart samples={vitals} collecting={collecting} />
     </>
   );
 }
