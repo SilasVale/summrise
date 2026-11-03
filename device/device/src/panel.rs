@@ -127,6 +127,25 @@ const COMPONENTS: &str = r##"  * { box-sizing: border-box; }
     background: var(--surface); color: var(--ink); cursor: pointer;
   }
   #copy-local.copied { border-color: var(--ok); color: var(--ok); }
+
+  /* The first screen is a sentence and two actions, not a config block. */
+  .hero { display: grid; gap: 2px; padding: 2px 0 6px; }
+  .hero .eyebrow { margin: 0; color: var(--ink-faint); font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; }
+  .hero h2 { margin: 2px 0 0; font-size: 22px; line-height: 1.15; letter-spacing: -0.02em; }
+  .hero .meta { margin: 6px 0 0; color: var(--ink-muted); font-size: 13px; }
+  .hero .lede { margin: 6px 0 0; }
+  .hero .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+  .button { display: inline-flex; align-items: center; justify-content: center; font: inherit; font-size: 13px; font-weight: 600; line-height: 1.2; padding: 6px 12px; border-radius: var(--radius-xs); cursor: pointer; border: 1px solid var(--line-strong); background: var(--surface); color: var(--ink); text-decoration: none; }
+  .button:hover { background: var(--panel-2); border-color: var(--accent); }
+  .button.primary { background: var(--accent-solid); border-color: transparent; color: var(--accent-fg); }
+  .button.primary:hover { background: var(--accent-hover); color: var(--accent-fg); }
+  details.secondary, details.diagnostics { border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); padding: 12px 14px; }
+  details.secondary summary, details.diagnostics summary { cursor: pointer; font-size: 14px; font-weight: 600; color: var(--ink); }
+  details.secondary[open] summary, details.diagnostics[open] summary { margin-bottom: 10px; }
+  .diagnostics-body { display: grid; gap: 12px; padding-top: 2px; }
+  .diagnostics-body .card { border: 0; padding: 0; box-shadow: none; }
+  .diagnostics-body .card .card-head { padding-left: 0; padding-right: 0; }
+  .diagnostics-body .card .card-body { padding-left: 0; padding-right: 0; }
   code { font-family: var(--font-mono); font-size: 13px; }
 
   /* A phone, or a console window dragged narrow: an 11 rem label column leaves the value column about
@@ -268,6 +287,8 @@ pub(crate) struct PanelFacts {
     pub(crate) state: Option<serde_json::Value>,
     pub(crate) events: Vec<serde_json::Value>,
     pub(crate) console_attempt: Option<RetryNote>,
+    /// The console this machine is linked to, when `console.json` names one.
+    pub(crate) console_url: Option<String>,
     pub(crate) sessions: Vec<SessionFacts>,
     /// This boot's panel token: the page carries it in its meta tag and its form.
     pub(crate) panel_token: String,
@@ -317,21 +338,25 @@ fn render(facts: &PanelFacts, outcome: Option<&EnrollOutcome>) -> Markup {
         .console_attempt
         .as_ref()
         .filter(|note| note.attempts > 0);
+    let linked = facts.console_url.as_deref().filter(|url| !url.is_empty());
     let digest = if facts.sha256.is_empty() {
         "unverified"
     } else {
         facts.sha256.as_str()
     };
     let digest_short: String = digest.chars().take(16).collect();
-    let chip = match attempt {
-        Some(note) => html! {
+    let chip = match (linked, attempt) {
+        (Some(_), _) => html! {
+            span id="console-chip" class="chip ok" { "linked" }
+        },
+        (None, Some(note)) => html! {
             span id="console-chip" class="chip warn" { "retried after " (note.attempts) }
         },
         // **`None` IS NOT "CONNECTED".** A note is recorded at the START of each attempt, so no
         // note means either "this process never tried" or "it was refused and will not retry" —
         // and a green "connected" was shown for both. Neutral is the honest colour.
-        None => html! {
-            span id="console-chip" class="chip muted" { "no failed attempt recorded" }
+        (None, None) => html! {
+            span id="console-chip" class="chip muted" { "not linked" }
         },
     };
     let state_rows = state_rows(facts.state.as_ref());
@@ -381,39 +406,65 @@ fn render(facts: &PanelFacts, outcome: Option<&EnrollOutcome>) -> Markup {
                     }
                 }
                 main id="content" {
-                    p class="lede" {
-                        "The device's own panel. Loopback only, no login: if you can read this, you are on the box."
+                    section class="hero" {
+                        p class="eyebrow" { "This machine" }
+                        h2 { "Running" }
+                        p class="meta" {
+                            "Version " (facts.version) " · " (facts.channel) " · pid " (facts.pid) " · loopback only"
+                        }
+                        @if let Some(url) = facts.console_url.as_deref().filter(|url| !url.is_empty()) {
+                            p class="lede" { "Linked to " span class="mono" { (url) } ". The console can reach this machine from anywhere." }
+                        } @else {
+                            p class="lede" { "Not linked to a console. Enrol it once to reach this machine from anywhere." }
+                        }
+                        div class="actions" {
+                            @if let Some(url) = facts.console_url.as_deref().filter(|url| !url.is_empty()) {
+                                a class="button primary" href=(url) { "Open console" }
+                            } @else {
+                                a class="button primary" href="#console" { "Connect to a console" }
+                            }
+                            a class="button" href="#terminal" { "Open terminal" }
+                        }
                     }
 
                     (summrise_ui::card(
-                        "Use this machine",
-                        Markup::default(),
+                        "Console",
+                        chip,
                         Markup::default(),
                         html! {
-                        p class="hint" {
-                            "A client on this machine reaches the device's MCP endpoint with the install token. Nothing below leaves the machine, and the token is not printed here: the page is served to anyone on loopback, while the token file is protected to the service account and administrators. Read it yourself and paste it into the config."
+                        @if let Some(url) = linked {
+                            dl id="console" {
+                                dt { "Console" }
+                                dd class="mono" { (url) }
+                            }
+                            @if let Some(note) = attempt {
+                                p class="hint" {
+                                    "Last attempt: retried after " (note.attempts) " " (failure_noun(note.attempts)) " — " (note.reason)
+                                }
+                            }
+                            details class="secondary" {
+                                summary { "Replace the console link" }
+                                (enroll_form(facts, outcome))
+                            }
+                        } @else {
+                            p class="hint" {
+                                "Not linked. In the console, create a one-time enrollment code; paste the URL and the code here."
+                            }
+                            dl id="console" {
+                                @if let Some(note) = attempt {
+                                    dt { "Link" }
+                                    dd { "retried after " (note.attempts) " " (failure_noun(note.attempts)) }
+                                    dt { "Reason" }
+                                    dd {
+                                        @if note.reason.is_empty() { "(none given)" } @else { (note.reason) }
+                                    }
+                                } @else {
+                                    dt { "Link" }
+                                    dd { "no failed attempt since this process started" }
+                                }
+                            }
+                            (enroll_form(facts, outcome))
                         }
-                        dl id="local" {
-                            dt { "MCP endpoint" }
-                            dd id="local-endpoint" class="mono" { (facts.mcp_endpoint) }
-                            dt { "Install token" }
-                            dd id="local-token-file" class="mono" { (facts.token_file) }
-                            dt { "Read it" }
-                            dd id="local-token-command" class="mono" { (facts.token_command) }
-                        }
-                        pre class="config" id="local-config" { (config) }
-                        button
-                            id="copy-local"
-                            type="button"
-                            data-copy="local-config"
-                            data-status="local-copy-status"
-                            data-label="Copy local MCP config"
-                            data-copied="Config copied. Paste it into your MCP client and add the token."
-                            data-refused="The clipboard refused; select the config and copy it."
-                        {
-                            "Copy local MCP config"
-                        }
-                        p class="hint" id="local-copy-status" role="status" {}
                         }
                     ))
 
@@ -456,6 +507,43 @@ fn render(facts: &PanelFacts, outcome: Option<&EnrollOutcome>) -> Markup {
                         }
                     ))
 
+
+                    (summrise_ui::card(
+                        "Connect a client",
+                        Markup::default(),
+                        Markup::default(),
+                        html! {
+                        p class="hint" {
+                            "For an MCP client on this machine. The token is never printed; read it from the protected file."
+                        }
+                        dl id="local" {
+                            dt { "MCP endpoint" }
+                            dd id="local-endpoint" class="mono" { (facts.mcp_endpoint) }
+                            dt { "Install token" }
+                            dd id="local-token-file" class="mono" { (facts.token_file) }
+                            dt { "Read it" }
+                            dd id="local-token-command" class="mono" { (facts.token_command) }
+                        }
+                        details class="secondary" {
+                            summary { "Client configuration" }
+                        pre class="config" id="local-config" { (config) }
+                        button
+                            id="copy-local"
+                            type="button"
+                            data-copy="local-config"
+                            data-status="local-copy-status"
+                            data-label="Copy local MCP config"
+                            data-copied="Config copied. Paste it into your MCP client and add the token."
+                            data-refused="The clipboard refused; select the config and copy it."
+                        {
+                            "Copy local MCP config"
+                        }
+                        p class="hint" id="local-copy-status" role="status" {}
+                        }
+                        }
+                    ))
+
+
                     (summrise_ui::card(
                         "Build",
                         Markup::default(),
@@ -474,75 +562,6 @@ fn render(facts: &PanelFacts, outcome: Option<&EnrollOutcome>) -> Markup {
                         }
                     ))
 
-                    (summrise_ui::card(
-                        "Console link",
-                        chip,
-                        Markup::default(),
-                        html! {
-                        dl id="console" {
-                            @if let Some(note) = attempt {
-                                dt { "Link" }
-                                dd {
-                                    "retried after " (note.attempts) " " (failure_noun(note.attempts))
-                                }
-                                dt { "Reason" }
-                                dd {
-                                    @if note.reason.is_empty() {
-                                        "(none given)"
-                                    } @else {
-                                        (note.reason)
-                                    }
-                                }
-                            } @else {
-                                dt { "Link" }
-                                dd { "no failed attempt since this process started" }
-                            }
-                        }
-                        form id="enroll-form" method="post" action="/panel/enroll" autocomplete="off" {
-                            input type="hidden" name="panel_token" value=(facts.panel_token);
-                            h3 { "Enrol this machine" }
-                            p class="hint" {
-                                "Paste the console URL and the one-time code from the console's “New enrollment code”."
-                            }
-                            label for="enroll-console" { "Console URL" }
-                            input
-                                id="enroll-console"
-                                name="console_url"
-                                type="text"
-                                spellcheck="false"
-                                placeholder="https://console.example"
-                                required;
-                            label for="enroll-code" { "One-time code" }
-                            input
-                                id="enroll-code"
-                                name="code"
-                                type="text"
-                                spellcheck="false"
-                                autocomplete="off"
-                                required;
-                            label class="check" {
-                                input id="enroll-force" name="force" type="checkbox" value="on";
-                                " Replace an existing enrollment"
-                            }
-                            p class="hint" {
-                                "Replacing rotates this machine's console token; the token the console issued before stops working."
-                            }
-                            label class="check" {
-                                input id="enroll-plaintext" name="allow_plaintext" type="checkbox" value="on";
-                                " Allow plaintext HTTP to a console on a trusted tunnel"
-                            }
-                            p class="hint" {
-                                "Only for a console reached over a private tunnel (WireGuard, Tailscale, an SSH forward): the code and the returned token cross this connection."
-                            }
-                            button id="enroll-submit" type="submit" { "Enroll" }
-                            @if let Some(outcome) = outcome {
-                                (banner(outcome))
-                            } @else {
-                                p id="enroll-status" role="status" {}
-                            }
-                        }
-                        }
-                    ))
 
                     (summrise_ui::card(
                         "Updates",
@@ -569,58 +588,67 @@ fn render(facts: &PanelFacts, outcome: Option<&EnrollOutcome>) -> Markup {
                         }
                     ))
 
-                    (summrise_ui::card(
-                        "State",
-                        Markup::default(),
-                        Markup::default(),
-                        html! {
-                        dl id="state" {
-                            @for (key, value, mono) in &state_rows {
-                                dt { (key) }
-                                @if *mono {
-                                    dd class="mono" { (value) }
-                                } @else {
-                                    dd { (value) }
-                                }
-                            }
-                        }
-                        }
-                    ))
 
-                    (summrise_ui::card(
-                        "Recent events",
-                        Markup::default(),
-                        Markup::default(),
-                        html! {
-                        table {
-                            thead {
-                                tr {
-                                    th { "when" }
-                                    th { "event" }
+                    details class="diagnostics" {
+                        summary { "Diagnostics" }
+                        div class="diagnostics-body" {
+                        (summrise_ui::card(
+                            "State",
+                            Markup::default(),
+                            Markup::default(),
+                            html! {
+                            dl id="state" {
+                                @for (key, value, mono) in &state_rows {
+                                    dt { (key) }
+                                    @if *mono {
+                                        dd class="mono" { (value) }
+                                    } @else {
+                                        dd { (value) }
+                                    }
                                 }
                             }
-                            tbody id="events" {
-                                @for row in &event_rows {
+                            }
+                        ))
+
+
+                        (summrise_ui::card(
+                            "Recent events",
+                            Markup::default(),
+                            Markup::default(),
+                            html! {
+                            table {
+                                thead {
                                     tr {
-                                        td { (row.when) }
-                                        td {
-                                            (row.what)
-                                            @if let Some(kind) = &row.kind {
-                                                span class="kind" { (kind) }
+                                        th { "when" }
+                                        th { "event" }
+                                    }
+                                }
+                                tbody id="events" {
+                                    @for row in &event_rows {
+                                        tr {
+                                            td { (row.when) }
+                                            td {
+                                                (row.what)
+                                                @if let Some(kind) = &row.kind {
+                                                    span class="kind" { (kind) }
+                                                }
                                             }
                                         }
                                     }
                                 }
                             }
+                            p class="none" id="no-events" hidden[!facts.events.is_empty()] {
+                                "No event has been recorded on this device."
+                            }
+                            }
+                        ))
+                    }
+                    // The diagnostics text is rendered here so the clipboard button copies a fact, not a
+                    // second reading of the API; it is the same report the inline script used to build.
+
                         }
-                        p class="none" id="no-events" hidden[!facts.events.is_empty()] {
-                            "No event has been recorded on this device."
-                        }
-                        }
-                    ))
-                }
-                // The diagnostics text is rendered here so the clipboard button copies a fact, not a
-                // second reading of the API; it is the same report the inline script used to build.
+                    }
+
                 footer class="statusbar" {
                     span { "v" (facts.version) }
                     span class="sep" { "·" }
@@ -636,6 +664,55 @@ fn render(facts: &PanelFacts, outcome: Option<&EnrollOutcome>) -> Markup {
             }
         }
     }
+}
+
+/// The enrollment form, shown directly when unlinked and inside the replace disclosure when linked.
+fn enroll_form(facts: &PanelFacts, outcome: Option<&EnrollOutcome>) -> Markup {
+    html! {
+    form id="enroll-form" method="post" action="/panel/enroll" autocomplete="off" {
+        input type="hidden" name="panel_token" value=(facts.panel_token);
+        h3 { "Enrol this machine" }
+        p class="hint" {
+            "Paste the console URL and the one-time code from the console's “New enrollment code”."
+        }
+        label for="enroll-console" { "Console URL" }
+        input
+            id="enroll-console"
+            name="console_url"
+            type="text"
+            spellcheck="false"
+            placeholder="https://console.example"
+            required;
+        label for="enroll-code" { "One-time code" }
+        input
+            id="enroll-code"
+            name="code"
+            type="text"
+            spellcheck="false"
+            autocomplete="off"
+            required;
+        label class="check" {
+            input id="enroll-force" name="force" type="checkbox" value="on";
+            " Replace an existing enrollment"
+        }
+        p class="hint" {
+            "Replacing rotates this machine's console token; the token the console issued before stops working."
+        }
+        label class="check" {
+            input id="enroll-plaintext" name="allow_plaintext" type="checkbox" value="on";
+            " Allow plaintext HTTP to a console on a trusted tunnel"
+        }
+        p class="hint" {
+            "Only for a console reached over a private tunnel (WireGuard, Tailscale, an SSH forward): the code and the returned token cross this connection."
+        }
+        button id="enroll-submit" type="submit" { "Enroll" }
+        @if let Some(outcome) = outcome {
+            (banner(outcome))
+        } @else {
+            p id="enroll-status" role="status" {}
+        }
+    }
+        }
 }
 
 fn banner(outcome: &EnrollOutcome) -> Markup {
@@ -925,6 +1002,7 @@ mod tests {
                 attempts: 2,
                 reason: "the tunnel was down".to_owned(),
             }),
+            console_url: Some("https://console.example.test".to_owned()),
             sessions: vec![SessionFacts {
                 kind: "pty".to_owned(),
                 shell: "bash".to_owned(),
@@ -984,9 +1062,10 @@ mod tests {
 
         let mut first = facts();
         first.console_attempt = None;
+        first.console_url = None;
         let html = page(&first).into_string();
         assert!(
-            html.contains("no failed attempt recorded"),
+            html.contains("no failed attempt since this process started"),
             "no note is not 'connected': {html}"
         );
         assert!(
@@ -1023,10 +1102,12 @@ mod tests {
         let html = page(&facts()).into_string();
 
         for fact in [
-            "Use this machine",
+            "Connect a client",
             "Terminal",
             "Build",
-            "Console link",
+            "Console",
+            "Open console",
+            "Diagnostics",
             "Updates",
             "Check for updates now",
             "idle",
@@ -1111,6 +1192,7 @@ mod tests {
         facts.events.clear();
         facts.state = None;
         facts.console_attempt = None;
+        facts.console_url = None;
 
         let html = page(&facts).into_string();
 

@@ -488,6 +488,16 @@ fn panel_facts(app: &AppState) -> panel::PanelFacts {
         .collect();
     let data_dir = app.data.display().to_string();
     let (token_file, token_command) = panel::token_facts(&data_dir);
+    let console_url = std::fs::read_to_string(app.data.join("console.json"))
+        .ok()
+        .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
+        .and_then(|value| {
+            value
+                .get("url")
+                .and_then(serde_json::Value::as_str)
+                .filter(|url| !url.is_empty())
+                .map(str::to_owned)
+        });
 
     panel::PanelFacts {
         version: app.release.version.clone(),
@@ -501,6 +511,7 @@ fn panel_facts(app: &AppState) -> panel::PanelFacts {
         state,
         events,
         console_attempt: crate::console::last_attempt(),
+        console_url,
         sessions,
         panel_token: app.panel_token.clone(),
     }
@@ -2234,7 +2245,7 @@ mod tests {
             "the terminal's glue is an asset now; the page no longer carries its own script"
         );
         assert!(
-            html.contains("Use this machine"),
+            html.contains("Connect a client"),
             "the panel explains the local MCP path"
         );
         assert!(
@@ -2762,8 +2773,9 @@ mod tests {
             "stable",
             "b1946ac92492d2347c6235b4d2611184",
             "http://127.0.0.1:18080/mcp",
-            "Use this machine",
-            "Console link",
+            "Connect a client",
+            "Console",
+            "Diagnostics",
             "Recent events",
             "schema",
             "lastVerdict",
