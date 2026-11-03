@@ -76,6 +76,13 @@ export function App() {
   const [tab, setTab] = useState<DeviceTab>(() =>
     initialRun ? "runs" : (initialSurface?.page === "device" ? initialSurface.tab ?? "terminal" : "terminal")
   );
+  // Screen's second view is addressable: `#device/screen/browser` (and `#device/browser`) opens it,
+  // and the Screen header's switch writes it back. It is not a sixth Device tab.
+  const [screenView, setScreenView] = useState<"desktop" | "browser">(() =>
+    initialSurface?.page === "device" && initialSurface.tab === "screen"
+      ? initialSurface.view ?? "desktop"
+      : "desktop"
+  );
   const [openTool, setOpenTool] = useState<string | null>(
     initialSurface?.page === "capabilities" ? initialSurface.tool ?? null : null
   );
@@ -265,10 +272,11 @@ export function App() {
     const wanted = surfaceHash({
       page,
       tab: page === "device" ? tab : undefined,
-      tool: page === "capabilities" ? openTool ?? undefined : undefined
+      tool: page === "capabilities" ? openTool ?? undefined : undefined,
+      view: page === "device" && tab === "screen" ? screenView : undefined
     });
     if (window.location.hash !== wanted) window.history.replaceState(null, "", wanted);
-  }, [page, tab, openTool, runsFocus, session?.authenticated]);
+  }, [page, tab, screenView, openTool, runsFocus, session?.authenticated]);
 
   // The tab is part of the surface: a window full of consoles should say which one this is, and
   // the signed-out tab should not claim a machine page it is not showing.
@@ -545,6 +553,12 @@ export function App() {
               setOpenTool(null);
               setPage("activity");
             }}
+            onBrowser={() => {
+              setOpenTool(null);
+              setPage("device");
+              setTab("screen");
+              setScreenView("browser");
+            }}
           />
         )}
 
@@ -613,7 +627,7 @@ export function App() {
                 )}
                 {tab === "screen" && grant ? (
                   <section className="panel">
-                    <ScreenPage grant={grant} />
+                    <ScreenPage grant={grant} view={screenView} onViewChange={setScreenView} />
                   </section>
                 ) : null}
                 {tab === "files" && grant ? (

@@ -50,6 +50,7 @@ function draw(overrides: Record<string, unknown> = {}) {
       onTool={onTool}
       onMachine={onMachine}
       onActivity={vi.fn()}
+      onBrowser={vi.fn()}
       {...overrides}
     />
   );

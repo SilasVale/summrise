@@ -1258,6 +1258,11 @@ async fn launch_once(
     let mut command = Command::new(executable);
     command
         .arg("--headless=new")
+        // A headless window with no size lays a page out at the browser default (~764x485 in the
+        // field), so the console showed a narrow page scaled into a wide panel. 1280x800 is the
+        // viewport a desktop browser would give it; the console draws the frame at its own scale.
+        .arg("--window-size=1280,800")
+        .arg("--force-device-scale-factor=1")
         .arg(format!("--remote-debugging-port={port}"))
         .arg(format!("--user-data-dir={}", profile.display()))
         .arg("--no-first-run")

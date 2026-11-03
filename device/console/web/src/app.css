@@ -95,30 +95,52 @@ p { margin: var(--sp-1-5) 0; }
 /* The rail is the only navigation. The labels are always in the DOM (and are the buttons'
    accessible names); CSS decides whether a width draws them. */
 .rail {
+  /* Chrome recedes: the rail is the page's paper in the light theme, and the panel's dark shell only
+     when the OS asks for dark. Using --rail unconditionally painted a black bar on a white page. */
+  --nav-bg: var(--panel);
+  --nav-fg: var(--muted);
+  --nav-hover-bg: var(--panel-3);
+  --nav-hover-fg: var(--ink);
+  --nav-current-bg: var(--panel-3);
+  --nav-current-fg: var(--ink);
+  --nav-border: var(--line);
+  --nav-focus: var(--focus-ring);
   grid-area: rail; width: 200px; min-height: 0;
   display: flex; flex-direction: column;
   padding: var(--sp-3) var(--sp-2) var(--sp-2);
-  background: var(--rail); color: var(--rail-ink);
-  border-right: 1px solid var(--rail-line);
+  background: var(--nav-bg); color: var(--nav-fg);
+  border-right: 1px solid var(--nav-border);
   overflow-y: auto;
+}
+@media (prefers-color-scheme: dark) {
+  .rail {
+    --nav-bg: var(--rail);
+    --nav-fg: var(--rail-ink);
+    --nav-hover-bg: rgba(255, 255, 255, 0.07);
+    --nav-hover-fg: var(--rail-ink-hover);
+    --nav-current-bg: rgba(255, 255, 255, 0.06);
+    --nav-current-fg: var(--rail-ink-hover);
+    --nav-border: var(--rail-line);
+    --nav-focus: var(--rail-focus);
+  }
 }
 .rail-items { display: flex; flex-direction: column; gap: var(--sp-1); }
 .rail-btn {
   display: flex; align-items: center; gap: var(--sp-3); width: 100%;
   padding: var(--sp-2) var(--sp-3); border: 0; border-radius: var(--radius-sm2);
-  background: transparent; color: var(--rail-ink);
+  background: transparent; color: var(--nav-fg);
   font: inherit; font-size: var(--fs-base); font-weight: var(--fw-medium); text-align: left;
   cursor: pointer; transition: background 0.15s ease, color 0.15s ease;
 }
-.rail-btn:hover { background: rgba(255, 255, 255, 0.07); color: var(--rail-ink-hover); border-color: transparent; }
+.rail-btn:hover { background: var(--nav-hover-bg); color: var(--nav-hover-fg); border-color: transparent; }
 /* The current destination is ink and a 3 px bar, not an accent fill: a page with a primary action
    must not show two orange blocks competing for the eye. */
 .rail-btn[aria-current="page"] {
-  background: rgba(255, 255, 255, 0.06); color: var(--rail-ink-hover);
+  background: var(--nav-current-bg); color: var(--nav-current-fg);
   box-shadow: inset 3px 0 0 var(--accent);
 }
-.rail-btn[aria-current="page"]:hover { background: rgba(255, 255, 255, 0.06); color: var(--rail-ink-hover); }
-.rail-btn:focus-visible { outline: 2px solid var(--rail-focus); outline-offset: 2px; }
+.rail-btn[aria-current="page"]:hover { background: var(--nav-current-bg); color: var(--nav-current-fg); }
+.rail-btn:focus-visible { outline: 2px solid var(--nav-focus); outline-offset: 2px; }
 .rail-btn svg { flex: none; }
 .rail-label { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rail-foot { margin-top: auto; padding-top: var(--sp-4); position: relative; }
@@ -129,11 +151,11 @@ p { margin: var(--sp-1-5) 0; }
 .account > summary {
   list-style: none; display: flex; align-items: center; gap: var(--sp-2);
   padding: var(--sp-1-5) var(--sp-2); border-radius: var(--radius-sm2);
-  color: var(--rail-ink); font-size: var(--fs-sm); cursor: pointer;
+  color: var(--nav-fg); font-size: var(--fs-sm); cursor: pointer;
 }
 .account > summary::-webkit-details-marker { display: none; }
-.account > summary:hover, .account[open] > summary { background: rgba(255, 255, 255, 0.07); color: var(--rail-ink-hover); }
-.account > summary:focus-visible { outline: 2px solid var(--rail-focus); outline-offset: 2px; }
+.account > summary:hover, .account[open] > summary { background: var(--nav-hover-bg); color: var(--nav-hover-fg); }
+.account > summary:focus-visible { outline: 2px solid var(--nav-focus); outline-offset: 2px; }
 .account-mark { display: grid; place-items: center; width: 24px; height: 24px; flex: none; }
 .account-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .account-pop {
@@ -233,7 +255,7 @@ main.terminal-main { display: grid; grid-template-rows: auto minmax(0, 1fr); ali
   .topbar-actions .account-pop { left: auto; right: 0; top: calc(100% + var(--sp-2)); bottom: auto; }
   .rail {
     width: 100%; height: 60px; flex-direction: row; align-items: stretch;
-    padding: var(--sp-1) var(--sp-2); border-right: 0; border-top: 1px solid var(--rail-line);
+    padding: var(--sp-1) var(--sp-2); border-right: 0; border-top: 1px solid var(--nav-border);
     overflow: hidden;
   }
   .rail-items { flex-direction: row; gap: 0; width: 100%; }
@@ -415,6 +437,11 @@ button.link:hover { background: transparent; color: var(--accent); border-color:
 .seg { display: inline-flex; gap: var(--sp-0-5); padding: var(--sp-0-5); border: 1px solid var(--line); border-radius: var(--radius-sm2); }
 .seg button { border: 0; background: transparent; padding: var(--sp-1) var(--sp-2); }
 .seg button[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); }
+
+/* Screen's two views are a choice made before the content, not a control tucked into a corner. */
+.screen-view-head { display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap; }
+.screen-view-note { margin: 0; flex: 1; min-width: 14rem; }
+.screen-capture { margin-left: auto; }
 
 /* A button inside a grid panel stretches to the column: buttons are controls, not blocks. */
 .panel > button, .grant > button { justify-self: start; }
@@ -718,11 +745,22 @@ tr:last-child td { border-bottom: 0; }
 .session button { margin-left: var(--sp-2); padding: var(--sp-1) var(--sp-2); font-size: var(--fs-xs); }
 .browser-pane { display: grid; gap: var(--sp-2); }
 .browser-pane .row { display: flex; gap: var(--sp-2); }
+/* The browser is a picture of the device's viewport, so the operator gets a frame and a scale,
+   not an <img> stretched to whatever width the panel happens to have. */
+.browser-view {
+  overflow: auto; max-height: 72vh; border: 1px solid var(--line);
+  border-radius: var(--radius); background: var(--bg);
+}
+.browser-view img { display: block; cursor: crosshair; border: 0; border-radius: 0; }
+.browser-view.fit img { width: 100%; height: auto; }
+.browser-view.actual img { width: auto; max-width: none; height: auto; }
+.browser-meta { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
+
 .browser-pane .row input {
   flex: 1; padding: var(--sp-2) var(--sp-2-5); border: 1px solid var(--line-strong);
   border-radius: var(--radius-xs); background: var(--surface); color: var(--ink); font: inherit;
 }
-.browser-shot { max-width: 100%; border: 1px solid var(--line); border-radius: var(--radius); cursor: crosshair; }
+.browser-shot { max-width: 100%; cursor: crosshair; }
 
 
 .attempt {
@@ -1537,6 +1575,7 @@ span.files-name {
 .cap-group-head { display: flex; align-items: baseline; gap: var(--sp-2); flex-wrap: wrap; min-width: 0; }
 .cap-group-head h2 { font-size: var(--fs-md); font-weight: var(--fw-semi); }
 .cap-summary { color: var(--ink-muted); font-size: var(--fs-sm); }
+.cap-open-browser { margin-left: auto; }
 .cap-job { margin: 0; color: var(--ink-muted); font-size: var(--fs-sm); }
 .tool-list {
   margin-top: var(--sp-1); border: 1px solid var(--line); border-radius: var(--radius-sm);

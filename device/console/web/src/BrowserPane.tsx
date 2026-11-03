@@ -30,6 +30,8 @@ export function BrowserPane({ grant }: { grant: Grant }) {
   const [status, setStatus] = useState("No browser is open on this device.");
   const [live, setLive] = useState(false);
   const [frames, setFrames] = useState(0);
+  const [size, setSize] = useState<{ width: number; height: number } | null>(null);
+  const [zoom, setZoom] = useState<"fit" | "actual">("fit");
 
   // A live tick never queues behind itself: if the device is still answering the previous screenshot,
   // the next interval is skipped rather than stacking a second request.
@@ -320,7 +322,7 @@ export function BrowserPane({ grant }: { grant: Grant }) {
   return (
     <div className="browser-pane">
       <div className="panel-head">
-        <h2>Browser</h2>
+        <h2>Remote browser</h2>
         <div className="actions">
           <button type="button" onClick={() => void list()}>Refresh pages</button>
           <button type="button" disabled={!target} onClick={() => void capture()}>Refresh view</button>
@@ -375,7 +377,46 @@ export function BrowserPane({ grant }: { grant: Grant }) {
         <button type="button" disabled={!shot} onClick={() => void type()}>Type</button>
       </div>
 
-      {shot && <img className="browser-shot" src={shot} alt="" onClick={(event) => void click(event)} />}
+      {shot && (
+        <>
+          <div className="browser-meta">
+            <span className="hint">
+              Remote view
+              {size ? (
+                <>
+                  {" · "}
+                  <span className="mono">
+                    {size.width}×{size.height}
+                  </span>
+                </>
+              ) : null}
+              {" · PNG"}
+            </span>
+            <button
+              type="button"
+              className="mini"
+              onClick={() => setZoom(zoom === "fit" ? "actual" : "fit")}
+            >
+              {zoom === "fit" ? "Actual size" : "Fit width"}
+            </button>
+            <span className="hint">Input is DOM-level, not a local browser window.</span>
+          </div>
+          <div className={`browser-view ${zoom}`}>
+            <img
+              className="browser-shot"
+              src={shot}
+              alt="the device's browser page"
+              onLoad={(event) =>
+                setSize({
+                  width: event.currentTarget.naturalWidth,
+                  height: event.currentTarget.naturalHeight
+                })
+              }
+              onClick={(event) => void click(event)}
+            />
+          </div>
+        </>
+      )}
     </div>
   );
 }

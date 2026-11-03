@@ -17,7 +17,8 @@ export function CapabilitiesPage({
   onChoose,
   onTool,
   onMachine,
-  onActivity
+  onActivity,
+  onBrowser
 }: {
   devices: Device[];
   device: Device | null;
@@ -27,6 +28,7 @@ export function CapabilitiesPage({
   onTool: (name: string | null) => void;
   onMachine: () => void;
   onActivity: () => void;
+  onBrowser: () => void;
 }) {
   const live = useLiveTools(device?.id ?? null);
   const [query, setQuery] = useState("");
@@ -145,6 +147,11 @@ export function CapabilitiesPage({
                         ? ` · ${group.destructive} can change the machine`
                         : ""}
                     </span>
+                    {group.name === "browser" && (
+                      <button type="button" className="mini cap-open-browser" onClick={onBrowser}>
+                        Open browser
+                      </button>
+                    )}
                   </div>
                   <p className="cap-job">{group.description}</p>
                   <div className="tool-list">

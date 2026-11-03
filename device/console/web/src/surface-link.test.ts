@@ -28,10 +28,23 @@ describe("surface links", () => {
     }
   });
 
+  it("round-trips the Browser view and its short link", () => {
+    const browser = { page: "device", tab: "screen", view: "browser" } as const;
+    expect(surfaceHash(browser)).toBe("#device/screen/browser");
+    expect(parseSurfaceHash("#device/screen/browser")).toEqual(browser);
+    expect(parseSurfaceHash("#device/browser")).toEqual(browser);
+    expect(parseSurfaceHash("#browser")).toEqual(browser);
+  });
+
   it("maps every legacy surface fragment as an alias", () => {
     expect(parseSurfaceHash("#devices")).toEqual({ page: "home" });
     expect(parseSurfaceHash("#terminal")).toEqual({ page: "device", tab: "terminal" });
     expect(parseSurfaceHash("#screen")).toEqual({ page: "device", tab: "screen" });
+    expect(parseSurfaceHash("#browser")).toEqual({
+      page: "device",
+      tab: "screen",
+      view: "browser"
+    });
     expect(parseSurfaceHash("#files")).toEqual({ page: "device", tab: "files" });
     expect(parseSurfaceHash("#runs")).toEqual({ page: "device", tab: "runs" });
     expect(parseSurfaceHash("#system")).toEqual({ page: "device", tab: "machine" });

@@ -18,11 +18,18 @@ type Shot = { dataUrl: string; width: number; height: number; capturedAt: Date }
  * sentence, not a black frame. There is no timer: a capture is a deliberate read, like every other
  * device call here.
  */
-export function ScreenPage({ grant }: { grant: Grant }) {
+export function ScreenPage({
+  grant,
+  view,
+  onViewChange
+}: {
+  grant: Grant;
+  view: "desktop" | "browser";
+  onViewChange: (view: "desktop" | "browser") => void;
+}) {
   const [shot, setShot] = useState<Shot | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [view, setView] = useState<"desktop" | "browser">("desktop");
 
   // The disabled button is the visible guard, but a second click can arrive before the re-render
   // disables it; the handler closes over the previous `busy`, so the ref is the real gate.
@@ -70,30 +77,38 @@ export function ScreenPage({ grant }: { grant: Grant }) {
 
   return (
     <div>
-      <div className="panel-head">
-        <div className="actions">
-          <div className="seg" role="group" aria-label="Screen view">
-            <button
-              type="button"
-              aria-pressed={view === "desktop"}
-              onClick={() => setView("desktop")}
-            >
-              Desktop
-            </button>
-            <button
-              type="button"
-              aria-pressed={view === "browser"}
-              onClick={() => setView("browser")}
-            >
-              Browser
-            </button>
-          </div>
-          {view === "desktop" && (
-            <button type="button" disabled={busy} onClick={() => void capture()}>
-              {busy ? "Capturing…" : "Capture screen"}
-            </button>
-          )}
+      <div className="screen-view-head">
+        <div className="seg" role="group" aria-label="Screen view">
+          <button
+            type="button"
+            aria-pressed={view === "desktop"}
+            onClick={() => onViewChange("desktop")}
+          >
+            Machine screen
+          </button>
+          <button
+            type="button"
+            aria-pressed={view === "browser"}
+            onClick={() => onViewChange("browser")}
+          >
+            Browser
+          </button>
         </div>
+        <p className="hint screen-view-note">
+          {view === "browser"
+            ? "The device's browser, drawn here as screenshots. This is a remote view, not a local window."
+            : "A capture of the signed-in user's desktop; locked and disconnected sessions refuse."}
+        </p>
+        {view === "desktop" && (
+          <button
+            type="button"
+            className="screen-capture"
+            disabled={busy}
+            onClick={() => void capture()}
+          >
+            {busy ? "Capturing…" : "Capture screen"}
+          </button>
+        )}
       </div>
 
       {view === "browser" ? (

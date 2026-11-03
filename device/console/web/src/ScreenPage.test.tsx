@@ -1,4 +1,5 @@
 import { fireEvent, render, screen } from "@testing-library/react";
+import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ScreenPage } from "./ScreenPage";
 import { ToolError, type Grant } from "./terminal";
@@ -14,6 +15,12 @@ vi.mock("./BrowserPane", () => ({ BrowserPane: () => <h3>Browser pane</h3> }));
 
 const grant: Grant = { deviceId: "device-1", envelope: { token: "envelope" } };
 
+/** The view is controlled by the surface, so the tests own the state the console's App owns. */
+function ScreenHarness({ initial = "desktop" as "desktop" | "browser" }) {
+  const [view, setView] = useState<"desktop" | "browser">(initial);
+  return <ScreenPage grant={grant} view={view} onViewChange={setView} />;
+}
+
 describe("ScreenPage", () => {
   afterEach(() => {
     mocks.callTool.mockReset();
@@ -23,7 +30,7 @@ describe("ScreenPage", () => {
     mocks.callTool.mockResolvedValue(
       JSON.stringify({ format: "png", data: "iVBORw0KGgo=", width: 1280, height: 720 })
     );
-    render(<ScreenPage grant={grant} />);
+    render(<ScreenHarness />);
 
     fireEvent.click(screen.getByRole("button", { name: "Capture screen" }));
 
@@ -41,7 +48,7 @@ describe("ScreenPage", () => {
     mocks.callTool.mockRejectedValue(
       new ToolError("no per-user helper is running on this device", 200, null, true)
     );
-    render(<ScreenPage grant={grant} />);
+    render(<ScreenHarness />);
 
     fireEvent.click(screen.getByRole("button", { name: "Capture screen" }));
 
@@ -57,7 +64,7 @@ describe("ScreenPage", () => {
       JSON.stringify({ format: "png", data: "iVBORw0KGgo=", width: 1280, height: 720 })
     );
     mocks.callTool.mockRejectedValueOnce(new ToolError("the session is locked", 200, null, true));
-    render(<ScreenPage grant={grant} />);
+    render(<ScreenHarness />);
 
     fireEvent.click(screen.getByRole("button", { name: "Capture screen" }));
     expect(await screen.findByRole("img", { name: "the device's screen" })).toBeInTheDocument();
@@ -69,19 +76,25 @@ describe("ScreenPage", () => {
   });
 
   it("switches to the browser view without leaving Screen", () => {
-    render(<ScreenPage grant={grant} />);
+    render(<ScreenHarness />);
 
     fireEvent.click(screen.getByRole("button", { name: "Browser" }));
     expect(screen.getByRole("heading", { name: "Browser pane" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Capture screen" })).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Desktop" }));
+    fireEvent.click(screen.getByRole("button", { name: "Machine screen" }));
     expect(screen.getByRole("button", { name: "Capture screen" })).toBeInTheDocument();
+  });
+
+  it("opens directly on the browser view when the fragment names it", () => {
+    render(<ScreenHarness initial="browser" />);
+    expect(screen.getByRole("heading", { name: "Browser pane" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Capture screen" })).not.toBeInTheDocument();
   });
 
   it("says a transport failure never reached the device", async () => {
     mocks.callTool.mockRejectedValue(new ToolError("Failed to fetch", 0));
-    render(<ScreenPage grant={grant} />);
+    render(<ScreenHarness />);
 
     fireEvent.click(screen.getByRole("button", { name: "Capture screen" }));
 
