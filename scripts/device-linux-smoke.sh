@@ -22,6 +22,10 @@ cleanup() {
 trap cleanup EXIT
 
 mkdir -p "$WORK/install" "$WORK/data"
+# A fixed test token: this process is loopback-only and the data directory dies with the run. The
+# token is what lets the smoke ask the protected MCP surface for its tool list, not just health.
+TOKEN="0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+printf '%s' "$TOKEN" >"$WORK/data/token"
 cargo build --manifest-path "$ROOT/device/Cargo.toml" -p summrise-device
 
 "$ROOT/device/target/debug/summrise-device" \
@@ -55,4 +59,33 @@ if [ ! -s "$WORK/panel.html" ]; then
     exit 1
 fi
 
-echo "DEVICE_LINUX_SMOKE_OK port=$PORT panel_bytes=$(wc -c <"$WORK/panel.html") health=$(cat "$HEALTH")"
+# The MCP surface is the product. Streamable HTTP requires an initialize handshake and then
+# `tools/list`; this proves the registry the console reads is present on Linux, not only that the
+# HTTP server accepted a connection.
+curl -fsS -m 5 -D "$WORK/init.headers" -o "$WORK/init.body" -X POST "http://127.0.0.1:$PORT/mcp" \
+    -H "authorization: Bearer $TOKEN" \
+    -H 'content-type: application/json' \
+    -H 'accept: application/json, text/event-stream' \
+    -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"device-linux-smoke","version":"1"}}}'
+SESSION="$(awk 'tolower($1)=="mcp-session-id:" {print $2}' "$WORK/init.headers" | tr -d '\r')"
+if [ -z "$SESSION" ]; then
+    echo "device-linux-smoke: MCP initialize returned no session id" >&2
+    cat "$WORK/init.headers" >&2
+    exit 1
+fi
+
+curl -fsS -m 5 -X POST "http://127.0.0.1:$PORT/mcp" \
+    -H "authorization: Bearer $TOKEN" \
+    -H 'content-type: application/json' \
+    -H 'accept: application/json, text/event-stream' \
+    -H "mcp-session-id: $SESSION" \
+    -H 'mcp-protocol-version: 2025-06-18' \
+    -d '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}' \
+    >"$WORK/tools.json"
+if ! grep -q 'terminal.create' "$WORK/tools.json"; then
+    echo "device-linux-smoke: the MCP tool list has no terminal.create" >&2
+    cat "$WORK/tools.json" >&2 || true
+    exit 1
+fi
+
+echo "DEVICE_LINUX_SMOKE_OK port=$PORT panel_bytes=$(wc -c <"$WORK/panel.html") health=$(cat "$HEALTH") mcp_tools=terminal.create"
