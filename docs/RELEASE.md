@@ -648,3 +648,22 @@ the operator's path. Its screenshots are still produced by `scripts/console-scre
 * **A device reconnects on its own backoff** (1 s → 60 s). A check that runs right after a console restart
   must wait for the channels; the smoke script does.
 * **A grant without its signature is not a grant.** Send the whole envelope; the device checks it.
+
+## Signing the setup (Authenticode)
+
+The release is signed with the project's Ed25519 keys for updates; that is a different signature from
+Windows' Authenticode. A certificate cannot be kept in this repository, so the publish path reads it
+from the environment:
+
+| variable | meaning |
+|---|---|
+| `SUMMRISE_SIGN_PFX` | path to a `.pfx`/`.p12` code-signing certificate |
+| `SUMMRISE_SIGN_PASSWORD` | its password, when it has one |
+| `SUMMRISE_SIGN_TIMESTAMP` | RFC 3161 timestamp URL; defaults to DigiCert's |
+
+With `SUMMRISE_SIGN_PFX` set, `publish-canary.bash` signs `summrise-launch.exe`,
+`summrise-device.exe`, `summrise-console.exe`, `summrise-shell.exe` and the finished
+`SummriseSetup-<version>.exe` with `signtool` (Windows) or `osslsigncode` (Linux). With it unset, the
+publish prints one line saying the build is unsigned; it does not pretend otherwise. Sign the binaries
+before the installer packages them — that is what the script does — or the setup carries unsigned
+payloads inside a signed envelope.

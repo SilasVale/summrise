@@ -91,6 +91,53 @@ esac
 : "${SUMMRISE_CONSOLE_GRANT_KEY:?SUMMRISE_CONSOLE_GRANT_KEY is not set}"
 export SUMMRISE_LAUNCHER_PUBKEY SUMMRISE_RELEASE_PUBKEY SUMMRISE_CONSOLE_GRANT_KEY
 
+# **AUTHENTICODE IS OPTIONAL BY ENVIRONMENT, NOT BY SILENCE.** A certificate cannot live in this
+# repository, but the publish path should be ready when one exists: with SUMMRISE_SIGN_PFX set, every
+# user-facing PE is signed before the installer packages it, and the setup is signed afterwards. With
+# no certificate the publish says "unsigned" once, so an operator reads that fact rather than
+# discovering it in a SmartScreen prompt.
+sign_pfx="${SUMMRISE_SIGN_PFX:-}"
+sign_password="${SUMMRISE_SIGN_PASSWORD:-}"
+sign_timestamp="${SUMMRISE_SIGN_TIMESTAMP:-http://timestamp.digicert.com}"
+signer=""
+if [[ -n "$sign_pfx" ]]; then
+    [[ -f "$sign_pfx" ]] || { echo "publish-canary: SUMMRISE_SIGN_PFX is not a file: $sign_pfx" >&2; exit 2; }
+    signer="$(command -v signtool 2>/dev/null || command -v signtool.exe 2>/dev/null || true)"
+    if [[ -z "$signer" ]] && command -v osslsigncode >/dev/null 2>&1; then
+        signer="$(command -v osslsigncode)"
+    fi
+    [[ -n "$signer" ]] || {
+        echo "publish-canary: SUMMRISE_SIGN_PFX is set but neither signtool nor osslsigncode is available" >&2
+        exit 2
+    }
+    echo "== Authenticode signer: $signer"
+else
+    echo "== Authenticode: unsigned (set SUMMRISE_SIGN_PFX to sign the binaries and setup)"
+fi
+
+sign_file() {
+    local file="$1"
+    [[ -n "$signer" ]] || return 0
+    case "$(basename "$signer")" in
+        signtool*)
+            if [[ -n "$sign_password" ]]; then
+                "$signer" sign /fd sha256 /f "$sign_pfx" /p "$sign_password" /tr "$sign_timestamp" /td sha256 "$file"
+            else
+                "$signer" sign /fd sha256 /f "$sign_pfx" /tr "$sign_timestamp" /td sha256 "$file"
+            fi
+            ;;
+        osslsigncode)
+            local signed="$file.signed"
+            if [[ -n "$sign_password" ]]; then
+                "$signer" sign -pkcs12 "$sign_pfx" -pass "$sign_password" -t "$sign_timestamp" -h sha256 -in "$file" -out "$signed"
+            else
+                "$signer" sign -pkcs12 "$sign_pfx" -t "$sign_timestamp" -h sha256 -in "$file" -out "$signed"
+            fi
+            mv "$signed" "$file"
+            ;;
+    esac
+}
+
 echo "== building the signer for this host (it is what signs; it never ships to the device)"
 cargo build --release -p summrise-release
 signer="target/release/summrise-release"
@@ -105,6 +152,12 @@ echo "== building the runtime for $target"
 cargo xwin build --release --target "$target" -p summrise-launch -p summrise-device -p summrise-console -p summrise-shell
 bin="target/$target/release"
 mkdir -p "$out"
+
+if [[ -n "$signer" ]]; then
+    for file in summrise-launch.exe summrise-device.exe summrise-console.exe summrise-shell.exe; do
+        sign_file "$bin/$file"
+    done
+fi
 
 echo "== signing the release document for $version ($channel)"
 signer_bin="$signer"
@@ -150,6 +203,7 @@ if [ -n "$makensis" ]; then
     fi
     (cd installer && "$makensis" -DVERSION="$version" -DPORT="$port" \
         -DCHANNEL="$channel" -DSOURCE="$source_dir" "${browser_args[@]}" summrise.nsi)
+    sign_file "installer/SummriseSetup-$version.exe"
     cp installer/SummriseSetup-"$version".exe "$out/"
 else
     echo "publish-canary: makensis was not found; the installer is not in this publish" >&2
