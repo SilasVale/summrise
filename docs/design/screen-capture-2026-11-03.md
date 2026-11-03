@@ -97,3 +97,17 @@ principal, whose action is PowerShell GDI+**. The next implementation must regis
 process outside the device's job (the installer's SYSTEM task is the proven host), or replace the
 path with Windows Graphics Capture. Raw GDI, launcher `CreateProcessAsUser`, and shell-side task
 creation are all closed.
+
+## Round 11: an interactive task is not a guarantee either
+
+A task created with `schtasks /create /ru administrator /it` and running the GDI+ script produced a
+25,174-byte PNG at 13:43. At 13:46 the same task, same principal, same script path, failed
+`CopyFromScreen` with "invalid parameter", and five retries 400 ms apart all failed while `quser`
+reported the RDP session active. The display surface is therefore not a property the task can rely
+on; it can disappear while the session is nominally connected.
+
+A shell fallback that registered this task, ran it and waited for the file was measured and
+**reverted**: it can hang the helper for 15 s and then answer "no picture" even though the task
+exists. The committed shell keeps the existing `BitBlt` refusal. The next real implementation is
+Windows Graphics Capture (or a surface check the task itself can fail fast on), not another task
+wrapper.
