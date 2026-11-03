@@ -1047,6 +1047,56 @@ impl Browser {
         self.load_target(target, url).await
     }
 
+    /// Whether a hostname is on a private network, matching the legacy shell's policy: loopback,
+    /// `.local`, and RFC1918 / link-local IPv4. The public internet is never in this set.
+    fn is_private_host(hostname: &str) -> bool {
+        let host = hostname.trim().to_ascii_lowercase();
+        if host.is_empty() {
+            return false;
+        }
+        if host == "localhost" || host == "::1" || host == "[::1]" {
+            return true;
+        }
+        if host.ends_with(".local") || host.ends_with(".local.") {
+            return true;
+        }
+        let parts: Vec<&str> = host.split('.').collect();
+        if parts.len() != 4 {
+            return false;
+        }
+        let mut octets = [0u8; 4];
+        for (index, part) in parts.iter().enumerate() {
+            if part.is_empty() || part.len() > 3 || !part.bytes().all(|byte| byte.is_ascii_digit())
+            {
+                return false;
+            }
+            let Ok(value) = part.parse::<u16>() else {
+                return false;
+            };
+            if value > 255 {
+                return false;
+            }
+            octets[index] = value as u8;
+        }
+        let [first, second, _, _] = octets;
+        first == 10
+            || (first == 172 && (16..=31).contains(&second))
+            || (first == 192 && second == 168)
+            || first == 127
+            || (first == 169 && second == 254)
+    }
+
+    /// Whether this URL may bypass certificate validation: `http`/`https` on a private host only.
+    fn cert_bypass_allowed(url: &str) -> bool {
+        let Ok(parsed) = reqwest::Url::parse(url) else {
+            return false;
+        };
+        if parsed.scheme() != "http" && parsed.scheme() != "https" {
+            return false;
+        }
+        Self::is_private_host(parsed.host_str().unwrap_or(""))
+    }
+
     /// Load `url` in `target` and return once the new document has finished parsing.
     ///
     /// `Page.navigate` returns when the navigation is *started*, not when it lands, and a
@@ -1073,6 +1123,18 @@ impl Browser {
     async fn load_target(&mut self, target: &str, url: &str) -> Result<(), BrowserError> {
         let mut page = self.page_client(target).await?;
         page.command("Page.enable", json!({})).await?;
+        // Chrome validates every certificate by default. A lab device on a private network (an
+        // OpenWrt-style ONT, a router UI) ships a self-signed certificate; the legacy agent
+        // bypassed certificate errors for private hosts only, and the public internet kept full
+        // validation. Do the same per navigation, so a public page in the same tab is validated
+        // again immediately.
+        let ignore = Self::cert_bypass_allowed(url);
+        let _ = page.command("Security.enable", json!({})).await;
+        page.command(
+            "Security.setIgnoreCertificateErrors",
+            json!({ "ignore": ignore }),
+        )
+        .await?;
         let navigation = page.command("Page.navigate", json!({ "url": url })).await?;
 
         if let Some(message) = navigation.get("errorText").and_then(Value::as_str) {
@@ -3122,5 +3184,33 @@ mod tests {
             error.to_string().contains("cannot start"),
             "the refusal names the failed start: {error}"
         );
+    }
+    #[test]
+    fn certificate_bypass_is_private_only() {
+        for url in [
+            "https://localhost/",
+            "https://127.0.0.1:8443/",
+            "https://192.168.1.1/",
+            "https://10.2.3.4/",
+            "https://172.16.0.1/",
+            "https://169.254.10.1/",
+            "https://router.local/",
+            "https://[::1]/",
+            "http://192.168.0.1/",
+        ] {
+            assert!(Browser::cert_bypass_allowed(url), "{url} is private");
+        }
+        for url in [
+            "https://example.com/",
+            "https://192.168.1.1.evil.com/",
+            "https://172.15.0.1/",
+            "https://172.32.0.1/",
+            "https://8.8.8.8/",
+            "ftp://192.168.1.1/",
+            "file:///etc/passwd",
+            "https://",
+        ] {
+            assert!(!Browser::cert_bypass_allowed(url), "{url} must validate");
+        }
     }
 }
