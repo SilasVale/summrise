@@ -559,6 +559,10 @@ fn render(facts: &PanelFacts, outcome: Option<&EnrollOutcome>) -> Markup {
                             dt { "Last result" }
                             dd { (update_last) }
                         }
+                        form method="post" action="/api/panel/update" {
+                            input type="hidden" name="panel_token" value=(facts.panel_token);
+                            button id="update-now" type="submit" { "Check for updates now" }
+                        }
                         p class="hint" {
                             "The device checks its configured update source on its own. A release is applied only after the signature, digest, channel and revocation checks pass."
                         }
@@ -1024,6 +1028,7 @@ mod tests {
             "Build",
             "Console link",
             "Updates",
+            "Check for updates now",
             "idle",
             "never",
             "State",

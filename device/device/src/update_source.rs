@@ -36,6 +36,12 @@ use crate::updater::{self, UpdateConfig, UpdateError};
 /// The name of the source file under the data directory.
 pub const FILE: &str = "update.json";
 
+/// A request for an immediate check, written by the local panel and consumed by the scheduler.
+pub const REQUEST_FILE: &str = "update.now";
+
+/// How often the scheduler looks for [`REQUEST_FILE`] while it waits for the interval.
+const REQUEST_POLL: Duration = Duration::from_secs(5);
+
 /// The shortest interval a source may ask for.
 ///
 /// Five minutes is the floor because a document costs a request and an artifact costs tens of
@@ -181,6 +187,24 @@ impl fmt::Display for SourceError {
 
 impl std::error::Error for SourceError {}
 
+/// Consume a manual check request. Returns whether a request was present.
+///
+/// The file is removed before the caller checks, so a failed check is one attempt rather than a
+/// request that survives and repeats on every poll.
+pub(crate) fn take_request(data: &Path) -> bool {
+    let path = data.join(REQUEST_FILE);
+    if !path.is_file() {
+        return false;
+    }
+    match std::fs::remove_file(&path) {
+        Ok(()) => true,
+        Err(error) => {
+            eprintln!("summrise-device: cannot consume the update request: {error}");
+            false
+        }
+    }
+}
+
 /// Run the schedule for `source` until the process ends.
 ///
 /// The returned handle is dropped by the caller; the task lives as long as the runtime. A failed
@@ -196,12 +220,27 @@ pub fn spawn(
     tokio::spawn(async move {
         let seed = device_seed(&data);
         tokio::time::sleep(first_delay(source.interval(), seed)).await;
+        let mut poll = tokio::time::interval(REQUEST_POLL);
         loop {
             match check_once(&store, &install, &source, &cfg).await {
                 Ok(()) => {}
                 Err(error) => eprintln!("summrise-device: scheduled update check: {error}"),
             }
-            tokio::time::sleep(source.interval()).await;
+            // Wait out the interval, but look at the request file every few seconds. The local panel
+            // cannot reach this task directly; a file under the same data directory is the one
+            // channel that needs no second copy of the scheduler state.
+            let wait = tokio::time::sleep(source.interval());
+            tokio::pin!(wait);
+            loop {
+                tokio::select! {
+                    _ = &mut wait => break,
+                    _ = poll.tick() => {
+                        if take_request(&data) {
+                            break;
+                        }
+                    }
+                }
+            }
         }
     })
 }
@@ -287,6 +326,19 @@ fn device_seed(data: &Path) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_manual_request_is_consumed_once() {
+        let dir =
+            std::env::temp_dir().join(format!("summrise-update-request-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("the temp directory is writable");
+        let path = dir.join(REQUEST_FILE);
+        std::fs::write(&path, b"1").expect("the request is writable");
+        assert!(take_request(&dir));
+        assert!(!path.exists());
+        assert!(!take_request(&dir));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     fn valid() -> UpdateSource {
         UpdateSource {

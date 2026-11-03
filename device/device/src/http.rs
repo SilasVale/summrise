@@ -135,6 +135,9 @@ fn router_with(
         // The rendered page has no script for enrollment, so the form posts here. The redirect
         // carries the outcome; the page renders it as a banner on the next GET.
         .route("/panel/enroll", post(enroll_from_panel_form))
+        // The panel's manual update check: a form POST, loopback plus this boot's panel token. It
+        // writes a request file the scheduler consumes; it does not contact the mirror itself.
+        .route("/api/panel/update", post(panel_update))
         .route("/api/panel", get(panel_snapshot))
         // The panel's read-only view of the live terminal sessions. Loopback-only like the page: it
         // names the shell/serial ports a person standing at this machine can already reach.
@@ -944,6 +947,58 @@ struct PanelEnrollForm {
     allow_plaintext: Option<String>,
     /// This boot's panel token, rendered into the form. A cross-site page cannot read it.
     panel_token: Option<String>,
+}
+
+/// The rendered panel's "Check for updates now" form. Only the panel token travels; the source and
+/// the release policy stay in the scheduler.
+#[derive(Deserialize)]
+struct PanelUpdateForm {
+    /// This boot's panel token, rendered into the form. A cross-site page cannot read it.
+    panel_token: Option<String>,
+}
+
+/// `POST /api/panel/update`: ask the scheduler to check now.
+///
+/// The gates are the enrollment form's: loopback and this boot's panel token. The answer is a
+/// redirect so a reload does not repeat the request; the scheduler consumes the file within one
+/// poll and writes the result into `state.json`, which the Updates card reads.
+async fn panel_update(
+    State(app): State<AppState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+    Form(form): Form<PanelUpdateForm>,
+) -> Response {
+    if !peer.ip().is_loopback() {
+        return error_response(StatusCode::FORBIDDEN, "loopback_only", None);
+    }
+    let authorized = app.panel_authorized(&headers)
+        || form
+            .panel_token
+            .as_deref()
+            .is_some_and(|presented| app.panel_token_matches(presented));
+    if !authorized {
+        return error_response(StatusCode::FORBIDDEN, "unauthorized", None);
+    }
+    match crate::update_source::UpdateSource::load(&app.data) {
+        Ok(Some(_)) => match std::fs::write(
+            app.data.join(crate::update_source::REQUEST_FILE),
+            b"manual\n",
+        ) {
+            Ok(()) => Redirect::to("/panel#updates").into_response(),
+            Err(error) => sentence_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                &format!("the update request could not be written: {error}"),
+            ),
+        },
+        Ok(None) => sentence_response(
+            StatusCode::BAD_REQUEST,
+            "no update source is configured on this device",
+        ),
+        Err(error) => sentence_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            &format!("the update source could not be read: {error}"),
+        ),
+    }
 }
 
 /// `POST /panel/enroll`: the form half of `/api/enroll`, with the same gates and the same
