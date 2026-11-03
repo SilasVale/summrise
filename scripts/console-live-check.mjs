@@ -181,6 +181,20 @@ try {
       await shot(`offline-${key}`);
     }
 
+    // Screen: a capture is a device call too, and the Browser view lists the device's tabs.
+    await page.locator('nav.device-tabs').getByRole('button', { name: 'Screen', exact: true }).click();
+    await page.waitForTimeout(800);
+    if (!(await page.getByRole('button', { name: 'Capture screen' }).isDisabled().catch(() => false))) {
+      failures.push('Capture screen is enabled on an offline machine');
+    }
+    await page.getByRole('button', { name: 'Browser', exact: true }).click();
+    await page.waitForTimeout(900);
+    const screenText = (await page.locator('main').innerText().catch(() => '')).replace(/\s+/g, ' ');
+    if (!screenText.includes('its browser cannot be listed')) {
+      failures.push('the Browser view does not say it cannot list an offline machine');
+    }
+    await shot('offline-screen');
+
     // By now every device tab has been opened against a machine that is down. Not one of them may
     // have sent a proxy call.
     const asks = await page.evaluate(

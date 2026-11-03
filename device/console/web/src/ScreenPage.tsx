@@ -21,12 +21,16 @@ type Shot = { dataUrl: string; width: number; height: number; capturedAt: Date }
 export function ScreenPage({
   grant,
   view,
-  onViewChange
+  onViewChange,
+  deviceOnline
 }: {
   grant: Grant;
   view: "desktop" | "browser";
   onViewChange: (view: "desktop" | "browser") => void;
+  /** The fleet's reachability, as the other device pages take it; `false` is the only fact. */
+  deviceOnline?: boolean;
 }) {
+  const offline = deviceOnline === false;
   const [shot, setShot] = useState<Shot | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -103,7 +107,8 @@ export function ScreenPage({
           <button
             type="button"
             className="screen-capture"
-            disabled={busy}
+            disabled={busy || offline}
+            title={offline ? "The machine is offline; its screen can be captured when it reconnects" : undefined}
             onClick={() => void capture()}
           >
             {busy ? "Capturing…" : "Capture screen"}
@@ -112,7 +117,7 @@ export function ScreenPage({
       </div>
 
       {view === "browser" ? (
-        <BrowserPane grant={grant} />
+        <BrowserPane grant={grant} deviceOnline={deviceOnline} />
       ) : (
         <>
           <p className="hint">

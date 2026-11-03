@@ -26,6 +26,15 @@ describe("ScreenPage", () => {
     mocks.callTool.mockReset();
   });
 
+  it("will not capture a screen from a machine the fleet says is down", () => {
+    render(
+      <ScreenPage grant={grant} view="desktop" onViewChange={() => undefined} deviceOnline={false} />
+    );
+    const capture = screen.getByRole("button", { name: "Capture screen" });
+    expect(capture).toBeDisabled();
+    expect(capture.getAttribute("title")).toMatch(/reconnects/);
+  });
+
   it("captures the device's screen on demand and offers the picture for download", async () => {
     mocks.callTool.mockResolvedValue(
       JSON.stringify({ format: "png", data: "iVBORw0KGgo=", width: 1280, height: 720 })

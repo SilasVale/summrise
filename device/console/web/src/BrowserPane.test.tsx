@@ -63,6 +63,17 @@ describe("BrowserPane", () => {
     callToolMock.mockImplementation(async (_grant, name, args) => answerFor(name, args));
   });
 
+  it("does not list a browser on a machine the fleet says is down", async () => {
+    render(<BrowserPane grant={grant} deviceOnline={false} />);
+    await waitFor(() => expect(callToolMock).not.toHaveBeenCalled());
+    expect(
+      screen.getByText("The machine is offline; its browser cannot be listed until it reconnects.")
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Refresh pages" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Open new tab" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Stop browser" })).toBeDisabled();
+  });
+
   it("navigates the selected target to the address and captures the page", async () => {
     await openPane();
     fireEvent.change(screen.getByLabelText("Address"), { target: { value: "https://b.test" } });

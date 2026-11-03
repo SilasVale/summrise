@@ -21,7 +21,8 @@ const LIVE_LABEL = `Live · ${LIVE_MS / 1_000} s`;
 
 // The device drives a real Chrome over CDP; the page's half of that is an <img>. `browser.screenshot`
 // answers a base64 PNG, which needs no plugin, no second port and no native window.
-export function BrowserPane({ grant }: { grant: Grant }) {
+export function BrowserPane({ grant, deviceOnline }: { grant: Grant; deviceOnline?: boolean }) {
+  const offline = deviceOnline === false;
   const [targets, setTargets] = useState<Target[]>([]);
   const [target, setTarget] = useState("");
   const [shot, setShot] = useState<string | null>(null);
@@ -229,8 +230,17 @@ export function BrowserPane({ grant }: { grant: Grant }) {
   };
 
   useEffect(() => {
+    // A MACHINE THE FLEET SAYS IS DOWN IS NOT ASKED. `browser.list` cannot reach it, and the pane
+    // would sit on its opening sentence until the console's dial timed out.
+    if (offline) {
+      setTargets([]);
+      setTarget("");
+      setShot(null);
+      setStatus("The machine is offline; its browser cannot be listed until it reconnects.");
+      return;
+    }
     void list();
-  }, []);
+  }, [offline]);
 
   useEffect(() => {
     if (!live) {
@@ -324,18 +334,18 @@ export function BrowserPane({ grant }: { grant: Grant }) {
       <div className="panel-head">
         <h2>Remote browser</h2>
         <div className="actions">
-          <button type="button" onClick={() => void list()}>Refresh pages</button>
-          <button type="button" disabled={!target} onClick={() => void capture()}>Refresh view</button>
+          <button type="button" disabled={offline} onClick={() => void list()}>Refresh pages</button>
+          <button type="button" disabled={!target || offline} onClick={() => void capture()}>Refresh view</button>
           <button
             type="button"
-            disabled={!target}
+            disabled={!target || offline}
             title={`One screenshot every ${LIVE_MS / 1_000} s`}
             onClick={toggleLive}
           >
             {live ? "Stop live view" : "Start live view"}
           </button>
-          <button type="button" disabled={!target} onClick={() => void close()}>Close tab</button>
-          <button type="button" onClick={() => void stop()}>Stop browser</button>
+          <button type="button" disabled={!target || offline} onClick={() => void close()}>Close tab</button>
+          <button type="button" disabled={offline} onClick={() => void stop()}>Stop browser</button>
         </div>
       </div>
       <p className={status.includes("failed") ? "error" : "hint"}>{status}</p>
@@ -365,16 +375,16 @@ export function BrowserPane({ grant }: { grant: Grant }) {
           value={url}
           onChange={(event) => setUrl(event.target.value)}
         />
-        <button type="button" disabled={!url.trim()} onClick={() => void open()}>
+        <button type="button" disabled={!url.trim() || offline} onClick={() => void open()}>
           Open new tab
         </button>
-        <button type="button" disabled={!target || !url.trim()} onClick={() => void navigate()}>
+        <button type="button" disabled={!target || !url.trim() || offline} onClick={() => void navigate()}>
           Navigate
         </button>
       </div>
       <div className="row">
         <input placeholder="text to type into the focused field" value={text} onChange={(event) => setText(event.target.value)} />
-        <button type="button" disabled={!shot} onClick={() => void type()}>Type</button>
+        <button type="button" disabled={!shot || offline} onClick={() => void type()}>Type</button>
       </div>
 
       {shot && (

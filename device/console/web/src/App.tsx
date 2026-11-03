@@ -626,7 +626,12 @@ export function App() {
                 )}
                 {tab === "screen" && grant ? (
                   <section className="panel">
-                    <ScreenPage grant={grant} view={screenView} onViewChange={setScreenView} />
+                    <ScreenPage
+                      grant={grant}
+                      view={screenView}
+                      onViewChange={setScreenView}
+                      deviceOnline={chosen?.online}
+                    />
                   </section>
                 ) : null}
                 {tab === "files" && grant ? (
