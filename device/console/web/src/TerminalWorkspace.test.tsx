@@ -597,6 +597,32 @@ describe("TerminalWorkspace session end", () => {
     expect(readCount()).toBe(before);
   });
 
+  it("falls back when an older device rejects the wait_ms field", async () => {
+    let reads = 0;
+    callToolMock.mockImplementation(async (_grant, name, args) => {
+      if (name === "terminal.create") return JSON.stringify({ id: "t1" });
+      if (name === "terminal.resize") return JSON.stringify({ rows: 24, cols: 80 });
+      if (name === "terminal.list") return JSON.stringify([]);
+      if (name === "terminal.read") {
+        reads += 1;
+        if (reads === 1) {
+          throw new ToolError("terminal.read: the arguments do not match the tool's input schema.", 400);
+        }
+        return JSON.stringify({ data: "hello", cursor: 5, alive: true });
+      }
+      throw new Error(`the test did not expect a ${name} call with ${JSON.stringify(args)}`);
+    });
+
+    render(<TerminalWorkspace grant={GRANT} />);
+    await startPtyTab();
+
+    await waitFor(() => expect(mockedXterm.instances[0]?.write).toHaveBeenCalledWith("hello"));
+    const calls = callToolMock.mock.calls.filter(([, name]) => name === "terminal.read");
+    expect(calls[0][2]).toMatchObject({ wait_ms: 15_000 });
+    expect(calls[1][2]).toEqual({ id: "t1", cursor: 0 });
+    expect(screen.queryByText(/Reading this session failed/)).not.toBeInTheDocument();
+  });
+
   it("does not stack reads while one answer is slow", async () => {
     let reads = 0;
     let release: (value: string) => void = () => {};

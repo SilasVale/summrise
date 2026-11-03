@@ -366,6 +366,8 @@ export function TerminalWorkspace({
   const pollTimer = useRef<number | null>(null);
   /** Tabs with a read in flight. A slow device must not queue a second read at the same cursor. */
   const reading = useRef(new Set<string>());
+  // A device older than terminal.read's wait_ms refuses the field; fall back once and remember it.
+  const waitReads = useRef(true);
   const findInput = useRef<HTMLInputElement | null>(null);
   /** The tab the search bar last belonged to, so a switch can clear what it drew there. */
   const searchedTab = useRef<string | null>(null);
@@ -423,7 +425,26 @@ export function TerminalWorkspace({
   /** One read at this tab's cursor, and the cursor and end facts it returns. */
   const readOnce = useCallback(async (tab: Tab): Promise<ReadAnswer> => {
     const cursor = cursors.current.get(tab.key) ?? 0;
-    return JSON.parse(await callTool(grantRef.current, "terminal.read", { id: tab.session, cursor }));
+    const args = waitReads.current
+      ? { id: tab.session, cursor, wait_ms: 15_000 }
+      : { id: tab.session, cursor };
+    try {
+      return JSON.parse(await callTool(grantRef.current, "terminal.read", args)) as ReadAnswer;
+    } catch (cause) {
+      // A device from before this field rejects the whole call. Retry once without it, then keep
+      // the old 250 ms poll for the rest of this grant; the read itself is unchanged.
+      if (
+        waitReads.current &&
+        cause instanceof ToolError &&
+        /wait_ms|unknown field|unknown argument|additional propert|input schema/i.test(cause.message)
+      ) {
+        waitReads.current = false;
+        return JSON.parse(
+          await callTool(grantRef.current, "terminal.read", { id: tab.session, cursor })
+        ) as ReadAnswer;
+      }
+      throw cause;
+    }
   }, []);
 
   /**
@@ -582,7 +603,17 @@ export function TerminalWorkspace({
       reading.current.add(tab.key);
       try {
         const read = await readOnce(tab);
-        if (read.data) instance.term.write(read.data);
+        if (read.data) {
+          instance.term.write(read.data);
+          // A long poll returns as soon as bytes arrive; take the next read now instead of waiting
+          // for the 250 ms interval, so continuous output keeps flowing. Single-flight still guards
+          // a slow answer, and a fallback device's immediate empty read keeps the interval's pace.
+          if (activeRef.current === tab.key) {
+            window.setTimeout(() => {
+              if (activeRef.current === tab.key) void poll(tab);
+            }, 0);
+          }
+        }
         if (typeof read.cursor === "number") cursors.current.set(tab.key, read.cursor);
         // The end is a fact, not an error: the last bytes are already in the terminal and the tab
         // keeps them. `closed` makes the next tick's existing guard send nothing, and the operator

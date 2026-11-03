@@ -1000,9 +1000,11 @@ impl DeviceServer {
             Handler::TerminalRead => {
                 let arguments: PtyReadArgs = parse(arguments, name)?;
                 let id = session_id(name, &arguments.id)?;
+                let wait = Duration::from_millis(arguments.wait_ms.unwrap_or(0).min(30_000));
                 let answer = self
                     .terminal
-                    .read(&id, arguments.cursor.unwrap_or(0))
+                    .read_wait(&id, arguments.cursor.unwrap_or(0), wait)
+                    .await
                     .map_err(|error| refused(name, error))?;
                 // The wire is JSON, so the bytes are rendered as UTF-8. This is lossy on purpose: a
                 // read can split a multi-byte sequence at the cursor, and the client's cursor is
@@ -2002,6 +2004,12 @@ fn input_schema(definition: &ToolDef) -> Value {
                     "type": "integer",
                     "minimum": 0,
                     "description": "Read output after this cursor. 0 (the default) reads all retained output; the returned cursor is the next call's value."
+                },
+                "wait_ms": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 30000,
+                    "description": "Wait up to this long for new output when the cursor is already at the end; absent/0 answers immediately. The device caps the wait at 30 s."
                 }
             },
             "required": ["id"],
@@ -2639,6 +2647,9 @@ struct PtyWriteArgs {
 struct PtyReadArgs {
     id: String,
     cursor: Option<u64>,
+    /// How long to park when the cursor is already at the end. Absent means answer now; the device
+    /// caps the wait so a client cannot hold a connection for arbitrary time.
+    wait_ms: Option<u64>,
 }
 
 /// The arguments `terminal.resize` takes.

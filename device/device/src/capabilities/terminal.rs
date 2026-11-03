@@ -1280,6 +1280,9 @@ impl PtyRegistry {
         cursor: u64,
         wait: Duration,
     ) -> Result<ReadAnswer, PtyError> {
+        if wait.is_zero() {
+            return self.read(id, cursor);
+        }
         let deadline = Instant::now() + wait;
         loop {
             let (answer, notify) = {
