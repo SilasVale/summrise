@@ -119,3 +119,15 @@ DIB section: it returned 0 while the desktop reported 1024x768, and every pixel 
 session had no surface for either GDI path; the refusal is the honest answer. Windows Graphics
 Capture remains the only untried native path, and it would still be capturing a desktop that is not
 being displayed while the session is in that state.
+
+## Round 19: the GDI path works when the session is displayed
+
+After 0.3.255 was installed on 14RJCR8, `screen.capture` returned a valid PNG: **2560x1440,
+803,385 bytes**, showing the live RDP desktop. No Graphics Capture, task wrapper or PowerShell
+fallback was involved — this is the committed shell's `BitBlt`/DIB path.
+
+The conclusion changes: the failures in rounds 1–16 were accurate no-surface states, not a broken
+capture implementation. The refusal ("the session is not being displayed") is the correct answer
+while the desktop is absent; when it is displayed, the existing GDI path is sufficient. Windows
+Graphics Capture is no longer on the critical path. The only remaining polish is to make the
+no-surface message friendlier than a raw `BitBlt: handle invalid`.
