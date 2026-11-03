@@ -9,7 +9,7 @@ use std::io;
 use std::net::{Ipv4Addr, SocketAddr};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use axum::body::Bytes;
 use axum::extract::{ConnectInfo, Form, Query, State};
@@ -621,6 +621,8 @@ struct PanelTerminalWrite {
 #[derive(Deserialize)]
 struct PanelTerminalRead {
     cursor: Option<u64>,
+    /// How long the read may park waiting for output. The panel asks for 15 s; the device caps it.
+    wait_ms: Option<u64>,
 }
 
 /// The one gate every panel terminal operation passes: a loopback peer and this boot's token.
@@ -838,7 +840,12 @@ async fn panel_terminal_read(
     let Some(call) = panel_call_begin(&app, "terminal.read").await else {
         return panel_not_audited();
     };
-    match app.terminal.read(&id, query.cursor.unwrap_or(0)) {
+    let wait = Duration::from_millis(query.wait_ms.unwrap_or(0).min(30_000));
+    match app
+        .terminal
+        .read_wait(&id, query.cursor.unwrap_or(0), wait)
+        .await
+    {
         Ok(answer) => {
             panel_call_end(&app, call, None).await;
             Json(panel_read_answer(&answer.data, answer.cursor)).into_response()
@@ -2747,6 +2754,10 @@ mod tests {
         assert!(PANEL_TERMINAL_JS.contains("attachExisting"));
         assert!(PANEL_TERMINAL_JS.contains("answer.sessions"));
         assert!(PANEL_TERMINAL_JS.contains("alive === false"));
+        assert!(
+            PANEL_TERMINAL_JS.contains("wait_ms=15000"),
+            "the panel read long-polls instead of asking again every 150 ms"
+        );
     }
 
     #[tokio::test]

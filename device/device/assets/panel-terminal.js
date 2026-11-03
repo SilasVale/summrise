@@ -140,7 +140,7 @@ const term = new Terminal({
   async function loop() {
     while (session && !closed) {
       const answer = await call(
-        `/api/terminal/${session}/read?cursor=${cursor}`,
+        `/api/terminal/${session}/read?cursor=${cursor}&wait_ms=15000`,
         {},
       ).catch(() => null);
       if (!answer || answer.text === undefined) {
@@ -164,7 +164,10 @@ const term = new Terminal({
         session = null;
         return;
       }
-      await new Promise((resolve) => setTimeout(resolve, 150));
+      // The read long-polls for up to 15 s, so this pause is only the fallback for an older device
+      // that answers immediately: it keeps that case from becoming a busy loop without adding a
+      // visible delay to the live case, which returns as soon as bytes arrive.
+      await new Promise((resolve) => setTimeout(resolve, 50));
     }
   }
 

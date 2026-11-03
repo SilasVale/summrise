@@ -780,6 +780,8 @@ fn strip_ansi(input: &str) -> String {
 /// The reader thread's half of a session: the ring plus the facts a client can observe.
 struct Output {
     ring: Ring,
+    /// Wakes a long-poll reader when output arrives or the reader reaches EOF.
+    notify: Arc<tokio::sync::Notify>,
     /// The child's output ended (a natural exit or a read error), not necessarily a close.
     eof: bool,
     /// The session is being closed; the reader must stop.
@@ -787,6 +789,21 @@ struct Output {
     /// The child's exit facts, once the reader reaped it. A serial or SSH session has no child, so
     /// it keeps the default (both `None`).
     end: EndFacts,
+}
+
+impl Output {
+    /// Append output and wake one long-poll reader. `notify_one` keeps a permit when no reader is
+    /// waiting, so an append between the reader's check and its await is not lost.
+    fn push(&mut self, chunk: &[u8]) {
+        self.ring.append(chunk);
+        self.notify.notify_one();
+    }
+
+    /// Mark the end and wake a reader so it can return `alive: false` without waiting out its poll.
+    fn finish(&mut self) {
+        self.eof = true;
+        self.notify.notify_one();
+    }
 }
 
 /// One live session.
@@ -1252,6 +1269,49 @@ impl PtyRegistry {
         read
     }
 
+    /// Read, waiting up to `wait` for output when the cursor is already at the end.
+    ///
+    /// This is the panel's long poll. A read that has nothing to return parks on the session's
+    /// notifier instead of making the browser ask again every 150 ms; an append wakes it, and the
+    /// deadline is the answer when nothing arrives. A wait of zero is exactly [`read`].
+    pub async fn read_wait(
+        &self,
+        id: &SessionId,
+        cursor: u64,
+        wait: Duration,
+    ) -> Result<ReadAnswer, PtyError> {
+        let deadline = Instant::now() + wait;
+        loop {
+            let (answer, notify) = {
+                let mut sessions = lock(&self.sessions);
+                let session = sessions.get_mut(id).ok_or_else(|| unknown(id))?;
+                session.last_active_ms = (self.clock)();
+                let output = lock(&session.output);
+                let answer = output
+                    .ring
+                    .read_from(cursor)
+                    .map(|(data, cursor)| ReadAnswer {
+                        data,
+                        cursor,
+                        alive: !output.eof,
+                        end: output.end.clone(),
+                    })?;
+                (answer, Arc::clone(&output.notify))
+            };
+            if !answer.data.is_empty() || !answer.alive || wait.is_zero() {
+                return Ok(answer);
+            }
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                return Ok(answer);
+            }
+            tokio::select! {
+                _ = notify.notified() => {}
+                _ = tokio::time::sleep(remaining) => return Ok(answer),
+            }
+        }
+    }
+
     /// The tail of a session's output as a person would see it, without moving the read cursor.
     ///
     /// `read` is for a client that replays bytes; this is for a client that wants to know what is
@@ -1469,6 +1529,7 @@ impl PtyRegistry {
 
         let output = Arc::new(Mutex::new(Output {
             ring: Ring::new(self.limits.buffer_bytes),
+            notify: Arc::new(tokio::sync::Notify::new()),
             eof: false,
             closed: false,
             end: EndFacts::default(),
@@ -1549,6 +1610,7 @@ impl PtyRegistry {
 
         let output = Arc::new(Mutex::new(Output {
             ring: Ring::new(self.limits.buffer_bytes),
+            notify: Arc::new(tokio::sync::Notify::new()),
             eof: false,
             closed: false,
             end: EndFacts::default(),
@@ -1560,9 +1622,9 @@ impl PtyRegistry {
                 if output.closed {
                     return;
                 }
-                output.ring.append(&chunk);
+                output.push(&chunk);
             }
-            lock(&task_output).eof = true;
+            lock(&task_output).finish();
         });
 
         Ok(Session {
@@ -1640,6 +1702,7 @@ impl PtyRegistry {
 
         let output = Arc::new(Mutex::new(Output {
             ring: Ring::new(self.limits.buffer_bytes),
+            notify: Arc::new(tokio::sync::Notify::new()),
             eof: false,
             closed: false,
             end: EndFacts::default(),
@@ -1730,7 +1793,10 @@ fn drain_reader(
                 child_exited = true;
                 break;
             }
-            Ok(n) => lock(&output).ring.append(&buffer[..n]),
+            Ok(n) => {
+                let mut output = lock(&output);
+                output.push(&buffer[..n]);
+            }
             Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
                 // The patched ConPTY reader reports no data this way, and the pipe never EOFs while
                 // the HPCON lives. Poll the child instead: a natural exit ends the drain after the
@@ -1780,7 +1846,7 @@ fn drain_reader(
     let end = status.as_ref().map(exit_facts).unwrap_or_default();
     let mut output = lock(&output);
     output.end = end;
-    output.eof = true;
+    output.finish();
 }
 
 /// Split a reaped child's status into the end facts the wire carries.
@@ -1825,7 +1891,10 @@ fn drain_serial(mut reader: Box<dyn SerialPort>, output: Arc<Mutex<Output>>) {
                 #[cfg(not(windows))]
                 break;
             }
-            Ok(n) => lock(&output).ring.append(&buffer[..n]),
+            Ok(n) => {
+                let mut output = lock(&output);
+                output.push(&buffer[..n]);
+            }
             Err(error)
                 if matches!(
                     error.kind(),
@@ -1836,7 +1905,7 @@ fn drain_serial(mut reader: Box<dyn SerialPort>, output: Arc<Mutex<Output>>) {
             Err(_) => break,
         }
     }
-    lock(&output).eof = true;
+    lock(&output).finish();
 }
 
 /// Open a serial port with the framing the caller asked for.
@@ -2419,6 +2488,56 @@ mod tests {
             rest = after;
         }
         None
+    }
+
+    #[tokio::test]
+    async fn a_long_poll_wakes_when_new_output_arrives() {
+        let fixture = Fixture::new("pty-long-poll");
+        let id = fixture
+            .registry
+            .create(
+                CreateTarget::Pty {
+                    shell: Some("/bin/sh"),
+                },
+                24,
+                80,
+            )
+            .await
+            .expect("a shell starts");
+        fixture
+            .registry
+            .write(&id, b"echo READY\n")
+            .await
+            .expect("the first command is written");
+        let _ = read_until(&fixture.registry, &id, "READY").await;
+        let cursor = fixture
+            .registry
+            .read(&id, 0)
+            .expect("the session reads")
+            .cursor;
+
+        let writer = async {
+            tokio::time::sleep(Duration::from_millis(150)).await;
+            fixture
+                .registry
+                .write(&id, b"echo WAKE\n")
+                .await
+                .expect("the second command is written");
+        };
+        let read = fixture
+            .registry
+            .read_wait(&id, cursor, Duration::from_secs(2));
+        let (answer, ()) = tokio::join!(read, writer);
+        let answer = answer.expect("the read returns");
+        // The prompt can trail the marker, so the first wake may carry it rather than WAKE; what
+        // this test pins is that the read parked and returned new output promptly, not empty after
+        // the full two seconds.
+        assert!(
+            !answer.data.is_empty(),
+            "the wait returned the new output: {:?}",
+            String::from_utf8_lossy(&answer.data)
+        );
+        assert!(answer.cursor > cursor);
     }
 
     #[tokio::test]
