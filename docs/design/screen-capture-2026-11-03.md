@@ -111,3 +111,11 @@ A shell fallback that registered this task, ran it and waited for the file was m
 exists. The committed shell keeps the existing `BitBlt` refusal. The next real implementation is
 Windows Graphics Capture (or a surface check the task itself can fail fast on), not another task
 wrapper.
+
+## Round 16: PrintWindow is not a way around the surface
+
+`PrintWindow(GetDesktopWindow(), hdc, PW_RENDERFULLCONTENT)` was measured on 14RJCR8 with a 32-bit
+DIB section: it returned 0 while the desktop reported 1024x768, and every pixel was black. The
+session had no surface for either GDI path; the refusal is the honest answer. Windows Graphics
+Capture remains the only untried native path, and it would still be capturing a desktop that is not
+being displayed while the session is in that state.
