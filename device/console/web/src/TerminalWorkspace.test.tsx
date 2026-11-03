@@ -598,6 +598,34 @@ describe("TerminalWorkspace session end", () => {
     expect(readCount()).toBe(before);
   });
 
+  it("does not stack reads while one answer is slow", async () => {
+    let reads = 0;
+    let release: (value: string) => void = () => {};
+    callToolMock.mockImplementation(async (_grant, name) => {
+      if (name === "terminal.create") return JSON.stringify({ id: "slow-1" });
+      if (name === "terminal.resize") return JSON.stringify({ rows: 24, cols: 80 });
+      if (name === "terminal.list") return JSON.stringify([]);
+      if (name === "terminal.read") {
+        reads += 1;
+        return new Promise<string>((resolve) => {
+          release = resolve;
+        });
+      }
+      throw new Error(`the test did not expect a ${name} call`);
+    });
+
+    render(<TerminalWorkspace grant={GRANT} />);
+    await startPtyTab();
+    await waitFor(() => expect(reads).toBe(1), { timeout: 2_000 });
+
+    // Two interval ticks pass while the first read is still unanswered; a second read at the same
+    // cursor would duplicate output (or reorder it), which is what "not live" looked like.
+    await new Promise((resolve) => setTimeout(resolve, 650));
+    expect(reads).toBe(1);
+
+    release(JSON.stringify({ data: "", cursor: 0 }));
+  });
+
   it("leaves a tab alone when the device does not say whether it is alive", async () => {
     render(<TerminalWorkspace grant={GRANT} />);
     await startPtyTab();

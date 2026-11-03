@@ -133,7 +133,7 @@ const term = new Terminal({
     open();
     fit.fit();
     term.focus();
-    status(`${answer.kind} ${answer.id}`);
+    status(`${answer.kind} ${answer.id} · live`);
     void loop();
   }
 
@@ -154,7 +154,16 @@ const term = new Terminal({
     } else if (answer.text) {
       term.write(answer.text);
     }
-      cursor = answer.cursor;
+      if (typeof answer.cursor === "number") cursor = answer.cursor;
+      // A session that ended is a fact, not a failed poll: say so and stop the loop. Without this,
+      // the pane kept polling a dead id and looked like a live terminal with no output.
+      if (answer.alive === false) {
+        const code = typeof answer.exit_code === "number" ? ` (exit ${answer.exit_code})` : "";
+        status(`session ended${code}`);
+        closed = true;
+        session = null;
+        return;
+      }
       await new Promise((resolve) => setTimeout(resolve, 150));
     }
   }
@@ -172,7 +181,35 @@ const term = new Terminal({
     if (opened) fit.fit();
   });
 
+  // A session may already be running when this page loads — the console can have opened it, or
+  // this panel was reloaded. The old page showed a count but an empty xterm until New pty, which
+  // read as "the terminal is not live". Attach to the first session and read from the beginning of
+  // what the device retained; New pty remains the way to start another.
+  async function attachExisting() {
+    const answer = await call("/api/terminal", {}).catch(() => null);
+    // The route answers `{sessions:[…]}`; an older build answered a bare array. Accept both, so a
+    // panel reload attaches to a live session instead of silently leaving the canvas empty.
+    const list = Array.isArray(answer)
+      ? answer
+      : Array.isArray(answer && answer.sessions)
+        ? answer.sessions
+        : [];
+    if (list.length === 0) return;
+    const first = list[0];
+    if (!first || !first.id) return;
+    session = first.id;
+    cursor = 0;
+    closed = false;
+    term.reset();
+    open();
+    fit.fit();
+    term.focus();
+    status(`${first.kind || "session"} ${first.id} · live`);
+    void loop();
+  }
+
   document.getElementById("term-pty").addEventListener("click", () => create("pty"));
   document.getElementById("term-serial").addEventListener("click", () => create("serial"));
   document.getElementById("term-close").addEventListener("click", close);
+  void attachExisting();
 })();

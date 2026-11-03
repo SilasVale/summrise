@@ -2729,6 +2729,15 @@ mod tests {
         assert_eq!(second["cursor"].as_u64(), Some(3));
     }
 
+    #[test]
+    fn the_panel_terminal_attaches_a_session_that_is_already_running() {
+        // The route answers `{sessions:[…]}`; a reload must use that shape rather than leave the
+        // canvas empty while the server-rendered card says a session exists.
+        assert!(PANEL_TERMINAL_JS.contains("attachExisting"));
+        assert!(PANEL_TERMINAL_JS.contains("answer.sessions"));
+        assert!(PANEL_TERMINAL_JS.contains("alive === false"));
+    }
+
     #[tokio::test]
     async fn the_rust_panel_renders_the_facts_the_html_page_shows() {
         let mut fixture = fixture_with_release(

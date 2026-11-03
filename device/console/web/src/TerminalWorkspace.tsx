@@ -364,6 +364,8 @@ export function TerminalWorkspace({
   const grantRefusedRef = useRef(onGrantRefused);
   const activeRef = useRef<string | null>(null);
   const pollTimer = useRef<number | null>(null);
+  /** Tabs with a read in flight. A slow device must not queue a second read at the same cursor. */
+  const reading = useRef(new Set<string>());
   const findInput = useRef<HTMLInputElement | null>(null);
   /** The tab the search bar last belonged to, so a switch can clear what it drew there. */
   const searchedTab = useRef<string | null>(null);
@@ -574,8 +576,10 @@ export function TerminalWorkspace({
     async (tab: Tab) => {
       const instance = instanceAt(tab.key);
       if (!instance) return;
+      if (reading.current.has(tab.key)) return;
       const current = faultRef.current.get(tab.key);
       if (current && (current.kind === "closed" || current.kind === "refused")) return;
+      reading.current.add(tab.key);
       try {
         const read = await readOnce(tab);
         if (read.data) instance.term.write(read.data);
@@ -594,6 +598,8 @@ export function TerminalWorkspace({
         if (fault && (fault.kind === "unreachable" || fault.kind === "read")) clearFault(tab.key);
       } catch (cause) {
         fail(tab, "read", cause);
+      } finally {
+        reading.current.delete(tab.key);
       }
     },
     [clearFault, fail, instanceAt, readOnce, setFault]
@@ -633,6 +639,7 @@ export function TerminalWorkspace({
       instance.term.dispose();
       instances.current.delete(key);
       cursors.current.delete(key);
+      reading.current.delete(key);
       clearFault(key);
       probing.current.delete(key);
     }
@@ -937,6 +944,7 @@ export function TerminalWorkspace({
     batches.current.delete(tab.key);
     setTabs((previous) => previous.filter((entry) => entry.key !== tab.key));
     cursors.current.delete(tab.key);
+    reading.current.delete(tab.key);
     probing.current.delete(tab.key);
     clearFault(tab.key);
     if (activeRef.current === tab.key) {
