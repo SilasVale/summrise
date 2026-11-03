@@ -43,6 +43,10 @@ jobs:
       # required keys are checkable on Linux.
       - name: the macOS LaunchDaemon plist is valid
         run: ./scripts/verify-macos-plist.sh
+      # The browser pack is a product asset on every platform. This checks the Unix installer's
+      # layout with a fake archive; the Windows installer has its own BROWSER_SOURCE path.
+      - name: the browser pack installer lays out current
+        run: ./scripts/test-browser-pack-install.sh
 
       # The console page's pure decisions are a Rust crate outside the device workspace (its
       # artifact is wasm). Its parity tests are Rust, so they run here rather than in a JS job.
