@@ -35,24 +35,24 @@ pub const CAPABILITIES: &[Capability] = &[
             ToolDef {
                 name: "files.read",
                 destructive: false,
-                description: "Read a file inside the device's files root.",
+                description: "Read a file inside one of the device's files roots: workspace by default, or shared when the operator configured it (the optional root argument).",
             },
             ToolDef {
                 name: "files.write",
                 destructive: true,
-                description: "Write a file inside the device's files root; its parent must exist.",
+                description: "Write a file inside one of the device's files roots; its parent must exist. Pass root: \"shared\" to use the operator-configured second root.",
             },
             ToolDef {
                 name: "files.mkdir",
                 destructive: false,
                 description:
-                    "Create one directory inside the device's files root; never overwrites.",
+                    "Create one directory inside one of the device's files roots; never overwrites. Pass root: \"shared\" to use the operator-configured second root.",
             },
             ToolDef {
                 name: "files.list",
                 destructive: false,
                 description:
-                    "List a directory inside the device's files root, sorted, at most 1000 entries.",
+                    "List a directory inside one of the device's files roots, sorted, at most 1000 entries. Pass root: \"shared\" to use the operator-configured second root.",
             },
         ],
     },
@@ -120,7 +120,7 @@ pub const CAPABILITIES: &[Capability] = &[
                 name: "terminal.read",
                 destructive: false,
                 description:
-                    "Read a session's output since a cursor and return the new cursor; only the newest 1 MiB is retained, so an older cursor is refused.",
+                    "Read a session's output since a cursor and return the new cursor; only the newest 1 MiB is retained, so an older cursor is refused. Optional wait_ms (0-30000) parks until output arrives or the deadline passes; a terminal client should use it instead of polling.",
             },
             ToolDef {
                 name: "terminal.resize",
