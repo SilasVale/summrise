@@ -72,6 +72,8 @@ pub enum SystemError {
     TwoTargets,
     /// No running process has that exact name.
     NoMatch(String),
+    /// A process the operating system needs; ending it is refused by the capability, not by chance.
+    Protected { pid: Option<u32>, name: String },
     /// The name resolved to no address at all.
     Unresolved(String),
     /// The host is empty or not a name/IP.
@@ -86,6 +88,16 @@ impl std::fmt::Display for SystemError {
             SystemError::NoTarget => f.write_str("name a pid or a process name"),
             SystemError::TwoTargets => f.write_str("name a pid or a process name, not both"),
             SystemError::NoMatch(name) => write!(f, "no running process is named {name}"),
+            SystemError::Protected { pid, name } => match pid {
+                Some(pid) => write!(
+                    f,
+                    "PID {pid} ({name}) is a protected operating-system process; refusing to end it"
+                ),
+                None => write!(
+                    f,
+                    "{name} is a protected operating-system process; refusing to end it"
+                ),
+            },
             SystemError::Unresolved(host) => write!(f, "{host} did not resolve to an address"),
             SystemError::BadHost(host) => write!(f, "{host:?} is not a host name or address"),
             SystemError::Io(error) => write!(f, "{error}"),
@@ -114,9 +126,62 @@ pub fn processes(filter: Option<&str>) -> Result<Vec<Process>, SystemError> {
     Ok(found)
 }
 
+/// The processes an operating system cannot lose: the kernel's idle/system entries and the
+/// Windows session/logon services. The device refuses these by name or pid rather than relying on
+/// the OS to say "access denied" after the call has already been audited as an attempt.
+fn is_protected_name(name: &str) -> bool {
+    matches!(
+        name.to_ascii_lowercase().as_str(),
+        "system"
+            | "system idle process"
+            | "registry"
+            | "memory compression"
+            | "secure system"
+            | "smss.exe"
+            | "csrss.exe"
+            | "wininit.exe"
+            | "services.exe"
+            | "lsass.exe"
+            | "winlogon.exe"
+            | "systemd"
+            | "init"
+            | "launchd"
+            | "kthreadd"
+    )
+}
+
+fn is_protected_pid(pid: u32) -> bool {
+    // 0 is the idle process, 1 is init/systemd on Unix, 4 is Windows' System process. None of them
+    // has a meaningful "kill" even where the kernel would answer.
+    pid == 0 || pid == 1 || pid == 4
+}
+
 /// End processes by pid or by exact name (case-insensitive).
 pub fn kill(pid: Option<u32>, name: Option<&str>) -> Result<KillReport, SystemError> {
     let name = name.map(str::trim).filter(|name| !name.is_empty());
+    // One target, one answer: decide the shape before the protected check, so a caller that named
+    // both gets the usage refusal rather than a misleading protection sentence.
+    match (pid, name) {
+        (Some(_), Some(_)) => return Err(SystemError::TwoTargets),
+        (None, None) => return Err(SystemError::NoTarget),
+        _ => {}
+    }
+    if let Some(pid) = pid {
+        if is_protected_pid(pid) {
+            return Err(SystemError::Protected {
+                pid: Some(pid),
+                name: "operating-system process".to_owned(),
+            });
+        }
+    }
+    if let Some(name) = name {
+        if is_protected_name(name) {
+            return Err(SystemError::Protected {
+                pid: None,
+                name: name.to_owned(),
+            });
+        }
+    }
     let targets = match (pid, name) {
         (Some(pid), None) => vec![pid],
         (None, Some(name)) => {
@@ -130,9 +195,23 @@ pub fn kill(pid: Option<u32>, name: Option<&str>) -> Result<KillReport, SystemEr
             }
             matches
         }
-        (None, None) => return Err(SystemError::NoTarget),
-        (Some(_), Some(_)) => return Err(SystemError::TwoTargets),
+        _ => unreachable!("the shape was checked above"),
     };
+
+    // A pid that names a protected process is refused even when the caller did not know its name;
+    // the list is a read, not a kill, and it is already in memory for the name path.
+    if let Some(pid) = pid {
+        if let Ok(found) = platform::processes() {
+            if let Some(process) = found.into_iter().find(|process| process.pid == pid) {
+                if is_protected_name(&process.name) {
+                    return Err(SystemError::Protected {
+                        pid: Some(pid),
+                        name: process.name,
+                    });
+                }
+            }
+        }
+    }
 
     let mut report = KillReport {
         killed: Vec::new(),
@@ -320,6 +399,22 @@ mod tests {
             kill(None, Some("summrise-no-such-executable")),
             Err(SystemError::NoMatch(_))
         ));
+    }
+
+    #[test]
+    fn protected_processes_are_refused_before_any_signal() {
+        for pid in [0, 1, 4] {
+            assert!(
+                matches!(kill(Some(pid), None), Err(SystemError::Protected { .. })),
+                "pid {pid} must be protected"
+            );
+        }
+        for name in ["System", "csrss.exe", "lsass.exe", "systemd"] {
+            assert!(
+                matches!(kill(None, Some(name)), Err(SystemError::Protected { .. })),
+                "{name} must be protected"
+            );
+        }
     }
 
     #[test]
