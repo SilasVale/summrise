@@ -58,3 +58,21 @@ on its HTTP thread.
 - On 14RJCR8 with the active RDP session: `screen.capture` returns a PNG, not error 6.
 - Locked/disconnected session: the existing refusal, not a hang.
 - No orphan PowerShell/helper process after a capture.
+
+## Round 4: the helper must be started by the device, not by the shell
+
+A standalone console probe started by Task Scheduler as the logged-in user (`Session 1`,
+`WinSta0`, `Default`) still got `BitBlt: ERROR_INVALID_HANDLE`. The same probe built with
+`SetProcessDPIAware` still failed. This rules out the tray process, the HTTP thread and DPI
+awareness as the cause.
+
+A task whose action is a `.cmd` wrapper around PowerShell's GDI+ capture, registered with an
+**Interactive** principal, produced a 25,174-byte PNG. A task registered from the shell through
+`schtasks /create` did not produce a picture: that task is not necessarily interactive. Registering
+the task from the shell through PowerShell with `New-ScheduledTaskPrincipal -LogonType Interactive`
+then hung past the helper timeout.
+
+Decision for the next change: the capture helper is started by `summrise-launch` (or the device
+service) with the user's token and `winsta0\default`, exactly like the shell start path. It writes a
+PNG and exits; the device reads it. Do not create the helper from the shell's HTTP handler and do not
+use `schtasks /create` to obtain the interactive desktop.
