@@ -219,8 +219,21 @@ pub fn spawn(
 ) -> JoinHandle<()> {
     tokio::spawn(async move {
         let seed = device_seed(&data);
-        tokio::time::sleep(first_delay(source.interval(), seed)).await;
         let mut poll = tokio::time::interval(REQUEST_POLL);
+        // The first check is delayed so a fleet does not stampede the mirror. A manual request must
+        // not wait out that delay; this is the same request file the interval wait watches.
+        let first = tokio::time::sleep(first_delay(source.interval(), seed));
+        tokio::pin!(first);
+        loop {
+            tokio::select! {
+                _ = &mut first => break,
+                _ = poll.tick() => {
+                    if take_request(&data) {
+                        break;
+                    }
+                }
+            }
+        }
         loop {
             match check_once(&store, &install, &source, &cfg).await {
                 Ok(()) => {}
