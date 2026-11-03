@@ -36,7 +36,19 @@ const POLL: Duration = Duration::from_secs(10);
 
 const OPEN_CONSOLE: &str = "open-console";
 const OPEN_PANEL: &str = "open-panel";
+const ABOUT: &str = "about";
 const QUIT: &str = "quit";
+
+/// The release version when the build names one, the crate version otherwise. `publish-canary.bash`
+/// exports `SUMMRISE_BUILD_VERSION`, so the About box and the tray title agree with the installer.
+const VERSION: &str = match option_env!("SUMMRISE_BUILD_VERSION") {
+    Some(version) => version,
+    None => env!("CARGO_PKG_VERSION"),
+};
+
+/// The size the console opens at, and the size below which it is not a usable console.
+const WINDOW_DEFAULT: (u32, u32) = (1280, 840);
+const WINDOW_MIN: (u32, u32) = (960, 640);
 
 /// Everything that can wake the event loop: a probe's answer, the tray's own events (which arrive on
 /// a channel rather than in tao's event enum), and a menu click.
@@ -203,7 +215,13 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             Event::UserEvent(Wake::Menu(event)) => match event.id.as_ref() {
                 OPEN_CONSOLE => open_console(target, &mut ui, &mut profile),
                 OPEN_PANEL => open_url(PANEL),
-                QUIT => *control_flow = ControlFlow::Exit,
+                ABOUT => show_about(),
+                QUIT => {
+                    if let Some((window, _)) = ui.as_ref() {
+                        save_window_size(window);
+                    }
+                    *control_flow = ControlFlow::Exit
+                }
                 _ => {}
             },
             Event::WindowEvent {
@@ -212,6 +230,9 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             } => {
                 // The tray stays; the window is rebuilt by the next click. Quitting is a menu item,
                 // so a closed window cannot leave a device with no way back to its icon.
+                if let Some((window, _)) = ui.as_ref() {
+                    save_window_size(window);
+                }
                 ui = None;
             }
             _ => {}
@@ -464,10 +485,11 @@ fn current_session_id() -> Option<u32> {
 /// `None` mints an id of its own, so the handler compared `open-console` against a generated string
 /// and no item — Quit included — ever ran. A menu item without the id the handler matches is a
 /// button wired to nothing, so the wiring is a function that a test can read.
-fn menu_items() -> (MenuItem, MenuItem, MenuItem) {
+fn menu_items() -> (MenuItem, MenuItem, MenuItem, MenuItem) {
     (
         MenuItem::with_id(OPEN_CONSOLE, "Open console", true, None),
         MenuItem::with_id(OPEN_PANEL, "Open local panel", true, None),
+        MenuItem::with_id(ABOUT, format!("About Summrise {VERSION}"), true, None),
         MenuItem::with_id(QUIT, "Quit", true, None),
     )
 }
@@ -487,9 +509,12 @@ fn open_console(
         window.set_focus();
         return;
     }
+    let (width, height) = saved_window_size();
     let window = match WindowBuilder::new()
         .with_title("Summrise console")
         .with_window_icon(window_icon())
+        .with_inner_size(tao::dpi::PhysicalSize::new(width, height))
+        .with_min_inner_size(tao::dpi::PhysicalSize::new(WINDOW_MIN.0, WINDOW_MIN.1))
         .with_visible(true)
         .build(target)
     {
@@ -526,6 +551,91 @@ fn open_console(
             ));
             window.set_visible(false);
         }
+    }
+}
+
+/// A small, native About box: the product, the build, and the two addresses this shell opens.
+#[cfg(windows)]
+fn show_about() {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{MessageBoxW, MB_ICONINFORMATION, MB_OK};
+
+    let text = format!(
+        "Summrise {VERSION}\n\nDevice tray and console window.\nConsole: {CONSOLE}\nLocal panel: {PANEL}\n\nThe device service runs separately; this process holds no credential."
+    );
+    let wide = |value: &str| -> Vec<u16> {
+        use std::os::windows::ffi::OsStrExt;
+        std::ffi::OsStr::new(value)
+            .encode_wide()
+            .chain(Some(0))
+            .collect()
+    };
+    let text = wide(&text);
+    let title = wide("About Summrise");
+    // SAFETY: both strings are NUL-terminated and outlive the call; no owner window is needed.
+    unsafe {
+        MessageBoxW(0, text.as_ptr(), title.as_ptr(), MB_OK | MB_ICONINFORMATION);
+    }
+}
+
+#[cfg(not(windows))]
+fn show_about() {}
+
+/// Where the window's last usable size is kept, beside the WebView2 profile.
+#[cfg(windows)]
+fn window_state_path() -> Option<std::path::PathBuf> {
+    let base = std::path::PathBuf::from(std::env::var_os("LOCALAPPDATA")?);
+    Some(base.join("Summrise").join("window.json"))
+}
+
+/// The last size, clamped to the window's usable range. A corrupt or absent file means the default:
+/// a remembered number must never make the window disappear.
+#[cfg(windows)]
+fn saved_window_size() -> (u32, u32) {
+    let Some(path) = window_state_path() else {
+        return WINDOW_DEFAULT;
+    };
+    let Ok(text) = std::fs::read_to_string(path) else {
+        return WINDOW_DEFAULT;
+    };
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(&text) else {
+        return WINDOW_DEFAULT;
+    };
+    let width = value
+        .get("width")
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(WINDOW_DEFAULT.0 as u64) as u32;
+    let height = value
+        .get("height")
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(WINDOW_DEFAULT.1 as u64) as u32;
+    clamp_window_size(width, height)
+}
+
+/// Keep a remembered size inside the range a console can actually use.
+fn clamp_window_size(width: u32, height: u32) -> (u32, u32) {
+    (
+        width.clamp(WINDOW_MIN.0, 3840),
+        height.clamp(WINDOW_MIN.1, 2160),
+    )
+}
+
+/// Remember the window's size for the next open. Best effort: a read-only profile is not a reason to
+/// fail a close.
+#[cfg(windows)]
+fn save_window_size(window: &tao::window::Window) {
+    let Some(path) = window_state_path() else {
+        return;
+    };
+    let size = window.inner_size();
+    if size.width < WINDOW_MIN.0 || size.height < WINDOW_MIN.1 {
+        return;
+    }
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let value = serde_json::json!({ "width": size.width, "height": size.height });
+    if let Err(error) = std::fs::write(&path, value.to_string()) {
+        crate::note(&format!("cannot remember the window size: {error}"));
     }
 }
 
@@ -646,10 +756,12 @@ pub fn already_running() -> bool {
 /// It is a function rather than three lines in `run` because a re-add after a reconnect needs a
 /// SECOND tray object, and a tray without its menu is a tray whose items do nothing.
 fn build_tray(tooltip: &str) -> Result<tray_icon::TrayIcon, Box<dyn std::error::Error>> {
-    let (console_item, panel_item, quit_item) = menu_items();
+    let (console_item, panel_item, about_item, quit_item) = menu_items();
     let menu = Menu::with_items(&[
         &console_item,
         &panel_item,
+        &PredefinedMenuItem::separator(),
+        &about_item,
         &PredefinedMenuItem::separator(),
         &quit_item,
     ])?;
@@ -786,10 +898,18 @@ mod tests {
     }
 
     #[test]
+    fn a_remembered_window_size_cannot_hide_the_console() {
+        assert_eq!(clamp_window_size(0, 0), WINDOW_MIN);
+        assert_eq!(clamp_window_size(10_000, 10_000), (3840, 2160));
+        assert_eq!(clamp_window_size(1280, 840), WINDOW_DEFAULT);
+    }
+
+    #[test]
     fn every_menu_item_carries_the_id_its_handler_matches() {
-        let (console, panel, quit) = menu_items();
+        let (console, panel, about, quit) = menu_items();
         assert_eq!(console.id().as_ref(), OPEN_CONSOLE);
         assert_eq!(panel.id().as_ref(), OPEN_PANEL);
+        assert_eq!(about.id().as_ref(), ABOUT);
         assert_eq!(quit.id().as_ref(), QUIT);
     }
 }
