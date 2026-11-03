@@ -297,6 +297,25 @@ Section "Summrise runtime" SecRuntime
     Abort
   ${EndIf}
   FileWrite $6 "health: ok on port ${PORT}$\r$\n"
+  ; `onInit` killed the tray so the image could be replaced. The login Run entry only covers the next
+  ; sign-in; start it now in the logged-on user's session so an upgrade does not look like a
+  ; vanished product. The one-shot task only supplies SYSTEM's SeTcb privilege: the launcher itself
+  ; starts the shell with the user's token, environment and `winsta0\\default`. A failure here is
+  ; logged, not fatal: the next sign-in still starts it.
+  FileOpen $9 "$INSTDIR\start-shell.cmd" w
+  FileWrite $9 "@echo off$\r$\n"
+  FileWrite $9 "$\"$INSTDIR\summrise-launch.exe$\" --start-shell --install $\"$INSTDIR$\"$\r$\n"
+  FileClose $9
+  nsExec::ExecToStack 'schtasks /create /tn SummriseShellStart /tr "$INSTDIR\start-shell.cmd" /sc onstart /ru SYSTEM /rl HIGHEST /f'
+  Pop $0
+  Pop $1
+  FileWrite $6 "shell task create: $0$\r$\n$1$\r$\n"
+  nsExec::ExecToStack 'schtasks /run /tn SummriseShellStart'
+  Pop $0
+  Pop $1
+  FileWrite $6 "shell task run: $0$\r$\n$1$\r$\n"
+  Sleep 5000
+  nsExec::Exec 'schtasks /delete /tn SummriseShellStart /f'
   FileClose $6
 SectionEnd
 
@@ -317,6 +336,7 @@ Section "Uninstall"
   Delete "$INSTDIR\summrise-device.exe"
   Delete "$INSTDIR\summrise-console.exe"
   Delete "$INSTDIR\summrise-device.sidecar.json"
+  Delete "$INSTDIR\start-shell.cmd"
   Delete "$INSTDIR\uninstall.exe"
   ; The launcher writes these, so NSIS has no record of them: without this the two generations
   ; (~30 MB) and the repair record survive an uninstall, and a later install inherits a stale

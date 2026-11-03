@@ -17,7 +17,7 @@
 use std::io;
 use std::mem::{size_of, zeroed};
 
-use windows_sys::Win32::Foundation::{CloseHandle, FALSE, INVALID_HANDLE_VALUE};
+use windows_sys::Win32::Foundation::{CloseHandle, FALSE, HANDLE, INVALID_HANDLE_VALUE};
 use windows_sys::Win32::System::Diagnostics::ToolHelp::{
     CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W, TH32CS_SNAPPROCESS,
 };
@@ -164,6 +164,95 @@ pub fn input_desktop_name() -> io::Result<String> {
     }
 }
 
+/// The window station this process was started on (`WinSta0` is the interactive one).
+pub fn process_window_station_name() -> io::Result<String> {
+    use windows_sys::Win32::System::StationsAndDesktops::GetProcessWindowStation;
+
+    // SAFETY: the handle is process-owned and must not be closed; the buffer is sized by the call.
+    unsafe {
+        let station = GetProcessWindowStation();
+        if station == 0 {
+            return Err(io::Error::last_os_error());
+        }
+        user_object_name(station)
+    }
+}
+
+/// The desktop this thread is attached to (`Default` is the one the user sees).
+pub fn current_thread_desktop_name() -> io::Result<String> {
+    use windows_sys::Win32::System::StationsAndDesktops::GetThreadDesktop;
+    use windows_sys::Win32::System::Threading::GetCurrentThreadId;
+
+    // SAFETY: the handle is owned by the thread; the buffer is sized by the call.
+    unsafe {
+        let desktop = GetThreadDesktop(GetCurrentThreadId());
+        if desktop == 0 {
+            return Err(io::Error::last_os_error());
+        }
+        user_object_name(desktop)
+    }
+}
+
+unsafe fn user_object_name(handle: HANDLE) -> io::Result<String> {
+    use windows_sys::Win32::System::StationsAndDesktops::{GetUserObjectInformationW, UOI_NAME};
+    let mut needed = 0u32;
+    let _ = GetUserObjectInformationW(handle, UOI_NAME, std::ptr::null_mut(), 0, &mut needed);
+    let mut buffer = vec![0u16; (needed as usize / 2).max(1)];
+    let read = GetUserObjectInformationW(
+        handle,
+        UOI_NAME,
+        buffer.as_mut_ptr() as *mut _,
+        (buffer.len() * 2) as u32,
+        &mut needed,
+    );
+    if read == 0 {
+        return Err(io::Error::last_os_error());
+    }
+    let end = buffer
+        .iter()
+        .position(|unit| *unit == 0)
+        .unwrap_or(buffer.len());
+    Ok(String::from_utf16_lossy(&buffer[..end]))
+}
+
+/// Attach the calling thread to the input desktop, for the length of one capture.
+///
+/// A shell started by a service/task can inherit a process window station whose threads are not on
+/// the desktop the user is looking at. `OpenInputDesktop` finds the right one; `SetThreadDesktop`
+/// moves this thread (the HTTP handler has no windows or hooks, which is the only case the call
+/// allows). The handle stays open until the guard drops, then is closed; the thread keeps its
+/// reference for the rest of the request.
+pub struct InputDesktop(HANDLE);
+
+impl Drop for InputDesktop {
+    fn drop(&mut self) {
+        // SAFETY: the handle came from OpenInputDesktop and is closed exactly once.
+        unsafe {
+            windows_sys::Win32::System::StationsAndDesktops::CloseDesktop(self.0);
+        }
+    }
+}
+
+pub fn attach_input_desktop() -> io::Result<InputDesktop> {
+    use windows_sys::Win32::System::StationsAndDesktops::{
+        OpenInputDesktop, SetThreadDesktop, DESKTOP_READOBJECTS, DESKTOP_SWITCHDESKTOP,
+    };
+
+    // SAFETY: the desktop handle is closed on the failure path and owned by the guard on success.
+    unsafe {
+        let desktop = OpenInputDesktop(0, FALSE, DESKTOP_READOBJECTS | DESKTOP_SWITCHDESKTOP);
+        if desktop == 0 {
+            return Err(io::Error::last_os_error());
+        }
+        if SetThreadDesktop(desktop) == 0 {
+            let error = io::Error::last_os_error();
+            windows_sys::Win32::System::StationsAndDesktops::CloseDesktop(desktop);
+            return Err(error);
+        }
+        Ok(InputDesktop(desktop))
+    }
+}
+
 /// Capture the primary screen as top-down RGBA.
 ///
 /// The sequence is the shortest GDI one that produces pixels: a screen DC, a memory DC with a
@@ -188,21 +277,30 @@ pub fn capture_primary_screen() -> io::Result<Screen> {
         }
         let screen = GetDC(0);
         if screen == 0 {
-            return Err(io::Error::last_os_error());
+            return Err(io::Error::other(format!(
+                "GetDC(0): {}",
+                io::Error::last_os_error()
+            )));
         }
         let memory = CreateCompatibleDC(screen);
         if memory == 0 {
+            let error = io::Error::last_os_error();
             ReleaseDC(0, screen);
-            return Err(io::Error::last_os_error());
+            return Err(io::Error::other(format!("CreateCompatibleDC: {error}")));
         }
         let bitmap = CreateCompatibleBitmap(screen, width, height);
         if bitmap == 0 {
+            let error = io::Error::last_os_error();
             DeleteDC(memory);
             ReleaseDC(0, screen);
-            return Err(io::Error::last_os_error());
+            return Err(io::Error::other(format!("CreateCompatibleBitmap: {error}")));
         }
         let previous = SelectObject(memory, bitmap);
         let copied = BitBlt(memory, 0, 0, width, height, screen, 0, 0, SRCCOPY);
+        // GetDIBits fails with ERROR_INVALID_HANDLE when the bitmap is still selected into the
+        // memory DC. RDP's display driver enforces what a local GPU driver often tolerates, which
+        // is why this worked on some machines and answered "no surface" on 14RJCR8.
+        SelectObject(memory, previous);
 
         let mut info: BITMAPINFO = zeroed();
         info.bmiHeader.biSize = size_of::<BITMAPINFOHEADER>() as u32;
@@ -227,16 +325,15 @@ pub fn capture_primary_screen() -> io::Result<Screen> {
         };
         let error = io::Error::last_os_error();
 
-        SelectObject(memory, previous);
         DeleteObject(bitmap);
         DeleteDC(memory);
         ReleaseDC(0, screen);
 
         if copied == 0 {
-            return Err(error);
+            return Err(io::Error::other(format!("BitBlt: {error}")));
         }
         if lines == 0 {
-            return Err(error);
+            return Err(io::Error::other(format!("GetDIBits: {error}")));
         }
         // GDI hands back BGRA; the PNG the caller writes wants RGBA.
         for pixel in rgba.as_chunks_mut::<4>().0 {

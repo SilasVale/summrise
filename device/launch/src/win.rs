@@ -13,7 +13,7 @@
 //! it. Because the supervisor never exits to perform a swap, the SCM owns the process throughout and
 //! the kill-on-close job cannot kill the updater.
 
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 use std::fs;
 use std::io;
 use std::io::Write as _;
@@ -47,11 +47,20 @@ use windows_service::service_control_handler::{
 };
 use windows_service::service_manager::{ServiceManager, ServiceManagerAccess};
 use windows_sys::Win32::Foundation::{
-    CloseHandle, GetLastError, ERROR_ALREADY_EXISTS, HANDLE, WAIT_OBJECT_0,
+    CloseHandle, GetLastError, ERROR_ALREADY_EXISTS, FALSE, HANDLE, WAIT_OBJECT_0,
+};
+use windows_sys::Win32::Security::{
+    DuplicateTokenEx, SecurityImpersonation, TokenPrimary, TOKEN_ALL_ACCESS,
+};
+use windows_sys::Win32::System::Environment::{CreateEnvironmentBlock, DestroyEnvironmentBlock};
+use windows_sys::Win32::System::RemoteDesktop::{
+    WTSActive, WTSEnumerateSessionsW, WTSFreeMemory, WTSQueryUserToken, WTS_CURRENT_SERVER_HANDLE,
+    WTS_SESSION_INFOW,
 };
 use windows_sys::Win32::System::Threading::{
-    CreateMutexW, OpenProcess, QueryFullProcessImageNameW, TerminateProcess, WaitForSingleObject,
-    PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_TERMINATE,
+    CreateMutexW, CreateProcessAsUserW, OpenProcess, QueryFullProcessImageNameW, TerminateProcess,
+    WaitForSingleObject, CREATE_UNICODE_ENVIRONMENT, PROCESS_INFORMATION,
+    PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_TERMINATE, STARTUPINFOW,
 };
 
 /// The SCM service name. It is fixed because the installer and the operator's `--apply` both have to
@@ -115,6 +124,10 @@ pub fn entry() -> ExitCode {
                 Err(error) => fail(&error),
             }
         }
+        "--start-shell" => match parse_start_shell_args(&args[1..]) {
+            Ok(install) => start_shell(&install),
+            Err(error) => fail(&error),
+        },
         "--install-service" => match parse_install_args(&args[1..]) {
             Ok((config, seed_sidecar, console, replace)) => {
                 match persist_console_link(&config, console.as_ref()) {
@@ -199,6 +212,7 @@ summrise-launch — repair, supervise and swap summrise-device.exe
                       [--mesh-broker ORIGIN [--mesh-relay ADDR] [--mesh-stun ADDR]]
   summrise-launch service [--service-name NAME]
   summrise-launch --apply <staged> <sidecar> [--install DIR] [--data DIR] [--port N]
+  summrise-launch --start-shell [--install <dir>]
   summrise-launch --install-service [--replace-baseline] [--seed-sidecar <path>]
                       [--install DIR] [--data DIR] [--port N]
                       [--console-url URL --console-token-file PATH]
@@ -276,6 +290,175 @@ fn absolute(path: &Path) -> PathBuf {
 /// never accept a sidecar from argv, so it is removed here and passed to the installer only (NEW-1).
 /// The remote flags are removed for the same reason and persisted as `<data>/console.json` (C3):
 /// the service's argv carries no remote fact, and its environment is not settable from here.
+/// Parse `--start-shell`: where the shell binary lives. The installer passes `--install`; a human can
+/// run it from the install directory and let the parent of this executable be the default.
+fn parse_start_shell_args(args: &[String]) -> Result<PathBuf, String> {
+    let mut install = None;
+    let mut index = 0;
+    while index < args.len() {
+        match args[index].as_str() {
+            "--install" => {
+                let value = args
+                    .get(index + 1)
+                    .ok_or("--start-shell: --install needs <dir>")?;
+                install = Some(absolute(Path::new(value)));
+                index += 2;
+            }
+            other => return Err(format!("--start-shell: unknown argument '{other}'")),
+        }
+    }
+    let install = install
+        .or_else(|| {
+            std::env::current_exe()
+                .ok()
+                .and_then(|exe| exe.parent().map(Path::to_path_buf))
+        })
+        .ok_or("--start-shell: cannot find the install directory")?;
+    if !install.join("summrise-shell.exe").is_file() {
+        return Err(format!(
+            "--start-shell: no summrise-shell.exe in {}",
+            install.display()
+        ));
+    }
+    Ok(install)
+}
+
+/// Start the tray in every active user session.
+///
+/// The installer runs elevated, not as SYSTEM; `WTSQueryUserToken` needs SeTcb, so the installer calls
+/// this through a one-shot SYSTEM task rather than relying on its own token. The shell is started
+/// with the *user's* primary token, environment block and `winsta0\default`, which is what makes the
+/// WebView2 profile land in LocalAppData and the capture thread see the input desktop.
+fn start_shell(install: &Path) -> ExitCode {
+    match start_shell_in_active_sessions(install) {
+        Ok(0) => {
+            eprintln!("start-shell: no active user session; the login Run entry will start it");
+            ExitCode::SUCCESS
+        }
+        Ok(count) => {
+            println!("start-shell: started the shell in {count} active session(s)");
+            ExitCode::SUCCESS
+        }
+        Err(error) => fail(&error),
+    }
+}
+
+fn start_shell_in_active_sessions(install: &Path) -> Result<usize, String> {
+    // SAFETY: the session buffer is freed once, after the slice is no longer used; every token and
+    // process handle is closed on every path.
+    unsafe {
+        let mut sessions: *mut WTS_SESSION_INFOW = std::ptr::null_mut();
+        let mut count = 0u32;
+        if WTSEnumerateSessionsW(WTS_CURRENT_SERVER_HANDLE, 0, 1, &mut sessions, &mut count) == 0 {
+            return Err(format!(
+                "cannot enumerate the machine's sessions: {}",
+                io::Error::last_os_error()
+            ));
+        }
+        let slice = if sessions.is_null() {
+            &[][..]
+        } else {
+            std::slice::from_raw_parts(sessions, count as usize)
+        };
+        let mut started = 0usize;
+        let mut last_error = None;
+        for session in slice {
+            if session.State != WTSActive {
+                continue;
+            }
+            let mut user_token: HANDLE = 0;
+            if WTSQueryUserToken(session.SessionId, &mut user_token) == 0 {
+                // A console session at the sign-in screen is active but has no user token; that is
+                // not a failure to start a shell, it is a session with nobody to start it for.
+                continue;
+            }
+            let outcome = start_shell_with_token(install, user_token);
+            CloseHandle(user_token);
+            match outcome {
+                Ok(()) => started += 1,
+                Err(error) => last_error = Some(error),
+            }
+        }
+        WTSFreeMemory(sessions.cast());
+        if started == 0 {
+            if let Some(error) = last_error {
+                return Err(error);
+            }
+        }
+        Ok(started)
+    }
+}
+
+unsafe fn start_shell_with_token(install: &Path, user_token: HANDLE) -> Result<(), String> {
+    let mut primary: HANDLE = 0;
+    if DuplicateTokenEx(
+        user_token,
+        TOKEN_ALL_ACCESS,
+        std::ptr::null(),
+        SecurityImpersonation,
+        TokenPrimary,
+        &mut primary,
+    ) == 0
+    {
+        return Err(format!(
+            "cannot duplicate the user's token: {}",
+            io::Error::last_os_error()
+        ));
+    }
+
+    let mut environment: *mut std::ffi::c_void = std::ptr::null_mut();
+    let has_environment = CreateEnvironmentBlock(&mut environment, primary, FALSE) != 0;
+
+    let mut desktop: Vec<u16> = OsStr::new("winsta0\\default")
+        .encode_wide()
+        .chain(Some(0))
+        .collect();
+    let mut command: Vec<u16> = format!("\"{}\"", install.join("summrise-shell.exe").display())
+        .encode_utf16()
+        .chain(Some(0))
+        .collect();
+    let current: Vec<u16> = install.as_os_str().encode_wide().chain(Some(0)).collect();
+
+    let mut startup: STARTUPINFOW = std::mem::zeroed();
+    startup.cb = std::mem::size_of::<STARTUPINFOW>() as u32;
+    startup.lpDesktop = desktop.as_mut_ptr();
+    let mut process: PROCESS_INFORMATION = std::mem::zeroed();
+    let started = CreateProcessAsUserW(
+        primary,
+        std::ptr::null(),
+        command.as_mut_ptr(),
+        std::ptr::null(),
+        std::ptr::null(),
+        FALSE,
+        CREATE_UNICODE_ENVIRONMENT,
+        if has_environment {
+            environment
+        } else {
+            std::ptr::null()
+        },
+        current.as_ptr(),
+        &startup,
+        &mut process,
+    );
+    let error = io::Error::last_os_error();
+
+    if has_environment {
+        DestroyEnvironmentBlock(environment);
+    }
+    if started != 0 {
+        CloseHandle(process.hProcess);
+        CloseHandle(process.hThread);
+    }
+    CloseHandle(primary);
+
+    if started == 0 {
+        return Err(format!(
+            "cannot start summrise-shell.exe in the user session: {error}"
+        ));
+    }
+    Ok(())
+}
+
 fn parse_install_args(
     args: &[String],
 ) -> Result<(Config, Option<PathBuf>, Option<ConsoleLink>, bool), String> {

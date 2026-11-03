@@ -166,11 +166,20 @@ struct Picture {
 fn capture() -> Result<Picture, String> {
     #[cfg(windows)]
     {
+        // The HTTP handler runs on a thread that may not be on the input desktop even when the
+        // process is: attach before GDI, or GetDC answers ERROR_INVALID_HANDLE while the user is
+        // looking at a perfectly good screen.
+        let _input = summrise_winsys::attach_input_desktop().map_err(|error| {
+            format!("the capture thread could not attach to the input desktop: {error}")
+        })?;
         let desktop = summrise_winsys::input_desktop_name()
             .map_err(|error| format!("the input desktop could not be read: {error}"))?;
         if desktop != "Default" {
             return Err(format!("the session is locked ({desktop})"));
         }
+        let station = summrise_winsys::process_window_station_name().unwrap_or_else(|_| "?".into());
+        let thread_desktop =
+            summrise_winsys::current_thread_desktop_name().unwrap_or_else(|_| "?".into());
         let screen = summrise_winsys::capture_primary_screen().map_err(|error| {
             // A disconnected RDP session passes the desktop check and then has no surface to copy:
             // Windows answers ERROR_INVALID_HANDLE. That is the same fact as a locked session — no
@@ -179,7 +188,9 @@ fn capture() -> Result<Picture, String> {
                 "the session is not being displayed: the desktop has no surface to capture"
                     .to_owned()
             } else {
-                format!("the screen could not be captured: {error}")
+                format!(
+                    "the screen could not be captured: {error} (winsta={station}, desktop={thread_desktop})"
+                )
             }
         })?;
         if is_uniform(&screen.rgba) {
