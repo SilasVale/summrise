@@ -84,6 +84,23 @@ try {
   if (phase === 'pages') {
     // THE DEVICE TABS, on a real device with real data. Each is photographed as it arrives: the
     // first-run state of a machine that has not been used yet is the one an operator meets first.
+    // The console's other destinations first: they are what an operator sees before choosing a
+    // machine, and they read real fleet data on this rig.
+    for (const [label, key] of [
+      ['Home', 'home'],
+      ['Capabilities', 'capabilities'],
+      ['Activity', 'activity'],
+      ['Plugins', 'plugins']
+    ]) {
+      await page.locator(`nav.rail button[title="${label}"]`).click();
+      await page.waitForTimeout(1200);
+      const text = (await page.locator('main').innerText().catch(() => '')).replace(/\s+/g, ' ');
+      console.log(`page ${key}: ${JSON.stringify(text.slice(0, 200))}`);
+      await shot(`page-${key}`);
+    }
+    await page.locator('nav.rail button[title="Device"]').click();
+    await page.waitForTimeout(600);
+
     const tabs = [
       ['Files', 'files'],
       ['Runs', 'runs'],
@@ -194,6 +211,16 @@ try {
       failures.push('the Browser view does not say it cannot list an offline machine');
     }
     await shot('offline-screen');
+
+    // Home with the machine down: the door an operator copies from must say it is shut, not offer a
+    // URL that cannot answer.
+    await page.locator('nav.rail button[title="Home"]').click();
+    await page.waitForTimeout(1200);
+    const homeText = (await page.locator('main').innerText().catch(() => '')).replace(/\s+/g, ' ');
+    if (!homeText.includes('is not connected')) {
+      failures.push('Home with an offline machine does not say the machine is not connected');
+    }
+    await shot('home-offline');
 
     // By now every device tab has been opened against a machine that is down. Not one of them may
     // have sent a proxy call.
