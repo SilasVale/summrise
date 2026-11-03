@@ -238,7 +238,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
                 OPEN_LOGS => open_log_folder(),
                 QUIT => {
                     if let Some((window, _)) = ui.as_ref() {
-                        save_window_size(window);
+                        save_window_geometry(window);
                     }
                     *control_flow = ControlFlow::Exit
                 }
@@ -251,7 +251,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
                 // The tray stays; the window is rebuilt by the next click. Quitting is a menu item,
                 // so a closed window cannot leave a device with no way back to its icon.
                 if let Some((window, _)) = ui.as_ref() {
-                    save_window_size(window);
+                    save_window_geometry(window);
                 }
                 ui = None;
             }
@@ -576,15 +576,17 @@ fn open_console(
         window.set_focus();
         return;
     }
-    let (width, height) = saved_window_size();
-    let window = match WindowBuilder::new()
+    let (width, height, position) = saved_window_geometry();
+    let mut builder = WindowBuilder::new()
         .with_title("Summrise console")
         .with_window_icon(window_icon())
         .with_inner_size(tao::dpi::PhysicalSize::new(width, height))
         .with_min_inner_size(tao::dpi::PhysicalSize::new(WINDOW_MIN.0, WINDOW_MIN.1))
-        .with_visible(true)
-        .build(target)
-    {
+        .with_visible(true);
+    if let Some(position) = position {
+        builder = builder.with_position(position);
+    }
+    let window = match builder.build(target) {
         Ok(window) => window,
         Err(error) => {
             // A menu click that does nothing is a dead button; the log is where it says why.
@@ -654,18 +656,20 @@ fn window_state_path() -> Option<std::path::PathBuf> {
     Some(base.join("Summrise").join("window.json"))
 }
 
-/// The last size, clamped to the window's usable range. A corrupt or absent file means the default:
-/// a remembered number must never make the window disappear.
+/// The last size and position, clamped to the window's usable range. A corrupt or absent file
+/// means the default: a remembered number must never make the window disappear. A position is only
+/// restored when it still overlaps the virtual desktop, so unplugging a monitor cannot strand the
+/// window off-screen.
 #[cfg(windows)]
-fn saved_window_size() -> (u32, u32) {
+fn saved_window_geometry() -> (u32, u32, Option<tao::dpi::PhysicalPosition<i32>>) {
     let Some(path) = window_state_path() else {
-        return WINDOW_DEFAULT;
+        return (WINDOW_DEFAULT.0, WINDOW_DEFAULT.1, None);
     };
     let Ok(text) = std::fs::read_to_string(path) else {
-        return WINDOW_DEFAULT;
+        return (WINDOW_DEFAULT.0, WINDOW_DEFAULT.1, None);
     };
     let Ok(value) = serde_json::from_str::<serde_json::Value>(&text) else {
-        return WINDOW_DEFAULT;
+        return (WINDOW_DEFAULT.0, WINDOW_DEFAULT.1, None);
     };
     let width = value
         .get("width")
@@ -675,7 +679,13 @@ fn saved_window_size() -> (u32, u32) {
         .get("height")
         .and_then(serde_json::Value::as_u64)
         .unwrap_or(WINDOW_DEFAULT.1 as u64) as u32;
-    clamp_window_size(width, height)
+    let (width, height) = clamp_window_size(width, height);
+    let position = value
+        .get("x")
+        .and_then(serde_json::Value::as_i64)
+        .zip(value.get("y").and_then(serde_json::Value::as_i64))
+        .and_then(|(x, y)| visible_position(x as i32, y as i32, width, height));
+    (width, height, position)
 }
 
 /// Keep a remembered size inside the range a console can actually use.
@@ -686,10 +696,73 @@ fn clamp_window_size(width: u32, height: u32) -> (u32, u32) {
     )
 }
 
-/// Remember the window's size for the next open. Best effort: a read-only profile is not a reason to
-/// fail a close.
+/// Whether a window at `x,y` still has a useful part on the virtual desktop. A window entirely off
+/// every monitor is a window the operator cannot reach.
+fn within_virtual(
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
+    virtual_x: i32,
+    virtual_y: i32,
+    virtual_width: i32,
+    virtual_height: i32,
+) -> bool {
+    let right = x.saturating_add(width as i32);
+    let bottom = y.saturating_add(height as i32);
+    right > virtual_x + 50
+        && x < virtual_x + virtual_width - 50
+        && bottom > virtual_y + 50
+        && y < virtual_y + virtual_height - 50
+}
+
 #[cfg(windows)]
-fn save_window_size(window: &tao::window::Window) {
+fn visible_position(
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
+) -> Option<tao::dpi::PhysicalPosition<i32>> {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        GetSystemMetrics, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN,
+        SM_YVIRTUALSCREEN,
+    };
+    // SAFETY: GetSystemMetrics reads a process-wide value and has no failure mode for these indexes.
+    let (virtual_x, virtual_y, virtual_width, virtual_height) = unsafe {
+        (
+            GetSystemMetrics(SM_XVIRTUALSCREEN),
+            GetSystemMetrics(SM_YVIRTUALSCREEN),
+            GetSystemMetrics(SM_CXVIRTUALSCREEN),
+            GetSystemMetrics(SM_CYVIRTUALSCREEN),
+        )
+    };
+    within_virtual(
+        x,
+        y,
+        width,
+        height,
+        virtual_x,
+        virtual_y,
+        virtual_width,
+        virtual_height,
+    )
+    .then_some(tao::dpi::PhysicalPosition::new(x, y))
+}
+
+#[cfg(not(windows))]
+fn visible_position(
+    _x: i32,
+    _y: i32,
+    _width: u32,
+    _height: u32,
+) -> Option<tao::dpi::PhysicalPosition<i32>> {
+    None
+}
+
+/// Remember the window's size and position for the next open. Best effort: a read-only profile is
+/// not a reason to fail a close.
+#[cfg(windows)]
+fn save_window_geometry(window: &tao::window::Window) {
     let Some(path) = window_state_path() else {
         return;
     };
@@ -700,9 +773,16 @@ fn save_window_size(window: &tao::window::Window) {
     if let Some(parent) = path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
-    let value = serde_json::json!({ "width": size.width, "height": size.height });
+    let mut value = serde_json::json!({
+        "width": size.width,
+        "height": size.height,
+    });
+    if let Ok(position) = window.outer_position() {
+        value["x"] = serde_json::json!(position.x);
+        value["y"] = serde_json::json!(position.y);
+    }
     if let Err(error) = std::fs::write(&path, value.to_string()) {
-        crate::note(&format!("cannot remember the window size: {error}"));
+        crate::note(&format!("cannot remember the window geometry: {error}"));
     }
 }
 
@@ -1075,6 +1155,14 @@ mod tests {
         assert_eq!(clamp_window_size(0, 0), WINDOW_MIN);
         assert_eq!(clamp_window_size(10_000, 10_000), (3840, 2160));
         assert_eq!(clamp_window_size(1280, 840), WINDOW_DEFAULT);
+    }
+
+    #[test]
+    fn an_offscreen_window_position_is_not_restored() {
+        assert!(within_virtual(100, 100, 1280, 840, 0, 0, 2560, 1440));
+        assert!(within_virtual(-100, 100, 1280, 840, 0, 0, 2560, 1440));
+        assert!(!within_virtual(-2000, 100, 1280, 840, 0, 0, 2560, 1440));
+        assert!(!within_virtual(100, 3000, 1280, 840, 0, 0, 2560, 1440));
     }
 
     #[test]
