@@ -631,7 +631,7 @@ export function App() {
                 ) : null}
                 {tab === "files" && grant ? (
                   <section className="panel">
-                    <FilesPage grant={grant} />
+                    <FilesPage grant={grant} deviceOnline={chosen?.online} />
                   </section>
                 ) : null}
                 {tab === "runs" && grant ? (

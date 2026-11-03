@@ -52,8 +52,8 @@ const url = option('url');
 const tokenFile = option('token-file');
 const out = option('out', '/tmp/console-live-shot');
 const browserPath = option('browser', process.env.CONSOLE_BROWSER || '/usr/bin/google-chrome');
-if (!['live', 'offline'].includes(phase) || !url || !tokenFile) {
-  console.error('usage: --phase live|offline --url <app-url> --token-file <path> [--out dir]');
+if (!['live', 'offline', 'pages'].includes(phase) || !url || !tokenFile) {
+  console.error('usage: --phase live|offline|pages --url <app-url> --token-file <path> [--out dir]');
   process.exit(3);
 }
 
@@ -81,7 +81,38 @@ try {
   await page.locator('nav.device-tabs').getByRole('button', { name: 'Terminal', exact: true }).click();
   await page.waitForTimeout(800);
 
-  if (phase === 'live') {
+  if (phase === 'pages') {
+    // THE DEVICE TABS, on a real device with real data. Each is photographed as it arrives: the
+    // first-run state of a machine that has not been used yet is the one an operator meets first.
+    const tabs = [
+      ['Files', 'files'],
+      ['Runs', 'runs'],
+      ['Machine', 'machine'],
+      ['Screen', 'screen']
+    ];
+    for (const [label, file] of tabs) {
+      await page.locator('nav.device-tabs').getByRole('button', { name: label, exact: true }).click();
+      await page.waitForTimeout(1200);
+      const text = (await page.locator('main').innerText().catch(() => '')).replace(/\s+/g, ' ');
+      console.log(`page ${file}: ${JSON.stringify(text.slice(0, 220))}`);
+      await shot(`page-${file}`);
+
+      // FILES IS THE ONE PAGE WITH A WRITE THAT NEEDS NOTHING ELSE. Making a folder through the
+      // form, on a real device, is the difference between "the list renders" and "the page works".
+      if (file === 'files') {
+        const name = `rig-${Date.now().toString(36)}`;
+        await page.locator('#files-new-folder').fill(name);
+        await page.getByRole('button', { name: 'Create', exact: true }).click();
+        await page.waitForTimeout(1500);
+        // The row renders a directory as `name/`, so the match is a substring on purpose.
+        const listed = await page.getByText(name).count();
+        if (listed === 0) failures.push(`Files did not list the folder it just created (${name})`);
+        console.log(`files create: ${listed > 0 ? 'ok' : 'MISSING'} (${name})`);
+        await shot('page-files-created');
+      }
+    }
+    await page.locator('nav.device-tabs').getByRole('button', { name: 'Terminal', exact: true }).click();
+  } else if (phase === 'live') {
     const start = page.getByRole('button', { name: '+ New session' });
     if (await start.isDisabled()) failures.push('New session is disabled although the device is serving');
     await start.click();
@@ -122,6 +153,22 @@ try {
     );
     if (mcp > 0) failures.push(`the page asked an offline machine for data (${mcp} /mcp request(s))`);
     await shot('terminal-offline');
+
+    // THE NOTICE BELONGS TO EVERY DEVICE TAB, not only the one it was written for: Files is the
+    // other page an operator reaches for when a machine stops answering.
+    await page.locator('nav.device-tabs').getByRole('button', { name: 'Files', exact: true }).click();
+    await page.waitForTimeout(1200);
+    const filesNotice = page.locator('.offline-notice').filter({ hasText: 'Nothing on this page can reach it' });
+    if (!(await filesNotice.isVisible().catch(() => false))) {
+      failures.push('Files on an offline machine does not carry the offline notice');
+    }
+    // And it must not still be reading: the page sat on "Reading the device's files root…" for as
+    // long as the console's dial took, which reads as a stuck page rather than an absent machine.
+    const filesText = (await page.locator('main').innerText().catch(() => '')).replace(/\s+/g, ' ');
+    if (!filesText.includes('cannot be read until it reconnects')) {
+      failures.push('Files on an offline machine does not say its files cannot be read');
+    }
+    await shot('files-offline');
   }
 } catch (error) {
   failures.push(`the rig could not drive the page: ${error instanceof Error ? error.message : String(error)}`);
@@ -133,4 +180,5 @@ if (failures.length > 0) {
   for (const failure of failures) console.error(`console-live-check: ${phase}: ${failure}`);
   process.exit(2);
 }
-console.log(`console-live-check: ${phase}: ok (${path.join(out, phase === 'live' ? 'terminal-live.png' : 'terminal-offline.png')})`);
+const shotName = { live: 'terminal-live.png', offline: 'terminal-offline.png', pages: 'page-*.png' }[phase];
+console.log(`console-live-check: ${phase}: ok (${path.join(out, shotName)})`);

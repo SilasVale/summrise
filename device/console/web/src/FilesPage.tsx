@@ -49,7 +49,18 @@ const MAX_FILE_BYTES = 1024 * 1024;
  * encodings, so an over-cap file is reported as a fact with no action that must fail. Every read is
  * gated so the newest listing or file wins; a failed listing keeps the previous one where it is.
  */
-export function FilesPage({ grant }: { grant: Grant }) {
+export function FilesPage({
+  grant,
+  deviceOnline
+}: {
+  grant: Grant;
+  /**
+   * The machine's reachability from the fleet read, as the Terminal page takes it. `undefined` is
+   * "no opinion" and is treated as online; only `false` is a fact.
+   */
+  deviceOnline?: boolean;
+}) {
+  const offline = deviceOnline === false;
   // Files are read from one of the operator-configured roots. `workspace` is the default and the
   // only one always present; `shared` is H:\tmp-style storage that the device exposes only when
   // `--files-shared-root` was set. The page does not guess: sending `shared` to a device without it
@@ -157,8 +168,16 @@ export function FilesPage({ grant }: { grant: Grant }) {
     setFolderName("");
     setActionNote(null);
     setActionError(null);
+    // A MACHINE THE FLEET SAYS IS DOWN IS NOT ASKED. The read cannot reach it; the page used to sit
+    // on "Reading the device's files root…" until the console's dial timed out, which reads as a
+    // stuck page rather than an absent machine.
+    if (offline) {
+      setNote("The machine is offline; its files cannot be read until it reconnects.");
+      setLoadingDir(false);
+      return;
+    }
     void read("");
-  }, [read, fileGate, grant]);
+  }, [read, fileGate, grant, offline]);
 
   const closeViewer = () => {
     // A read still on the wire must not reopen what the operator just closed.
@@ -364,14 +383,19 @@ export function FilesPage({ grant }: { grant: Grant }) {
             Root
             <select
               value={root}
-              disabled={loadingDir}
+              disabled={loadingDir || offline}
               onChange={(event) => switchRoot(event.target.value as "workspace" | "shared")}
             >
               <option value="workspace">Workspace</option>
               <option value="shared">Shared</option>
             </select>
           </label>
-          <button type="button" disabled={loadingDir} onClick={() => void read(dir)}>
+          <button
+            type="button"
+            disabled={loadingDir || offline}
+            title={offline ? "The machine is offline; the list refreshes when it reconnects" : undefined}
+            onClick={() => void read(dir)}
+          >
             {loadingDir ? "Reading…" : "Refresh"}
           </button>
         </div>
@@ -423,7 +447,8 @@ export function FilesPage({ grant }: { grant: Grant }) {
             <button
               type="submit"
               className="mini"
-              disabled={creating || folderName.trim() === ""}
+              disabled={creating || folderName.trim() === "" || offline}
+              title={offline ? "The machine is offline; a folder can be made when it reconnects" : undefined}
             >
               {creating ? "Creating…" : "Create"}
             </button>
@@ -436,7 +461,7 @@ export function FilesPage({ grant }: { grant: Grant }) {
             <input
               id="files-upload"
               type="file"
-              disabled={uploading}
+              disabled={uploading || offline}
               onChange={(event) => void upload(event)}
             />
           </label>
@@ -700,7 +725,9 @@ function entryOrder(left: Entry, right: Entry): number {
 
 function listNote(rows: Entry[]): string {
   if (rows.length === 0) {
-    return "This folder is empty; create one above or upload a file into it.";
+    // THE CONTROLS ARE BELOW THIS SENTENCE, and the sentence used to say "above": it named a
+    // direction the page does not have. Naming the two controls is true at every width.
+    return "This folder is empty. Use New folder or Upload a file to add something.";
   }
   const folders = rows.filter((entry) => entry.kind === "directory").length;
   const files = rows.filter((entry) => entry.kind === "file").length;

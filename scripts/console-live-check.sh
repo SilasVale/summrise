@@ -117,6 +117,11 @@ wait_for 15 '[[ "$(online_now)" == "1" ]]' ||
 node "$root/scripts/console-live-check.mjs" --phase live \
     --url "http://127.0.0.1:$port/app" --token-file "$work/operator.token" --out "$out"
 
+# The device's other tabs, with the same real device: Files, Runs, Machine and Screen as an
+# operator first meets them.
+node "$root/scripts/console-live-check.mjs" --phase pages \
+    --url "http://127.0.0.1:$port/app" --token-file "$work/operator.token" --out "$out"
+
 kill "${pids[1]}" 2>/dev/null || true
 wait_for 20 '[[ "$(online_now)" == "0" ]]' ||
     { echo "console-live-check: the console still reports the device online" >&2; exit 3; }

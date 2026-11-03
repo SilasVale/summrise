@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FilesPage } from "./FilesPage";
 import { callTool, ToolError, type Grant } from "./terminal";
@@ -36,6 +36,19 @@ function listedPath(args: Record<string, unknown>): string {
 describe("FilesPage listing", () => {
   beforeEach(() => {
     mocked.mockReset();
+  });
+
+  it("does not ask a machine the fleet says is down, and says so", async () => {
+    render(<FilesPage grant={GRANT} deviceOnline={false} />);
+    // THE READ IS NOT SENT. The page used to sit on "Reading the device's files root…" until the
+    // console's dial timed out — a stuck page where the truth was an absent machine.
+    await waitFor(() => expect(mocked).not.toHaveBeenCalled());
+    expect(
+      screen.getByText("The machine is offline; its files cannot be read until it reconnects.")
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Refresh" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Create" })).toBeDisabled();
+    expect(screen.getByLabelText("Upload a file")).toBeDisabled();
   });
 
   it("keeps the upload control labelled and focusable", async () => {
@@ -200,7 +213,7 @@ describe("FilesPage opening a file", () => {
     render(<FilesPage grant={GRANT} />);
     await screen.findByRole("button", { name: "docs/" });
     fireEvent.click(screen.getByRole("button", { name: "docs/" }));
-    await screen.findByText("This folder is empty; create one above or upload a file into it.");
+    await screen.findByText("This folder is empty. Use New folder or Upload a file to add something.");
 
     fireEvent.change(screen.getByLabelText("New folder"), {
       target: { value: "reports" }
