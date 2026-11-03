@@ -34,7 +34,7 @@ jobs:
       # The Windows job still owns the service, installer and swap; this owns "the portable half
       # boots", which no test that only calls functions can prove.
       - name: the device core serves on Linux
-        run: ./scripts/device-linux-smoke.sh
+        run: ./scripts/device-unix-smoke.sh
       # The systemd unit is what makes that binary a service; verify its syntax and ExecStart with
       # the binary this job just built, without root or a running systemd.
       - name: the Linux service unit is valid
@@ -74,6 +74,24 @@ jobs:
           mkdir -p "$SUMMRISE_PANEL_DIR"
           cargo test --quiet --manifest-path device/Cargo.toml -p summrise-device --bin summrise-device -- --ignored render_panel_for_review
           node scripts/layout-gate.mjs "$SUMMRISE_PANEL_DIR" 390 1280
+
+  device-macos:
+    name: device (macOS smoke, provisional)
+    runs-on: macos-latest
+    timeout-minutes: 45
+    # **PROVISIONAL UNTIL THERE IS A GREEN RUN.** The code paths are `cfg(unix)` and the unit and
+    # smoke are shared with Linux, but this project has not executed on macOS yet. The job is here to
+    # produce the first evidence, not to claim it; it does not block a merge while that is true.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.98.1
+      - name: build the device for macOS
+        run: cargo build --manifest-path device/Cargo.toml -p summrise-device
+      - name: the core serves on macOS
+        run: ./scripts/device-unix-smoke.sh
 
   console-web:
     name: console web (the React page)

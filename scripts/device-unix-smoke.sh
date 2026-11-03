@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
-# The Phase 2 floor: the device core, not a GUI, serves its health document and its panel on Linux.
+# The Phase 2 floor: the device core, not a GUI, serves its health document, its panel and its MCP
+# registry on Linux and macOS.
 #
 # This is a run, not another unit test. It starts the same `summrise-device` binary the Windows
-# service runs, with a throwaway install/data pair and a loopback port, and asks the two questions an
-# operator asks first. The Windows lifecycle suite owns the service, installer and swap; this owns
-# "the portable half actually boots".
+# service runs, with a throwaway install/data pair and a loopback port, then asks health, the panel
+# and the MCP tool list. The Windows lifecycle suite owns the service, installer and swap; this owns
+# "the portable half actually boots" on the Unix targets.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -34,7 +35,9 @@ cargo build --manifest-path "$ROOT/device/Cargo.toml" -p summrise-device
 PID=$!
 
 HEALTH="$WORK/health.json"
-for _ in $(seq 1 100); do
+i=0
+while [ "$i" -lt 100 ]; do
+    i=$((i + 1))
     if curl -fsS -m 1 "http://127.0.0.1:$PORT/api/health" >"$HEALTH" 2>/dev/null; then
         break
     fi
@@ -88,4 +91,4 @@ if ! grep -q 'terminal.create' "$WORK/tools.json"; then
     exit 1
 fi
 
-echo "DEVICE_LINUX_SMOKE_OK port=$PORT panel_bytes=$(wc -c <"$WORK/panel.html") health=$(cat "$HEALTH") mcp_tools=terminal.create"
+echo "DEVICE_UNIX_SMOKE_OK port=$PORT panel_bytes=$(wc -c <"$WORK/panel.html") health=$(cat "$HEALTH") mcp_tools=terminal.create"
