@@ -672,6 +672,8 @@ export function App() {
               <TerminalWorkspace
                 grant={grant}
                 visible={page === "device" && tab === "terminal"}
+                deviceOnline={chosen.online}
+                lastSeenMs={chosen.last_seen_ms}
                 onGrantRefused={() => setGrantStale(true)}
               />
             </section>

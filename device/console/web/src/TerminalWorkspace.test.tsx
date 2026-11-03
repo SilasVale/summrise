@@ -157,6 +157,35 @@ describe("TerminalWorkspace tab names", () => {
     expect(screen.queryByRole("button", { name: "Attach to a session" })).not.toBeInTheDocument();
   });
 
+  it("says the machine is offline before it says anything about sessions", async () => {
+    const seen = Date.now() - 5 * 60_000;
+    const { container } = render(
+      <TerminalWorkspace grant={GRANT} deviceOnline={false} lastSeenMs={seen} />
+    );
+    // The empty page had one explanation for two causes: "no session" was printed over a machine
+    // that could not answer at all. The machine's state is now the page's first sentence.
+    const banner = container.querySelector(".terminal-offline");
+    expect(banner).not.toBeNull();
+    expect(banner).toHaveTextContent("This machine is offline.");
+    expect(banner).toHaveTextContent(/last seen/i);
+    // And the empty state must not promise the action the page has just disabled.
+    expect(await screen.findByText(/A shell can start when the machine reconnects/)).toBeInTheDocument();
+    expect(screen.queryByText(/New session opens a shell/)).not.toBeInTheDocument();
+  });
+
+  it("turns off the action an offline machine cannot satisfy, and says why", () => {
+    render(<TerminalWorkspace grant={GRANT} deviceOnline={false} />);
+    const start = screen.getByRole("button", { name: "+ New session" });
+    expect(start).toBeDisabled();
+    expect(start.getAttribute("title")).toMatch(/reconnects/);
+  });
+
+  it("does not accuse a machine it knows nothing about", () => {
+    const { container } = render(<TerminalWorkspace grant={GRANT} />);
+    expect(container.querySelector(".terminal-offline")).toBeNull();
+    expect(screen.getByRole("button", { name: "+ New session" })).toBeEnabled();
+  });
+
   it("attaches the device's only live session without an Attach click", async () => {
     callToolMock.mockImplementation(async (_grant, name) => {
       if (name === "terminal.list") return JSON.stringify([{ id: "live-1", kind: "pty" }]);

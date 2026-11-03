@@ -1542,6 +1542,23 @@ async function captureWorkspace(page, state, pass) {
       note: 'the real Files root with the upload control; the list is the stub fixture'
     });
     console.log(`  ${pass.key.padEnd(6)} ${filesFile}`);
+
+    // AN OFFLINE MACHINE IS THE ONE EMPTY PAGE WITH A REASON — and the state a person is most
+    // likely to mistake for a broken console. The sentence and the disabled control are the page,
+    // so they are photographed rather than described.
+    await chooseMachine(page, state, 'studio');
+    await goTo(page, meta);
+    await page.locator('.terminal-offline').waitFor({ state: 'visible', timeout: 5_000 });
+    await settle(page, state, 300);
+    const offlineFile = `terminal-offline${pass.suffix}.png`;
+    await page.screenshot({ path: path.join(OUT, offlineFile), animations: 'disabled', fullPage: false });
+    captures.push({
+      pass: pass.key,
+      page: 'terminal-offline',
+      file: offlineFile,
+      note: 'a machine that is down: the reason above the work, and New session disabled'
+    });
+    console.log(`  ${pass.key.padEnd(6)} ${offlineFile}`);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     captureFailures.push({ pass: pass.key, page: 'terminal-workspace', message });

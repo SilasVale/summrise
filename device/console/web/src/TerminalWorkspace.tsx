@@ -17,7 +17,7 @@ import {
 } from "./terminalFont";
 import { api, HttpError, type SavedConnection } from "./api";
 import { downloadFile } from "./download";
-import { message } from "./format";
+import { age, message } from "./format";
 import { Modal } from "./Modal";
 
 /**
@@ -320,12 +320,27 @@ function isAbsolutePath(text: string): boolean {
 export function TerminalWorkspace({
   grant,
   visible = true,
+  deviceOnline,
+  lastSeenMs,
   onGrantRefused
 }: {
   grant: Grant;
   visible?: boolean;
+  /**
+   * The machine's reachability, from the fleet read the picker and the top bar already show.
+   *
+   * The TABS already say "offline" once a call fails. That is the wrong moment: a person who opens
+   * Terminal on a machine that is down used to read a blank page and a small red line about a
+   * request, and had to work out that the machine, not the page, was the problem. `undefined` is "no
+   * opinion" — a grant with no fleet record — and is painted as online; only `false` is a fact.
+   */
+  deviceOnline?: boolean;
+  /** When the console last heard from the machine; `null` when it never has. */
+  lastSeenMs?: number | null;
   onGrantRefused?: () => void;
 }) {
+  const offline = deviceOnline === false;
+  const lastSeen = typeof lastSeenMs === "number" ? age(lastSeenMs) : null;
   const [tabs, setTabs] = useState<Tab[]>([]);
   const [active, setActive] = useState<string | null>(null);
   const [faults, setFaults] = useState<Record<string, Fault>>({});
@@ -1092,6 +1107,16 @@ export function TerminalWorkspace({
 
   return (
     <div className={"terminal-workspace" + (tabs.length === 0 ? " terminal-workspace-empty" : "")}>
+      {/* THE MACHINE'S STATE IS THE FIRST FACT ON THE PAGE, not a sentence produced after a failed
+          call. An offline machine is why a page can be legitimately empty, and saying so here is the
+          difference between "the console is broken" and "the machine will be back". */}
+      {offline && (
+        <p className="terminal-offline" role="status">
+          <strong>This machine is offline.</strong>{" "}
+          {lastSeen ? `Last seen ${lastSeen}. ` : ""}
+          A shell cannot start until it reconnects; the console keeps trying on its own.
+        </p>
+      )}
       <div className="panel-head">
         <div className="actions">
           {/* THE TOOLBAR BELONGS TO A SESSION. Before one exists, the page's only action is the one
@@ -1164,7 +1189,15 @@ export function TerminalWorkspace({
               </details>
             </>
           )}
-          <button type="button" className="primary" onClick={() => openDialog({}, null)}>
+          {/* A control that cannot work is off, with the reason on it. The button used to open the
+              dialog and fail at the device, which read as a fault in the console. */}
+          <button
+            type="button"
+            className="primary"
+            disabled={offline}
+            title={offline ? "The machine is offline; a session can start when it reconnects" : undefined}
+            onClick={() => openDialog({}, null)}
+          >
             + New session
           </button>
         </div>
@@ -1202,6 +1235,12 @@ export function TerminalWorkspace({
               </ul>
             ) : listing ? (
               <p className="hint">Reading this device's sessions…</p>
+            ) : offline ? (
+              // The sentence above the work already says the machine is down; this one must not
+              // promise an action the page has just disabled.
+              <p className="hint">
+                No session is open on this device. A shell can start when the machine reconnects.
+              </p>
             ) : (
               <p className="hint">
                 No session is open on this device. <strong>New session</strong> opens a shell; it
