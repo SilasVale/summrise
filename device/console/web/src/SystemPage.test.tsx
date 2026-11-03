@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { SystemPage } from "./SystemPage";
 import { callTool, ToolError, type Grant } from "./terminal";
@@ -32,6 +32,17 @@ const called = (name: string) => mocked.mock.calls.filter((call) => call[1] === 
 describe("SystemPage", () => {
   beforeEach(() => {
     mocked.mockReset();
+  });
+
+  it("does not ask a machine the fleet says is down, and says why", async () => {
+    render(<SystemPage grant={GRANT} deviceOnline={false} />);
+    await waitFor(() => expect(mocked).not.toHaveBeenCalled());
+    expect(
+      screen.getByText("The machine is offline; its processes cannot be read until it reconnects.")
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Refresh" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Restart app" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Test" })).toBeDisabled();
   });
 
   it("lists the device's processes and sends the filter the box asked for", async () => {

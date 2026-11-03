@@ -89,6 +89,18 @@ describe("RunsPage", () => {
     mocked.mockReset();
   });
 
+  it("does not ask a machine the fleet says is down, and says why", async () => {
+    render(<RunsPage grant={GRANT} deviceOnline={false} />);
+    // THE READ IS NOT SENT: it cannot reach the machine, and the page would sit on "Reading the
+    // device's run history…" until the console's dial timed out.
+    await waitFor(() => expect(mocked).not.toHaveBeenCalled());
+    expect(
+      screen.getByText("The machine is offline; its run history cannot be read until it reconnects.")
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Refresh history" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Run" })).toBeDisabled();
+  });
+
   it("lists the history with each row's command, exit and bytes, and Refresh history asks again", async () => {
     mocked.mockResolvedValue(JSON.stringify([HELLO, CARGO]));
 

@@ -59,13 +59,17 @@ const MAX_TIMEOUT_MS = 600_000;
 export function RunsPage({
   grant,
   focusRunId = null,
-  onFocusConsumed
+  onFocusConsumed,
+  deviceOnline
 }: {
   grant: Grant;
   /** A run id carried from Activity; the page opens its record once, on arrival. */
   focusRunId?: string | null;
   onFocusConsumed?: () => void;
+  /** The fleet's reachability, as the other device pages take it; `false` is the only fact. */
+  deviceOnline?: boolean;
 }) {
+  const offline = deviceOnline === false;
   const [history, setHistory] = useState<RunRecord[]>([]);
   const [historyNote, setHistoryNote] = useState("Reading the device's run history…");
   const [historyError, setHistoryError] = useState<string | null>(null);
@@ -153,8 +157,14 @@ export function RunsPage({
     setShell(false);
     setCwd("");
     setTimeoutMs(String(DEFAULT_TIMEOUT_MS));
+    // A MACHINE THE FLEET SAYS IS DOWN IS NOT ASKED — the read cannot reach it, and the page would
+    // sit on "Reading the device's run history…" until the console's dial timed out.
+    if (offline) {
+      setHistoryNote("The machine is offline; its run history cannot be read until it reconnects.");
+      return;
+    }
     void read();
-  }, [read, runGate, detailGate]);
+  }, [read, runGate, detailGate, offline]);
 
   const run = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -241,7 +251,8 @@ export function RunsPage({
         <div className="actions">
           <button
             type="button"
-            disabled={loadingHistory || running}
+            disabled={loadingHistory || running || offline}
+            title={offline ? "The machine is offline; the history refreshes when it reconnects" : undefined}
             onClick={() => void read()}
           >
             {loadingHistory ? "Refreshing…" : "Refresh history"}
@@ -300,7 +311,12 @@ export function RunsPage({
           />
           Through the shell
         </label>
-        <button type="submit" className="primary" disabled={running}>
+        <button
+          type="submit"
+          className="primary"
+          disabled={running || offline}
+          title={offline ? "The machine is offline; a command can run when it reconnects" : undefined}
+        >
           {running ? "Running…" : "Run"}
         </button>
       </form>

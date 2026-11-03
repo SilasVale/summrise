@@ -104,13 +104,17 @@ const RESTARTED_SENTENCE =
 export function SystemPage({
   grant,
   device,
+  deviceOnline,
   vitals = []
 }: {
   grant: Grant;
   /** The selected machine, from the fleet read; null while it is starting or gone. */
   device?: Device | null;
+  /** The fleet's reachability, as the other device pages take it; `false` is the only fact. */
+  deviceOnline?: boolean;
   vitals?: VitalsSample[];
 }) {
+  const offline = deviceOnline === false;
   const [processes, setProcesses] = useState<DeviceProcess[]>([]);
   const [note, setNote] = useState(READING_PROCESSES);
   const [listError, setListError] = useState<string | null>(null);
@@ -227,8 +231,14 @@ export function SystemPage({
     setRestarting(false);
     setRestarted(false);
     setRestartError(null);
+    // A MACHINE THE FLEET SAYS IS DOWN IS NOT ASKED for its processes; the page would sit on
+    // "Reading the device's process list…" until the console's dial timed out.
+    if (offline) {
+      setNote("The machine is offline; its processes cannot be read until it reconnects.");
+      return;
+    }
     void read("");
-  }, [read, killGate, netGate, restartGate]);
+  }, [read, killGate, netGate, restartGate, offline]);
 
   // The filter is sent, not applied here: pressing Refresh (or Enter) is the device call, and the
   // note says what the table is, not what the box says.
@@ -396,7 +406,8 @@ export function SystemPage({
           <button
             type="button"
             className="danger"
-            disabled={restarting || restarted || restartUnknown}
+            disabled={restarting || restarted || restartUnknown || offline}
+            title={offline ? "The machine is offline; it can restart when it reconnects" : undefined}
             onClick={() => {
               setRestartError(null);
               setRestartOpen(true);
@@ -431,7 +442,11 @@ export function SystemPage({
               spellCheck={false}
             />
           </div>
-          <button type="submit" disabled={loading}>
+          <button
+            type="submit"
+            disabled={loading || offline}
+            title={offline ? "The machine is offline; the list refreshes when it reconnects" : undefined}
+          >
             {loading ? "Reading…" : "Refresh"}
           </button>
         </form>
@@ -580,7 +595,7 @@ export function SystemPage({
               onChange={(event) => setTimeoutMs(event.target.value)}
             />
           </div>
-          <button type="submit" className="primary" disabled={testing}>
+          <button type="submit" className="primary" disabled={testing || offline}>
             {testing ? "Testing…" : "Test"}
           </button>
         </form>

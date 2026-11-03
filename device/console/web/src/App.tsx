@@ -640,6 +640,7 @@ export function App() {
                       grant={grant}
                       focusRunId={runsFocus}
                       onFocusConsumed={() => setRunsFocus(null)}
+                      deviceOnline={chosen?.online}
                     />
                   </section>
                 ) : null}
@@ -648,6 +649,7 @@ export function App() {
                     <SystemPage
                       grant={grant}
                       device={chosen}
+                      deviceOnline={chosen?.online}
                       vitals={chosen ? vitals[chosen.id] ?? [] : []}
                     />
                   </section>

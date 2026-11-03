@@ -169,6 +169,24 @@ try {
       failures.push('Files on an offline machine does not say its files cannot be read');
     }
     await shot('files-offline');
+
+    // Runs and Machine make the same promise: nothing is read from a machine that is not there.
+    for (const [label, key] of [['Runs', 'runs'], ['Machine', 'machine']]) {
+      await page.locator('nav.device-tabs').getByRole('button', { name: label, exact: true }).click();
+      await page.waitForTimeout(1200);
+      const text = (await page.locator('main').innerText().catch(() => '')).replace(/\s+/g, ' ');
+      if (!text.includes('cannot be read until it reconnects')) {
+        failures.push(`${label} on an offline machine does not say it cannot be read`);
+      }
+      await shot(`offline-${key}`);
+    }
+
+    // By now every device tab has been opened against a machine that is down. Not one of them may
+    // have sent a proxy call.
+    const asks = await page.evaluate(
+      () => performance.getEntriesByType('resource').filter((entry) => entry.name.includes('/mcp')).length
+    );
+    if (asks > 0) failures.push(`the device tabs asked an offline machine (${asks} /mcp request(s))`);
   }
 } catch (error) {
   failures.push(`the rig could not drive the page: ${error instanceof Error ? error.message : String(error)}`);
