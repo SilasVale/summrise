@@ -335,6 +335,24 @@ fn render(facts: &PanelFacts, outcome: Option<&EnrollOutcome>) -> Markup {
         },
     };
     let state_rows = state_rows(facts.state.as_ref());
+    let update = facts.state.as_ref().and_then(|state| state.get("update"));
+    let update_phase = update
+        .and_then(|update| update.get("phase"))
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("not recorded");
+    let update_target = update
+        .and_then(|update| update.get("to"))
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("none");
+    let update_outcome = update
+        .and_then(|update| update.get("outcome"))
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("none");
+    let update_last = update
+        .and_then(|update| update.get("lastResultAtMs"))
+        .and_then(serde_json::Value::as_u64)
+        .map(|milliseconds| crate::store::format_utc(milliseconds / 1_000))
+        .unwrap_or_else(|| "never".to_owned());
     let event_rows = event_rows(&facts.events);
     let config = local_config(facts);
 
@@ -522,6 +540,27 @@ fn render(facts: &PanelFacts, outcome: Option<&EnrollOutcome>) -> Markup {
                             } @else {
                                 p id="enroll-status" role="status" {}
                             }
+                        }
+                        }
+                    ))
+
+                    (summrise_ui::card(
+                        "Updates",
+                        Markup::default(),
+                        Markup::default(),
+                        html! {
+                        dl id="updates" {
+                            dt { "Phase" }
+                            dd { (update_phase) }
+                            dt { "Target" }
+                            dd { (update_target) }
+                            dt { "Outcome" }
+                            dd { (update_outcome) }
+                            dt { "Last result" }
+                            dd { (update_last) }
+                        }
+                        p class="hint" {
+                            "The device checks its configured update source on its own. A release is applied only after the signature, digest, channel and revocation checks pass."
                         }
                         }
                     ))
@@ -856,6 +895,12 @@ mod tests {
             token_command: "cat \"/var/lib/summrise/token\"".to_owned(),
             state: Some(json!({
                 "schema": 1,
+                "update": {
+                    "phase": "idle",
+                    "to": null,
+                    "outcome": null,
+                    "lastResultAtMs": null
+                },
                 "lastVerdict": {
                     "outcome": "verified",
                     "detail": "the baseline booted",
@@ -978,6 +1023,9 @@ mod tests {
             "Terminal",
             "Build",
             "Console link",
+            "Updates",
+            "idle",
+            "never",
             "State",
             "Recent events",
             "2.0.3",

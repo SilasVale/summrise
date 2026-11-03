@@ -36,6 +36,7 @@ const POLL: Duration = Duration::from_secs(10);
 
 const OPEN_CONSOLE: &str = "open-console";
 const OPEN_PANEL: &str = "open-panel";
+const UPDATE_STATUS: &str = "update-status";
 const COPY_PANEL: &str = "copy-panel";
 const COPY_DIAGNOSTICS: &str = "copy-diagnostics";
 const ABOUT: &str = "about";
@@ -230,6 +231,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             Event::UserEvent(Wake::Menu(event)) => match event.id.as_ref() {
                 OPEN_CONSOLE => open_console(target, &mut ui, &mut profile),
                 OPEN_PANEL => open_url(PANEL),
+                UPDATE_STATUS => open_url(&format!("{PANEL}#updates")),
                 COPY_PANEL => copy_panel_address(),
                 COPY_DIAGNOSTICS => copy_diagnostics(),
                 ABOUT => show_about(),
@@ -545,10 +547,12 @@ fn menu_items() -> (
     MenuItem,
     MenuItem,
     MenuItem,
+    MenuItem,
 ) {
     (
         MenuItem::with_id(OPEN_CONSOLE, "Open console", true, None),
         MenuItem::with_id(OPEN_PANEL, "Open local panel", true, None),
+        MenuItem::with_id(UPDATE_STATUS, "Update status", true, None),
         MenuItem::with_id(COPY_PANEL, "Copy local panel address", true, None),
         MenuItem::with_id(COPY_DIAGNOSTICS, "Copy diagnostics", true, None),
         MenuItem::with_id(ABOUT, format!("About Summrise {VERSION}"), true, None),
@@ -912,11 +916,20 @@ pub fn already_running() -> bool {
 /// It is a function rather than three lines in `run` because a re-add after a reconnect needs a
 /// SECOND tray object, and a tray without its menu is a tray whose items do nothing.
 fn build_tray(tooltip: &str) -> Result<tray_icon::TrayIcon, Box<dyn std::error::Error>> {
-    let (console_item, panel_item, copy_item, diagnostics_item, about_item, logs_item, quit_item) =
-        menu_items();
+    let (
+        console_item,
+        panel_item,
+        update_item,
+        copy_item,
+        diagnostics_item,
+        about_item,
+        logs_item,
+        quit_item,
+    ) = menu_items();
     let menu = Menu::with_items(&[
         &console_item,
         &panel_item,
+        &update_item,
         &copy_item,
         &diagnostics_item,
         &PredefinedMenuItem::separator(),
@@ -1066,9 +1079,10 @@ mod tests {
 
     #[test]
     fn every_menu_item_carries_the_id_its_handler_matches() {
-        let (console, panel, copy, diagnostics, about, logs, quit) = menu_items();
+        let (console, panel, update, copy, diagnostics, about, logs, quit) = menu_items();
         assert_eq!(console.id().as_ref(), OPEN_CONSOLE);
         assert_eq!(panel.id().as_ref(), OPEN_PANEL);
+        assert_eq!(update.id().as_ref(), UPDATE_STATUS);
         assert_eq!(copy.id().as_ref(), COPY_PANEL);
         assert_eq!(diagnostics.id().as_ref(), COPY_DIAGNOSTICS);
         assert_eq!(about.id().as_ref(), ABOUT);
