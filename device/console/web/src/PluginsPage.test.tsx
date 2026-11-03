@@ -223,6 +223,27 @@ describe("PluginsPage", () => {
     await waitFor(() => expect(mocks.list).toHaveBeenCalledTimes(2));
   });
 
+  it("reads a pasted path without waiting for blur", async () => {
+    mocks.list.mockResolvedValue([]);
+    mocks.inspect.mockResolvedValue({
+      id: "com.example.hello",
+      namespace: "hello",
+      name: "Hello",
+      version: "0.1.0",
+      description: ""
+    });
+    draw();
+
+    fireEvent.click(screen.getByRole("button", { name: "Add plugin" }));
+    const dialog = await screen.findByRole("dialog", { name: "Add plugin" });
+    const field = within(dialog).getByLabelText("Plugin directory");
+    fireEvent.change(field, { target: { value: "C:\\plugins\\hello" } });
+
+    // No blur: the disabled Add button was the old dead end.
+    expect(await within(dialog).findByText("hello · v0.1.0 · runs with this machine's privileges")).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "Add and run" })).toBeEnabled();
+  });
+
   it("shows a validation failure and keeps Add and run disabled", async () => {
     mocks.inspect.mockRejectedValue(
       new Error(

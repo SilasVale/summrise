@@ -347,6 +347,23 @@ function AddPluginSheet({
     }
   };
 
+  // A pasted path must not look broken: Add and run stays disabled until the manifest is read, and
+  // waiting for blur meant clicking the disabled button did nothing at all. Read after a short pause
+  // as the operator types, and keep the blur check for the deliberate case.
+  useEffect(() => {
+    const wanted = path.trim();
+    if (wanted === "") {
+      setCheck({ state: "idle" });
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      void validate();
+    }, 300);
+    return () => window.clearTimeout(timer);
+    // `validate` is intentionally not a dependency: it closes over the current path and ticket.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [path]);
+
   const add = async () => {
     if (check.state !== "valid" || adding) return;
     setAdding(true);
@@ -401,6 +418,11 @@ function AddPluginSheet({
             }}
           />
         </label>
+        {path.trim() === "" && (
+          <p className="hint">
+            Paste the directory that contains plugin.json. Add and run becomes available after the manifest is read.
+          </p>
+        )}
         {check.state === "checking" && <p className="hint">Reading the manifest…</p>}
         {check.state === "valid" && (
           <p className="plugin-valid" role="status">
