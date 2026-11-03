@@ -29,6 +29,13 @@ jobs:
       # in this file, and the same command pasted into a terminal would fail.
       - name: the device workspace (unit tests)
         run: cargo test --manifest-path device/Cargo.toml -p summrise-core -p summrise-device -p summrise-launch -p summrise-mesh -p summrise-release -p summrise-console -p summrise-winsec -p summrise-winsys -p summrise-shell
+      # **PHASE 2'S FLOOR, RUN RATHER THAN UNIT-TESTED.** The same binary the Windows service runs
+      # starts with a throwaway install/data pair and serves `/api/health` and its panel on Linux.
+      # The Windows job still owns the service, installer and swap; this owns "the portable half
+      # boots", which no test that only calls functions can prove.
+      - name: the device core serves on Linux
+        run: ./scripts/device-linux-smoke.sh
+
       # The console page's pure decisions are a Rust crate outside the device workspace (its
       # artifact is wasm). Its parity tests are Rust, so they run here rather than in a JS job.
       - name: the console logic's Rust tests
