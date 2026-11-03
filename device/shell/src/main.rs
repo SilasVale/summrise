@@ -39,7 +39,23 @@ pub fn note(line: &str) {
     };
     let directory = std::path::PathBuf::from(base).join("Summrise");
     let _ = std::fs::create_dir_all(&directory);
-    let path = directory.join("shell.log");
+    append_note(&directory.join("shell.log"), line);
+}
+
+/// The shell can run for months, and its log is the support artifact. Keep one previous file at
+/// [`MAX_LOG_BYTES`] so a chatty tray cannot fill a disk; the old file is removed for the rename
+/// because Windows refuses to replace it in one call.
+const MAX_LOG_BYTES: u64 = 1024 * 1024;
+
+fn append_note(path: &std::path::Path, line: &str) {
+    if std::fs::metadata(path)
+        .map(|metadata| metadata.len() > MAX_LOG_BYTES)
+        .unwrap_or(false)
+    {
+        let previous = path.with_extension("log.1");
+        let _ = std::fs::remove_file(&previous);
+        let _ = std::fs::rename(path, &previous);
+    }
     if let Ok(mut file) = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
@@ -47,6 +63,35 @@ pub fn note(line: &str) {
     {
         use std::io::Write;
         let _ = writeln!(file, "{line}");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_log_is_rotated_before_it_can_fill_the_profile() {
+        let directory =
+            std::env::temp_dir().join(format!("summrise-shell-log-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&directory);
+        std::fs::create_dir_all(&directory).expect("the temp directory is writable");
+        let path = directory.join("shell.log");
+        std::fs::write(&path, vec![b'x'; (MAX_LOG_BYTES + 1) as usize])
+            .expect("the oversized log is writable");
+        append_note(&path, "starting");
+        assert!(path.is_file(), "a fresh log is written");
+        assert!(
+            std::fs::metadata(&path).expect("metadata").len() < MAX_LOG_BYTES,
+            "the fresh log starts small"
+        );
+        let previous = path.with_extension("log.1");
+        assert!(previous.is_file(), "the old log is kept once");
+        assert!(
+            std::fs::metadata(&previous).expect("metadata").len() > MAX_LOG_BYTES,
+            "the old log is the oversized one"
+        );
+        let _ = std::fs::remove_dir_all(&directory);
     }
 }
 
