@@ -483,9 +483,9 @@ export function RunsPage({
                       type="button"
                       className="runs-open"
                       disabled={detailId !== null}
-                      title={"runs.get " + row.id}
+                      title={commandLine(row)}
                     >
-                      {commandLine(row)}
+                      {shortCommand(commandLine(row))}
                     </button>
                   </td>
                   <td>
@@ -504,6 +504,12 @@ export function RunsPage({
       )}
     </div>
   );
+}
+
+/** A row's command, shortened for the table; the full line is the button's title and the detail. */
+function shortCommand(line: string): string {
+  const one = line.replace(/\s+/g, " ").trim();
+  return one.length <= 110 ? one : one.slice(0, 109) + "…";
 }
 
 /// A history row's command line: a shell line as it was, or an argv array quoted only where a word

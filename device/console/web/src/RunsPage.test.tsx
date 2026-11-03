@@ -113,6 +113,22 @@ describe("RunsPage", () => {
     expect(called("runs.list")[1]).toEqual([GRANT, "runs.list", { limit: 20 }]);
   });
 
+  it("shortens a long command in the history and keeps the full line in its title", async () => {
+    const long = {
+      ...HELLO,
+      id: "run-long",
+      command: "powershell",
+      args: ["-NoProfile", "-Command", "x".repeat(200)]
+    };
+    mocked.mockResolvedValue(JSON.stringify([long]));
+
+    render(<RunsPage grant={GRANT} />);
+    const button = await screen.findByRole("button", { name: /powershell/ });
+    expect(button.textContent?.length).toBeLessThan(130);
+    expect(button.textContent).toContain("…");
+    expect(button.getAttribute("title")).toContain("x".repeat(200));
+  });
+
   it("copies a past run's command from its detail", async () => {
     mocked.mockImplementation(async (_grant, name) => {
       if (name === "runs.list") return JSON.stringify([HELLO]);
