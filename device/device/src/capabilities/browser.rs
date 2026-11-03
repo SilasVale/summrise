@@ -389,16 +389,34 @@ impl std::error::Error for BrowserError {
 ///
 /// The environment variable wins only when it names an existing file; otherwise the search falls
 /// through, so a stale variable on an operator's shell does not hide an installed browser.
-pub fn discover_chrome() -> Option<PathBuf> {
+pub fn discover_chrome(install: Option<&Path>) -> Option<PathBuf> {
     if let Some(configured) = std::env::var_os("SUMMRISE_CHROME") {
         let path = PathBuf::from(configured);
         if path.is_file() {
             return Some(path);
         }
     }
+    if let Some(install) = install {
+        if let Some(managed) = managed_chrome(install) {
+            return Some(managed);
+        }
+    }
     CHROME_CANDIDATES
         .iter()
         .map(PathBuf::from)
+        .find(|path| path.is_file())
+}
+
+/// The browser the installer put under `<install>rowser\current`.
+///
+/// The pack is the product's own browser: it does not depend on what the machine happens to have
+/// installed, and on a service account it is the only Chromium that can be trusted to start. The
+/// installer preserves `current` across upgrades; a missing pack is a fallback, not an error here.
+fn managed_chrome(install: &Path) -> Option<PathBuf> {
+    let current = install.join("browser").join("current");
+    ["chrome-headless-shell.exe", "chrome.exe"]
+        .into_iter()
+        .map(|name| current.join(name))
         .find(|path| path.is_file())
 }
 
@@ -842,6 +860,7 @@ impl Browser {
     async fn launch(
         data: &Path,
         chrome: Option<&Path>,
+        managed: Option<&Path>,
         readiness_timeout_ms: u64,
     ) -> Result<Browser, BrowserError> {
         // **HEADLESS UNLESS SOMEONE ASKED TO WATCH.** The user-session browser is the one the person at
@@ -858,7 +877,7 @@ impl Browser {
         }
         let executable = match chrome {
             Some(path) => path.to_owned(),
-            None => discover_chrome().ok_or(BrowserError::ChromeNotFound)?,
+            None => discover_chrome(managed).ok_or(BrowserError::ChromeNotFound)?,
         };
         // A killed device leaves its Chrome (and the profile lock) behind. Every launch gets its
         // own directory so an old lock can never wedge this one; the sweep runs before this
@@ -1261,9 +1280,20 @@ async fn launch_once(
         .map_err(|error| (LaunchOutcome::Other, BrowserError::Io(error)))?;
     let port = free_port().map_err(|error| (LaunchOutcome::Other, BrowserError::Io(error)))?;
 
+    // The pack is `chrome-headless-shell`, which is already headless and rejects the flag that asks
+    // a full Chrome to become headless. The other flags are shared.
+    let headless_shell = executable
+        .file_name()
+        .map(|name| {
+            name.to_string_lossy()
+                .eq_ignore_ascii_case("chrome-headless-shell.exe")
+        })
+        .unwrap_or(false);
     let mut command = Command::new(executable);
+    if !headless_shell {
+        command.arg("--headless=new");
+    }
     command
-        .arg("--headless=new")
         // A headless window with no size lays a page out at the browser default (~764x485 in the
         // field), so the console showed a narrow page scaled into a wide panel. 1280x800 is the
         // viewport a desktop browser would give it; the console draws the frame at its own scale.
@@ -1544,6 +1574,8 @@ fn truncate(text: &str, max: usize) -> String {
 /// waiting call can be held behind another.
 pub struct BrowserRegistry {
     data: PathBuf,
+    /// The install root whose `browser/current` pack is preferred over system browsers.
+    install: Option<PathBuf>,
     /// The discovered executable, or `None` to discover per launch. The tests name one so their
     /// skip decision is the one the launch uses.
     chrome: Option<PathBuf>,
@@ -1579,9 +1611,10 @@ struct Cast {
 
 impl BrowserRegistry {
     /// A registry that launches Chrome from `<data>`'s profile when a tool first needs it.
-    pub fn new(data: &Path) -> BrowserRegistry {
+    pub fn new(data: &Path, install: &Path) -> BrowserRegistry {
         BrowserRegistry {
             data: data.to_owned(),
+            install: Some(install.to_owned()),
             chrome: None,
             readiness_timeout_ms: READINESS_TIMEOUT_MS,
             browser: tokio::sync::Mutex::new(None),
@@ -1595,6 +1628,7 @@ impl BrowserRegistry {
     fn with_chrome(data: &Path, chrome: PathBuf) -> BrowserRegistry {
         BrowserRegistry {
             data: data.to_owned(),
+            install: None,
             chrome: Some(chrome),
             readiness_timeout_ms: READINESS_TIMEOUT_MS,
             browser: tokio::sync::Mutex::new(None),
@@ -1612,6 +1646,7 @@ impl BrowserRegistry {
     ) -> BrowserRegistry {
         BrowserRegistry {
             data: data.to_owned(),
+            install: None,
             chrome: Some(chrome),
             readiness_timeout_ms,
             browser: tokio::sync::Mutex::new(None),
@@ -1639,6 +1674,7 @@ impl BrowserRegistry {
                 Browser::launch(
                     &self.data,
                     self.chrome.as_deref(),
+                    self.install.as_deref(),
                     self.readiness_timeout_ms,
                 )
                 .await?,
@@ -1866,7 +1902,7 @@ impl Drop for BrowserRegistry {
 /// the process's stderr descriptor: a plain `cargo test` shows it, not only `--nocapture`. The
 /// line is printed once per process however many tests then return.
 pub(crate) fn chrome_or_skip() -> Option<PathBuf> {
-    match discover_chrome() {
+    match discover_chrome(None) {
         Some(chrome) => Some(chrome),
         None => {
             if std::env::var_os("CI").is_some() {
@@ -2031,6 +2067,18 @@ fn now_unix_ms() -> u64 {
 
 #[cfg(all(test, target_os = "linux"))]
 mod tests {
+
+    /// The installer owns the pack; a machine with no Chrome must use it before falling back.
+    #[test]
+    fn the_installer_pack_is_the_first_managed_candidate() {
+        let dir = TempDir::new("browser-managed-pack");
+        let install = dir.join("install");
+        let current = install.join("browser").join("current");
+        fs::create_dir_all(&current).expect("the pack directory is creatable");
+        let shell = current.join("chrome-headless-shell.exe");
+        fs::write(&shell, b"not a real browser").expect("the pack executable is writable");
+        assert_eq!(managed_chrome(&install), Some(shell));
+    }
 
     /// The visible browser is opt-in: absent means headless, `0` means headless, anything else means the
     /// operator wants to watch.

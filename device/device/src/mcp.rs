@@ -347,7 +347,7 @@ impl DeviceServer {
                 audit.write_lock(),
                 limits,
             )),
-            browser: Arc::new(browser::BrowserRegistry::new(&config.data)),
+            browser: Arc::new(browser::BrowserRegistry::new(&config.data, &config.install)),
             monitor: Arc::new(monitor::MonitorRegistry::new(&config.data)),
             runs: Arc::new(runs::Runs::new(&config.data, &config.files_root)),
             audit,

@@ -148,6 +148,14 @@ Section "Summrise runtime" SecRuntime
   File /oname=summrise-console.exe "${SOURCE}\summrise-console.exe"
   File /oname=summrise-shell.exe "${SOURCE}\summrise-shell.exe"
   File /oname=summrise-device.sidecar.json "${SOURCE}\summrise-device.sidecar.json"
+  ; The browser is a product asset, not a machine prerequisite: a clean Windows machine with only
+  ; Edge must still get the headless Chromium the browser capability drives. `current` is stable
+  ; across upgrades; the pack's manifest names its version and the installer's digest covers it.
+  !ifdef BROWSER_SOURCE
+    SetOutPath "$INSTDIR\browser\current"
+    File /r "${BROWSER_SOURCE}\*"
+    SetOutPath "$INSTDIR"
+  !endif
   WriteUninstaller "$INSTDIR\uninstall.exe"
 
   ; The runtime is a headless service; the tray is the visible half. HKLM Run starts it in the
@@ -314,6 +322,7 @@ Section "Uninstall"
   ; (~30 MB) and the repair record survive an uninstall, and a later install inherits a stale
   ; baseline. The device's own data directory is NOT here — it is kept above, on purpose.
   RMDir /r "$INSTDIR\baseline"
+  RMDir /r "$INSTDIR\browser"
   Delete "$INSTDIR\repair.log"
   Delete "$INSTDIR\swap.request.json"
   Delete "$INSTDIR\swap.result.json"

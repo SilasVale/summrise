@@ -144,8 +144,12 @@ if [ -n "$makensis" ]; then
         export NSISDIR="/tmp/nsis/usr/share/nsis"
     fi
     source_dir="$PWD/$bin"
+    browser_args=()
+    if [ -n "${SUMMRISE_BROWSER_SOURCE:-}" ]; then
+        browser_args=(-DBROWSER_SOURCE="$SUMMRISE_BROWSER_SOURCE")
+    fi
     (cd installer && "$makensis" -DVERSION="$version" -DPORT="$port" \
-        -DCHANNEL="$channel" -DSOURCE="$source_dir" summrise.nsi)
+        -DCHANNEL="$channel" -DSOURCE="$source_dir" "${browser_args[@]}" summrise.nsi)
     cp installer/SummriseSetup-"$version".exe "$out/"
 else
     echo "publish-canary: makensis was not found; the installer is not in this publish" >&2
