@@ -17,7 +17,8 @@ import {
 } from "./terminalFont";
 import { api, HttpError, type SavedConnection } from "./api";
 import { downloadFile } from "./download";
-import { age, message } from "./format";
+import { message } from "./format";
+import { OfflineNotice } from "./OfflineNotice";
 import { Modal } from "./Modal";
 
 /**
@@ -340,7 +341,6 @@ export function TerminalWorkspace({
   onGrantRefused?: () => void;
 }) {
   const offline = deviceOnline === false;
-  const lastSeen = typeof lastSeenMs === "number" ? age(lastSeenMs) : null;
   const [tabs, setTabs] = useState<Tab[]>([]);
   const [active, setActive] = useState<string | null>(null);
   const [faults, setFaults] = useState<Record<string, Fault>>({});
@@ -955,10 +955,19 @@ export function TerminalWorkspace({
 
   // THE SESSIONS ARE THE EMPTY STATE, so they are read without asking. "Attach to a session" was a
   // button that fetched the list into a page that already showed nothing else — the operator had to
-  // press a control to learn what existed. The list refreshes on a device change and on demand.
+  // press a control to learn what existed. The list refreshes on a device change, when the machine
+  // comes back, and on demand.
+  //
+  // A MACHINE THE FLEET SAYS IS DOWN IS NOT ASKED. The call cannot reach it, and its failure used to
+  // print "Could not read this device's sessions" under a banner that had just said the same thing
+  // in better words. The fleet polls, so `offline` becoming false is the read's cue.
   useEffect(() => {
+    if (offline) {
+      setListing(false);
+      return;
+    }
     void listSessions();
-  }, [grant.deviceId, listSessions]);
+  }, [grant.deviceId, offline, listSessions]);
 
   const attachTo = (session: string, kind: string) => {
     if (tabs.some((tab) => tab.session === session)) {
@@ -1111,11 +1120,10 @@ export function TerminalWorkspace({
           call. An offline machine is why a page can be legitimately empty, and saying so here is the
           difference between "the console is broken" and "the machine will be back". */}
       {offline && (
-        <p className="terminal-offline" role="status">
-          <strong>This machine is offline.</strong>{" "}
-          {lastSeen ? `Last seen ${lastSeen}. ` : ""}
-          A shell cannot start until it reconnects; the console keeps trying on its own.
-        </p>
+        <OfflineNotice
+          lastSeenMs={lastSeenMs}
+          detail="A shell cannot start until it reconnects; the console keeps trying on its own."
+        />
       )}
       <div className="panel-head">
         <div className="actions">
@@ -1213,7 +1221,8 @@ export function TerminalWorkspace({
               <button
                 type="button"
                 className="mini"
-                disabled={listing}
+                disabled={listing || offline}
+                title={offline ? "The machine is offline; the list refreshes when it reconnects" : undefined}
                 onClick={() => void listSessions(true)}
               >
                 {listing ? "Reading…" : "Refresh"}

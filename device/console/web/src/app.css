@@ -813,7 +813,7 @@ main.terminal-main:has(.terminal-workspace-empty) { grid-template-rows: auto aut
 /* The machine's own state, above the work. It uses the warning wash, not the error red: an offline
    machine is a condition the console cannot fix and will recover from on its own, and colouring it
    as an error would send a person looking for a fault in the page. */
-.terminal-offline {
+.offline-notice {
   margin: 0;
   padding: var(--sp-2) var(--sp-3);
   border: 1px solid color-mix(in srgb, var(--warn) 45%, var(--line-strong));
@@ -823,7 +823,7 @@ main.terminal-main:has(.terminal-workspace-empty) { grid-template-rows: auto aut
   font-size: var(--fs-sm);
   line-height: 1.45;
 }
-.terminal-offline strong { color: var(--warn); }
+.offline-notice strong { color: var(--warn); }
 .terminal-sessions { display: grid; gap: var(--sp-2); }
 .terminal-section-head {
   display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap;

@@ -164,13 +164,16 @@ describe("TerminalWorkspace tab names", () => {
     );
     // The empty page had one explanation for two causes: "no session" was printed over a machine
     // that could not answer at all. The machine's state is now the page's first sentence.
-    const banner = container.querySelector(".terminal-offline");
+    const banner = container.querySelector(".offline-notice");
     expect(banner).not.toBeNull();
     expect(banner).toHaveTextContent("This machine is offline.");
     expect(banner).toHaveTextContent(/last seen/i);
     // And the empty state must not promise the action the page has just disabled.
     expect(await screen.findByText(/A shell can start when the machine reconnects/)).toBeInTheDocument();
     expect(screen.queryByText(/New session opens a shell/)).not.toBeInTheDocument();
+    // A machine the fleet says is down is not asked: the call cannot reach it, and its failure used
+    // to print a second sentence under the banner that already said it.
+    expect(callToolMock.mock.calls.filter(([, name]) => name === "terminal.list")).toHaveLength(0);
   });
 
   it("turns off the action an offline machine cannot satisfy, and says why", () => {
@@ -178,11 +181,13 @@ describe("TerminalWorkspace tab names", () => {
     const start = screen.getByRole("button", { name: "+ New session" });
     expect(start).toBeDisabled();
     expect(start.getAttribute("title")).toMatch(/reconnects/);
+    // The list cannot be refreshed from a machine that is not there either.
+    expect(screen.getByRole("button", { name: "Refresh" })).toBeDisabled();
   });
 
   it("does not accuse a machine it knows nothing about", () => {
     const { container } = render(<TerminalWorkspace grant={GRANT} />);
-    expect(container.querySelector(".terminal-offline")).toBeNull();
+    expect(container.querySelector(".offline-notice")).toBeNull();
     expect(screen.getByRole("button", { name: "+ New session" })).toBeEnabled();
   });
 

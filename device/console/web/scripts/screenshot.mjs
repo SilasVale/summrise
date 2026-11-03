@@ -667,6 +667,12 @@ function replyFor(request, url) {
   if (method === 'POST' && pathname === '/mcp') {
     const body = requestBody(request);
     const name = body?.request?.params?.name;
+    // THE OFFLINE FIXTURE ANSWERS LIKE AN OFFLINE DEVICE. `studio` is the machine the fleet marks
+    // down; a proxy call to it is the console's 503 (`device reconnecting`), not a successful empty
+    // answer — otherwise the photographs would show a working page on a machine that is not there.
+    if (body?.device_id === DEVICE.studio) {
+      return json({ error: 'device reconnecting', retry_after_ms: 1000 }, 503);
+    }
     // The workspace photographs need the two calls a pty open makes; the ANSWER is empty output, not
     // a fake shell. Every other tool is still a loud failure.
     if (name === 'terminal.list') return json({ result: { content: [{ type: 'text', text: '[]' }] } });
@@ -1548,7 +1554,7 @@ async function captureWorkspace(page, state, pass) {
     // so they are photographed rather than described.
     await chooseMachine(page, state, 'studio');
     await goTo(page, meta);
-    await page.locator('.terminal-offline').waitFor({ state: 'visible', timeout: 5_000 });
+    await page.locator('.offline-notice').waitFor({ state: 'visible', timeout: 5_000 });
     await settle(page, state, 300);
     const offlineFile = `terminal-offline${pass.suffix}.png`;
     await page.screenshot({ path: path.join(OUT, offlineFile), animations: 'disabled', fullPage: false });
@@ -1559,6 +1565,26 @@ async function captureWorkspace(page, state, pass) {
       note: 'a machine that is down: the reason above the work, and New session disabled'
     });
     console.log(`  ${pass.key.padEnd(6)} ${offlineFile}`);
+
+    // The same machine, one tab over: the notice belongs to every device page, not only the one it
+    // was written for. Files answers 503, so the page shows the refusal it would really show.
+    await goTo(page, PAGES.find((entry) => entry.id === 'files'));
+    // The terminal page stays mounted (hidden) across destinations and carries its own notice, so
+    // the locator names the tab-scoped sentence instead of counting notices.
+    await page
+      .locator('.offline-notice')
+      .filter({ hasText: 'Nothing on this page can reach it' })
+      .waitFor({ state: 'visible', timeout: 5_000 });
+    await settle(page, state, 300);
+    const filesOfflineFile = `files-offline${pass.suffix}.png`;
+    await page.screenshot({ path: path.join(OUT, filesOfflineFile), animations: 'disabled', fullPage: false });
+    captures.push({
+      pass: pass.key,
+      page: 'files-offline',
+      file: filesOfflineFile,
+      note: 'Files on a machine that is down: the same notice, and the refusal the console really sends'
+    });
+    console.log(`  ${pass.key.padEnd(6)} ${filesOfflineFile}`);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     captureFailures.push({ pass: pass.key, page: 'terminal-workspace', message });

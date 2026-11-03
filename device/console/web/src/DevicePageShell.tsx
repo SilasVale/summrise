@@ -1,6 +1,7 @@
 import type { Device } from "./api";
 import { DEVICE_TABS, DEVICE_TAB_LABELS, type DeviceTab } from "./Rail";
 import { DevicePicker } from "./DevicePicker";
+import { OfflineNotice } from "./OfflineNotice";
 import type { Grant } from "./terminal";
 
 /**
@@ -50,6 +51,16 @@ export function DevicePageShell({
           </button>
         </div>
       </header>
+
+      {/* THE MACHINE'S STATE BELONGS TO EVERY TAB, not only the one that was written first.
+          Terminal lives outside this shell (it stays mounted across destinations), so it carries its
+          own notice; rendering this one there too would stack two copies of the same sentence. */}
+      {chosen && !chosen.online && tab !== "terminal" && (
+        <OfflineNotice
+          lastSeenMs={chosen.last_seen_ms}
+          detail="Nothing on this page can reach it until it reconnects; the console keeps trying on its own."
+        />
+      )}
 
       {chosen && grant ? (
         children(grant)
