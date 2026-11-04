@@ -370,6 +370,11 @@ export function ActivityTimeline(props: {
   /** The machine the rows are narrowed to, or "" for every machine. */
   device?: string;
   onDevice?: (value: string) => void;
+  /**
+   * The machine chips and the search. The hub's timeline is already one machine's day, so it turns
+   * them off rather than offering an All machines chip over one machine's lines.
+   */
+  showFilters?: boolean;
 }) {
   const [now, setNow] = useState(() => Date.now());
   const [openKey, setOpenKey] = useState<string | null>(null);
@@ -377,9 +382,10 @@ export function ActivityTimeline(props: {
   // the switch to the table and back.
   const [ownQuery, setOwnQuery] = useState("");
   const [ownDevice, setOwnDevice] = useState("");
-  const query = props.query ?? ownQuery;
+  const filterable = props.showFilters !== false;
+  const query = filterable ? (props.query ?? ownQuery) : "";
   const setQuery = props.onQuery ?? setOwnQuery;
-  const device = props.device ?? ownDevice;
+  const device = filterable ? (props.device ?? ownDevice) : "";
   const setDevice = props.onDevice ?? setOwnDevice;
   const paused = props.nowMs !== undefined;
   useEffect(() => {
@@ -411,39 +417,41 @@ export function ActivityTimeline(props: {
 
   return (
     <div className="activity-timeline">
-      <div className="timeline-filters">
-        <div className="chips timeline-machines" role="group" aria-label="Filter by machine">
-          <button
-            type="button"
-            className="chip"
-            aria-pressed={device === ""}
-            onClick={() => setDevice("")}
-          >
-            All machines
-          </button>
-          {machines.map((machine) => (
+      {filterable && (
+        <div className="timeline-filters">
+          <div className="chips timeline-machines" role="group" aria-label="Filter by machine">
             <button
-              key={machine.id}
               type="button"
               className="chip"
-              title={machine.id}
-              aria-pressed={device === machine.id}
-              onClick={() => setDevice(machine.id)}
+              aria-pressed={device === ""}
+              onClick={() => setDevice("")}
             >
-              {machine.name}
+              All machines
             </button>
-          ))}
+            {machines.map((machine) => (
+              <button
+                key={machine.id}
+                type="button"
+                className="chip"
+                title={machine.id}
+                aria-pressed={device === machine.id}
+                onClick={() => setDevice(machine.id)}
+              >
+                {machine.name}
+              </button>
+            ))}
+          </div>
+          <label className="audit-field timeline-search">
+            <span>Search activity</span>
+            <input
+              type="search"
+              value={query}
+              placeholder="sentence, tool, machine or detail"
+              onChange={(event) => setQuery(event.target.value)}
+            />
+          </label>
         </div>
-        <label className="audit-field timeline-search">
-          <span>Search activity</span>
-          <input
-            type="search"
-            value={query}
-            placeholder="sentence, tool, machine or detail"
-            onChange={(event) => setQuery(event.target.value)}
-          />
-        </label>
-      </div>
+      )}
       {days.length === 0 ? (
         filtering ? (
           // A filter that hides every row is not "nothing happened": the page names what narrowed

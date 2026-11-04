@@ -182,6 +182,15 @@ describe("Home — the hub", () => {
     expect(screen.queryByText(/Built another machine/)).not.toBeInTheDocument();
   });
 
+  it("keeps the Activity filters off the hub's one-machine timeline", () => {
+    // The hub already shows this machine's day. An All machines chip over one machine's lines would
+    // be a control that cannot tell the truth, so the timeline is drawn without the filter bar.
+    draw();
+    const timeline = screen.getByRole("region", { name: "This machine's activity" });
+    expect(within(timeline).queryByRole("searchbox")).toBeNull();
+    expect(within(timeline).queryByRole("group", { name: "Filter by machine" })).toBeNull();
+  });
+
   it("keeps older days off the hub's timeline", () => {
     const yesterday = new Date();
     yesterday.setDate(yesterday.getDate() - 1);

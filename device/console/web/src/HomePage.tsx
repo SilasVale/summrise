@@ -241,6 +241,9 @@ function HubHome(
         <ActivityTimeline
           lines={timelineLines}
           devices={props.devices}
+          // The hub's timeline is already this machine's day: a machine chip here could only say
+          // "All machines" over one machine's lines, which would be a lie.
+          showFilters={false}
           onWatch={props.onWatchTerminal}
           empty={`No calls from ${name} today. When an AI client calls this machine, its work appears here.`}
         />
