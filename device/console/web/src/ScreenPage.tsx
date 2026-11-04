@@ -22,13 +22,22 @@ export function ScreenPage({
   grant,
   view,
   onViewChange,
-  deviceOnline
+  deviceOnline,
+  helperRunning
 }: {
   grant: Grant;
   view: "desktop" | "browser";
   onViewChange: (view: "desktop" | "browser") => void;
   /** The fleet's reachability, as the other device pages take it; `false` is the only fact. */
   deviceOnline?: boolean;
+  /**
+   * Whether the device reported a registered per-user helper on its last channel read.
+   *
+   * `undefined` is "it did not say" (an old build, or no facts yet) and draws nothing: this page must
+   * not invent a state. It is a hint, not a gate — the helper can register between two polls, and the
+   * device's own refusal stays the authority on whether a capture is possible.
+   */
+  helperRunning?: boolean;
 }) {
   const offline = deviceOnline === false;
   const [shot, setShot] = useState<Shot | null>(null);
@@ -124,6 +133,18 @@ export function ScreenPage({
             The picture comes from the per-user helper's session, so a locked or disconnected session
             is the device's refusal, not a black frame.
           </p>
+
+          {/* AN INVITATION THE CONSOLE CAN ALREADY SEE WILL FAIL IS NOT AN INVITATION. The fleet
+              carries the helper's registration, so say it before the click rather than after the
+              refusal; the button stays enabled because the fact is a poll old and the device's
+              answer is what decides. */}
+          {helperRunning === false && (
+            <p className="hint">
+              The fleet says this device's per-user helper has not registered, so a capture will be
+              refused. The helper runs inside the signed-in user's desktop session; the Machine tab
+              shows its state.
+            </p>
+          )}
 
           {error && <p className="error">{error}</p>}
           {error && /per-user helper/i.test(error) && (

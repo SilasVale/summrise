@@ -35,6 +35,33 @@ describe("ScreenPage", () => {
     expect(capture.getAttribute("title")).toMatch(/reconnects/);
   });
 
+  it("says the helper has not registered before the operator clicks", () => {
+    render(
+      <ScreenPage
+        grant={grant}
+        view="desktop"
+        onViewChange={() => undefined}
+        helperRunning={false}
+      />
+    );
+
+    // The fleet already knows; the page should not present the click as if it could succeed.
+    expect(screen.getByText(/has not registered, so a capture will be refused/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Capture screen" })).toBeEnabled();
+  });
+
+  it("stays quiet when the device did not say or the helper is registered", () => {
+    const { rerender } = render(
+      <ScreenPage grant={grant} view="desktop" onViewChange={() => undefined} />
+    );
+    expect(screen.queryByText(/has not registered/)).not.toBeInTheDocument();
+
+    rerender(
+      <ScreenPage grant={grant} view="desktop" onViewChange={() => undefined} helperRunning />
+    );
+    expect(screen.queryByText(/has not registered/)).not.toBeInTheDocument();
+  });
+
   it("captures the device's screen on demand and offers the picture for download", async () => {
     mocks.callTool.mockResolvedValue(
       JSON.stringify({ format: "png", data: "iVBORw0KGgo=", width: 1280, height: 720 })
