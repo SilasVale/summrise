@@ -116,6 +116,14 @@ const COMPONENTS: &str = r##"  * { box-sizing: border-box; }
   .term-sessions { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--line); }
   .term-sessions dl { grid-template-columns: 4rem 1fr; gap: 2px 8px; }
   .term-host { height: 20rem; background: var(--term-canvas); border: 1px solid var(--line); border-radius: var(--radius-xs); padding: 6px; }
+  /* **AN EMPTY 20 REM BOX READS AS A BROKEN TERMINAL.** Until a session is attached the canvas is
+     blank and the only explanation was a hint underneath it. The placeholder is CSS, so it vanishes
+     the moment xterm mounts a child. */
+  .term-host:empty::before {
+    content: "No session attached";
+    display: grid; place-items: center; height: 100%;
+    color: var(--muted); font-size: 13px;
+  }
   .xterm .xterm-viewport { background-color: var(--term-canvas); }
   .config {
     margin: 8px 0; padding: 12px; overflow-x: auto;
@@ -502,7 +510,9 @@ fn render(facts: &PanelFacts, outcome: Option<&EnrollOutcome>) -> Markup {
                             button id="term-close" class="term-close" type="button" { "Close" }
                         }
                         div id="term-host" class="term-host" {}
-                        p class="hint" id="term-status" role="status" { "choose a session above" }
+                        p class="hint" id="term-status" role="status" {
+                            "No session is attached. Open one with the buttons above, or attach one from the list below."
+                        }
                         // **ONE CARD ABOUT THE TERMINAL, NOT TWO.** The list used to sit in a second
                         // card whose own sentence said the interactive terminal was elsewhere — a
                         // denial printed directly beneath the terminal. The count is in the head now
