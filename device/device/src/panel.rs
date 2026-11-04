@@ -1050,7 +1050,13 @@ mod tests {
     #[test]
     fn the_panel_uses_the_shared_type_scale() {
         const ALLOWED: [&str; 7] = [
-            "--fs-2xs", "--fs-xs", "--fs-sm", "--fs-base", "--fs-md", "--fs-lg", "--fs-xl",
+            "--fs-2xs",
+            "--fs-xs",
+            "--fs-sm",
+            "--fs-base",
+            "--fs-md",
+            "--fs-lg",
+            "--fs-xl",
         ];
         let mut rest = COMPONENTS;
         let mut seen = std::collections::BTreeSet::new();

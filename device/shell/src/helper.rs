@@ -11,8 +11,11 @@ use std::time::Duration;
 
 /// Where the device leaves this boot's token (`ProgramData` gives users read, administrators write).
 pub const TOKEN_FILE: &str = r"C:\ProgramData\SummriseHelper\helper.token";
-/// The device's loopback API, where a registration goes.
-pub const DEVICE: &str = "127.0.0.1:18090";
+/// The device's loopback API, where a registration goes — resolved from the device's own port so a
+/// custom-port install registers with the process that is actually serving.
+pub fn device() -> &'static str {
+    crate::port::health_addr()
+}
 
 /// The token for this boot, or `None` while the device has not written one yet.
 pub fn read_token() -> Option<String> {

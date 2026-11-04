@@ -21,8 +21,9 @@ use std::path::PathBuf;
 use serde::Deserialize;
 use summrise_release::Channel;
 
-/// Port the app serves on when neither `--port` nor `SUMMRISE_PORT` is set.
-pub const DEFAULT_PORT: u16 = 18_080;
+/// Port the app serves on when neither `--port` nor `SUMMRISE_PORT` is set. `7737` since 2026-11-04
+/// (the operator's fleet convention; `18080` before it).
+pub const DEFAULT_PORT: u16 = 7_737;
 
 /// The flag naming the console's base URL. Absent means the console link is off.
 pub const CONSOLE_URL_FLAG: &str = "--console-url";
@@ -54,6 +55,24 @@ pub const MESH_STUN_FLAG: &str = "--mesh-stun";
 /// name is the one the file has always had; it now carries both. The launcher writes it with mode
 /// 0600 (Unix); the app refuses a looser one.
 pub const CONSOLE_FILE: &str = "console.json";
+
+/// The console's old port, and the one it moved to on 2026-11-04.
+pub const OLD_CONSOLE_PORT: u16 = 19_000;
+/// Where the console listens since 2026-11-04.
+pub const CONSOLE_PORT: u16 = 7_736;
+
+/// A console URL written before the 2026-11-04 move, in this build's port.
+///
+/// A one-release migration, deliberately narrow: only the exact old port is rewritten, and only
+/// when it appears as `:<port>` — a host, a path or a token that happens to contain those digits
+/// is left alone.
+fn migrate_console_url(url: &str) -> Option<String> {
+    let old = format!(":{OLD_CONSOLE_PORT}");
+    if !url.contains(&old) {
+        return None;
+    }
+    Some(url.replace(&old, &format!(":{CONSOLE_PORT}")))
+}
 
 /// The release facts the running build was started from (fix design F6).
 ///
@@ -439,6 +458,15 @@ impl Config {
                     self.console_url = Some(url.clone());
                     self.console_token_file = Some(token_file.clone());
                     self.console_allow_plaintext = link.allow_plaintext;
+                    // 2026-11-04: the console moved from 19000 to 7736. A device enrolled before
+                    // the move still names the old port in this file and has no other way to learn
+                    // the new one, so the link is migrated here — once — instead of retrying a dead
+                    // port forever. Best effort: a data directory that refuses the write must not
+                    // stop the link this start.
+                    if let Some(migrated) = migrate_console_url(url) {
+                        self.console_url = Some(migrated.clone());
+                        let _ = fs::write(&path, text.replace(url.as_str(), &migrated));
+                    }
                 }
                 _ => {
                     return Err(ConfigError::ConsoleFile {
@@ -947,7 +975,7 @@ mod tests {
         .expect("install and data are enough");
 
         assert_eq!(config.port, DEFAULT_PORT);
-        assert_eq!(config.port, 18_080);
+        assert_eq!(config.port, 7_737);
         assert_eq!(
             config.token_file,
             PathBuf::from("/var/lib/summrise/token"),

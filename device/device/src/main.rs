@@ -1009,6 +1009,17 @@ async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
             None
         }
     };
+    // The port is a deployment choice, and the tray and the browser helper have to find it without a
+    // constant. This file is the one source that cannot disagree with the running process: written by
+    // the process that bound the port, read by both of them. Best effort — a data directory that
+    // refuses the write must not stop the device.
+    let port_file = config.data.join("device.port");
+    if let Err(error) = std::fs::write(&port_file, config.port.to_string()) {
+        eprintln!(
+            "summrise-device: could not write {}: {error}",
+            port_file.display()
+        );
+    }
     // One plugin host for the process: created before the router (the router's MCP service takes it),
     // started before the listener accepts a call, and stopped after `serve` returns so the graceful
     // Ctrl+C path kills the children rather than leaving them behind a dead device.

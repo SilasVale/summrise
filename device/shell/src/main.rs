@@ -30,6 +30,9 @@ mod app;
 mod health;
 #[cfg_attr(not(windows), allow(dead_code))]
 mod helper;
+// The device's port is a deployment choice, so the tray and the helper resolve it instead of naming it.
+#[cfg_attr(not(windows), allow(dead_code))]
+mod port;
 
 /// A GUI-subsystem process has no console, so a failure that would otherwise be an `eprintln!` goes
 /// to a file beside the browser profile: the tray is either there or it is not, and this says which.

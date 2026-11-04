@@ -73,8 +73,9 @@ pub const RELEASE_PUBKEY_HEX: &str = match option_env!("SUMMRISE_RELEASE_PUBKEY"
     None => PLACEHOLDER_PUBKEY_HEX,
 };
 
-/// Port the app serves on when neither `--port` nor `SUMMRISE_PORT` is set.
-pub const DEFAULT_PORT: u16 = 18080;
+/// Port the app serves on when neither `--port` nor `SUMMRISE_PORT` is set. `7737` since 2026-11-04
+/// (the operator's fleet convention; `18080` before it).
+pub const DEFAULT_PORT: u16 = 7_737;
 
 /// Number of random bytes in the install token (design §9.5; review I9).
 pub const TOKEN_BYTES: usize = 32;
@@ -4138,7 +4139,7 @@ mod tests {
     }
 
     #[test]
-    fn port_defaults_to_18080() {
+    fn port_defaults_to_7737() {
         let config = parse_config(&[], Path::new("/opt/Summrise"), None).unwrap();
         assert_eq!(config.port, DEFAULT_PORT);
         assert_eq!(config.data, Path::new("/opt/Summrise/data"));

@@ -1,6 +1,6 @@
 //! The tray icon and the window, as one process.
 //!
-//! **What this process may do.** Read `127.0.0.1:18090/api/health`, open two URLs in a window, and
+//! **What this process may do.** Read the device's loopback health document, open two URLs in a window, and
 //! exit. It holds no credential and speaks to no device: every action on a device goes through the
 //! console, a grant and the audit trail, exactly as it does in a browser tab. The tray is a status
 //! dot and a shortcut, not a second client.
@@ -25,12 +25,19 @@ use crate::helper;
 /// Where the product console lives: the 0.3.4x console (fleet, terminal, `/next`), not the legacy
 /// SPA. The shell and the device sit on the same tailnet; a public hostname, when there is one, is
 /// the console's to publish.
-const CONSOLE: &str = "http://100.74.250.98:19000/";
+const CONSOLE: &str = "http://100.74.250.98:7736/";
 /// Where the device's own panel lives: what works when the console does not. This is the product's
 /// panel (0.3.49 lists the live terminal sessions), never the legacy panel.
-const PANEL: &str = "http://127.0.0.1:18090/";
+///
+/// Resolved at boot from the device's own port file: the port is a deployment choice, and a tray
+/// that dials a constant reports "not running" for a device that is serving.
+fn panel() -> &'static str {
+    crate::port::panel_url()
+}
 /// The loopback address the health probe asks.
-const HEALTH: &str = "127.0.0.1:18090";
+fn health_addr() -> &'static str {
+    crate::port::health_addr()
+}
 /// How often the dot is refreshed.
 const POLL: Duration = Duration::from_secs(10);
 
@@ -166,7 +173,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
 
     let proxy = event_loop.create_proxy();
     std::thread::spawn(move || loop {
-        let _ = proxy.send_event(Wake::Health(health::probe(HEALTH)));
+        let _ = proxy.send_event(Wake::Health(health::probe(health_addr())));
         std::thread::sleep(POLL);
     });
 
@@ -190,7 +197,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
                     // page, it needs no credential, and it is the shortest proof the product is
                     // running. The marker is written whatever the browser did, so a machine with no
                     // default browser does not try again at every logon.
-                    open_url(PANEL);
+                    open_url(panel());
                     mark_first_run();
                     crate::note("first run: opened the local panel");
                 }
@@ -208,7 +215,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
                 button: tray_icon::MouseButton::Left,
                 button_state: tray_icon::MouseButtonState::Up,
                 ..
-            })) => open_url(PANEL),
+            })) => open_url(panel()),
             Event::UserEvent(Wake::Tray(_)) => {}
             Event::UserEvent(Wake::Repaint) => {
                 // A second instance (the session-reconnect task) asked for the icon to be added
@@ -230,8 +237,8 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             Event::UserEvent(Wake::Quit) => *control_flow = ControlFlow::Exit,
             Event::UserEvent(Wake::Menu(event)) => match event.id.as_ref() {
                 OPEN_CONSOLE => open_console(target, &mut ui, &mut profile),
-                OPEN_PANEL => open_url(PANEL),
-                UPDATE_STATUS => open_url(&format!("{PANEL}#updates")),
+                OPEN_PANEL => open_url(panel()),
+                UPDATE_STATUS => open_url(&format!("{}#updates", panel())),
                 COPY_PANEL => copy_panel_address(),
                 COPY_DIAGNOSTICS => copy_diagnostics(),
                 ABOUT => show_about(),
@@ -326,8 +333,12 @@ fn register_with_the_device() {
                         .map(|server| (token.clone(), server));
                 }
                 if let Some((token, server)) = current.as_ref() {
-                    let outcome =
-                        helper::register(helper::DEVICE, token, server.port(), std::process::id());
+                    let outcome = helper::register(
+                        helper::device(),
+                        token,
+                        server.port(),
+                        std::process::id(),
+                    );
                     let failure = outcome.err().map(|error| error.to_string());
                     if failure != last_error {
                         match &failure {
@@ -629,7 +640,8 @@ fn show_about() {
     use windows_sys::Win32::UI::WindowsAndMessaging::{MessageBoxW, MB_ICONINFORMATION, MB_OK};
 
     let text = format!(
-        "Summrise {VERSION}\n\nDevice tray and console window.\nConsole: {CONSOLE}\nLocal panel: {PANEL}\n\nThe device service runs separately; this process holds no credential."
+        "Summrise {VERSION}\n\nDevice tray and console window.\nConsole: {CONSOLE}\nLocal panel: {}\n\nThe device service runs separately; this process holds no credential.",
+        panel()
     );
     let wide = |value: &str| -> Vec<u16> {
         use std::os::windows::ffi::OsStrExt;
@@ -790,7 +802,7 @@ fn save_window_geometry(window: &tao::window::Window) {
 /// a browser on this machine without knowing the port or the install layout.
 #[cfg(windows)]
 fn copy_panel_address() {
-    copy_text(PANEL, "local panel address");
+    copy_text(panel(), "local panel address");
 }
 
 #[cfg(not(windows))]
@@ -800,7 +812,7 @@ fn copy_panel_address() {}
 /// log path. No token, no grant, no device identity.
 #[cfg(windows)]
 fn copy_diagnostics() {
-    let state = health::probe(HEALTH);
+    let state = health::probe(health_addr());
     let log = std::env::var_os("LOCALAPPDATA")
         .map(|base| {
             std::path::PathBuf::from(base)
@@ -811,7 +823,8 @@ fn copy_diagnostics() {
         })
         .unwrap_or_else(|| "(no LOCALAPPDATA)".to_owned());
     let text = format!(
-        "Summrise shell {VERSION}\nhealth: {state:?}\nconsole: {CONSOLE}\nlocal panel: {PANEL}\nlog: {log}\n"
+        "Summrise shell {VERSION}\nhealth: {state:?}\nconsole: {CONSOLE}\nlocal panel: {}\nlog: {log}\n",
+        panel()
     );
     copy_text(&text, "diagnostics");
 }
@@ -1109,11 +1122,15 @@ mod tests {
     #[test]
     fn the_default_targets_are_the_product_surfaces() {
         assert!(
-            CONSOLE.contains(":19000"),
+            CONSOLE.contains(":7736"),
             "the product console, not the legacy SPA: {CONSOLE}"
         );
         assert!(!CONSOLE.contains("console.saisi.online"), "{CONSOLE}");
-        assert!(PANEL.contains(":18090"), "the device's own panel: {PANEL}");
+        assert!(
+            panel().ends_with(&format!(":{}/", crate::port::device_port())),
+            "the device's own panel follows its port: {}",
+            panel()
+        );
     }
 
     use super::*;
