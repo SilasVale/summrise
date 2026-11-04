@@ -27,31 +27,35 @@ is streamed on `/events`. The problem is the shape drawn around it.
 
 | zoom | surface | answers | exists today |
 |---|---|---|---|
-| glance | machine lanes | is anything happening, and where? | a five-row band |
-| scan | the stream (bursts) | what did it do, in what order, on which machine? | an audit table |
+| glance | the machine's Now band | is it working, how fast, what last? | a five-row band |
+| scan | the stream (bursts) | what did it do, in what order? | an audit table |
 | drill | the session | what is it doing in there right now? | a raw terminal |
 
+**There is no fleet board.** The product's model is "choose a machine, then everything is about
+it" — the toolbar's picker is that choice — and a board of every machine at once would be a second
+navigation for a three-machine fleet. Every zoom lands on the selected machine.
+
 A **step** is one event (a call, its outcome, its sentence, its duration). A **burst** is consecutive
-steps on one machine, close in time — one stretch of work. A **lane** is a machine's current burst.
-A **session** is the terminal one burst is typing into.
+steps on one machine, close in time — one stretch of work. A **session** is the terminal the steps
+are typing into. The page's subject is always the selected machine.
 
 Rules:
 
-1. **One subject per surface.** The stream's subject is the work; the lane's is the machine; the
+1. **One subject per surface.** The stream's subject is the work; the page's is the machine; the
    session's is the shell. Anything that is not that subject moves to a sheet or a secondary view.
 2. **Every visual is a fact.** A pulse means an event arrived in the last ninety seconds. No event,
-   no pulse; the lane says "quiet" and how long. Nothing animates to fill space.
+   no pulse; the page says "quiet" and how long. Nothing animates to fill space.
 3. **Grouping is derived, never stored.** A burst is computed from the audit's own timestamps and
    device ids. No new file, no new table, no migration.
-4. **The cube is a renderer, not a feature.** A lane already needs a body; once lanes exist and carry
-   real rate and events, a cube is one way to draw a body. It is not built first, and it is not the
-   product's spine.
+4. **The cube is a renderer, not a feature.** One machine's body, drawn once, is a place a cube
+   could live; it is not built first, and it is not the product's spine.
 
 ## What moves
 
-- **Home becomes the lanes.** One lane per machine: presence, rate, the current burst's last steps,
-  the last line of its session, and a `Watch` when a terminal is open. The endpoint card leaves the
-  hub — it already exists in the Connect sheet, and a hub that leads with setup is a hub about setup.
+- **Home becomes the machine's live page.** For the selected machine: the Now band (presence, rate,
+  the last steps), the stream of its bursts, and a session preview — the shell, the last command and
+  the last lines, with `Watch` to open the terminal. The endpoint card leaves the hub: it already
+  exists in the Connect sheet, and a hub that leads with setup is a hub about setup.
 - **Activity becomes the stream.** Bursts newest first, steps in order, machine named once per burst.
   The table stays, behind a `Table` toggle, because filters and CSV are genuinely useful — they are
   just not the default reading.
@@ -63,7 +67,7 @@ Rules:
 
 - **No AI reasoning events.** The console sees actions. A "decision" event would have to be published
   by the AI client; nothing here invents one.
-- **No 3D yet.** The cube is deferred until lanes exist and are honest; building it first would be
+- **No 3D yet.** The cube is deferred until the machine page exists and is honest; building it first would be
   decoration.
 - **No new storage or routes beyond what exists** (`/events`, `/audit`). The stream is a rendering of
   the audit, not a second history.
@@ -79,10 +83,10 @@ data the next one stands on.
 
 1. **The stream** (scan). `groupBursts` + the burst list on Activity, Table behind a toggle.
    *Prototyped:* `activityBursts.ts`, `ActivityStream.tsx`, the toggle in `App.tsx`; uncommitted.
-2. **The lanes** (glance). Home's hub becomes lanes; the endpoint card and the Now band fold into
-   them; the Connect sheet is the only place the endpoint appears.
+2. **The machine page** (glance). Home's hub becomes the selected machine's live page — Now, stream,
+   session preview — and the endpoint card moves to the Connect sheet alone.
 3. **The session** (drill). Session card over the terminal, in the same card language as a burst.
-4. **The cube** (a renderer for a lane), only if the lanes feel right without it.
+4. **The cube** (a renderer for the selected machine), only if the page feels right without it.
 
 ## Verification, per slice
 
@@ -97,14 +101,14 @@ data the next one stands on.
 - **Losing the table's power.** It stays, one toggle away, unfiltered and unchanged.
 - **Self-pollution.** The page's own catalogue reads (`tools/list`, `plugins.list`) are real calls and
   are shown, but they are excluded from *presence and rate*: a page polling itself must not make every
-  night look busy. This is a rule in the lane, not a filter on the data.
-- **Vertical space.** Three machines is three lanes; more than about eight needs the lanes to
-  collapse, which is a later slice.
+  night look busy. This is a rule on the page, not a filter on the data.
+- **One machine at a time.** A fleet-wide glance is deliberately not built: the picker is the model,
+  and a compact presence dot beside each machine in the picker is enough if it ever is not.
 - **A burst is a guess.** Ninety seconds is the gap; the grouping is derived and shown as "one
   stretch", never as a claim about intent.
 
 ## What the operator decides
 
-1. The order: **stream → lanes → session → cube**.
+1. The order: **stream → machine page → session → cube**.
 2. That the endpoint leaves the hub for the Connect sheet.
-3. Whether the cube is wanted at all after the lanes exist.
+3. Whether the cube is wanted at all once the machine page exists.
