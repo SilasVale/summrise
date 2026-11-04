@@ -44,10 +44,17 @@ export function Sheet({
     const dialog = ref.current;
     const items = () =>
       Array.from(dialog?.querySelectorAll<HTMLElement>(FOCUSABLE) ?? []);
-    // Focus the job, not the way out: the first control in the body, falling back to the close
-    // button only for a sheet with no fields (a log view, a confirmation).
+    // Focus the job, not the way out: a FIELD if the body has one, then the body's first control,
+    // then the dialog itself. The tool sheet puts its mode toggle ahead of its fields in the markup,
+    // so "first focusable" landed a keyboard user on Raw JSON — a way of not filling the form — while
+    // the form was the job.
+    const body = dialog?.querySelector(".sheet-body");
+    const field = body?.querySelector<HTMLElement>(
+      "input:not([disabled]), select:not([disabled]), textarea:not([disabled])"
+    );
     const first =
-      dialog?.querySelector(".sheet-body")?.querySelector<HTMLElement>(FOCUSABLE) ??
+      field ??
+      body?.querySelector<HTMLElement>(FOCUSABLE) ??
       dialog?.querySelector<HTMLElement>(FOCUSABLE) ??
       dialog;
     first?.focus();

@@ -27,6 +27,20 @@ describe("Sheet", () => {
     expect(document.body.style.overflow).toBe("");
   });
 
+  it("focuses the first field even when a mode toggle comes before it", () => {
+    render(
+      <Sheet title="Try a tool" onClose={vi.fn()}>
+        <button type="button">Raw JSON</button>
+        <label htmlFor="path">Path</label>
+        <input id="path" defaultValue="" />
+      </Sheet>
+    );
+
+    // "Raw JSON" is a way of not filling the form; the form is the job.
+    expect(screen.getByLabelText("Path")).toHaveFocus();
+    expect(screen.getByRole("button", { name: "Raw JSON" })).not.toHaveFocus();
+  });
+
   it("traps Tab and Shift+Tab inside the sheet", () => {
     open();
     const close = screen.getByRole("button", { name: "Close" });
