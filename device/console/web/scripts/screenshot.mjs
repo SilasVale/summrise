@@ -1312,8 +1312,8 @@ async function capturePage(page, state, meta, pass) {
   }
 
   if (meta.id === 'capabilities') {
-    // One tool's sheet: the detail and the generated Try it form in one frame. The first row is the
-    // operator's first question, not a destructive call.
+    // One tool's sheet: the detail, the annotation chip and the schema. There is no Try it form any
+    // more (C3 deleted it), so nothing here invokes a tool.
     await page.locator('.tool-row').first().click();
     const dialog = page.getByRole('dialog');
     await dialog.waitFor({ state: 'visible', timeout: 5_000 });
@@ -1324,7 +1324,7 @@ async function capturePage(page, state, meta, pass) {
       pass: pass.key,
       page: 'capability-tool',
       file: toolFile,
-      note: 'one tool: detail, annotations, schema and the generated Try it form'
+      note: 'one tool: detail, annotations and schema — the sheet is a catalogue'
     });
     console.log(`  ${pass.key.padEnd(6)} ${toolFile}`);
     await page.locator('.sheet-close').click();
@@ -1345,63 +1345,6 @@ async function capturePage(page, state, meta, pass) {
     console.log(`  ${pass.key.padEnd(6)} ${emptySearch}`);
     await page.getByRole('button', { name: 'Clear the search' }).click();
 
-    // A destructive tool's confirmation, with the exact JSON that will run.
-    await page.locator('.tool-row').filter({ hasText: 'files.write' }).first().click();
-    const destructive = page.getByRole('dialog');
-    await destructive.waitFor({ state: 'visible', timeout: 5_000 });
-    await destructive.getByRole('button', { name: 'Run' }).click();
-    await destructive
-      .getByText('This call can change this machine and cannot be undone. Run it?')
-      .waitFor({ state: 'visible', timeout: 5_000 });
-    const destructiveFile = `capability-tool-destructive${pass.suffix}.png`;
-    await page.screenshot({ path: path.join(OUT, destructiveFile), animations: 'disabled', fullPage: false });
-    captures.push({
-      pass: pass.key,
-      page: 'capability-tool-destructive',
-      file: destructiveFile,
-      note: 'the destructive confirmation: the exact JSON and Run once, inline in the sheet'
-    });
-    console.log(`  ${pass.key.padEnd(6)} ${destructiveFile}`);
-    await page.locator('.sheet-close').click();
-
-    // The plugin's refusal, verbatim in the result.
-    await page.locator('.tool-row').filter({ hasText: 'hello.echo' }).first().click();
-    const errorSheet = page.getByRole('dialog');
-    await errorSheet.waitFor({ state: 'visible', timeout: 5_000 });
-    await errorSheet.getByLabel(/^text/).fill('error');
-    await errorSheet.getByRole('button', { name: 'Run' }).click();
-    await errorSheet
-      .getByText('the plugin refused: that text is not allowed')
-      .waitFor({ state: 'visible', timeout: 5_000 });
-    const errorFile = `capability-tool-error${pass.suffix}.png`;
-    await page.screenshot({ path: path.join(OUT, errorFile), animations: 'disabled', fullPage: false });
-    captures.push({
-      pass: pass.key,
-      page: 'capability-tool-error',
-      file: errorFile,
-      note: "Try it's error state: the plugin's refusal verbatim"
-    });
-    console.log(`  ${pass.key.padEnd(6)} ${errorFile}`);
-    await page.locator('.sheet-close').click();
-
-    // The running state: the sheet owns the wait and says how long it may last.
-    await page.locator('.tool-row').filter({ hasText: 'hello.echo' }).first().click();
-    const runningSheet = page.getByRole('dialog');
-    await runningSheet.waitFor({ state: 'visible', timeout: 5_000 });
-    await runningSheet.getByLabel(/^text/).fill('slow');
-    await runningSheet.getByRole('button', { name: 'Run' }).click();
-    await runningSheet.getByRole('button', { name: /Running…/ }).waitFor({ state: 'visible', timeout: 3_000 });
-    const runningFile = `capability-tool-running${pass.suffix}.png`;
-    await page.screenshot({ path: path.join(OUT, runningFile), animations: 'disabled', fullPage: false });
-    captures.push({
-      pass: pass.key,
-      page: 'capability-tool-running',
-      file: runningFile,
-      note: 'the running state: Run pinned, the two-minute sentence beside it'
-    });
-    console.log(`  ${pass.key.padEnd(6)} ${runningFile}`);
-    await runningSheet.getByText(/Completed in/).waitFor({ state: 'visible', timeout: 10_000 });
-    await page.locator('.sheet-close').click();
   }
 
   if (meta.id === 'home') {
@@ -1534,21 +1477,8 @@ async function captureWorkspace(page, state, pass) {
       if ((await use.count()) === 0) return;
       await use.click();
     }
-    await workspace.waitFor({ state: 'visible', timeout: 5_000 }).catch(async (error) => {
-      await page.screenshot({ path: path.join(OUT, `terminal-workspace${pass.suffix}-failed.png`) });
-      console.error('workspace debug:', (await page.locator('main').innerText()).slice(0, 1200));
-      throw error;
-    });
-    await settle(page, state, 300);
-    const file = `terminal-workspace${pass.suffix}.png`;
-    await page.screenshot({ path: path.join(OUT, file), animations: 'disabled', fullPage: false });
-    captures.push({
-      pass: pass.key,
-      page: 'terminal-workspace',
-      file,
-      note: 'selected the first device; the session grant opens the terminal without a form'
-    });
-    console.log(`  ${pass.key.padEnd(6)} ${file}`);
+    // The page opens with the session card and no session (P0-3), so the workspace exists only after
+    // one is opened; that capture moved below, after the pty is up.
 
     // THE CANVAS IS THE PALETTE'S, so photograph it. Open the first pty; the answer above is empty
     // output, which is enough to mount xterm and show the white (light) / #131418 (dark) canvas.
@@ -1566,6 +1496,20 @@ async function captureWorkspace(page, state, pass) {
       note: 'one pty open; the empty output is a canvas, not a fake shell'
     });
     console.log(`  ${pass.key.padEnd(6)} ${sessionFile}`);
+
+    // The session card leads the page and the terminal is beneath it: photograph them together, now
+    // that a session exists.
+    await page.locator('main .terminal-workspace').first().waitFor({ state: 'visible', timeout: 5_000 });
+    await settle(page, state, 250);
+    const workspaceFile = `terminal-workspace${pass.suffix}.png`;
+    await page.screenshot({ path: path.join(OUT, workspaceFile), animations: 'disabled', fullPage: false });
+    captures.push({
+      pass: pass.key,
+      page: 'terminal-workspace',
+      file: workspaceFile,
+      note: 'the session card above the terminal: machine, session, age and the last keystroke'
+    });
+    console.log(`  ${pass.key.padEnd(6)} ${workspaceFile}`);
 
     // The one menu the session keeps: photograph it open, so its placement and its one-column
     // action list are part of the review instead of a claim in a commit message.
