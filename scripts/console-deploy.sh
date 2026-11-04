@@ -18,6 +18,12 @@ STAGE=/tmp/console-deploy
 URL=http://100.85.163.159:8099
 export PATH="$HOME/.cargo/bin:$PATH"
 
+# The page is embedded at compile time: a stale dist ships yesterday's UI under a new label.
+"$PRODUCT/scripts/build-web.sh" --check >/dev/null || {
+    echo "the committed page is stale: run scripts/build-web.sh and commit dist/index.html" >&2
+    exit 1
+}
+
 cd "$DEVICE"
 SUMMRISE_BUILD_VERSION="$VERSION" cargo build --release -p summrise-console --target x86_64-pc-windows-gnu 2>&1 | tail -1
 SHA=$(sha256sum target/x86_64-pc-windows-gnu/release/summrise-console.exe | cut -d' ' -f1)
