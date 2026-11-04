@@ -6,11 +6,12 @@
 //! codes.
 
 use std::collections::HashMap;
+use std::net::{IpAddr, SocketAddr};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use axum::extract::ws::WebSocketUpgrade;
-use axum::extract::{Form, Path, Query, State};
+use axum::extract::{ConnectInfo, Form, Path, Query, State};
 use axum::http::{header, HeaderMap, HeaderValue, StatusCode};
 use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::routing::{get, post};
@@ -46,6 +47,13 @@ const DEFAULT_LOG_LIMIT: usize = 100;
 /// The largest limit the log routes honor: an operator reading an index must not make the console
 /// hold an unbounded slice of it.
 const MAX_LOG_LIMIT: usize = 1000;
+
+/// The header a trusted reverse proxy uses to name the operator it let in.
+///
+/// Not a credential on its own: the console believes it only when the connection arrives from the
+/// address `--trusted-proxy` names, and the proxy overwrites whatever the browser sent. A request
+/// from anywhere else is asked for the operator token even when it carries this header.
+const PROXY_IDENTITY_HEADER: &str = "x-forwarded-user";
 
 /// How long the console tells an operator's client to wait before retrying a reconnecting device.
 const RETRY_AFTER_MS: u64 = 1_000;
@@ -133,6 +141,11 @@ struct Inner {
     data: std::path::PathBuf,
     /// When set, a verified Cloudflare Access JWT is an operator session.
     access: Option<crate::access::Access>,
+    /// When set, a request from exactly this peer is the operator named by [`PROXY_IDENTITY_HEADER`].
+    ///
+    /// The header alone is never enough: it is what a reverse proxy says, and the address is what
+    /// makes the proxy the one entitled to say it.
+    trusted_proxy: Option<IpAddr>,
     /// The mesh broker this console asks about a device, as a canonical `http://host:port`.
     ///
     /// `None` means the console has no mesh view; the readiness route reports that rather than a fake
@@ -215,6 +228,7 @@ impl Console {
                 started: Instant::now(),
                 version: config.version.clone(),
                 data: config.data.clone(),
+                trusted_proxy: config.trusted_proxy,
                 mesh_broker: config.mesh_broker.clone(),
                 access: match &config.access {
                     Some(access) => Some(
@@ -515,12 +529,12 @@ impl Inner {
 }
 
 impl Inner {
-    /// The operator behind this request: a live session, or a verified Access identity.
+    /// The operator behind this request, including the reverse proxy that may have let it in.
     ///
     /// Access is checked only when the operator configured it, and a token that does not verify falls
     /// through to the session check — the feature can let a request in, never let one skip a check.
-    fn operator(&self, headers: &HeaderMap) -> Option<Operator> {
-        self.identity(headers).0
+    fn operator_from(&self, headers: &HeaderMap, peer: Option<IpAddr>) -> Option<Operator> {
+        self.identity_from(headers, peer).0
     }
 
     /// The operator, and the reason there is none when Access was the intended identity.
@@ -528,10 +542,20 @@ impl Inner {
     /// One verification serves both callers: the routes only need `operator`, and `/session` needs
     /// the report so a page can say *why* it is showing a token box.
     fn identity(&self, headers: &HeaderMap) -> (Option<Operator>, AccessReport) {
+        self.identity_from(headers, None)
+    }
+
+    /// [`Inner::identity`] with the connection's peer address: the only shape that can honor
+    /// `--trusted-proxy`, because a header is only as good as the address that sent it.
+    fn identity_from(
+        &self,
+        headers: &HeaderMap,
+        peer: Option<IpAddr>,
+    ) -> (Option<Operator>, AccessReport) {
         let header = crate::access::token_from_headers(headers).is_some();
         let Some(access) = &self.access else {
             return (
-                self.session_operator(headers),
+                self.session_operator_from(headers, peer),
                 AccessReport {
                     configured: false,
                     header,
@@ -541,7 +565,7 @@ impl Inner {
         };
         let Some(token) = crate::access::token_from_headers(headers) else {
             return (
-                self.session_operator(headers),
+                self.session_operator_from(headers, peer),
                 AccessReport {
                     configured: true,
                     header: false,
@@ -562,7 +586,7 @@ impl Inner {
                 },
             ),
             Err(error) => (
-                self.session_operator(headers),
+                self.session_operator_from(headers, peer),
                 AccessReport {
                     configured: true,
                     header: true,
@@ -572,8 +596,14 @@ impl Inner {
         }
     }
 
-    /// The operator a live console session names, if any.
-    fn session_operator(&self, headers: &HeaderMap) -> Option<Operator> {
+    /// The operator this request names: the reverse proxy's header first, then a live session.
+    ///
+    /// The proxy is checked first because a deployment that trusts one has already established the
+    /// identity at the edge; a browser that also happens to hold a session cookie is the same person.
+    fn session_operator_from(&self, headers: &HeaderMap, peer: Option<IpAddr>) -> Option<Operator> {
+        if let Some(operator) = self.proxy_operator(headers, peer) {
+            return Some(operator);
+        }
         // BOTH WAYS IN, ONE SESSION STORE. The header is what an API client presents; the cookie is
         // what the page has, because a page that has to hold its own token in JavaScript loses it on
         // every reload and asks the operator for a 64-character secret again.
@@ -584,6 +614,26 @@ impl Inner {
             });
         }
         None
+    }
+
+    /// The operator the reverse proxy named, when it is the proxy that is asking.
+    ///
+    /// Both facts are required: the peer address must be exactly the address `--trusted-proxy`
+    /// names, and the header must be non-empty. Without the flag this is always `None`, so a console
+    /// that was never told to trust a header cannot be talked into trusting one.
+    fn proxy_operator(&self, headers: &HeaderMap, peer: Option<IpAddr>) -> Option<Operator> {
+        let trusted = self.trusted_proxy?;
+        if peer != Some(trusted) {
+            return None;
+        }
+        let login = headers.get(PROXY_IDENTITY_HEADER)?.to_str().ok()?.trim();
+        if login.is_empty() {
+            return None;
+        }
+        Some(Operator {
+            email: Some(login.to_owned()),
+            via: "proxy",
+        })
     }
 
     /// Whether the request carries a live session token, compared over bytes in constant time.
@@ -781,7 +831,13 @@ impl axum::extract::FromRequestParts<AppState> for OperatorSession {
         parts: &mut axum::http::request::Parts,
         state: &AppState,
     ) -> Result<Self, Self::Rejection> {
-        match state.operator(&parts.headers) {
+        // The peer address is what makes a proxy's claim believable. Axum's connect-info service
+        // inserts it; a request cannot carry it in its headers, which is the whole point.
+        let peer = parts
+            .extensions
+            .get::<ConnectInfo<SocketAddr>>()
+            .map(|ConnectInfo(address)| address.ip());
+        match state.operator_from(&parts.headers, peer) {
             Some(_) => Ok(OperatorSession),
             None => Err(state.refuse(None, ApiError::unauthorized()).await),
         }
@@ -1161,8 +1217,13 @@ struct AccessReport {
     error: Option<String>,
 }
 
-async fn session_probe(State(app): State<AppState>, headers: HeaderMap) -> Json<SessionProbe> {
-    let (operator, access) = app.identity(&headers);
+async fn session_probe(
+    State(app): State<AppState>,
+    headers: HeaderMap,
+    peer: Option<ConnectInfo<SocketAddr>>,
+) -> Json<SessionProbe> {
+    let (operator, access) =
+        app.identity_from(&headers, peer.map(|ConnectInfo(address)| address.ip()));
     // A page session travels in the cookie, and the probe can be asked with one: `identity` reads
     // the bearer, so the cookie is the fallback that makes `via: "session"` mean what it says.
     let operator = operator.or_else(|| {

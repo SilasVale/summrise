@@ -3,13 +3,14 @@
 //! WebSocket, so those tests bind an ephemeral loopback listener and drive it with a fake device.
 
 use std::fs;
-use std::net::Ipv4Addr;
+use std::net::{Ipv4Addr, SocketAddr};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use axum::body::Body;
+use axum::extract::ConnectInfo;
 use axum::http::{header, Request, StatusCode};
 use axum::Router;
 use ed25519_dalek::{Signer, SigningKey};
@@ -108,6 +109,7 @@ impl Fixture {
             port: 0,
             version: env!("CARGO_PKG_VERSION").to_owned(),
             access: None,
+            trusted_proxy: None,
             mesh_broker: None,
         };
         let clock = Arc::new(AtomicU64::new(START_MS));
@@ -161,6 +163,18 @@ impl Fixture {
         let reader = fixture.clock.clone();
         fixture.console = Console::load_with_clock(&config, move || reader.load(Ordering::Relaxed))
             .expect("the console reloads with Access");
+        fixture.config = config;
+        fixture
+    }
+
+    /// A console that believes one reverse proxy's `X-Forwarded-User`: the tailnet deployment.
+    fn with_trusted_proxy(label: &str, proxy: Ipv4Addr) -> Self {
+        let mut fixture = Self::new(label);
+        let mut config = fixture.config.clone();
+        config.trusted_proxy = Some(proxy.into());
+        let reader = fixture.clock.clone();
+        fixture.console = Console::load_with_clock(&config, move || reader.load(Ordering::Relaxed))
+            .expect("the console reloads with the trusted proxy");
         fixture.config = config;
         fixture
     }
@@ -339,6 +353,25 @@ impl Fixture {
     }
 }
 
+/// The connection's peer address, exactly as axum's connect-info service inserts it before routing.
+fn from_peer(request: Request<Body>, peer: Ipv4Addr) -> Request<Body> {
+    let mut request = request;
+    request
+        .extensions_mut()
+        .insert(ConnectInfo(SocketAddr::from((peer, 40_000))));
+    request
+}
+
+/// The header a configured reverse proxy sets after it authenticated the operator.
+fn forwarded_user(request: Request<Body>, login: &str) -> Request<Body> {
+    let (mut parts, body) = request.into_parts();
+    parts.headers.insert(
+        "x-forwarded-user",
+        login.parse().expect("the login is a header value"),
+    );
+    Request::from_parts(parts, body)
+}
+
 fn get(uri: &str, session: Option<&str>) -> Request<Body> {
     let mut request = Request::builder().method("GET").uri(uri);
     if let Some(session) = session {
@@ -452,6 +485,7 @@ fn fixture_config(dir: &TempDir, token: Option<&Path>, grant_key: Option<&Path>)
         port: 0,
         version: env!("CARGO_PKG_VERSION").to_owned(),
         access: None,
+        trusted_proxy: None,
         mesh_broker: None,
     }
 }
@@ -11581,4 +11615,114 @@ async fn the_denials_page_narrows_with_the_same_filter() {
     .await;
     assert_eq!(status, StatusCode::OK);
     assert!(body.contains("No line matches this filter"), "{body}");
+}
+
+/// A tailnet deployment trusts one address to say who the operator is. The same header from any
+/// other peer is only a string, and the token is still the way in: the flag removes a password,
+/// not the identity check.
+#[tokio::test]
+async fn a_trusted_proxy_names_the_operator_and_only_from_its_own_address() {
+    const PROXY: Ipv4Addr = Ipv4Addr::new(100, 85, 163, 159);
+    const ELSEWHERE: Ipv4Addr = Ipv4Addr::new(100, 79, 123, 140);
+    let fixture = Fixture::with_trusted_proxy("proxy-identity", PROXY);
+
+    // Through the proxy: no token, and the page is already signed in as the name it sent.
+    let (status, body) = send(
+        fixture.app(),
+        from_peer(
+            forwarded_user(get("/session", None), "operator@example.com"),
+            PROXY,
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["authenticated"], json!(true));
+    assert_eq!(body["via"], json!("proxy"));
+    assert_eq!(body["email"], json!("operator@example.com"));
+
+    // A real route opens on the same word, not only the probe the page asks first.
+    let (status, devices) = send(
+        fixture.app(),
+        from_peer(
+            forwarded_user(get("/fleet", None), "operator@example.com"),
+            PROXY,
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        devices.as_array().map(Vec::is_empty),
+        Some(true),
+        "the proxy's identity passed the extractor, not just the probe"
+    );
+
+    // The same header from another peer proves nothing, even on a console that trusts a proxy.
+    let (status, body) = send(
+        fixture.app(),
+        from_peer(
+            forwarded_user(get("/session", None), "operator@example.com"),
+            ELSEWHERE,
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        body["authenticated"],
+        json!(false),
+        "the address is what makes the claim, not the header"
+    );
+
+    let (status, _) = send(
+        fixture.app(),
+        from_peer(
+            forwarded_user(get("/fleet", None), "operator@example.com"),
+            ELSEWHERE,
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+}
+
+/// Without the flag the header is an ordinary string: a console that was never told to trust one
+/// cannot be talked into trusting one.
+#[tokio::test]
+async fn a_console_without_a_trusted_proxy_does_not_believe_the_header() {
+    const PROXY: Ipv4Addr = Ipv4Addr::new(100, 85, 163, 159);
+    let fixture = Fixture::new("proxy-unconfigured");
+
+    let (status, body) = send(
+        fixture.app(),
+        from_peer(
+            forwarded_user(get("/session", None), "operator@example.com"),
+            PROXY,
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["authenticated"], json!(false));
+
+    let (status, _) = send(
+        fixture.app(),
+        from_peer(
+            forwarded_user(get("/fleet", None), "operator@example.com"),
+            PROXY,
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+}
+
+/// An empty name is not a person: a proxy that authenticated nobody says so by sending nothing.
+#[tokio::test]
+async fn an_empty_forwarded_user_is_not_an_identity() {
+    const PROXY: Ipv4Addr = Ipv4Addr::new(100, 85, 163, 159);
+    let fixture = Fixture::with_trusted_proxy("proxy-empty", PROXY);
+
+    let (status, body) = send(
+        fixture.app(),
+        from_peer(forwarded_user(get("/session", None), "   "), PROXY),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["authenticated"], json!(false));
 }

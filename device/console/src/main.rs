@@ -95,7 +95,16 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         listener.local_addr()?
     );
 
-    axum::serve(listener, console.router()).await?;
+    // The peer address is what `--trusted-proxy` compares against, and only the transport knows it.
+    // Serve with connect info so a proxy's `X-Forwarded-User` can be judged against who actually
+    // connected, rather than against a header the caller chose.
+    axum::serve(
+        listener,
+        console
+            .router()
+            .into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .await?;
     Ok(())
 }
 

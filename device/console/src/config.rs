@@ -51,6 +51,14 @@ pub const PORT_FLAG: &str = "--port";
 /// configured". The broker is contacted for a readiness answer, never for operator traffic.
 pub const MESH_BROKER_FLAG: &str = "--mesh-broker";
 
+/// The flag naming the reverse proxy whose `X-Forwarded-User` this console believes.
+///
+/// Optional, and off by default. When set, a request whose peer address is exactly this proxy is the
+/// operator the header names — the fact that lets a tailnet-only deployment open straight into the
+/// page instead of asking for a 64-character secret. Every other peer is still asked for the token:
+/// the header is a claim, and only the configured address may make it.
+pub const TRUSTED_PROXY_FLAG: &str = "--trusted-proxy";
+
 /// The port the console serves on when `--port` is not given.
 pub const DEFAULT_PORT: u16 = 18_082;
 
@@ -73,6 +81,10 @@ pub struct Config {
     pub port: u16,
     /// When set, a Cloudflare Access JWT is accepted as the operator: the page skips the token box.
     pub access: Option<AccessConfig>,
+    /// The reverse proxy allowed to name the operator, as its exact peer address.
+    ///
+    /// `None` means no header is believed, and the operator token stays the only way in.
+    pub trusted_proxy: Option<IpAddr>,
     /// The mesh broker this console asks about a device, as a canonical `http://host:port`.
     ///
     /// `None` means the console has no mesh view at all; the readiness route reports that rather than
@@ -158,6 +170,7 @@ impl Config {
         let mut access_aud = None;
         let mut access_iss = None;
         let mut mesh_broker = None;
+        let mut trusted_proxy = None;
 
         let mut arguments = args.into_iter();
         while let Some(argument) = arguments.next() {
@@ -184,6 +197,24 @@ impl Config {
                 Flag::AccessAud => access_aud = Some(value.to_string_lossy().into_owned()),
                 Flag::AccessIssuer => access_iss = Some(value.to_string_lossy().into_owned()),
                 Flag::MeshBroker => mesh_broker = Some(value.to_string_lossy().into_owned()),
+                Flag::TrustedProxy => {
+                    let text = value.to_string_lossy();
+                    let address = text.parse::<IpAddr>().map_err(|_| ConfigError::Invalid {
+                        option: TRUSTED_PROXY_FLAG,
+                        value: text.clone().into_owned(),
+                        expected: "the proxy's IP address (for example 100.85.163.159)",
+                    })?;
+                    // A wildcard would mean "believe any peer that can connect", which is the token
+                    // bypass this flag exists to avoid. Name the proxy, not the network it lives on.
+                    if address.is_unspecified() {
+                        return Err(ConfigError::Invalid {
+                            option: TRUSTED_PROXY_FLAG,
+                            value: text.into_owned(),
+                            expected: "one proxy address, not a wildcard",
+                        });
+                    }
+                    trusted_proxy = Some(address);
+                }
                 Flag::Port => {
                     let text = value.to_string_lossy();
                     port = Some(text.parse::<u16>().map_err(|_| ConfigError::Invalid {
@@ -203,6 +234,7 @@ impl Config {
             bind: bind.unwrap_or(DEFAULT_BIND),
             port: port.unwrap_or(DEFAULT_PORT),
             version: version.unwrap_or_else(default_version),
+            trusted_proxy,
             mesh_broker: match mesh_broker {
                 Some(value) => match summrise_mesh::validate_broker_url(&value) {
                     // Store the URL the lookup will use: validated once, at startup, so a request never
@@ -244,6 +276,7 @@ enum Flag {
     Bind,
     Port,
     MeshBroker,
+    TrustedProxy,
 }
 
 impl Flag {
@@ -259,6 +292,7 @@ impl Flag {
             BIND_FLAG => Some(Flag::Bind),
             PORT_FLAG => Some(Flag::Port),
             MESH_BROKER_FLAG => Some(Flag::MeshBroker),
+            TRUSTED_PROXY_FLAG => Some(Flag::TrustedProxy),
             _ => None,
         }
     }
@@ -275,6 +309,7 @@ impl Flag {
             Flag::AccessAud => ACCESS_AUD_FLAG,
             Flag::AccessIssuer => ACCESS_ISSUER_FLAG,
             Flag::MeshBroker => MESH_BROKER_FLAG,
+            Flag::TrustedProxy => TRUSTED_PROXY_FLAG,
         }
     }
 }
@@ -582,5 +617,51 @@ mod tests {
         .expect_err("a port must parse");
 
         assert!(matches!(error, ConfigError::Invalid { option, .. } if option == PORT_FLAG));
+    }
+
+    #[test]
+    fn the_trusted_proxy_is_optional_and_must_name_one_address() {
+        let base = [
+            OPERATOR_TOKEN_FLAG,
+            "op.token",
+            GRANT_KEY_FLAG,
+            "grant.key",
+            DATA_FLAG,
+            "data",
+        ];
+
+        let plain = Config::parse(args(&base)).expect("the three required flags are enough");
+        assert_eq!(
+            plain.trusted_proxy, None,
+            "without the flag no header is believed"
+        );
+
+        let mut trusted = base.to_vec();
+        trusted.extend([TRUSTED_PROXY_FLAG, "100.85.163.159"]);
+        let config = Config::parse(args(&trusted)).expect("one proxy address is accepted");
+        assert_eq!(
+            config.trusted_proxy,
+            Some(IpAddr::V4(Ipv4Addr::new(100, 85, 163, 159))),
+            "the address is what the peer comparison will use"
+        );
+
+        for wildcard in ["0.0.0.0", "::"] {
+            let mut bad = base.to_vec();
+            bad.extend([TRUSTED_PROXY_FLAG, wildcard]);
+            assert!(
+                matches!(
+                    Config::parse(args(&bad)),
+                    Err(ConfigError::Invalid { option, .. }) if option == TRUSTED_PROXY_FLAG
+                ),
+                "a wildcard would mean believing every peer that can connect"
+            );
+        }
+
+        let mut bad = base.to_vec();
+        bad.extend([TRUSTED_PROXY_FLAG, "not-an-address"]);
+        assert!(matches!(
+            Config::parse(args(&bad)),
+            Err(ConfigError::Invalid { option, .. }) if option == TRUSTED_PROXY_FLAG
+        ));
     }
 }

@@ -205,3 +205,47 @@ positive test that morning predates it.
 
 The operator token was rotated at the same time: it had appeared in a terminal transcript, and a
 credential that has been printed once is a credential that should stop working.
+
+## 2026-11-04 — the name moved onto the tailnet, and the proxy names the operator
+
+`console.saisi.online` now resolves to a tailnet address (`A 100.85.163.159`, unproxied) and the
+console is reached through this box's nginx rather than through Cloudflare. Access left the path with
+Cloudflare, and the first direct visit showed the token box again — the operator's question was the
+right one: *if only the tailnet can reach it, why type a secret?*
+
+**Network location is not identity.** The tailnet says which device connected; the console's jobs
+(`runs.exec`, terminal, files, screen) are the three machines' shell. Removing the token without
+putting an identity in its place would have made every tailnet device — and, because the console
+still binds `0.0.0.0:19000` behind a disabled Windows firewall, every machine on 9VH's LAN — an
+operator.
+
+**What changed.** `--trusted-proxy <ip>` names the one peer whose `X-Forwarded-User` this console
+believes. Both facts are required, and either alone is `None`:
+
+- the connection's peer address must be exactly that address — supplied by axum's connect-info
+  service, which is the transport's word and not the request's;
+- the header must be non-empty. `nginx` sets it (`proxy_set_header`, so a browser's own value is
+  overwritten) from `tailscale status --json`, as `login (device)`, refreshed every five minutes by
+  `~/bin/tailnet-logins.sh`; a device missing from the table still gets in as its own address.
+
+Every other peer — a LAN client hitting `:19000`, a tailnet peer connecting directly — is asked for
+the operator token exactly as before. The flag is off by default, so a console that was never told to
+trust a header cannot be talked into trusting one.
+
+**Why an address and not a shared secret.** A secret in the proxy's config is one more string that
+can leak into a log; a peer address is what WireGuard already authenticated, and a tailnet peer cannot
+spoof the proxy's address without its key.
+
+**What this deliberately does not do.** Anyone on the tailnet who opens the name is the operator,
+without a credential — that is the request. The console's audit still records `operator`; per-request
+attribution currently lives in nginx's access log (client address), not in the audit line. Closing
+`:19000` to the proxy alone remains a hardening step, not a prerequisite: the address check already
+refuses a header that arrived any other way.
+
+**Verified on 0.3.271-ux3, deployed to DESKTOP-9VH92BJ.** Through the proxy with no credential,
+`GET /session` answers `{"authenticated":true,"email":"… (zss)","via":"proxy"}` from this box and
+`… (DESKTOP-9VH92BJ)` from 9VH; `/fleet` answers 200. A client-supplied `X-Forwarded-User:
+attacker@evil` through the proxy is still reported as the real identity (nginx overwrote it), and the
+same header sent straight to `100.74.250.98:19000` answers `{"authenticated":false}`. `cargo test -p
+summrise-console`: 136 + 268 + 9 passed, including the new proxy tests.
+
