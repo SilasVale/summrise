@@ -2469,35 +2469,11 @@ main::-webkit-scrollbar-track, .sheet-body::-webkit-scrollbar-track, .scroll::-w
 }
 .live-watch:hover { color: var(--ink); background: var(--row-hover); }
 
-/* ── The stream: the activity as work, not as rows ────────────────────────────────────────────────
-   One burst is one stretch of work on one machine: the machine named once, then its steps in order. */
+/* ── The activity's two readings: the timeline, and the audit as rows ───────────────────────────── */
 
 .stream-bar { display: flex; align-items: center; gap: var(--sp-2); margin: 0 0 var(--sp-3); }
 .stream-views { width: 160px; }
 .stream-note { margin: 0; }
-.stream { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--sp-3); }
-.burst { border: 1px solid var(--hairline); border-radius: var(--radius); background: var(--panel); overflow: hidden; }
-.burst-head {
-  display: flex; align-items: baseline; gap: var(--sp-2);
-  padding: 9px 14px; background: var(--row-hover); border-bottom: 1px solid var(--hairline);
-}
-.burst-machine { font-size: var(--fs-sm); font-weight: var(--fw-semi); }
-.burst-time { font-size: var(--fs-2xs); color: var(--ink-muted); font-variant-numeric: tabular-nums; }
-.burst-count { font-size: var(--fs-2xs); color: var(--ink-muted); }
-.burst-age { margin-left: auto; font-size: var(--fs-2xs); color: var(--ink-faint); }
-.burst-steps { list-style: none; margin: 0; padding: 0; }
-.step {
-  display: flex; align-items: baseline; gap: var(--sp-2);
-  padding: 8px 14px; border-bottom: 1px solid var(--hairline); font-size: var(--fs-sm);
-}
-.step:last-child { border-bottom: 0; }
-.step-time { font-size: var(--fs-2xs); color: var(--ink-faint); font-variant-numeric: tabular-nums; }
-.step-dot { width: 5px; height: 5px; border-radius: 999px; flex: none; align-self: center; }
-.step-dot[data-tone="ok"] { background: var(--ok); }
-.step-dot[data-tone="bad"] { background: var(--error); }
-.step-dot[data-tone="muted"] { background: var(--ink-faint); }
-.step-sentence { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.stream-empty { margin: var(--sp-3) 0; }
 
 /* ── The timeline: time on the left, one dot per action, one sentence each ─────────────────────────
    Outside: one line per action. Click: the evidence for that one call. */
