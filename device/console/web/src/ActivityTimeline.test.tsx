@@ -162,6 +162,63 @@ describe("ActivityTimeline", () => {
     expect(within(panel).getByText(/reports its result only/i)).toBeInTheDocument();
   });
 
+  it("shows a captured frame, when it was taken and that memory forgets it", () => {
+    // A screenshot is the one piece of evidence that cannot travel in the event: the row carries a
+    // same-origin path, and the panel is where the operator finally sees the picture.
+    const capture = line({
+      tool: "screen.capture",
+      live: true,
+      sentence: "Took a screenshot of the screen",
+      evidence: {
+        shot: "/activity/shot/device-1/image-1",
+        captured_at_ms: Date.UTC(2026, 10, 5, 9, 0, 5)
+      }
+    });
+    render(<ActivityTimeline lines={[capture]} devices={[]} />);
+
+    openRow();
+
+    const panel = evidencePanel();
+    const image = within(panel).getByRole("img");
+    expect(image).toHaveAttribute("src", "/activity/shot/device-1/image-1");
+    expect(image).toHaveAttribute("loading", "lazy");
+    expect(within(panel).getByText(/^Captured at \d{2}:\d{2}:\d{2}$/)).toBeInTheDocument();
+    expect(
+      within(panel).getByText(/Kept in the console's memory; a restart forgets it\./)
+    ).toBeInTheDocument();
+  });
+
+  it("draws no frame when a line carries no shot", () => {
+    const read = line({
+      tool: "files.read",
+      sentence: "Read notes.txt",
+      evidence: { path: "notes.txt" }
+    });
+    render(<ActivityTimeline lines={[read]} devices={[]} />);
+
+    openRow();
+
+    expect(within(evidencePanel()).queryByRole("img")).toBeNull();
+  });
+
+  it("says a frame could not be loaded rather than leaving a broken image", () => {
+    const capture = line({
+      tool: "screen.capture",
+      live: true,
+      sentence: "Took a screenshot of the screen",
+      evidence: { shot: "/activity/shot/device-1/gone", captured_at_ms: Date.UTC(2026, 10, 5, 9, 0, 5) }
+    });
+    render(<ActivityTimeline lines={[capture]} devices={[]} />);
+
+    openRow();
+
+    const panel = evidencePanel();
+    fireEvent.error(within(panel).getByRole("img"));
+
+    expect(within(panel).queryByRole("img")).toBeNull();
+    expect(within(panel).getByText(/could not be loaded/i)).toBeInTheDocument();
+  });
+
   it("freezes the age column at nowMs so a paused page stops ageing", () => {
     vi.useFakeTimers();
     try {

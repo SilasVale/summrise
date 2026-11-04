@@ -114,6 +114,40 @@ function fact(evidence: Record<string, unknown>, key: string, label: string): re
   return null;
 }
 
+/**
+ * The captured frame itself: the one piece of evidence an event cannot carry.
+ *
+ * The image is fetched lazily from the console's memory, behind the session the page already holds.
+ * A load failure is a sentence, not a broken-image icon: the id may have been evicted, or the
+ * console may have restarted since the row arrived.
+ */
+function CapturedFrame(props: { src: string; capturedAt: number }) {
+  const [failed, setFailed] = useState(false);
+  if (failed) {
+    return (
+      <p className="hint evidence-shot-missing">
+        The captured frame could not be loaded; the console forgets old images when it restarts.
+      </p>
+    );
+  }
+  return (
+    <figure className="evidence-shot">
+      <img
+        src={props.src}
+        alt="The screen at the moment of the capture"
+        loading="lazy"
+        onError={() => setFailed(true)}
+      />
+      <figcaption>
+        <span>Captured at {clock(props.capturedAt)}</span>
+        <span className="evidence-shot-note">
+          Kept in the console's memory; a restart forgets it.
+        </span>
+      </figcaption>
+    </figure>
+  );
+}
+
 /** The evidence panel for one row. */
 function Evidence(props: { line: AuditLine; onWatch?: (deviceId: string) => void }) {
   const line = props.line;
@@ -121,6 +155,9 @@ function Evidence(props: { line: AuditLine; onWatch?: (deviceId: string) => void
   const command = evidence ? commandLine(evidence) : null;
   const input = evidence ? text(evidence, "input") : null;
   const output = evidence ? text(evidence, "output") : null;
+  const shot = evidence ? text(evidence, "shot") : null;
+  const capturedAt =
+    evidence && typeof evidence.captured_at_ms === "number" ? evidence.captured_at_ms : line.ts_ms;
   const facts = evidence
     ? Object.entries(DETAIL_LABELS)
         .map(([key, label]) => fact(evidence, key, label))
@@ -130,11 +167,12 @@ function Evidence(props: { line: AuditLine; onWatch?: (deviceId: string) => void
   const live = line.live === true;
   const detail = line.detail && line.detail !== "" ? line.detail : null;
   const canWatch = line.device_id && line.tool?.startsWith("terminal.");
-  const empty = !command && !input && !output && facts.length === 0;
+  const empty = !command && !input && !output && !shot && facts.length === 0;
 
   return (
     <div className="evidence">
       <div className="evidence-main">
+        {shot && <CapturedFrame src={shot} capturedAt={capturedAt} />}
         {command && (
           <>
             <p className="evidence-label">Command</p>

@@ -2566,6 +2566,16 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
   background: #14161a; color: #d6dae0; border-radius: 8px; padding: 10px 12px;
   max-height: 220px; overflow: auto; white-space: pre-wrap;
 }
+/* The captured frame: evidence you look at, bounded by the panel it opens inside. */
+.evidence-shot { margin: 0; display: grid; gap: 6px; }
+.evidence-shot img {
+  display: block; max-width: 100%; height: auto;
+  border: 1px solid var(--hairline); border-radius: 8px;
+}
+.evidence-shot figcaption {
+  display: grid; gap: 2px; font-size: var(--fs-2xs); color: var(--ink-faint);
+}
+.evidence-shot-note { color: var(--ink-faint); }
 .evidence-facts { margin: 6px 0 0; }
 .evidence-facts div {
   display: flex; justify-content: space-between; gap: var(--sp-3);
