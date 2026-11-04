@@ -15,7 +15,7 @@ Each item ships on its own: the web gates, the console's Rust tests, a live chec
 2. **Screenshots as evidence.** A `screen.capture` call keeps its last image in console memory
    (bounded per device) and the row opens it inline. The image is ephemeral: nothing is written to
    disk and a restart forgets it.
-3. **The session card.** The Terminal page shows the session before the terminal: machine, shell,
+3. **The session card.** *(Code complete 2026-11-04, queued behind the outage: the card leads the page — machine, session, kind, age, last keystroke from the live evidence.)* The Terminal page shows the session before the terminal: machine, shell,
    how long it has been open, the last command, the last few lines, and one button to attach. The
    raw terminal is what you get after that card, not the first thing.
 4. **Home stops leading with the endpoint** *(code complete 2026-11-04, queued behind the outage:
@@ -62,13 +62,13 @@ host's `runs.exec`. Code-only work continues; nothing ships until a device answe
 A product gets better by removing things, not only by adding them. These are the deletions this
 workstream owns; each one ships with the same gates as a feature.
 
-- **C1. The hub's endpoint hero.** The machine page leads with an URL and a Copy button while the
+- **C1. The hub's endpoint hero.** *(Done 2026-11-04, f6ff6aa.)* The machine page leads with an URL and a Copy button while the
   Connect sheet already owns that job. Delete the hero; the sheet is the only place the endpoint
   appears. *(P0-4 covers the page; C1 is the deletion.)*
 - **C2. The Activity filter bar in the timeline view.** Six controls (scope, time, device, token,
   search, status) belong to the table. The timeline gets machine chips and a search field; the rest
   moves behind `Table`. *(P1-5.)*
-- **C3. The tool sheet's "Try it" panel.** A browser that can invoke any tool with raw JSON is a
+- **C3. The tool sheet's "Try it" panel.** *(Done 2026-11-04: 634c438 removed the panel, ce4602d the helpers only it used.)* A browser that can invoke any tool with raw JSON is a
   developer toy with the operator's full authority; Capabilities is a catalogue, not a REPL. Delete
   the panel, keep the catalogue. *(Revisit: the operator may want it under a "Developer" sheet.)*
 - **C4. The legacy server-rendered pages under `/next`.** They predate the React console and the
