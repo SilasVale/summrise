@@ -26,22 +26,22 @@ const COMPONENTS: &str = r##"  * { box-sizing: border-box; }
     font-variant-numeric: tabular-nums;
     -webkit-font-smoothing: antialiased;
   }
-  main { flex: 1; width: 100%; max-width: 54rem; margin: 0 auto; padding: 24px 16px 32px; display: grid; gap: 16px; }
+  main { flex: 1; width: 100%; max-width: 54rem; margin: 0 auto; padding: var(--sp-5) var(--sp-4) var(--sp-6); display: grid; gap: var(--sp-4); }
   /* The shared card carries a bottom margin; in a grid that owns the gap it doubled the space
      between siblings (16 + 20 = 36px). One owner of the gap. */
   main .card { margin-bottom: 0; }
   /* A grid item refuses to shrink below its content unless told to; the cards are the items. */
   main > * { min-width: 0; }
-  .term-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+  .term-controls { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-1-5); }
   .term-controls input { width: 7rem; min-width: 0; }
-  .term-sep { flex: none; width: 1px; height: 18px; margin: 0 4px; background: var(--line); }
+  .term-sep { flex: none; width: 1px; height: 18px; margin: 0 var(--sp-1); background: var(--line); }
   /* Close is the end of the row, not the neighbour of New serial: a gap that grows keeps it there
      when the row wraps without shoving it onto its own line. */
   .term-close { margin-left: auto; }
-  .lede { color: var(--ink-muted); margin: 0 0 4px; font-size: var(--fs-md); }
+  .lede { color: var(--ink-muted); margin: 0 0 var(--sp-1); font-size: var(--fs-md); }
   header button {
     margin-left: auto; font: inherit; font-size: var(--fs-base); font-weight: 600;
-    padding: 4px 12px; border-radius: var(--radius-xs); cursor: pointer;
+    padding: var(--sp-1) var(--sp-3); border-radius: var(--radius-xs); cursor: pointer;
     border: 1px solid var(--line-strong); background: var(--surface); color: var(--ink);
   }
   header button:hover { border-color: var(--accent); }
@@ -49,15 +49,15 @@ const COMPONENTS: &str = r##"  * { box-sizing: border-box; }
 
   /* A section is a card from `summrise_ui`: the container, the heading row and the body are the shared
      rules, so this page no longer styles sections at all. Only the spacing inside a body is local. */
-  .card .card-body > * + * { margin-top: 12px; }
-  dl { display: grid; grid-template-columns: 11rem 1fr; gap: 4px 16px; margin: 0; }
+  .card .card-body > * + * { margin-top: var(--sp-3); }
+  dl { display: grid; grid-template-columns: 11rem 1fr; gap: var(--sp-1) var(--sp-4); margin: 0; }
   dt { color: var(--ink-muted); font-size: var(--fs-md); }
   dd { margin: 0; overflow-wrap: anywhere; font-size: var(--fs-md); }
   .mono { font-family: var(--font-mono); font-size: var(--fs-sm); }
 
 
   table { width: 100%; border-collapse: collapse; }
-  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); font-size: var(--fs-base); }
+  th, td { text-align: left; padding: var(--sp-1-5) var(--sp-2); border-bottom: 1px solid var(--line); font-size: var(--fs-base); }
   th { font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: var(--tracking-label); color: var(--ink-faint); font-weight: 600; }
   tr:last-child td { border-bottom: 0; }
   td.kind { color: var(--ink-muted); }
@@ -67,22 +67,22 @@ const COMPONENTS: &str = r##"  * { box-sizing: border-box; }
      person pastes the code from there into here. Field and button rules only; the tokens above are
      the panel's. */
   form {
-    display: grid; gap: 8px; margin-top: 16px; padding-top: 16px;
+    display: grid; gap: var(--sp-2); margin-top: var(--sp-4); padding-top: var(--sp-4);
     border-top: 1px solid var(--line);
   }
-  form h3 { font-size: var(--fs-md); font-weight: 600; margin: 0 0 4px; }
+  form h3 { font-size: var(--fs-md); font-weight: 600; margin: 0 0 var(--sp-1); }
   form label { font-size: var(--fs-base); color: var(--ink-muted); }
   form input[type="text"] {
     font: inherit; font-size: var(--fs-md); color: var(--ink);
     background: var(--surface-recessed); border: 1px solid var(--line-strong);
-    border-radius: var(--radius-xs); padding: 6px 8px; min-width: 0;
+    border-radius: var(--radius-xs); padding: var(--sp-1-5) var(--sp-2); min-width: 0;
   }
-  form .check { display: flex; align-items: flex-start; gap: 8px; color: var(--ink); }
+  form .check { display: flex; align-items: flex-start; gap: var(--sp-2); color: var(--ink); }
   form .check input { margin: 0.25rem 0 0; }
   form .hint { margin: 0; color: var(--ink-faint); font-size: var(--fs-sm); }
   form button {
     justify-self: start; font: inherit; font-size: var(--fs-base); font-weight: 600;
-    padding: 6px 12px; border-radius: var(--radius-xs); cursor: pointer;
+    padding: var(--sp-1-5) var(--sp-3); border-radius: var(--radius-xs); cursor: pointer;
     /* `--accent` is a FOREGROUND in the dark theme (#ffa36b); as a fill it put white on it at 1.96:1.
        `--accent-solid`/`--accent-fg` is the pair the tokens were measured for. */
     border: 1px solid transparent; background: var(--accent-solid); color: var(--accent-fg);
@@ -102,20 +102,20 @@ const COMPONENTS: &str = r##"  * { box-sizing: border-box; }
      at the UA's 13.33px/2px radius — the one place the type scale visibly broke. */
   #term-pty, #term-serial, #term-close {
     font-family: var(--font); font-size: var(--fs-base); font-weight: 600;
-    padding: 6px 12px; border: 1px solid var(--line-strong); border-radius: var(--radius-xs);
+    padding: var(--sp-1-5) var(--sp-3); border: 1px solid var(--line-strong); border-radius: var(--radius-xs);
     background: var(--panel); color: var(--ink); cursor: pointer;
   }
   #term-pty:hover, #term-serial:hover, #term-close:hover { background: var(--panel-2); }
   #term-port, #term-baud {
     font-family: var(--font); font-size: var(--fs-base); width: 7rem;
-    padding: 6px 8px; border: 1px solid var(--line-strong); border-radius: var(--radius-xs);
+    padding: var(--sp-1-5) var(--sp-2); border: 1px solid var(--line-strong); border-radius: var(--radius-xs);
     background: var(--surface-recessed); color: var(--ink);
   }
   /* The session list lives under the canvas now, so it reads as part of the terminal rather than a
      second card that claims the terminal is somewhere else. */
-  .term-sessions { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--line); }
-  .term-sessions dl { grid-template-columns: 4rem 1fr; gap: 2px 8px; }
-  .term-host { height: 20rem; background: var(--term-canvas); border: 1px solid var(--line); border-radius: var(--radius-xs); padding: 6px; }
+  .term-sessions { margin-top: var(--sp-2-5); padding-top: var(--sp-2); border-top: 1px solid var(--line); }
+  .term-sessions dl { grid-template-columns: 4rem 1fr; gap: var(--sp-0-5) var(--sp-2); }
+  .term-host { height: 20rem; background: var(--term-canvas); border: 1px solid var(--line); border-radius: var(--radius-xs); padding: var(--sp-1-5); }
   /* **AN EMPTY 20 REM BOX READS AS A BROKEN TERMINAL.** Until a session is attached the canvas is
      blank and the only explanation was a hint underneath it. The placeholder is CSS, so it vanishes
      the moment xterm mounts a child. */
@@ -126,7 +126,7 @@ const COMPONENTS: &str = r##"  * { box-sizing: border-box; }
   }
   .xterm .xterm-viewport { background-color: var(--term-canvas); }
   .config {
-    margin: 8px 0; padding: 12px; overflow-x: auto;
+    margin: var(--sp-2) 0; padding: var(--sp-3); overflow-x: auto;
     /* The config is one long JSON line and the button copies all of it; a phone should not have to
        scroll sideways to read what it is about to paste. */
     white-space: pre-wrap; overflow-wrap: anywhere;
@@ -134,27 +134,27 @@ const COMPONENTS: &str = r##"  * { box-sizing: border-box; }
     font-family: var(--font-mono); font-size: var(--fs-sm); line-height: 1.5; color: var(--ink);
   }
   #copy-local {
-    font: inherit; font-size: var(--fs-base); font-weight: 600; padding: 6px 12px;
+    font: inherit; font-size: var(--fs-base); font-weight: 600; padding: var(--sp-1-5) var(--sp-3);
     border-radius: var(--radius-xs); border: 1px solid var(--line-strong);
     background: var(--surface); color: var(--ink); cursor: pointer;
   }
   #copy-local.copied { border-color: var(--ok); color: var(--ok); }
 
   /* The first screen is a sentence and two actions, not a config block. */
-  .hero { display: grid; gap: 2px; padding: 2px 0 6px; }
+  .hero { display: grid; gap: var(--sp-0-5); padding: var(--sp-0-5) 0 var(--sp-1-5); }
   .hero .eyebrow { margin: 0; color: var(--ink-faint); font-size: var(--fs-xs); font-weight: 600; letter-spacing: var(--tracking-eyebrow); text-transform: uppercase; }
-  .hero h2 { margin: 2px 0 0; font-size: var(--fs-xl); line-height: 1.15; letter-spacing: var(--tracking-tight); }
-  .hero .meta { margin: 6px 0 0; color: var(--ink-muted); font-size: var(--fs-base); }
-  .hero .lede { margin: 6px 0 0; }
-  .hero .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
-  .button { display: inline-flex; align-items: center; justify-content: center; font: inherit; font-size: var(--fs-base); font-weight: 600; line-height: 1.2; padding: 6px 12px; border-radius: var(--radius-xs); cursor: pointer; border: 1px solid var(--line-strong); background: var(--surface); color: var(--ink); text-decoration: none; }
+  .hero h2 { margin: var(--sp-0-5) 0 0; font-size: var(--fs-xl); line-height: 1.15; letter-spacing: var(--tracking-tight); }
+  .hero .meta { margin: var(--sp-1-5) 0 0; color: var(--ink-muted); font-size: var(--fs-base); }
+  .hero .lede { margin: var(--sp-1-5) 0 0; }
+  .hero .actions { display: flex; flex-wrap: wrap; gap: var(--sp-2); margin-top: var(--sp-2-5); }
+  .button { display: inline-flex; align-items: center; justify-content: center; font: inherit; font-size: var(--fs-base); font-weight: 600; line-height: 1.2; padding: var(--sp-1-5) var(--sp-3); border-radius: var(--radius-xs); cursor: pointer; border: 1px solid var(--line-strong); background: var(--surface); color: var(--ink); text-decoration: none; }
   .button:hover { background: var(--panel-2); border-color: var(--accent); }
   .button.primary { background: var(--accent-solid); border-color: transparent; color: var(--accent-fg); }
   .button.primary:hover { background: var(--accent-hover); color: var(--accent-fg); }
-  details.secondary, details.diagnostics { border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); padding: 12px 14px; }
+  details.secondary, details.diagnostics { border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); padding: var(--sp-3) var(--sp-3-5); }
   details.secondary summary, details.diagnostics summary { cursor: pointer; font-size: var(--fs-md); font-weight: 600; color: var(--ink); }
-  details.secondary[open] summary, details.diagnostics[open] summary { margin-bottom: 10px; }
-  .diagnostics-body { display: grid; gap: 12px; padding-top: 2px; }
+  details.secondary[open] summary, details.diagnostics[open] summary { margin-bottom: var(--sp-2-5); }
+  .diagnostics-body { display: grid; gap: var(--sp-3); padding-top: var(--sp-0-5); }
   .diagnostics-body .card { border: 0; padding: 0; box-shadow: none; }
   .diagnostics-body .card .card-head { padding-left: 0; padding-right: 0; }
   .diagnostics-body .card .card-body { padding-left: 0; padding-right: 0; }
@@ -164,20 +164,20 @@ const COMPONENTS: &str = r##"  * { box-sizing: border-box; }
      edge while `main` is a centred 54 rem column, so on a 1280 px screen the brand started at 24 px
      and the first card at 224 — two different pages stacked. The padding is the column's own offset
      plus its gutter, which falls back to the plain gutter on a window with no margins left to give. */
-  header.topbar { padding: 8px max(16px, calc((100% - 54rem) / 2 + 16px)); }
+  header.topbar { padding: var(--sp-2) max(var(--sp-4), calc((100% - 54rem) / 2 + var(--sp-4))); }
 
   /* A phone, or a console window dragged narrow: an 11 rem label column leaves the value column about
      ten characters wide, so the two stack instead. */
   @media (max-width: 40rem) {
-    body { padding: 16px 12px 32px; }
-    dl { grid-template-columns: 1fr; gap: 4px; }
-    dt { margin-top: 8px; }
+    body { padding: var(--sp-4) var(--sp-3) var(--sp-6); }
+    dl { grid-template-columns: 1fr; gap: var(--sp-1); }
+    dt { margin-top: var(--sp-2); }
     /* **A WRAPPED BUTTON NEEDS A HEADER THAT GROWS.** The shared `.topbar` is a fixed 56 px, so the
        action that wraps to its own line at 390 px overflowed it by 10 px and printed on top of the
        first paragraph (measured: button bottom 106, paragraph top 96). */
     /* `.topbar` is the class that sets the fixed height, so the selector that lifts it must carry the
        class too: a bare `header` rule loses to `.topbar` on specificity. */
-    header.topbar { flex-wrap: wrap; height: auto; min-height: 56px; padding: 8px 12px; row-gap: 6px; }
+    header.topbar { flex-wrap: wrap; height: auto; min-height: 56px; padding: var(--sp-2) var(--sp-3); row-gap: var(--sp-1-5); }
     header button { margin-left: 0; }
   }
 "##;
@@ -1068,6 +1068,33 @@ mod tests {
             rest = &after[end..];
         }
         assert!(!seen.is_empty(), "the panel declares no font sizes at all");
+    }
+
+    /// **SPACING IS THE RHYTHM, AND THE RHYTHM IS THE TOKENS.** Sixty-one padding, margin and gap
+    /// declarations used ten pixel values; nine of them were exactly the shared steps and the tenth
+    /// (32) was a step the scale was missing. They are tokens now, and a bare length in one of those
+    /// properties is the failure.
+    #[test]
+    fn the_panel_uses_the_shared_spacing_steps() {
+        const PROPERTIES: [&str; 5] = ["padding", "margin", "gap", "row-gap", "column-gap"];
+        let mut rest = COMPONENTS;
+        let mut seen = 0;
+        while let Some(at) = PROPERTIES
+            .iter()
+            .filter_map(|name| rest.find(&format!("{name}:")))
+            .min()
+        {
+            let after = &rest[at..];
+            let end = after.find([';', '}']).unwrap_or(after.len());
+            let declaration = &after[..end];
+            seen += 1;
+            assert!(
+                !declaration.contains("px"),
+                "spacing is written in pixels: {declaration}"
+            );
+            rest = &after[end..];
+        }
+        assert!(seen > 0, "the panel declares no spacing at all");
     }
 
     /// **A TRACKING VALUE IS A STEP, NOT A NUMBER.** The panel set 0.08, 0.05 and -0.02 by hand while

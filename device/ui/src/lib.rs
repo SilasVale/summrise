@@ -47,7 +47,7 @@ pub const TOKENS: &str = r#":root {
   --tracking-display:-0.011em; --tracking-tight:-0.02em;
   --tracking-label:0.05em; --tracking-eyebrow:0.08em;
   --sp-0-5:2px; --sp-1:4px; --sp-1-5:6px; --sp-2:8px; --sp-2-5:10px;
-  --sp-3:12px; --sp-3-5:14px; --sp-4:16px; --sp-5:24px;
+  --sp-3:12px; --sp-3-5:14px; --sp-4:16px; --sp-5:24px; --sp-6:32px;
 
   /* The terminal is a canvas that follows the page, the way summrise-legacy's does (`--term-canvas-bg`).
      An ANSI palette tuned for a light canvas is not the dark one with the colours swapped: these are
