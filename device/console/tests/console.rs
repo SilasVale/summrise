@@ -3460,6 +3460,26 @@ async fn signing_out_names_the_edge_logout_only_when_there_is_an_edge() {
     assert!(body["access_logout"].is_null(), "{body}");
 }
 
+/// The middleware mints only for GET `/next`; a POST carrying a verified Access header is not an
+/// identity. The old page's test for this died with the page, and the guard it proved is still live.
+#[tokio::test]
+async fn a_post_carrying_only_an_access_header_mints_nothing() {
+    let fixture = Fixture::with_access("access-post");
+    let request = Request::builder()
+        .method("POST")
+        .uri("/next")
+        .header(ACCESS_HEADER, access_token(60))
+        .body(Body::empty())
+        .expect("the request builds");
+
+    let (_, headers, _) = send_text(fixture.app(), request).await;
+
+    assert!(
+        headers.get(header::SET_COOKIE).is_none(),
+        "a POST must not mint a session"
+    );
+}
+
 /// A header that does not verify is not an identity: the request goes to the React page signed out,
 /// and nothing is minted for whoever sent it.
 #[tokio::test]
