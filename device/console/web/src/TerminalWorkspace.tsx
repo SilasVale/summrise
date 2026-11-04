@@ -7,7 +7,7 @@ import { callTool, ToolError, type Grant } from "./terminal";
 import { createTerminalWriteBatcher, type TerminalWriteBatcher } from "./terminalWriteBatcher";
 import { openTerminalStream, type TerminalStream } from "./terminalStream";
 import { createOutputPump, type OutputPump } from "./terminalOutput";
-import { nextTabTitle, renameTab, titleFromInput, type Tab } from "./terminalTabs";
+import { renameTab, tabLabel, titleFromInput, type Tab } from "./terminalTabs";
 import { age } from "./age";
 import type { LiveLine } from "./liveActivity";
 import { earliestCursor, readTranscript, transcriptFile } from "./terminalTranscript";
@@ -238,8 +238,9 @@ function safeSession(session: string): string {
 /**
  * The tail of a session id, short enough for a tab: "session-3" -> "3", "t1" -> "1".
  *
- * A tab's title is console-local ("pty 1"), so with two shells open the strip alone cannot say which
- * device session a tab belongs to; the Sessions list speaks in ids. This is the bridge between them.
+ * A tab's label is console-local ("pty · 12m"), so with two shells open the strip alone cannot say
+ * which device session a tab belongs to; the Sessions list speaks in ids. This is the bridge between
+ * them.
  */
 function shortSession(session: string): string {
   const digits = /(\d+)$/.exec(session);
@@ -1153,26 +1154,45 @@ export function TerminalWorkspace({
   /**
    * Open one session and add its tab. Returns the device's sentence on failure, null on success.
    *
-   * `title` is what the operator named the session (a preset's name); null means a generated label.
-   * The label is chosen inside the updater so two opens in one render cannot pick the same number.
+   * `title` is what the operator named the session (a preset's name); null means the tab says its
+   * kind and age. Nothing is generated here: two tabs may share a default label, which is why the
+   * session id sits beside it.
    */
   const openWith = async (args: Record<string, unknown>, title: string | null): Promise<string | null> => {
     try {
       const answer = JSON.parse(await callTool(grantRef.current, "terminal.create", args));
       const session = answer.id as string;
       const kind = String(args.kind);
-      setTabs((previous) => [
-        ...previous,
-        {
-          key: session,
-          session,
-          kind,
-          title: title ?? nextTabTitle(kind, previous),
-          // `terminal.create` does not return its start time; the moment the device answered is
-          // when this session began from the page's point of view, and the card shows that age.
-          startedAtMs: Date.now()
-        }
-      ]);
+      const startedAtMs = Date.now();
+      setTabs((previous) =>
+        // The list poll and the create answer can meet on the same session: the page may already
+        // have attached it while the create was in flight. A duplicate key would draw two tabs for
+        // one shell, so the existing tab wins. The create answer still adds the one fact the list
+        // may have been too old to report — when this session started — and a preset's name.
+        previous.some((tab) => tab.key === session)
+          ? previous.map((tab) =>
+              tab.key === session
+                ? {
+                    ...tab,
+                    title: tab.title ?? title,
+                    startedAtMs: tab.startedAtMs ?? startedAtMs
+                  }
+                : tab
+            )
+          : [
+              ...previous,
+              {
+                key: session,
+                session,
+                kind,
+                title,
+                // `terminal.create` does not return its start time; the moment the device answered
+                // is when this session began from the page's point of view, and the card shows that
+                // age.
+                startedAtMs
+              }
+            ]
+      );
       setActive(session);
       setStatus("");
       return null;
@@ -1370,7 +1390,7 @@ export function TerminalWorkspace({
     setTabs((previous) =>
       previous.some((tab) => tab.session === session)
         ? previous
-        : [...previous, { key: session, session, kind, title: nextTabTitle(kind, previous), startedAtMs }]
+        : [...previous, { key: session, session, kind, title: null, startedAtMs }]
     );
     setActive(session);
     setAvailable((previous) => previous.filter((entry) => entry.id !== session));
@@ -1404,7 +1424,7 @@ export function TerminalWorkspace({
       // it; keep the tab so the sentence, the id and a second Close all stay on screen.
       if (!(cause instanceof ToolError && cause.status === 404)) {
         setStatus(
-          `Could not close ${tab.title}: ${message(cause)}. The session may still be open.`
+          `Could not close ${tabLabel(tab, Date.now())}: ${message(cause)}. The session may still be open.`
         );
         return;
       }
@@ -1474,6 +1494,13 @@ export function TerminalWorkspace({
 
   const activeTab = tabs.find((tab) => tab.key === active) ?? null;
   const activeFault = activeTab ? faults[activeTab.key] : undefined;
+  // One clock read per render, so every tab in this strip is described against the same instant.
+  // No interval exists for the label: the page already re-renders for real state, and the age is
+  // recomputed then. The tabs' own output feed writes to xterm rather than to React state, so a
+  // long quiet session may keep its last rendered minute until something else changes the page —
+  // an ageing label is not worth a timer of its own.
+  const nowMs = Date.now();
+  const tabLabels = new Map(tabs.map((tab) => [tab.key, tabLabel(tab, nowMs)]));
 
   /**
    * Save what the device still retains of the active session.
@@ -1708,7 +1735,7 @@ export function TerminalWorkspace({
                     className="tab-main"
                     onClick={() => setActive(tab.key)}
                   >
-                    {tab.title}
+                    {tabLabels.get(tab.key)}
                     {faults[tab.key]?.kind === "closed" && " · ended"}{" "}
                     <span className="tab-session" title={tab.session}>
                       #{shortSession(tab.session)}
@@ -1725,7 +1752,7 @@ export function TerminalWorkspace({
                   <button
                     type="button"
                     className="tab-close"
-                    aria-label={`Close ${tab.title}`}
+                    aria-label={`Close ${tabLabels.get(tab.key)}`}
                     onClick={() => setClosing(tab)}
                   />
                 </span>
@@ -1765,7 +1792,11 @@ export function TerminalWorkspace({
                         onClick={() => {
                           closeTools();
                           if (activeTab) {
-                            setRenaming({ key: activeTab.key, title: activeTab.title, error: null });
+                            setRenaming({
+                              key: activeTab.key,
+                              title: tabLabel(activeTab, Date.now()),
+                              error: null
+                            });
                           }
                         }}
                       >
@@ -1875,7 +1906,7 @@ export function TerminalWorkspace({
             <span className="hint">
               {activeFault.kind === "closed" || activeFault.kind === "refused"
                 ? "No keystrokes are sent from this tab while it is in this state."
-                : `Tab ${activeTab.title}`}
+                : `Tab ${tabLabel(activeTab, Date.now())}`}
             </span>
             {activeFault.kind !== "closed" && activeFault.kind !== "refused" && (
               <button type="button" className="mini" onClick={() => retry(activeTab)}>
@@ -2173,7 +2204,7 @@ export function TerminalWorkspace({
       )}
 
       {closing && (
-        <Modal title={`Close ${closing.title}?`} onClose={() => setClosing(null)}>
+        <Modal title={`Close ${tabLabel(closing, Date.now())}?`} onClose={() => setClosing(null)}>
           <p className="hint">
             A tab is a view of the session, not the session. <strong>Detach</strong> closes this tab
             and leaves the shell running on the machine — Sessions offers it again.{" "}

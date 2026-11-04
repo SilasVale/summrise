@@ -227,7 +227,8 @@ describe("TerminalWorkspace tab names", () => {
 
     // The session is on screen, not a row with an Attach button: the console's default page should
     // show a shell that is already running; the panel already does the same.
-    expect(await screen.findByRole("tab", { name: /pty 1/ })).toBeInTheDocument();
+    // The list did not report a start, so the label says only the kind; an age is not invented.
+    expect(await screen.findByRole("tab", { name: /^pty/ })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Attach" })).not.toBeInTheDocument();
     expect(callToolMock).toHaveBeenCalledWith(GRANT, "terminal.list", {});
   });
@@ -248,7 +249,7 @@ describe("TerminalWorkspace tab names", () => {
     });
     render(<TerminalWorkspace grant={GRANT} />);
 
-    await screen.findByRole("tab", { name: /pty 1/ });
+    await screen.findByRole("tab", { name: /pty · / });
     const reads = callToolMock.mock.calls.filter(([, name]) => name === "terminal.read");
     expect(reads[0][2]).toMatchObject({ id: "new" });
   });
@@ -266,7 +267,7 @@ describe("TerminalWorkspace tab names", () => {
 
     // "pty 1" is this console's name for the tab; #7 is what the device calls the session, and the
     // Sessions list speaks in those. Without it two open shells are two identical-looking tabs.
-    const tab = await screen.findByRole("tab", { name: /pty 1/ });
+    const tab = await screen.findByRole("tab", { name: /pty · / });
     expect(tab).toHaveTextContent("#7");
     expect(tab.querySelector(".tab-session")).toHaveAttribute("title", "session-7");
   });
@@ -307,25 +308,26 @@ describe("TerminalWorkspace tab names", () => {
 
       // A page that keeps saying "no session" while a shell runs is the bug this surface exists to
       // avoid: the list was read once, before the shell existed, and no device event announces it.
-      expect(screen.getByRole("tab", { name: /pty 1/ })).toBeInTheDocument();
+      expect(screen.getByRole("tab", { name: /^pty/ })).toBeInTheDocument();
     } finally {
       vi.useRealTimers();
     }
   });
 
-  it("opens a pty session as a tab named pty 1", async () => {
+  it("opens a pty session as a tab that says its kind and age", async () => {
     render(<TerminalWorkspace grant={GRANT} />);
     await startPtyTab();
 
-    const tab = await screen.findByRole("tab", { name: /pty 1/ });
-    expect(tab).toHaveTextContent("pty 1");
+    const tab = await screen.findByRole("tab", { name: /^pty · \d+s/ });
+    expect(tab).toHaveTextContent(/^pty · \d+s/);
+    expect(tab).not.toHaveTextContent(/^pty \d/);
     expect(callToolMock).toHaveBeenCalledWith(GRANT, "terminal.create", { kind: "pty" });
   });
 
   it("paints the terminal on the page's canvas, not a black one", async () => {
     render(<TerminalWorkspace grant={GRANT} />);
     await startPtyTab();
-    await screen.findByRole("tab", { name: /pty 1/ });
+    await screen.findByRole("tab", { name: /pty · / });
 
     // jsdom loads no sheet, so the seam's fallback is what it sees; the point is that it is the
     // WHITE canvas the canonical palette names, not the old hardcoded #10151c.
@@ -335,7 +337,7 @@ describe("TerminalWorkspace tab names", () => {
   it("keeps the session's secondary actions in one menu", async () => {
     const { container } = render(<TerminalWorkspace grant={GRANT} />);
     await startPtyTab();
-    await screen.findByRole("tab", { name: /pty 1/ });
+    await screen.findByRole("tab", { name: /pty · / });
 
     const menu = container.querySelector("details.session-menu");
     expect(menu).not.toBeNull();
@@ -349,7 +351,7 @@ describe("TerminalWorkspace tab names", () => {
   it("closes the menu once an action opens its dialog", async () => {
     const { container } = render(<TerminalWorkspace grant={GRANT} />);
     await startPtyTab();
-    await screen.findByRole("tab", { name: /pty 1/ });
+    await screen.findByRole("tab", { name: /pty · / });
     const menu = container.querySelector("details.session-menu") as HTMLDetailsElement;
     menu.open = true;
 
@@ -362,29 +364,32 @@ describe("TerminalWorkspace tab names", () => {
   it("renames the active tab and the name survives the next poll", async () => {
     render(<TerminalWorkspace grant={GRANT} />);
     await startPtyTab();
-    await screen.findByRole("tab", { name: /pty 1/ });
+    await screen.findByRole("tab", { name: /pty · / });
 
     fireEvent.click(screen.getByRole("button", { name: "Rename tab" }));
     const dialog = await screen.findByRole("dialog", { name: "Rename tab" });
     const input = within(dialog).getByLabelText("Tab name");
-    expect(input).toHaveValue("pty 1");
+    expect((input as HTMLInputElement).value).toMatch(/^pty · \d+s$/);
 
     fireEvent.change(input, { target: { value: "  prod   db " } });
     fireEvent.click(within(dialog).getByRole("button", { name: "Save" }));
 
-    expect(await screen.findByRole("tab", { name: /prod db/ })).toHaveTextContent("prod db");
+    const renamed = await screen.findByRole("tab", { name: /prod db/ });
+    expect(renamed).toHaveTextContent("prod db");
+    // A user-named tab keeps exactly that name: the age is not appended to it.
+    expect(renamed).not.toHaveTextContent(/pty · /);
     // The tab's new name IS the confirmation; no sentence repeats it in the page chrome.
 
     const before = reads();
     await waitFor(() => expect(reads()).toBeGreaterThan(before), { timeout: 2_000 });
     expect(screen.getByRole("tab", { name: /prod db/ })).toBeInTheDocument();
-    expect(screen.queryByRole("tab", { name: /pty 1/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("tab", { name: /pty · / })).not.toBeInTheDocument();
   });
 
   it("refuses an empty name and leaves the title and the dialog alone", async () => {
     render(<TerminalWorkspace grant={GRANT} />);
     await startPtyTab();
-    await screen.findByRole("tab", { name: /pty 1/ });
+    await screen.findByRole("tab", { name: /pty · / });
 
     fireEvent.click(screen.getByRole("button", { name: "Rename tab" }));
     const dialog = await screen.findByRole("dialog", { name: "Rename tab" });
@@ -392,24 +397,29 @@ describe("TerminalWorkspace tab names", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "Save" }));
 
     expect(within(dialog).getByText("A tab needs a name.")).toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: /pty 1/ })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: /pty · / })).toBeInTheDocument();
     expect(screen.getByRole("dialog", { name: "Rename tab" })).toBeInTheDocument();
   });
 
-  it("numbers a second tab after the first", async () => {
+  it("labels a second tab by its kind and age too, and the session id keeps them apart", async () => {
     render(<TerminalWorkspace grant={GRANT} />);
     await startPtyTab();
-    await screen.findByRole("tab", { name: /pty 1/ });
+    await screen.findByRole("tab", { name: /^pty · \d+s/ });
     await startPtyTab();
+    await waitFor(() => expect(screen.getAllByRole("tab")).toHaveLength(2));
 
-    expect(await screen.findByRole("tab", { name: /pty 2/ })).toHaveTextContent("pty 2");
-    expect(screen.getAllByRole("tab")).toHaveLength(2);
+    const [first, second] = screen.getAllByRole("tab");
+    expect(first).toHaveTextContent(/^pty · \d+s/);
+    expect(second).toHaveTextContent(/^pty · \d+s/);
+    // The name no longer numbers the tabs, so the device session is what tells two pty tabs apart.
+    expect(first).toHaveTextContent("#1");
+    expect(second).toHaveTextContent("#2");
   });
 
-  it("offers a generated label again once its tab was renamed", async () => {
+  it("gives a new default label beside a tab that was renamed", async () => {
     render(<TerminalWorkspace grant={GRANT} />);
     await startPtyTab();
-    await screen.findByRole("tab", { name: /pty 1/ });
+    await screen.findByRole("tab", { name: /^pty · \d+s/ });
 
     fireEvent.click(screen.getByRole("button", { name: "Rename tab" }));
     const dialog = await screen.findByRole("dialog", { name: "Rename tab" });
@@ -419,8 +429,19 @@ describe("TerminalWorkspace tab names", () => {
 
     await startPtyTab();
     await waitFor(() => expect(screen.getAllByRole("tab")).toHaveLength(2));
-    expect(screen.getByRole("tab", { name: /pty 1/ })).toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: /prod db/ })).toBeInTheDocument();
+    const [named, generated] = screen.getAllByRole("tab");
+    expect(named).toHaveTextContent("prod db");
+    expect(named).not.toHaveTextContent(/pty · /);
+    expect(generated).toHaveTextContent(/^pty · \d+s/);
+  });
+
+  it("shows no tab label when no session is attached", async () => {
+    render(<TerminalWorkspace grant={GRANT} />);
+    expect(await screen.findByText(/No session is open on this device/)).toBeInTheDocument();
+
+    // There is no session, so there is no kind or age to claim.
+    expect(screen.queryByRole("tab")).not.toBeInTheDocument();
+    expect(screen.queryByText(/^pty · /)).not.toBeInTheDocument();
   });
 });
 
@@ -448,7 +469,7 @@ describe("TerminalWorkspace transcript", () => {
 
     render(<TerminalWorkspace grant={GRANT} />);
     await startPtyTab();
-    await screen.findByRole("tab", { name: /pty 1/ });
+    await screen.findByRole("tab", { name: /^pty/ });
     // The tab's first poll has already taken its own cursor to 6.
     await waitFor(() => expect(readCursors.length).toBeGreaterThan(0));
 
@@ -494,7 +515,7 @@ describe("TerminalWorkspace transcript", () => {
 
     render(<TerminalWorkspace grant={GRANT} />);
     await startPtyTab();
-    await screen.findByRole("tab", { name: /pty 1/ });
+    await screen.findByRole("tab", { name: /^pty/ });
 
     await waitFor(() => expect(readCursors).toContain(4096), { timeout: 3_000 });
     expect(readCursors[0]).toBe(0);
@@ -521,7 +542,7 @@ describe("TerminalWorkspace transcript", () => {
 
     render(<TerminalWorkspace grant={GRANT} />);
     await startPtyTab();
-    await screen.findByRole("tab", { name: /pty 1/ });
+    await screen.findByRole("tab", { name: /^pty/ });
 
     await waitFor(
       () => expect(readCursors.filter((cursor) => cursor === 6).length).toBeGreaterThanOrEqual(2),
@@ -566,7 +587,7 @@ describe("TerminalWorkspace transcript", () => {
 
     render(<TerminalWorkspace grant={GRANT} />);
     await startPtyTab();
-    await screen.findByRole("tab", { name: /pty 1/ });
+    await screen.findByRole("tab", { name: /^pty/ });
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Failed to fetch");
     releaseTooOld();
@@ -587,7 +608,7 @@ describe("TerminalWorkspace text size", () => {
   it("opens a tab at the default size", async () => {
     render(<TerminalWorkspace grant={GRANT} />);
     await startPtyTab();
-    await screen.findByRole("tab", { name: /pty 1/ });
+    await screen.findByRole("tab", { name: /pty · / });
 
     await waitFor(() => expect(mockedXterm.instances).toHaveLength(1));
     expect(mockedXterm.instances[0].options.fontSize).toBe(DEFAULT_FONT_SIZE);
@@ -596,7 +617,7 @@ describe("TerminalWorkspace text size", () => {
   it("sizes every open terminal in place and remembers the choice", async () => {
     render(<TerminalWorkspace grant={GRANT} />);
     await startPtyTab();
-    await screen.findByRole("tab", { name: /pty 1/ });
+    await screen.findByRole("tab", { name: /pty · / });
     await startPtyTab();
     await waitFor(() => expect(mockedXterm.instances).toHaveLength(2));
     await waitFor(() => expect(mockedFit.instances).toHaveLength(2));
@@ -619,7 +640,7 @@ describe("TerminalWorkspace text size", () => {
   it("creates the next tab at the size already chosen", async () => {
     render(<TerminalWorkspace grant={GRANT} />);
     await startPtyTab();
-    await screen.findByRole("tab", { name: /pty 1/ });
+    await screen.findByRole("tab", { name: /pty · / });
     fireEvent.click(screen.getByRole("button", { name: "A+" }));
 
     await startPtyTab();
@@ -632,7 +653,7 @@ describe("TerminalWorkspace text size", () => {
 
     render(<TerminalWorkspace grant={GRANT} />);
     await startPtyTab();
-    await screen.findByRole("tab", { name: /pty 1/ });
+    await screen.findByRole("tab", { name: /pty · / });
 
     await waitFor(() => expect(mockedXterm.instances).toHaveLength(1));
     expect(mockedXterm.instances[0].options.fontSize).toBe(18);
@@ -646,7 +667,7 @@ describe("TerminalWorkspace text size", () => {
     window.localStorage.setItem(FONT_SIZE_KEY, String(MIN_FONT_SIZE));
     render(<TerminalWorkspace grant={GRANT} />);
     await startPtyTab();
-    await screen.findByRole("tab", { name: /pty 1/ });
+    await screen.findByRole("tab", { name: /pty · / });
 
     expect(screen.getByRole("button", { name: "A−" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "A+" })).toBeEnabled();
@@ -656,7 +677,7 @@ describe("TerminalWorkspace text size", () => {
     window.localStorage.setItem(FONT_SIZE_KEY, String(MAX_FONT_SIZE));
     render(<TerminalWorkspace grant={GRANT} />);
     await startPtyTab();
-    await screen.findByRole("tab", { name: /pty 1/ });
+    await screen.findByRole("tab", { name: /pty · / });
 
     expect(screen.getByRole("button", { name: "A+" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "A−" })).toBeEnabled();
@@ -675,7 +696,7 @@ describe("TerminalWorkspace text size", () => {
     try {
       render(<TerminalWorkspace grant={GRANT} />);
       await startPtyTab();
-      await screen.findByRole("tab", { name: /pty 1/ });
+      await screen.findByRole("tab", { name: /pty · / });
       expect(screen.getByRole("button", { name: "A+" })).toBeEnabled();
       await waitFor(() => expect(mockedXterm.instances).toHaveLength(1));
       expect(mockedXterm.instances[0].options.fontSize).toBe(DEFAULT_FONT_SIZE);
@@ -718,7 +739,7 @@ describe("TerminalWorkspace session end", () => {
 
     render(<TerminalWorkspace grant={GRANT} />);
     await startPtyTab();
-    const tab = await screen.findByRole("tab", { name: /pty 1/ });
+    const tab = await screen.findByRole("tab", { name: /^pty/ });
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "The session ended with exit code 7. The output above is what it printed."
@@ -728,7 +749,7 @@ describe("TerminalWorkspace session end", () => {
     await waitFor(() => expect(mockedXterm.instances).toHaveLength(1));
     await waitFor(() => expect(mockedXterm.instances[0].write).toHaveBeenCalledWith("bye\n"));
     // One mark: the suffix ends the label, and the old "closed" chip is not drawn beside it.
-    expect(tab).toHaveTextContent(/pty 1 · ended/);
+    expect(tab).toHaveTextContent(/pty.*· ended/);
     expect(within(tab).queryByText("closed")).not.toBeInTheDocument();
 
     // The read that discovered the end sets `closed`; the next 250 ms tick must send nothing.
@@ -800,7 +821,7 @@ describe("TerminalWorkspace session end", () => {
   it("leaves a tab alone when the device does not say whether it is alive", async () => {
     render(<TerminalWorkspace grant={GRANT} />);
     await startPtyTab();
-    const tab = await screen.findByRole("tab", { name: /pty 1/ });
+    const tab = await screen.findByRole("tab", { name: /pty · / });
 
     // The default answer is the older device's `{data, cursor}`; it must not mark the tab.
     await waitFor(() => expect(reads()).toBeGreaterThan(0), { timeout: 2_000 });
@@ -866,14 +887,14 @@ describe("TerminalWorkspace search", () => {
     render(<TerminalWorkspace grant={GRANT} />);
     expect(screen.queryByRole("button", { name: "Find" })).not.toBeInTheDocument();
     await startPtyTab();
-    await screen.findByRole("tab", { name: /pty 1/ });
+    await screen.findByRole("tab", { name: /pty · / });
     expect(screen.getByRole("button", { name: "Find" })).toBeEnabled();
   });
 
   it("finds forward on Enter and backward on Shift+Enter, decorating the matches", async () => {
     render(<TerminalWorkspace grant={GRANT} />);
     await startPtyTab();
-    await screen.findByRole("tab", { name: /pty 1/ });
+    await screen.findByRole("tab", { name: /pty · / });
     await waitFor(() => expect(mockedSearch.instances).toHaveLength(1));
     const addon = mockedSearch.instances[0];
     // The addon is loaded on this tab's own xterm, so it searches that tab's scrollback and no other.
@@ -913,7 +934,7 @@ describe("TerminalWorkspace search", () => {
   it("says No match. on a miss and clears the sentence on the next hit", async () => {
     render(<TerminalWorkspace grant={GRANT} />);
     await startPtyTab();
-    await screen.findByRole("tab", { name: /pty 1/ });
+    await screen.findByRole("tab", { name: /pty · / });
     const input = openSearch();
     fireEvent.change(input, { target: { value: "error" } });
 
@@ -929,7 +950,7 @@ describe("TerminalWorkspace search", () => {
   it("searches while the operator types, without waiting for Enter", async () => {
     render(<TerminalWorkspace grant={GRANT} />);
     await startPtyTab();
-    await screen.findByRole("tab", { name: /pty 1/ });
+    await screen.findByRole("tab", { name: /pty · / });
     const input = openSearch();
     const addon = mockedSearch.instances[0];
 
@@ -949,7 +970,7 @@ describe("TerminalWorkspace search", () => {
   it("clears the decorations of the tab it searched when the bar closes", async () => {
     render(<TerminalWorkspace grant={GRANT} />);
     await startPtyTab();
-    await screen.findByRole("tab", { name: /pty 1/ });
+    await screen.findByRole("tab", { name: /pty · / });
     await waitFor(() => expect(mockedSearch.instances).toHaveLength(1));
     const addon = mockedSearch.instances[0];
 
@@ -969,7 +990,7 @@ describe("TerminalWorkspace search", () => {
   it("closes with Escape from a button in the bar, not only from the field", async () => {
     render(<TerminalWorkspace grant={GRANT} />);
     await startPtyTab();
-    await screen.findByRole("tab", { name: /pty 1/ });
+    await screen.findByRole("tab", { name: /pty · / });
     await waitFor(() => expect(mockedSearch.instances).toHaveLength(1));
     const addon = mockedSearch.instances[0];
 
@@ -989,7 +1010,7 @@ describe("TerminalWorkspace search", () => {
   it("toggles the bar back out of the way from Find", async () => {
     render(<TerminalWorkspace grant={GRANT} />);
     await startPtyTab();
-    await screen.findByRole("tab", { name: /pty 1/ });
+    await screen.findByRole("tab", { name: /pty · / });
 
     openSearch();
     fireEvent.click(screen.getByRole("button", { name: "Find" }));
@@ -999,13 +1020,13 @@ describe("TerminalWorkspace search", () => {
   it("clears the decorations of the tab it leaves and searches the one that is active", async () => {
     render(<TerminalWorkspace grant={GRANT} />);
     await startPtyTab();
-    await screen.findByRole("tab", { name: /pty 1/ });
+    await screen.findByRole("tab", { name: /pty · / });
     await startPtyTab();
-    await screen.findByRole("tab", { name: /pty 2/ });
+    await waitFor(() => expect(screen.getAllByRole("tab")).toHaveLength(2));
     await waitFor(() => expect(mockedSearch.instances).toHaveLength(2));
     const [first, second] = mockedSearch.instances;
 
-    fireEvent.click(screen.getByRole("tab", { name: /pty 1/ }));
+    fireEvent.click(screen.getAllByRole("tab")[0]);
     const input = openSearch();
     fireEvent.change(input, { target: { value: "error" } });
     fireEvent.keyDown(input, { key: "Enter" });
@@ -1018,7 +1039,7 @@ describe("TerminalWorkspace search", () => {
     mockedSearch.nextResult = true;
 
     const clearedBefore = first.clearDecorations.mock.calls.length;
-    fireEvent.click(screen.getByRole("tab", { name: /pty 2/ }));
+    fireEvent.click(screen.getAllByRole("tab")[1]);
     expect(first.clearDecorations.mock.calls.length).toBe(clearedBefore + 1);
     expect(screen.queryByText("No match.")).not.toBeInTheDocument();
     // The bar stayed open, so the next step is the newly active tab's search.
@@ -1031,7 +1052,7 @@ describe("TerminalWorkspace search", () => {
   it("never asks the device anything", async () => {
     render(<TerminalWorkspace grant={GRANT} />);
     await startPtyTab();
-    await screen.findByRole("tab", { name: /pty 1/ });
+    await screen.findByRole("tab", { name: /pty · / });
     const before = callToolMock.mock.calls.length;
 
     const input = openSearch();
@@ -1070,18 +1091,18 @@ describe("TerminalWorkspace recovery", () => {
   it("keeps the tab's close control out of the tab button", async () => {
     render(<TerminalWorkspace grant={GRANT} />);
     await startPtyTab();
-    const close = screen.getByRole("button", { name: "Close pty 1" });
+    const close = screen.getByRole("button", { name: /^Close pty · / });
     expect(close.tagName).toBe("BUTTON");
     expect(close.closest("button")).toBe(close);
-    expect(screen.getByRole("tab", { name: /pty 1/ }).contains(close)).toBe(false);
+    expect(screen.getByRole("tab", { name: /pty · / }).contains(close)).toBe(false);
   });
 
   it("asks before closing a live session, and keeps it when the operator declines", async () => {
     render(<TerminalWorkspace grant={GRANT} />);
     await startPtyTab();
 
-    fireEvent.click(screen.getByRole("button", { name: "Close pty 1" }));
-    const dialog = await screen.findByRole("dialog", { name: "Close pty 1?" });
+    fireEvent.click(screen.getByRole("button", { name: /^Close pty · / }));
+    const dialog = await screen.findByRole("dialog", { name: /^Close pty · / });
     // The old sentence said the process keeps running while the only button ended it. Both facts
     // are now named, and the safe one is the primary action.
     expect(within(dialog).getByText(/leaves the shell running on the machine/)).toBeInTheDocument();
@@ -1089,9 +1110,9 @@ describe("TerminalWorkspace recovery", () => {
     expect(callToolMock.mock.calls.some(([, name]) => name === "terminal.close")).toBe(false);
 
     fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
-    expect(screen.queryByRole("dialog", { name: "Close pty 1?" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: /^Close pty · / })).not.toBeInTheDocument();
     expect(callToolMock.mock.calls.some(([, name]) => name === "terminal.close")).toBe(false);
-    expect(screen.getByRole("tab", { name: /pty 1/ })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: /pty · / })).toBeInTheDocument();
   });
 
   it("detaches without ending the shell, and offers the session again", async () => {
@@ -1106,15 +1127,15 @@ describe("TerminalWorkspace recovery", () => {
       throw new Error(`the test did not expect a ${name} call`);
     });
     render(<TerminalWorkspace grant={GRANT} />);
-    await screen.findByRole("tab", { name: /pty 1/ });
+    await screen.findByRole("tab", { name: /pty · / });
 
-    fireEvent.click(screen.getByRole("button", { name: "Close pty 1" }));
-    const dialog = await screen.findByRole("dialog", { name: "Close pty 1?" });
+    fireEvent.click(screen.getByRole("button", { name: /^Close pty · / }));
+    const dialog = await screen.findByRole("dialog", { name: /^Close pty · / });
     fireEvent.click(within(dialog).getByRole("button", { name: "Detach" }));
 
     // Detach is a view change: the device is never asked to end anything.
     expect(callToolMock.mock.calls.some(([, name]) => name === "terminal.close")).toBe(false);
-    expect(screen.queryByRole("tab", { name: /pty 1/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("tab", { name: /pty · / })).not.toBeInTheDocument();
     // The device still lists it, and the page offers it again instead of hiding it.
     expect(await screen.findByRole("button", { name: "Attach" })).toBeInTheDocument();
   });
@@ -1132,11 +1153,11 @@ describe("TerminalWorkspace recovery", () => {
       throw new Error(`the test did not expect a ${name} call`);
     });
     render(<TerminalWorkspace grant={GRANT} />);
-    await screen.findByRole("tab", { name: /pty 1/ });
+    await screen.findByRole("tab", { name: /pty · / });
 
-    fireEvent.click(screen.getByRole("button", { name: "Close pty 1" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Close pty · / }));
     fireEvent.click(
-      within(await screen.findByRole("dialog", { name: "Close pty 1?" })).getByRole("button", {
+      within(await screen.findByRole("dialog", { name: /^Close pty · / })).getByRole("button", {
         name: "Detach"
       })
     );
@@ -1146,7 +1167,8 @@ describe("TerminalWorkspace recovery", () => {
     expect(await screen.findByRole("button", { name: "Attach" })).toBeInTheDocument();
   });
 
-  it("attaches another session from the Sessions menu without closing the first", async () => {    callToolMock.mockImplementation(async (_grant, name) => {
+  it("attaches another session from the Sessions menu without closing the first", async () => {
+    callToolMock.mockImplementation(async (_grant, name) => {
       if (name === "terminal.list") {
         return JSON.stringify([
           { id: "new", kind: "pty", started_at_ms: Date.now() - 60_000 },
@@ -1158,7 +1180,7 @@ describe("TerminalWorkspace recovery", () => {
       throw new Error(`the test did not expect a ${name} call`);
     });
     render(<TerminalWorkspace grant={GRANT} />);
-    await screen.findByRole("tab", { name: /pty 1/ });
+    await screen.findByRole("tab", { name: /pty · / });
 
     // The second tab does not exist yet; the menu names the one the device still has.
     fireEvent.click(screen.getByLabelText("Session tools"));
@@ -1169,8 +1191,11 @@ describe("TerminalWorkspace recovery", () => {
     expect(within(dialog).getByText(/opened 5m \d\ds ago/)).toBeInTheDocument();
     fireEvent.click(within(dialog).getByRole("button", { name: "Attach" }));
 
-    expect(await screen.findByRole("tab", { name: /pty 2/ })).toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: /pty 1/ })).toBeInTheDocument();
+    await waitFor(() => expect(screen.getAllByRole("tab")).toHaveLength(2));
+    const [first, attached] = screen.getAllByRole("tab");
+    expect(first).toHaveTextContent(/^pty · /);
+    // The attached session carries the device's own start time, so its age is the older 5m.
+    expect(attached).toHaveTextContent(/^pty · 5m/);
     expect(callToolMock.mock.calls.some(([, name]) => name === "terminal.close")).toBe(false);
   });
 
@@ -1183,15 +1208,15 @@ describe("TerminalWorkspace recovery", () => {
 
     render(<TerminalWorkspace grant={GRANT} />);
     await startPtyTab();
-    fireEvent.click(screen.getByRole("button", { name: "Close pty 1" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Close pty · / }));
 
     // Ending a session asks first, and says what the destructive button does.
-    const dialog = await screen.findByRole("dialog", { name: "Close pty 1?" });
+    const dialog = await screen.findByRole("dialog", { name: /^Close pty · / });
     expect(within(dialog).getByText(/stops the shell/)).toBeInTheDocument();
     fireEvent.click(within(dialog).getByRole("button", { name: "End session" }));
 
-    expect(await screen.findByText(/Could not close pty 1: device disconnected/)).toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: /pty 1/ })).toBeInTheDocument();
+    expect(await screen.findByText(/Could not close pty · .*: device disconnected/)).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: /pty · / })).toBeInTheDocument();
   });
 });
 
@@ -1388,7 +1413,7 @@ describe("TerminalWorkspace session card", () => {
     render(<TerminalWorkspace grant={GRANT} deviceName="workshop" />);
 
     // The card is on screen before the list answers; wait for the attach, then read the facts.
-    await screen.findByRole("tab", { name: /pty 1/ });
+    await screen.findByRole("tab", { name: /pty · / });
     const card = screen.getByRole("region", { name: "Session" });
     expect(within(card).getByText("workshop")).toBeInTheDocument();
     expect(within(card).getByText("session-7")).toBeInTheDocument();
@@ -1435,7 +1460,7 @@ describe("TerminalWorkspace session card", () => {
     render(<TerminalWorkspace grant={GRANT} deviceName="workshop" liveLines={lines} />);
 
     // The card is on screen before the list answers; wait for the attach, then read the card.
-    await screen.findByRole("tab", { name: /pty 1/ });
+    await screen.findByRole("tab", { name: /pty · / });
     const card = screen.getByRole("region", { name: "Session" });
     expect(within(card).getByText("npm test")).toBeInTheDocument();
     expect(within(card).getByText(/1[3-7]s ago/)).toBeInTheDocument();

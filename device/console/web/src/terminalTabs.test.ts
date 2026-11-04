@@ -1,31 +1,29 @@
 import { describe, expect, it } from "vitest";
-import { nextTabTitle, renameTab, titleFromInput, type Tab } from "./terminalTabs";
+import { renameTab, tabLabel, titleFromInput, type Tab } from "./terminalTabs";
 
-function tab(key: string, kind: string, title: string): Tab {
-  return { key, session: key, kind, title };
+function tab(key: string, kind: string, title: string | null, startedAtMs?: number): Tab {
+  return { key, session: key, kind, title, startedAtMs };
 }
 
-describe("nextTabTitle", () => {
-  it("starts at one when no tab exists", () => {
-    expect(nextTabTitle("pty", [])).toBe("pty 1");
+const NOW = Date.UTC(2026, 10, 5, 12, 0, 0);
+const MINUTE = 60_000;
+const HOUR = 60 * MINUTE;
+const DAY = 24 * HOUR;
+
+describe("tabLabel", () => {
+  it("says the kind and the age for a tab the operator has not named", () => {
+    expect(tabLabel(tab("a", "pty", null, NOW - 12 * MINUTE), NOW)).toBe("pty · 12m");
+    expect(tabLabel(tab("b", "ssh", null, NOW - 2 * HOUR), NOW)).toBe("ssh · 2h");
+    expect(tabLabel(tab("c", "serial", null, NOW - 40_000), NOW)).toBe("serial · 40s");
   });
 
-  it("numbers after the labels in use", () => {
-    expect(nextTabTitle("pty", [tab("a", "pty", "pty 1"), tab("b", "pty", "pty 2")])).toBe("pty 3");
+  it("keeps a name the operator typed, exactly", () => {
+    expect(tabLabel(tab("a", "pty", "prod db", NOW - DAY), NOW)).toBe("prod db");
   });
 
-  it("fills the gap a closed tab leaves", () => {
-    expect(nextTabTitle("pty", [tab("a", "pty", "pty 1"), tab("c", "pty", "pty 3")])).toBe("pty 2");
-  });
-
-  it("does not offer a label another tab now carries", () => {
-    expect(nextTabTitle("pty", [tab("a", "ssh", "pty 1")])).toBe("pty 2");
-  });
-
-  it("numbers different kinds independently", () => {
-    const tabs = [tab("a", "pty", "pty 1"), tab("b", "serial", "serial 1")];
-    expect(nextTabTitle("serial", tabs)).toBe("serial 2");
-    expect(nextTabTitle("pty", tabs)).toBe("pty 2");
+  it("says only the kind when the session's start is unknown", () => {
+    // A list that did not carry `started_at_ms` is not a reason to invent an age.
+    expect(tabLabel(tab("a", "pty", null), NOW)).toBe("pty");
   });
 });
 
@@ -49,17 +47,17 @@ describe("titleFromInput", () => {
 
 describe("renameTab", () => {
   it("replaces only the named tab and keeps the other objects identical", () => {
-    const first = tab("a", "pty", "pty 1");
-    const second = tab("b", "ssh", "pty 2");
+    const first = tab("a", "pty", null, NOW);
+    const second = tab("b", "ssh", "staging", NOW);
     const renamed = renameTab([first, second], "a", "prod db");
 
-    expect(renamed.map((entry) => entry.title)).toEqual(["prod db", "pty 2"]);
+    expect(renamed.map((entry) => entry.title)).toEqual(["prod db", "staging"]);
     expect(renamed[0]).not.toBe(first);
     expect(renamed[1]).toBe(second);
   });
 
   it("returns an unchanged copy when the key is absent", () => {
-    const tabs = [tab("a", "pty", "pty 1")];
+    const tabs = [tab("a", "pty", null, NOW)];
     expect(renameTab(tabs, "missing", "prod db")).toEqual(tabs);
   });
 });

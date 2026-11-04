@@ -14,3 +14,20 @@ export function age(ms: number): string {
   const days = Math.floor(hours / 24);
   return `${days}d ${hours % 24}h`;
 }
+
+/**
+ * One unit, no remainder: "12s", "5m", "2h", "3d".
+ *
+ * A tab is a few characters wide and its label sits beside the session id, so the shared `age`
+ * spelling ("3m 05s") is more than the strip can carry. The unit is rounded down: a tab that has
+ * lived 59 seconds has not lived a minute yet.
+ */
+export function compactAge(ms: number): string {
+  const seconds = Math.max(0, Math.floor(ms / 1000));
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h`;
+  return `${Math.floor(hours / 24)}d`;
+}
