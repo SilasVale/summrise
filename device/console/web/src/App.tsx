@@ -15,6 +15,7 @@ import { retrySentence } from "./logic";
 import { recordVitals, type VitalsSample } from "./vitals";
 import { AUDIT_WINDOW, AuditTable } from "./AuditTable";
 import { mergeActivity } from "./activityMerge";
+import { ActivityTimeline } from "./ActivityTimeline";
 import { DEVICE_TAB_LABELS, PAGE_LABELS, Rail, type DeviceTab, type Page } from "./Rail";
 import { Modal } from "./Modal";
 import { ConnectSheet, type ConnectSection } from "./ConnectSheet";
@@ -68,6 +69,7 @@ export function App() {
   // Activity follows the stream unless the operator paused it: a paused table is a snapshot of the
   // list at that moment, and the lines that arrived since are counted rather than lost.
   const [activityPaused, setActivityPaused] = useState(false);
+  const [activityView, setActivityView] = useState<"stream" | "table">("stream");
   const [frozenActivity, setFrozenActivity] = useState<AuditLine[] | null>(null);
   const activityLines = mergeActivity(audit, live.lines);
   const shownActivity = activityPaused && frozenActivity ? frozenActivity : activityLines;
@@ -684,13 +686,50 @@ export function App() {
               </div>
             </header>
             <section className="panel">
-              <AuditTable
-                lines={shownActivity}
-                devices={devices}
-                tokens={tokens}
-                selectedDeviceId={selected}
-                onOpenRun={openRun}
-              />
+              <div className="stream-bar">
+                <div className="seg stream-views" role="tablist" aria-label="Activity view">
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={activityView === "stream"}
+                    className={activityView === "stream" ? "seg-on" : undefined}
+                    onClick={() => setActivityView("stream")}
+                  >
+                    Timeline
+                  </button>
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={activityView === "table"}
+                    className={activityView === "table" ? "seg-on" : undefined}
+                    onClick={() => setActivityView("table")}
+                  >
+                    Table
+                  </button>
+                </div>
+                {activityView === "table" && (
+                  <p className="hint stream-note">The audit as rows, with filters and CSV export.</p>
+                )}
+              </div>
+              {activityView === "stream" ? (
+                <ActivityTimeline
+                  lines={shownActivity}
+                  devices={devices}
+                  onWatch={(deviceId) => {
+                    choose(deviceId);
+                    setPage("device");
+                    setTab("terminal");
+                  }}
+                />
+              ) : (
+                <AuditTable
+                  lines={shownActivity}
+                  devices={devices}
+                  tokens={tokens}
+                  selectedDeviceId={selected}
+                  onOpenRun={openRun}
+                />
+              )}
             </section>
           </div>
         )}

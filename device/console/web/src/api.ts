@@ -157,6 +157,10 @@ export type AuditLine = {
    * it; a fetched window carries it since the console started describing its own index.
    */
   sentence?: string;
+  /** How long the device took, when the console measured it (live lines only). */
+  ms?: number;
+  /** The evidence for this call, when the live stream carried it. */
+  evidence?: Record<string, unknown>;
 };
 
 /// The console did not answer with JSON: the edge answered instead — an Access login page after the

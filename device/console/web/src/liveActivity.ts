@@ -32,6 +32,8 @@ export type LiveLine = {
   ms?: number;
   /** The human sentence the console wrote for this event. */
   sentence: string;
+  /** What the row shows when it is opened: the call's own arguments, bounded. */
+  evidence?: Record<string, unknown>;
 };
 
 export type LiveHandlers = {
@@ -127,7 +129,10 @@ function asLine(value: unknown): LiveLine | null {
     ...(typeof frame.tool === "string" ? { tool: frame.tool } : {}),
     ...(typeof frame.detail === "string" ? { detail: frame.detail } : {}),
     ...(typeof frame.ok === "boolean" ? { ok: frame.ok } : {}),
-    ...(typeof frame.ms === "number" ? { ms: frame.ms } : {})
+    ...(typeof frame.ms === "number" ? { ms: frame.ms } : {}),
+    ...(frame.evidence && typeof frame.evidence === "object"
+      ? { evidence: frame.evidence as Record<string, unknown> }
+      : {})
   };
 }
 
