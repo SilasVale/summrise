@@ -49,7 +49,9 @@ host's `runs.exec`. Code-only work continues; nothing ships until a device answe
 9. **Capabilities and Plugins become one Tools tab** under the machine. *(Done 2026-11-04, 695be48: the rail is Home · Activity · Device; Tools sits in the machine's tabs; `ToolCatalogue` and `PluginList` are two sections of it; `#capabilities`/`#plugins` map to it.)* One place answers "what can
    this machine do", with plugins as a section of the same answer.
 10. **The Runs page's exec form moves** under Tools; Runs becomes the history, not a second way to
-    run a command.
+    run a command. *(Done 2026-11-04, d1e354f: the form is Tools' third section and calls `runs.exec`
+    with the same arguments; Runs is `runs.list` and its record; `#device/tools/run` was not added
+    because the fragment parser reads a sub-path as a tool name.)*
 11. **Accessibility sweep.** *(Done 2026-11-04, b7ba553: `scripts/a11y-audit.mjs` measures 17 page states and reports 0 findings and 3 allowed tab stops — the named scrollable regions; the audit row's opener is a real button with `aria-expanded`; the warning colour is in the AA pair test.)* Every row that opens is a button with `aria-expanded`; every icon has a
     name; focus order follows reading order; the warning colour is checked against the AA pairs.
 12. **Long timelines.** *(Done 2026-11-04: measured before optimising. The page now asks the
