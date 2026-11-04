@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { AuditLine, Device } from "./api";
-import { ACTIVITY_LIMIT } from "./activityMerge";
+import { capSentence } from "./activityMerge";
 import { auditFailed } from "./auditFilter";
 import { ageAt, shortId } from "./format";
 
@@ -461,8 +461,9 @@ export function ActivityTimeline(props: {
       )}
       {props.capped && (
         // The fetched window and the live lines can add up to more than the console's cap. Dropping
-        // the oldest is right; doing it silently would make "Today" a claim the page cannot keep.
-        <p className="hint timeline-capped">Showing the newest {ACTIVITY_LIMIT} of today.</p>
+        // the oldest is right; doing it silently would hide rows. The sentence names the window only:
+        // the cut rows can be yesterday's, so "of today" would be false on a list that spans days.
+        <p className="hint timeline-capped">{capSentence()}</p>
       )}
       {days.length === 0 ? (
         filtering ? (

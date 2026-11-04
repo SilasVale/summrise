@@ -30,6 +30,16 @@ export const ACTIVITY_LIMIT = 1000;
 
 export type ActivityWindow = { lines: AuditLine[]; capped: boolean };
 
+/**
+ * The one sentence a capped list shows.
+ *
+ * It describes the fetched window, not a day: the rows behind the cut may be yesterday's, so
+ * "of today" would be a claim the row list cannot keep.
+ */
+export function capSentence(limit = ACTIVITY_LIMIT): string {
+  return `Showing the newest ${limit} lines; older ones are not on this page.`;
+}
+
 /** The newest `limit` lines, and whether anything older was dropped to get there. */
 export function capActivity(lines: AuditLine[], limit = ACTIVITY_LIMIT): ActivityWindow {
   if (lines.length <= limit) return { lines, capped: false };

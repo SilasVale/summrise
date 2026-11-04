@@ -381,11 +381,16 @@ describe("ActivityTimeline", () => {
     expect(screen.getByRole("heading", { name: "Today" })).toBeInTheDocument();
   });
 
-  it("says the list was capped only when it was", () => {
+  it("says the window was capped only when it was", () => {
     const { rerender } = render(<ActivityTimeline lines={[fromAlpha]} devices={[]} />);
     expect(screen.queryByText(/showing the newest 1000/i)).toBeNull();
 
     rerender(<ActivityTimeline lines={[fromAlpha]} devices={[]} capped />);
-    expect(screen.getByText("Showing the newest 1000 of today.")).toBeInTheDocument();
+    // The list spans days, so the sentence names the window and never "of today": the rows behind
+    // the cut can be yesterday's, and that word would then be false.
+    expect(
+      screen.getByText("Showing the newest 1000 lines; older ones are not on this page.")
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/of today/)).toBeNull();
   });
 });

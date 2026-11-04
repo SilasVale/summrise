@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { capActivity, mergeActivity, mergeActivityWindow } from "./activityMerge";
+import { capActivity, capSentence, mergeActivity, mergeActivityWindow } from "./activityMerge";
 
 const audit = (ts_ms: number, tool: string, status = 200) => ({ ts_ms, kind: "mcp", tool, status });
 const live = (ts_ms: number, tool: string, sentence: string, status = 200) => ({
@@ -41,5 +41,11 @@ describe("merging the fetched window with the live stream", () => {
     const window = capActivity(lines);
     expect(window.lines).toHaveLength(1000);
     expect(window.capped).toBe(false);
+  });
+
+  it("describes the cut as a window, never as a day", () => {
+    expect(capSentence()).toBe(
+      "Showing the newest 1000 lines; older ones are not on this page."
+    );
   });
 });
