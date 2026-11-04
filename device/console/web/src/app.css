@@ -2400,3 +2400,17 @@ main::-webkit-scrollbar-track, .sheet-body::-webkit-scrollbar-track, .scroll::-w
 .browser-pane .panel-head .actions button { min-height: 24px; padding: 3px 9px; font-size: var(--fs-2xs); }
 .browser-pane .panel-head .actions { gap: var(--sp-1); }
 .browser-pane .row input[aria-label="Address"] { flex: 1; min-width: 12rem; }
+
+/* Windows high-contrast mode drops box-shadows, and this sheet draws every focus ring as one. The
+   outline is the fallback that survives there; it is invisible everywhere else because it is scoped
+   to a forced-colors session. */
+@media (forced-colors: active) {
+  button:focus-visible, a:focus-visible, summary:focus-visible,
+  input:focus-visible, select:focus-visible, textarea:focus-visible,
+  .rail-btn:focus-visible, .account > summary:focus-visible {
+    outline: 2px solid CanvasText;
+    outline-offset: 2px;
+    box-shadow: none;
+  }
+  .rail-btn[aria-current="page"] { outline: 1px solid CanvasText; outline-offset: -1px; }
+}
