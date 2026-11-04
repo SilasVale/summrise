@@ -43,6 +43,35 @@ SHA-256 check the `.cmd` performs before touching the live binary. From the repo
 `scripts/build-web.sh --check` by hand before the build, and compare the digest the host reports with
 the one `sha256sum` printed; nothing here verifies that `HEAD` contains `origin/main`.
 
+## 0.3.271-ux32 — deployed 2026-11-04
+
+Built here for `x86_64-pc-windows-gnu` (sha256 `59dce01660e9eb605cee2d34df8aca4c4372d08e9091862fdd1aff6738d187e7`),
+fetched by the host itself, and swapped by `C:\SummriseConsole\swap-0.3.271-ux32.ps1` after copying
+the live binary to `summrise-console.exe.bak-0.3.271-ux31`. The task's action was already
+`run-console.cmd` on `--port 7736 --bind 0.0.0.0 --trusted-proxy 100.85.163.159`; the swap only
+replaced the binary, so the tunnel, the data directory and the Access settings are the ones that
+were there.
+
+Verified live:
+
+- `/health` names `0.3.271-ux32`, and the served `/` is byte-identical to
+  `device/console/web/dist/index.html` (md5 `1cc4f9f9c41adc314d92416d078be24a`). The swap log's own
+  `127.0.0.1:7736/health` line says the same thing.
+- A real browser (Playwright on the Linux box, which is the console's trusted proxy) signed in
+  without a token, opened `DESKTOP-9VH92BJ`'s Terminal, opened a pty, typed
+  `echo accept-1793806176412` and read the echo back from a real PowerShell; the session was ended
+  afterwards. No page error and no failed request.
+- The page made **one** `GET /terminal/<device>/<session>/stream` and **zero** `terminal.read`
+  calls from the browser: the stream is the live path, not the polling fallback.
+- Three devices registered, two online; `DESKTOP-14RJCR8` was offline before the deploy and stayed
+  offline.
+
+**The device-side push is not active on this fleet yet.** The devices run `0.3.271`, whose host frame
+carries no capabilities, so the console serves the same stream with the parked-read pump. The push
+begins when a device build that advertises `terminal.stream` is released and the devices update —
+that release also carries the in-flight port work (device default `7737`, console `7736`, the
+`device.port` file), so it is a device release, not a console one.
+
 ## Why the console deploys differently from a device
 
 Three version streams ship from this repository and none of them is deployed by the same act:
