@@ -38,8 +38,8 @@ host's `runs.exec`. Code-only work continues; nothing ships until a device answe
 
 5. **Activity filters become chips.** Machine chips and a search field; the time-range select, the
    token column and the status select move into the Table view where they belong.
-6. **Terminal tabs carry facts.** A tab says the shell and the age, not just `pty 1`.
-7. **Connect has one token tab.** Per-device tokens and fleet tokens are the same idea at two
+6. **Terminal tabs carry facts.** *(Done 2026-11-04, bdefee2: a tab says `pty · 12m`; the shell is not in `terminal.list`, so it is not claimed; a renamed tab keeps its name.)* A tab says the shell and the age, not just `pty 1`.
+7. **Connect has one token tab.** *(Done 2026-11-04, 2b681e3: one list, scope column, one mint form; `FleetTokens.tsx` deleted; the second read that 405'd is gone in 44e60f7.)* Per-device tokens and fleet tokens are the same idea at two
    scopes; one list with a scope column, not two places to mint a credential.
 8. **Empty and offline states say what to do.** Every page that can be empty (timeline, runs, files,
    plugins) gets a sentence that names the next action, not just "none".
