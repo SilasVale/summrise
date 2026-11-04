@@ -60,7 +60,7 @@ host's `runs.exec`. Code-only work continues; nothing ships until a device answe
     merged window is capped at 1000 and the page says "Showing the newest 1000 lines; older ones are not on this page." when the cut
     happens, in the timeline and in the Table (4b26900).)* Measure a 1000-row day before optimising; virtualise only if the frame
     budget says so.
-13. **Phone.** The timeline at 390 px: the time column narrows, the age drops, the evidence panel
+13. **Phone.** *(Done 2026-11-04, 8b50f22: time column 64→40 px at 390 and 360, age hidden ≤480 px, the day label is sticky against `main` (measured offset 0 after 600 px of scroll), evidence was already one column; no row overflows.)* The timeline at 390 px: the time column narrows, the age drops, the evidence panel
     stacks (already true) and the day label sticks.
 
 ## Cuts — what should not exist
