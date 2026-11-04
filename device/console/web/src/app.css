@@ -1335,6 +1335,17 @@ button.files-crumb:hover {
   color: var(--ink);
   font: inherit;
 }
+/* The root control is a label AND a value. With no rule at all they were one run of text — "Root"
+   then the boxed "Workspace" a space later — which reads as the single sentence "Root Workspace". */
+.files-root {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1-5);
+  color: var(--ink-muted);
+  font-size: var(--fs-sm);
+}
+.files-root select { color: var(--ink); }
+
 .files-summary {
   display: flex;
   align-items: center;
