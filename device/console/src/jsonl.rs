@@ -106,25 +106,42 @@ impl JsonLines {
     }
 
     /// The newest `limit` lines, newest first, across the current file and its one rotation.
-    ///
-    /// A line that cannot be parsed is skipped and reported: a crash can leave a partial last line,
-    /// and a damaged line must not make the rest of the file unreadable.
     pub(crate) async fn newest(&self, limit: usize) -> Vec<Value> {
+        self.newest_matching(limit, |_| true).await
+    }
+
+    /// The newest `limit` lines that `matches` accepts, newest first, across the current file and its
+    /// one rotation.
+    ///
+    /// The predicate is applied **while the file is scanned**, not to a pre-cut window: a read that
+    /// asks for one machine's lines must not have them pushed out by another machine's newer traffic.
+    pub(crate) async fn newest_matching<F>(&self, limit: usize, matches: F) -> Vec<Value>
+    where
+        F: Fn(&Value) -> bool,
+    {
         if limit == 0 {
             return Vec::new();
         }
 
         let _reading = self.append.lock().await;
-        let mut lines = self.read_newest(&self.path, limit).await;
+        let mut lines = self.read_newest_matching(&self.path, limit, &matches).await;
         if lines.len() < limit {
-            let older = self.read_newest(&self.rotated, limit - lines.len()).await;
+            let older = self
+                .read_newest_matching(&self.rotated, limit - lines.len(), &matches)
+                .await;
             lines.extend(older);
         }
         lines
     }
 
-    /// The newest `limit` lines of one file, newest first.
-    async fn read_newest(&self, path: &Path, limit: usize) -> Vec<Value> {
+    /// The newest `limit` lines of one file that `matches` accepts, newest first.
+    ///
+    /// A line that cannot be parsed is skipped and reported: a crash can leave a partial last line,
+    /// and a damaged line must not make the rest of the file unreadable.
+    async fn read_newest_matching<F>(&self, path: &Path, limit: usize, matches: &F) -> Vec<Value>
+    where
+        F: Fn(&Value) -> bool,
+    {
         let bytes = match tokio::fs::read(path).await {
             Ok(bytes) => bytes,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Vec::new(),
@@ -144,7 +161,11 @@ impl JsonLines {
                 break;
             }
             match serde_json::from_str(line) {
-                Ok(value) => lines.push(value),
+                Ok(value) => {
+                    if matches(&value) {
+                        lines.push(value);
+                    }
+                }
                 Err(error) => eprintln!(
                     "summrise-console: skipping an unreadable line in {}: {error}",
                     path.display()

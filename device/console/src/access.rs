@@ -153,6 +153,15 @@ impl Access {
         }
         Err(AccessError::Refused(last))
     }
+
+    /// Whether a request carried an Access assertion at all, before it is verified.
+    ///
+    /// Sign-out asks this and not [`Access::verify`]: behind Access the edge owns the session, but a
+    /// request that arrived with a token or a cookie alone has no edge session to end, so logout must
+    /// not send it to the edge's logout page.
+    pub fn carried(headers: &axum::http::HeaderMap) -> bool {
+        token_from_headers(headers).is_some()
+    }
 }
 
 /// The token from a request's Access header, when it carries one.

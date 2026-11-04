@@ -108,4 +108,16 @@ impl Audit {
     pub(crate) async fn newest(&self, limit: usize) -> Vec<Value> {
         self.file.newest(limit).await
     }
+
+    /// The newest `limit` lines that name `device`, newest first.
+    ///
+    /// The filter is applied during the read, not to [`Audit::newest`]'s window: another machine's
+    /// newer traffic must not shorten this machine's day.
+    pub(crate) async fn newest_for(&self, device: &str, limit: usize) -> Vec<Value> {
+        self.file
+            .newest_matching(limit, |line| {
+                line.get("device_id").and_then(Value::as_str) == Some(device)
+            })
+            .await
+    }
 }

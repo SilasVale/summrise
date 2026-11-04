@@ -1287,9 +1287,11 @@ fn end_session(app: &AppState, token_hash: &[u8; 32]) -> Result<(), String> {
 ///
 /// The session list is memory, like the session itself, so removing the matching token is the whole
 /// of logout. The token compared is the one the request presents, so another operator's session is
-/// untouched. It answers 204 whether or not there was a token to remove: an Access identity has no
-/// in-memory token (the identity provider owns that session), and the page clears regardless of the
-/// answer. No audit line on purpose — session lifecycle is not a device action.
+/// untouched. It answers 200 with `{"access_logout": <url or null>}`: an Access identity has no
+/// in-memory token (the identity provider owns that session), so the URL is how the page ends the
+/// edge's session; a request that arrived with a token or a cookie alone gets `null`, because there
+/// is no edge session to end. The page clears regardless of the answer. No audit line on purpose —
+/// session lifecycle is not a device action.
 async fn logout(State(app): State<AppState>, _: OperatorSession, headers: HeaderMap) -> Response {
     // Either credential identifies the session to end; the cookie is also cleared so the browser
     // stops presenting a session the console has already forgotten.
@@ -1304,13 +1306,16 @@ async fn logout(State(app): State<AppState>, _: OperatorSession, headers: Header
     }
     // The cookie is ours; the identity is the edge's. Behind Access, clearing only ours is undone by
     // the next request the edge authenticates, so the answer names the edge's logout for the page to
-    // follow, and says `null` when there is no edge to sign out of (this is what `/next/logout` did
-    // with a redirect before the maud pages were deleted).
-    let access_logout = app
-        .access
-        .as_ref()
-        .and_then(crate::access::Access::issuer)
-        .map(|issuer| format!("{}/cdn-cgi/access/logout", issuer.trim_end_matches('/')));
+    // follow — but only for a request that actually carried an assertion. A token-only operator on an
+    // Access-configured console never had an edge session, and sending them to Cloudflare's logout
+    // would be a dead end (this is what `/next/logout` did with a redirect before the maud pages were
+    // deleted).
+    let access_logout = match &app.access {
+        Some(access) if crate::access::Access::carried(&headers) => access
+            .issuer()
+            .map(|issuer| format!("{}/cdn-cgi/access/logout", issuer.trim_end_matches('/'))),
+        _ => None,
+    };
     let mut response = Json(json!({ "access_logout": access_logout })).into_response();
     response.headers_mut().insert(
         header::SET_COOKIE,
@@ -4207,6 +4212,16 @@ struct LogQuery {
     limit: Option<String>,
 }
 
+/// The `?limit=&device=` shape `/audit` reads.
+///
+/// `device` is optional on purpose: without it the route is the fleet-wide window it has always
+/// been, and a page that names one machine reads that machine's own newest lines instead.
+#[derive(Deserialize)]
+struct AuditQuery {
+    limit: Option<String>,
+    device: Option<String>,
+}
+
 /// The clamped limit both log routes read.
 ///
 /// Missing means [`DEFAULT_LOG_LIMIT`]; a value above [`MAX_LOG_LIMIT`] is clamped, because neither
@@ -4223,18 +4238,23 @@ fn log_limit(limit: Option<String>) -> Result<usize, ApiError> {
 }
 
 /// `GET /audit`: the operator's own actions, newest first, one JSON line each.
+///
+/// `?device=` narrows the read to one machine's lines. The filter runs during the scan, not over a
+/// pre-cut fleet window, so another machine's traffic cannot push this machine's lines out.
 async fn list_audit(
     State(app): State<AppState>,
     _: OperatorSession,
-    Query(query): Query<LogQuery>,
+    Query(query): Query<AuditQuery>,
 ) -> Result<Json<Vec<Value>>, ApiError> {
+    let limit = log_limit(query.limit)?;
+    let lines = match query.device.as_deref() {
+        Some(device) => app.audit.newest_for(device, limit).await,
+        None => app.audit.newest(limit).await,
+    };
     // The same sentence the live stream carries, so a fetched window and a streamed line read the
     // same way. A stored line never had the call's arguments, so this is the general sentence for
     // its kind rather than the call's own.
-    let lines = app
-        .audit
-        .newest(log_limit(query.limit)?)
-        .await
+    let lines = lines
         .into_iter()
         .map(|mut line| {
             let sentence = crate::activity::line_sentence(&line);

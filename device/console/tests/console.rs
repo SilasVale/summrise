@@ -2547,6 +2547,98 @@ async fn the_audit_lists_the_newest_lines_first() {
 
 // ---- the denial index -------------------------------------------------------------------------
 
+/// Write `lines` to one audit generation (`audit.jsonl` or `audit.1.jsonl`), oldest first, without
+/// going through the writer.
+fn seed_audit_file(fixture: &Fixture, name: &str, lines: &[Value]) {
+    let path = fixture.config.data.join(name);
+    let mut text = String::new();
+    for line in lines {
+        text.push_str(&line.to_string());
+        text.push('\n');
+    }
+    fs::write(&path, text).expect("the seeded audit generation is written");
+}
+
+/// The audit window can be one machine's: a device filter is applied during the read, so another
+/// machine's newer traffic cannot push this machine's lines out of the returned window.
+#[tokio::test]
+async fn the_audit_window_can_be_one_machines() {
+    let fixture = Fixture::new("audit-one-machine");
+    let session = fixture.authenticate().await;
+    let alpha = "a1".repeat(32);
+    let beta = "b2".repeat(32);
+
+    // Alpha's six lines are the older generation; beta has written eight newer ones. A fleet read
+    // capped at three stops inside beta's traffic, so a filter applied *after* the cap would return
+    // nothing for alpha — exactly the bug the device read has to avoid.
+    let alpha_lines: Vec<Value> = (0..6)
+        .map(|index| {
+            json!({
+                "ts_ms": START_MS + index,
+                "kind": "mcp",
+                "device_id": alpha.as_str(),
+                "status": 200,
+                "tool": "terminal.list",
+            })
+        })
+        .collect();
+    let beta_lines: Vec<Value> = (0..8)
+        .map(|index| {
+            json!({
+                "ts_ms": START_MS + 100 + index,
+                "kind": "mcp",
+                "device_id": beta.as_str(),
+                "status": 200,
+                "tool": "files.read",
+            })
+        })
+        .collect();
+    seed_audit_file(&fixture, "audit.1.jsonl", &alpha_lines);
+    seed_audit_file(&fixture, "audit.jsonl", &beta_lines);
+
+    // Without `device` the answer is the fleet's newest three, unchanged: beta's.
+    let (status, body) = send(fixture.app(), get("/audit?limit=3", Some(&session))).await;
+    assert_eq!(status, StatusCode::OK);
+    let fleet = body.as_array().expect("a list of audit lines");
+    assert_eq!(fleet.len(), 3);
+    assert!(
+        fleet.iter().all(|line| line["device_id"] == json!(beta)),
+        "{fleet:?}"
+    );
+
+    // With `device`, alpha gets three of its own lines even though eight newer beta lines exist, and
+    // they come newest first from the rotated generation.
+    let (status, body) = send(
+        fixture.app(),
+        get(&format!("/audit?device={alpha}&limit=3"), Some(&session)),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let mine = body.as_array().expect("a list of audit lines");
+    assert_eq!(mine.len(), 3, "{mine:?}");
+    assert!(
+        mine.iter().all(|line| line["device_id"] == json!(alpha)),
+        "{mine:?}"
+    );
+    let times: Vec<u64> = mine
+        .iter()
+        .filter_map(|line| line["ts_ms"].as_u64())
+        .collect();
+    assert_eq!(times, vec![START_MS + 5, START_MS + 4, START_MS + 3]);
+
+    // More than alpha has: the scan crosses the rotation and stops at what exists.
+    let (_, body) = send(
+        fixture.app(),
+        get(&format!("/audit?device={alpha}&limit=100"), Some(&session)),
+    )
+    .await;
+    assert_eq!(
+        body.as_array().expect("a list").len(),
+        6,
+        "the rotation is read when the current file has fewer matches"
+    );
+}
+
 /// Write `count` denial lines to the current file, oldest first, without going through the writer.
 fn seed_denials(fixture: &Fixture, count: usize) {
     let mut text = String::new();
@@ -3425,12 +3517,31 @@ async fn a_verified_access_request_signs_in_without_a_token() {
     assert!(cookie.contains("HttpOnly"), "{cookie}");
 }
 
-/// Signing out behind Access has to end the edge's session too: the page cannot, so the answer names
-/// the edge's logout URL. Without Access there is no edge session, and the answer says `null` rather
-/// than inventing a URL.
+/// Signing out behind Access has to end the edge's session too: the page cannot, so a request that
+/// carried an Access assertion is answered with the edge's logout URL. A token-or-cookie-only
+/// sign-out gets `null` even on an Access-configured console: the edge never owned that session, and
+/// Cloudflare's logout would be a dead end. Without Access there is no edge session at all.
 #[tokio::test]
-async fn signing_out_names_the_edge_logout_only_when_there_is_an_edge() {
+async fn signing_out_names_the_edge_logout_only_when_the_request_carried_access() {
     let with_edge = Fixture::with_access("sign-out-edge");
+    let cookie = sign_in_cookie(&with_edge).await;
+    let request = Request::builder()
+        .method("POST")
+        .uri("/logout")
+        .header(header::COOKIE, &cookie)
+        .header(ACCESS_HEADER, access_token(60))
+        .body(Body::empty())
+        .expect("the request builds");
+    let (status, _, body) = send_text(with_edge.app(), request).await;
+    assert_eq!(status, StatusCode::OK);
+    let body: Value = serde_json::from_str(&body).expect("the answer is JSON");
+    let url = body["access_logout"]
+        .as_str()
+        .expect("the edge logout is named");
+    assert!(url.ends_with("/cdn-cgi/access/logout"), "{url}");
+
+    // The same console, the same Access configuration, but this sign-out carries a session alone: it
+    // never came through the edge, so the answer must not name an edge session to end.
     let cookie = sign_in_cookie(&with_edge).await;
     let request = Request::builder()
         .method("POST")
@@ -3441,10 +3552,7 @@ async fn signing_out_names_the_edge_logout_only_when_there_is_an_edge() {
     let (status, _, body) = send_text(with_edge.app(), request).await;
     assert_eq!(status, StatusCode::OK);
     let body: Value = serde_json::from_str(&body).expect("the answer is JSON");
-    let url = body["access_logout"]
-        .as_str()
-        .expect("the edge logout is named");
-    assert!(url.ends_with("/cdn-cgi/access/logout"), "{url}");
+    assert!(body["access_logout"].is_null(), "{body}");
 
     let plain = Fixture::new("sign-out-plain");
     let cookie = sign_in_cookie(&plain).await;
