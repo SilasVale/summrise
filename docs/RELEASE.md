@@ -441,6 +441,77 @@ the real mirror and `--mirror-dir`, and it is the only step that moves `release-
 **The seeds are the product's signing identity.** Losing the archive means no future release can be
 signed for the devices already in the field; it should live somewhere backed up, not only in `/home`.
 
+### The mirror this fleet follows (2026-11-04)
+
+The three canary devices poll one pointer:
+
+```
+C:\ProgramData\Summrise\update.json
+{"url":"http://100.85.163.159:18100/release-canary.json","channel":"canary",
+ "interval_s":900,"allow_plaintext":true}
+```
+
+So `100.85.163.159:18100` — this box, over the tailnet — is the channel, and it has to be served by
+something that survives a reboot. It is a pm2 app:
+
+```bash
+pm2 start /usr/bin/python3 --name canary-mirror -- \
+    -m http.server 18100 --bind 0.0.0.0 --directory /home/zss/canary-mirror
+pm2 save
+```
+
+`/home/zss/canary-mirror` holds the artifact, `release-0.3.N.json` and the channel pointer. A publish
+points `--out` at a staging directory and `--mirror-dir` at this one.
+
+**THE ONE FAILURE THAT LOOKED LIKE A DEAD CHANNEL.** Nothing listened on 18100 for days, and the
+pointer it would have served named `http://127.0.0.1:18120/summrise-device-0.3.270.exe` — a loopback
+URL, because that document was signed during a local rehearsal. A device that reached such a pointer
+would download from its own loopback. Both halves have to be right, and only one of them is visible
+from `ss -ltn`; the other is inside the signature. `--mirror` is what the device will fetch from, so a
+rehearsal must not write a document a real mirror will later serve.
+
+Repairing the pointer for a release whose artifact has not changed is a re-sign, not a rebuild. The
+artifact digest and the artifact signature stay the same; only the policy signature moves:
+
+```bash
+K=/home/zss/canary-kit-archive-2026-10-22/keys
+# from device/, with the signer built once into its own target dir:
+CARGO_TARGET_DIR=/home/zss/build/signer cargo build --release -p summrise-release
+/home/zss/build/signer/release/summrise-release sign \
+    --key-file "$K/release.seed" \
+    --artifact /home/zss/canary-mirror/summrise-device-0.3.270.exe \
+    --version 0.3.270 --channel canary \
+    --url http://100.85.163.159:18100/summrise-device-0.3.270.exe \
+    --min-version 0.1.0 --allow-plaintext \
+    --out /home/zss/canary-mirror/release-0.3.270.json
+cp /home/zss/canary-mirror/release-0.3.270.json /home/zss/canary-mirror/release-canary.json
+```
+
+Then prove it from both ends — the mirror's own files, and a device that has to believe them:
+
+```bash
+scripts/verify-release.sh 0.3.270 --mirror http://100.85.163.159:18100
+#   ok  the canary pointer names 0.3.270
+#   ok  the artifact matches its signed digest
+#   warn SummriseSetup-0.3.270.exe is not served   (no installer was published for this version)
+
+# on a device (the install directory differs per machine: C:\SummriseInstall or C:\SummriseCanary)
+& C:\SummriseInstall\summrise-device.exe --check-update http://100.85.163.159:18100/release-canary.json \
+    --channel canary --allow-plaintext --data C:\ProgramData\Summrise --install C:\SummriseInstall
+#   up_to_date 0.3.270
+```
+
+`up_to_date` is the proof: the device fetched the document, verified it against the key compiled into
+its own binary, and compared versions. Measured on all three devices on 2026-11-04.
+
+**The installer is the other half, and 0.3.258–0.3.270 were published without one.** Everything that
+lives in `summrise-shell.exe` (tray, window) reaches a machine only through `SummriseSetup`, so those
+versions could not carry a shell change. `makensis` is needed for it and is not on `PATH`; the tree
+from the Debian package is kept at `~/tools/nsis` (`publish-canary.bash` looks there as well as
+`/tmp/nsis`), which makes it survive a reboot. A publish from this box that omits the installer is
+therefore a choice the script makes silently — read `ls -l` on the staging directory before moving the
+pointer.
+
 ## Deploying the console
 
 ```powershell
