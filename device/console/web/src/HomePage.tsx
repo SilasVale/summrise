@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import { LiveNow } from "./LiveNow";
+import type { LiveLine } from "./liveActivity";
 import type { AuditLine, Device } from "./api";
 import { DeviceCard } from "./DeviceCard";
 import { copyText } from "./copy";
@@ -151,6 +153,9 @@ function HubHome(
     onActivity: () => void;
     /** The console's own build, from /health; the chip next door is the device's. */
     consoleVersion?: string | null;
+    /** The live activity stream, newest first. Absent in tests and before the stream opens. */
+    liveLines?: LiveLine[];
+    liveState?: "connecting" | "live" | "offline";
   }
 ) {
   const device = props.device;
@@ -209,6 +214,8 @@ function HubHome(
           </button>
         </div>
       )}
+
+      <LiveNow lines={props.liveLines ?? []} devices={props.devices} state={props.liveState ?? "connecting"} onAll={props.onActivity} />
 
       <section className="home-hero" aria-label="The endpoint">
         <p className="hint">This is the door your AI clients connect to.</p>
@@ -286,6 +293,9 @@ export type HomePageProps = FleetProps & {
   onActivity: () => void;
   /** The console's own build, from /health; the machine chip next door is the device's. */
   consoleVersion?: string | null;
+  /** The live activity stream, newest first. Absent in tests and before the stream opens. */
+  liveLines?: LiveLine[];
+  liveState?: "connecting" | "live" | "offline";
 };
 
 export function HomePage(props: HomePageProps) {

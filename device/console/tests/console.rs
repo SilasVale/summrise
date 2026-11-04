@@ -12010,3 +12010,122 @@ async fn a_stream_polls_a_device_that_does_not_advertise_it() {
     assert!(body.contains("event: output"), "{body}");
     assert!(body.contains("polled-chunk"), "{body}");
 }
+
+// ---- the live activity stream: a person reads what the AI did --------------------------------
+
+/// Read an open SSE connection until `needle` appears (or five seconds pass).
+async fn read_until(socket: &mut tokio::net::TcpStream, seen: &mut String, needle: &str) {
+    use tokio::io::AsyncReadExt;
+    let mut chunk = [0u8; 4096];
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    loop {
+        if seen.contains(needle) {
+            return;
+        }
+        match tokio::time::timeout_at(deadline, socket.read(&mut chunk)).await {
+            Ok(Ok(0)) | Err(_) | Ok(Err(_)) => return,
+            Ok(Ok(read)) => seen.push_str(&String::from_utf8_lossy(&chunk[..read])),
+        }
+    }
+}
+
+async fn open_events(server: &TestServer, session: &str) -> tokio::net::TcpStream {
+    use tokio::io::AsyncWriteExt;
+    let mut socket = tokio::net::TcpStream::connect(server.addr)
+        .await
+        .expect("a connection to the test server");
+    let request = format!(
+        "GET /events HTTP/1.1\r\nHost: 127.0.0.1\r\nAccept: text/event-stream\r\n{}\r\n",
+        bearer(session)
+    );
+    socket
+        .write_all(request.as_bytes())
+        .await
+        .expect("the request is written");
+    socket
+}
+
+#[tokio::test]
+async fn the_activity_stream_opens_with_a_humanised_snapshot() {
+    let fixture = Fixture::new("activity-snapshot");
+    let server = TestServer::start(&fixture.console).await;
+    let session = fixture.authenticate().await;
+    fixture.enroll(&session).await;
+    register_fixture_device(&fixture, &signing_key(0x51)).await;
+
+    let mut socket = open_events(&server, &session).await;
+    let mut seen = String::new();
+    read_until(&mut socket, &mut seen, "event: snapshot").await;
+
+    assert!(seen.contains("event: snapshot"), "{seen}");
+    assert!(
+        seen.contains("A machine registered"),
+        "the snapshot is sentences, not codes: {seen}"
+    );
+    assert!(seen.contains("\"sentence\""), "{seen}");
+}
+
+#[tokio::test]
+async fn a_line_written_after_the_connection_arrives_live() {
+    let fixture = Fixture::new("activity-live");
+    let server = TestServer::start(&fixture.console).await;
+    let session = fixture.authenticate().await;
+    let device_id = register_fixture_device(&fixture, &signing_key(0x52)).await;
+
+    let mut socket = open_events(&server, &session).await;
+    let mut seen = String::new();
+    read_until(&mut socket, &mut seen, "event: snapshot").await;
+    assert!(
+        !seen.contains("Issued a grant"),
+        "the grant is not written yet: {seen}"
+    );
+
+    fixture.create_grant(&session, &device_id, 60).await;
+    read_until(&mut socket, &mut seen, "Issued a grant").await;
+
+    assert!(seen.contains("event: activity"), "{seen}");
+    assert!(seen.contains("Issued a grant"), "{seen}");
+}
+
+#[tokio::test]
+async fn a_proxied_call_reaches_the_stream_as_a_sentence() {
+    let fixture = Fixture::new("activity-call");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0x53)).await;
+    let session = fixture.authenticate().await;
+
+    let mut socket = open_events(&server, &session).await;
+    let mut seen = String::new();
+    read_until(&mut socket, &mut seen, "event: snapshot").await;
+
+    let app = fixture.app();
+    let call = tokio::spawn(async move {
+        send(
+            app,
+            post_json_bearer(
+                "/mcp",
+                &session,
+                json!({
+                    "device_id": device_id,
+                    "request": {
+                        "jsonrpc": "2.0",
+                        "id": 3,
+                        "method": "tools/call",
+                        "params": { "name": "files.read", "arguments": { "path": "notes.txt" } },
+                    },
+                }),
+            ),
+        )
+        .await
+    });
+
+    let frame = next_json(&mut device).await;
+    answer(&mut device, &frame, tool_result(json!({ "content": "hi" }))).await;
+    let (status, _) = call.await.expect("the call finished");
+    assert_eq!(status, StatusCode::OK);
+
+    read_until(&mut socket, &mut seen, "Read `notes.txt`").await;
+    assert!(seen.contains("Read `notes.txt`"), "{seen}");
+    assert!(seen.contains("\"ok\":true"), "{seen}");
+}

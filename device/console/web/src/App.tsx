@@ -26,6 +26,7 @@ import { parseSurfaceHash, surfaceHash } from "./surface-link";
 import { ScreenPage } from "./ScreenPage";
 import { SystemPage } from "./SystemPage";
 import { HomePage } from "./HomePage";
+import { useLiveActivity } from "./useLiveActivity";
 import { CapabilitiesPage } from "./CapabilitiesPage";
 import { PluginsPage } from "./PluginsPage";
 import { DevicePageShell } from "./DevicePageShell";
@@ -61,6 +62,8 @@ export function App() {
   // It lives in localStorage; this state is the copy the pages draw.
   const [vitals, setVitals] = useState<Record<string, VitalsSample[]>>({});
   const [audit, setAudit] = useState<AuditLine[]>([]);
+  // The same index, streamed: what the AI is doing now, not what it did before the last refresh.
+  const live = useLiveActivity(Boolean(session?.authenticated));
   // The operator's permanent tokens, fetched so the audit can name the token behind a call and
   // Connect can list what exists. Empty when the console would not answer: the table falls back to
   // record ids.
@@ -597,6 +600,8 @@ export function App() {
             onPlugins={() => setPage("plugins")}
             onActivity={() => setPage("activity")}
             consoleVersion={consoleVersion}
+            liveLines={live.lines}
+            liveState={live.state}
           />
         )}
 

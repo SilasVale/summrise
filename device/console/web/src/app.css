@@ -2414,3 +2414,49 @@ main::-webkit-scrollbar-track, .sheet-body::-webkit-scrollbar-track, .scroll::-w
   }
   .rail-btn[aria-current="page"] { outline: 1px solid CanvasText; outline-offset: -1px; }
 }
+
+/* ── Now: the AI at work, on the hub ─────────────────────────────────────────────────────────────
+   One band above the page's own panels: presence, rate, and the last few things the console saw.
+   Everything is a fact from the audit stream; the pulse stops when the calls stop. */
+
+.live-now {
+  margin: 0 0 var(--sp-4); padding: 14px 16px;
+  background: var(--panel); border: 1px solid var(--hairline); border-radius: var(--radius);
+}
+.live-now-head { display: flex; align-items: baseline; gap: var(--sp-2); flex-wrap: wrap; }
+.live-now-head h2 { margin: 0; font-size: var(--fs-md); font-weight: var(--fw-semi); letter-spacing: -0.01em; }
+.live-state { display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-xs); color: var(--ink-muted); }
+.live-dot { width: 7px; height: 7px; border-radius: 999px; background: var(--ink-faint); flex: none; }
+.live-state.is-active { color: var(--ok); }
+.live-state.is-active .live-dot { background: var(--ok); animation: live-pulse 1.8s ease-out infinite; }
+.live-rate { font-size: var(--fs-xs); color: var(--ink-muted); }
+.live-all { margin-left: auto; }
+.live-spark { display: block; width: 100%; height: 30px; margin: 10px 0 4px; }
+.live-spark .spark-on { fill: var(--accent-solid); opacity: 0.8; }
+.live-spark .spark-off { fill: var(--hairline); }
+.live-list { list-style: none; margin: 0; padding: 0; }
+.live-entry {
+  display: flex; align-items: baseline; gap: var(--sp-2);
+  padding: 7px 0; border-bottom: 1px solid var(--hairline);
+  font-size: var(--fs-sm); animation: live-in 160ms var(--ease) both;
+}
+.live-entry:last-child { border-bottom: 0; }
+.live-entry-dot { width: 5px; height: 5px; border-radius: 999px; background: var(--accent-solid); flex: none; }
+.live-sentence { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.live-machine { color: var(--ink-muted); }
+.live-ms, .live-age { color: var(--ink-faint); font-size: var(--fs-2xs); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.live-empty { margin: 8px 0 0; }
+
+@keyframes live-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes live-pulse {
+  0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--ok) 45%, transparent); }
+  70% { box-shadow: 0 0 0 6px transparent; }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .live-entry { animation: none; }
+  .live-state.is-active .live-dot { animation: none; }
+}

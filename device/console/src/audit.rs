@@ -64,19 +64,44 @@ pub(crate) struct Entry<'a> {
 /// The append-only audit index; the denial log reuses [`Entry`] as its line shape.
 pub(crate) struct Audit {
     file: JsonLines,
+    /// Every line as it is appended, for the live activity stream.
+    ///
+    /// A broadcast and not a queue: a page that falls behind is told it lagged and asks for the file's
+    /// newest lines again, instead of the console holding a per-subscriber backlog nobody bounded.
+    live: tokio::sync::broadcast::Sender<Value>,
 }
+
+/// How many appended lines the live stream may carry before a slow subscriber is told it lagged.
+pub(crate) const LIVE_AUDIT_CAPACITY: usize = 256;
 
 impl Audit {
     /// The audit file under `data`, capped at `max_bytes`.
     pub(crate) fn new(data: &Path, max_bytes: u64) -> Audit {
+        let (live, _) = tokio::sync::broadcast::channel(LIVE_AUDIT_CAPACITY);
         Audit {
             file: JsonLines::new(data.join(AUDIT_FILE), max_bytes),
+            live,
         }
     }
 
     /// Append one line.
+    ///
+    /// The live stream is published by the caller, not here: the sentence a person reads needs the
+    /// call's arguments, which this file must never hold. [`Audit::publish`] is the one door.
     pub(crate) async fn append(&self, entry: &Entry<'_>) -> bool {
         self.file.append(entry).await
+    }
+
+    /// Publish one live event (already humanised) to every open `/events`. No subscriber is fine: the
+    /// stream is for whoever is watching, and nobody watching is not an error.
+    pub(crate) fn publish(&self, value: Value) {
+        let _ = self.live.send(value);
+    }
+
+    /// Follow the audit as it is written. Subscribe BEFORE reading the newest lines: a line written
+    /// between the two would otherwise be in neither the snapshot nor the stream.
+    pub(crate) fn follow(&self) -> tokio::sync::broadcast::Receiver<Value> {
+        self.live.subscribe()
     }
 
     /// The newest `limit` lines, newest first.

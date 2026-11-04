@@ -473,6 +473,12 @@ impl Console {
             // connection the moment it lands, which is the shape the device's own panel always had.
             .route("/terminal/:device/:session/stream", get(terminal_stream))
             .route("/audit", get(list_audit))
+            // **THE ACTIVITY AS IT HAPPENS.** The page drew "Recent calls" from a fetch, so a call that
+            // happened after the last refresh was invisible until the next one — no sense of the AI
+            // working now. This is the same index, streamed: a snapshot of the newest lines, then one
+            // event per line as it is written. It is the operator's own audit, so it needs the same
+            // session `/audit` does.
+            .route("/events", get(event_stream))
             // The same read as `/audit`, over the unauthenticated-refusal log. Operator-only: the
             // log holds what probing looks like, and it is surfaced read-only.
             .route("/denials", get(list_denials))
@@ -684,9 +690,10 @@ impl Inner {
 
     /// Write one audit line from named facts, so the interchangeable `Option`s cannot be transposed.
     async fn record_facts(&self, facts: AuditFacts<'_>) {
+        let ts_ms = (self.now)();
         self.audit
             .append(&audit::Entry {
-                ts_ms: (self.now)(),
+                ts_ms,
                 kind: facts.kind,
                 device_id: facts.device_id,
                 status: facts.status.as_u16(),
@@ -695,6 +702,51 @@ impl Inner {
                 token_id: facts.token_id,
             })
             .await;
+        // A call's live event is published by the proxy, which has the call's arguments; everything
+        // else (a grant, a token, a refusal) is described from what this line already holds.
+        if facts.kind != "mcp" {
+            let mut event = json!({
+                "ts_ms": ts_ms,
+                "kind": facts.kind,
+                "status": facts.status.as_u16(),
+            });
+            if let Some(device_id) = facts.device_id {
+                event["device_id"] = json!(device_id);
+            }
+            if let Some(tool) = facts.tool {
+                event["tool"] = json!(tool);
+            }
+            let sentence = crate::activity::line_sentence(&event);
+            event["sentence"] = json!(sentence);
+            self.audit.publish(event);
+        }
+    }
+
+    /// Publish one proxied call to the live stream: the sentence, the tool, the device, the outcome
+    /// and how long the device took.
+    fn publish_call(
+        &self,
+        device_id: Option<&str>,
+        tool: Option<&str>,
+        sentence: &str,
+        status: StatusCode,
+        ms: u64,
+    ) {
+        let mut event = json!({
+            "ts_ms": (self.now)(),
+            "kind": "mcp",
+            "status": status.as_u16(),
+            "ok": status.is_success(),
+            "ms": ms,
+            "sentence": sentence,
+        });
+        if let Some(device_id) = device_id {
+            event["device_id"] = json!(device_id);
+        }
+        if let Some(tool) = tool {
+            event["tool"] = json!(tool);
+        }
+        self.audit.publish(event);
     }
 
     /// Write one audit line, naming the tool when the action was a `tools/call` and the permanent
@@ -5971,6 +6023,15 @@ struct McpProxy {
 ///
 /// `Ok(None)` is any other method; `Err(())` is a `tools/call` whose `params.name` is missing or not
 /// a non-empty string, which is a malformed JSON-RPC request rather than an authorization decision.
+/// The arguments object of a `tools/call`, or null for any other method. The live stream describes
+/// a call from these; nothing here is written to the audit file.
+fn requested_arguments(request: &Value) -> &Value {
+    request
+        .get("params")
+        .and_then(|params| params.get("arguments"))
+        .unwrap_or(&Value::Null)
+}
+
 fn requested_tool(request: &Value) -> Result<Option<&str>, ()> {
     if request.get("method").and_then(Value::as_str) != Some("tools/call") {
         return Ok(None);
@@ -6221,6 +6282,7 @@ async fn proxy_reply(
     filter: Option<&[String]>,
 ) -> Result<Reply, Box<Response>> {
     let audit_id = audit_device_id(device_id);
+    let started = Instant::now();
     let request_id = request.get("id").cloned().unwrap_or(Value::Null);
     let tool = match requested_tool(&request) {
         Ok(tool) => tool.map(str::to_owned),
@@ -6244,6 +6306,13 @@ async fn proxy_reply(
         }
     };
     let is_tools_list = request.get("method").and_then(Value::as_str) == Some("tools/list");
+    // The sentence a person reads, built from the call's own arguments — never a guess. It is made
+    // once, before the wait, so every outcome publishes the same description of the same call.
+    let sentence = match tool.as_deref() {
+        Some(tool) => crate::activity::describe(tool, requested_arguments(&request)),
+        None => "Listed the machine's tools".to_owned(),
+    };
+    let publish_sentence = sentence.clone();
 
     if let Some(tool) = tool.as_deref() {
         // A `*` is a wildcard, as it is on the device: the operator's own scope is `["*"]`, and an
@@ -6297,6 +6366,13 @@ async fn proxy_reply(
 
     match answer {
         Err(_) => {
+            app.publish_call(
+                audit_id.as_deref(),
+                tool.as_deref(),
+                &publish_sentence,
+                StatusCode::GATEWAY_TIMEOUT,
+                started.elapsed().as_millis() as u64,
+            );
             app.record_facts(AuditFacts {
                 kind: "denied",
                 device_id: audit_id.as_deref(),
@@ -6312,6 +6388,13 @@ async fn proxy_reply(
         }
         Ok(Err(error)) => {
             let failure = failure_for(error);
+            app.publish_call(
+                audit_id.as_deref(),
+                tool.as_deref(),
+                &publish_sentence,
+                failure.status,
+                started.elapsed().as_millis() as u64,
+            );
             app.record_facts(AuditFacts {
                 kind: "denied",
                 device_id: audit_id.as_deref(),
@@ -6335,6 +6418,13 @@ async fn proxy_reply(
                         );
                     }
                 }
+                app.publish_call(
+                    audit_id.as_deref(),
+                    tool.as_deref(),
+                    &publish_sentence,
+                    StatusCode::FORBIDDEN,
+                    started.elapsed().as_millis() as u64,
+                );
                 app.record_facts(AuditFacts {
                     kind: "denied",
                     device_id: audit_id.as_deref(),
@@ -6356,6 +6446,13 @@ async fn proxy_reply(
             } else {
                 reply_detail(&reply)
             };
+            app.publish_call(
+                audit_id.as_deref(),
+                tool.as_deref(),
+                &publish_sentence,
+                StatusCode::OK,
+                started.elapsed().as_millis() as u64,
+            );
             app.record_facts(AuditFacts {
                 kind: "mcp",
                 device_id: audit_id.as_deref(),
@@ -7555,6 +7652,61 @@ async fn list_audit(
     Query(query): Query<LogQuery>,
 ) -> Result<Json<Vec<Value>>, ApiError> {
     Ok(Json(app.audit.newest(log_limit(query.limit)?).await))
+}
+
+/// `GET /events`: the audit as a stream of server-sent events.
+///
+/// A `snapshot` carries the newest lines so the page opens with context, then each appended line is
+/// an `activity` event. A slow client is told it `lagged` rather than given a growing backlog: it
+/// refetches `/audit`, which is the same index from the same file.
+async fn event_stream(State(app): State<AppState>, _: OperatorSession) -> Response {
+    // Subscribe BEFORE reading the newest lines: a line written between the two would otherwise be in
+    // neither the snapshot nor the stream.
+    let live = app.audit.follow();
+    let recent: Vec<Value> = app
+        .audit
+        .newest(40)
+        .await
+        .into_iter()
+        .map(|mut line| {
+            let sentence = crate::activity::line_sentence(&line);
+            line["sentence"] = json!(sentence);
+            line
+        })
+        .collect();
+    // Oldest first, like the file: a page prepends each live event and gets a newest-first list.
+    let recent: Vec<Value> = recent.into_iter().rev().collect();
+    let snapshot = futures_util::stream::once(async move {
+        let body = json!({ "lines": recent });
+        Ok::<Event, Infallible>(Event::default().event("snapshot").data(body.to_string()))
+    });
+    let live_events = futures_util::stream::unfold(live, |mut live| async move {
+        match live.recv().await {
+            Ok(value) => Some((
+                Ok::<Event, Infallible>(
+                    Event::default().event("activity").data(value.to_string()),
+                ),
+                live,
+            )),
+            Err(tokio::sync::broadcast::error::RecvError::Lagged(dropped)) => {
+                let body = json!({ "dropped": dropped });
+                Some((
+                    Ok::<Event, Infallible>(
+                        Event::default().event("lagged").data(body.to_string()),
+                    ),
+                    live,
+                ))
+            }
+            Err(tokio::sync::broadcast::error::RecvError::Closed) => None,
+        }
+    });
+    let mut response = Sse::new(futures_util::StreamExt::chain(snapshot, live_events))
+        .keep_alive(KeepAlive::default().interval(Duration::from_secs(15)))
+        .into_response();
+    response
+        .headers_mut()
+        .insert("x-accel-buffering", HeaderValue::from_static("no"));
+    response
 }
 
 /// `GET /denials`: unauthenticated refusals, newest first, one JSON line each.

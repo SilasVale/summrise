@@ -17,6 +17,7 @@
 #![forbid(unsafe_code)]
 
 mod access;
+mod activity;
 mod audit;
 mod auth;
 mod channels;
