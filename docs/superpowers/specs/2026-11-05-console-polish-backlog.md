@@ -43,6 +43,26 @@ Each item ships on its own: the web gates, the console's Rust tests, a live chec
 13. **Phone.** The timeline at 390 px: the time column narrows, the age drops, the evidence panel
     stacks (already true) and the day label sticks.
 
+## Cuts — what should not exist
+
+A product gets better by removing things, not only by adding them. These are the deletions this
+workstream owns; each one ships with the same gates as a feature.
+
+- **C1. The hub's endpoint hero.** The machine page leads with an URL and a Copy button while the
+  Connect sheet already owns that job. Delete the hero; the sheet is the only place the endpoint
+  appears. *(P0-4 covers the page; C1 is the deletion.)*
+- **C2. The Activity filter bar in the timeline view.** Six controls (scope, time, device, token,
+  search, status) belong to the table. The timeline gets machine chips and a search field; the rest
+  moves behind `Table`. *(P1-5.)*
+- **C3. The tool sheet's "Try it" panel.** A browser that can invoke any tool with raw JSON is a
+  developer toy with the operator's full authority; Capabilities is a catalogue, not a REPL. Delete
+  the panel, keep the catalogue. *(Revisit: the operator may want it under a "Developer" sheet.)*
+- **C4. The legacy server-rendered pages under `/next`.** They predate the React console and the
+  React page is `/`. Measure what still links to them before deleting; if nothing does, the routes
+  and `page.rs` go in one commit. *(Needs the measurement first — not tonight.)*
+- **C5. Fleet tokens as a second minting place.** One credential list with a scope column replaces
+  two pages. *(P1-7.)*
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
