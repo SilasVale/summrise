@@ -1439,7 +1439,9 @@ async function capturePage(page, state, meta, pass) {
     console.log(`  ${pass.key.padEnd(6)} ${staleFile}`);
 
     await chooseMachine(page, state, 'workshop');
-    await page.locator('main .status-line').waitFor({ state: 'visible', timeout: 5_000 });
+    // The hub's door card is what says "a machine is chosen and its page is up"; the old anchor was
+    // `.status-line`, which the hub stopped rendering, so every home capture timed out.
+    await page.locator('main .home-hero').waitFor({ state: 'visible', timeout: 5_000 });
   }
 
   if (meta.id === 'activity') {
