@@ -22,9 +22,11 @@
 //! backoff starts at one second and caps at sixty. The console replaces a device's channel when a
 //! new one arrives, so a reconnect after a network change does not need a console-side cleanup.
 
+use std::collections::HashMap;
 use std::fs;
 use std::io;
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use ed25519_dalek::VerifyingKey;
@@ -613,6 +615,22 @@ const MAX_IN_FLIGHT_FRAMES: usize = 16;
 /// How many finished answers may wait for the socket before a task waits for the loop.
 const OUTGOING_FRAMES: usize = 64;
 
+/// How many terminal subscriptions one channel may hold at once.
+///
+/// A subscription is a read parked on this device's ring for as long as a page is open, so the cap
+/// is a page-lifetime bound rather than a per-request one; sixteen is more terminals than one
+/// operator watches and far under the console's own stream cap.
+const MAX_SUBSCRIPTIONS: usize = 16;
+
+/// How long one follow read parks before the loop looks at its stop signal again.
+const FOLLOW_WAIT: Duration = Duration::from_secs(2);
+
+/// The most output one pushed frame carries.
+///
+/// The console hands the page a frame at a time anyway; keeping a frame small keeps the WebSocket
+/// (and a relay in front of it) from carrying a megabyte burst as one message.
+const FOLLOW_CHUNK: usize = 32 * 1024;
+
 /// Serve one socket until it closes, then return whether it carried any frame.
 async fn serve(
     mut socket: WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>,
@@ -630,6 +648,10 @@ async fn serve(
     // so a ping is still answered while a tool is running, and one slow tool cannot stop the channel.
     let (outgoing, mut answers) = tokio::sync::mpsc::channel::<Value>(OUTGOING_FRAMES);
     let in_flight = std::sync::Arc::new(tokio::sync::Semaphore::new(MAX_IN_FLIGHT_FRAMES));
+    // The stop signal of every live subscription on this socket. Dropping a sender stops its task;
+    // dropping the whole map (the socket closed) stops them all.
+    let streams: Arc<Mutex<HashMap<u64, tokio::sync::oneshot::Sender<()>>>> =
+        Arc::new(Mutex::new(HashMap::new()));
     loop {
         tokio::select! {
             _ = host.tick() => {
@@ -655,6 +677,55 @@ async fn serve(
                 match message {
                     Ok(Message::Text(text)) => {
                         served = true;
+                        let parsed: Option<remote::RemoteFrame> = serde_json::from_str(&text).ok();
+                        match parsed {
+                            Some(frame) if frame.subscribe.is_some() => {
+                                // A subscription is a long-lived frame, so it is counted against
+                                // its own cap rather than the in-flight semaphore a one-shot call
+                                // takes.
+                                if lock_streams(&streams).len() >= MAX_SUBSCRIPTIONS {
+                                    let refusal = json!({
+                                        "id": frame.id,
+                                        "error": json!({
+                                            "jsonrpc": "2.0",
+                                            "id": frame.id,
+                                            "error": {
+                                                "code": -32000,
+                                                "message": "this device already holds the maximum number of terminal subscriptions",
+                                            },
+                                        }),
+                                    });
+                                    let outgoing = outgoing.clone();
+                                    tokio::spawn(async move {
+                                        let _ = outgoing.send(refusal).await;
+                                    });
+                                } else {
+                                    spawn_follow(
+                                        frame,
+                                        endpoint.clone(),
+                                        server.clone(),
+                                        *key,
+                                        outgoing.clone(),
+                                        Arc::clone(&streams),
+                                    );
+                                }
+                                continue;
+                            }
+                            Some(frame) if frame.unsubscribe.is_some() => {
+                                let sub = frame.unsubscribe.as_ref().map(|u| u.sub).unwrap_or(0);
+                                let stopped = lock_streams(&streams).remove(&sub).is_some();
+                                let reply = json!({
+                                    "id": frame.id,
+                                    "result": { "unsubscribed": stopped },
+                                });
+                                let outgoing = outgoing.clone();
+                                tokio::spawn(async move {
+                                    let _ = outgoing.send(reply).await;
+                                });
+                                continue;
+                            }
+                            _ => {}
+                        }
                         let endpoint = endpoint.clone();
                         let server = server.clone();
                         let key = *key;
@@ -682,7 +753,205 @@ async fn serve(
             }
         }
     }
+    // The socket is gone: every follow task on it stops now rather than discovering it on its next
+    // push. Dropping the senders is the whole mechanism.
+    lock_streams(&streams).clear();
     served
+}
+
+/// Lock the subscription map, treating a poisoned lock as the map (a panic elsewhere must not take
+/// the channel down with it).
+fn lock_streams(
+    streams: &Mutex<HashMap<u64, tokio::sync::oneshot::Sender<()>>>,
+) -> std::sync::MutexGuard<'_, HashMap<u64, tokio::sync::oneshot::Sender<()>>> {
+    streams
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+/// Follow one terminal session for a subscription: one audited read for the ack, then pushed frames.
+///
+/// **THE ONE AUDITED CALL IS THE SUBSCRIBE.** The frame carries a `terminal.read`, and this runs it
+/// exactly as a poll would — same admission, same `server.handle`, same audit line — then keeps
+/// reading the ring on the session's own notifier for as long as the console holds the subscription.
+/// A frame per chunk would otherwise be a tool call (and two audit lines) per chunk.
+fn spawn_follow(
+    frame: remote::RemoteFrame,
+    endpoint: ConsoleEndpoint,
+    server: DeviceServer,
+    key: VerifyingKey,
+    outgoing: tokio::sync::mpsc::Sender<Value>,
+    streams: Arc<Mutex<HashMap<u64, tokio::sync::oneshot::Sender<()>>>>,
+) {
+    tokio::spawn(async move {
+        let id = frame.id;
+        let Some(subscribe) = frame.subscribe.clone() else {
+            return;
+        };
+        let request_id = frame
+            .mcp
+            .as_ref()
+            .and_then(|mcp| mcp.get("id"))
+            .cloned()
+            .unwrap_or(Value::Null);
+        let admitted = match remote::admit(
+            &frame,
+            &endpoint.device_id,
+            &key,
+            crate::http::now_ms(),
+            remote::Transport::Console,
+            server.nonces(),
+        ) {
+            Ok(admitted) => admitted,
+            Err(refusal) => {
+                server
+                    .audit_refused(
+                        "terminal.read",
+                        refusal.error_kind(),
+                        Arrival::Console,
+                        None,
+                    )
+                    .await;
+                let error = json!({
+                    "id": id,
+                    "error": remote::jsonrpc_error(
+                        request_id,
+                        remote::GRANT_REFUSAL_CODE,
+                        refusal.message(),
+                    ),
+                });
+                let _ = outgoing.send(error).await;
+                return;
+            }
+        };
+        let caller = match &admitted {
+            remote::Admitted::Grant(envelope) => Caller::Granted {
+                grant: &envelope.grant,
+                arrival: Arrival::Console,
+                peer: None,
+            },
+            remote::Admitted::Token(scope) => Caller::Console {
+                token_id: &scope.token_id,
+                scopes: &scope.scopes,
+                allow_destructive: scope.allow_destructive,
+                arrival: Arrival::Console,
+            },
+        };
+        // The ack is the first read: it carries the retained output from the cursor the console
+        // named, and it is the one audited call this subscription makes.
+        let Some(mcp) = frame.mcp.as_ref() else {
+            let _ = outgoing
+                .send(json!({ "term": { "sub": id, "error": "the subscription carried no request" } }))
+                .await;
+            return;
+        };
+        let response = server.handle(mcp, caller).await;
+        let first = if response.get("error").is_some() {
+            json!({ "id": id, "error": response })
+        } else {
+            json!({ "id": id, "result": response })
+        };
+        if outgoing.send(first).await.is_err() {
+            return;
+        }
+        let mut cursor = read_cursor(&response).unwrap_or(subscribe.from);
+        let terminal = server.terminal_registry();
+        let Some(session) = crate::capabilities::terminal::SessionId::parse(&subscribe.session_id)
+        else {
+            let _ = outgoing
+                .send(json!({
+                    "term": { "sub": id, "error": "the id is not a session id" }
+                }))
+                .await;
+            return;
+        };
+        let (stop, mut stopped) = tokio::sync::oneshot::channel::<()>();
+        lock_streams(&streams).insert(id, stop);
+        loop {
+            let answer = tokio::select! {
+                _ = &mut stopped => break,
+                answer = terminal.read_wait(&session, cursor, FOLLOW_WAIT) => answer,
+            };
+            match answer {
+                Ok(answer) => {
+                    if !answer.data.is_empty() {
+                        for chunk in utf8_chunks(&answer.data, FOLLOW_CHUNK) {
+                            let pushed = json!({
+                                "term": {
+                                    "sub": id,
+                                    "session": subscribe.session_id,
+                                    "data": String::from_utf8_lossy(chunk),
+                                    "cursor": answer.cursor,
+                                    "alive": answer.alive,
+                                }
+                            });
+                            if outgoing.send(pushed).await.is_err() {
+                                lock_streams(&streams).remove(&id);
+                                return;
+                            }
+                        }
+                    }
+                    cursor = answer.cursor;
+                    if !answer.alive {
+                        let _ = outgoing
+                            .send(json!({
+                                "term": {
+                                    "sub": id,
+                                    "alive": false,
+                                    "cursor": cursor,
+                                    "exit_code": answer.end.exit_code,
+                                    "signal": answer.end.signal,
+                                }
+                            }))
+                            .await;
+                        break;
+                    }
+                }
+                Err(error) => {
+                    let _ = outgoing
+                        .send(json!({ "term": { "sub": id, "error": error.to_string() } }))
+                        .await;
+                    break;
+                }
+            }
+        }
+        lock_streams(&streams).remove(&id);
+    });
+}
+
+/// The cursor a read answer ended at, from the MCP envelope `server.handle` returns.
+fn read_cursor(response: &Value) -> Option<u64> {
+    let text = response
+        .get("result")?
+        .get("content")?
+        .as_array()?
+        .first()?
+        .get("text")?
+        .as_str()?;
+    let answer: Value = serde_json::from_str(text).ok()?;
+    answer.get("cursor").and_then(Value::as_u64)
+}
+
+/// Split bytes into frames without cutting a UTF-8 sequence in half.
+fn utf8_chunks(bytes: &[u8], max: usize) -> Vec<&[u8]> {
+    let mut out = Vec::new();
+    let mut start = 0;
+    while start < bytes.len() {
+        let mut end = (start + max).min(bytes.len());
+        if end < bytes.len() {
+            // A continuation byte at the cut means the sequence started before it: back up to the
+            // lead byte so one frame never ends mid-character.
+            while end > start && (bytes[end] & 0xC0) == 0x80 {
+                end -= 1;
+            }
+            if end == start {
+                end = (start + max).min(bytes.len());
+            }
+        }
+        out.push(&bytes[start..end]);
+        start = end;
+    }
+    out
 }
 
 /// Handle one socket frame; `None` means the frame was malformed and cannot be correlated.
@@ -700,8 +969,17 @@ async fn handle_frame(
         }
     };
 
-    let request_id = frame.mcp.get("id").cloned().unwrap_or(Value::Null);
-    let tool = remote::requested_tool(&frame.mcp).map(str::to_owned);
+    let request_id = frame
+        .mcp
+        .as_ref()
+        .and_then(|mcp| mcp.get("id"))
+        .cloned()
+        .unwrap_or(Value::Null);
+    let tool = frame
+        .mcp
+        .as_ref()
+        .and_then(remote::requested_tool)
+        .map(str::to_owned);
 
     let admitted = match remote::admit(
         &frame,
@@ -745,7 +1023,11 @@ async fn handle_frame(
             arrival: Arrival::Console,
         },
     };
-    let response = server.handle(&frame.mcp, caller).await;
+    let Some(mcp) = frame.mcp.as_ref() else {
+        eprintln!("summrise-device: a frame carried neither a request nor a subscription");
+        return None;
+    };
+    let response = server.handle(mcp, caller).await;
     if response.get("error").is_some() {
         Some(json!({ "id": frame.id, "error": response }))
     } else {
@@ -1314,6 +1596,158 @@ mod tests {
             "the slow call answers when it ends: {slow_answer}"
         );
         handle.abort();
+    }
+
+    /// A subscription follows a live session: one audited read as the ack, then pushed frames
+    /// until the console says stop.
+    #[tokio::test]
+    async fn a_subscription_pushes_a_live_session_and_stops_when_told() {
+        let (server, _config, _dir) = fixture("console-subscribe-live");
+        let mut console = FakeConsole::start().await;
+        let registry = server.terminal_registry();
+        let session = registry
+            .create(
+                crate::capabilities::terminal::CreateTarget::Pty { shell: None },
+                24,
+                80,
+            )
+            .await
+            .expect("a local shell");
+        let session_id = session.as_str().to_owned();
+        let _handle = spawn_with_key(
+            endpoint(&console.url),
+            server.clone(),
+            signing().verifying_key(),
+        );
+        let mut connection = console.next().await;
+
+        send_frame(
+            &mut connection.socket,
+            json!({
+                "id": 31,
+                "mcp": json!({
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "tools/call",
+                    "params": { "name": "terminal.read", "arguments": { "id": session_id, "cursor": 0 } },
+                }),
+                "subscribe": { "session_id": session_id, "from": 0 },
+                "grant": grant(&["terminal.read"], now_ms() as u64 + 60_000),
+            }),
+        )
+        .await;
+        let ack = next_frame(&mut connection.socket).await;
+        assert_eq!(ack["id"], 31, "the ack echoes the subscribe id: {ack}");
+
+        // Something for the follow loop to push: input goes to the registry directly, so this test
+        // measures the push and not the write tool's authorization.
+        registry
+            .write(&session, b"echo subscribe-marker\n")
+            .await
+            .expect("the shell takes input");
+
+        let mut pushed = String::new();
+        for _ in 0..12 {
+            let frame = next_frame(&mut connection.socket).await;
+            if let Some(term) = frame.get("term") {
+                assert_eq!(
+                    term["sub"], 31,
+                    "a pushed frame names its subscription: {frame}"
+                );
+                pushed.push_str(term["data"].as_str().unwrap_or_default());
+                if pushed.contains("subscribe-marker") {
+                    break;
+                }
+            }
+        }
+        assert!(
+            pushed.contains("subscribe-marker"),
+            "the pushed output: {pushed:?}"
+        );
+
+        send_frame(
+            &mut connection.socket,
+            json!({ "id": 33, "unsubscribe": { "sub": 31 } }),
+        )
+        .await;
+        let mut stopped = false;
+        for _ in 0..8 {
+            let frame = next_frame(&mut connection.socket).await;
+            if frame["id"] == 33 {
+                assert_eq!(
+                    frame["result"]["unsubscribed"],
+                    json!(true),
+                    "the live subscription was stopped: {frame}"
+                );
+                stopped = true;
+                break;
+            }
+        }
+        assert!(stopped, "the unsubscribe was answered");
+        let _ = registry.close(&session).await;
+    }
+
+    /// A subscribe for a session that is not there is refused in the ack, and the follow loop says
+    /// so once instead of pushing forever.
+    #[tokio::test]
+    async fn a_subscription_to_an_unknown_session_is_refused() {
+        let (server, _config, _dir) = fixture("console-subscribe-unknown");
+        let mut console = FakeConsole::start().await;
+        let _handle = spawn_with_key(
+            endpoint(&console.url),
+            server.clone(),
+            signing().verifying_key(),
+        );
+        let mut connection = console.next().await;
+        send_frame(
+            &mut connection.socket,
+            json!({
+                "id": 41,
+                "mcp": json!({
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "tools/call",
+                    "params": { "name": "terminal.read", "arguments": { "id": "session-999", "cursor": 0 } },
+                }),
+                "subscribe": { "session_id": "session-999", "from": 0 },
+                "grant": grant(&["terminal.read"], now_ms() as u64 + 60_000),
+            }),
+        )
+        .await;
+        let ack = next_frame(&mut connection.socket).await;
+        assert_eq!(ack["id"], 41);
+        let text = ack["result"]["result"]["content"][0]["text"]
+            .as_str()
+            .unwrap_or_default()
+            .to_owned();
+        assert!(
+            text.contains("unknown") || text.contains("session"),
+            "the refusal is the read's own sentence: {ack}"
+        );
+        let pushed = next_frame(&mut connection.socket).await;
+        assert_eq!(pushed["term"]["sub"], 41);
+        assert!(
+            pushed["term"]["error"].is_string(),
+            "the follow loop reports the end once: {pushed}"
+        );
+    }
+
+    #[test]
+    fn utf8_chunks_never_cut_a_character_in_half() {
+        // "héllo" as bytes: the é is two bytes; a cut at 2 would split it.
+        let text = "héllo";
+        let chunks = utf8_chunks(text.as_bytes(), 2);
+        let rebuilt: Vec<u8> = chunks
+            .iter()
+            .flat_map(|chunk| chunk.iter().copied())
+            .collect();
+        assert_eq!(rebuilt, text.as_bytes(), "every byte survives");
+        for chunk in &chunks {
+            assert!(
+                std::str::from_utf8(chunk).is_ok(),
+                "a chunk is valid UTF-8 on its own: {chunk:?}"
+            );
+        }
     }
 
     #[tokio::test]

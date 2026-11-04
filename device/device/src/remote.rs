@@ -29,11 +29,36 @@ pub(crate) struct RemoteFrame {
     /// The sender's correlation id, echoed in the answer.
     pub(crate) id: u64,
     /// The JSON-RPC request itself, forwarded to the MCP handler unchanged.
-    pub(crate) mcp: Value,
+    ///
+    /// A subscribe frame carries one too: a `terminal.read`, which is what authorizes the
+    /// subscription and is the one call the device audits for it. An unsubscribe frame carries
+    /// none — it stops a subscription this same socket holds, which needs no tool authority.
+    pub(crate) mcp: Option<Value>,
+    /// "Keep sending this session's output until I say stop." Absent on a plain call.
+    pub(crate) subscribe: Option<Subscribe>,
+    /// "Stop the subscription with this id." The id is the `subscribe` frame's own `id`.
+    pub(crate) unsubscribe: Option<Unsubscribe>,
     /// The grant the sender says authorizes the request, when it sent one.
     pub(crate) grant: Option<GrantEnvelope>,
     /// The console's permanent-token scope, when the frame carries one instead of a grant.
     pub(crate) token: Option<TokenScope>,
+}
+
+/// A subscription: which session to follow, and the byte offset to start from.
+#[derive(Clone, Debug, Deserialize)]
+pub(crate) struct Subscribe {
+    /// The terminal session id `terminal.create` returned.
+    pub(crate) session_id: String,
+    /// The byte offset the subscriber already has; 0 replays everything retained.
+    #[serde(default)]
+    pub(crate) from: u64,
+}
+
+/// The end of a subscription.
+#[derive(Clone, Debug, Deserialize)]
+pub(crate) struct Unsubscribe {
+    /// The id of the `subscribe` frame this ends.
+    pub(crate) sub: u64,
 }
 
 /// A permanent token's scope, as the console's authenticated channel forwards it.
@@ -197,7 +222,7 @@ pub(crate) fn admit<'a>(
         }) {
             return Err(GrantRefusal::Expired);
         }
-        if let Some(tool) = requested_tool(&frame.mcp) {
+        if let Some(tool) = frame.mcp.as_ref().and_then(requested_tool) {
             // `*` is a wildcard here too: the console's operator scope is exactly that, and an
             // exact comparison refused every grantless call before it reached a capability.
             if !scope
@@ -225,7 +250,7 @@ pub(crate) fn admit<'a>(
     if now_ms.saturating_sub(CLOCK_SKEW_MS) >= expired_at {
         return Err(GrantRefusal::Expired);
     }
-    if let Some(tool) = requested_tool(&frame.mcp) {
+    if let Some(tool) = frame.mcp.as_ref().and_then(requested_tool) {
         if !envelope.grant.tools.iter().any(|allowed| allowed == tool) {
             return Err(GrantRefusal::ToolNotCovered);
         }
@@ -323,7 +348,9 @@ mod tests {
     fn remote_frame(mcp: Value, grant: Option<GrantEnvelope>) -> RemoteFrame {
         RemoteFrame {
             id: 7,
-            mcp,
+            mcp: Some(mcp),
+            subscribe: None,
+            unsubscribe: None,
             grant,
             token: None,
         }
@@ -358,7 +385,9 @@ mod tests {
         };
         let frame = RemoteFrame {
             id: 7,
-            mcp: call("terminal.create"),
+            mcp: Some(call("terminal.create")),
+            subscribe: None,
+            unsubscribe: None,
             grant: None,
             token: Some(scope),
         };
@@ -380,7 +409,9 @@ mod tests {
         };
         let covered = RemoteFrame {
             id: 8,
-            mcp: call("files.read"),
+            mcp: Some(call("files.read")),
+            subscribe: None,
+            unsubscribe: None,
             grant: None,
             token: Some(TokenScope {
                 token_id: narrowed.token_id.clone(),
@@ -401,7 +432,9 @@ mod tests {
         .is_ok());
         let outside = RemoteFrame {
             id: 9,
-            mcp: call("runs.exec"),
+            mcp: Some(call("runs.exec")),
+            subscribe: None,
+            unsubscribe: None,
             grant: None,
             token: Some(narrowed),
         };

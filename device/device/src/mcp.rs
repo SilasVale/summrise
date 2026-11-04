@@ -323,6 +323,15 @@ fn payload_too_large(declared: u64) -> Response {
 }
 
 impl DeviceServer {
+    /// The live terminals, so the console's channel can follow one without a tool call per chunk.
+    ///
+    /// The registry is the same one every `terminal.*` tool uses, so a subscription reads exactly
+    /// what a `terminal.read` would have answered — and the session's idle clock is refreshed by the
+    /// same `read_wait`.
+    pub(crate) fn terminal_registry(&self) -> Arc<terminal::PtyRegistry> {
+        Arc::clone(&self.terminal)
+    }
+
     /// A server over a host loaded from `config.data`. Production builds its host once at boot and
     /// uses [`DeviceServer::new_with_plugins`]; tests use this constructor and keep the host private.
     #[cfg(test)]

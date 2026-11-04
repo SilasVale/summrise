@@ -11923,3 +11923,90 @@ async fn a_terminal_stream_needs_an_operator_session() {
     let body = raw_get(&server, &path, "", "401").await;
     assert!(body.starts_with("HTTP/1.1 401"), "{body}");
 }
+
+/// A device that names the stream capability is followed, not polled: the console sends one
+/// subscribe frame, the ack is the first read, and every later chunk arrives unprompted.
+#[tokio::test]
+async fn a_stream_follows_a_device_that_advertises_it() {
+    let fixture = Fixture::new("terminal-stream-follow");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0x36)).await;
+    // The capability arrives in the host frame, the same way a new build announces it.
+    device
+        .send(WsMessage::Text(
+            json!({ "host": { "machine": "workshop", "caps": ["terminal.stream"] } }).to_string(),
+        ))
+        .await
+        .expect("the host frame is sent");
+    tokio::task::yield_now().await;
+
+    let session = fixture.authenticate().await;
+    let path = format!("/terminal/{device_id}/session-1/stream?from=4");
+    let auth = bearer(&session);
+    let body = raw_get(&server, &path, &auth, "pushed-chunk");
+    let device_side = async {
+        let frame = next_json(&mut device).await;
+        assert_eq!(frame["subscribe"]["session_id"], json!("session-1"));
+        assert_eq!(frame["subscribe"]["from"], json!(4));
+        assert_eq!(frame["mcp"]["params"]["name"], json!("terminal.read"));
+        assert_eq!(frame["mcp"]["params"]["arguments"]["cursor"], json!(4));
+        let sub = frame["id"].clone();
+        answer(
+            &mut device,
+            &frame,
+            tool_result(json!({ "data": "hello-ack", "cursor": 9, "alive": true })),
+        )
+        .await;
+        device
+            .send(WsMessage::Text(
+                json!({
+                    "term": { "sub": sub, "data": "pushed-chunk", "cursor": 21, "alive": true }
+                })
+                .to_string(),
+            ))
+            .await
+            .expect("the pushed frame is sent");
+        // The client leaves after reading; the console's unsubscribe is the next thing it hears.
+        let _ = tokio::time::timeout(Duration::from_secs(2), next_json(&mut device)).await;
+    };
+    let (body, ()) = tokio::join!(body, device_side);
+
+    assert!(body.contains("event: output"), "{body}");
+    assert!(body.contains("hello-ack"), "{body}");
+    assert!(body.contains("pushed-chunk"), "{body}");
+}
+
+/// Without the capability the console keeps the parked-read pump: the page cannot tell the
+/// difference, and an old device never sees a frame it cannot parse.
+#[tokio::test]
+async fn a_stream_polls_a_device_that_does_not_advertise_it() {
+    let fixture = Fixture::new("terminal-stream-polls");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0x37)).await;
+    let session = fixture.authenticate().await;
+
+    let path = format!("/terminal/{device_id}/session-1/stream?from=0");
+    let auth = bearer(&session);
+    let body = raw_get(&server, &path, &auth, "polled-chunk");
+    let device_side = async {
+        let frame = next_json(&mut device).await;
+        assert!(
+            frame["subscribe"].is_null(),
+            "a device without the capability must not be sent a subscribe frame: {frame}"
+        );
+        assert_eq!(frame["mcp"]["params"]["name"], json!("terminal.read"));
+        answer(
+            &mut device,
+            &frame,
+            tool_result(json!({ "data": "polled-chunk", "cursor": 12, "alive": true })),
+        )
+        .await;
+        let _ = tokio::time::timeout(Duration::from_secs(1), next_json(&mut device)).await;
+    };
+    let (body, ()) = tokio::join!(body, device_side);
+
+    assert!(body.contains("event: output"), "{body}");
+    assert!(body.contains("polled-chunk"), "{body}");
+}

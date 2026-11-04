@@ -315,8 +315,17 @@ async fn answer(
         }
     };
 
-    let request_id = frame.mcp.get("id").cloned().unwrap_or(Value::Null);
-    let tool = remote::requested_tool(&frame.mcp).map(str::to_owned);
+    let request_id = frame
+        .mcp
+        .as_ref()
+        .and_then(|mcp| mcp.get("id"))
+        .cloned()
+        .unwrap_or(Value::Null);
+    let tool = frame
+        .mcp
+        .as_ref()
+        .and_then(remote::requested_tool)
+        .map(str::to_owned);
 
     let admitted = match remote::admit(
         &frame,
@@ -360,7 +369,11 @@ async fn answer(
             arrival: Arrival::Mesh,
         },
     };
-    let response = server.handle(&frame.mcp, caller).await;
+    let Some(mcp) = frame.mcp.as_ref() else {
+        // The mesh carries MCP exchanges only; a frame without one is malformed for this transport.
+        return None;
+    };
+    let response = server.handle(mcp, caller).await;
     if response.get("error").is_some() {
         Some(json!({ "id": frame.id, "error": response }))
     } else {

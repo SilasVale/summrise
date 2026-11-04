@@ -2686,6 +2686,36 @@ async fn terminal_stream(
             .into_response();
     };
 
+    // **A DEVICE THAT CAN STREAM IS FOLLOWED, NOT POLLED.** The capability is advertised in its host
+    // frame; a device that does not name it answers no subscribe frame at all, so the console would
+    // wait out its reply bound on every attach. Without the capability, the parked-read pump below is
+    // the stream, and the page cannot tell the two apart.
+    if app.channels.has_cap(&device_id, "terminal.stream") {
+        let scope = operator_scope(&device_id);
+        let read = json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {
+                "name": "terminal.read",
+                "arguments": { "id": session_id, "cursor": query.from },
+            },
+        });
+        if let Ok((sub, stream, ack)) = app
+            .channels
+            .subscribe(
+                &device_id,
+                session_id,
+                query.from,
+                read,
+                &RequestAuth::Token(&scope),
+            )
+            .await
+        {
+            return subscription_stream(app, device_id, sub, stream, ack, slot);
+        }
+    }
+
     let state = TerminalStreamState {
         app,
         device: device_id,
@@ -2795,6 +2825,149 @@ struct TerminalStreamState {
     done: bool,
     /// Released when the stream is dropped.
     _slot: StreamSlot,
+}
+
+/// One terminal stream streamed by the device: the ack already in hand, then pushed frames.
+struct TerminalSubscription {
+    app: AppState,
+    device: String,
+    sub: u64,
+    /// The pushed frames, in order.
+    stream: tokio::sync::mpsc::Receiver<Value>,
+    /// The ack's read, emitted as the stream's first event.
+    first: Option<Value>,
+    done: bool,
+    /// Released when the stream is dropped, after the subscription is stopped.
+    _slot: StreamSlot,
+}
+
+impl Drop for TerminalSubscription {
+    fn drop(&mut self) {
+        // The page went away (or the session ended): stop the device following, and drop the sink
+        // so any frame already in flight is discarded instead of queued for nobody.
+        self.app.channels.unsubscribe(&self.device, self.sub);
+    }
+}
+
+/// Serve a subscribed terminal as SSE.
+fn subscription_stream(
+    app: AppState,
+    device: String,
+    sub: u64,
+    stream: tokio::sync::mpsc::Receiver<Value>,
+    ack: Reply,
+    slot: StreamSlot,
+) -> Response {
+    let first = match &ack {
+        Reply::Result(result) => result_answer(result),
+        // A refused subscribe is the same sentence a refused read showed; there is no stream to
+        // serve, so the connection carries the fault and ends.
+        Reply::Error(error) => Some(json!({ "sentence": reply_error_sentence(error) })),
+    };
+    let state = TerminalSubscription {
+        app,
+        device,
+        sub,
+        stream,
+        first,
+        done: false,
+        _slot: slot,
+    };
+    let events = futures_util::stream::unfold(state, |mut state| async move {
+        if state.done {
+            return None;
+        }
+        if let Some(first) = state.first.take() {
+            let event = if first.get("sentence").is_some() {
+                state.done = true;
+                let payload = json!({
+                    "sentence": first
+                        .get("sentence")
+                        .and_then(Value::as_str)
+                        .unwrap_or("the device refused the subscription"),
+                    "status": 502,
+                });
+                Event::default().event("fault").data(payload.to_string())
+            } else {
+                match read_event(&first) {
+                    Some(event) => event,
+                    None => return None,
+                }
+            };
+            return Some((Ok::<Event, Infallible>(event), state));
+        }
+        match state.stream.recv().await {
+            Some(frame) => {
+                if let Some(sentence) = frame.get("error").and_then(Value::as_str) {
+                    state.done = true;
+                    let payload = json!({ "sentence": sentence, "status": 502 });
+                    return Some((
+                        Ok::<Event, Infallible>(
+                            Event::default().event("fault").data(payload.to_string()),
+                        ),
+                        state,
+                    ));
+                }
+                read_event(&frame).map(|event| (Ok::<Event, Infallible>(event), state))
+            }
+            None => None,
+        }
+    });
+    let mut response = Sse::new(events)
+        .keep_alive(KeepAlive::default().interval(Duration::from_secs(15)))
+        .into_response();
+    response
+        .headers_mut()
+        .insert("x-accel-buffering", HeaderValue::from_static("no"));
+    response
+}
+
+/// One read-shaped answer (`{data, cursor, alive, exit_code, signal}`) as an SSE event.
+fn read_event(answer: &Value) -> Option<Event> {
+    let cursor = answer.get("cursor").and_then(Value::as_u64);
+    let data = answer
+        .get("data")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    if !data.is_empty() {
+        let payload = json!({ "data": data, "cursor": cursor });
+        return Some(Event::default().event("output").data(payload.to_string()));
+    }
+    if answer.get("alive").and_then(Value::as_bool) == Some(false) {
+        let payload = json!({
+            "cursor": cursor,
+            "exit_code": answer.get("exit_code").cloned().unwrap_or(Value::Null),
+            "signal": answer.get("signal").cloned().unwrap_or(Value::Null),
+        });
+        return Some(Event::default().event("end").data(payload.to_string()));
+    }
+    // An empty read that is still alive carries no event; the caller asks again.
+    None
+}
+
+/// The read answer inside one MCP tool result.
+///
+/// A device wraps its answer in the JSON-RPC envelope it would send an MCP client, so the tool's
+/// text sits under `result.result.content`; a bare `{content, isError}` is accepted too.
+fn result_answer(result: &Value) -> Option<Value> {
+    let body = result.get("result").unwrap_or(result);
+    let text = body
+        .get("content")?
+        .as_array()?
+        .first()?
+        .get("text")?
+        .as_str()?;
+    serde_json::from_str(text).ok()
+}
+
+/// The sentence inside a device's JSON-RPC error envelope.
+fn reply_error_sentence(error: &Value) -> String {
+    error
+        .get("error")
+        .and_then(|body| body.get("message"))
+        .and_then(Value::as_str)
+        .map(str::to_owned)
+        .unwrap_or_else(|| error.to_string())
 }
 
 /// Whether a refusal is the device not knowing `wait_ms`, which is a version fact, not a fault.

@@ -192,6 +192,13 @@ pub(crate) struct ChannelRegistry {
     /// no trace of the hours it was gone, and the fleet row that says `online` is answering a
     /// different question than "was this machine away, and for how long".
     outages: Mutex<HashMap<String, Outage>>,
+    /// The capability list each device announced. The console offers a terminal stream only to a
+    /// device that names `terminal.stream`; an older build would fail to parse the frame and say
+    /// nothing, which is a hung stream rather than a fallback.
+    caps: Mutex<HashMap<String, Vec<String>>>,
+    /// The live terminal subscriptions, by the frame id that opened each one. A `term` frame on the
+    /// channel is delivered here and never mistaken for an answer.
+    streams: Mutex<HashMap<u64, mpsc::Sender<Value>>>,
     /// Wakes a request waiting for a channel to open.
     changed: Notify,
     send_timeout: Duration,
@@ -221,6 +228,8 @@ impl ChannelRegistry {
             names: Mutex::new(HashMap::new()),
             retries: Mutex::new(HashMap::new()),
             hosts: Mutex::new(HashMap::new()),
+            caps: Mutex::new(HashMap::new()),
+            streams: Mutex::new(HashMap::new()),
             outages: Mutex::new(HashMap::new()),
             changed: Notify::new(),
             send_timeout,
@@ -268,6 +277,17 @@ impl ChannelRegistry {
 
     /// Record the host facts a device sent on its channel.
     pub(crate) fn announce_host(&self, device_id: &str, facts: serde_json::Value) {
+        let caps: Vec<String> = facts
+            .get("caps")
+            .and_then(Value::as_array)
+            .map(|list| {
+                list.iter()
+                    .filter_map(Value::as_str)
+                    .map(str::to_owned)
+                    .collect()
+            })
+            .unwrap_or_default();
+        self.announce_caps(device_id, caps);
         lock(&self.hosts).insert(device_id.to_owned(), facts);
     }
 
@@ -279,6 +299,18 @@ impl ChannelRegistry {
     /// The version the device announced, if it did.
     pub(crate) fn version(&self, device_id: &str) -> Option<String> {
         lock(&self.versions).get(device_id).cloned()
+    }
+
+    /// Record the capabilities a device announced in its host frame.
+    pub(crate) fn announce_caps(&self, device_id: &str, caps: Vec<String>) {
+        lock(&self.caps).insert(device_id.to_owned(), caps);
+    }
+
+    /// Whether the device announced a capability by name.
+    pub(crate) fn has_cap(&self, device_id: &str, cap: &str) -> bool {
+        lock(&self.caps)
+            .get(device_id)
+            .is_some_and(|caps| caps.iter().any(|name| name == cap))
     }
 
     /// Whether a channel is open right now.
@@ -327,7 +359,7 @@ impl ChannelRegistry {
                 },
                 incoming = socket.recv() => match incoming {
                     Some(Ok(Message::Text(text))) => {
-                        if let Some(facts) = deliver(&open.pending, &text) {
+                        if let Some(facts) = deliver(&open.pending, &self.streams, &text) {
                             self.announce_host(&device_id, facts);
                         }
                     }
@@ -423,6 +455,101 @@ impl ChannelRegistry {
             // The sender was dropped: the channel closed without answering.
             Ok(Err(_)) => Err(RequestError::Disconnected),
         }
+    }
+
+    /// Open a terminal subscription on a device's channel.
+    ///
+    /// The frame carries a `terminal.read` as its request: that is what the device authorizes, what
+    /// it executes once (the ack is the first read), and what its audit records. What follows is
+    /// pushed — `{"term": {...}}` frames with no request id — until the caller drops the receiver
+    /// and [`ChannelRegistry::unsubscribe`] stops it.
+    pub(crate) async fn subscribe(
+        &self,
+        device_id: &str,
+        session_id: &str,
+        from: u64,
+        mcp: Value,
+        auth: &RequestAuth<'_>,
+    ) -> Result<(u64, mpsc::Receiver<Value>, Reply), RequestError> {
+        let _in_flight = InFlight::begin(self, device_id)?;
+        let id = self.next_request.fetch_add(1, Ordering::Relaxed);
+        let (outbound, pending, receiver) = self
+            .wait_for_channel(device_id, id)
+            .await
+            .ok_or(RequestError::Offline)?;
+        // The sink exists before the frame is sent: a device may push before the ack is read.
+        let (sink, stream) = mpsc::channel::<Value>(CHANNEL_CAPACITY);
+        lock(&self.streams).insert(id, sink);
+        let guard = StreamSubscription {
+            streams: &self.streams,
+            id,
+            armed: true,
+        };
+        let _pending = PendingGuard {
+            pending: pending.clone(),
+            id,
+        };
+        let (accepted, accepted_rx) = oneshot::channel();
+        let frame = match auth {
+            RequestAuth::Grant(grant) => json!({
+                "id": id,
+                "mcp": mcp,
+                "subscribe": { "session_id": session_id, "from": from },
+                "grant": grant,
+            }),
+            RequestAuth::Token(scope) => json!({
+                "id": id,
+                "mcp": mcp,
+                "subscribe": { "session_id": session_id, "from": from },
+                "token": scope,
+            }),
+        }
+        .to_string();
+        match outbound.try_send(Outbound::Text {
+            id,
+            frame,
+            accepted,
+        }) {
+            Ok(()) => {}
+            Err(TrySendError::Full(_)) => return Err(RequestError::Busy),
+            Err(TrySendError::Closed(_)) => return Err(RequestError::Offline),
+        }
+        match tokio::time::timeout(self.send_timeout, accepted_rx).await {
+            Err(_) => return Err(RequestError::SendTimeout),
+            Ok(Ok(Ok(()))) => {}
+            Ok(Ok(Err(error))) => return Err(error),
+            Ok(Err(_)) => return Err(RequestError::Disconnected),
+        }
+        match tokio::time::timeout(self.reply_timeout, receiver).await {
+            Err(_) => Err(RequestError::ReplyTimeout),
+            Ok(Ok(answer)) => answer.map(|ack| {
+                guard.disarm();
+                (id, stream, ack)
+            }),
+            Ok(Err(_)) => Err(RequestError::Disconnected),
+        }
+    }
+
+    /// Stop a terminal subscription: drop its sink and tell the device to stop following.
+    ///
+    /// It is deliberately not awaited: a closed tab must not wait on a device, and the frames that
+    /// race the unsubscribe find no sink and are dropped.
+    pub(crate) fn unsubscribe(&self, device_id: &str, sub: u64) {
+        lock(&self.streams).remove(&sub);
+        let outbound = lock(&self.live)
+            .get(device_id)
+            .map(|live| live.outbound.clone());
+        let Some(outbound) = outbound else {
+            return;
+        };
+        let id = self.next_request.fetch_add(1, Ordering::Relaxed);
+        let frame = json!({ "id": id, "unsubscribe": { "sub": sub } }).to_string();
+        let (accepted, _dropped) = oneshot::channel();
+        let _ = outbound.try_send(Outbound::Text {
+            id,
+            frame,
+            accepted,
+        });
     }
 
     /// Close a device's live channel, because the operator revoked it.
@@ -603,6 +730,27 @@ struct PendingGuard {
     id: u64,
 }
 
+/// Removes a subscription's sink when the subscription is not handed to its caller.
+struct StreamSubscription<'a> {
+    streams: &'a Mutex<HashMap<u64, mpsc::Sender<Value>>>,
+    id: u64,
+    armed: bool,
+}
+
+impl<'a> StreamSubscription<'a> {
+    fn disarm(mut self) {
+        self.armed = false;
+    }
+}
+
+impl Drop for StreamSubscription<'_> {
+    fn drop(&mut self) {
+        if self.armed {
+            lock(self.streams).remove(&self.id);
+        }
+    }
+}
+
 impl Drop for PendingGuard {
     fn drop(&mut self) {
         lock(&self.pending).remove(&self.id);
@@ -632,6 +780,7 @@ enum DeviceBody {
 /// status frame comes back to the caller to store; an answer is delivered to its waiter.
 fn deliver(
     pending: &Mutex<HashMap<u64, oneshot::Sender<Answer>>>,
+    streams: &Mutex<HashMap<u64, mpsc::Sender<Value>>>,
     text: &str,
 ) -> Option<serde_json::Value> {
     let value: serde_json::Value = match serde_json::from_str(text) {
@@ -641,6 +790,22 @@ fn deliver(
             return None;
         }
     };
+    // A pushed terminal frame is neither an answer nor a host report: it belongs to the
+    // subscription it names, and a subscriber that is gone drops it (the sender is removed, so the
+    // next frame is not even tried).
+    if let Some(term) = value.get("term") {
+        if let Some(sub) = term.get("sub").and_then(Value::as_u64) {
+            let mut sinks = lock(streams);
+            match sinks.get(&sub) {
+                Some(sink) if sink.try_send(term.clone()).is_ok() => {}
+                Some(_) => {
+                    sinks.remove(&sub);
+                }
+                None => {}
+            }
+        }
+        return None;
+    }
     if value.get("id").is_none() {
         return value.get("host").cloned();
     }
@@ -723,8 +888,10 @@ mod tests {
     #[test]
     fn a_status_frame_is_not_an_answer_and_is_handed_back() {
         let pending: Pending = Arc::new(Mutex::new(HashMap::new()));
+        let streams: Mutex<HashMap<u64, mpsc::Sender<Value>>> = Mutex::new(HashMap::new());
         let stored = deliver(
             &pending,
+            &streams,
             r#"{"host":{"machine":"desktop-9vh92bj","sessions":[{"id":2,"state":"disconnected"}]}}"#,
         )
         .expect("a status frame comes back for storage");
@@ -738,7 +905,8 @@ mod tests {
     #[test]
     fn an_answer_with_no_waiter_is_dropped_without_panicking() {
         let pending: Pending = Arc::new(Mutex::new(HashMap::new()));
-        assert!(deliver(&pending, r#"{"id":7,"result":{}}"#).is_none());
+        let streams: Mutex<HashMap<u64, mpsc::Sender<Value>>> = Mutex::new(HashMap::new());
+        assert!(deliver(&pending, &streams, r#"{"id":7,"result":{}}"#).is_none());
     }
 
     #[tokio::test]
@@ -807,6 +975,8 @@ mod tests {
         let open = registry.open(&device_id());
         let mut commands = open.commands;
         let pending = open.pending.clone();
+        let streams: Arc<Mutex<HashMap<u64, mpsc::Sender<Value>>>> =
+            Arc::new(Mutex::new(HashMap::new()));
         let device = tokio::spawn(async move {
             while let Some(Outbound::Text {
                 accepted, frame, ..
@@ -814,6 +984,7 @@ mod tests {
             {
                 let _ = accepted.send(Ok(()));
                 let pending = pending.clone();
+                let streams = Arc::clone(&streams);
                 tokio::spawn(async move {
                     tokio::time::sleep(Duration::from_millis(120)).await;
                     let id = serde_json::from_str::<serde_json::Value>(&frame)
@@ -822,7 +993,7 @@ mod tests {
                         .unwrap_or(serde_json::Value::Null);
                     let answer =
                         format!(r#"{{"jsonrpc":"2.0","id":{id},"result":{{"answered":true}}}}"#);
-                    let _ = deliver(&pending, &answer);
+                    let _ = deliver(&pending, &streams, &answer);
                 });
             }
         });

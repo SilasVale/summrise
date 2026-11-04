@@ -60,6 +60,10 @@ pub fn facts(data: &std::path::Path) -> serde_json::Value {
     let install = std::env::current_exe()
         .ok()
         .and_then(|exe| exe.parent().map(Path::to_path_buf));
+    // What this build can do beyond request/answer. The console offers a terminal stream only to
+    // a device that names this capability: an older build would fail to parse the subscribe frame
+    // and answer nothing at all, which is a hung stream rather than a fallback.
+    document["caps"] = serde_json::json!([CAP_TERMINAL_STREAM]);
     document["update"] = match install.as_deref() {
         Some(install) => update_state(install),
         None => serde_json::json!({
@@ -96,6 +100,9 @@ fn shell_state(install: &Path) -> serde_json::Value {
         "bytes": bytes.len(),
     })
 }
+
+/// The capability a device advertises when its channel can stream a terminal's output.
+pub const CAP_TERMINAL_STREAM: &str = "terminal.stream";
 
 /// The frame the device sends on its channel: the console reads `host` and stores it per device.
 pub fn frame(data: &std::path::Path) -> String {

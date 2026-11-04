@@ -1,7 +1,8 @@
 # The terminal stream: output pushed, not polled
 
-**Status:** slice 1 shipped (console route + page client + fallback). Slice 2 (device-side push) is
-designed here and not built. Measured 2026-11-04 against `hub/v1` in `/home/zss/summrise-product`.
+**Status:** both slices shipped — the console route and page client, then the device-side push. The
+page does not change between them. Measured 2026-11-04 against `hub/v1` in
+`/home/zss/summrise-product`.
 
 ## Why this exists
 
@@ -59,7 +60,30 @@ in the same turn; only a large one waits for a frame.
 Measured with the page build changed and nothing else: echo 104.5–106.4 ms → 86.4–88.0 ms at the
 same simulated 25 ms round trip.
 
-## What slice 1 does not fix, and why slice 2 exists
+## Slice 2: the device pushes over the channel it already holds
+
+Built after slice 1, and the reason it matters is not only latency: slice 1's pump issues one
+`terminal.read` per chunk, and **every one of those is an audited call** — one line on the console and
+one on the device, per chunk, for as long as a page streams. A busy session wrote thousands of audit
+lines an hour.
+
+- **Capability.** The device's host frame carries `"caps": ["terminal.stream"]`. The console offers a
+  subscription only to a device that names it: an older build fails to parse a subscribe frame and
+  answers nothing at all, which is a hung stream rather than a fallback.
+- **Subscribe.** `{"id": N, "mcp": <terminal.read>, "subscribe": {"session_id", "from"}, <grant|token>}`.
+  The `terminal.read` is what the device authorizes, executes once, and audits — the ack is that read,
+  so an attachment is exactly one audited call. The device then follows the session's own notifier and
+  pushes `{"term": {"sub": N, "data", "cursor", "alive"}}` frames, ending with `alive: false` and the
+  exit facts, or `{"term": {"sub": N, "error": "..."}}` when the read fails.
+- **Unsubscribe.** `{"id": N, "unsubscribe": {"sub": N}}` — it stops a subscription this same socket
+  holds, so it needs no tool authority. A dropped page sends it; a dropped socket stops every
+  follow task on that channel.
+- **Bounds.** Sixteen subscriptions per channel, 32 KiB per pushed frame (split on UTF-8 boundaries),
+  and the same `read_wait` the long poll uses, so a session's idle clock keeps moving.
+
+The page is untouched: it still subscribes to one SSE route and reads `output`/`end`/`fault`.
+
+## What slice 1 did not fix, and why slice 2 existed
 
 The console still **polls the device**: the stream parks one `terminal.read` at a time, so between two
 answers the device has no reader, and the gap is the console→device round trip. On a device on the
