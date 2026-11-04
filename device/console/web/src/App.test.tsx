@@ -332,6 +332,62 @@ describe("App", () => {
     window.history.replaceState(null, "", window.location.pathname);
   });
 
+  it("opens a tool's sheet when the fragment changes after sign-in", async () => {
+    mocks.liveTools.mockResolvedValue({
+      tools: [
+        {
+          name: "files.read",
+          description: "read a file",
+          inputSchema: {
+            type: "object",
+            properties: { path: { type: "string" } },
+            required: ["path"]
+          },
+          source: "builtin",
+          capability: "files",
+          destructive: false
+        }
+      ]
+    });
+    await bootAndSignIn();
+    // A catalogue belongs to a machine, so pick one the way a person does.
+    fireEvent.click(screen.getAllByRole("button", { name: /workshop/ })[0]);
+    await screen.findByRole("heading", { name: "Home", level: 1 });
+
+    // The late path: no reload, no click — the fragment changes on a page that is already mounted.
+    window.history.replaceState(null, "", "#capabilities/files.read");
+    window.dispatchEvent(new Event("hashchange"));
+
+    expect(await screen.findByRole("dialog", { name: "files.read" })).toBeInTheDocument();
+    window.history.replaceState(null, "", window.location.pathname);
+  });
+
+  it("says so when the URL names a tool the machine does not have", async () => {
+    window.history.replaceState(null, "", "#capabilities/not-a-tool");
+    localStorage.setItem("summrise.selected.device", workshop.id);
+    mocks.liveTools.mockResolvedValue({
+      tools: [
+        {
+          name: "files.read",
+          description: "read a file",
+          inputSchema: { type: "object", properties: {}, required: [] },
+          source: "builtin",
+          capability: "files",
+          destructive: false
+        }
+      ]
+    });
+    await boot();
+    fireEvent.change(screen.getByLabelText("Operator token"), { target: { value: "operator-token" } });
+    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+
+    expect(await screen.findByRole("heading", { name: "Capabilities", level: 1 })).toBeInTheDocument();
+    // The link is stale: the machine has no such tool. Silence would read as "the console ignored
+    // me", so the page says which fact it is.
+    expect(await screen.findByText("That tool is not on this machine.")).toBeInTheDocument();
+    window.history.replaceState(null, "", window.location.pathname);
+  });
+
   it("scopes Activity to the chosen machine", async () => {
     mocks.audit.mockResolvedValue([
       {
