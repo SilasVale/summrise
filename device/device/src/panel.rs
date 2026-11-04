@@ -34,6 +34,10 @@ const COMPONENTS: &str = r##"  * { box-sizing: border-box; }
   main > * { min-width: 0; }
   .term-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
   .term-controls input { width: 7rem; min-width: 0; }
+  .term-sep { flex: none; width: 1px; height: 18px; margin: 0 4px; background: var(--line); }
+  /* Close is the end of the row, not the neighbour of New serial: a gap that grows keeps it there
+     when the row wraps without shoving it onto its own line. */
+  .term-close { margin-left: auto; }
   .lede { color: var(--ink-muted); margin: 0 0 4px; font-size: 14px; }
   header button {
     margin-left: auto; font: inherit; font-size: 13px; font-weight: 600;
@@ -485,12 +489,17 @@ fn render(facts: &PanelFacts, outcome: Option<&EnrollOutcome>) -> Markup {
                         // Five controls in a plain <p> had no whitespace between them, so they formed
                         // one unbreakable inline run and forced the whole grid column wider than the
                         // window on a narrow screen. A wrapping row breaks between them.
+                        // **THE ROW SAYS WHICH CONTROL BELONGS WITH WHICH.** Five controls in one run read
+                        // as five equal actions: the two boxes had no visible owner and "Close" sat
+                        // beside "New serial" as if it opened something. A rule divides the serial
+                        // group, and Close is pushed to the far end, away from the actions that create.
                         div class="term-controls" {
                             button id="term-pty" type="button" { "New pty" }
+                            span class="term-sep" aria-hidden="true" {}
                             input id="term-port" type="text" placeholder="COM3" value="COM3" aria-label="Serial port" title="Serial port";
                             input id="term-baud" type="number" placeholder="115200" value="115200" aria-label="Baud rate" title="Baud rate";
                             button id="term-serial" type="button" { "New serial" }
-                            button id="term-close" type="button" { "Close" }
+                            button id="term-close" class="term-close" type="button" { "Close" }
                         }
                         div id="term-host" class="term-host" {}
                         p class="hint" id="term-status" role="status" { "choose a session above" }
