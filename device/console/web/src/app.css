@@ -288,6 +288,7 @@ main.terminal-main { display: grid; grid-template-rows: auto minmax(0, 1fr); ali
   width: 100%; padding: var(--sp-2) var(--sp-2-5); border: 1px solid var(--line-strong); border-radius: var(--radius-xs);
   background: var(--surface); color: var(--ink); font: inherit;
 }
+.login-actions { display: flex; gap: var(--sp-2); }
 .login button { justify-self: start; margin-top: var(--sp-1); }
 .error { color: var(--error); font-size: var(--fs-sm); }
 .lede { color: var(--ink-muted); margin: 0; }

@@ -448,6 +448,30 @@ describe("App", () => {
     expect(screen.queryByText("2 machines · 2 online")).not.toBeInTheDocument();
   });
 
+  it("signs a proxy identity out of the tab without offering a token it cannot use", async () => {
+    mocks.session.mockImplementation(async () => ({
+      authenticated: true,
+      via: "proxy",
+      email: "13122231591@163.com (DESKTOP-9VH92BJ)"
+    }));
+    render(<App />);
+    await screen.findByRole("heading", { name: "Machines", level: 1 });
+
+    openAccount();
+    fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
+
+    // The identity is the network's; a local sign-out cannot end it, and the token form would be a
+    // dead end for an operator who never had one. The page says both and offers the way back.
+    expect(mocks.logout).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("heading", { name: "Signed out of this tab" })).toBeInTheDocument();
+    expect(
+      screen.queryByRole("heading", { name: "Sign in to the console" })
+    ).not.toBeInTheDocument();
+    expect(screen.getByText(/tailnet login/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Load the console again" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Operator token")).toBeInTheDocument();
+  });
+
   it("clears the page even when the logout request is rejected", async () => {
     mocks.logout.mockRejectedValue(new Error("offline"));
     await bootAndSignIn();

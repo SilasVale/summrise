@@ -94,6 +94,8 @@ export function App() {
   const [busy, setBusy] = useState(false);
   const [enrolling, setEnrolling] = useState(false);
   const [tokenInput, setTokenInput] = useState("");
+  /** Whether the console let this tab in through the proxy's identity rather than a token. */
+  const [proxied, setProxied] = useState(false);
   const [renaming, setRenaming] = useState<Device | null>(null);
   const [removing, setRemoving] = useState<Device | null>(null);
   const [connect, setConnect] = useState<{ section: ConnectSection; device: Device | null } | null>(
@@ -159,6 +161,10 @@ export function App() {
     // console whose /health failed could never render, even with a valid session.
     const state = await api.session();
     setSession(state);
+    // The page remembers HOW it was let in, past a local sign-out: a proxy identity cannot be ended
+    // from this tab, so the signed-out screen must not hand the operator a token form with no way to
+    // use it. `via` is the console's own answer, not a guess from the headers.
+    if (state.via === "proxy") setProxied(true);
     if (!state.authenticated) return;
     await refreshData();
     try {
@@ -406,27 +412,55 @@ export function App() {
       <div className="login-wrap">
         <section className="panel login">
           <img src={logoUrl} alt="" width={40} height={40} />
-          <h1>Sign in to the console</h1>
-          <p className="hint">
-            The operator token is the 64-character secret in the file the console's
-            <code> --operator-token-file </code> names, on the console host.
-          </p>
-          {accessNote && <p className="error">{accessNote}</p>}
-          {!accessNote && session.access?.header && session.access.error && (
-            <p className="error">
-              Cloudflare Access signed you in, but the console refused the token: {session.access.error}
-            </p>
-          )}
-          {!accessNote && !session.access?.header && session.access?.configured && (
-            <p className="hint">
-              This page has no sign-in. Reload through Cloudflare Access, or paste the operator token
-              below.
-            </p>
-          )}
-          {!accessNote && session.access && !session.access.configured && (
-            <p className="hint">
-              Access trust is off on this console, so the operator token is the only way in.
-            </p>
+          {proxied ? (
+            <>
+              {/* SIGNING OUT IS A TAB'S GESTURE, NOT THE IDENTITY'S. The console was reached through
+                  a proxy that stamps the tailnet login on every request, so a local sign-out cannot
+                  end it — and the token form below, shown alone, would be a dead end for a person
+                  who was never given a token. Say what happened and how to come back. */}
+              <h1>Signed out of this tab</h1>
+              <p className="hint">
+                This console signs operators in through the network: the proxy in front of it sends
+                your tailnet login with every request. Signing out cleared this tab, and loading it
+                again signs you back in.
+              </p>
+              <div className="login-actions">
+                <button
+                  type="button"
+                  className="primary"
+                  onClick={() => window.location.reload()}
+                >
+                  Load the console again
+                </button>
+              </div>
+              <p className="hint">Or paste the operator token below.</p>
+            </>
+          ) : (
+            <>
+              <h1>Sign in to the console</h1>
+              <p className="hint">
+                The operator token is the 64-character secret in the file the console's
+                <code> --operator-token-file </code> names, on the console host.
+              </p>
+              {accessNote && <p className="error">{accessNote}</p>}
+              {!accessNote && session.access?.header && session.access.error && (
+                <p className="error">
+                  Cloudflare Access signed you in, but the console refused the token:{" "}
+                  {session.access.error}
+                </p>
+              )}
+              {!accessNote && !session.access?.header && session.access?.configured && (
+                <p className="hint">
+                  This page has no sign-in. Reload through Cloudflare Access, or paste the operator
+                  token below.
+                </p>
+              )}
+              {!accessNote && session.access && !session.access.configured && (
+                <p className="hint">
+                  Access trust is off on this console, so the operator token is the only way in.
+                </p>
+              )}
+            </>
           )}
           <label htmlFor="token">Operator token</label>
           <input
