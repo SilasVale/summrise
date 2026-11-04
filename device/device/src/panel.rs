@@ -22,7 +22,7 @@ const COMPONENTS: &str = r##"  * { box-sizing: border-box; }
   body {
     margin: 0; padding: 0;
     background: var(--bg); color: var(--ink);
-    font-family: var(--font); font-size: 14px; line-height: 1.55;
+    font-family: var(--font); font-size: var(--fs-md); line-height: 1.55;
     font-variant-numeric: tabular-nums;
     -webkit-font-smoothing: antialiased;
   }
@@ -38,9 +38,9 @@ const COMPONENTS: &str = r##"  * { box-sizing: border-box; }
   /* Close is the end of the row, not the neighbour of New serial: a gap that grows keeps it there
      when the row wraps without shoving it onto its own line. */
   .term-close { margin-left: auto; }
-  .lede { color: var(--ink-muted); margin: 0 0 4px; font-size: 14px; }
+  .lede { color: var(--ink-muted); margin: 0 0 4px; font-size: var(--fs-md); }
   header button {
-    margin-left: auto; font: inherit; font-size: 13px; font-weight: 600;
+    margin-left: auto; font: inherit; font-size: var(--fs-base); font-weight: 600;
     padding: 4px 12px; border-radius: var(--radius-xs); cursor: pointer;
     border: 1px solid var(--line-strong); background: var(--surface); color: var(--ink);
   }
@@ -51,17 +51,17 @@ const COMPONENTS: &str = r##"  * { box-sizing: border-box; }
      rules, so this page no longer styles sections at all. Only the spacing inside a body is local. */
   .card .card-body > * + * { margin-top: 12px; }
   dl { display: grid; grid-template-columns: 11rem 1fr; gap: 4px 16px; margin: 0; }
-  dt { color: var(--ink-muted); font-size: 14px; }
-  dd { margin: 0; overflow-wrap: anywhere; font-size: 14px; }
-  .mono { font-family: var(--font-mono); font-size: 12px; }
+  dt { color: var(--ink-muted); font-size: var(--fs-md); }
+  dd { margin: 0; overflow-wrap: anywhere; font-size: var(--fs-md); }
+  .mono { font-family: var(--font-mono); font-size: var(--fs-sm); }
 
 
   table { width: 100%; border-collapse: collapse; }
-  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); font-size: 13px; }
-  th { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--ink-faint); font-weight: 600; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); font-size: var(--fs-base); }
+  th { font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: 0.05em; color: var(--ink-faint); font-weight: 600; }
   tr:last-child td { border-bottom: 0; }
   td.kind { color: var(--ink-muted); }
-  .none { color: var(--ink-muted); font-size: 14px; }
+  .none { color: var(--ink-muted); font-size: var(--fs-md); }
 
   /* The enroll form: the same fields and vocabulary as the console's "New enrollment code", because the
      person pastes the code from there into here. Field and button rules only; the tokens above are
@@ -70,18 +70,18 @@ const COMPONENTS: &str = r##"  * { box-sizing: border-box; }
     display: grid; gap: 8px; margin-top: 16px; padding-top: 16px;
     border-top: 1px solid var(--line);
   }
-  form h3 { font-size: 14px; font-weight: 600; margin: 0 0 4px; }
-  form label { font-size: 13px; color: var(--ink-muted); }
+  form h3 { font-size: var(--fs-md); font-weight: 600; margin: 0 0 4px; }
+  form label { font-size: var(--fs-base); color: var(--ink-muted); }
   form input[type="text"] {
-    font: inherit; font-size: 14px; color: var(--ink);
+    font: inherit; font-size: var(--fs-md); color: var(--ink);
     background: var(--surface-recessed); border: 1px solid var(--line-strong);
     border-radius: var(--radius-xs); padding: 6px 8px; min-width: 0;
   }
   form .check { display: flex; align-items: flex-start; gap: 8px; color: var(--ink); }
   form .check input { margin: 0.25rem 0 0; }
-  form .hint { margin: 0; color: var(--ink-faint); font-size: 12px; }
+  form .hint { margin: 0; color: var(--ink-faint); font-size: var(--fs-sm); }
   form button {
-    justify-self: start; font: inherit; font-size: 13px; font-weight: 600;
+    justify-self: start; font: inherit; font-size: var(--fs-base); font-weight: 600;
     padding: 6px 12px; border-radius: var(--radius-xs); cursor: pointer;
     /* `--accent` is a FOREGROUND in the dark theme (#ffa36b); as a fill it put white on it at 1.96:1.
        `--accent-solid`/`--accent-fg` is the pair the tokens were measured for. */
@@ -89,7 +89,7 @@ const COMPONENTS: &str = r##"  * { box-sizing: border-box; }
   }
   form button:disabled { background: var(--panel-2); color: var(--faint); border-color: var(--line); cursor: progress; }
   :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-  .enroll-status { margin: 0; min-height: 1.35em; font-size: 13px; color: var(--ink-muted); }
+  .enroll-status { margin: 0; min-height: 1.35em; font-size: var(--fs-base); color: var(--ink-muted); }
   .enroll-status.ok { color: var(--ok); }
   .enroll-status.error { color: var(--error); }
 
@@ -101,13 +101,13 @@ const COMPONENTS: &str = r##"  * { box-sizing: border-box; }
      `#term-serial` and `#term-close` matched no selector (they are not inside a form), so they drew
      at the UA's 13.33px/2px radius — the one place the type scale visibly broke. */
   #term-pty, #term-serial, #term-close {
-    font-family: var(--font); font-size: 13px; font-weight: 600;
+    font-family: var(--font); font-size: var(--fs-base); font-weight: 600;
     padding: 6px 12px; border: 1px solid var(--line-strong); border-radius: var(--radius-xs);
     background: var(--panel); color: var(--ink); cursor: pointer;
   }
   #term-pty:hover, #term-serial:hover, #term-close:hover { background: var(--panel-2); }
   #term-port, #term-baud {
-    font-family: var(--font); font-size: 13px; width: 7rem;
+    font-family: var(--font); font-size: var(--fs-base); width: 7rem;
     padding: 6px 8px; border: 1px solid var(--line-strong); border-radius: var(--radius-xs);
     background: var(--surface-recessed); color: var(--ink);
   }
@@ -122,7 +122,7 @@ const COMPONENTS: &str = r##"  * { box-sizing: border-box; }
   .term-host:empty::before {
     content: "No session attached";
     display: grid; place-items: center; height: 100%;
-    color: var(--muted); font-size: 13px;
+    color: var(--muted); font-size: var(--fs-base);
   }
   .xterm .xterm-viewport { background-color: var(--term-canvas); }
   .config {
@@ -131,10 +131,10 @@ const COMPONENTS: &str = r##"  * { box-sizing: border-box; }
        scroll sideways to read what it is about to paste. */
     white-space: pre-wrap; overflow-wrap: anywhere;
     background: var(--surface-recessed); border: 1px solid var(--line); border-radius: var(--radius-xs);
-    font-family: var(--font-mono); font-size: 12px; line-height: 1.5; color: var(--ink);
+    font-family: var(--font-mono); font-size: var(--fs-sm); line-height: 1.5; color: var(--ink);
   }
   #copy-local {
-    font: inherit; font-size: 13px; font-weight: 600; padding: 6px 12px;
+    font: inherit; font-size: var(--fs-base); font-weight: 600; padding: 6px 12px;
     border-radius: var(--radius-xs); border: 1px solid var(--line-strong);
     background: var(--surface); color: var(--ink); cursor: pointer;
   }
@@ -142,23 +142,23 @@ const COMPONENTS: &str = r##"  * { box-sizing: border-box; }
 
   /* The first screen is a sentence and two actions, not a config block. */
   .hero { display: grid; gap: 2px; padding: 2px 0 6px; }
-  .hero .eyebrow { margin: 0; color: var(--ink-faint); font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; }
-  .hero h2 { margin: 2px 0 0; font-size: 22px; line-height: 1.15; letter-spacing: -0.02em; }
-  .hero .meta { margin: 6px 0 0; color: var(--ink-muted); font-size: 13px; }
+  .hero .eyebrow { margin: 0; color: var(--ink-faint); font-size: var(--fs-xs); font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; }
+  .hero h2 { margin: 2px 0 0; font-size: var(--fs-xl); line-height: 1.15; letter-spacing: -0.02em; }
+  .hero .meta { margin: 6px 0 0; color: var(--ink-muted); font-size: var(--fs-base); }
   .hero .lede { margin: 6px 0 0; }
   .hero .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
-  .button { display: inline-flex; align-items: center; justify-content: center; font: inherit; font-size: 13px; font-weight: 600; line-height: 1.2; padding: 6px 12px; border-radius: var(--radius-xs); cursor: pointer; border: 1px solid var(--line-strong); background: var(--surface); color: var(--ink); text-decoration: none; }
+  .button { display: inline-flex; align-items: center; justify-content: center; font: inherit; font-size: var(--fs-base); font-weight: 600; line-height: 1.2; padding: 6px 12px; border-radius: var(--radius-xs); cursor: pointer; border: 1px solid var(--line-strong); background: var(--surface); color: var(--ink); text-decoration: none; }
   .button:hover { background: var(--panel-2); border-color: var(--accent); }
   .button.primary { background: var(--accent-solid); border-color: transparent; color: var(--accent-fg); }
   .button.primary:hover { background: var(--accent-hover); color: var(--accent-fg); }
   details.secondary, details.diagnostics { border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); padding: 12px 14px; }
-  details.secondary summary, details.diagnostics summary { cursor: pointer; font-size: 14px; font-weight: 600; color: var(--ink); }
+  details.secondary summary, details.diagnostics summary { cursor: pointer; font-size: var(--fs-md); font-weight: 600; color: var(--ink); }
   details.secondary[open] summary, details.diagnostics[open] summary { margin-bottom: 10px; }
   .diagnostics-body { display: grid; gap: 12px; padding-top: 2px; }
   .diagnostics-body .card { border: 0; padding: 0; box-shadow: none; }
   .diagnostics-body .card .card-head { padding-left: 0; padding-right: 0; }
   .diagnostics-body .card .card-body { padding-left: 0; padding-right: 0; }
-  code { font-family: var(--font-mono); font-size: 13px; }
+  code { font-family: var(--font-mono); font-size: var(--fs-base); }
 
   /* **THE TOP BAR SITS ON THE SAME COLUMN AS THE CARDS.** It used to be padded 24 px from the window
      edge while `main` is a centred 54 rem column, so on a 1280 px screen the brand started at 24 px
@@ -1042,24 +1042,27 @@ mod tests {
         }
     }
 
-    /// **THE PANEL IS ON THE SAME TYPE SCALE.** Eighteen declarations resolved to seven sizes no
-    /// reader could rank, because the panel used `rem` while the console used `px` and no gate read
-    /// either. The scale is the console's: 9, 11, 12, 13, 14, 15, 18, 22.
+    /// **THE PANEL IS ON THE SAME TYPE SCALE, BY NAME.** Eighteen declarations resolved to seven
+    /// sizes no reader could rank, because the panel used `rem` while the console used `px` and no
+    /// gate read either. The first fix pinned the pixels; this one pins the shared steps themselves
+    /// (`--fs-2xs` … `--fs-xl`), so the two surfaces cannot drift apart again — a raw pixel value is
+    /// now the failure, not a value outside a list.
     #[test]
     fn the_panel_uses_the_shared_type_scale() {
-        const ALLOWED: [&str; 8] = ["9", "11", "12", "13", "14", "15", "18", "22"];
+        const ALLOWED: [&str; 7] = [
+            "--fs-2xs", "--fs-xs", "--fs-sm", "--fs-base", "--fs-md", "--fs-lg", "--fs-xl",
+        ];
         let mut rest = COMPONENTS;
         let mut seen = std::collections::BTreeSet::new();
         while let Some(at) = rest.find("font-size:") {
             let after = &rest[at + "font-size:".len()..];
             let end = after.find([';', '}']).unwrap_or(after.len());
             let value = after[..end].trim();
-            if let Some(px) = value.find("px") {
-                let size = &value[..px];
-                seen.insert(size.to_owned());
+            if !value.starts_with("inherit") {
+                seen.insert(value.to_owned());
                 assert!(
-                    ALLOWED.contains(&size),
-                    "font-size:{value} is off the shared scale {ALLOWED:?}"
+                    ALLOWED.iter().any(|token| value.contains(token)),
+                    "font-size:{value} is not one of the shared steps {ALLOWED:?}"
                 );
             }
             rest = &after[end..];
