@@ -999,7 +999,8 @@ const PAGES = [
     label: 'Device',
     tab: 'Tools',
     heading: 'Tools',
-    state: 'the machine\'s one answer: the live tool catalogue and the plugin list under it'
+    state:
+      'the machine\'s one answer: the live tool catalogue, the plugin list and the exec form under it'
   },
   {
     id: 'activity',
@@ -1041,7 +1042,8 @@ const PAGES = [
     label: 'Device',
     tab: 'Runs',
     heading: 'Runs',
-    state: 'the device workspace: the runs tab'
+    state:
+      'the device workspace: the run history — the exec form lives under Tools → Run a command'
   },
   {
     id: 'machine',
@@ -1394,6 +1396,25 @@ async function capturePage(page, state, meta, pass) {
 
     await chooseMachine(page, state, 'workshop');
     await page.locator('.plugin-name').filter({ hasText: 'Hello' }).first().waitFor({ state: 'visible', timeout: 5_000 });
+
+    // THE EXEC FORM MOVED HERE. It was the top of the Runs page; the capture follows it so the
+    // section that makes a run is reviewed on the page that owns it, while the Runs capture is the
+    // history it left behind.
+    await page.locator('section[aria-labelledby="tools-run"]').scrollIntoViewIfNeeded();
+    await page
+      .getByRole('heading', { name: 'Run a command on this machine', exact: true })
+      .waitFor({ state: 'visible', timeout: 5_000 });
+    await page.getByRole('button', { name: 'Run', exact: true }).waitFor({ state: 'visible', timeout: 5_000 });
+    await settle(page, state, 250);
+    const runFormFile = `tools-run${pass.suffix}.png`;
+    await page.screenshot({ path: path.join(OUT, runFormFile), animations: 'disabled', fullPage: false });
+    captures.push({
+      pass: pass.key,
+      page: 'tools-run',
+      file: runFormFile,
+      note: 'the exec form under Tools: command, working directory, timeout and the shell toggle'
+    });
+    console.log(`  ${pass.key.padEnd(6)} ${runFormFile}`);
   }
 
   if (meta.id === 'home') {

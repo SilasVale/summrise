@@ -415,10 +415,15 @@ try {
     throw new Error('the terminal panel stayed visible on the Runs page');
   }
   step('opened r-1 from its audit line; the terminal panel stayed hidden');
+  // RUNS IS THE HISTORY NOW. The exec form moved to Tools, so this page must not carry a second way
+  // to run a command; the gate would otherwise keep passing on a page with the old form on it.
+  if ((await page.locator('.runs-form, #runs-command').count()) > 0) {
+    throw new Error('the Runs page still carries the exec form; it belongs under Tools');
+  }
   await page.screenshot({ path: path.join(OUT, '04-activity-run.png') });
 
-  // ONE TAB FOR WHAT THE MACHINE CAN DO. The catalogue and the plugin list are the same answer, so
-  // the gate checks both halves render on the same page before it moves on to credentials.
+  // ONE TAB FOR WHAT THE MACHINE CAN DO. The catalogue, the plugin list and the run form are the
+  // same answer, so the gate checks all three render on the same page before it moves on.
   await page.getByRole('button', { name: 'Tools' }).click();
   await page.getByRole('heading', { name: 'Tools', exact: true }).waitFor({ timeout: 10_000 });
   await page.locator('.tool-row').first().waitFor({ timeout: 10_000 });
@@ -427,7 +432,14 @@ try {
   if (!toolsText.includes('Tools on this machine') || !toolsText.includes('plugins.list')) {
     throw new Error('the Tools tab did not draw the catalogue');
   }
-  step('opened Device → Tools; the catalogue and the plugin list are one answer');
+  const runSection = page.locator('section[aria-labelledby="tools-run"]');
+  await runSection
+    .getByRole('heading', { name: 'Run a command on this machine', exact: true })
+    .waitFor({ timeout: 10_000 });
+  if ((await runSection.locator('#runs-command').count()) === 0) {
+    throw new Error('the exec form is not under Tools');
+  }
+  step('opened Device → Tools; the catalogue, the plugin list and the exec form are one answer');
   await page.screenshot({ path: path.join(OUT, '05-tools.png') });
 
   // THE CREDENTIAL LIST IS THE WHOLE REGISTRY. `GET /tokens` is the only list route; a row for
