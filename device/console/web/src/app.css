@@ -2361,3 +2361,42 @@ main::-webkit-scrollbar-track, .sheet-body::-webkit-scrollbar-track, .scroll::-w
 .runs-history-head .hint { margin: 0; }
 .runs-history-head button { margin-left: auto; }
 .runs-form > button.primary { align-self: flex-start; margin-top: 19px; }
+
+/* ── Plugins: one grouped list ──────────────────────────────────────────────────────────────────
+   A plugin is a row in a list, like a machine or a file: name and state on the first line, its
+   facts on the second, its path on the third, and the failure (when there is one) last. */
+
+.plugin-list {
+  gap: 0; background: var(--panel);
+  border: 1px solid var(--hairline); border-radius: var(--radius); overflow: hidden;
+}
+.plugin-row {
+  border: 0; border-bottom: 1px solid var(--hairline); border-radius: 0;
+  padding: 14px 16px; background: transparent;
+}
+.plugin-row:last-child { border-bottom: 0; }
+.plugin-row:hover { background: var(--row-hover); }
+.plugin-name { font-size: var(--fs-md); font-weight: var(--fw-semi); letter-spacing: -0.01em; }
+.plugin-meta { font-size: var(--fs-sm); }
+.plugin-path { font-size: var(--fs-2xs); }
+
+/* ── Sheet sections ─────────────────────────────────────────────────────────────────────────────
+   A section header inside a sheet is a label, not a headline: muted, 12 px, with air above it. */
+
+.sheet-body h3 {
+  margin: var(--sp-4) 0 var(--sp-1-5);
+  font-size: var(--fs-xs); font-weight: var(--fw-semi);
+  color: var(--ink-muted); letter-spacing: 0.01em;
+}
+.sheet-body h3:first-child { margin-top: 0; }
+.sheet-body .field-label, .sheet-body label {
+  font-size: var(--fs-xs); color: var(--ink-muted);
+}
+.sheet-body .field { display: grid; gap: var(--sp-1); }
+
+/* The browser pane's five actions are secondary: one primary (live view) and four that fit on a line
+   without competing with the page's own button. */
+.browser-pane h2 { font-size: var(--fs-md); font-weight: var(--fw-semi); }
+.browser-pane .panel-head .actions button { min-height: 24px; padding: 3px 9px; font-size: var(--fs-2xs); }
+.browser-pane .panel-head .actions { gap: var(--sp-1); }
+.browser-pane .row input[aria-label="Address"] { flex: 1; min-width: 12rem; }
