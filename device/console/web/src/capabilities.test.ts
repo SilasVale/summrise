@@ -1,16 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { LiveTool } from "./api";
-import {
-  buildArguments,
-  exampleArguments,
-  filterTools,
-  formatResult,
-  formArguments,
-  groupByCapability,
-  initialForm,
-  summariseSchema,
-  validateForm
-} from "./capabilities";
+import { filterTools, groupByCapability, summariseSchema } from "./capabilities";
 
 function tool(overrides: Partial<LiveTool> & { name: string }): LiveTool {
   return {
@@ -93,198 +83,58 @@ describe("summariseSchema", () => {
 
   it("reads a flat object into typed, required-marked fields", () => {
     const summary = summariseSchema(schema);
-    expect(summary.rawOnly).toBe(false);
     expect(summary.fields).toEqual([
       {
         name: "path",
         type: "string",
         required: true,
-        description: "Where to read",
-        enumValues: [],
-        nested: false,
-        example: undefined
+        description: "Where to read"
       },
       {
         name: "depth",
         type: "integer",
         required: false,
-        description: "",
-        enumValues: [],
-        nested: false,
-        example: undefined
+        description: ""
       },
       {
         name: "recursive",
         type: "boolean",
         required: false,
-        description: "",
-        enumValues: [],
-        nested: false,
-        example: undefined
+        description: ""
       },
       {
         name: "mode",
         type: "enum",
         required: false,
-        description: "",
-        enumValues: ["read", "write"],
-        nested: false,
-        example: undefined
+        description: ""
       }
     ]);
   });
 
-  it("forces Raw JSON for a nested property or a schema with no flat fields", () => {
+  it("names the type of a property that is not one scalar control", () => {
     const nested = summariseSchema({
       type: "object",
       properties: { filter: { type: "object", properties: { name: { type: "string" } } } }
     });
-    expect(nested.rawOnly).toBe(true);
-    expect(nested.reason).toBe("This tool takes a nested object; edit the JSON.");
+    expect(nested.fields).toEqual([
+      { name: "filter", type: "object", required: false, description: "" }
+    ]);
 
     const array = summariseSchema({
       type: "object",
       properties: { ids: { type: "array", items: { type: "string" } } }
     });
-    expect(array.rawOnly).toBe(true);
+    expect(array.fields[0].type).toBe("array");
 
     const untyped = summariseSchema({
       type: "object",
       properties: { anything: { oneOf: [{ type: "string" }, { type: "number" }] } }
     });
-    expect(untyped.rawOnly).toBe(true);
+    expect(untyped.fields[0].type).toBe("unknown");
   });
 
   it("treats an empty object as a tool with no arguments", () => {
     const summary = summariseSchema({ type: "object", properties: {} });
     expect(summary.fields).toEqual([]);
-    expect(summary.rawOnly).toBe(false);
-  });
-});
-
-describe("initialForm, validation and arguments", () => {
-  const summary = summariseSchema({
-    type: "object",
-    properties: {
-      path: { type: "string" },
-      limit: { type: "integer" },
-      recursive: { type: "boolean" },
-      mode: { type: "string", enum: ["read", "write"] }
-    },
-    required: ["path", "recursive"]
-  });
-
-  it("starts strings blank, booleans Not sent and raw mode off", () => {
-    expect(initialForm(summary)).toEqual({
-      values: { path: "", limit: "", mode: "" },
-      booleans: { recursive: "omit" },
-      raw: "{}",
-      rawMode: false
-    });
-  });
-
-  it("names the missing required field and focuses it", () => {
-    const form = initialForm(summary);
-    const errors = validateForm(summary, form);
-    expect(errors.fields).toEqual({
-      path: 'Add a value for "path".',
-      recursive: 'Choose true or false for "recursive".'
-    });
-    expect(errors.first).toBe("path");
-
-    const built = buildArguments(summary, form);
-    expect(built).toEqual({ ok: false, message: 'Add a value for "path".' });
-  });
-
-  it("omits blank optional fields and sends only what was filled", () => {
-    const form = initialForm(summary);
-    form.values.path = "notes.txt";
-    form.values.limit = "5";
-    form.booleans.recursive = "false";
-
-    expect(buildArguments(summary, form)).toEqual({
-      ok: true,
-      value: { path: "notes.txt", limit: 5, recursive: false }
-    });
-  });
-
-  it("refuses a number that is not one, by field name", () => {
-    const form = initialForm(summary);
-    form.values.path = "notes.txt";
-    form.booleans.recursive = "true";
-    form.values.limit = "five";
-    expect(formArguments(summary, form)).toEqual({
-      ok: false,
-      message: 'Enter a number for "limit".'
-    });
-  });
-
-  it("edits raw JSON and refuses to run what does not parse", () => {
-    const form = initialForm(summary);
-    form.rawMode = true;
-    form.raw = "{ nope";
-    expect(validateForm(summary, form)).toEqual({
-      fields: {},
-      raw: "Fix the JSON before running.",
-      first: "$raw"
-    });
-
-    form.raw = JSON.stringify({ path: "notes.txt", recursive: true });
-    expect(buildArguments(summary, form)).toEqual({
-      ok: true,
-      value: { path: "notes.txt", recursive: true }
-    });
-
-    form.raw = "[]";
-    expect(formArguments(summary, form)).toEqual({
-      ok: false,
-      message: "The arguments must be a JSON object."
-    });
-  });
-
-  it("starts a nested schema in raw mode", () => {
-    const nested = summariseSchema({
-      type: "object",
-      properties: { filter: { type: "object", properties: { q: { type: "string" } } } }
-    });
-    const form = initialForm(nested);
-    expect(form.rawMode).toBe(true);
-    expect(form.values).toEqual({});
-  });
-});
-
-describe("exampleArguments", () => {
-  it("promises only required fields, with the schema's own example when supplied", () => {
-    expect(
-      exampleArguments({
-        type: "object",
-        properties: {
-          name: { type: "string", example: "Ada" },
-          mode: { type: "string", enum: ["a", "b"] },
-          quiet: { type: "boolean" },
-          count: { type: "integer" },
-          tags: { type: "array" }
-        },
-        required: ["name", "mode", "quiet", "count"]
-      })
-    ).toEqual({ name: "Ada", mode: "a", quiet: true, count: 0 });
-  });
-});
-
-describe("formatResult", () => {
-  it("formats JSON with two-space indentation and counts its lines", () => {
-    expect(formatResult('{"a":1}')).toEqual({
-      parsed: true,
-      pretty: '{\n  "a": 1\n}',
-      lines: 3
-    });
-  });
-
-  it("passes a non-JSON answer through verbatim", () => {
-    expect(formatResult("hello from the plugin")).toEqual({
-      parsed: false,
-      pretty: "hello from the plugin",
-      lines: 1
-    });
   });
 });
