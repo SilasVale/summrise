@@ -567,6 +567,7 @@ export function App() {
             onCapabilities={() => setPage("capabilities")}
             onPlugins={() => setPage("plugins")}
             onActivity={() => setPage("activity")}
+            consoleVersion={consoleVersion}
           />
         )}
 

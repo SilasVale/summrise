@@ -367,7 +367,7 @@ describe("App", () => {
     // Selecting stores the machine and stays on Home, which becomes the hub; the header is where
     // the machine is now in context, as one control.
     expect(screen.getByRole("heading", { name: "Home", level: 1 })).toBeInTheDocument();
-    expect(within(screen.getByRole("main")).getByText("Running · v0.3.42")).toBeInTheDocument();
+    expect(within(screen.getByRole("main")).getByText("Running · console v0.3.42")).toBeInTheDocument();
     expect(screen.getByLabelText("Machine: workshop")).toBeInTheDocument();
     expect(localStorage.getItem("summrise.selected.device")).toBe(workshop.id);
     expect(window.location.hash).toBe("#home");

@@ -149,6 +149,8 @@ function HubHome(
     onCapabilities: () => void;
     onPlugins: () => void;
     onActivity: () => void;
+    /** The console's own build, from /health; the chip next door is the device's. */
+    consoleVersion?: string | null;
   }
 ) {
   const device = props.device;
@@ -163,8 +165,13 @@ function HubHome(
   const endpoint = `${location.origin}/mcp/${device.id}`;
 
   const offline = !device.online || live.offline;
-  // The status line is state only. Counts have one home: the counts line, where they are a link.
-  const statusLine = [offline ? "Offline" : "Running", device.version ? `v${device.version}` : null]
+  // **THE MACHINE CHIP ALREADY SAYS "Running · v…".** Repeating it here spent the page's one subtitle
+  // line on a fact the header had just stated; the console's own build is the fact the chip cannot
+  // carry, and the one a person needs when a page and a device disagree about what is deployed.
+  const statusLine = [
+    offline ? "Offline" : "Running",
+    props.consoleVersion ? `console v${props.consoleVersion}` : null
+  ]
     .filter(Boolean)
     .join(" · ");
   const capabilities = new Set(live.tools.map((tool) => tool.capability)).size;
@@ -277,6 +284,8 @@ export type HomePageProps = FleetProps & {
   onCapabilities: () => void;
   onPlugins: () => void;
   onActivity: () => void;
+  /** The console's own build, from /health; the machine chip next door is the device's. */
+  consoleVersion?: string | null;
 };
 
 export function HomePage(props: HomePageProps) {

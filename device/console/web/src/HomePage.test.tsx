@@ -75,6 +75,7 @@ function draw(overrides: Record<string, unknown> = {}) {
       onCapabilities={onCapabilities}
       onPlugins={vi.fn()}
       onActivity={vi.fn()}
+      consoleVersion="0.3.999"
       {...overrides}
     />
   );
@@ -95,7 +96,7 @@ describe("Home — the hub", () => {
 
     expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
     expect(screen.getByRole("heading", { name: "Home", level: 1 })).toBeInTheDocument();
-    expect(await screen.findByText("Running · v0.3.246")).toBeInTheDocument();
+    expect(await screen.findByText("Running · console v0.3.999")).toBeInTheDocument();
     // The counts line, not the status line, carries the counts: six tools across four capabilities
     // (terminal, files, screen, plugins).
     const counts = await screen.findByRole("button", { name: /6 tools · 4 capabilities · 2 plugins/ });
@@ -133,7 +134,7 @@ describe("Home — the hub", () => {
     };
     draw({ device: { ...workshop, online: false } });
 
-    expect(screen.getByText("Offline · v0.3.246")).toBeInTheDocument();
+    expect(screen.getByText("Offline · console v0.3.999")).toBeInTheDocument();
     expect(
       screen.getByText(
         "workshop is not connected. The console keeps trying; open the machine's panel if it stays offline."
@@ -179,7 +180,7 @@ describe("Home — the hub", () => {
     };
     draw();
 
-    expect(screen.getByText("Running · v0.3.246")).toBeInTheDocument();
+    expect(screen.getByText("Running · console v0.3.999")).toBeInTheDocument();
     expect(
       screen.getByText("Tool counts are unavailable until the console can read the machine's list.")
     ).toBeInTheDocument();
@@ -197,7 +198,7 @@ describe("Home — the hub", () => {
     };
     draw();
 
-    expect(await screen.findByText("Running · v0.3.246")).toBeInTheDocument();
+    expect(await screen.findByText("Running · console v0.3.999")).toBeInTheDocument();
     expect(await screen.findByRole("button", { name: /1 tool · 1 capability · 0 plugins/ })).toBeInTheDocument();
     expect(plugins.list).not.toHaveBeenCalled();
   });
