@@ -1,18 +1,8 @@
 import { fireEvent, render, screen } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { Device, LiveTool } from "./api";
-import { CapabilitiesPage } from "./CapabilitiesPage";
-
-const live = vi.hoisted(() => ({ value: {} as Record<string, unknown> }));
-vi.mock("./useLiveTools", () => ({ useLiveTools: () => live.value }));
-
-const workshop: Device = {
-  id: "dev-workshop",
-  name: "workshop",
-  online: true,
-  version: "0.3.246",
-  last_seen_ms: 1
-};
+import { describe, expect, it, vi } from "vitest";
+import type { LiveTool } from "./api";
+import { ToolCatalogue } from "./ToolCatalogue";
+import type { LiveToolsState } from "./useLiveTools";
 
 function tool(overrides: Partial<LiveTool> & { name: string }): LiveTool {
   return {
@@ -37,47 +27,57 @@ const TOOLS = [
   })
 ];
 
-function draw(overrides: Record<string, unknown> = {}) {
-  const onTool = vi.fn();
-  const onChoose = vi.fn();
-  const onMachine = vi.fn();
-  const view = render(
-    <CapabilitiesPage
-      devices={[workshop]}
-      device={workshop}
-      tool={null}
-      onChoose={onChoose}
-      onTool={onTool}
-      onMachine={onMachine}
-      onBrowser={vi.fn()}
-      {...overrides}
-    />
-  );
-  return { ...view, onTool, onChoose, onMachine };
-}
-
-beforeEach(() => {
-  live.value = {
+function state(overrides: Partial<LiveToolsState> = {}): LiveToolsState {
+  return {
     tools: TOOLS,
     stale: false,
     error: null,
     offline: false,
     loading: false,
-    retry: vi.fn()
+    retry: vi.fn(),
+    ...overrides
   };
-});
+}
 
-describe("CapabilitiesPage", () => {
+function draw(
+  {
+    live = state(),
+    tool = null,
+    offline = false,
+    onTool = vi.fn(),
+    onMachine = vi.fn(),
+    onBrowser = vi.fn()
+  }: {
+    live?: LiveToolsState;
+    tool?: string | null;
+    offline?: boolean;
+    onTool?: (name: string | null) => void;
+    onMachine?: () => void;
+    onBrowser?: () => void;
+  } = {}
+) {
+  const view = render(
+    <ToolCatalogue
+      live={live}
+      offline={offline}
+      tool={tool}
+      onTool={onTool}
+      onMachine={onMachine}
+      onBrowser={onBrowser}
+    />
+  );
+  return { ...view, onTool, onMachine };
+}
+
+describe("ToolCatalogue", () => {
   it("lists every tool by capability, built-ins first, with the description and source", () => {
     draw();
 
-    expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
-    expect(screen.getByRole("heading", { name: "Capabilities", level: 1 })).toBeInTheDocument();
     expect(screen.getByText("4 tools · 3 capabilities")).toBeInTheDocument();
-    const groups = screen.getAllByRole("heading", { level: 2 }).map((heading) => heading.textContent);
+    const groups = screen.getAllByRole("heading", { level: 3 }).map((heading) => heading.textContent);
     expect(groups).toEqual(["terminal", "files", "hello"]);
 
-    expect(screen.getByText("terminal", { selector: ".cap-group-head h2" })).toBeInTheDocument();
+    expect(screen.getByText("terminal", { selector: ".cap-group-head h3" })).toBeInTheDocument();
     expect(screen.getAllByText("Built-in")).toHaveLength(2);
     expect(screen.getByText("Plugin · hello")).toBeInTheDocument();
     const terminal = screen
@@ -118,51 +118,32 @@ describe("CapabilitiesPage", () => {
   });
 
   it("renders three skeleton rows while the live list is on the wire", () => {
-    live.value = {
-      tools: [],
-      stale: false,
-      error: null,
-      offline: false,
-      loading: true,
-      retry: vi.fn()
-    };
-    draw();
+    draw({ live: state({ tools: [], loading: true }) });
     expect(screen.getByRole("status", { name: "Reading the tool list" })).toBeInTheDocument();
     expect(document.querySelectorAll(".skeleton-row")).toHaveLength(3);
   });
 
-  it("renders an offline machine as a banner with Retry, never as an empty list", () => {
+  it("does not repeat the machine's offline state inside the catalogue", () => {
     const retry = vi.fn();
-    live.value = {
-      tools: [],
-      stale: false,
-      error: "this machine is not connected; connect it, then try again",
-      offline: true,
-      loading: false,
-      retry
-    };
-    draw({ device: { ...workshop, online: false } });
+    draw({
+      live: state({
+        tools: [],
+        error: "this machine is not connected; connect it, then try again",
+        offline: true,
+        retry
+      }),
+      offline: true
+    });
 
-    expect(
-      screen.getByText(
-        "workshop is not connected. The console keeps trying; open the machine's panel if it stays offline."
-      )
-    ).toBeInTheDocument();
+    expect(screen.getByText("The console has no tool list from this machine yet.")).toBeInTheDocument();
+    expect(screen.queryByText(/not connected/)).toBeNull();
     expect(screen.queryByText("No tools")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));
     expect(retry).toHaveBeenCalledTimes(1);
   });
 
   it("labels a stale catalogue instead of hiding it", () => {
-    live.value = {
-      tools: TOOLS,
-      stale: true,
-      error: "read failed",
-      offline: false,
-      loading: false,
-      retry: vi.fn()
-    };
-    draw();
+    draw({ live: state({ stale: true, error: "read failed" }) });
     expect(
       screen.getByText("Showing the last tool list the console read; it could not be refreshed.")
     ).toBeInTheDocument();
@@ -170,23 +151,8 @@ describe("CapabilitiesPage", () => {
   });
 
   it("points at Machine when the build advertises no tools", () => {
-    live.value = {
-      tools: [],
-      stale: false,
-      error: null,
-      offline: false,
-      loading: false,
-      retry: vi.fn()
-    };
-    const { onMachine } = draw();
+    const { onMachine } = draw({ live: state({ tools: [] }) });
     fireEvent.click(screen.getByRole("button", { name: "Open Machine" }));
     expect(onMachine).toHaveBeenCalledTimes(1);
-  });
-
-  it("asks for a machine when the deep link lands without one", () => {
-    const { onChoose } = draw({ device: null });
-    expect(screen.getByRole("heading", { name: "Choose a machine" })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Use workshop" }));
-    expect(onChoose).toHaveBeenCalledWith(workshop.id);
   });
 });

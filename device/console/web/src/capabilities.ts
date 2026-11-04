@@ -1,7 +1,7 @@
 import type { LiveTool } from "./api";
 
 /**
- * The pure decisions behind the Capabilities catalogue: grouping, filtering and the schema
+ * The pure decisions behind the Tools catalogue: grouping, filtering and the schema
  * summariser. No React, no fetch; the component tests exercise the states and this module is where
  * the rules are provable.
  */

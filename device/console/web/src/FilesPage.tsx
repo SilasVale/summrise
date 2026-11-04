@@ -378,7 +378,7 @@ export function FilesPage({
   const dirty = open !== null && open.mode === "text" && open.text !== open.saved;
   const busy = opening !== null || saving;
 
-  // Case-insensitive substring, the same reading as the Capabilities search: one field, no syntax.
+  // Case-insensitive substring, the same reading as the Tools search: one field, no syntax.
   const needle = filter.trim().toLowerCase();
   const shown = needle === "" ? entries : entries.filter((entry) => entry.name.toLowerCase().includes(needle));
 

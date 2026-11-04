@@ -1,19 +1,17 @@
-// FIVE DESTINATIONS, NOT SEVEN. The hub is the product, and the console is its window: Home says
-// what the hub is, Capabilities what the AI can call, Plugins what the machine has added, Activity
-// what was called, and Device is the one workspace where the operator puts their hands on the
-// machine. Fleet is Home's zero state and Connect is a sheet, so neither is a place in this rail.
+// THREE DESTINATIONS, NOT SEVEN. The hub is the product, and the console is its window: Home says
+// what the hub is, Activity what was called, and Device is the one workspace where the operator puts
+// their hands on the machine — its terminal, screen, files, runs, tools and machine facts. Fleet is
+// Home's zero state and Connect is a sheet, so neither is a place in this rail.
 //
 // A destination earns its seat with a daily job. Adding one means deleting one in the same change.
-export type Page = "home" | "capabilities" | "plugins" | "activity" | "device";
+export type Page = "home" | "activity" | "device";
 
 /** The one workspace's tabs. The fragment names the tab: `#device/terminal`. */
-export type DeviceTab = "terminal" | "screen" | "files" | "runs" | "machine";
+export type DeviceTab = "terminal" | "screen" | "files" | "runs" | "tools" | "machine";
 
 /// What each destination is called in the rail, the document title and each page's one `h1`.
 export const PAGE_LABELS: Record<Page, string> = {
   home: "Home",
-  capabilities: "Capabilities",
-  plugins: "Plugins",
   activity: "Activity",
   device: "Device"
 };
@@ -23,12 +21,21 @@ export const DEVICE_TAB_LABELS: Record<DeviceTab, string> = {
   screen: "Screen",
   files: "Files",
   runs: "Runs",
+  tools: "Tools",
   machine: "Machine"
 };
 
 /// The tabs in the order the workspace offers them. Terminal is first because it is the most direct
-/// way to take the keyboard back.
-export const DEVICE_TABS: readonly DeviceTab[] = ["terminal", "screen", "files", "runs", "machine"];
+/// way to take the keyboard back; Tools follows Runs because it answers what the machine can do, and
+/// Machine is the last word on what it is running.
+export const DEVICE_TABS: readonly DeviceTab[] = [
+  "terminal",
+  "screen",
+  "files",
+  "runs",
+  "tools",
+  "machine"
+];
 
 /// The rail's order is this map's insertion order; `Record<Page, string>` keeps the map complete, so
 /// there is no second list to update when a destination changes.
@@ -37,10 +44,6 @@ const SECTIONS = Object.keys(PAGE_LABELS) as Page[];
 const ICONS: Record<Page, string> = {
   // a house
   home: "M4 10.5 12 4l8 6.5V20H4v-9.5ZM9.5 20v-5.5h5V20",
-  // four capability tiles
-  capabilities: "M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z",
-  // a plug: a plugin adds a capability to the one endpoint
-  plugins: "M9 3v4M15 3v4M7 7h10v4a5 5 0 0 1-10 0V7ZM12 16v5",
   // a pulse: the record of calls
   activity: "M3 12h4l2.5-6 4 12 2.5-6h5",
   // a monitor: the machine workspace

@@ -2,10 +2,8 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Device, LiveTool } from "./api";
 import type { PluginRecord } from "./pluginApi";
-import { PluginsPage } from "./PluginsPage";
-
-const live = vi.hoisted(() => ({ value: {} as Record<string, unknown> }));
-vi.mock("./useLiveTools", () => ({ useLiveTools: () => live.value }));
+import { PluginList } from "./PluginList";
+import type { LiveToolsState } from "./useLiveTools";
 
 const mocks = vi.hoisted(() => ({
   list: vi.fn(),
@@ -47,6 +45,18 @@ function supportTool(name = "plugins.list"): LiveTool {
   };
 }
 
+function state(tools: LiveTool[] = [supportTool()], overrides: Partial<LiveToolsState> = {}): LiveToolsState {
+  return {
+    tools,
+    stale: false,
+    error: null,
+    offline: false,
+    loading: false,
+    retry: vi.fn(),
+    ...overrides
+  };
+}
+
 function plugin(overrides: Partial<PluginRecord> = {}): PluginRecord {
   return {
     id: "com.example.hello",
@@ -62,19 +72,23 @@ function plugin(overrides: Partial<PluginRecord> = {}): PluginRecord {
   };
 }
 
-function draw(overrides: Record<string, unknown> = {}) {
-  const onChoose = vi.fn();
-  const onMachine = vi.fn();
+function draw(
+  {
+    live = state(),
+    offline = false,
+    device = workshop,
+    onMachine = vi.fn()
+  }: {
+    live?: LiveToolsState;
+    offline?: boolean;
+    device?: Device;
+    onMachine?: () => void;
+  } = {}
+) {
   const view = render(
-    <PluginsPage
-      devices={[workshop]}
-      device={workshop}
-      onChoose={onChoose}
-      onMachine={onMachine}
-      {...overrides}
-    />
+    <PluginList device={device} live={live} offline={offline} onMachine={onMachine} />
   );
-  return { ...view, onChoose, onMachine };
+  return { ...view, onMachine };
 }
 
 function openActions(name: string) {
@@ -82,19 +96,7 @@ function openActions(name: string) {
   fireEvent.click(within(row).getByTitle(`Actions for ${name}`));
 }
 
-function supported() {
-  live.value = {
-    tools: [supportTool()],
-    stale: false,
-    error: null,
-    offline: false,
-    loading: false,
-    retry: vi.fn()
-  };
-}
-
 beforeEach(() => {
-  supported();
   mocks.list.mockReset();
   mocks.inspect.mockReset();
   mocks.add.mockReset();
@@ -105,11 +107,9 @@ beforeEach(() => {
   mocks.logs.mockResolvedValue([]);
 });
 
-describe("PluginsPage", () => {
+describe("PluginList", () => {
   it("puts Add plugin inside the empty state, as the one action, and no manifest example", async () => {
     draw();
-    expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
-    expect(screen.getByRole("heading", { name: "Plugins", level: 1 })).toBeInTheDocument();
     expect(await screen.findByText("No plugins yet. Add one when a built-in cannot do the job.")).toBeInTheDocument();
     expect(screen.queryByText(/plugin\.json/)).not.toBeInTheDocument();
     expect(screen.queryByText(/manifest/i)).not.toBeInTheDocument();
@@ -121,15 +121,7 @@ describe("PluginsPage", () => {
   });
 
   it("renders an older build as a sentence with Open Machine, and shows no Add button", () => {
-    live.value = {
-      tools: [supportTool("terminal.list")],
-      stale: false,
-      error: null,
-      offline: false,
-      loading: false,
-      retry: vi.fn()
-    };
-    const { onMachine } = draw();
+    const { onMachine } = draw({ live: state([supportTool("terminal.list")]) });
 
     expect(screen.getByText("This machine needs a newer Summrise to host plugins.")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Add plugin" })).not.toBeInTheDocument();
@@ -138,22 +130,18 @@ describe("PluginsPage", () => {
     expect(mocks.list).not.toHaveBeenCalled();
   });
 
-  it("renders an offline machine as a banner with Retry, without pretending the list is empty", () => {
-    live.value = {
-      tools: [],
-      stale: false,
-      error: "this machine is not connected; connect it, then try again",
+  it("does not repeat an offline machine's state inside the plugin section", () => {
+    draw({
+      live: state([], {
+        error: "this machine is not connected; connect it, then try again",
+        offline: true
+      }),
       offline: true,
-      loading: false,
-      retry: vi.fn()
-    };
-    draw({ device: { ...workshop, online: false } });
+      device: { ...workshop, online: false }
+    });
 
-    expect(
-      screen.getByText(
-        "workshop is not connected. The console keeps trying; open the machine's panel if it stays offline."
-      )
-    ).toBeInTheDocument();
+    expect(screen.getByText("The console has no plugin list from this machine yet.")).toBeInTheDocument();
+    expect(screen.queryByText(/not connected/)).toBeNull();
     expect(screen.queryByText("No plugins yet.")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Add plugin" })).not.toBeInTheDocument();
   });

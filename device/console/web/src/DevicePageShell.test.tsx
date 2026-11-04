@@ -34,6 +34,12 @@ describe("DevicePageShell offline notice", () => {
     expect(screen.getByRole("status")).toHaveTextContent(/nothing on this page can reach it/i);
   });
 
+  it("carries the one notice on Tools too, above both of its sections", () => {
+    renderShell("tools");
+    expect(screen.getAllByRole("status")).toHaveLength(1);
+    expect(screen.getByRole("status")).toHaveTextContent("This machine is offline.");
+  });
+
   it("leaves the Terminal tab alone, because that page carries its own notice", () => {
     // The terminal workspace is mounted outside this shell and stays mounted across destinations;
     // a second copy here would stack the same sentence twice on one screen.

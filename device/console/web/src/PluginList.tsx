@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Device } from "./api";
 import { copyText } from "./copy";
-import { DevicePicker } from "./DevicePicker";
 import {
   addPlugin,
   inspectPlugin,
@@ -15,7 +14,7 @@ import {
   type PluginSummary
 } from "./pluginApi";
 import { Sheet } from "./Sheet";
-import { useLiveTools } from "./useLiveTools";
+import type { LiveToolsState } from "./useLiveTools";
 
 const LOG_LINES = 200;
 const GUIDE_URL = "https://github.com/SilasVale/summrise/blob/main/docs/PLUGINS.md";
@@ -80,22 +79,26 @@ function usePlugins(deviceId: string | null, enabled: boolean) {
  * Plugins: add a capability the built-ins do not have, and keep it healthy. A plugin is a directory
  * whose `plugin.json` names an MCP server; installing runs that code with this machine's privileges,
  * so the trust sentence leads and the path is validated before Add and run exists.
+ *
+ * This is the plugin half of the Tools tab; the tab's `<h2>` and the catalogue live in
+ * `ToolsTab.tsx`. The offline notice is the Device shell's, above both sections, so this one does
+ * not repeat it.
  */
-export function PluginsPage({
-  devices,
+export function PluginList({
   device,
-  onChoose,
+  live,
+  offline,
   onMachine
 }: {
-  devices: Device[];
-  device: Device | null;
-  onChoose: (id: string) => void;
+  device: Device;
+  live: LiveToolsState;
+  /// The machine's state from the shell (`deviceOnline === false` or the failed read's own answer).
+  offline: boolean;
   onMachine: () => void;
 }) {
-  const live = useLiveTools(device?.id ?? null);
   const known = !live.loading && live.error === null;
   const supported = live.tools.some((tool) => tool.name === "plugins.list");
-  const remote = usePlugins(device?.id ?? null, known && supported);
+  const remote = usePlugins(device.id, known && supported);
   const [adding, setAdding] = useState(false);
   const [removing, setRemoving] = useState<PluginRecord | null>(null);
   const [logsFor, setLogsFor] = useState<PluginRecord | null>(null);
@@ -107,7 +110,7 @@ export function PluginsPage({
     setBusyNamespace(plugin.namespace);
     setActionError(null);
     try {
-      await restartPlugin(device?.id ?? "", plugin.namespace);
+      await restartPlugin(device.id, plugin.namespace);
       await remote.reload();
     } catch (cause) {
       setActionError(pluginFailure(cause).message);
@@ -116,37 +119,28 @@ export function PluginsPage({
     }
   };
 
-  const offline = !device?.online || live.offline;
   const subtitle =
     known && supported
       ? `${remote.plugins.length} plugin${remote.plugins.length === 1 ? "" : "s"}`
       : "Install, watch and restart the capabilities this machine adds.";
 
   return (
-    <div className="page plugins-page">
-      <header className="page-head">
-        <div>
-          <h1>Plugins</h1>
-          <p className="page-sub">{subtitle}</p>
-        </div>
+    <>
+      <div className="tools-section-head">
+        <p className="page-sub">{subtitle}</p>
         {/* THE EMPTY LIST IS THE ONE PLACE THE ACTION BELONGS WHEN THERE IS NO LIST: the empty
             state below carries its own Add plugin, and rendering this header control too put two
             identical primary buttons on a page with nothing in it. */}
-        {device && known && supported && (remote.loading || remote.error !== null || remote.plugins.length > 0) && (
-          <div className="page-actions">
+        {known && supported && (remote.loading || remote.error !== null || remote.plugins.length > 0) && (
+          <div className="tools-section-actions">
             <button type="button" className="primary" onClick={() => setAdding(true)}>
               Add plugin
             </button>
           </div>
         )}
-      </header>
+      </div>
 
-      {!device ? (
-        <section className="empty-state">
-          <h2>Choose a machine</h2>
-          <DevicePicker devices={devices} onChoose={onChoose} />
-        </section>
-      ) : live.loading && live.tools.length === 0 ? (
+      {live.loading && live.tools.length === 0 ? (
         <div className="skeleton-list" aria-label="Reading the plugin list" role="status">
           {[0, 1, 2].map((row) => (
             <div className="skeleton-row" key={row}>
@@ -157,19 +151,28 @@ export function PluginsPage({
         </div>
       ) : known && !supported ? (
         <section className="empty-state">
-          <h2>Older build</h2>
+          <h3>Older build</h3>
           <p className="hint">This machine needs a newer Summrise to host plugins.</p>
           <button type="button" onClick={onMachine}>
             Open Machine
           </button>
         </section>
-      ) : offline || (live.error && live.tools.length === 0) ? (
+      ) : offline && remote.plugins.length === 0 ? (
+        <section className="empty-state">
+          <p className="hint">The console has no plugin list from this machine yet.</p>
+          <button
+            type="button"
+            onClick={() => {
+              live.retry();
+              void remote.reload();
+            }}
+          >
+            Retry
+          </button>
+        </section>
+      ) : live.error && live.tools.length === 0 ? (
         <div className="notice" role="status">
-          <span>
-            {device
-              ? `${device.name ?? "This machine"} is not connected. The console keeps trying; open the machine's panel if it stays offline.`
-              : "The console could not read this machine."}
-          </span>
+          <span>The console could not read this machine's tools: {live.error}</span>
           <button
             type="button"
             onClick={() => {
@@ -282,7 +285,7 @@ export function PluginsPage({
         </div>
       )}
 
-      {adding && device && (
+      {adding && (
         <AddPluginSheet
           deviceId={device.id}
           onClose={() => setAdding(false)}
@@ -294,7 +297,7 @@ export function PluginsPage({
         />
       )}
 
-      {removing && device && (
+      {removing && (
         <RemovePluginSheet
           deviceId={device.id}
           plugin={removing}
@@ -307,10 +310,10 @@ export function PluginsPage({
         />
       )}
 
-      {logsFor && device && (
+      {logsFor && (
         <LogsSheet deviceId={device.id} plugin={logsFor} onClose={() => setLogsFor(null)} />
       )}
-    </div>
+    </>
   );
 }
 

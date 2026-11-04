@@ -30,8 +30,7 @@ import { ScreenPage } from "./ScreenPage";
 import { SystemPage } from "./SystemPage";
 import { HomePage } from "./HomePage";
 import { useLiveActivity } from "./useLiveActivity";
-import { CapabilitiesPage } from "./CapabilitiesPage";
-import { PluginsPage } from "./PluginsPage";
+import { ToolsTab } from "./ToolsTab";
 import { DevicePageShell } from "./DevicePageShell";
 import { AccountMenu } from "./AccountMenu";
 import { MachineMenu } from "./MachineMenu";
@@ -119,7 +118,14 @@ export function App() {
   // A run link in the fragment survives a reload (and the sign-in a reload needs). It names the
   // machine as well as the run, because a run id is only unique on its device.
   const [initialRun] = useState(() => parseRunLink(window.location.hash));
-  const [initialSurface] = useState(() => parseSurfaceHash(window.location.hash));
+  // The machine is read once, before the fragment: the two retired rail destinations only become the
+  // machine's Tools tab when there is a machine to put them under.
+  const [initialSelected] = useState<string | null>(
+    () => initialRun?.deviceId ?? readSelectedDevice()
+  );
+  const [initialSurface] = useState(() =>
+    parseSurfaceHash(window.location.hash, { machineSelected: initialSelected !== null })
+  );
   const [page, setPage] = useState<Page>(() =>
     initialRun ? "device" : (initialSurface?.page ?? "home")
   );
@@ -134,11 +140,11 @@ export function App() {
       : "desktop"
   );
   const [openTool, setOpenTool] = useState<string | null>(
-    initialSurface?.page === "capabilities" ? initialSurface.tool ?? null : null
+    initialSurface?.page === "device" && initialSurface.tab === "tools"
+      ? initialSurface.tool ?? null
+      : null
   );
-  const [selected, setSelected] = useState<string | null>(
-    () => initialRun?.deviceId ?? readSelectedDevice()
-  );
+  const [selected, setSelected] = useState<string | null>(initialSelected);
   // A run id handed from Activity to Runs; RunsPage consumes it once and clears it.
   const [runsFocus, setRunsFocus] = useState<string | null>(initialRun?.runId ?? null);
   const [error, setError] = useState<string | null>(null);
@@ -318,7 +324,7 @@ export function App() {
   const go = (next: Page) => {
     setPage(next);
     if (next === "device" && page !== "device") setTab("terminal");
-    if (next !== "capabilities") setOpenTool(null);
+    setOpenTool(null);
   };
 
   const openRun = (deviceId: string, runId: string) => {
@@ -340,7 +346,7 @@ export function App() {
     const wanted = surfaceHash({
       page,
       tab: page === "device" ? tab : undefined,
-      tool: page === "capabilities" ? openTool ?? undefined : undefined,
+      tool: page === "device" && tab === "tools" ? openTool ?? undefined : undefined,
       view: page === "device" && tab === "screen" ? screenView : undefined
     });
     if (window.location.hash !== wanted) window.history.replaceState(null, "", wanted);
@@ -361,19 +367,23 @@ export function App() {
         setTab("runs");
         return;
       }
-      const surface = parseSurfaceHash(window.location.hash);
+      const surface = parseSurfaceHash(window.location.hash, {
+        machineSelected: selected !== null
+      });
       if (!surface) return;
       setRunsFocus(null);
       setPage(surface.page);
       if (surface.page === "device") {
         if (surface.tab) setTab(surface.tab);
         if (surface.tab === "screen" && surface.view) setScreenView(surface.view);
+        setOpenTool(surface.tab === "tools" ? surface.tool ?? null : null);
+      } else {
+        setOpenTool(null);
       }
-      if (surface.page === "capabilities") setOpenTool(surface.tool ?? null);
     };
     window.addEventListener("hashchange", apply);
     return () => window.removeEventListener("hashchange", apply);
-  }, []);
+  }, [selected]);
 
   // The tab is part of the surface: a window full of consoles should say which one this is, and
   // the signed-out tab should not claim a machine page it is not showing.
@@ -656,7 +666,10 @@ export function App() {
             onDismissCode={() => setCode(null)}
             onNotice={setNotice}
             onConnect={() => setConnect({ section: "endpoint", device: chosen })}
-            onCapabilities={() => setPage("capabilities")}
+            onTools={() => {
+              setPage("device");
+              setTab("tools");
+            }}
             onActivity={() => setPage("activity")}
             consoleVersion={consoleVersion}
             liveLines={live.lines}
@@ -665,39 +678,6 @@ export function App() {
               choose(deviceId);
               setPage("device");
               setTab("terminal");
-            }}
-          />
-        )}
-
-        {page === "capabilities" && (
-          <CapabilitiesPage
-            devices={devices}
-            device={chosen}
-            tool={openTool}
-            onChoose={(id) => choose(id)}
-            onTool={(name) => setOpenTool(name)}
-            onMachine={() => {
-              setOpenTool(null);
-              setPage("device");
-              setTab("machine");
-            }}
-            onBrowser={() => {
-              setOpenTool(null);
-              setPage("device");
-              setTab("screen");
-              setScreenView("browser");
-            }}
-          />
-        )}
-
-        {page === "plugins" && (
-          <PluginsPage
-            devices={devices}
-            device={chosen}
-            onChoose={(id) => choose(id)}
-            onMachine={() => {
-              setPage("device");
-              setTab("machine");
             }}
           />
         )}
@@ -800,7 +780,10 @@ export function App() {
         {page === "device" && (
           <DevicePageShell
             tab={tab}
-            onTab={setTab}
+            onTab={(next) => {
+              setOpenTool(null);
+              setTab(next);
+            }}
             devices={devices}
             chosen={chosen}
             onChoose={(id) => choose(id)}
@@ -851,6 +834,23 @@ export function App() {
                       deviceOnline={chosen?.online}
                     />
                   </section>
+                ) : null}
+                {tab === "tools" && grant && chosen ? (
+                  <ToolsTab
+                    device={chosen}
+                    deviceOnline={chosen.online}
+                    tool={openTool}
+                    onTool={setOpenTool}
+                    onMachine={() => {
+                      setOpenTool(null);
+                      setTab("machine");
+                    }}
+                    onBrowser={() => {
+                      setOpenTool(null);
+                      setTab("screen");
+                      setScreenView("browser");
+                    }}
+                  />
                 ) : null}
                 {tab === "machine" && grant ? (
                   <section className="tab-body">

@@ -1597,6 +1597,21 @@ span.files-name {
 .audit-caption { margin: 0 0 var(--sp-1-5); }
 
 /* The screen page: the capture is evidence, so it fills the panel but never overflows it. */
+/* ── Tools: one tab, two sections ────────────────────────────────────────────────────────────────
+   The machine's capabilities and the plugins that extend them are one answer: the catalogue, then
+   the plugin list. Each section is a heading and its own content, with no card around the page. */
+.tools-tab { gap: var(--sp-6); }
+.tools-section { display: grid; gap: var(--sp-3); min-width: 0; }
+.tools-section > h2 {
+  margin: 0;
+  font-size: var(--fs-lg); font-weight: var(--fw-semi); letter-spacing: -0.01em;
+}
+.tools-section-head {
+  display: flex; align-items: flex-start; gap: var(--sp-3); flex-wrap: wrap; min-width: 0;
+}
+.tools-section-head > .page-sub { margin: 0; }
+.tools-section-actions { margin-left: auto; display: flex; align-items: center; gap: var(--sp-2); }
+
 /* ── Capabilities: the catalogue, and one tool's generated form ───────────────────────────────── */
 .search-field {
   margin-left: auto; min-width: 0;
@@ -1614,7 +1629,7 @@ span.files-name {
 .cap-groups { display: grid; gap: var(--sp-5); min-width: 0; }
 .cap-group { display: grid; gap: var(--sp-1); min-width: 0; }
 .cap-group-head { display: flex; align-items: baseline; gap: var(--sp-2); flex-wrap: wrap; min-width: 0; }
-.cap-group-head h2 { font-size: var(--fs-md); font-weight: var(--fw-semi); }
+.cap-group-head h3 { margin: 0; font-size: var(--fs-md); font-weight: var(--fw-semi); }
 .cap-summary { color: var(--ink-muted); font-size: var(--fs-sm); }
 .cap-open-browser { margin-left: auto; }
 .cap-job { margin: 0; color: var(--ink-muted); font-size: var(--fs-sm); }

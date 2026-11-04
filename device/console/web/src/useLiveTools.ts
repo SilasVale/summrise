@@ -2,8 +2,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api, HttpError, type LiveTool } from "./api";
 
 /**
- * The live catalogue is cached per device for 30 s and shared by Home, Capabilities, Connect and the
- * token scope. The cache is module-level on purpose: those four surfaces mount at different times and
+ * The live catalogue is cached per device for 30 s and shared by Home, the Tools tab, Connect and
+ * the token scope. The cache is module-level on purpose: those four surfaces mount at different times and
  * a per-hook cache would make each of them ask the device again.
  */
 const CACHE_MS = 30_000;

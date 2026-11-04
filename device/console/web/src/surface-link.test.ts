@@ -3,7 +3,7 @@ import { parseSurfaceHash, surfaceHash } from "./surface-link";
 
 describe("surface links", () => {
   it("round-trips every destination and Device tab", () => {
-    for (const page of ["home", "capabilities", "plugins", "activity"] as const) {
+    for (const page of ["home", "activity"] as const) {
       expect(parseSurfaceHash(surfaceHash({ page }))).toEqual({ page });
     }
     // Device has no bare form of its own: the fragment always names the tab, with terminal first.
@@ -11,7 +11,7 @@ describe("surface links", () => {
       page: "device",
       tab: "terminal"
     });
-    for (const tab of ["terminal", "screen", "files", "runs", "machine"] as const) {
+    for (const tab of ["terminal", "screen", "files", "runs", "tools", "machine"] as const) {
       expect(parseSurfaceHash(surfaceHash({ page: "device", tab }))).toEqual({
         page: "device",
         tab
@@ -19,12 +19,11 @@ describe("surface links", () => {
     }
   });
 
-  it("round-trips a tool sheet, including a namespaced plugin tool", () => {
+  it("round-trips a tool sheet on the Tools tab, including a namespaced plugin tool", () => {
     for (const tool of ["terminal.create", "hello.greet", "files.read"]) {
-      expect(parseSurfaceHash(surfaceHash({ page: "capabilities", tool }))).toEqual({
-        page: "capabilities",
-        tool
-      });
+      const surface = { page: "device", tab: "tools", tool } as const;
+      expect(surfaceHash(surface)).toBe("#device/tools/" + encodeURIComponent(tool));
+      expect(parseSurfaceHash(surfaceHash(surface))).toEqual(surface);
     }
   });
 
@@ -51,11 +50,42 @@ describe("surface links", () => {
     expect(parseSurfaceHash("#audit")).toEqual({ page: "activity" });
   });
 
+  it("sends the two retired rail destinations to the machine's Tools tab when there is one", () => {
+    for (const hash of ["#capabilities", "#plugins"]) {
+      expect(parseSurfaceHash(hash, { machineSelected: true })).toEqual({
+        page: "device",
+        tab: "tools"
+      });
+      // No machine is a hub state: the old destination cannot name a device tab it has no device for.
+      expect(parseSurfaceHash(hash, { machineSelected: false })).toEqual({ page: "home" });
+    }
+  });
+
+  it("moves a tool deep link from the retired Capabilities page onto Tools", () => {
+    expect(parseSurfaceHash("#capabilities/files.read", { machineSelected: true })).toEqual({
+      page: "device",
+      tab: "tools",
+      tool: "files.read"
+    });
+    expect(parseSurfaceHash("#capabilities/hello.greet", { machineSelected: true })).toEqual({
+      page: "device",
+      tab: "tools",
+      tool: "hello.greet"
+    });
+    expect(parseSurfaceHash("#capabilities/files.read", { machineSelected: false })).toEqual({
+      page: "home"
+    });
+  });
+
   it("accepts #device as the default tab", () => {
     expect(parseSurfaceHash("#device")).toEqual({ page: "device" });
   });
 
   it("writes the legacy names as the new fragments", () => {
+    expect(surfaceHash({ page: "device", tab: "tools" })).toBe("#device/tools");
+    expect(surfaceHash({ page: "device", tab: "tools", tool: "files.read" })).toBe(
+      "#device/tools/files.read"
+    );
     expect(surfaceHash({ page: "device", tab: "machine" })).toBe("#device/machine");
     expect(surfaceHash({ page: "activity" })).toBe("#activity");
     expect(surfaceHash({ page: "home" })).toBe("#home");
@@ -76,7 +106,7 @@ describe("surface links", () => {
       "#capabilities/",
       "#plugins/extra"
     ]) {
-      expect(parseSurfaceHash(hash)).toBeNull();
+      expect(parseSurfaceHash(hash, { machineSelected: true })).toBeNull();
     }
   });
 });

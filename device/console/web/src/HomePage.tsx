@@ -150,14 +150,14 @@ function startOfToday(now = Date.now()): number {
 /**
  * The hub, once a machine is chosen: is it running, what is it doing now, what did it do today.
  * One status line, one Connect action, the Now band, this machine's timeline and one counts line.
- * Identity is the header's; this page does not repeat it, and the catalogue is Capabilities' job,
+ * Identity is the header's; this page does not repeat it, and the catalogue is the Tools tab's job,
  * not a tile grid. The endpoint lives in Connect, so this page never names the URL.
  */
 function HubHome(
   props: FleetProps & {
     device: Device;
     onConnect: () => void;
-    onCapabilities: () => void;
+    onTools: () => void;
     onActivity: () => void;
     /** The console's own build, from /health; the chip next door is the device's. */
     consoleVersion?: string | null;
@@ -304,7 +304,7 @@ function HubHome(
       ) : live.error && live.tools.length === 0 ? (
         <p className="hint">Tool counts are unavailable until the console can read the machine's list.</p>
       ) : (
-        <button type="button" className="counts-line" onClick={props.onCapabilities}>
+        <button type="button" className="counts-line" onClick={props.onTools}>
           {plural(live.tools.length, "tool")} · {plural(capabilities, "capability", "capabilities")}
           {plugins !== null ? ` · ${plural(plugins, "plugin")}` : ""}
           {live.stale ? " · stale" : ""} <span aria-hidden="true">→</span>
@@ -318,7 +318,7 @@ export type HomePageProps = FleetProps & {
   /// The machine in context. Null is the fleet zero state; a chosen machine is the hub.
   device: Device | null;
   onConnect: () => void;
-  onCapabilities: () => void;
+  onTools: () => void;
   onActivity: () => void;
   /** The console's own build, from /health; the machine chip next door is the device's. */
   consoleVersion?: string | null;

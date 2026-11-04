@@ -1,7 +1,9 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
+import { HttpError } from "./api";
 import { VITALS_KEY_PREFIX, type VitalsSample } from "./vitals";
+import { resetLiveToolsCache } from "./useLiveTools";
 
 // The shell is driven against a mocked HTTP surface: no request leaves jsdom, and the sign-in state is a
 // flag here rather than a server. `api.signIn` flips it, so the following `api.session` reports the
@@ -68,6 +70,14 @@ vi.mock("./TerminalWorkspace", () => ({
   )
 }));
 
+// The Tools tab reads the plugin list through the device's own `plugins.list`; that transport is
+// not this file's subject. The list it answers with is.
+const pluginMocks = vi.hoisted(() => ({ list: vi.fn() }));
+vi.mock("./pluginApi", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./pluginApi")>();
+  return { ...actual, listPlugins: pluginMocks.list };
+});
+
 let signedIn = false;
 
 const workshop = {
@@ -106,6 +116,39 @@ const tokenCall = {
   token_id: tokenId
 };
 
+/** One built-in and the plugin tool that makes the plugin section supported. */
+const filesTool = {
+  name: "files.read",
+  description: "read a file",
+  inputSchema: {
+    type: "object",
+    properties: { path: { type: "string" } },
+    required: ["path"]
+  },
+  source: "builtin",
+  capability: "files",
+  destructive: false
+};
+const pluginTool = {
+  name: "plugins.list",
+  description: "list the plugins",
+  inputSchema: { type: "object", properties: {} },
+  source: "builtin",
+  capability: "plugins",
+  destructive: false
+};
+const helloPlugin = {
+  id: "com.example.hello",
+  namespace: "hello",
+  name: "Hello",
+  version: "0.1.0",
+  description: "Two friendly tools",
+  state: "running",
+  tools: 2,
+  path: "C:\\dev\\plugins\\hello",
+  last_error: null
+};
+
 /**
  * The browser's own `EventSource`, replaced with one the test drives.
  *
@@ -133,6 +176,9 @@ class TestEventSource {
 
 beforeEach(() => {
   localStorage.clear();
+  // The catalogue cache is module-level and survives a test; a test that sets the fixture must not
+  // read the previous one's empty list.
+  resetLiveToolsCache();
   TestEventSource.instances = [];
   vi.stubGlobal("EventSource", TestEventSource);
   // The fragment is the page's address; a test that leaves Device open must not decide where the
@@ -167,6 +213,8 @@ beforeEach(() => {
   // The hub reads the selected machine's live catalogue. An empty list is a real answer; these tests
   // are about the shell, not about what the device advertises.
   mocks.liveTools.mockResolvedValue({ tools: [] });
+  pluginMocks.list.mockReset();
+  pluginMocks.list.mockResolvedValue([]);
 });
 
 afterEach(() => {
@@ -296,20 +344,24 @@ describe("App", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Device" }));
     expect(document.title).toBe("Terminal · Summrise console");
+
+    fireEvent.click(screen.getByRole("button", { name: "Tools" }));
+    expect(document.title).toBe("Tools · Summrise console");
   });
 
-  it("renders the whole shell: five destinations, one h1, the account menu and the build", async () => {
+  it("renders the whole shell: three destinations, one h1, the account menu and the build", async () => {
     const { container } = await bootAndSignIn();
 
     const rail = screen.getByRole("navigation", { name: "Destinations" });
     const sections = Array.from(container.querySelectorAll<HTMLButtonElement>(".rail-btn"));
     expect(sections.map((section) => section.textContent)).toEqual([
       "Home",
-      "Capabilities",
-      "Plugins",
       "Activity",
       "Device"
     ]);
+    // The two retired destinations are a tab inside Device now, not rail seats of their own.
+    expect(within(rail).queryByRole("button", { name: "Capabilities" })).toBeNull();
+    expect(within(rail).queryByRole("button", { name: "Plugins" })).toBeNull();
     expect(within(rail).getByRole("button", { name: "Home" })).toHaveAttribute(
       "aria-current",
       "page"
@@ -322,7 +374,7 @@ describe("App", () => {
     expect(screen.getByText("0.3.42")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Sign out" })).toBeInTheDocument();
     // No standalone Devices or Connect destination survives the fold: the nav's own items are the
-    // five, and Connect is a verb in the account menu, not a rail seat.
+    // three, and Connect is a verb in the account menu, not a rail seat.
     const items = container.querySelectorAll<HTMLButtonElement>(".rail-items .rail-btn");
     expect(Array.from(items).map((item) => item.textContent)).not.toContain("Devices");
     expect(Array.from(items).map((item) => item.textContent)).not.toContain("Connect");
@@ -340,52 +392,27 @@ describe("App", () => {
     await waitFor(() => expect(mocks.enroll).toHaveBeenCalledTimes(1));
   });
 
-  it("opens a tool's sheet from a capabilities deep link", async () => {
+  it("opens a tool's sheet from a capabilities deep link, inside the Tools tab", async () => {
     window.history.replaceState(null, "", "#capabilities/files.read");
     // A device-specific catalogue needs a machine; the selection survives a reload.
     localStorage.setItem("summrise.selected.device", workshop.id);
     mocks.liveTools.mockResolvedValue({
-      tools: [
-        {
-          name: "files.read",
-          description: "read a file",
-          inputSchema: {
-            type: "object",
-            properties: { path: { type: "string" } },
-            required: ["path"]
-          },
-          source: "builtin",
-          capability: "files",
-          destructive: false
-        }
-      ]
+      tools: [filesTool]
     });
     await boot();
     fireEvent.change(screen.getByLabelText("Operator token"), { target: { value: "operator-token" } });
     fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
 
-    expect(await screen.findByRole("heading", { name: "Capabilities", level: 1 })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Tools", level: 1 })).toBeInTheDocument();
     expect(await screen.findByRole("dialog", { name: "files.read" })).toBeInTheDocument();
-    expect(window.location.hash).toBe("#capabilities/files.read");
+    // The old fragment keeps working, and the address bar is rewritten as the tab's own link.
+    expect(window.location.hash).toBe("#device/tools/files.read");
     window.history.replaceState(null, "", window.location.pathname);
   });
 
   it("opens a tool's sheet when the fragment changes after sign-in", async () => {
     mocks.liveTools.mockResolvedValue({
-      tools: [
-        {
-          name: "files.read",
-          description: "read a file",
-          inputSchema: {
-            type: "object",
-            properties: { path: { type: "string" } },
-            required: ["path"]
-          },
-          source: "builtin",
-          capability: "files",
-          destructive: false
-        }
-      ]
+      tools: [filesTool]
     });
     await bootAndSignIn();
     // A catalogue belongs to a machine, so pick one the way a person does.
@@ -396,7 +423,9 @@ describe("App", () => {
     window.history.replaceState(null, "", "#capabilities/files.read");
     window.dispatchEvent(new Event("hashchange"));
 
+    expect(await screen.findByRole("heading", { name: "Tools", level: 1 })).toBeInTheDocument();
     expect(await screen.findByRole("dialog", { name: "files.read" })).toBeInTheDocument();
+    expect(window.location.hash).toBe("#device/tools/files.read");
     window.history.replaceState(null, "", window.location.pathname);
   });
 
@@ -404,25 +433,17 @@ describe("App", () => {
     window.history.replaceState(null, "", "#capabilities/not-a-tool");
     localStorage.setItem("summrise.selected.device", workshop.id);
     mocks.liveTools.mockResolvedValue({
-      tools: [
-        {
-          name: "files.read",
-          description: "read a file",
-          inputSchema: { type: "object", properties: {}, required: [] },
-          source: "builtin",
-          capability: "files",
-          destructive: false
-        }
-      ]
+      tools: [filesTool]
     });
     await boot();
     fireEvent.change(screen.getByLabelText("Operator token"), { target: { value: "operator-token" } });
     fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
 
-    expect(await screen.findByRole("heading", { name: "Capabilities", level: 1 })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Tools", level: 1 })).toBeInTheDocument();
     // The link is stale: the machine has no such tool. Silence would read as "the console ignored
     // me", so the page says which fact it is.
     expect(await screen.findByText("That tool is not on this machine.")).toBeInTheDocument();
+    expect(window.location.hash).toBe("#device/tools/not-a-tool");
     window.history.replaceState(null, "", window.location.pathname);
   });
 
@@ -625,11 +646,110 @@ describe("App", () => {
     fireEvent.click(screen.getByRole("button", { name: "Device" }));
 
     expect(screen.getByLabelText("Machine: workshop")).toBeInTheDocument();
-    for (const tab of ["Files", "Screen", "Runs", "Machine", "Terminal"]) {
+    for (const tab of ["Files", "Screen", "Runs", "Tools", "Machine", "Terminal"]) {
       fireEvent.click(screen.getByRole("button", { name: tab }));
       expect(screen.getByLabelText("Machine: workshop")).toBeInTheDocument();
       expect(screen.getByRole("heading", { name: tab, level: 1 })).toBeInTheDocument();
     }
+  });
+
+  it("answers what the machine can do on one Tools tab: the catalogue, then the plugins", async () => {
+    mocks.liveTools.mockResolvedValue({ tools: [filesTool, pluginTool] });
+    pluginMocks.list.mockResolvedValue([helloPlugin]);
+    await bootAndSignIn();
+    selectDevice("workshop");
+
+    fireEvent.click(screen.getByRole("button", { name: "Device" }));
+    fireEvent.click(screen.getByRole("button", { name: "Tools" }));
+
+    expect(await screen.findByRole("heading", { name: "Tools", level: 1 })).toBeInTheDocument();
+    // ONE ANSWER IN TWO SECTIONS: the catalogue first, the plugins it makes possible second.
+    expect(
+      screen.getAllByRole("heading", { level: 2 }).map((heading) => heading.textContent)
+    ).toEqual(["Tools on this machine", "Plugins"]);
+    expect(await screen.findByRole("button", { name: /files\.read/ })).toBeInTheDocument();
+    expect(await screen.findByText("Hello")).toBeInTheDocument();
+    expect(window.location.hash).toBe("#device/tools");
+  });
+
+  it("opens the machine's Tools tab from the hub's counts line", async () => {
+    mocks.liveTools.mockResolvedValue({ tools: [filesTool, pluginTool] });
+    pluginMocks.list.mockResolvedValue([helloPlugin]);
+    await bootAndSignIn();
+    selectDevice("workshop");
+
+    const counts = await screen.findByRole("button", {
+      name: /2 tools · 2 capabilities · 1 plugin/
+    });
+    fireEvent.click(counts);
+
+    expect(await screen.findByRole("heading", { name: "Tools", level: 1 })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Tools on this machine", level: 2 })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Plugins", level: 2 })).toBeInTheDocument();
+    expect(window.location.hash).toBe("#device/tools");
+  });
+
+  it("lands the retired #capabilities and #plugins links on Tools when a machine is selected", async () => {
+    for (const hash of ["#capabilities", "#plugins"]) {
+      signedIn = false;
+      window.history.replaceState(null, "", hash);
+      localStorage.setItem("summrise.selected.device", workshop.id);
+      mocks.liveTools.mockResolvedValue({ tools: [filesTool, pluginTool] });
+      pluginMocks.list.mockResolvedValue([helloPlugin]);
+
+      const view = await boot();
+      fireEvent.change(screen.getByLabelText("Operator token"), {
+        target: { value: "operator-token" }
+      });
+      fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+
+      expect(
+        await screen.findByRole("heading", { name: "Tools", level: 1 }, { timeout: 3000 })
+      ).toBeInTheDocument();
+      expect(window.location.hash).toBe("#device/tools");
+      view.unmount();
+    }
+  });
+
+  it("lands the retired #capabilities and #plugins links on Home when no machine is selected", async () => {
+    for (const hash of ["#capabilities", "#plugins"]) {
+      signedIn = false;
+      window.history.replaceState(null, "", hash);
+      const view = await boot();
+      fireEvent.change(screen.getByLabelText("Operator token"), {
+        target: { value: "operator-token" }
+      });
+      fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+
+      expect(
+        await screen.findByRole("heading", { name: "Machines", level: 1 }, { timeout: 3000 })
+      ).toBeInTheDocument();
+      expect(window.location.hash).toBe("#home");
+      view.unmount();
+    }
+  });
+
+  it("says an offline machine is offline once on the Tools tab", async () => {
+    mocks.devices.mockResolvedValue([{ ...workshop, online: false }, attic]);
+    // The console's answer for a machine that is not connected: the read fails, it does not say
+    // "this build advertises no tools" — that would be the older-build state instead.
+    mocks.liveTools.mockRejectedValue(new HttpError(503, "device_offline"));
+    await boot();
+    fireEvent.change(screen.getByLabelText("Operator token"), { target: { value: "operator-token" } });
+    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+    await screen.findByText("2 machines · 1 online");
+    selectDevice("workshop");
+
+    fireEvent.click(screen.getByRole("button", { name: "Device" }));
+    fireEvent.click(screen.getByRole("button", { name: "Tools" }));
+    expect(await screen.findByRole("heading", { name: "Tools", level: 1 })).toBeInTheDocument();
+
+    // The shell's one notice; neither section repeats the machine's state.
+    expect(screen.getAllByText(/This machine is offline/)).toHaveLength(1);
+    expect(screen.queryByText(/not connected/)).toBeNull();
+    // Nor does the empty section pretend the machine is an older build with no tools.
+    expect(screen.getByText("The console has no tool list from this machine yet.")).toBeInTheDocument();
+    expect(screen.getByText("The console has no plugin list from this machine yet.")).toBeInTheDocument();
   });
 
   it("keeps the workspace mounted, hidden, across a destination change", async () => {

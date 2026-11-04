@@ -85,7 +85,7 @@ function draw(overrides: Record<string, unknown> = {}) {
   if (auditError) auditApi.audit.mockRejectedValue(new Error("the audit could not be read"));
   else auditApi.audit.mockResolvedValue(audit ?? calls);
   const onConnect = vi.fn();
-  const onCapabilities = vi.fn();
+  const onTools = vi.fn();
   const onActivity = vi.fn();
   const view = render(
     <HomePage
@@ -103,13 +103,13 @@ function draw(overrides: Record<string, unknown> = {}) {
       onDismissCode={vi.fn()}
       onNotice={vi.fn()}
       onConnect={onConnect}
-      onCapabilities={onCapabilities}
+      onTools={onTools}
       onActivity={onActivity}
       consoleVersion="0.3.999"
       {...props}
     />
   );
-  return { ...view, onConnect, onCapabilities, onActivity };
+  return { ...view, onConnect, onTools, onActivity };
 }
 
 beforeEach(() => {
@@ -218,10 +218,10 @@ describe("Home — the hub", () => {
     expect(await screen.findByText(/No calls from workshop today/)).toBeInTheDocument();
   });
 
-  it("opens the catalogue from the counts line", async () => {
-    const { onCapabilities } = draw();
+  it("opens the machine's Tools tab from the counts line", async () => {
+    const { onTools } = draw();
     fireEvent.click(await screen.findByRole("button", { name: /6 tools · 4 capabilities/ }));
-    expect(onCapabilities).toHaveBeenCalledTimes(1);
+    expect(onTools).toHaveBeenCalledTimes(1);
   });
 
   it("renders an offline machine without fake counts, a door or a Copy control", () => {
