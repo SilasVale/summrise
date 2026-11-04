@@ -10,7 +10,17 @@ import { restoreGlobal } from "./test/dom";
 /// because that is what the operator's screen shows, and the loaded addons are how a tab proves the
 /// search addon belongs to its own terminal.
 const mockedXterm = vi.hoisted(() => ({
-  instances: [] as { options: Record<string, unknown>; loadAddon: Mock; write: Mock }[]
+  instances: [] as {
+    options: Record<string, unknown>;
+    loadAddon: Mock;
+    write: Mock;
+    rows: number;
+    cols: number;
+    selectionHandler: (() => void) | null;
+    keyHandler: ((event: KeyboardEvent) => boolean) | null;
+    getSelection: Mock;
+    paste: Mock;
+  }[]
 }));
 
 /// The fit addons, in creation order: a font change refits each xterm into the host it already has.
@@ -36,6 +46,17 @@ vi.mock("@xterm/xterm", () => {
     loadAddon = vi.fn();
     onData = vi.fn(() => ({ dispose: vi.fn() }));
     onResize = vi.fn(() => ({ dispose: vi.fn() }));
+    selectionHandler: (() => void) | null = null;
+    onSelectionChange = vi.fn((handler: () => void) => {
+      this.selectionHandler = handler;
+      return { dispose: vi.fn() };
+    });
+    keyHandler: ((event: KeyboardEvent) => boolean) | null = null;
+    attachCustomKeyEventHandler = vi.fn((handler: (event: KeyboardEvent) => boolean) => {
+      this.keyHandler = handler;
+    });
+    getSelection = vi.fn(() => "");
+    paste = vi.fn();
     write = vi.fn();
     reset = vi.fn();
     dispose = vi.fn();
@@ -1029,5 +1050,155 @@ describe("TerminalWorkspace recovery", () => {
 
     expect(await screen.findByText(/Could not close pty 1: device disconnected/)).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "pty 1" })).toBeInTheDocument();
+  });
+});
+
+describe("TerminalWorkspace display", () => {
+  it("keeps twenty thousand lines of scrollback", async () => {
+    render(<TerminalWorkspace grant={GRANT} />);
+    await startPtyTab();
+    // xterm's default is 1000 lines: a few minutes of a chatty shell, and no way back to what a
+    // build printed. The legacy panel kept 20 000 and this page follows it.
+    expect(mockedXterm.instances[0].options.scrollback).toBe(20_000);
+  });
+
+  it("copies a selection as soon as it is made", async () => {
+    const clipboard = {
+      writeText: vi.fn(async () => {}),
+      readText: vi.fn(async () => "")
+    };
+    const descriptor = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: clipboard });
+    try {
+      render(<TerminalWorkspace grant={GRANT} />);
+      await startPtyTab();
+      const term = mockedXterm.instances[0];
+      term.getSelection.mockReturnValue("Get-Date");
+      term.selectionHandler?.();
+      expect(clipboard.writeText).toHaveBeenCalledWith("Get-Date");
+    } finally {
+      if (descriptor) Object.defineProperty(navigator, "clipboard", descriptor);
+      else delete (navigator as { clipboard?: unknown }).clipboard;
+    }
+  });
+
+  it("pastes on right-click instead of opening the browser menu", async () => {
+    const clipboard = {
+      writeText: vi.fn(async () => {}),
+      readText: vi.fn(async () => "Get-Date\r")
+    };
+    const descriptor = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: clipboard });
+    try {
+      const { container } = render(<TerminalWorkspace grant={GRANT} />);
+      await startPtyTab();
+      const host = container.querySelector(".term-host");
+      expect(host).not.toBeNull();
+      fireEvent.contextMenu(host!);
+      await waitFor(() => expect(mockedXterm.instances[0].paste).toHaveBeenCalledWith("Get-Date\r"));
+    } finally {
+      if (descriptor) Object.defineProperty(navigator, "clipboard", descriptor);
+      else delete (navigator as { clipboard?: unknown }).clipboard;
+    }
+  });
+
+  it("follows a scheme change while the tab is open", async () => {
+    const handlers: (() => void)[] = [];
+    const media = {
+      matches: false,
+      addEventListener: vi.fn((_event: string, handler: () => void) => handlers.push(handler)),
+      removeEventListener: vi.fn()
+    };
+    const matchDescriptor = Object.getOwnPropertyDescriptor(window, "matchMedia");
+    const styleDescriptor = Object.getOwnPropertyDescriptor(window, "getComputedStyle");
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: vi.fn(() => media)
+    });
+    // jsdom has no stylesheet, and the page's palette arrives as CSS tokens: this stands one in and
+    // flips it with the scheme, so the assertion is about the terminal re-reading the page.
+    Object.defineProperty(window, "getComputedStyle", {
+      configurable: true,
+      value: vi.fn(() => ({
+        getPropertyValue: (name: string) =>
+          media.matches && name === "--term-canvas" ? "#131418" : ""
+      }))
+    });
+    try {
+      render(<TerminalWorkspace grant={GRANT} />);
+      await startPtyTab();
+      expect(mockedXterm.instances[0].options.theme).toMatchObject({ background: "#ffffff" });
+
+      media.matches = true;
+      handlers.forEach((handler) => handler());
+
+      expect(mockedXterm.instances[0].options.theme).toMatchObject({ background: "#131418" });
+    } finally {
+      restoreGlobal(window, "matchMedia", matchDescriptor);
+      restoreGlobal(window, "getComputedStyle", styleDescriptor);
+    }
+  });
+
+  it("refits and tells the device when the window changes", async () => {
+    render(<TerminalWorkspace grant={GRANT} />);
+    await startPtyTab();
+    await waitFor(() => expect(mockedFit.instances[0]).toBeDefined());
+
+    // A real fit changes the grid; the jsdom one is a stub, so the test moves it.
+    mockedFit.instances[0].fit.mockImplementation(() => {
+      mockedXterm.instances[0].rows = 40;
+      mockedXterm.instances[0].cols = 120;
+    });
+    window.dispatchEvent(new Event("resize"));
+
+    await waitFor(() =>
+      expect(callToolMock).toHaveBeenCalledWith(GRANT, "terminal.resize", {
+        id: "t1",
+        rows: 40,
+        cols: 120
+      })
+    );
+  });
+});
+
+describe("TerminalWorkspace shortcuts", () => {
+  it("opens the scrollback search on Ctrl+F instead of handing the key to the shell", async () => {
+    render(<TerminalWorkspace grant={GRANT} />);
+    await startPtyTab();
+
+    const handler = mockedXterm.instances[0].keyHandler;
+    expect(handler).not.toBeNull();
+    const event = {
+      type: "keydown",
+      key: "f",
+      ctrlKey: true,
+      metaKey: false,
+      shiftKey: false,
+      altKey: false,
+      preventDefault: vi.fn()
+    } as unknown as KeyboardEvent;
+
+    expect(handler!(event)).toBe(false);
+    expect(event.preventDefault).toHaveBeenCalled();
+    expect(await screen.findByLabelText("Find in this session")).toBeInTheDocument();
+  });
+
+  it("leaves every other key to the shell", async () => {
+    render(<TerminalWorkspace grant={GRANT} />);
+    await startPtyTab();
+
+    const handler = mockedXterm.instances[0].keyHandler!;
+    const event = {
+      type: "keydown",
+      key: "c",
+      ctrlKey: true,
+      metaKey: false,
+      shiftKey: false,
+      altKey: false,
+      preventDefault: vi.fn()
+    } as unknown as KeyboardEvent;
+
+    expect(handler(event)).toBe(true);
+    expect(event.preventDefault).not.toHaveBeenCalled();
   });
 });

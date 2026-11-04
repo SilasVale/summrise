@@ -38,6 +38,12 @@ type Instance = {
   fit: FitAddon;
   /** The tab's own scrollback search: local to this xterm, and disposed with it. */
   search: SearchAddon;
+  /** The device session this xterm draws, so a refit can tell the device its new grid. */
+  session: string;
+  /** The grid the device was last told about: a refit that changes nothing sends nothing. */
+  lastSize: string | null;
+  /** The right-click paste listener, kept so it leaves with the tab. */
+  onContextMenu: (event: Event) => void;
 };
 
 /**
@@ -450,6 +456,44 @@ export function TerminalWorkspace({
     []
   );
 
+  /**
+   * Tell the device the active terminal's grid, when it actually changed.
+   *
+   * The device's PTY wraps at the size it was last told, so a refit that nobody reports leaves the
+   * remote side drawing for the old grid — the legacy panel's "remote wrapping stuck" bug. The
+   * comparison keeps a resize drag from writing one audit line per frame for the same grid, and it
+   * lets a caller that has already fitted (the font change) report without fitting twice.
+   */
+  const pushActiveSize = useCallback(() => {
+    const key = activeRef.current;
+    if (!key) return;
+    const instance = instances.current.get(key);
+    if (!instance) return;
+    const grid = `${instance.term.rows}x${instance.term.cols}`;
+    if (grid === instance.lastSize) return;
+    instance.lastSize = grid;
+    void callTool(grantRef.current, "terminal.resize", {
+      id: instance.session,
+      rows: instance.term.rows,
+      cols: instance.term.cols
+    }).catch(() => {});
+  }, []);
+
+  /** Fit the active terminal into its host, then tell the device if the grid moved. */
+  const fitActive = useCallback(() => {
+    const key = activeRef.current;
+    if (!key) return;
+    const instance = instances.current.get(key);
+    if (!instance) return;
+    try {
+      instance.fit.fit();
+    } catch {
+      /* the host is not measurable while hidden; the next activation refits it */
+      return;
+    }
+    pushActiveSize();
+  }, [pushActiveSize]);
+
   /** One read at this tab's cursor, and the cursor and end facts it returns. */
   const readOnce = useCallback(async (tab: Tab): Promise<ReadAnswer> => {
     const cursor = cursors.current.get(tab.key) ?? 0;
@@ -686,6 +730,9 @@ export function TerminalWorkspace({
       const term = new Terminal({
         convertEol: true,
         cursorBlink: true,
+        // The legacy panel kept this much: a build log or a long AI session is read by scrolling
+        // back, and xterm's default of 1000 lines is a few minutes of a chatty shell.
+        scrollback: 20_000,
         fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
         fontSize,
         theme: terminalTheme()
@@ -698,7 +745,49 @@ export function TerminalWorkspace({
       term.onData((data) => {
         void write(tab, data);
       });
-      instances.current.set(tab.key, { term, fit, search });
+      // Ctrl+F (⌘F on a Mac) opens this tab's scrollback search, the way every terminal does. Without
+      // it xterm hands the key to the shell, where a search that never opens reads as a broken page.
+      term.attachCustomKeyEventHandler((event) => {
+        if (
+          event.type === "keydown" &&
+          (event.ctrlKey || event.metaKey) &&
+          !event.shiftKey &&
+          !event.altKey &&
+          event.key.toLowerCase() === "f"
+        ) {
+          setFindOpen(true);
+          event.preventDefault();
+          return false;
+        }
+        return true;
+      });
+      // Selection copies on select, and the context menu pastes: the two gestures a web terminal is
+      // expected to have (the legacy panel's round-160), and the browser's own menu over a terminal
+      // is the one thing that cannot be dismissed with the keyboard.
+      term.onSelectionChange(() => {
+        const selection = term.getSelection();
+        if (selection) void navigator.clipboard?.writeText(selection).catch(() => {});
+      });
+      const onContextMenu = (event: Event) => {
+        event.preventDefault();
+        const clipboard = navigator.clipboard;
+        if (!clipboard) return;
+        void clipboard
+          .readText()
+          .then((text) => {
+            if (text) term.paste(text);
+          })
+          .catch(() => {});
+      };
+      host.addEventListener("contextmenu", onContextMenu);
+      instances.current.set(tab.key, {
+        term,
+        fit,
+        search,
+        session: tab.session,
+        lastSize: null,
+        onContextMenu
+      });
       if (activeRef.current === null) {
         activeRef.current = tab.key;
         setActive(tab.key);
@@ -710,6 +799,7 @@ export function TerminalWorkspace({
       batches.current.delete(key);
       pumps.current.get(key)?.cancel();
       pumps.current.delete(key);
+      hosts.current.get(key)?.removeEventListener("contextmenu", instance.onContextMenu);
       instance.term.dispose();
       instances.current.delete(key);
       cursors.current.delete(key);
@@ -724,6 +814,8 @@ export function TerminalWorkspace({
   // It is set on the terminal rather than by recreating it: a new xterm would lose the output the
   // device already sent, and the session's cursor belongs to this instance. The refit is best-effort
   // because a hidden tab's host has no measurable size until the tab is shown, which refits it again.
+  // `fitActive` is what tells the device: a font change reflows the local grid, and the PTY would
+  // keep wrapping at the old columns without it.
   useEffect(() => {
     for (const instance of instances.current.values()) {
       instance.term.options.fontSize = fontSize;
@@ -733,8 +825,49 @@ export function TerminalWorkspace({
         /* the host may not be measurable yet */
       }
     }
+    // The loop above already fitted every open tab; this only reports the new grid to the device.
+    pushActiveSize();
     saveFontSize(fontStorage(), fontSize);
-  }, [fontSize]);
+  }, [fontSize, pushActiveSize]);
+
+  // The grid follows the window and the pane, not only a tab switch. A terminal that keeps the old
+  // grid after a resize wraps its output at the wrong column; the refit is throttled to one per
+  // frame because a drag fires the event far faster than the device should hear about it.
+  useEffect(() => {
+    if (!active) return;
+    let frame = 0;
+    const refit = () => {
+      if (frame) cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        frame = 0;
+        fitActive();
+      });
+    };
+    window.addEventListener("resize", refit);
+    const host = hosts.current.get(active);
+    const observer =
+      host && typeof ResizeObserver !== "undefined" ? new ResizeObserver(refit) : null;
+    observer?.observe(host!);
+    return () => {
+      window.removeEventListener("resize", refit);
+      if (frame) cancelAnimationFrame(frame);
+      observer?.disconnect();
+    };
+  }, [active, fitActive]);
+
+  // The terminal follows the page's scheme while the tab is open, not only when it is created: the
+  // operator can flip the system theme, and a terminal stuck in the other palette is the one pane on
+  // the page that looks broken.
+  useEffect(() => {
+    const media = window.matchMedia("(prefers-color-scheme: dark)");
+    const onScheme = () => {
+      for (const instance of instances.current.values()) {
+        instance.term.options.theme = terminalTheme();
+      }
+    };
+    media.addEventListener("change", onScheme);
+    return () => media.removeEventListener("change", onScheme);
+  }, []);
 
   // The field is the point of opening the bar, so the operator can type a term straight away.
   useEffect(() => {
@@ -776,16 +909,8 @@ export function TerminalWorkspace({
     if (!tab) return;
     const instance = instanceAt(active);
     if (instance) {
-      try {
-        instance.fit.fit();
-      } catch {
-        /* the host may not be measurable yet */
-      }
-      void callTool(grantRef.current, "terminal.resize", {
-        id: tab.session,
-        rows: instance.term.rows,
-        cols: instance.term.cols
-      }).catch(() => {});
+      // The host has a size again; the device hears about a changed grid only.
+      fitActive();
       instance.term.focus();
       void poll(tab);
     }
