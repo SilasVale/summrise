@@ -73,6 +73,10 @@ const SERVICE_DESCRIPTION: &str =
 /// How long the launcher waits for two matching `/api/health` answers after starting a child.
 const HEALTH_TIMEOUT: Duration = Duration::from_secs(10);
 
+/// How long a spawn waits for the port to become bindable: a Windows TIME_WAIT outlives a swap by
+/// minutes, and a killed fleet is worse than a slow one.
+const SPAWN_PORT_WAIT: Duration = Duration::from_secs(180);
+
 /// How often the supervisor looks for a swap request.
 const SWAP_POLL_INTERVAL: Duration = Duration::from_secs(2);
 
@@ -1015,6 +1019,13 @@ fn start_supervised_child(
 }
 
 fn spawn_app(config: &Config, sidecar: &Sidecar, supervised: bool) -> io::Result<Child> {
+    // The port is the child's first need, and the previous generation may still have connections in
+    // the kernel: wait until a bind succeeds before spawning, or the child dies on WSAEADDRINUSE and
+    // the health gate turns that into a rollback into the same window.
+    if let Err(error) = summrise_launch::wait_for_bindable_port(config.port, SPAWN_PORT_WAIT) {
+        eprintln!("launch: cannot start the app: {error}");
+        return Err(io::Error::new(io::ErrorKind::AddrInUse, error));
+    }
     // F6 and the channel fix: the running release is one fact. The app records the sidecar's
     // version, digest and channel rather than re-deriving any of them from its own compile time, so
     // state.json and /api/health report the channel the launcher actually booted.
@@ -1738,19 +1749,8 @@ fn stop_console_owner(config: &Config) -> Result<(), String> {
 }
 
 fn wait_for_port_free(port: u16, timeout: Duration) -> Result<(), String> {
-    let address = SocketAddr::from(([127, 0, 0, 1], port));
-    let deadline = Instant::now() + timeout;
-    loop {
-        if TcpStream::connect_timeout(&address, Duration::from_millis(200)).is_err() {
-            return Ok(());
-        }
-        if Instant::now() >= deadline {
-            return Err(format!(
-                "port {port} still answers after the previous owner was stopped"
-            ));
-        }
-        std::thread::sleep(Duration::from_millis(100));
-    }
+    // Bind-based, not connect-based: see `summrise_launch::wait_for_bindable_port`.
+    summrise_launch::wait_for_bindable_port(port, timeout)
 }
 
 fn wait_for_pid_file(path: &Path, timeout: Duration) -> Option<u32> {

@@ -643,6 +643,35 @@ pub fn service_launch_arguments(install: &Path, data: &Path, port: u16) -> Vec<s
 
 /// The app child's argv: where it lives, where it writes, and the release identity it must report.
 ///
+/// Wait until the loopback port can actually be **bound**.
+///
+/// A connect probe answers "is something accepting", which is not the question a restart asks: on
+/// Windows a bind fails while the previous listener's connections are still in the kernel (Rust sets
+/// `SO_REUSEADDR` only on Unix), and a connect probe cannot see that — the 2026-11-04 canary swap
+/// killed the app, spawned its replacement into exactly that window, and the fleet went dark. This
+/// binds, drops, and answers the one question that matters.
+pub fn wait_for_bindable_port(port: u16, timeout: Duration) -> Result<(), String> {
+    let address = SocketAddr::from(([127, 0, 0, 1], port));
+    let deadline = Instant::now() + timeout;
+    loop {
+        match std::net::TcpListener::bind(address) {
+            Ok(listener) => {
+                drop(listener);
+                return Ok(());
+            }
+            Err(error) => {
+                if Instant::now() >= deadline {
+                    return Err(format!(
+                        "port {port} is still not bindable after {}s: {error}",
+                        timeout.as_secs()
+                    ));
+                }
+                std::thread::sleep(Duration::from_millis(100));
+            }
+        }
+    }
+}
+
 /// The three release facts come from the sidecar the launcher actually booted (F6 plus the channel
 /// fix): `install.version`, the baseline digest and `install.channel` in `state.json`, and
 /// `/api/health`, are all readings of this one argv. A canary sidecar therefore cannot record a
@@ -2391,6 +2420,21 @@ pub fn wait_healthy(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_port_held_by_a_listener_is_not_bindable_until_it_is_released() {
+        let held = std::net::TcpListener::bind(("127.0.0.1", 0)).expect("a listener");
+        let port = held.local_addr().expect("address").port();
+        assert!(
+            wait_for_bindable_port(port, Duration::from_millis(300)).is_err(),
+            "a held port must not read as bindable"
+        );
+        drop(held);
+        assert!(
+            wait_for_bindable_port(port, Duration::from_secs(5)).is_ok(),
+            "a released port must read as bindable"
+        );
+    }
+
     use super::*;
 
     #[test]
