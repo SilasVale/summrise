@@ -148,6 +148,12 @@ const COMPONENTS: &str = r##"  * { box-sizing: border-box; }
   .diagnostics-body .card .card-body { padding-left: 0; padding-right: 0; }
   code { font-family: var(--font-mono); font-size: 13px; }
 
+  /* **THE TOP BAR SITS ON THE SAME COLUMN AS THE CARDS.** It used to be padded 24 px from the window
+     edge while `main` is a centred 54 rem column, so on a 1280 px screen the brand started at 24 px
+     and the first card at 224 — two different pages stacked. The padding is the column's own offset
+     plus its gutter, which falls back to the plain gutter on a window with no margins left to give. */
+  header.topbar { padding: 8px max(16px, calc((100% - 54rem) / 2 + 16px)); }
+
   /* A phone, or a console window dragged narrow: an 11 rem label column leaves the value column about
      ten characters wide, so the two stack instead. */
   @media (max-width: 40rem) {
@@ -481,8 +487,8 @@ fn render(facts: &PanelFacts, outcome: Option<&EnrollOutcome>) -> Markup {
                         // window on a narrow screen. A wrapping row breaks between them.
                         div class="term-controls" {
                             button id="term-pty" type="button" { "New pty" }
-                            input id="term-port" type="text" placeholder="COM3" value="COM3";
-                            input id="term-baud" type="number" placeholder="115200" value="115200";
+                            input id="term-port" type="text" placeholder="COM3" value="COM3" aria-label="Serial port" title="Serial port";
+                            input id="term-baud" type="number" placeholder="115200" value="115200" aria-label="Baud rate" title="Baud rate";
                             button id="term-serial" type="button" { "New serial" }
                             button id="term-close" type="button" { "Close" }
                         }
