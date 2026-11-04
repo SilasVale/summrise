@@ -35,13 +35,19 @@ Audit recorded `device disconnected 502` followed by operator calls refused `503
   binaries), so a rotated key is not the cause.
 - `launch --apply` validates the staged pair **before** stopping the running app; a refused update
   cannot stop it. The stop happens after validation, inside the supervisor transaction.
-- The unresolved piece: what the supervisor did after the stop. Three candidates, none provable
-  without the host:
-  1. the new app started but failed the two-answer `/api/health` check, and the rollback path did not
-     restore the previous pair;
-  2. the new app crashed on start (Windows-only path) and the supervisor's health wait timed out;
-  3. the supervisor service itself stopped, and the SCM's three restarts (5 s apart) were exhausted
-     before the app came back.
+- **The cause (found by reading `device/launch/src/win.rs`, not the hosts): a port rebind race.**
+  The swap kills the app and spawns its replacement milliseconds later; on Windows a bind to the old
+  port fails while the previous listener's connections are still in the kernel (Rust sets
+  `SO_REUSEADDR` only on Unix — mio's listener does it `#[cfg(not(windows))]` deliberately). The new
+  child died on `WSAEADDRINUSE`, the 10 s health gate rolled back **into the same window**, the
+  rollback's start failed inside a swallowed error (`CRITICAL: cannot restart a trusted generation`),
+  three strikes gave up, and the SCM's three restarts — 5 s apart — each died inside the same
+  seconds-long window. The service then had nothing left to restart. Nothing in the release needed to
+  change for this, which is exactly why both device builds import the same DLLs and Linux is fine.
+- The fix shipped in `65adcd8` and is carried by the **installer only** (the launcher is not in the
+  canary document): `spawn_app` waits (≤180 s) for a *bind* to succeed before spawning, through
+  `summrise_launch::wait_for_bindable_port`. The old `wait_for_port_free` was connect-based and
+  cannot see a TIME_WAIT socket.
 
 ## What was reached from here
 
@@ -53,8 +59,13 @@ Audit recorded `device disconnected 502` followed by operator calls refused `503
 
 ## Recovery (needs a local or RDP session on each host)
 
-1. `sc query SummriseLaunch` — if `STOPPED`, `sc start SummriseLaunch`. The service starts the app from
-   its baseline and waits for health; that alone should bring the device back on `0.3.271`.
+0. **Preferred:** run `http://100.85.163.159:18100/SummriseSetup-0.3.273.exe` elevated. It installs
+   the launcher with the port fix and the current app; the fleet is already dark, so this is the one
+   action that both recovers and prevents a repeat. Nothing points the canary channel at it: the
+   pointer names `0.3.271` on purpose.
+1. If an installer cannot be used: `sc query SummriseLaunch` — if `STOPPED`, `sc start
+   SummriseLaunch`. The service starts the app from its baseline and waits for health; the TIME_WAIT
+   window is long gone by morning, so this should bring the device back on `0.3.271`.
 2. If the service runs but the app does not answer on `127.0.0.1:18090`:
    read `C:\ProgramData\Summrise\state.json` (the swap verdict and the rollback memory), then
    `C:\SummriseInstall\baseline\current\` (the trusted pair) and `C:\SummriseInstall\*.new` (a staged
