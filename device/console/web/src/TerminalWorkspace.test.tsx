@@ -1282,12 +1282,17 @@ describe("TerminalWorkspace display", () => {
     try {
       render(<TerminalWorkspace grant={GRANT} />);
       await startPtyTab();
+      // The xterm instance is created in an effect after the pty answers; reading it without a wait
+      // was a race that failed about one run in three.
+      await waitFor(() => expect(mockedXterm.instances[0]).toBeDefined());
       expect(mockedXterm.instances[0].options.theme).toMatchObject({ background: "#ffffff" });
 
       media.matches = true;
       handlers.forEach((handler) => handler());
 
-      expect(mockedXterm.instances[0].options.theme).toMatchObject({ background: "#131418" });
+      await waitFor(() =>
+        expect(mockedXterm.instances[0].options.theme).toMatchObject({ background: "#131418" })
+      );
     } finally {
       restoreGlobal(window, "matchMedia", matchDescriptor);
       restoreGlobal(window, "getComputedStyle", styleDescriptor);
