@@ -243,6 +243,41 @@ describe("ActivityTimeline", () => {
     expect(within(panel).getByText(/could not be loaded/i)).toBeInTheDocument();
   });
 
+  it("splits the clock for the phone rules, and keeps the age in its own element", () => {
+    // The row's structure, not a `matchMedia` reading: at <=480 px the stylesheet hides the seconds
+    // span and narrows the time cell, and hides only the age — the machine stays beside it.
+    const ts = Date.UTC(2026, 10, 5, 9, 0, 5);
+    render(
+      <ActivityTimeline
+        lines={[line({ ts_ms: ts, device_id: alpha, sentence: "Read notes.txt" })]}
+        devices={devices}
+        nowMs={ts + 60_000}
+      />
+    );
+
+    const time = document.querySelector(".timeline-time");
+    expect(time).not.toBeNull();
+    const clock = time?.querySelector(".timeline-clock");
+    const seconds = time?.querySelector(".timeline-clock-seconds");
+    expect(clock).toHaveTextContent(/^\d{2}:\d{2}$/);
+    expect(seconds).toHaveTextContent(/^:\d{2}$/);
+    // The whole instant is still in the element and in `dateTime`; only its drawing is split.
+    expect(time).toHaveTextContent(/^\d{2}:\d{2}:\d{2}$/);
+    expect(time).toHaveAttribute("dateTime", new Date(ts).toISOString());
+
+    const facts = document.querySelector(".timeline-facts");
+    expect(facts?.querySelector(".timeline-age")).toHaveTextContent(/ago$/);
+    expect(facts?.querySelector(".timeline-machine")).toHaveTextContent("Alpha");
+  });
+
+  it("marks the day label for the scroll container so it can stick", () => {
+    render(<ActivityTimeline lines={[fromAlpha]} devices={[]} nowMs={fromAlpha.ts_ms + 1_000} />);
+
+    const label = screen.getByRole("heading", { name: "Today" });
+    expect(label).toHaveClass("timeline-day-label");
+    expect(label).toHaveClass("is-sticky");
+  });
+
   it("freezes the age column at nowMs so a paused page stops ageing", () => {
     vi.useFakeTimers();
     try {

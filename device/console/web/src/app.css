@@ -2514,8 +2514,15 @@ main::-webkit-scrollbar-track, .sheet-body::-webkit-scrollbar-track, .scroll::-w
 .timeline { display: grid; gap: var(--sp-4); }
 .timeline-capped { margin: 0 0 var(--sp-3); }
 .timeline-day-label {
-  margin: 0 0 var(--sp-2); font-size: var(--fs-xs); font-weight: var(--fw-semi);
+  margin: 0; padding: 0 0 var(--sp-2); font-size: var(--fs-xs); font-weight: var(--fw-semi);
   color: var(--ink-faint); letter-spacing: 0.02em;
+}
+/* The timeline scrolls inside `main`, not with the page, so the day's name sticks to that
+   container's top while its rows pass under it. The panel's surface is painted behind the label
+   because rows would otherwise be visible through it. */
+.timeline-day-label.is-sticky {
+  position: sticky; top: 0; z-index: 1;
+  background: var(--surface);
 }
 .timeline-rows { list-style: none; margin: 0; padding: 0; }
 .timeline-row { border-top: 1px solid var(--hairline); }
@@ -2536,7 +2543,7 @@ button.timeline-line:hover { background: var(--row-hover); }
 button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
 .timeline-time {
   font-family: var(--mono); font-size: var(--fs-2xs); color: var(--ink-faint);
-  font-variant-numeric: tabular-nums; padding-top: 2px;
+  font-variant-numeric: tabular-nums; padding-top: 2px; white-space: nowrap;
 }
 .timeline-rail { position: relative; display: block; min-height: 24px; height: 100%; }
 .timeline-rail::before {
@@ -2574,6 +2581,14 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
    keeps the chips and the field above it. */
 .timeline-empty-filtered { display: grid; gap: var(--sp-2); justify-items: start; }
 .timeline-empty-actions { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
+
+/* At phone width the clock is the when: the seconds go and the age goes with them (the clock
+   carries it), while the sentence, the machine and the outcome dot stay. The time column narrows
+   to the minute it now draws, and never wraps onto a second line. */
+@media (max-width: 480px) {
+  .timeline-line { grid-template-columns: 40px 18px minmax(0, 1fr) 14px; }
+  .timeline-clock-seconds, .timeline-age { display: none; }
+}
 
 /* The evidence panel: what the call carried, and what it returned. */
 .evidence {

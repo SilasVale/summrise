@@ -1500,6 +1500,32 @@ async function capturePage(page, state, meta, pass) {
   }
 
   if (meta.id === 'activity') {
+    // The timeline row carries the evidence panel. Photograph it open before switching to the table,
+    // so the stacked panel and its Result are reviewed at the phone widths too, not just the line.
+    const firstLine = page.locator('.timeline-row button.timeline-line').first();
+    if ((await firstLine.count()) > 0) {
+      await firstLine.click();
+      await page.locator('.evidence').first().waitFor({ state: 'visible', timeout: 5_000 });
+      await page.locator('.evidence').first().scrollIntoViewIfNeeded();
+      await settle(page, state, 150);
+      const detailFile = `activity-detail${pass.suffix}.png`;
+      await page.screenshot({ path: path.join(OUT, detailFile), animations: 'disabled', fullPage: false });
+      captures.push({
+        pass: pass.key,
+        page: 'activity-detail',
+        file: detailFile,
+        note: 'one timeline row open: the evidence panel above its Result, stacked on a phone'
+      });
+      console.log(`  ${pass.key.padEnd(6)} ${detailFile}`);
+      await firstLine.click();
+      // Opening the row scrolled the page; the table capture that follows must start at the top.
+      await page.evaluate(() => {
+        for (const node of document.querySelectorAll('main, .body, .shell')) {
+          if (node instanceof HTMLElement) node.scrollTop = 0;
+        }
+        window.scrollTo(0, 0);
+      });
+    }
     // The page opens on the timeline; the table, its disclosure and "Open in Runs" are one tab
     // away. The harness photographs the table because that is where the id and the run link live.
     await page.getByRole('tab', { name: 'Table' }).click();
@@ -1713,6 +1739,37 @@ async function captureActivity1000(browser, origin, width) {
     });
     console.log(`  ${passKey.padEnd(6)} ${file}`);
     console.log(`activity-1000${width === 1280 ? '' : ` at ${width}`}: ${ms} ms, ${rows} rows`);
+    // A day long enough to scroll past its label: the one place the sticky rule can be seen. The
+    // measured offset stays 0 while the day passes under the label.
+    const sticky = await page.evaluate(() => {
+      const main = document.querySelector('main');
+      const label = document.querySelector('.timeline-day-label');
+      if (!main || !label) return null;
+      main.scrollTop = 600;
+      const offset = Math.round(
+        label.getBoundingClientRect().top - main.getBoundingClientRect().top
+      );
+      return {
+        scrollTop: Math.round(main.scrollTop),
+        offset,
+        background: getComputedStyle(label).backgroundColor
+      };
+    });
+    if (sticky) {
+      console.log(`activity-sticky${width === 1280 ? '' : ` at ${width}`}: ${JSON.stringify(sticky)}`);
+      const stickyFile = `activity-sticky-${width}.png`;
+      await page.screenshot({ path: path.join(OUT, stickyFile), animations: 'disabled', fullPage: false });
+      captures.push({
+        pass: passKey,
+        page: 'activity-sticky',
+        file: stickyFile,
+        note: `the day label holding the top at ${width}px, ${sticky.scrollTop} px into the day`
+      });
+    }
+    await page.evaluate(() => {
+      const main = document.querySelector('main');
+      if (main) main.scrollTop = 0;
+    });
     return { width, ms, rows };
   } finally {
     stubAudit = AUDIT;
@@ -1782,6 +1839,7 @@ function buildGallery() {
     ['terminal-tools', 'the session menu'],
     ['files-root', 'the real Files root'],
     ['audit-detail', 'one Activity record open'],
+    ['activity-detail', 'one timeline record open'],
     ['activity-run', 'the run opened from Activity']
   ];
   const workspaceRows = `
@@ -1802,18 +1860,21 @@ function buildGallery() {
   const known = new Set([
     ...PAGES.map((meta) => meta.id),
     ...workspaceKeys.map(([id]) => id),
-    'activity-1000'
+    'activity-1000',
+    'activity-sticky'
   ]);
   const extras = [...new Set(captures.map((capture) => capture.page))].filter((id) => !known.has(id));
 
   // P2-12's measurement, kept beside the ordinary Activity page so the cost of a full day has a
   // picture and a number in the same place.
-  const measured = captures.filter((capture) => capture.page === 'activity-1000');
+  const measured = captures.filter(
+    (capture) => capture.page === 'activity-1000' || capture.page === 'activity-sticky'
+  );
   const measuredRows = measured.length
     ? `
     <section class="page">
       <h2>Long timeline: 1000 rows</h2>
-      <p class="state">One fresh navigation per width; the number is navigation → last row painted.</p>
+      <p class="state">One fresh navigation per width: navigation → last row painted, then 600 px into the same day for the sticky label.</p>
       <div class="pair">
         ${measured
           .map(

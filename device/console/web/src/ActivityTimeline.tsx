@@ -42,6 +42,23 @@ function clock(ts: number): string {
   return `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
 }
 
+/**
+ * The row's clock, as a minute span and a seconds span.
+ *
+ * On a phone the time cell narrows to the minute; the seconds stay in their own element so the
+ * stylesheet can drop them without dropping the instant — `dateTime` and the full text still carry
+ * HH:MM:SS for anything that reads the record rather than looks at it.
+ */
+function Clock(props: { ts: number }) {
+  const full = clock(props.ts);
+  return (
+    <time className="timeline-time" dateTime={new Date(props.ts).toISOString()}>
+      <span className="timeline-clock">{full.slice(0, 5)}</span>
+      <span className="timeline-clock-seconds">{full.slice(5)}</span>
+    </time>
+  );
+}
+
 /** Days newest first, each day's rows newest first (the list arrives that way). */
 export function groupDays(lines: AuditLine[], now = Date.now()): Day[] {
   const days: Day[] = [];
@@ -280,9 +297,7 @@ function Row(props: {
     "timeline-row" + (props.open ? " is-open" : "") + (props.stretch ? " is-stretch" : "");
   const contents = (
     <>
-      <time className="timeline-time" dateTime={new Date(line.ts_ms).toISOString()}>
-        {clock(line.ts_ms)}
-      </time>
+      <Clock ts={line.ts_ms} />
       <span className="timeline-rail" aria-hidden="true">
         <span className="timeline-dot" data-tone={kind} />
       </span>
@@ -500,7 +515,7 @@ export function ActivityTimeline(props: {
         <div className="timeline">
           {days.map((day) => (
             <section key={day.key} className="timeline-day" aria-label={day.label}>
-              <h2 className="timeline-day-label">{day.label}</h2>
+              <h2 className="timeline-day-label is-sticky">{day.label}</h2>
               <ol className="timeline-rows">
                 {day.lines.map((line, index) => {
                   const key = `${line.ts_ms}-${line.tool ?? line.kind}-${line.status}`;
