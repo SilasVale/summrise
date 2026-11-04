@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import { TerminalWorkspace } from "./TerminalWorkspace";
 import { api } from "./api";
@@ -205,6 +205,48 @@ describe("TerminalWorkspace tab names", () => {
     expect(await screen.findByRole("tab", { name: /pty 1/ })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Attach" })).not.toBeInTheDocument();
     expect(callToolMock).toHaveBeenCalledWith(GRANT, "terminal.list", {});
+  });
+
+  it("reads the session list again when the tab becomes visible", async () => {
+    render(<TerminalWorkspace grant={GRANT} />);
+    await screen.findByText(/No session is open on this device/);
+    const lists = () =>
+      callToolMock.mock.calls.filter(([, name]) => name === "terminal.list").length;
+    const before = lists();
+
+    // Coming back to the tab is the moment the answer matters: a shell may have started meanwhile.
+    document.dispatchEvent(new Event("visibilitychange"));
+
+    await waitFor(() => expect(lists()).toBeGreaterThan(before));
+  });
+
+  it("finds a session that started while the page was open", async () => {
+    vi.useFakeTimers();
+    try {
+      let listed = JSON.stringify([]);
+      callToolMock.mockImplementation(async (_grant, name) => {
+        if (name === "terminal.list") return listed;
+        if (name === "terminal.resize") return JSON.stringify({ rows: 24, cols: 80 });
+        if (name === "terminal.read") return JSON.stringify({ data: "", cursor: 0 });
+        throw new Error(`the test did not expect a ${name} call`);
+      });
+      render(<TerminalWorkspace grant={GRANT} />);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(screen.getByText(/No session is open on this device/)).toBeInTheDocument();
+
+      listed = JSON.stringify([{ id: "late-1", kind: "pty" }]);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(10_000);
+      });
+
+      // A page that keeps saying "no session" while a shell runs is the bug this surface exists to
+      // avoid: the list was read once, before the shell existed, and no device event announces it.
+      expect(screen.getByRole("tab", { name: /pty 1/ })).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("opens a pty session as a tab named pty 1", async () => {
@@ -617,9 +659,10 @@ describe("TerminalWorkspace session end", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "The session ended with exit code 7. The output above is what it printed."
     );
-    // The last bytes are written before the tab is marked, and the output stays on screen.
+    // The last bytes still reach the terminal: output is queued for the next frame, so the write
+    // lands just after the mark rather than before it — and it is not dropped.
     await waitFor(() => expect(mockedXterm.instances).toHaveLength(1));
-    expect(mockedXterm.instances[0].write).toHaveBeenCalledWith("bye\n");
+    await waitFor(() => expect(mockedXterm.instances[0].write).toHaveBeenCalledWith("bye\n"));
     // One mark: the suffix ends the label, and the old "closed" chip is not drawn beside it.
     expect(tab).toHaveTextContent(/^pty 1 · ended$/);
     expect(within(tab).queryByText("closed")).not.toBeInTheDocument();
@@ -642,7 +685,12 @@ describe("TerminalWorkspace session end", () => {
         if (reads === 1) {
           throw new ToolError("terminal.read: the arguments do not match the tool's input schema.", 400);
         }
-        return JSON.stringify({ data: "hello", cursor: 5, alive: true });
+        // A device answers from the cursor it was given: the retry starts at 0 and every later read
+        // starts at 5, so the one line is handed over once.
+        const cursor = (args as { cursor?: number } | undefined)?.cursor ?? 0;
+        return cursor === 0
+          ? JSON.stringify({ data: "hello", cursor: 5, alive: true })
+          : JSON.stringify({ data: "", cursor, alive: true });
       }
       throw new Error(`the test did not expect a ${name} call with ${JSON.stringify(args)}`);
     });

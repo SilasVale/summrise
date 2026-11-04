@@ -5,6 +5,7 @@ import { SearchAddon } from "@xterm/addon-search";
 import "@xterm/xterm/css/xterm.css";
 import { callTool, ToolError, type Grant } from "./terminal";
 import { createTerminalWriteBatcher, type TerminalWriteBatcher } from "./terminalWriteBatcher";
+import { createOutputPump, type OutputPump } from "./terminalOutput";
 import { nextTabTitle, renameTab, titleFromInput, type Tab } from "./terminalTabs";
 import { earliestCursor, readTranscript, transcriptFile } from "./terminalTranscript";
 import {
@@ -62,6 +63,16 @@ const FAULT_LABELS: Record<FaultKind, string> = {
   read: "read failed",
   write: "not sent"
 };
+
+/**
+ * How often an empty session list is re-read.
+ *
+ * The list is the device's answer, so it cannot be pushed: a shell that starts from another tab, a
+ * script, or an AI client is invisible to this page until it asks again. Ten seconds is fast enough
+ * to feel live and slow enough that an idle page does not write a line a second into the device's
+ * audit; the interval stops as soon as one session is listed.
+ */
+const EMPTY_LIST_POLL_MS = 10_000;
 
 /**
  * One `terminal.read` answer.
@@ -367,6 +378,8 @@ export function TerminalWorkspace({
   const [findMiss, setFindMiss] = useState(false);
   const instances = useRef(new Map<string, Instance>());
   const batches = useRef(new Map<string, TerminalWriteBatcher>());
+  /** Each tab's output queue: a read answers with the whole ring, and xterm takes it a frame at a time. */
+  const pumps = useRef(new Map<string, OutputPump>());
   const hosts = useRef(new Map<string, HTMLDivElement>());
   /** Each tab's read cursor: the absolute byte count the device has already sent this xterm. */
   const cursors = useRef(new Map<string, number>());
@@ -619,7 +632,20 @@ export function TerminalWorkspace({
       try {
         const read = await readOnce(tab);
         if (read.data) {
-          instance.term.write(read.data);
+          // A read can carry the whole retained ring: queue it and let the pump hand xterm one
+          // frame's worth at a time, so a busy session cannot freeze the page in one write.
+          let pump = pumps.current.get(tab.key);
+          if (!pump) {
+            pump = createOutputPump((text) => {
+              try {
+                instance.term.write(text);
+              } catch {
+                // Disposed while a queued frame was pending: the tab is gone, the bytes are not.
+              }
+            });
+            pumps.current.set(tab.key, pump);
+          }
+          pump.push(read.data);
           // A long poll returns as soon as bytes arrive; take the next read now instead of waiting
           // for the 250 ms interval, so continuous output keeps flowing. Single-flight still guards
           // a slow answer, and a fallback device's immediate empty read keeps the interval's pace.
@@ -682,6 +708,8 @@ export function TerminalWorkspace({
       if (tabs.some((tab) => tab.key === key)) continue;
       batches.current.get(key)?.cancel();
       batches.current.delete(key);
+      pumps.current.get(key)?.cancel();
+      pumps.current.delete(key);
       instance.term.dispose();
       instances.current.delete(key);
       cursors.current.delete(key);
@@ -789,6 +817,8 @@ export function TerminalWorkspace({
     () => () => {
       for (const batch of batches.current.values()) batch.cancel();
       batches.current.clear();
+      for (const pump of pumps.current.values()) pump.cancel();
+      pumps.current.clear();
       for (const instance of instances.current.values()) instance.term.dispose();
       instances.current.clear();
     },
@@ -968,6 +998,29 @@ export function TerminalWorkspace({
     }
     void listSessions();
   }, [grant.deviceId, offline, listSessions]);
+
+  // A LIST THAT WAS EMPTY WHEN THE PAGE LOADED stays empty without this: a tab left open while a
+  // shell starts elsewhere has no device event to hear, and the page that says "no session is open"
+  // while one is running is the bug this whole surface exists to avoid. The interval stops as soon
+  // as something is listed; from then on the tab probe is what notices a session closing. Coming
+  // back to the tab reads once more, because that is the moment the answer matters.
+  useEffect(() => {
+    if (offline || available.length > 0) {
+      return;
+    }
+    const timer = window.setInterval(() => void listSessions(), EMPTY_LIST_POLL_MS);
+    return () => window.clearInterval(timer);
+  }, [available.length, offline, listSessions]);
+
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === "visible") {
+        void listSessions();
+      }
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [listSessions]);
 
   const attachTo = (session: string, kind: string) => {
     if (tabs.some((tab) => tab.session === session)) {
