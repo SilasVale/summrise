@@ -363,6 +363,11 @@ export function TerminalWorkspace({
   const [faults, setFaults] = useState<Record<string, Fault>>({});
   const [status, setStatus] = useState("");
   const [closing, setClosing] = useState<Tab | null>(null);
+  const [sessionsOpen, setSessionsOpen] = useState(false);
+  /** Sessions this page has detached from on purpose: auto-attach must not put them back. */
+  const detached = useRef(new Set<string>());
+  /** Every session id this page has listed, so only a genuinely new one takes the screen. */
+  const known = useRef(new Set<string>());
   const [available, setAvailable] = useState<
     { id: string; kind: string; started_at_ms?: number }[]
   >([]);
@@ -1156,6 +1161,7 @@ export function TerminalWorkspace({
   }, [listSessions]);
 
   const attachTo = (session: string, kind: string) => {
+    detached.current.delete(session);
     if (tabs.some((tab) => tab.session === session)) {
       setActive(session);
       return;
@@ -1169,14 +1175,21 @@ export function TerminalWorkspace({
     setAvailable((previous) => previous.filter((entry) => entry.id !== session));
   };
 
-  // **A SESSION THAT EXISTS SHOULD BE ON SCREEN, NOT BEHIND AN ATTACH CLICK.** The panel now attaches
-  // the first live session on load; the console's Terminal page is the default tab, so a person who
+  // **A SESSION THAT EXISTS SHOULD BE ON SCREEN, NOT BEHIND AN ATTACH CLICK.** The panel attaches the
+  // newest live session on load; the console's Terminal page is the default tab, so a person who
   // opens it with a shell already running should see that shell, not a session count and a button.
-  // Only when there is no tab yet and the page is visible: switching away must not open another.
+  //
+  // Only a session this page has never listed can trigger it. Without that rule a detach — or the
+  // close of the last tab — would be undone by the next list read, which still names the other
+  // shells on the machine; and a session an AI client starts later is exactly the kind of new thing
+  // that should take the screen by itself.
   useEffect(() => {
-    if (!visible || active !== null || tabs.length > 0 || available.length === 0) return;
-    const first = available[0];
-    attachTo(first.id, first.kind);
+    const fresh = available.filter((entry) => !known.current.has(entry.id));
+    for (const entry of available) known.current.add(entry.id);
+    if (!visible || active !== null || tabs.length > 0) return;
+    const candidate = fresh.find((entry) => !detached.current.has(entry.id));
+    if (!candidate) return;
+    attachTo(candidate.id, candidate.kind);
   }, [visible, active, tabs.length, available, attachTo]);
 
   const close = async (tab: Tab) => {
@@ -1206,6 +1219,31 @@ export function TerminalWorkspace({
       const next = tabs.find((entry) => entry.key !== tab.key) ?? null;
       setActive(next?.key ?? null);
     }
+  };
+
+  /**
+   * Take the tab away and leave the session running on the machine.
+   *
+   * A tab is a view of a device session, not the session: a person who closes one to make room, or
+   * because they are done looking for now, must not have ended a shell that is still doing work.
+   * Ending it is a separate, destructive choice in the same dialog. The detached id is remembered so
+   * the auto-attach below cannot undo the gesture on the next list read, and the session returns to
+   * the device's list where Sessions offers it again.
+   */
+  const detach = (tab: Tab) => {
+    detached.current.add(tab.session);
+    batches.current.get(tab.key)?.cancel();
+    batches.current.delete(tab.key);
+    setTabs((previous) => previous.filter((entry) => entry.key !== tab.key));
+    cursors.current.delete(tab.key);
+    reading.current.delete(tab.key);
+    probing.current.delete(tab.key);
+    clearFault(tab.key);
+    if (activeRef.current === tab.key) {
+      const next = tabs.find((entry) => entry.key !== tab.key) ?? null;
+      setActive(next?.key ?? null);
+    }
+    void listSessions();
   };
 
   /** Start a faulted tab again: drop the sentence and read once from the retained output. */
@@ -1359,6 +1397,18 @@ export function TerminalWorkspace({
                     }}
                   >
                     Export log
+                  </button>
+                  {/* THE OTHER SESSIONS ARE NOT LOST, THEY ARE ELSEWHERE ON THE MACHINE. A tab is a
+                      view of one; this is how a second one gets a view without ending the first. */}
+                  <button
+                    type="button"
+                    disabled={offline}
+                    onClick={() => {
+                      closeTools();
+                      setSessionsOpen(true);
+                    }}
+                  >
+                    Sessions{available.length > 0 ? ` (${available.length})` : ""}
                   </button>
                   <div className="session-menu-row">
                     <span className="hint">Text size</span>
@@ -1856,14 +1906,15 @@ export function TerminalWorkspace({
       )}
 
       {closing && (
-        <Modal
-          title={`Close ${closing.title}?`}
-          onClose={() => setClosing(null)}
-        >
-          <p className="hint">Close this session? The process keeps running on the machine.</p>
+        <Modal title={`Close ${closing.title}?`} onClose={() => setClosing(null)}>
+          <p className="hint">
+            A tab is a view of the session, not the session. <strong>Detach</strong> closes this tab
+            and leaves the shell running on the machine — Sessions offers it again.{" "}
+            <strong>End session</strong> stops the shell.
+          </p>
           <div className="modal-actions">
             <button type="button" onClick={() => setClosing(null)}>
-              Keep it open
+              Cancel
             </button>
             <button
               type="button"
@@ -1874,7 +1925,54 @@ export function TerminalWorkspace({
                 void close(tab);
               }}
             >
-              Close session
+              End session
+            </button>
+            <button
+              type="button"
+              className="primary"
+              onClick={() => {
+                const tab = closing;
+                setClosing(null);
+                detach(tab);
+              }}
+            >
+              Detach
+            </button>
+          </div>
+        </Modal>
+      )}
+
+      {sessionsOpen && (
+        <Modal title="Sessions on this device" onClose={() => setSessionsOpen(false)}>
+          <p className="hint">
+            The device keeps a session after this page detaches from it. Attaching shows it in a
+            tab; the shell is not restarted.
+          </p>
+          {available.length === 0 ? (
+            <p className="hint">No other session is running on this machine.</p>
+          ) : (
+            <ul className="picker">
+              {available.map((entry) => (
+                <li key={entry.id}>
+                  <span className="mono">{entry.kind}</span>
+                  <span className="mono muted">{entry.id}</span>
+                  <button
+                    type="button"
+                    className="mini"
+                    onClick={() => {
+                      setSessionsOpen(false);
+                      attachTo(entry.id, entry.kind);
+                    }}
+                  >
+                    Attach
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+          <div className="modal-actions">
+            <button type="button" onClick={() => setSessionsOpen(false)}>
+              Close
             </button>
           </div>
         </Modal>

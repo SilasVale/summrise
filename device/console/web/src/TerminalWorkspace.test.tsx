@@ -1040,15 +1040,94 @@ describe("TerminalWorkspace recovery", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Close pty 1" }));
     const dialog = await screen.findByRole("dialog", { name: "Close pty 1?" });
-    expect(
-      within(dialog).getByText("Close this session? The process keeps running on the machine.")
-    ).toBeInTheDocument();
+    // The old sentence said the process keeps running while the only button ended it. Both facts
+    // are now named, and the safe one is the primary action.
+    expect(within(dialog).getByText(/leaves the shell running on the machine/)).toBeInTheDocument();
+    expect(within(dialog).getByText(/stops the shell/)).toBeInTheDocument();
     expect(callToolMock.mock.calls.some(([, name]) => name === "terminal.close")).toBe(false);
 
-    fireEvent.click(within(dialog).getByRole("button", { name: "Keep it open" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
     expect(screen.queryByRole("dialog", { name: "Close pty 1?" })).not.toBeInTheDocument();
     expect(callToolMock.mock.calls.some(([, name]) => name === "terminal.close")).toBe(false);
     expect(screen.getByRole("tab", { name: "pty 1" })).toBeInTheDocument();
+  });
+
+  it("detaches without ending the shell, and offers the session again", async () => {
+    // The device keeps listing the session after the page detaches: that is what detach means.
+    callToolMock.mockImplementation(async (_grant, name) => {
+      if (name === "terminal.list") {
+        return JSON.stringify([{ id: "t1", kind: "pty", started_at_ms: 1_000 }]);
+      }
+      if (name === "terminal.create") return JSON.stringify({ id: "t1" });
+      if (name === "terminal.resize") return JSON.stringify({ rows: 24, cols: 80 });
+      if (name === "terminal.read") return JSON.stringify({ data: "", cursor: 0 });
+      throw new Error(`the test did not expect a ${name} call`);
+    });
+    render(<TerminalWorkspace grant={GRANT} />);
+    await screen.findByRole("tab", { name: /pty 1/ });
+
+    fireEvent.click(screen.getByRole("button", { name: "Close pty 1" }));
+    const dialog = await screen.findByRole("dialog", { name: "Close pty 1?" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Detach" }));
+
+    // Detach is a view change: the device is never asked to end anything.
+    expect(callToolMock.mock.calls.some(([, name]) => name === "terminal.close")).toBe(false);
+    expect(screen.queryByRole("tab", { name: "pty 1" })).not.toBeInTheDocument();
+    // The device still lists it, and the page offers it again instead of hiding it.
+    expect(await screen.findByRole("button", { name: "Attach" })).toBeInTheDocument();
+  });
+
+  it("does not take another shell's screen after a detach", async () => {
+    callToolMock.mockImplementation(async (_grant, name) => {
+      if (name === "terminal.list") {
+        return JSON.stringify([
+          { id: "new", kind: "pty", started_at_ms: 2_000 },
+          { id: "older", kind: "pty", started_at_ms: 1_000 }
+        ]);
+      }
+      if (name === "terminal.resize") return JSON.stringify({ rows: 24, cols: 80 });
+      if (name === "terminal.read") return JSON.stringify({ data: "", cursor: 0 });
+      throw new Error(`the test did not expect a ${name} call`);
+    });
+    render(<TerminalWorkspace grant={GRANT} />);
+    await screen.findByRole("tab", { name: /pty 1/ });
+
+    fireEvent.click(screen.getByRole("button", { name: "Close pty 1" }));
+    fireEvent.click(
+      within(await screen.findByRole("dialog", { name: "Close pty 1?" })).getByRole("button", {
+        name: "Detach"
+      })
+    );
+
+    // The other shell was already listed; a detach is not a request to show the next one.
+    expect(screen.queryByRole("tab")).not.toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Attach" })).toBeInTheDocument();
+  });
+
+  it("attaches another session from the Sessions menu without closing the first", async () => {    callToolMock.mockImplementation(async (_grant, name) => {
+      if (name === "terminal.list") {
+        return JSON.stringify([
+          { id: "new", kind: "pty", started_at_ms: 2_000 },
+          { id: "older", kind: "pty", started_at_ms: 1_000 }
+        ]);
+      }
+      if (name === "terminal.resize") return JSON.stringify({ rows: 24, cols: 80 });
+      if (name === "terminal.read") return JSON.stringify({ data: "", cursor: 0 });
+      throw new Error(`the test did not expect a ${name} call`);
+    });
+    render(<TerminalWorkspace grant={GRANT} />);
+    await screen.findByRole("tab", { name: /pty 1/ });
+
+    // The second tab does not exist yet; the menu names the one the device still has.
+    fireEvent.click(screen.getByLabelText("Session tools"));
+    fireEvent.click(await screen.findByRole("button", { name: "Sessions (1)" }));
+    const dialog = await screen.findByRole("dialog", { name: "Sessions on this device" });
+    expect(within(dialog).getByText("older")).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Attach" }));
+
+    expect(await screen.findByRole("tab", { name: /pty 2/ })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: /pty 1/ })).toBeInTheDocument();
+    expect(callToolMock.mock.calls.some(([, name]) => name === "terminal.close")).toBe(false);
   });
 
   it("keeps the tab and says so when the device will not close the session", async () => {
@@ -1062,12 +1141,10 @@ describe("TerminalWorkspace recovery", () => {
     await startPtyTab();
     fireEvent.click(screen.getByRole("button", { name: "Close pty 1" }));
 
-    // Closing a live pty asks first; the process keeps running on the machine.
+    // Ending a session asks first, and says what the destructive button does.
     const dialog = await screen.findByRole("dialog", { name: "Close pty 1?" });
-    expect(
-      within(dialog).getByText("Close this session? The process keeps running on the machine.")
-    ).toBeInTheDocument();
-    fireEvent.click(within(dialog).getByRole("button", { name: "Close session" }));
+    expect(within(dialog).getByText(/stops the shell/)).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole("button", { name: "End session" }));
 
     expect(await screen.findByText(/Could not close pty 1: device disconnected/)).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "pty 1" })).toBeInTheDocument();
