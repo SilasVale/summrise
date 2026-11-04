@@ -403,6 +403,8 @@ describe("App", () => {
     await bootAndSignIn();
     selectDevice("workshop");
     fireEvent.click(screen.getByRole("button", { name: "Activity" }));
+    // Activity opens on the timeline; the machine scope is the table's, one tab away.
+    fireEvent.click(screen.getByRole("tab", { name: "Table" }));
 
     const machine = await screen.findByRole("button", { name: "This machine" });
     expect(machine).toBeEnabled();
@@ -420,6 +422,8 @@ describe("App", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Activity" }));
     expect(screen.getByRole("heading", { name: "Activity", level: 1 })).toBeInTheDocument();
+    // The empty sentence below is the table's; Activity opens on the timeline, so open the table.
+    fireEvent.click(screen.getByRole("tab", { name: "Table" }));
     expect(screen.getByText("No calls yet.")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Device" }));
@@ -489,6 +493,8 @@ describe("App", () => {
     expect(workspace).toHaveAttribute("data-visible", "yes");
 
     fireEvent.click(screen.getByRole("button", { name: "Activity" }));
+    // The empty sentence below is the table's; Activity opens on the timeline, so open the table.
+    fireEvent.click(screen.getByRole("tab", { name: "Table" }));
     expect(screen.getByText("No calls yet.")).toBeInTheDocument();
     // Hidden, not unmounted: the tabs, their cursors and their names live in this subtree.
     expect(screen.getByTestId("workspace")).toBe(workspace);
@@ -581,6 +587,8 @@ describe("App", () => {
     await bootAndSignIn();
 
     fireEvent.click(screen.getByRole("button", { name: "Activity" }));
+    // Activity opens on the timeline; the token column is the table's.
+    fireEvent.click(screen.getByRole("tab", { name: "Table" }));
     expect(within(await screen.findByRole("table")).getByText("laptop-dsh")).toBeInTheDocument();
     expect(screen.queryByText(shortTokenId)).not.toBeInTheDocument();
     expect(mocks.tokens).toHaveBeenCalled();
@@ -594,6 +602,8 @@ describe("App", () => {
     // The list is a convenience: losing it leaves the page working and the table on record ids.
     expect(screen.getAllByRole("article")).toHaveLength(2);
     fireEvent.click(screen.getByRole("button", { name: "Activity" }));
+    // Activity opens on the timeline; the token column is the table's.
+    fireEvent.click(screen.getByRole("tab", { name: "Table" }));
     expect(within(await screen.findByRole("table")).getByText(shortTokenId)).toBeInTheDocument();
     expect(screen.queryByText("tokens_unavailable")).not.toBeInTheDocument();
 
