@@ -137,6 +137,17 @@ export function RunsPage({
     }
   }, [grant, historyGate]);
 
+  // **A RUN LINK CAN ARRIVE AT A PAGE THAT IS ALREADY OPEN.** The focus used to be consumed only
+  // inside a history read, so a hash change to #run/… while Runs was mounted loaded nothing and left
+  // the previous sentence on screen. A new id now loads its record directly; the read path keeps its
+  // own consumption for the first mount, and `focused` stops the two from loading the same run twice.
+  useEffect(() => {
+    if (!focusRunId || focused.current === focusRunId) return;
+    focused.current = focusRunId;
+    void showRef.current({ id: focusRunId } as RunRecord);
+    onFocusConsumedRef.current?.();
+  }, [focusRunId]);
+
   // A different grant is a different device's history and a different draft. It also invalidates a
   // run or a row read that is still waiting: its answer belongs to the device this page has left.
   useEffect(() => {

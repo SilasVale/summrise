@@ -176,6 +176,28 @@ describe("RunsPage", () => {
     expect(consumed).toHaveBeenCalled();
   });
 
+  it("opens a run that arrives by hash while the page is already open", async () => {
+    mocked.mockImplementation(async (_grant, name, args) => {
+      if (name === "runs.list") return JSON.stringify([]);
+      if (name === "runs.get") return JSON.stringify({ ...HELLO, id: (args as { id: string }).id });
+      throw new Error(`the test did not expect ${name}`);
+    });
+    const consumed = vi.fn();
+
+    const view = render(<RunsPage grant={GRANT} onFocusConsumed={consumed} />);
+    await waitFor(() => expect(called("runs.list")).toHaveLength(1));
+
+    // The hash change happens with the page already mounted: nothing re-reads the history, and the
+    // focus used to be consumed only inside that read, so this run was never loaded.
+    view.rerender(<RunsPage grant={GRANT} focusRunId="run-late" onFocusConsumed={consumed} />);
+
+    await waitFor(() =>
+      expect(called("runs.get")).toEqual([[GRANT, "runs.get", { id: "run-late" }]])
+    );
+    expect(await screen.findByText("echo hello")).toBeInTheDocument();
+    expect(consumed).toHaveBeenCalled();
+  });
+
   it("runs an argv line as command plus args, shows the result and reads the history again", async () => {
     let lists = 0;
     mocked.mockImplementation(async (_grant, name) => {
