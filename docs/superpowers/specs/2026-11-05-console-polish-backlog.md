@@ -85,6 +85,14 @@ workstream owns; each one ships with the same gates as a feature.
 4. Build the console with a new `-uxNN`, swap it on the host, run the live check, screenshot.
 5. Commit with the measurement and a `VERIFIED:` list. Tick the item here in the same commit.
 
+## A decision C4 forced, recorded here
+
+**Per-call approval of destructive tools does not exist in this console, and C4 deleted its last
+vestige.** The `/next/approvals/*` routes were the only approval surface; the pending map nothing
+populated, so no call was ever held. Destructive tools are allowed per grant (`allow_destructive`),
+and the audit records the refusal when a grant does not carry it. If per-call approval is wanted, it
+is a new feature with a real holding mechanism — not a page to restore.
+
 ## Not on this list, and why
 
 - **A fleet-wide board.** The toolbar's picker is the model; the operator rejected a second
