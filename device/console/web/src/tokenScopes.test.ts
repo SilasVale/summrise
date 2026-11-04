@@ -2,6 +2,11 @@ import { describe, expect, it } from "vitest";
 import type { TokenMeta } from "./api";
 import { mergeTokenRows, scopeLabel, tokenScope } from "./tokenScopes";
 
+const MACHINES = [
+  { id: "device-1", name: "workshop" },
+  { id: "device-2", name: "attic" }
+];
+
 function token(overrides: Partial<TokenMeta> = {}): TokenMeta {
   return {
     id: "tok-device",
@@ -17,21 +22,42 @@ function token(overrides: Partial<TokenMeta> = {}): TokenMeta {
 describe("tokenScope", () => {
   it("calls a token with device_ids a fleet token", () => {
     expect(tokenScope(token({ device_id: "", device_ids: ["device-1", "device-2"] }))).toBe("fleet");
-    expect(scopeLabel(token({ device_id: "", device_ids: ["device-1"] }))).toBe("all machines");
   });
 
   it("calls a token with one device_id a device token", () => {
     expect(tokenScope(token())).toBe("device");
-    expect(scopeLabel(token())).toBe("this machine");
+  });
+});
+
+describe("scopeLabel", () => {
+  it("says this machine only for the sheet's own machine", () => {
+    expect(scopeLabel(token(), MACHINES, "device-1").label).toBe("this machine");
   });
 
-  it("treats an empty device_ids list as the device scope, not a fleet token reaching nothing", () => {
-    expect(tokenScope(token({ device_id: "", device_ids: [] }))).toBe("device");
+  it("names the other machine a device token was minted for", () => {
+    expect(scopeLabel(token({ device_id: "device-2" }), MACHINES, "device-1").label).toBe("attic");
+  });
+
+  it("counts the machines an aggregate token was minted for, not 'all machines'", () => {
+    const fleet = token({ device_id: "", device_ids: ["device-1", "device-2", "device-3"] });
+    const words = scopeLabel(fleet, MACHINES, "device-1");
+
+    expect(words.label).toBe("3 machines it was minted for");
+    expect(words.label).not.toBe("all machines");
+    // `/mcp/all` enforces the recorded ids literally; the title is what stops the count reading as
+    // "every machine, including one enrolled tomorrow".
+    expect(words.title).toContain("enrolled after");
+  });
+
+  it("says one machine, not one machines", () => {
+    expect(scopeLabel(token({ device_id: "", device_ids: ["device-1"] })).label).toBe(
+      "1 machine it was minted for"
+    );
   });
 });
 
 describe("mergeTokenRows", () => {
-  it("merges both sources by creation time, newest first", () => {
+  it("merges the registry and the created row by creation time, newest first", () => {
     const device = token({ id: "device", created_at_ms: 1_000 });
     const fleet = token({
       id: "fleet",
@@ -43,7 +69,7 @@ describe("mergeTokenRows", () => {
     expect(mergeTokenRows([device], [fleet]).map((entry) => entry.id)).toEqual(["fleet", "device"]);
   });
 
-  it("lists a record that both sources carry once, keeping the first source's copy", () => {
+  it("lists a record that both the read and the created row carry once, keeping the read's copy", () => {
     const fromDevice = token({ name: "from device" });
     const fromAll = token({ name: "from all" });
     const merged = mergeTokenRows([fromDevice], [fromAll]);

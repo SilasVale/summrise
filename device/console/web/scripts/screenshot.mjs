@@ -936,13 +936,6 @@ function replyFor(request, url) {
   if (connection && method === 'DELETE') return noContent();
 
   if (pathname === '/tokens' && method === 'GET') return json(TOKENS);
-  // The one credential list reads the machine's narrower source too. It is the same records
-  // filtered by scope, exactly what a console route of this shape would answer.
-  const deviceTokens = /^\/tokens\/([^/]+)$/.exec(pathname);
-  if (deviceTokens && method === 'GET') {
-    const deviceId = decodeURIComponent(deviceTokens[1]);
-    return json(TOKENS.filter((entry) => entry.device_id === deviceId));
-  }
   if (pathname === '/tokens' && method === 'POST') {
     const body = requestBody(request);
     return json(
@@ -1479,9 +1472,14 @@ async function capturePage(page, state, meta, pass) {
     // The page opens on the timeline; the table, its disclosure and "Open in Runs" are one tab
     // away. The harness photographs the table because that is where the id and the run link live.
     await page.getByRole('tab', { name: 'Table' }).click();
-    // The record is the row, but the full id lives in the disclosure. Photograph it open so the
-    // name-to-id step and the copy button are reviewed, not just the summary table.
-    await page.locator('.audit-row').first().click();
+    // The record is disclosed by its own button now, not a click anywhere on the row: a keyboard
+    // reaches the same control. Photograph it open so the name-to-id step and the copy button are
+    // reviewed, not just the summary table.
+    await page
+      .locator('.audit-row')
+      .first()
+      .getByRole('button', { name: /Show the record for/ })
+      .click();
     await settle(page, state, 250);
     const detailFile = `audit-detail${pass.suffix}.png`;
     await page.screenshot({ path: path.join(OUT, detailFile), animations: 'disabled', fullPage: false });

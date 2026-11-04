@@ -299,19 +299,19 @@ describe("ConnectSheet", () => {
 });
 
 describe("ConnectSheet's one credential list", () => {
-  it("shows a device token and a fleet token together, each with its scope, newest first", async () => {
+  it("shows a device token and a fleet token together, each with its reach, newest first", async () => {
     const deviceToken = tokenMeta();
     const fleetToken = tokenMeta({
       id: "tok-fleet",
       name: "dsh-fleet",
       device_id: "",
-      device_ids: [WORKSHOP.id, ATTIC.id],
+      device_ids: [WORKSHOP.id, ATTIC.id, "dev-a-third-machine"],
       tools: ["files.read", "terminal.write"],
       allow_destructive: true,
       created_at_ms: Date.UTC(2026, 10, 2)
     });
     // One registry carries both scopes; the list must not draw the same record twice and must
-    // label each row by the scope the registry says it has.
+    // label each row by what the record can actually reach.
     mocks.tokens.mockResolvedValue([fleetToken, deviceToken]);
 
     draw({ initialSection: "tokens" });
@@ -319,12 +319,48 @@ describe("ConnectSheet's one credential list", () => {
     const deviceRow = await screen.findByRole("row", { name: /laptop/ });
     const fleetRow = screen.getByRole("row", { name: /dsh-fleet/ });
     expect(deviceRow).toHaveTextContent("this machine");
-    expect(fleetRow).toHaveTextContent("all machines");
+    expect(fleetRow).toHaveTextContent("3 machines it was minted for");
+    expect(fleetRow).not.toHaveTextContent("all machines");
+    const scopeChip = within(fleetRow).getByText("3 machines it was minted for");
+    expect(scopeChip.getAttribute("title")).toContain("enrolled after");
     expect(screen.getAllByRole("row", { name: /laptop|dsh-fleet/ })).toHaveLength(2);
 
     const dataRows = within(screen.getByRole("table")).getAllByRole("row").slice(1);
     expect(dataRows[0]).toHaveTextContent("dsh-fleet");
     expect(dataRows[1]).toHaveTextContent("laptop");
+  });
+
+  it("shows a token minted for another machine under that machine's name", async () => {
+    mocks.tokens.mockResolvedValue([
+      tokenMeta({ id: "tok-attic", name: "attic-ops", device_id: ATTIC.id })
+    ]);
+
+    draw({ initialSection: "tokens", devices: [WORKSHOP, ATTIC] });
+
+    const row = await screen.findByRole("row", { name: /attic-ops/ });
+    expect(row).toHaveTextContent("attic");
+    expect(row).not.toHaveTextContent("this machine");
+    // The registry is not empty, so the "none has been minted" sentence would be a lie.
+    expect(screen.queryByText(/none has been minted yet/)).not.toBeInTheDocument();
+  });
+
+  it("lists every registry token when no machine is selected", async () => {
+    mocks.tokens.mockResolvedValue([
+      tokenMeta({ id: "tok-workshop", name: "workshop-token" }),
+      tokenMeta({
+        id: "tok-attic",
+        name: "attic-token",
+        device_id: ATTIC.id,
+        created_at_ms: Date.UTC(2026, 10, 3)
+      })
+    ]);
+
+    draw({ device: null, devices: [WORKSHOP, ATTIC], initialSection: "tokens" });
+
+    expect(await screen.findByRole("row", { name: /workshop-token/ })).toBeInTheDocument();
+    expect(screen.getByRole("row", { name: /attic-token/ })).toBeInTheDocument();
+    expect(within(screen.getByRole("table")).getAllByRole("row")).toHaveLength(3);
+    expect(screen.queryByText(/none has been minted yet/)).not.toBeInTheDocument();
   });
 
   it("mints against all machines with the fleet payload and shows the new row with that scope", async () => {
@@ -351,7 +387,7 @@ describe("ConnectSheet's one credential list", () => {
       })
     );
     const row = await screen.findByRole("row", { name: /fleet/ });
-    expect(row).toHaveTextContent("all machines");
+    expect(row).toHaveTextContent("2 machines it was minted for");
     // The one-time value is still the reveal; the row is metadata and never the secret.
     expect(screen.getByText("srm_" + "c".repeat(64))).toBeInTheDocument();
     expect(row).not.toHaveTextContent("srm_");
@@ -379,7 +415,7 @@ describe("ConnectSheet's one credential list", () => {
     expect(mocks.revokeToken).toHaveBeenCalledTimes(1);
   });
 
-  it("says what a token is for when none exists, and keeps the mint form visible", async () => {
+  it("says what a token is for only when the registry truly has none, and keeps the mint form visible", async () => {
     draw({ initialSection: "tokens" });
 
     expect(await screen.findByText(/none has been minted yet/)).toBeInTheDocument();

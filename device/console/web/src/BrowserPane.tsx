@@ -23,6 +23,8 @@ const NO_BROWSER =
   "No browser is open on this device. Type an address below and choose Open new tab to start one.";
 const NO_PAGE =
   "No browser page is open on this device. Type an address below and choose Open new tab to start one.";
+/** A down machine cannot list or open a browser; the empty state must not invite the click. */
+const OFFLINE = "The machine is offline; its browser cannot be listed or opened until it reconnects.";
 
 // The device drives a real Chrome over CDP; the page's half of that is an <img>. `browser.screenshot`
 // answers a base64 PNG, which needs no plugin, no second port and no native window.
@@ -33,7 +35,9 @@ export function BrowserPane({ grant, deviceOnline }: { grant: Grant; deviceOnlin
   const [shot, setShot] = useState<string | null>(null);
   const [url, setUrl] = useState("");
   const [text, setText] = useState("");
-  const [status, setStatus] = useState(NO_BROWSER);
+  // The first paint must not invite a control the same props have already disabled; the effect
+  // below keeps the sentence right when the fleet's word changes later.
+  const [status, setStatus] = useState(offline ? OFFLINE : NO_BROWSER);
   const [live, setLive] = useState(false);
   const [frames, setFrames] = useState(0);
   const [size, setSize] = useState<{ width: number; height: number } | null>(null);
@@ -180,12 +184,18 @@ export function BrowserPane({ grant, deviceOnline }: { grant: Grant; deviceOnlin
 
   // A click on the picture is a DOM click at the page's own coordinates. It drives ordinary pages and
   // does not pretend to be a native event — the label says so rather than letting the picture imply it.
-  const click = async (event: React.MouseEvent<HTMLImageElement>) => {
+  const click = async (event: React.MouseEvent<HTMLButtonElement>) => {
     if (!shot || !target) return;
-    const image = event.currentTarget;
+    const image = event.currentTarget.querySelector("img");
+    if (!image) return;
     const box = image.getBoundingClientRect();
-    const x = Math.round(((event.clientX - box.left) / box.width) * image.naturalWidth);
-    const y = Math.round(((event.clientY - box.top) / box.height) * image.naturalHeight);
+    // A keyboard activation has no pointer coordinates; it lands at the centre, which is the one
+    // point a keyboard user can name without seeing a cursor.
+    const keyboard = event.detail === 0;
+    const clientX = keyboard ? box.left + box.width / 2 : event.clientX;
+    const clientY = keyboard ? box.top + box.height / 2 : event.clientY;
+    const x = Math.round(((clientX - box.left) / box.width) * image.naturalWidth);
+    const y = Math.round(((clientY - box.top) / box.height) * image.naturalHeight);
     const expression = `(() => {
       const el = document.elementFromPoint(${x}, ${y});
       if (!el) return "nothing at ${x},${y}";
@@ -237,7 +247,7 @@ export function BrowserPane({ grant, deviceOnline }: { grant: Grant; deviceOnlin
       setTargets([]);
       setTarget("");
       setShot(null);
-      setStatus("The machine is offline; its browser cannot be listed until it reconnects.");
+      setStatus(OFFLINE);
       return;
     }
     void list();
@@ -384,7 +394,12 @@ export function BrowserPane({ grant, deviceOnline }: { grant: Grant; deviceOnlin
         </button>
       </div>
       <div className="row">
-        <input placeholder="text to type into the focused field" value={text} onChange={(event) => setText(event.target.value)} />
+        <input
+          aria-label="Text to type into the focused field"
+          placeholder="text to type into the focused field"
+          value={text}
+          onChange={(event) => setText(event.target.value)}
+        />
         <button type="button" disabled={!shot || offline} onClick={() => void type()}>Type</button>
       </div>
 
@@ -413,18 +428,26 @@ export function BrowserPane({ grant, deviceOnline }: { grant: Grant; deviceOnlin
             <span className="hint">Input is DOM-level, not a local browser window.</span>
           </div>
           <div className={`browser-view ${zoom}`}>
-            <img
-              className="browser-shot"
-              src={shot}
-              alt="the device's browser page"
-              onLoad={(event) =>
-                setSize({
-                  width: event.currentTarget.naturalWidth,
-                  height: event.currentTarget.naturalHeight
-                })
-              }
+            {/* The picture is a control, so it is a real button: Tab reaches it and Enter clicks the
+                centre. The pointer coordinates are still the image's own, so nothing moves. */}
+            <button
+              type="button"
+              className="browser-shot-button"
+              aria-label="Click the remote page; a keyboard click lands at its centre"
               onClick={(event) => void click(event)}
-            />
+            >
+              <img
+                className="browser-shot"
+                src={shot}
+                alt="the device's browser page"
+                onLoad={(event) =>
+                  setSize({
+                    width: event.currentTarget.naturalWidth,
+                    height: event.currentTarget.naturalHeight
+                  })
+                }
+              />
+            </button>
           </div>
         </>
       )}

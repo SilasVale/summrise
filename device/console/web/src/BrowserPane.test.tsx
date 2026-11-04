@@ -63,14 +63,19 @@ describe("BrowserPane", () => {
     callToolMock.mockImplementation(async (_grant, name, args) => answerFor(name, args));
   });
 
-  it("does not list a browser on a machine the fleet says is down", async () => {
+  it("does not invite a browser on a machine the fleet says is down", async () => {
     render(<BrowserPane grant={grant} deviceOnline={false} />);
     await waitFor(() => expect(callToolMock).not.toHaveBeenCalled());
     expect(
-      screen.getByText("The machine is offline; its browser cannot be listed until it reconnects.")
+      screen.getByText(
+        "The machine is offline; its browser cannot be listed or opened until it reconnects."
+      )
     ).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Refresh pages" })).toBeDisabled();
+    // The empty state must not say "choose Open new tab" when that control is disabled.
+    expect(screen.queryByText(/choose Open new tab/)).not.toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Address"), { target: { value: "https://b.test" } });
     expect(screen.getByRole("button", { name: "Open new tab" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Refresh pages" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Stop browser" })).toBeDisabled();
   });
 

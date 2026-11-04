@@ -330,31 +330,24 @@ function TokensSection({
   ).length;
 
   /**
-   * Read the registry and split it by scope, newest first.
+   * Read the whole registry, newest first.
    *
-   * `GET /tokens` is the whole registry and the only list the console serves, so the machine's rows
-   * are its slice of that answer rather than a second request (there is no `/tokens/<device>` route;
-   * asking for one made every Tokens open log a 405). A failed read keeps the list already on screen
-   * and says why.
+   * `GET /tokens` is the whole registry and the only list the console serves (there is no
+   * `/tokens/<device>` route; asking for one made every Tokens open log a 405). Every record is
+   * shown, whatever machine it was minted for: a row scoped elsewhere is a real token that exists,
+   * and hiding it made the list look empty when it was not. The Scope column, not a filter, says
+   * which machine each row reaches. A failed read keeps the list already on screen and says why.
    */
-  const refresh = useCallback(
-    async (justCreated?: TokenMeta) => {
-      const deviceId = device?.id ?? null;
-      try {
-        const whole = await api.tokens();
-        const deviceRows = deviceId
-          ? whole.filter((entry) => entry.device_id === deviceId)
-          : [];
-        const fleetRows = whole.filter((entry) => tokenScope(entry) === "fleet");
-        setTokens(mergeTokenRows(deviceRows, fleetRows, justCreated ? [justCreated] : []));
-        setTokensError(null);
-      } catch (cause) {
-        setTokensError(message(cause));
-        if (justCreated) setTokens((previous) => mergeTokenRows(previous ?? [], [justCreated]));
-      }
-    },
-    [device]
-  );
+  const refresh = useCallback(async (justCreated?: TokenMeta) => {
+    try {
+      const whole = await api.tokens();
+      setTokens(mergeTokenRows(whole, justCreated ? [justCreated] : []));
+      setTokensError(null);
+    } catch (cause) {
+      setTokensError(message(cause));
+      if (justCreated) setTokens((previous) => mergeTokenRows(previous ?? [], [justCreated]));
+    }
+  }, []);
 
   useEffect(() => {
     void refresh();
@@ -659,6 +652,7 @@ function TokensSection({
               <tbody>
                 {tokens.map((entry) => {
                   const label = entry.name || shortId(entry.id);
+                  const scope = scopeLabel(entry, devices, device?.id ?? null);
                   return (
                     <tr key={entry.id}>
                       <td>
@@ -679,7 +673,9 @@ function TokensSection({
                         </div>
                       </td>
                       <td>
-                        <span className="chip">{scopeLabel(entry)}</span>
+                        <span className="chip" title={scope.title}>
+                          {scope.label}
+                        </span>
                       </td>
                       <td className="token-tools">
                         <span title={entry.tools.join(", ")}>
