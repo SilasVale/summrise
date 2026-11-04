@@ -655,7 +655,6 @@ export function App() {
             onAddMachine={addMachine}
             onDismissCode={() => setCode(null)}
             onNotice={setNotice}
-            audit={audit}
             onConnect={() => setConnect({ section: "endpoint", device: chosen })}
             onCapabilities={() => setPage("capabilities")}
             onActivity={() => setPage("activity")}

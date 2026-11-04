@@ -231,6 +231,13 @@ describe("the endpoints", () => {
     await request(() => api.audit(5), "/audit?limit=5");
   });
 
+  it("audit names a machine when the caller asks for one machine's lines", async () => {
+    await request(
+      () => api.audit(1000, "dev-workshop"),
+      "/audit?limit=1000&device=dev-workshop"
+    );
+  });
+
   it("denials asks for a limit of 200 by default", async () => {
     await request(() => api.denials(), "/denials?limit=200");
   });

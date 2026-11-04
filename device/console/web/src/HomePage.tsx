@@ -1,14 +1,14 @@
 import { useEffect, useState } from "react";
 import { LiveNow } from "./LiveNow";
 import type { LiveLine } from "./liveActivity";
-import type { AuditLine, Device } from "./api";
+import { api, type AuditLine, type Device } from "./api";
 import { DeviceCard } from "./DeviceCard";
 import { copyText } from "./copy";
 import { shortId } from "./format";
 import { listPlugins } from "./pluginApi";
 import { useLiveTools } from "./useLiveTools";
 import { ActivityTimeline } from "./ActivityTimeline";
-import { capActivity, mergeActivity } from "./activityMerge";
+import { ACTIVITY_LIMIT, capActivity, mergeActivity } from "./activityMerge";
 
 /** A one-time enrollment code and the command that redeems it. */
 export type Enrollment = { code: string; expires_at_ms: number } | null;
@@ -156,7 +156,6 @@ function startOfToday(now = Date.now()): number {
 function HubHome(
   props: FleetProps & {
     device: Device;
-    audit: AuditLine[];
     onConnect: () => void;
     onCapabilities: () => void;
     onActivity: () => void;
@@ -181,17 +180,55 @@ function HubHome(
   // both the Now band and the timeline drop every other machine's. The timeline is today's; older
   // days belong to Activity, behind the All activity link.
   const liveLines = (props.liveLines ?? []).filter((line) => line.device_id === device.id);
+  // THE HUB READS ITS OWN MACHINE. Filtering the fleet window here let another machine's newer
+  // traffic push this machine's day out, and then the empty sentence below claimed there had been
+  // no calls at all. `/audit?device=` applies the filter during the server's scan, so the window is
+  // this machine's 1000 lines whatever the rest of the fleet is doing.
+  const [machineAudit, setMachineAudit] = useState<{
+    device: string;
+    lines: AuditLine[];
+  } | null>(null);
+  const [auditError, setAuditError] = useState(false);
+  useEffect(() => {
+    let current = true;
+    setMachineAudit(null);
+    setAuditError(false);
+    api
+      .audit(ACTIVITY_LIMIT, device.id)
+      .then((lines) => {
+        if (current) setMachineAudit({ device: device.id, lines });
+      })
+      .catch(() => {
+        if (current) setAuditError(true);
+      });
+    return () => {
+      current = false;
+    };
+  }, [device.id]);
+
   const todayStart = startOfToday();
-  // The hub claims today, so it caps today's rows rather than the fleet-wide fetch window: the
-  // sentence above the timeline is only true when this machine's own day needed cutting.
+  const loaded = machineAudit?.device === device.id;
+  const fetched = loaded && machineAudit ? machineAudit.lines : [];
   const timeline = capActivity(
-    mergeActivity(
-      props.audit.filter((line) => line.device_id === device.id),
-      liveLines
-    )
+    mergeActivity(fetched, liveLines)
       .filter((line) => line.ts_ms >= todayStart)
       .sort((a, b) => b.ts_ms - a.ts_ms)
   );
+  // The server returns this machine's newest 1000 lines. If the oldest of them is still today then
+  // today's list may continue behind that window; if it is yesterday, every today line is already
+  // here. Live lines can also push the merged list past the cap.
+  const oldestFetched = fetched[fetched.length - 1];
+  const ownWindowCut =
+    timeline.capped ||
+    (fetched.length >= ACTIVITY_LIMIT &&
+      oldestFetched !== undefined &&
+      oldestFetched.ts_ms >= todayStart);
+  const empty = auditError
+    ? "The console could not read this machine's activity, so this list may be incomplete."
+    : !loaded
+      ? "Reading this machine's activity…"
+      : `No calls from ${name} today. When an AI client calls this machine with its token, ` +
+        "its work appears here; Connect a client sets one up.";
 
   const offline = !device.online || live.offline;
   // **THE MACHINE CHIP ALREADY SAYS "Running · v…".** Repeating it here spent the page's one subtitle
@@ -242,18 +279,23 @@ function HubHome(
       />
 
       <section className="panel home-timeline" aria-label="This machine's activity">
+        {auditError && timeline.lines.length > 0 && (
+          // Live lines are on screen, but the history behind them is unread: the page says which
+          // half it is showing instead of letting the list stand for the whole day.
+          <p className="hint" role="status">
+            The console could not read this machine's audit, so this timeline shows only calls that
+            arrive live.
+          </p>
+        )}
         <ActivityTimeline
           lines={timeline.lines}
           devices={props.devices}
-          capped={timeline.capped}
+          capped={ownWindowCut}
           // The hub's timeline is already this machine's day: a machine chip here could only say
           // "All machines" over one machine's lines, which would be a lie.
           showFilters={false}
           onWatch={props.onWatchTerminal}
-          empty={
-            `No calls from ${name} today. When an AI client calls this machine with its token, ` +
-            "its work appears here; Connect a client sets one up."
-          }
+          empty={empty}
         />
       </section>
 
@@ -275,7 +317,6 @@ function HubHome(
 export type HomePageProps = FleetProps & {
   /// The machine in context. Null is the fleet zero state; a chosen machine is the hub.
   device: Device | null;
-  audit: AuditLine[];
   onConnect: () => void;
   onCapabilities: () => void;
   onActivity: () => void;

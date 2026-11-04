@@ -230,7 +230,12 @@ export const api = {
   // recovery sentence beside its code.
   liveTools: (id: string) =>
     call<{ tools: LiveTool[] }>(`/fleet/${encodeURIComponent(id)}/tools`),
-  audit: (limit = 20) => call<AuditLine[]>(`/audit?limit=${limit}`),
+  // `device` narrows the read on the server, during the scan: the newest `limit` lines for that
+  // machine, not the fleet's newest `limit` filtered afterwards. Omitting it keeps the fleet window.
+  audit: (limit = 20, device?: string) =>
+    call<AuditLine[]>(
+      `/audit?limit=${limit}${device ? `&device=${encodeURIComponent(device)}` : ""}`
+    ),
   // The refusal log is a separate file with the audit line's shape: same route rules, same limit, and
   // no token id because the caller never authenticated.
   denials: (limit = 200) => call<AuditLine[]>(`/denials?limit=${limit}`),

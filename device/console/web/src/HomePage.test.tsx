@@ -1,8 +1,13 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AuditLine, Device, LiveTool } from "./api";
 import { HomePage } from "./HomePage";
 import type { LiveLine } from "./liveActivity";
+
+// The hub asks `/audit?device=` for its own machine's newest lines; the fleet window belongs to
+// Activity. These tests drive the fetch the way the console answers it.
+const auditApi = vi.hoisted(() => ({ audit: vi.fn() }));
+vi.mock("./api", () => ({ api: { audit: auditApi.audit } }));
 
 const live = vi.hoisted(() => ({ value: {} as Record<string, unknown> }));
 vi.mock("./useLiveTools", () => ({ useLiveTools: () => live.value }));
@@ -65,10 +70,23 @@ function liveCall(overrides: Partial<LiveLine> = {}): LiveLine {
 }
 
 function draw(overrides: Record<string, unknown> = {}) {
+  const {
+    audit,
+    auditError = false,
+    ...props
+  } = overrides;
+  const now = Date.now();
+  const calls = [
+    call({ ts_ms: now }),
+    call({ tool: "files.read", ts_ms: now }),
+    call({ tool: "screen.capture", ts_ms: now }),
+    call({ tool: "runs.exec", ts_ms: now })
+  ];
+  if (auditError) auditApi.audit.mockRejectedValue(new Error("the audit could not be read"));
+  else auditApi.audit.mockResolvedValue(audit ?? calls);
   const onConnect = vi.fn();
   const onCapabilities = vi.fn();
   const onActivity = vi.fn();
-  const now = Date.now();
   const view = render(
     <HomePage
       device={workshop}
@@ -77,12 +95,6 @@ function draw(overrides: Record<string, unknown> = {}) {
       code={null}
       enrollCommand=""
       busy={false}
-      audit={[
-        call({ ts_ms: now }),
-        call({ tool: "files.read", ts_ms: now }),
-        call({ tool: "screen.capture", ts_ms: now }),
-        call({ tool: "runs.exec", ts_ms: now })
-      ]}
       onOpen={vi.fn()}
       onRename={vi.fn()}
       onRemove={vi.fn()}
@@ -94,13 +106,14 @@ function draw(overrides: Record<string, unknown> = {}) {
       onCapabilities={onCapabilities}
       onActivity={onActivity}
       consoleVersion="0.3.999"
-      {...overrides}
+      {...props}
     />
   );
   return { ...view, onConnect, onCapabilities, onActivity };
 }
 
 beforeEach(() => {
+  auditApi.audit.mockReset();
   live.value = { tools, stale: false, error: null, offline: false, loading: false, retry: vi.fn() };
   plugins.list.mockResolvedValue([
     { namespace: "hello" },
@@ -122,8 +135,8 @@ describe("Home — the hub", () => {
 
     // The four fetched calls for this machine are the timeline, newest first. The old "Recent calls"
     // list is gone: it was the same rows without the sentence.
+    await waitFor(() => expect(screen.getAllByRole("listitem")).toHaveLength(4));
     const rows = screen.getAllByRole("listitem");
-    expect(rows).toHaveLength(4);
     expect(rows[0]).toHaveTextContent("terminal.create");
   });
 
@@ -192,7 +205,7 @@ describe("Home — the hub", () => {
     expect(within(timeline).queryByRole("group", { name: "Filter by machine" })).toBeNull();
   });
 
-  it("keeps older days off the hub's timeline", () => {
+  it("keeps older days off the hub's timeline", async () => {
     const yesterday = new Date();
     yesterday.setDate(yesterday.getDate() - 1);
     yesterday.setHours(12, 0, 0, 0);
@@ -202,7 +215,7 @@ describe("Home — the hub", () => {
     });
 
     expect(screen.queryByText("Ran yesterday")).not.toBeInTheDocument();
-    expect(screen.getByText(/No calls from workshop today/)).toBeInTheDocument();
+    expect(await screen.findByText(/No calls from workshop today/)).toBeInTheDocument();
   });
 
   it("opens the catalogue from the counts line", async () => {
@@ -291,5 +304,48 @@ describe("Home — the hub", () => {
     expect(await screen.findByText("Running · console v0.3.999")).toBeInTheDocument();
     expect(await screen.findByRole("button", { name: /1 tool · 1 capability · 0 plugins/ })).toBeInTheDocument();
     expect(plugins.list).not.toHaveBeenCalled();
+  });
+
+  it("asks the console for this machine's own newest lines, not the fleet window", async () => {
+    draw({ audit: [] });
+
+    await waitFor(() => expect(auditApi.audit).toHaveBeenCalledWith(1000, workshop.id));
+    expect(auditApi.audit).toHaveBeenCalledTimes(1);
+  });
+
+  it("says the window was cut when this machine's own 1000 were", async () => {
+    // Midnight, a minute in: every row is today even in a run that starts just after midnight.
+    const start = new Date();
+    start.setHours(0, 0, 0, 0);
+    const base = start.getTime() + 60_000;
+    const thousand: AuditLine[] = Array.from({ length: 1000 }, (_, index) =>
+      call({
+        ts_ms: base - index,
+        tool: index % 2 === 0 ? "terminal.create" : "files.read"
+      })
+    );
+    draw({ audit: thousand });
+
+    expect(
+      await screen.findByText("Showing the newest 1000 lines; older ones are not on this page.")
+    ).toBeInTheDocument();
+  });
+
+  it("does not say the window was cut for a list shorter than the cap", async () => {
+    draw();
+
+    await screen.findByText("terminal.create");
+    expect(screen.queryByText(/Showing the newest/)).toBeNull();
+  });
+
+  it("does not claim there were no calls when this machine's audit could not be read", async () => {
+    draw({ auditError: true });
+
+    expect(
+      await screen.findByText(
+        "The console could not read this machine's activity, so this list may be incomplete."
+      )
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/No calls from workshop today/)).toBeNull();
   });
 });
