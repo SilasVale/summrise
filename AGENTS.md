@@ -42,8 +42,7 @@ device's own pages are separate.
   yesterday's UI silently.
 - `cargo test -p summrise-console` — the console suite and the token contract
   (`tests/tokens.rs`: seven type sizes, one spacing rhythm, the radii, the dark surfaces, and the
-  React sheet's eleven text pairs in BOTH themes against WCAG AA). The maud fallback's pairs are
-  measured by `every_text_colour_reads_on_the_surface_it_sits_on` in `src/http/page.rs`.
+  React sheet's eleven text pairs in BOTH themes against WCAG AA).
 - `cargo test --manifest-path device/console-logic/Cargo.toml` and
   `node scripts/check-console-logic.mjs` — the page's pure decisions are Rust/wasm; the artifact is
   committed, and the check fails when a source edit was not rebuilt.

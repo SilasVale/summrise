@@ -130,8 +130,8 @@ fn the_dark_surfaces_are_restated_not_inherited() {
 
 // ── THE REACT PAGE'S OWN COLOUR PAIRS ─────────────────────────────────────────────────────────────
 //
-// The maud fallback has its own measured AA test in `src/http/page.rs`; the React page's sheet had
-// none, so `--ink-faint` shipped as #a1a1aa — 2.46:1 on white, used at 11px — and nothing failed.
+// The React page's sheet had no measured AA test, so `--ink-faint` shipped as #a1a1aa — 2.46:1 on
+// white, used at 11px — and nothing failed.
 // This test reads the SAME sheet Vite builds, resolves the two themes, and measures every
 // text-on-surface pair the page actually draws.
 

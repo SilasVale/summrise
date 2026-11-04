@@ -1302,7 +1302,16 @@ async fn logout(State(app): State<AppState>, _: OperatorSession, headers: Header
             return StatusCode::INTERNAL_SERVER_ERROR.into_response();
         }
     }
-    let mut response = StatusCode::NO_CONTENT.into_response();
+    // The cookie is ours; the identity is the edge's. Behind Access, clearing only ours is undone by
+    // the next request the edge authenticates, so the answer names the edge's logout for the page to
+    // follow, and says `null` when there is no edge to sign out of (this is what `/next/logout` did
+    // with a redirect before the maud pages were deleted).
+    let access_logout = app
+        .access
+        .as_ref()
+        .and_then(crate::access::Access::issuer)
+        .map(|issuer| format!("{}/cdn-cgi/access/logout", issuer.trim_end_matches('/')));
+    let mut response = Json(json!({ "access_logout": access_logout })).into_response();
     response.headers_mut().insert(
         header::SET_COOKIE,
         clear_session_cookie(secure_request(&headers)),

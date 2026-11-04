@@ -597,8 +597,10 @@ async fn logout_ends_only_the_session_that_presented_its_token() {
     assert_ne!(first, second, "two sign-ins are two sessions");
 
     let (status, body) = send(fixture.app(), post("/logout", Some(&first))).await;
-    assert_eq!(status, StatusCode::NO_CONTENT);
-    assert_eq!(body, Value::Null, "204 carries no body");
+    assert_eq!(status, StatusCode::OK);
+    // The console cookie is ours; without Access there is no edge session to end, and the answer
+    // says so instead of inventing a URL.
+    assert!(body["access_logout"].is_null(), "{body}");
 
     let (status, body) = send(fixture.app(), get("/fleet", Some(&first))).await;
     assert_eq!(
@@ -3421,6 +3423,41 @@ async fn a_verified_access_request_signs_in_without_a_token() {
         .expect("the answer sets the session it just minted");
     assert!(cookie.starts_with("summrise_session="), "{cookie}");
     assert!(cookie.contains("HttpOnly"), "{cookie}");
+}
+
+/// Signing out behind Access has to end the edge's session too: the page cannot, so the answer names
+/// the edge's logout URL. Without Access there is no edge session, and the answer says `null` rather
+/// than inventing a URL.
+#[tokio::test]
+async fn signing_out_names_the_edge_logout_only_when_there_is_an_edge() {
+    let with_edge = Fixture::with_access("sign-out-edge");
+    let cookie = sign_in_cookie(&with_edge).await;
+    let request = Request::builder()
+        .method("POST")
+        .uri("/logout")
+        .header(header::COOKIE, &cookie)
+        .body(Body::empty())
+        .expect("the request builds");
+    let (status, _, body) = send_text(with_edge.app(), request).await;
+    assert_eq!(status, StatusCode::OK);
+    let body: Value = serde_json::from_str(&body).expect("the answer is JSON");
+    let url = body["access_logout"]
+        .as_str()
+        .expect("the edge logout is named");
+    assert!(url.ends_with("/cdn-cgi/access/logout"), "{url}");
+
+    let plain = Fixture::new("sign-out-plain");
+    let cookie = sign_in_cookie(&plain).await;
+    let request = Request::builder()
+        .method("POST")
+        .uri("/logout")
+        .header(header::COOKIE, &cookie)
+        .body(Body::empty())
+        .expect("the request builds");
+    let (status, _, body) = send_text(plain.app(), request).await;
+    assert_eq!(status, StatusCode::OK);
+    let body: Value = serde_json::from_str(&body).expect("the answer is JSON");
+    assert!(body["access_logout"].is_null(), "{body}");
 }
 
 /// A header that does not verify is not an identity: the request goes to the React page signed out,
@@ -6848,7 +6885,7 @@ async fn the_api_sign_in_sets_the_session_cookie_and_a_cookie_alone_is_a_session
         .body(Body::empty())
         .expect("the request builds");
     let (status, headers, _) = send_text(fixture.app(), logout).await;
-    assert_eq!(status, StatusCode::NO_CONTENT);
+    assert_eq!(status, StatusCode::OK);
     let cleared = headers
         .get(header::SET_COOKIE)
         .expect("the sign-out clears the cookie")
