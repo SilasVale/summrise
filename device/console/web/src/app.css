@@ -1586,7 +1586,13 @@ span.files-name {
 
 /* The screen page: the capture is evidence, so it fills the panel but never overflows it. */
 /* ── Capabilities: the catalogue, and one tool's generated form ───────────────────────────────── */
-.search-field { margin-left: auto; min-width: 0; }
+.search-field {
+  margin-left: auto; min-width: 0;
+  /* The field belongs to the heading block, not to its first line: pinned to the top it floated a
+     line above the summary it sits beside. Centring it in the row is what makes the two read as one
+     header. */
+  align-self: center;
+}
 .search-field input {
   width: 18rem; max-width: 100%;
   padding: var(--sp-2) var(--sp-2-5);
