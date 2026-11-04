@@ -355,4 +355,30 @@ describe("ActivityTimeline", () => {
     expect(screen.getByText("Ran a command")).toBeInTheDocument();
     expect(screen.getByRole("searchbox", { name: "Search activity" })).toHaveValue("");
   });
+
+  it("draws a full 1000-row day, down to the last row", () => {
+    // P2-12 measured this: the page asks for the server's cap and the timeline draws all of it.
+    // The fixture is one day, newest first, with a unique timestamp so every row has its own key.
+    const newest = Date.UTC(2026, 10, 5, 9, 0, 0);
+    const lines = Array.from({ length: 1000 }, (_, index) =>
+      line({
+        ts_ms: newest - index * 1_000,
+        sentence: `Call ${index + 1}`,
+        tool: "files.read"
+      })
+    );
+    render(<ActivityTimeline lines={lines} devices={[]} nowMs={newest + 1_000} />);
+
+    expect(document.querySelectorAll(".timeline-row")).toHaveLength(1000);
+    expect(screen.getByText("Call 1000")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Today" })).toBeInTheDocument();
+  });
+
+  it("says the list was capped only when it was", () => {
+    const { rerender } = render(<ActivityTimeline lines={[fromAlpha]} devices={[]} />);
+    expect(screen.queryByText(/showing the newest 1000/i)).toBeNull();
+
+    rerender(<ActivityTimeline lines={[fromAlpha]} devices={[]} capped />);
+    expect(screen.getByText("Showing the newest 1000 of today.")).toBeInTheDocument();
+  });
 });

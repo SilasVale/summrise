@@ -52,7 +52,11 @@ host's `runs.exec`. Code-only work continues; nothing ships until a device answe
     run a command.
 11. **Accessibility sweep.** Every row that opens is a button with `aria-expanded`; every icon has a
     name; focus order follows reading order; the warning colour is checked against the AA pairs.
-12. **Long timelines.** Measure a 1000-row day before optimising; virtualise only if the frame
+12. **Long timelines.** *(Done 2026-11-04: measured before optimising. The page now asks the
+    console's 1000-line cap instead of 200, and the stub's 1000-row day takes **427 ms** from
+    navigation to the last row painted at 1280 (403 ms at 390), so virtualisation was not done; the
+    merged window is capped at 1000 and the page says "Showing the newest 1000 of today" when the cut
+    happens.)* Measure a 1000-row day before optimising; virtualise only if the frame
     budget says so.
 13. **Phone.** The timeline at 390 px: the time column narrows, the age drops, the evidence panel
     stacks (already true) and the day label sticks.

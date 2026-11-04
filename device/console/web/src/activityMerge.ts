@@ -20,3 +20,28 @@ export function mergeActivity(audit: AuditLine[], live: LiveLine[]): AuditLine[]
   }
   return merged;
 }
+
+/**
+ * The console's `/audit` cap (`MAX_LOG_LIMIT` in `device/console/src/http.rs`). The page asks for
+ * this many lines, and live events can add a few newer ones on top, so the shown list is capped at
+ * the same number rather than growing past what the page called its day.
+ */
+export const ACTIVITY_LIMIT = 1000;
+
+export type ActivityWindow = { lines: AuditLine[]; capped: boolean };
+
+/** The newest `limit` lines, and whether anything older was dropped to get there. */
+export function capActivity(lines: AuditLine[], limit = ACTIVITY_LIMIT): ActivityWindow {
+  if (lines.length <= limit) return { lines, capped: false };
+  // Both sources arrive newest first and the merge keeps that order, so the tail is the older end.
+  return { lines: lines.slice(0, limit), capped: true };
+}
+
+/** The merged list, capped. The page says so when `capped` is true; it must not hide rows silently. */
+export function mergeActivityWindow(
+  audit: AuditLine[],
+  live: LiveLine[],
+  limit = ACTIVITY_LIMIT
+): ActivityWindow {
+  return capActivity(mergeActivity(audit, live), limit);
+}

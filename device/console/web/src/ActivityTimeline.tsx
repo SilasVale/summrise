@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { AuditLine, Device } from "./api";
+import { ACTIVITY_LIMIT } from "./activityMerge";
 import { auditFailed } from "./auditFilter";
 import { ageAt, shortId } from "./format";
 
@@ -375,6 +376,12 @@ export function ActivityTimeline(props: {
    * them off rather than offering an All machines chip over one machine's lines.
    */
   showFilters?: boolean;
+  /**
+   * True when the list handed in was cut at [`ACTIVITY_LIMIT`] rather than being everything there
+   * was. The page says so above the rows; the timeline alone cannot tell a full day from a capped
+   * one, so it never guesses.
+   */
+  capped?: boolean;
 }) {
   const [now, setNow] = useState(() => Date.now());
   const [openKey, setOpenKey] = useState<string | null>(null);
@@ -451,6 +458,11 @@ export function ActivityTimeline(props: {
             />
           </label>
         </div>
+      )}
+      {props.capped && (
+        // The fetched window and the live lines can add up to more than the console's cap. Dropping
+        // the oldest is right; doing it silently would make "Today" a claim the page cannot keep.
+        <p className="hint timeline-capped">Showing the newest {ACTIVITY_LIMIT} of today.</p>
       )}
       {days.length === 0 ? (
         filtering ? (

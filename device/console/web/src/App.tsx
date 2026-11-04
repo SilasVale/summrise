@@ -15,7 +15,7 @@ import { retrySentence } from "./logic";
 import { recordVitals, type VitalsSample } from "./vitals";
 import { AUDIT_WINDOW, AuditTable, type AuditScope, type AuditSince } from "./AuditTable";
 import type { AuditFilter } from "./auditFilter";
-import { mergeActivity } from "./activityMerge";
+import { mergeActivityWindow } from "./activityMerge";
 import { ActivityTimeline } from "./ActivityTimeline";
 import { DEVICE_TAB_LABELS, PAGE_LABELS, Rail, type DeviceTab, type Page } from "./Rail";
 import { Modal } from "./Modal";
@@ -84,11 +84,17 @@ export function App() {
   // picks a scope or a chip, the choice stays explicit for this page's lifetime.
   const [activityScope, setActivityScope] = useState<AuditScope | null>(null);
   const [frozenActivity, setFrozenActivity] = useState<AuditLine[] | null>(null);
+  // Whether the frozen list itself was cut at the cap. The sentence above the rows must describe
+  // what is on screen, not what the merge would be if the page were following again.
+  const [frozenCapped, setFrozenCapped] = useState(false);
   // The moment the freeze was taken, so the count is "lines newer than this" rather than a length
   // difference: the fetched window slides, and a difference under-reports once it does.
   const [pausedAt, setPausedAt] = useState<number | null>(null);
-  const activityLines = mergeActivity(audit, live.lines);
+  const activityWindow = mergeActivityWindow(audit, live.lines);
+  const activityLines = activityWindow.lines;
   const shownActivity = activityPaused && frozenActivity ? frozenActivity : activityLines;
+  const shownCapped =
+    activityPaused && frozenActivity ? frozenCapped : activityWindow.capped;
   const freshActivity =
     activityPaused && pausedAt !== null
       ? activityLines.filter((line) => line.ts_ms > pausedAt).length
@@ -97,10 +103,12 @@ export function App() {
     if (activityPaused) {
       setActivityPaused(false);
       setFrozenActivity(null);
+      setFrozenCapped(false);
       setPausedAt(null);
     } else {
       setPausedAt(Date.now());
       setFrozenActivity(activityLines);
+      setFrozenCapped(activityWindow.capped);
       setActivityPaused(true);
     }
   };
@@ -751,6 +759,7 @@ export function App() {
                 <ActivityTimeline
                   lines={shownActivity}
                   devices={devices}
+                  capped={shownCapped}
                   query={activityFilter.tool}
                   onQuery={(tool) => setActivityFilter((current) => ({ ...current, tool }))}
                   device={activityMachine}

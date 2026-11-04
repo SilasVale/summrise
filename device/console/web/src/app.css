@@ -2483,6 +2483,7 @@ main::-webkit-scrollbar-track, .sheet-body::-webkit-scrollbar-track, .scroll::-w
    Outside: one line per action. Click: the evidence for that one call. */
 
 .timeline { display: grid; gap: var(--sp-4); }
+.timeline-capped { margin: 0 0 var(--sp-3); }
 .timeline-day-label {
   margin: 0 0 var(--sp-2); font-size: var(--fs-xs); font-weight: var(--fw-semi);
   color: var(--ink-faint); letter-spacing: 0.02em;

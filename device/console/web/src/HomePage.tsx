@@ -8,7 +8,7 @@ import { shortId } from "./format";
 import { listPlugins } from "./pluginApi";
 import { useLiveTools } from "./useLiveTools";
 import { ActivityTimeline } from "./ActivityTimeline";
-import { mergeActivity } from "./activityMerge";
+import { capActivity, mergeActivity } from "./activityMerge";
 
 /** A one-time enrollment code and the command that redeems it. */
 export type Enrollment = { code: string; expires_at_ms: number } | null;
@@ -182,12 +182,16 @@ function HubHome(
   // days belong to Activity, behind the All activity link.
   const liveLines = (props.liveLines ?? []).filter((line) => line.device_id === device.id);
   const todayStart = startOfToday();
-  const timelineLines = mergeActivity(
-    props.audit.filter((line) => line.device_id === device.id),
-    liveLines
-  )
-    .filter((line) => line.ts_ms >= todayStart)
-    .sort((a, b) => b.ts_ms - a.ts_ms);
+  // The hub claims today, so it caps today's rows rather than the fleet-wide fetch window: the
+  // sentence above the timeline is only true when this machine's own day needed cutting.
+  const timeline = capActivity(
+    mergeActivity(
+      props.audit.filter((line) => line.device_id === device.id),
+      liveLines
+    )
+      .filter((line) => line.ts_ms >= todayStart)
+      .sort((a, b) => b.ts_ms - a.ts_ms)
+  );
 
   const offline = !device.online || live.offline;
   // **THE MACHINE CHIP ALREADY SAYS "Running · v…".** Repeating it here spent the page's one subtitle
@@ -239,8 +243,9 @@ function HubHome(
 
       <section className="panel home-timeline" aria-label="This machine's activity">
         <ActivityTimeline
-          lines={timelineLines}
+          lines={timeline.lines}
           devices={props.devices}
+          capped={timeline.capped}
           // The hub's timeline is already this machine's day: a machine chip here could only say
           // "All machines" over one machine's lines, which would be a lie.
           showFilters={false}

@@ -6,14 +6,15 @@ import { downloadFile } from "./download";
 import { age, shortId } from "./format";
 
 /**
- * How many lines the page asks the console for. `/audit?limit=` accepts up to 1000; 200 is enough
- * history for the table's filters without turning the poll into a full audit export.
+ * How many lines the page asks the console for. `/audit?limit=` accepts up to 1000 (`MAX_LOG_LIMIT`
+ * in `device/console/src/http.rs`); the page asks for the cap so a full day is on screen and the
+ * timeline's "Today" is the day, not the newest slice. P2-12 measured what 1000 rows cost.
  */
-export const AUDIT_WINDOW = 200;
+export const AUDIT_WINDOW = 1000;
 
 const EMPTY: AuditFilter = { device: "", token: "", tool: "", status: "all" };
 
-/// The toolbar's time window. The table already holds the newest 200 lines, so this only narrows
+/// The toolbar's time window. The table already holds the newest 1000 lines, so this only narrows
 /// what is on screen; it never asks the console for a different slice.
 export type AuditSince = "all" | "hour" | "day" | "week";
 const SINCE_MS: Record<Exclude<AuditSince, "all">, number> = {

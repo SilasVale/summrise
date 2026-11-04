@@ -518,6 +518,33 @@ const AUDIT = [
   auditLine(18 * HOUR + 25 * MINUTE, 'token', { device: DEVICE.workshop, detail: 'allow_destructive=false' })
 ];
 
+/**
+ * P2-12's long day: 1000 audit lines across one calendar day, newest first. The page asks the
+ * console for its cap, so this is what a busy machine's "Today" is. Each sentence carries the row
+ * number, which lets the harness wait for the LAST row by name and not only by count.
+ */
+const BIG_AUDIT = (() => {
+  const dayStart = new Date(NOW);
+  dayStart.setHours(0, 0, 0, 0);
+  // Spread the day's lines from a second ago back towards midnight. The step is at least 1 ms so no
+  // two rows can share the audit's (time, tool, status) identity.
+  const step = Math.max(1, Math.floor((NOW - dayStart.getTime() - MINUTE) / 999));
+  const tools = ['files.read', 'files.list', 'runs.exec', 'terminal.write', 'memory.search', 'system.net_test'];
+  return Array.from({ length: 1000 }, (_, index) => {
+    const tool = tools[index % tools.length];
+    const line = auditLine(1_000 + index * step, 'mcp', {
+      device: index % 3 === 0 ? DEVICE.attic : DEVICE.workshop,
+      tool,
+      ...(index % 53 === 0 ? { detail: 'jsonrpc error -32002' } : {})
+    });
+    line.sentence = `Call ${index + 1} · ${line.sentence}`;
+    return line;
+  });
+})();
+
+/** The audit the stub serves. The activity-1000 scenario swaps the long day in and puts it back. */
+let stubAudit = AUDIT;
+
 function denialLine(agoMs, detail, status) {
   return { ts_ms: NOW - agoMs, kind: 'denied', status, detail };
 }
@@ -678,12 +705,19 @@ function replyFor(request, url) {
 
   if (method === 'GET' && pathname === '/session') return json(SESSION);
   if (method === 'GET' && pathname === '/health') return json(HEALTH);
-  if (method === 'GET' && pathname === '/audit') return json(AUDIT);
+  if (method === 'GET' && pathname === '/audit') {
+    // `/audit` honours `limit` the way the console does: missing is 20, above 1000 is clamped. The
+    // activity-1000 scenario can therefore show its 1000 rows only because the page asked for 1000;
+    // a window that slid back to 200 would fail the wait, not quietly photograph a slice.
+    const raw = Number(url.searchParams.get('limit') ?? 20);
+    const limit = Number.isFinite(raw) ? Math.max(0, Math.min(Math.trunc(raw), 1000)) : 20;
+    return json(stubAudit.slice(0, limit));
+  }
   // The page follows the audit as it happens; the stub answers with one snapshot, in the order the
   // console sends it (oldest first), so the Now band and the timeline are photographed live rather
   // than stuck on "Reconnecting".
   if (method === 'GET' && pathname === '/events') {
-    const lines = AUDIT.slice(0, 8).reverse();
+    const lines = stubAudit.slice(0, 8).reverse();
     return { status: 200, sse: `event: snapshot\ndata: ${JSON.stringify({ lines })}\n\n` };
   }
   if (method === 'GET' && pathname === '/denials') return json(DENIALS);
@@ -1595,6 +1629,71 @@ async function captureWorkspace(page, state, pass) {
   }
 }
 
+/**
+ * P2-12: a 1000-row day, measured the way the operator meets it.
+ *
+ * A fresh context opens directly on #activity; the stub serves the 1000-line fixture; the clock is
+ * the page's own performance.now(), relative to navigation start. The wait is for the last row by
+ * name, not just for a count, and two animation frames pass before the reading — a node in the DOM
+ * is not yet a painted row. The printed number is navigation -> audit -> React -> paint.
+ */
+async function captureActivity1000(browser, origin, width) {
+  const passKey = `${width}-light`;
+  const state = newState({ key: passKey });
+  state.label = 'activity-1000';
+  const context = await browser.newContext({
+    viewport: { width, height: width < 640 ? 844 : 900 },
+    colorScheme: 'light',
+    deviceScaleFactor: 1
+  });
+  const page = await context.newPage();
+  await installPage(page, state, origin);
+  stubAudit = BIG_AUDIT;
+  try {
+    await page.goto(origin + '/#activity', { waitUntil: 'domcontentloaded', timeout: 30_000 });
+    await page.waitForFunction(
+      () => {
+        const rows = document.querySelectorAll('.timeline-row');
+        const last = rows[rows.length - 1];
+        return (
+          rows.length === 1000 &&
+          last !== undefined &&
+          (last.textContent ?? '').includes('Call 1000')
+        );
+      },
+      null,
+      { timeout: 30_000 }
+    );
+    await page.evaluate(
+      () =>
+        new Promise((resolve) => {
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve(null)));
+        })
+    );
+    // performance.now() is relative to this document's navigation start, so the reading includes
+    // the fetch and the whole first render rather than only the last React commit.
+    const ms = Math.round(await page.evaluate(() => performance.now()));
+    const rows = await page.locator('.timeline-row').count();
+    const file = `activity-1000-${width}.png`;
+    await page.screenshot({ path: path.join(OUT, file), animations: 'disabled', fullPage: false });
+    captures.push({
+      pass: passKey,
+      page: 'activity-1000',
+      file,
+      note: `1000 rows of one day at ${width}px: ${ms} ms from navigation to the last row painted`
+    });
+    console.log(`  ${passKey.padEnd(6)} ${file}`);
+    console.log(`activity-1000${width === 1280 ? '' : ` at ${width}`}: ${ms} ms, ${rows} rows`);
+    return { width, ms, rows };
+  } finally {
+    stubAudit = AUDIT;
+    for (const issue of state.pageErrors) pageErrors.push({ pass: passKey, ...issue });
+    for (const issue of state.apiFailures) apiFailures.push({ pass: passKey, ...issue });
+    for (const issue of state.consoleErrors) consoleErrors.push({ pass: passKey, ...issue });
+    await context.close().catch(() => {});
+  }
+}
+
 // ---------------------------------------------------------------------------------------------
 // Gallery.
 // ---------------------------------------------------------------------------------------------
@@ -1671,8 +1770,31 @@ function buildGallery() {
         .join('')}
     </section>`;
 
-  const known = new Set([...PAGES.map((meta) => meta.id), ...workspaceKeys.map(([id]) => id)]);
+  const known = new Set([
+    ...PAGES.map((meta) => meta.id),
+    ...workspaceKeys.map(([id]) => id),
+    'activity-1000'
+  ]);
   const extras = [...new Set(captures.map((capture) => capture.page))].filter((id) => !known.has(id));
+
+  // P2-12's measurement, kept beside the ordinary Activity page so the cost of a full day has a
+  // picture and a number in the same place.
+  const measured = captures.filter((capture) => capture.page === 'activity-1000');
+  const measuredRows = measured.length
+    ? `
+    <section class="page">
+      <h2>Long timeline: 1000 rows</h2>
+      <p class="state">One fresh navigation per width; the number is navigation → last row painted.</p>
+      <div class="pair">
+        ${measured
+          .map(
+            (capture) =>
+              `<figure><figcaption>${escapeHtml(capture.note)}</figcaption>${image(capture.file, capture.note)}</figure>`
+          )
+          .join('')}
+      </div>
+    </section>`
+    : '';
   const stateRows = extras
     .map(
       (id) => `
@@ -1725,6 +1847,7 @@ function buildGallery() {
 </header>
 ${rows}
 ${workspaceRows}
+${measuredRows}
 ${stateRows}
 </body>
 </html>
@@ -1812,6 +1935,18 @@ try {
       for (const issue of state.consoleErrors) consoleErrors.push({ pass: pass.key, ...issue });
       if (pass.width >= 800) await captureWorkspace(page, state, pass);
       await context.close().catch(() => {});
+    }
+  }
+
+  // The measurement is its own fresh navigation, at the two widths the item names. It runs after the
+  // passes so the two screenshots cannot disturb a page state the ordinary gallery depends on.
+  for (const width of [1280, 390]) {
+    try {
+      await captureActivity1000(browser, origin, width);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      captureFailures.push({ pass: `${width}-light`, page: 'activity-1000', message });
+      console.error(`screenshot: could not measure activity-1000 at ${width}: ${message}`);
     }
   }
 } finally {

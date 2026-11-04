@@ -260,6 +260,13 @@ describe("App", () => {
     window.history.replaceState(null, "", window.location.pathname);
   });
 
+  it("asks the audit for the console's cap, so a full day is the day", async () => {
+    await bootAndSignIn();
+    // MAX_LOG_LIMIT in device/console/src/http.rs. A shorter window made "Today" mean "the newest
+    // slice"; P2-12 raised the fetch to the cap before measuring what 1000 rows cost.
+    expect(mocks.audit).toHaveBeenCalledWith(1000);
+  });
+
   it("follows the fragment when the address bar changes, not only at first render", async () => {
     await bootAndSignIn();
     expect(screen.getByRole("heading", { name: "Machines", level: 1 })).toBeInTheDocument();
