@@ -80,8 +80,8 @@ const RESULT: RunResult = {
 };
 
 const EMPTY_NOTE =
-  "No runs yet on this machine. Run a command in the form above; the device keeps the last 20 " +
-  "and lists them here, newest first.";
+  "No runs yet on this machine. Run a command in the form above; this page asks for the newest " +
+  "20 runs, and the machine keeps more history than that.";
 
 /// The calls made to one tool, as `[grant, name, args]` triples, in the order the page made them.
 const called = (name: string) => mocked.mock.calls.filter((call) => call[1] === name);
@@ -110,8 +110,8 @@ describe("RunsPage", () => {
 
     expect(
       await screen.findByText(
-        "No runs yet on this machine. Run a command in the form above; the device keeps the last " +
-          "20 and lists them here, newest first."
+        "No runs yet on this machine. Run a command in the form above; this page asks for the " +
+          "newest 20 runs, and the machine keeps more history than that."
       )
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Run" })).toBeInTheDocument();
@@ -123,7 +123,7 @@ describe("RunsPage", () => {
     render(<RunsPage grant={GRANT} />);
 
     expect(
-      await screen.findByText("2 recent runs, newest first. Click a row to read its record.")
+      await screen.findByText("2 recent runs, newest first. Choose a command to read its record.")
     ).toBeInTheDocument();
     expect(mocked).toHaveBeenCalledWith(GRANT, "runs.list", { limit: 20 });
 
@@ -252,7 +252,7 @@ describe("RunsPage", () => {
     // The run's row arrives only from the re-read the page does after a successful run.
     expect(await screen.findByText("echo hello")).toBeInTheDocument();
     expect(
-      screen.getByText("1 recent run, newest first. Click a row to read its record.")
+      screen.getByText("1 recent run, newest first. Choose a command to read its record.")
     ).toBeInTheDocument();
     expect(called("runs.list")).toHaveLength(2);
   });
@@ -334,10 +334,17 @@ describe("RunsPage", () => {
     });
 
     render(<RunsPage grant={GRANT} />);
-    fireEvent.click(await screen.findByRole("button", { name: "echo hello" }));
+    const opener = await screen.findByRole("button", { name: "echo hello" });
+    // The command is the row's control, and it says whether its record is open.
+    expect(opener.tagName).toBe("BUTTON");
+    expect(opener).toHaveAttribute("type", "button");
+    expect(opener).toHaveAttribute("aria-expanded", "false");
+
+    fireEvent.click(opener);
 
     await waitFor(() => expect(called("runs.get")).toHaveLength(1));
     expect(called("runs.get")[0]).toEqual([GRANT, "runs.get", { id: "run-2" }]);
+    expect(opener).toHaveAttribute("aria-expanded", "true");
 
     const heading = await screen.findByRole("heading", { name: "Command" });
     const detail = heading.closest("section");

@@ -509,14 +509,15 @@ export function RunsPage({
                 <tr
                   key={row.id}
                   className={"runs-row" + (detail?.id === row.id ? " runs-row-active" : "")}
-                  onClick={() => void show(row)}
                 >
                   <td>
                     <button
                       type="button"
                       className="runs-open"
+                      aria-expanded={detail?.id === row.id}
                       disabled={detailId !== null}
                       title={commandLine(row)}
+                      onClick={() => void show(row)}
                     >
                       {shortCommand(commandLine(row))}
                     </button>
@@ -593,9 +594,12 @@ function bytes(count: number): string {
 
 function historyNoteFor(rows: RunRecord[]): string {
   if (rows.length === 0) {
+    // `HISTORY_LIMIT` is this page's request, not the device's retention: the device keeps
+    // `HISTORY_LINES` (10_000, device/device/src/capabilities/runs.rs) and can answer up to 100
+    // rows per read. Saying it keeps "the last 20" was false; the empty state names the request.
     return (
-      "No runs yet on this machine. Run a command in the form above; the device keeps the last " +
-      `${HISTORY_LIMIT} and lists them here, newest first.`
+      "No runs yet on this machine. Run a command in the form above; this page asks for the newest " +
+      `${HISTORY_LIMIT} runs, and the machine keeps more history than that.`
     );
   }
   const noun = rows.length === 1 ? "run" : "runs";
@@ -605,7 +609,7 @@ function historyNoteFor(rows: RunRecord[]): string {
     rows.length >= HISTORY_LIMIT
       ? `The newest ${HISTORY_LIMIT} ${noun}`
       : `${rows.length} recent ${noun}`;
-  return `${count}, newest first. Click a row to read its record.`;
+  return `${count}, newest first. Choose a command to read its record.`;
 }
 
 /// The sentence for a failed `runs.exec`. A console timeout is not a device refusal: the proxy
