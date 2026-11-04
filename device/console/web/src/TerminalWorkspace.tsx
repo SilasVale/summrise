@@ -9,6 +9,7 @@ import { openTerminalStream, type TerminalStream } from "./terminalStream";
 import { createOutputPump, type OutputPump } from "./terminalOutput";
 import { nextTabTitle, renameTab, titleFromInput, type Tab } from "./terminalTabs";
 import { age } from "./age";
+import type { LiveLine } from "./liveActivity";
 import { earliestCursor, readTranscript, transcriptFile } from "./terminalTranscript";
 import {
   clampFontSize,
@@ -349,11 +350,89 @@ function isAbsolutePath(text: string): boolean {
   return text.startsWith("/") || /^[A-Za-z]:[\\/]/.test(text) || text.startsWith("\\\\");
 }
 
+/**
+ * The last keystroke the console saw reach a session, from the live activity.
+ *
+ * A session's evidence is carried by every call about it (`terminal.read`, `resize`, `close`), so
+ * the newest line with this session is usually a read, not a write. The card wants what a person
+ * typed, which only `terminal.write` records as `evidence.input`; a matching line without one is
+ * not a keystroke and must not hide the last real one. Newest wins by `ts_ms`, so a feed handed over
+ * in any order gives the same answer, and no line means null — the card never invents an input.
+ */
+function lastTypedInput(
+  lines: readonly LiveLine[],
+  deviceId: string,
+  session: string
+): { input: string; tsMs: number } | null {
+  let newest: { input: string; tsMs: number } | null = null;
+  for (const line of lines) {
+    if (line.device_id !== deviceId) continue;
+    const evidence = line.evidence;
+    if (!evidence || evidence.session !== session) continue;
+    const input = evidence.input;
+    if (typeof input !== "string" || input.trim() === "") continue;
+    if (!newest || line.ts_ms > newest.tsMs) newest = { input, tsMs: line.ts_ms };
+  }
+  return newest;
+}
+
+/**
+ * The session card: the machine, the attached session, its age and the last keystroke it received.
+ *
+ * It is the first block on the Terminal page, above the toolbar and the screen. A person opening
+ * the page meets the session rather than a black rectangle, and the card is outside the xterm's
+ * scrollback, so the facts stay put while the terminal scrolls.
+ */
+function SessionCard({
+  machine,
+  tab,
+  liveLines,
+  deviceId
+}: {
+  machine: string;
+  tab: Tab;
+  liveLines: readonly LiveLine[];
+  deviceId: string;
+}) {
+  const last = lastTypedInput(liveLines, deviceId, tab.session);
+  return (
+    <section className="card session-card" aria-label="Session">
+      <header>
+        <strong>{machine}</strong>
+        <span className="chip">{tab.kind}</span>
+      </header>
+      <p className="session-card-meta">
+        <span className="mono">{tab.session}</span>
+        <span className="session-card-age">
+          {typeof tab.startedAtMs === "number"
+            ? `opened ${age(Date.now() - tab.startedAtMs)} ago`
+            : "opened at an unknown time"}
+        </span>
+      </p>
+      <p className="session-card-last">
+        <span className="session-card-label">Last input</span>
+        {last ? (
+          <>
+            <code className="session-card-input">{last.input}</code>
+            <time className="session-card-age" dateTime={new Date(last.tsMs).toISOString()}>
+              {age(Date.now() - last.tsMs)} ago
+            </time>
+          </>
+        ) : (
+          <span className="hint">No keystroke recorded for this session yet.</span>
+        )}
+      </p>
+    </section>
+  );
+}
+
 export function TerminalWorkspace({
   grant,
   visible = true,
   deviceOnline,
   lastSeenMs,
+  deviceName,
+  liveLines = [],
   onGrantRefused
 }: {
   grant: Grant;
@@ -369,6 +448,14 @@ export function TerminalWorkspace({
   deviceOnline?: boolean;
   /** When the console last heard from the machine; `null` when it never has. */
   lastSeenMs?: number | null;
+  /** The machine's display name for the session card; the grant's device id is the fallback. */
+  deviceName?: string;
+  /**
+   * The console's live activity, newest first. Optional because the workspace also renders without a
+   * feed (a test, or a page before the stream opens); the card then says no keystroke is recorded
+   * rather than showing one it does not have.
+   */
+  liveLines?: readonly LiveLine[];
   onGrantRefused?: () => void;
 }) {
   const offline = deviceOnline === false;
@@ -1076,7 +1163,15 @@ export function TerminalWorkspace({
       const kind = String(args.kind);
       setTabs((previous) => [
         ...previous,
-        { key: session, session, kind, title: title ?? nextTabTitle(kind, previous) }
+        {
+          key: session,
+          session,
+          kind,
+          title: title ?? nextTabTitle(kind, previous),
+          // `terminal.create` does not return its start time; the moment the device answered is
+          // when this session began from the page's point of view, and the card shows that age.
+          startedAtMs: Date.now()
+        }
       ]);
       setActive(session);
       setStatus("");
@@ -1266,7 +1361,7 @@ export function TerminalWorkspace({
     return () => document.removeEventListener("visibilitychange", onVisible);
   }, [listSessions]);
 
-  const attachTo = (session: string, kind: string) => {
+  const attachTo = (session: string, kind: string, startedAtMs?: number) => {
     detached.current.delete(session);
     if (tabs.some((tab) => tab.session === session)) {
       setActive(session);
@@ -1275,7 +1370,7 @@ export function TerminalWorkspace({
     setTabs((previous) =>
       previous.some((tab) => tab.session === session)
         ? previous
-        : [...previous, { key: session, session, kind, title: nextTabTitle(kind, previous) }]
+        : [...previous, { key: session, session, kind, title: nextTabTitle(kind, previous), startedAtMs }]
     );
     setActive(session);
     setAvailable((previous) => previous.filter((entry) => entry.id !== session));
@@ -1295,7 +1390,7 @@ export function TerminalWorkspace({
     if (!visible || active !== null || tabs.length > 0) return;
     const candidate = fresh.find((entry) => !detached.current.has(entry.id));
     if (!candidate) return;
-    attachTo(candidate.id, candidate.kind);
+    attachTo(candidate.id, candidate.kind, candidate.started_at_ms);
   }, [visible, active, tabs.length, available, attachTo]);
 
   const close = async (tab: Tab) => {
@@ -1490,6 +1585,31 @@ export function TerminalWorkspace({
       )}
       {status && <p className={status.startsWith("Could not") ? "error" : "hint"}>{status}</p>}
 
+      {/* THE SESSION COMES BEFORE THE SCREEN. The page used to open on a black rectangle; the card
+          names the machine and the attached session, its age and the last keystroke the console saw
+          reach it. It is a block above the toolbar and the xterm, so the terminal scrolls under it. */}
+      {activeTab ? (
+        <SessionCard
+          machine={deviceName ?? grant.deviceId}
+          tab={activeTab}
+          liveLines={liveLines}
+          deviceId={grant.deviceId}
+        />
+      ) : (
+        <section className="card session-card session-card-empty" aria-label="Session">
+          <p>No session is open on this machine.</p>
+          <button
+            type="button"
+            className="primary"
+            disabled={offline}
+            title={offline ? "The machine is offline; a session can start when it reconnects" : undefined}
+            onClick={() => openDialog({}, null)}
+          >
+            + New session
+          </button>
+        </section>
+      )}
+
       {tabs.length === 0 && (
         <div className="terminal-start">
           <section className="terminal-sessions" aria-labelledby="terminal-sessions-heading">
@@ -1513,7 +1633,7 @@ export function TerminalWorkspace({
                   <li key={entry.id}>
                     <span className="mono">{entry.kind}</span>
                     <span className="mono muted">{entry.id}</span>
-                    <button type="button" className="mini" onClick={() => attachTo(entry.id, entry.kind)}>
+                    <button type="button" className="mini" onClick={() => attachTo(entry.id, entry.kind, entry.started_at_ms)}>
                       Attach
                     </button>
                   </li>
@@ -1570,142 +1690,147 @@ export function TerminalWorkspace({
         </div>
       )}
 
-      <div className="terminal-bar">
-        {tabs.length > 0 && (
-          <div className="tabbar" role="tablist">
-            {tabs.map((tab) => (
-              <span
-                key={tab.key}
-                className={"tab" + (tab.key === active ? " tab-active" : "")}
-              >
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={tab.key === active}
-                  className="tab-main"
-                  onClick={() => setActive(tab.key)}
+      {/* The toolbar belongs to a session. With none attached the card above owns the one action,
+          so the bar does not render a second New session beside it. */}
+      {tabs.length > 0 && (
+        <div className="terminal-bar">
+          {tabs.length > 0 && (
+            <div className="tabbar" role="tablist">
+              {tabs.map((tab) => (
+                <span
+                  key={tab.key}
+                  className={"tab" + (tab.key === active ? " tab-active" : "")}
                 >
-                  {tab.title}
-                  {faults[tab.key]?.kind === "closed" && " · ended"}{" "}
-                  <span className="tab-session" title={tab.session}>
-                    #{shortSession(tab.session)}
-                  </span>
-                  {faults[tab.key] && faults[tab.key].kind !== "closed" && (
-                    <span
-                      className={"tab-state state-" + faults[tab.key].kind}
-                      title={faults[tab.key].sentence}
-                    >
-                      {FAULT_LABELS[faults[tab.key].kind]}
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={tab.key === active}
+                    className="tab-main"
+                    onClick={() => setActive(tab.key)}
+                  >
+                    {tab.title}
+                    {faults[tab.key]?.kind === "closed" && " · ended"}{" "}
+                    <span className="tab-session" title={tab.session}>
+                      #{shortSession(tab.session)}
                     </span>
-                  )}
-                </button>
-                <button
-                  type="button"
-                  className="tab-close"
-                  aria-label={`Close ${tab.title}`}
-                  onClick={() => setClosing(tab)}
-                />
-              </span>
-            ))}
-          </div>
-        )}
-        <div className="terminal-actions">
-            {/* THE TOOLBAR BELONGS TO A SESSION. Before one exists, the page's only action is the one
-                that creates it; seven controls over an empty box were chrome pretending to be work. */}
-            {tabs.length > 0 && (
-              <>
-                <button type="button" disabled={!activeTab} onClick={toggleFind}>Find</button>
-                {/* Seven labelled buttons became Find plus one menu. The actions are still one
-                    keystroke away, but the terminal keeps the width; a session is not a form. */}
-                <details
-                  className="session-menu"
-                  ref={toolsRef}
-                  onToggle={(event) => setToolsOpen(event.currentTarget.open)}
-                >
-                  <summary className="session-tools" aria-label="Session tools" title="Session tools">
-                    ⋯
-                  </summary>
-                  <div className="session-menu-pop">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        closeTools();
-                        setPresetDialog(true);
-                      }}
-                    >
-                      Save a preset
-                    </button>
-                    <button
-                      type="button"
-                      disabled={!activeTab}
-                      onClick={() => {
-                        closeTools();
-                        if (activeTab) {
-                          setRenaming({ key: activeTab.key, title: activeTab.title, error: null });
-                        }
-                      }}
-                    >
-                      Rename tab
-                    </button>
-                    <button
-                      type="button"
-                      disabled={!activeTab}
-                      onClick={() => {
-                        closeTools();
-                        void exportLog();
-                      }}
-                    >
-                      Export log
-                    </button>
-                    {/* THE OTHER SESSIONS ARE NOT LOST, THEY ARE ELSEWHERE ON THE MACHINE. A tab is a
-                        view of one; this is how a second one gets a view without ending the first. */}
-                    <button
-                      type="button"
-                      disabled={offline}
-                      onClick={() => {
-                        closeTools();
-                        setSessionsOpen(true);
-                      }}
-                    >
-                      Sessions{available.length > 0 ? ` (${available.length})` : ""}
-                    </button>
-                    <div className="session-menu-row">
-                      <span className="hint">Text size</span>
+                    {faults[tab.key] && faults[tab.key].kind !== "closed" && (
+                      <span
+                        className={"tab-state state-" + faults[tab.key].kind}
+                        title={faults[tab.key].sentence}
+                      >
+                        {FAULT_LABELS[faults[tab.key].kind]}
+                      </span>
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    className="tab-close"
+                    aria-label={`Close ${tab.title}`}
+                    onClick={() => setClosing(tab)}
+                  />
+                </span>
+              ))}
+            </div>
+          )}
+          <div className="terminal-actions">
+              {/* THE TOOLBAR BELONGS TO A SESSION. The bar itself only exists when one is attached,
+                  and with none the card above owns the action that creates it; seven controls over an
+                  empty box were chrome pretending to be work. */}
+              {tabs.length > 0 && (
+                <>
+                  <button type="button" disabled={!activeTab} onClick={toggleFind}>Find</button>
+                  {/* Seven labelled buttons became Find plus one menu. The actions are still one
+                      keystroke away, but the terminal keeps the width; a session is not a form. */}
+                  <details
+                    className="session-menu"
+                    ref={toolsRef}
+                    onToggle={(event) => setToolsOpen(event.currentTarget.open)}
+                  >
+                    <summary className="session-tools" aria-label="Session tools" title="Session tools">
+                      ⋯
+                    </summary>
+                    <div className="session-menu-pop">
                       <button
                         type="button"
-                        title={`Smaller terminal text (now ${fontSize})`}
-                        disabled={fontSize <= MIN_FONT_SIZE}
-                        onClick={() => setFontSize(clampFontSize(fontSize - 1))}
+                        onClick={() => {
+                          closeTools();
+                          setPresetDialog(true);
+                        }}
                       >
-                        A−
+                        Save a preset
                       </button>
                       <button
                         type="button"
-                        title={`Larger terminal text (now ${fontSize})`}
-                        disabled={fontSize >= MAX_FONT_SIZE}
-                        onClick={() => setFontSize(clampFontSize(fontSize + 1))}
+                        disabled={!activeTab}
+                        onClick={() => {
+                          closeTools();
+                          if (activeTab) {
+                            setRenaming({ key: activeTab.key, title: activeTab.title, error: null });
+                          }
+                        }}
                       >
-                        A+
+                        Rename tab
                       </button>
+                      <button
+                        type="button"
+                        disabled={!activeTab}
+                        onClick={() => {
+                          closeTools();
+                          void exportLog();
+                        }}
+                      >
+                        Export log
+                      </button>
+                      {/* THE OTHER SESSIONS ARE NOT LOST, THEY ARE ELSEWHERE ON THE MACHINE. A tab is a
+                          view of one; this is how a second one gets a view without ending the first. */}
+                      <button
+                        type="button"
+                        disabled={offline}
+                        onClick={() => {
+                          closeTools();
+                          setSessionsOpen(true);
+                        }}
+                      >
+                        Sessions{available.length > 0 ? ` (${available.length})` : ""}
+                      </button>
+                      <div className="session-menu-row">
+                        <span className="hint">Text size</span>
+                        <button
+                          type="button"
+                          title={`Smaller terminal text (now ${fontSize})`}
+                          disabled={fontSize <= MIN_FONT_SIZE}
+                          onClick={() => setFontSize(clampFontSize(fontSize - 1))}
+                        >
+                          A−
+                        </button>
+                        <button
+                          type="button"
+                          title={`Larger terminal text (now ${fontSize})`}
+                          disabled={fontSize >= MAX_FONT_SIZE}
+                          onClick={() => setFontSize(clampFontSize(fontSize + 1))}
+                        >
+                          A+
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                </details>
-              </>
-            )}
-            {/* A control that cannot work is off, with the reason on it. The button used to open the
-                dialog and fail at the device, which read as a fault in the console. */}
-            <button
-              type="button"
-              className="primary"
-              disabled={offline}
-              title={offline ? "The machine is offline; a session can start when it reconnects" : undefined}
-              onClick={() => openDialog({}, null)}
-            >
-              + New session
-            </button>
+                  </details>
+                </>
+              )}
+              {/* A control that cannot work is off, with the reason on it. The button used to open the
+                  dialog and fail at the device, which read as a fault in the console. */}
+              <button
+                type="button"
+                className="primary"
+                disabled={offline}
+                title={offline ? "The machine is offline; a session can start when it reconnects" : undefined}
+                onClick={() => openDialog({}, null)}
+              >
+                + New session
+              </button>
         
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Escape is the bar's key, not the field's: a key pressed on Next or Close still puts the bar
           away, because the event bubbles to the container that owns it. */}
@@ -2106,7 +2231,7 @@ export function TerminalWorkspace({
                     className="mini"
                     onClick={() => {
                       setSessionsOpen(false);
-                      attachTo(entry.id, entry.kind);
+                      attachTo(entry.id, entry.kind, entry.started_at_ms);
                     }}
                   >
                     Attach

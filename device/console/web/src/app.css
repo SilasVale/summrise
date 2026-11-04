@@ -2134,6 +2134,68 @@ input:not([type="checkbox"]):not([type="radio"]):focus, select:focus, textarea:f
 .terminal-workspace { gap: 0; }
 .terminal-workspace > .terminal-start { padding: 18px; }
 
+/* The session card is the Terminal page's first impression: the machine, the attached session, its
+   age and the last keystroke the console saw reach it. It is a block above the toolbar and the
+   xterm, so it cannot scroll away with the terminal; it borrows the fleet card's surface and
+   spacing rather than inventing a second one. */
+.session-card {
+  flex: none;
+  margin: var(--sp-3);
+  padding: var(--sp-2-5) var(--sp-3);
+  gap: var(--sp-1-5);
+  background: var(--surface);
+}
+.session-card-meta {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--sp-1) var(--sp-3);
+  margin: 0;
+  color: var(--ink-muted);
+  font-size: var(--fs-sm);
+}
+.session-card-age {
+  color: var(--ink-faint);
+  font-size: var(--fs-xs);
+  font-variant-numeric: tabular-nums;
+}
+.session-card-last {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--sp-1-5) var(--sp-2);
+  margin: 0;
+  min-width: 0;
+}
+.session-card-label {
+  color: var(--ink-muted);
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-medium);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+}
+.session-card-input {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: var(--sp-0-5) var(--sp-2);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-xs);
+  background: var(--panel-2);
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+}
+.session-card-empty {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+.session-card-empty p { margin: 0; }
+
 /* ── The phone, after this layer ─────────────────────────────────────────────────────────────── */
 @media (max-width: 639px) {
   .page { padding: 18px 16px 32px; gap: var(--sp-4); }

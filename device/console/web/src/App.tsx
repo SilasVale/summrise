@@ -831,6 +831,8 @@ export function App() {
                 visible={page === "device" && tab === "terminal"}
                 deviceOnline={chosen.online}
                 lastSeenMs={chosen.last_seen_ms}
+                deviceName={chosen.name ?? shortId(chosen.id)}
+                liveLines={live.lines}
                 onGrantRefused={() => setGrantStale(true)}
               />
             </section>

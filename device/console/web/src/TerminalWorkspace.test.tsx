@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import { TerminalWorkspace } from "./TerminalWorkspace";
 import { api } from "./api";
+import type { LiveLine } from "./liveActivity";
 import { callTool, ToolError, type Grant } from "./terminal";
 import { DEFAULT_FONT_SIZE, FONT_SIZE_KEY, MAX_FONT_SIZE, MIN_FONT_SIZE } from "./terminalFont";
 import { restoreGlobal } from "./test/dom";
@@ -1360,5 +1361,92 @@ describe("TerminalWorkspace shortcuts", () => {
 
     expect(handler(event)).toBe(true);
     expect(event.preventDefault).not.toHaveBeenCalled();
+  });
+});
+
+/** A line as `/events` would send it; the card reads device, session and input from it. */
+function liveLine(overrides: Partial<LiveLine> & { ts_ms: number }): LiveLine {
+  return { kind: "mcp", status: 200, sentence: "Typed into the shell", ...overrides };
+}
+
+describe("TerminalWorkspace session card", () => {
+  it("shows the attached session's machine, id, kind and age before the terminal", async () => {
+    callToolMock.mockImplementation(async (_grant, name) => {
+      if (name === "terminal.list") {
+        return JSON.stringify([
+          { id: "session-7", kind: "pty", started_at_ms: Date.now() - 5 * 60_000 }
+        ]);
+      }
+      if (name === "terminal.read") return JSON.stringify({ data: "", cursor: 0 });
+      if (name === "terminal.resize") return JSON.stringify({ rows: 24, cols: 80 });
+      throw new Error(`the test did not expect a ${name} call`);
+    });
+
+    render(<TerminalWorkspace grant={GRANT} deviceName="workshop" />);
+
+    // The card is on screen before the list answers; wait for the attach, then read the facts.
+    await screen.findByRole("tab", { name: /pty 1/ });
+    const card = screen.getByRole("region", { name: "Session" });
+    expect(within(card).getByText("workshop")).toBeInTheDocument();
+    expect(within(card).getByText("session-7")).toBeInTheDocument();
+    expect(within(card).getByText("pty")).toBeInTheDocument();
+    expect(within(card).getByText(/opened 5m \d\ds ago/)).toBeInTheDocument();
+    // No line has recorded a keystroke for this session, and the card must not invent one.
+    expect(within(card).getByText(/no keystroke recorded/i)).toBeInTheDocument();
+  });
+
+  it("shows the last input recorded for the attached session, not another session's", async () => {
+    callToolMock.mockImplementation(async (_grant, name) => {
+      if (name === "terminal.list") {
+        return JSON.stringify([
+          { id: "session-7", kind: "pty", started_at_ms: Date.now() - 60_000 }
+        ]);
+      }
+      if (name === "terminal.read") return JSON.stringify({ data: "", cursor: 0 });
+      if (name === "terminal.resize") return JSON.stringify({ rows: 24, cols: 80 });
+      throw new Error(`the test did not expect a ${name} call`);
+    });
+    const lines = [
+      liveLine({
+        ts_ms: Date.now() - 1_000,
+        device_id: GRANT.deviceId,
+        evidence: { session: "session-7" }
+      }),
+      liveLine({
+        ts_ms: Date.now() - 4_000,
+        device_id: "another-device",
+        evidence: { session: "session-7", input: "not this machine" }
+      }),
+      liveLine({
+        ts_ms: Date.now() - 8_000,
+        device_id: GRANT.deviceId,
+        evidence: { session: "session-8", input: "not this session" }
+      }),
+      liveLine({
+        ts_ms: Date.now() - 15_000,
+        device_id: GRANT.deviceId,
+        evidence: { session: "session-7", input: "npm test" }
+      })
+    ];
+
+    render(<TerminalWorkspace grant={GRANT} deviceName="workshop" liveLines={lines} />);
+
+    // The card is on screen before the list answers; wait for the attach, then read the card.
+    await screen.findByRole("tab", { name: /pty 1/ });
+    const card = screen.getByRole("region", { name: "Session" });
+    expect(within(card).getByText("npm test")).toBeInTheDocument();
+    expect(within(card).getByText(/1[3-7]s ago/)).toBeInTheDocument();
+    expect(within(card).queryByText("not this machine")).not.toBeInTheDocument();
+    expect(within(card).queryByText("not this session")).not.toBeInTheDocument();
+  });
+
+  it("says no session is open and offers the page's one New session action", async () => {
+    render(<TerminalWorkspace grant={GRANT} deviceName="workshop" />);
+
+    const card = await screen.findByRole("region", { name: "Session" });
+    expect(within(card).getByText("No session is open on this machine.")).toBeInTheDocument();
+    const start = screen.getAllByRole("button", { name: "+ New session" });
+    expect(start).toHaveLength(1);
+    expect(card).toContainElement(start[0]);
   });
 });

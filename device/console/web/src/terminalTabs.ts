@@ -10,6 +10,12 @@ export type Tab = {
   session: string;
   kind: string;
   title: string;
+  /**
+   * When the device created the session, from `terminal.list`; a session this page opened has the
+   * page's clock at the moment the device answered. The session card reads it as an age; a tab from
+   * a list that did not say keeps it undefined rather than inventing a start.
+   */
+  startedAtMs?: number;
 };
 
 /** The next generated label for `kind`: the smallest `n >= 1` whose title no tab carries. */
