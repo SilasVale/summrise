@@ -262,6 +262,11 @@ export const api = {
   // Permanent tokens: the create answer is the only one that carries the plaintext, so it is the one
   // shape that carries `token`. Every list entry is metadata, and a revoke is a bare DELETE.
   tokens: () => call<TokenMeta[]>("/tokens"),
+  // The narrower read for one machine's records. The one credential list asks it and `GET /tokens`
+  // and merges them, so a console that does not serve this route still lists the machine's tokens
+  // from the whole registry.
+  deviceTokens: (deviceId: string) =>
+    call<TokenMeta[]>(`/tokens/${encodeURIComponent(deviceId)}`),
   createToken: (draft: {
     name: string;
     tools: string[];

@@ -577,8 +577,14 @@ describe("App", () => {
     fireEvent.click(screen.getByRole("button", { name: "Tokens" }));
 
     const dialog = await screen.findByRole("dialog", { name: "Tokens" });
-    expect(within(dialog).getByRole("button", { name: "Create fleet token" })).toBeInTheDocument();
-    expect(within(dialog).getByText(/accepted only on/)).toBeInTheDocument();
+    // The account menu opens the fleet scope: no machine is chosen, so the form can mint only a
+    // token for all machines.
+    expect(within(dialog).getByRole("button", { name: "Create token" })).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "all machines" })).toHaveAttribute(
+      "aria-pressed",
+      "true"
+    );
+    expect(within(dialog).getByText(/spans the fleet/)).toBeInTheDocument();
   });
 
   it("selects a machine without leaving Home, then opens its terminal from Device", async () => {

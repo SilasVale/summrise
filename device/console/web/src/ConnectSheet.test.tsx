@@ -1,12 +1,13 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { HttpError, type Created, type Device, type LiveTool } from "./api";
+import { HttpError, type Created, type Device, type LiveTool, type TokenMeta } from "./api";
 import { ConnectSheet } from "./ConnectSheet";
 
 const mocks = vi.hoisted(() => ({
   tools: vi.fn(),
   liveTools: vi.fn(),
   tokens: vi.fn(),
+  deviceTokens: vi.fn(),
   createToken: vi.fn(),
   rotateToken: vi.fn(),
   revokeToken: vi.fn()
@@ -20,6 +21,7 @@ vi.mock("./api", async (importOriginal) => {
       ...actual.api,
       tools: mocks.tools,
       tokens: mocks.tokens,
+      deviceTokens: mocks.deviceTokens,
       createToken: mocks.createToken,
       rotateToken: mocks.rotateToken,
       revokeToken: mocks.revokeToken
@@ -66,6 +68,26 @@ function tool(name: string, capability: string, destructive: boolean): LiveTool 
 
 const TOOLS = [tool("files.read", "files", false), tool("terminal.write", "terminal", true)];
 
+const ATTIC: Device = {
+  id: "dev-attic",
+  name: "attic",
+  online: true,
+  version: "0.3.42",
+  last_seen_ms: 2
+};
+
+function tokenMeta(overrides: Partial<TokenMeta> = {}): TokenMeta {
+  return {
+    id: "tok-device",
+    name: "laptop",
+    device_id: WORKSHOP.id,
+    tools: ["files.read"],
+    allow_destructive: false,
+    created_at_ms: Date.UTC(2026, 10, 1),
+    ...overrides
+  };
+}
+
 const CREATED: Created = {
   id: "tok-1",
   name: "laptop",
@@ -80,6 +102,7 @@ beforeEach(() => {
   mocks.tools.mockResolvedValue([{ name: "files.read" }, { name: "terminal.write" }]);
   mocks.liveTools.mockReturnValue(TOOLS);
   mocks.tokens.mockResolvedValue([]);
+  mocks.deviceTokens.mockResolvedValue([]);
   mocks.createToken.mockReset();
   mocks.rotateToken.mockReset();
   mocks.revokeToken.mockReset();
@@ -122,8 +145,10 @@ describe("ConnectSheet", () => {
 
     fireEvent.click(screen.getByRole("tab", { name: "Tokens" }));
     expect(screen.getByRole("heading", { name: "Create a token" })).toBeInTheDocument();
-    expect(screen.getByText("Fleet tokens")).toBeInTheDocument();
     expect(screen.getByText(/2 tools · 1 can change the machine/)).toBeInTheDocument();
+    // One credential list, not a device list with a fleet list folded into a disclosure.
+    expect(screen.queryByText("Fleet tokens")).not.toBeInTheDocument();
+    expect(document.querySelector("details.fleet-token-disclosure")).toBeNull();
   });
 
   it("opens on Tokens when the account menu asked for it, with Tokens as the title", () => {
@@ -251,7 +276,10 @@ describe("ConnectSheet", () => {
     expect(screen.getByText("http://localhost:3000/mcp/all")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("tab", { name: "Tokens" }));
     expect(screen.getByText(/spans the fleet/)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Create fleet token" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Create token" })).toBeInTheDocument();
+    // With no current machine the only scope the form can mint is the fleet one.
+    expect(screen.getByRole("button", { name: "all machines" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "this machine" })).toBeDisabled();
   });
 
   it("dims the endpoint and disables Copy while the machine is offline", () => {
@@ -270,5 +298,119 @@ describe("ConnectSheet", () => {
     expect(await screen.findByText("Copied. It is not shown again.")).toBeInTheDocument();
     expect(screen.queryByText(/deepseek-ai\/dsh-mcp-client/)).not.toBeInTheDocument();
     delete (navigator as { clipboard?: unknown }).clipboard;
+  });
+});
+
+describe("ConnectSheet's one credential list", () => {
+  it("shows a device token and a fleet token together, each with its scope, newest first", async () => {
+    const deviceToken = tokenMeta();
+    const fleetToken = tokenMeta({
+      id: "tok-fleet",
+      name: "dsh-fleet",
+      device_id: "",
+      device_ids: [WORKSHOP.id, ATTIC.id],
+      tools: ["files.read", "terminal.write"],
+      allow_destructive: true,
+      created_at_ms: Date.UTC(2026, 10, 2)
+    });
+    // The whole-registry read also carries the device token: the page merges the two sources and
+    // must not draw the same record twice.
+    mocks.deviceTokens.mockResolvedValue([deviceToken]);
+    mocks.tokens.mockResolvedValue([fleetToken, deviceToken]);
+
+    draw({ initialSection: "tokens" });
+
+    const deviceRow = await screen.findByRole("row", { name: /laptop/ });
+    const fleetRow = screen.getByRole("row", { name: /dsh-fleet/ });
+    expect(deviceRow).toHaveTextContent("this machine");
+    expect(fleetRow).toHaveTextContent("all machines");
+    expect(screen.getAllByRole("row", { name: /laptop|dsh-fleet/ })).toHaveLength(2);
+
+    const dataRows = within(screen.getByRole("table")).getAllByRole("row").slice(1);
+    expect(dataRows[0]).toHaveTextContent("dsh-fleet");
+    expect(dataRows[1]).toHaveTextContent("laptop");
+  });
+
+  it("mints against all machines with the fleet payload and shows the new row with that scope", async () => {
+    mocks.createToken.mockResolvedValue({
+      ...CREATED,
+      id: "tok-fleet",
+      name: "fleet",
+      device_id: "",
+      device_ids: [WORKSHOP.id, ATTIC.id],
+      token: "srm_" + "c".repeat(64)
+    });
+    draw({ initialSection: "tokens", devices: [WORKSHOP, ATTIC] });
+
+    fireEvent.click(within(tokenForm()).getByRole("button", { name: "all machines" }));
+    fireEvent.change(within(tokenForm()).getByLabelText("Name"), { target: { value: "fleet" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create token" }));
+
+    await waitFor(() =>
+      expect(mocks.createToken).toHaveBeenCalledWith({
+        name: "fleet",
+        device_ids: [WORKSHOP.id, ATTIC.id],
+        tools: ["files.read", "terminal.write"],
+        allow_destructive: false
+      })
+    );
+    const row = await screen.findByRole("row", { name: /fleet/ });
+    expect(row).toHaveTextContent("all machines");
+    // The one-time value is still the reveal; the row is metadata and never the secret.
+    expect(screen.getByText("srm_" + "c".repeat(64))).toBeInTheDocument();
+    expect(row).not.toHaveTextContent("srm_");
+  });
+
+  it("revokes a fleet row through the token endpoint after naming the consequence", async () => {
+    mocks.tokens.mockResolvedValue([
+      tokenMeta({
+        id: "tok-fleet",
+        name: "dsh-fleet",
+        device_id: "",
+        device_ids: [WORKSHOP.id, ATTIC.id]
+      })
+    ]);
+    mocks.revokeToken.mockResolvedValue(undefined);
+    draw({ initialSection: "tokens" });
+
+    const row = await screen.findByRole("row", { name: /dsh-fleet/ });
+    fireEvent.click(within(row).getByRole("button", { name: "Revoke" }));
+    const dialog = await screen.findByRole("dialog", { name: 'Revoke "dsh-fleet"?' });
+    expect(within(dialog).getByText(/cannot be recovered/)).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Revoke token" }));
+
+    await waitFor(() => expect(mocks.revokeToken).toHaveBeenCalledWith("tok-fleet"));
+    expect(mocks.revokeToken).toHaveBeenCalledTimes(1);
+  });
+
+  it("says what a token is for when none exists, and keeps the mint form visible", async () => {
+    draw({ initialSection: "tokens" });
+
+    expect(await screen.findByText(/none has been minted yet/)).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Create a token" })).toBeInTheDocument();
+    expect(screen.queryByRole("table")).not.toBeInTheDocument();
+  });
+
+  it("defaults the mint scope to this machine and can be switched before minting", async () => {
+    mocks.createToken.mockResolvedValue({ ...CREATED, name: "here" });
+    draw({ initialSection: "tokens", devices: [WORKSHOP, ATTIC] });
+
+    expect(within(tokenForm()).getByRole("button", { name: "this machine" })).toHaveAttribute(
+      "aria-pressed",
+      "true"
+    );
+    fireEvent.click(within(tokenForm()).getByRole("button", { name: "all machines" }));
+    expect(within(tokenForm()).getByRole("button", { name: "all machines" })).toHaveAttribute(
+      "aria-pressed",
+      "true"
+    );
+    fireEvent.change(within(tokenForm()).getByLabelText("Name"), { target: { value: "here" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create token" }));
+
+    await waitFor(() =>
+      expect(mocks.createToken).toHaveBeenCalledWith(
+        expect.objectContaining({ device_ids: [WORKSHOP.id, ATTIC.id] })
+      )
+    );
   });
 });

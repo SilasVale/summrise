@@ -902,6 +902,13 @@ function replyFor(request, url) {
   if (connection && method === 'DELETE') return noContent();
 
   if (pathname === '/tokens' && method === 'GET') return json(TOKENS);
+  // The one credential list reads the machine's narrower source too. It is the same records
+  // filtered by scope, exactly what a console route of this shape would answer.
+  const deviceTokens = /^\/tokens\/([^/]+)$/.exec(pathname);
+  if (deviceTokens && method === 'GET') {
+    const deviceId = decodeURIComponent(deviceTokens[1]);
+    return json(TOKENS.filter((entry) => entry.device_id === deviceId));
+  }
   if (pathname === '/tokens' && method === 'POST') {
     const body = requestBody(request);
     return json(
@@ -1392,7 +1399,7 @@ async function capturePage(page, state, meta, pass) {
       pass: pass.key,
       page: 'connect-tokens',
       file: tokensFile,
-      note: 'Connect: the token list and create form, presets first'
+      note: 'Connect: one credential list with its scope column, and the mint form above it'
     });
     console.log(`  ${pass.key.padEnd(6)} ${tokensFile}`);
     await page.locator('.sheet-close').click();

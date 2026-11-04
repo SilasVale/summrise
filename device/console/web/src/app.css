@@ -675,12 +675,6 @@ tr:last-child td { border-bottom: 0; }
   font-size: var(--fs-xs); font-weight: var(--fw-semi); color: var(--ink-faint);
   text-transform: uppercase; letter-spacing: var(--tracking-label);
 }
-.token-list ul { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--sp-1-5); }
-.token-list li {
-  display: grid; gap: var(--sp-0-5); padding: var(--sp-2) var(--sp-2);
-  border: 1px solid var(--line); border-radius: var(--radius-xs); background: var(--surface-recessed);
-}
-.token-list li > div { display: flex; align-items: baseline; justify-content: space-between; gap: var(--sp-2); flex-wrap: wrap; }
 .connect .grant-row select { width: auto; min-width: 9rem; }
 .connect-actions { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
 /* The header is a credential, not a document: a phone must still see the actions below it. */
@@ -1733,36 +1727,22 @@ span.files-name {
 }
 .scope-group legend { padding: 0 var(--sp-1); font-size: var(--fs-xs); font-weight: var(--fw-semi); color: var(--ink-muted); }
 .scope-group .check { font-size: var(--fs-xs); }
-.fleet-token-disclosure { border-top: 1px solid var(--line); padding-top: var(--sp-3); }
-.fleet-token-disclosure > summary { cursor: pointer; color: var(--ink-muted); font-size: var(--fs-sm); }
-.fleet-token-disclosure[open] > summary { margin-bottom: var(--sp-3); }
-/* In the device-token view the one accent is Create token; a fleet token is a second, quieter job. */
-.fleet-token-disclosure:not(.fleet-only) button.primary {
-  background: var(--surface); border-color: var(--line-strong); color: var(--ink);
-}
-.fleet-token-disclosure:not(.fleet-only) button.primary:hover {
-  background: var(--panel-3); border-color: var(--line-strong);
-}
-.fleet-token-disclosure .fleet-tokens { display: grid; gap: var(--sp-3); }
-.token-list ul { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--sp-2); }
-.token-row {
-  display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--sp-0-5) var(--sp-3);
-  padding: var(--sp-3); border: 1px solid var(--line); border-radius: var(--radius-sm);
-  background: var(--surface);
-}
-.token-row-head { display: flex; align-items: baseline; gap: var(--sp-2); min-width: 0; }
-.token-row-head strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.token-row-head .muted { margin-left: auto; font-size: var(--fs-xs); white-space: nowrap; }
-.token-row-meta { grid-column: 1; margin: 0; color: var(--ink-muted); font-size: var(--fs-sm); }
-.token-row-actions { grid-column: 2; grid-row: 1 / 3; display: flex; align-items: center; gap: var(--sp-1); }
-.fleet-token-disclosure .token-list { display: grid; gap: var(--sp-2); }
+/* One credential list at two scopes. The table is a row per token; the scope column is what
+   makes the single list honest. Cells wrap rather than widen the sheet on a phone. */
+.token-table td { vertical-align: top; }
+.token-table th:last-child, .token-table td:last-child { text-align: right; }
+.token-name { display: grid; gap: var(--sp-1); min-width: 0; }
+.token-name strong { overflow-wrap: anywhere; }
+.token-id { display: flex; align-items: center; gap: var(--sp-1); white-space: nowrap; }
+.token-id code { font-family: var(--font-mono); font-size: var(--fs-2xs); color: var(--ink-faint); }
+.token-tools { display: grid; gap: var(--sp-0-5); white-space: nowrap; }
+.token-tools .hint { font-size: var(--fs-2xs); white-space: normal; }
+.token-expires, .token-created { white-space: nowrap; }
+.token-actions { display: flex; justify-content: flex-end; gap: var(--sp-1); white-space: nowrap; }
 
 @media (max-width: 639px) {
   .connect-sheet .connect-tabs button { flex: 1; text-align: center; }
   .scope-group { grid-template-columns: 1fr; }
-  .token-row { grid-template-columns: minmax(0, 1fr); }
-  .token-row-head .muted { margin-left: auto; }
-  .token-row-actions { grid-column: 1; grid-row: auto; justify-content: flex-end; }
 }
 .plugin-logs .hint p { margin: 0; }
 @media (max-width: 639px) {

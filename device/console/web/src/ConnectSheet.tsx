@@ -2,12 +2,12 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { api, type Created, type Device, type LiveTool, type TokenMeta } from "./api";
 import { groupByCapability } from "./capabilities";
 import { copyText } from "./copy";
-import { message } from "./format";
-import { FleetTokens } from "./FleetTokens";
+import { message, shortId } from "./format";
 import { Modal } from "./Modal";
 import { Sheet } from "./Sheet";
 import { useLiveTools } from "./useLiveTools";
 import { useToolNames } from "./useToolNames";
+import { mergeTokenRows, scopeLabel, tokenScope, type TokenScope } from "./tokenScopes";
 
 export type ConnectSection = "endpoint" | "clients" | "tokens";
 
@@ -75,13 +75,12 @@ function clientConfig(client: ClientId, url: string): string {
 function lastUsed(entry: TokenMeta): string {
   return entry.last_used_ms == null
     ? "never used"
-    : `last used ${new Date(entry.last_used_ms).toLocaleDateString()}`;
+    : `used ${new Date(entry.last_used_ms).toLocaleDateString()}`;
 }
 
+/** The Expires cell: the column already says what the date means. */
 function expiry(entry: TokenMeta): string {
-  return entry.expires_at_ms == null
-    ? "never expires"
-    : `expires ${new Date(entry.expires_at_ms).toLocaleDateString()}`;
+  return entry.expires_at_ms == null ? "never" : new Date(entry.expires_at_ms).toLocaleDateString();
 }
 
 /**
@@ -267,6 +266,30 @@ function TokensSection({
   endpoint: string;
   offline: boolean;
 }) {
+  // The minted token's scope: one machine (the sheet's device) or the fleet. With no current
+  // machine, the fleet is the only scope a token can be minted for.
+  const [scope, setScope] = useState<TokenScope>(device ? "device" : "fleet");
+  const [name, setName] = useState("");
+  const [preset, setPreset] = useState<"all" | "readonly" | "choose">("all");
+  const [chosen, setChosen] = useState<Set<string>>(new Set());
+  const [touched, setTouched] = useState(false);
+  const [tokenExpiry, setTokenExpiry] = useState(0);
+  const [destructive, setDestructive] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
+  const [created, setCreated] = useState<Created | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [copiedConfig, setCopiedConfig] = useState(false);
+  const [tokens, setTokens] = useState<TokenMeta[] | null>(null);
+  const [tokensError, setTokensError] = useState<string | null>(null);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [rotating, setRotating] = useState<TokenMeta | null>(null);
+  const [rotateBusy, setRotateBusy] = useState(false);
+  const [rotateError, setRotateError] = useState<string | null>(null);
+  const [revoking, setRevoking] = useState<TokenMeta | null>(null);
+  const [revokeBusy, setRevokeBusy] = useState(false);
+  const [revokeError, setRevokeError] = useState<string | null>(null);
+
   const catalogue = useMemo(
     () =>
       liveTools.length > 0
@@ -281,31 +304,19 @@ function TokensSection({
           })),
     [liveTools, fallbackNames]
   );
-  const groups = useMemo(() => groupByCapability(catalogue), [catalogue]);
-  const allNames = useMemo(() => catalogue.map((tool) => tool.name), [catalogue]);
-  const readonlyNames = useMemo(
-    () => catalogue.filter((tool) => !tool.destructive).map((tool) => tool.name),
-    [catalogue]
+  // A fleet token applies one tool list to every machine, and v1 refuses a plugin tool there:
+  // only the device that advertises it can vouch for it. A device token still offers the whole
+  // live catalogue.
+  const scopedCatalogue = useMemo(
+    () => (scope === "fleet" ? catalogue.filter((tool) => tool.source === "builtin") : catalogue),
+    [catalogue, scope]
   );
-
-  const [name, setName] = useState("");
-  const [preset, setPreset] = useState<"all" | "readonly" | "choose">("all");
-  const [chosen, setChosen] = useState<Set<string>>(new Set());
-  const [touched, setTouched] = useState(false);
-  const [tokenExpiry, setTokenExpiry] = useState(0);
-  const [destructive, setDestructive] = useState(false);
-  const [creating, setCreating] = useState(false);
-  const [createError, setCreateError] = useState<string | null>(null);
-  const [created, setCreated] = useState<Created | null>(null);
-  const [copied, setCopied] = useState(false);
-  const [tokens, setTokens] = useState<TokenMeta[] | null>(null);
-  const [tokensError, setTokensError] = useState<string | null>(null);
-  const [rotating, setRotating] = useState<TokenMeta | null>(null);
-  const [rotateBusy, setRotateBusy] = useState(false);
-  const [rotateError, setRotateError] = useState<string | null>(null);
-  const [revoking, setRevoking] = useState<TokenMeta | null>(null);
-  const [revokeBusy, setRevokeBusy] = useState(false);
-  const [revokeError, setRevokeError] = useState<string | null>(null);
+  const groups = useMemo(() => groupByCapability(scopedCatalogue), [scopedCatalogue]);
+  const allNames = useMemo(() => scopedCatalogue.map((tool) => tool.name), [scopedCatalogue]);
+  const readonlyNames = useMemo(
+    () => scopedCatalogue.filter((tool) => !tool.destructive).map((tool) => tool.name),
+    [scopedCatalogue]
+  );
 
   const effectiveChosen = touched ? chosen : new Set(allNames);
   const selectedTools =
@@ -318,14 +329,38 @@ function TokensSection({
     (tool) => tool.destructive && selectedTools.includes(tool.name)
   ).length;
 
-  const refresh = useCallback(async () => {
-    try {
-      setTokens(await api.tokens());
-      setTokensError(null);
-    } catch (cause) {
-      setTokensError(message(cause));
-    }
-  }, []);
+  /**
+   * Read both credential sources and merge them, newest first.
+   *
+   * `GET /tokens` is the whole registry; `/tokens/<device>` is the narrower machine read. The
+   * narrower route is not served by every console build, so a refusal falls back to the device's
+   * slice of the whole registry instead of hiding the machine's tokens. A failed whole-registry
+   * read keeps the list that is already on screen and says why.
+   */
+  const refresh = useCallback(
+    async (justCreated?: TokenMeta) => {
+      const deviceId = device?.id ?? null;
+      try {
+        const [whole, narrower] = await Promise.all([
+          api.tokens(),
+          deviceId ? api.deviceTokens(deviceId).catch(() => null) : Promise.resolve(null)
+        ]);
+        const deviceRows = deviceId
+          ? // The whole registry also carries the machine's records in this console; merging both
+            // reads means a console that serves the narrower route adds nothing twice, and one
+            // that does not still lists the machine's tokens.
+            mergeTokenRows(narrower ?? [], whole.filter((entry) => entry.device_id === deviceId))
+          : [];
+        const fleetRows = whole.filter((entry) => tokenScope(entry) === "fleet");
+        setTokens(mergeTokenRows(deviceRows, fleetRows, justCreated ? [justCreated] : []));
+        setTokensError(null);
+      } catch (cause) {
+        setTokensError(message(cause));
+        if (justCreated) setTokens((previous) => mergeTokenRows(previous ?? [], [justCreated]));
+      }
+    },
+    [device]
+  );
 
   useEffect(() => {
     void refresh();
@@ -339,23 +374,35 @@ function TokensSection({
     setChosen(next);
   };
 
+  const switchScope = (next: TokenScope) => {
+    setScope(next);
+    // The two scopes may offer different catalogues (the fleet hides plugin tools); starting a
+    // scope fresh keeps a stale selection from carrying a tool the new scope cannot carry.
+    setTouched(false);
+    setChosen(new Set());
+    setCreateError(null);
+  };
+
   const create = async () => {
-    if (!device) return;
+    if (scope === "device" && !device) return;
     setCreating(true);
     setCreateError(null);
     setCopied(false);
+    setCopiedConfig(false);
     try {
-      setCreated(
-        await api.createToken({
-          name: name.trim(),
-          device_id: device.id,
-          tools: selectedTools,
-          allow_destructive: destructive,
-          ...(tokenExpiry > 0 ? { expires_in_s: tokenExpiry } : {})
-        })
-      );
+      const draft = {
+        name: name.trim(),
+        tools: selectedTools,
+        allow_destructive: destructive,
+        ...(tokenExpiry > 0 ? { expires_in_s: tokenExpiry } : {})
+      };
+      const answer =
+        scope === "fleet"
+          ? await api.createToken({ ...draft, device_ids: devices.map((entry) => entry.id) })
+          : await api.createToken({ ...draft, device_id: device!.id });
+      setCreated(answer);
       setName("");
-      await refresh();
+      await refresh(answer);
     } catch (cause) {
       // The console's additive sentence is the recovery copy; its code is the fallback.
       setCreateError(message(cause));
@@ -371,6 +418,8 @@ function TokensSection({
     try {
       setCreated(await api.rotateToken(rotating.id));
       setRotating(null);
+      setCopied(false);
+      setCopiedConfig(false);
       await refresh();
     } catch (cause) {
       setRotateError(message(cause));
@@ -384,6 +433,9 @@ function TokensSection({
     setRevokeBusy(true);
     setRevokeError(null);
     try {
+      // Both scopes are records in one registry, and the console revokes either by id at
+      // `DELETE /tokens/<id>`. What the row's scope decides is which list it leaves and which
+      // source it was read from; there is no second revoke route to choose between.
       await api.revokeToken(revoking.id);
       setRevoking(null);
       await refresh();
@@ -394,169 +446,265 @@ function TokensSection({
     }
   };
 
-  const mine = device
-    ? (tokens ?? []).filter((entry) => entry.device_id === device.id)
-    : [];
+  const copyId = async (id: string) => {
+    if (await copyText(id)) {
+      setCopiedId(id);
+      window.setTimeout(() => setCopiedId((current) => (current === id ? null : current)), 2000);
+    }
+  };
+
+  const reset = () => {
+    setCreated(null);
+    setCreateError(null);
+    setName("");
+    setCopied(false);
+    setCopiedConfig(false);
+  };
+
+  const createdFleet = created ? tokenScope(created) === "fleet" : false;
+  const createdUrl = created
+    ? createdFleet
+      ? `${location.origin}/mcp/all`
+      : `${location.origin}/mcp/${created.device_id}`
+    : "";
+  const createdConfig = created ? clientConfig("dsh", createdUrl).replace("<token>", created.token) : "";
+  const canCreate =
+    name.trim() !== "" &&
+    selectedTools.length > 0 &&
+    (scope === "device" ? device !== null : devices.length > 0);
 
   return (
     <div className="tokens-section">
-      {device ? (
-        <>
-          <p className="hint">
-            A token is a credential the client keeps in its configuration. The console stores only
-            its hash; the value is shown once, here.
-          </p>
+      <p className="hint">
+        A token is a credential the client keeps in its configuration. The console stores only its
+        hash; the value is shown once, here.
+      </p>
 
-          {created ? (
-            <div className="created-token">
-              <p className="token-warning">Copy this token now. It is not shown again.</p>
-              <div className="endpoint-row">
-                <code className="endpoint mono">{created.token}</code>
+      {!device && (
+        <p className="hint">
+          The endpoint <code className="mono">{endpoint}</code> spans the fleet. A token minted for
+          all machines is accepted there; every tool takes a required <code>device</code> argument.
+        </p>
+      )}
+
+      {created ? (
+        <div className="created-token">
+          <p className="token-warning">Copy this token now. It is not shown again.</p>
+          <div className="endpoint-row">
+            <code className="endpoint mono">{created.token}</code>
+            <button
+              type="button"
+              onClick={() =>
+                void copyText(created.token).then((ok) => {
+                  if (ok) setCopied(true);
+                })
+              }
+            >
+              {copied ? "Copied" : "Copy token"}
+            </button>
+          </div>
+          {createdFleet && (
+            <>
+              <pre className="config">{createdConfig}</pre>
+              <div className="connect-actions">
                 <button
                   type="button"
                   onClick={() =>
-                    void copyText(created.token).then((ok) => {
-                      if (ok) setCopied(true);
+                    void copyText(createdConfig).then((ok) => {
+                      if (ok) setCopiedConfig(true);
                     })
                   }
                 >
-                  {copied ? "Copied" : "Copy token"}
+                  {copiedConfig ? "Copied" : "Copy client config"}
                 </button>
               </div>
-              <div className="connect-actions">
-                <button type="button" onClick={() => setCreated(null)}>
-                  Create another
-                </button>
-              </div>
-            </div>
-          ) : (
-            <section className="token-create" aria-labelledby="create-token">
-              <h3 id="create-token">Create a token</h3>
-              <div className="field">
-                <label htmlFor="token-name">Name</label>
-                <input
-                  id="token-name"
-                  value={name}
-                  maxLength={80}
-                  placeholder="laptop-dsh"
-                  onChange={(event) => setName(event.target.value)}
-                />
-              </div>
+            </>
+          )}
+          <div className="connect-actions">
+            <button type="button" onClick={reset}>
+              Create another
+            </button>
+          </div>
+        </div>
+      ) : (
+        <section className="token-create" aria-labelledby="create-token">
+          <h3 id="create-token">Create a token</h3>
+          <div className="field">
+            <label htmlFor="token-name">Name</label>
+            <input
+              id="token-name"
+              value={name}
+              maxLength={80}
+              placeholder="laptop-dsh"
+              onChange={(event) => setName(event.target.value)}
+            />
+          </div>
 
-              <div className="seg" role="group" aria-label="Tool scope">
-                {(["all", "readonly", "choose"] as const).map((entry) => (
-                  <button
-                    key={entry}
-                    type="button"
-                    aria-pressed={preset === entry}
-                    onClick={() => setPreset(entry)}
-                  >
-                    {entry === "all" ? "All tools" : entry === "readonly" ? "Read-only" : "Choose tools…"}
-                  </button>
-                ))}
-              </div>
-
-              {preset === "choose" && (
-                <div className="scope-groups">
-                  {offline && (
-                    <p className="hint">
-                      The machine is offline. The list below is the static fallback; the console
-                      refuses a plugin tool it cannot verify.
-                    </p>
-                  )}
-                  {groups.map((group) => (
-                    <fieldset className="scope-group" key={group.name}>
-                      <legend>{group.name}</legend>
-                      {group.tools.map((entry) => (
-                        <label className="check mono" key={entry.name}>
-                          <input
-                            type="checkbox"
-                            checked={effectiveChosen.has(entry.name)}
-                            onChange={() => toggle(entry.name)}
-                          />
-                          {entry.name}
-                        </label>
-                      ))}
-                    </fieldset>
-                  ))}
-                </div>
-              )}
-
-              <p className="hint">
-                {selectedTools.length} tool{selectedTools.length === 1 ? "" : "s"} ·{" "}
-                {destructiveCount} can change the machine
-              </p>
-
-              <div className="grant-row">
-                <label htmlFor="token-expiry">Expires</label>
-                <select
-                  id="token-expiry"
-                  value={tokenExpiry}
-                  onChange={(event) => setTokenExpiry(Number(event.target.value))}
-                >
-                  {TOKEN_EXPIRIES.map((choice) => (
-                    <option key={choice.seconds} value={choice.seconds}>
-                      {choice.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <label className="check">
-                <input
-                  type="checkbox"
-                  checked={destructive}
-                  onChange={(event) => setDestructive(event.target.checked)}
-                />
-                Allow destructive tools
-              </label>
-              <p className="hint">
-                Without this, the machine refuses anything that changes it; read-only tools still
-                work.
-              </p>
-
-              {createError && <p className="error">{createError}</p>}
-              <div className="connect-actions">
-                <button
-                  type="button"
-                  className="primary"
-                  disabled={creating || name.trim() === "" || selectedTools.length === 0}
-                  onClick={() => void create()}
-                >
-                  {creating ? "Creating…" : "Create token"}
-                </button>
-              </div>
-            </section>
+          <div className="seg" role="group" aria-label="Token scope">
+            {(["device", "fleet"] as const).map((entry) => (
+              <button
+                key={entry}
+                type="button"
+                aria-pressed={scope === entry}
+                disabled={entry === "device" ? device === null : devices.length === 0}
+                onClick={() => switchScope(entry)}
+              >
+                {entry === "device" ? "this machine" : "all machines"}
+              </button>
+            ))}
+          </div>
+          {scope === "fleet" && devices.length === 0 && (
+            <p className="hint">Enroll a machine before minting a token that spans the fleet.</p>
           )}
 
-          {!created && (
-            <section className="token-list" aria-label="Existing tokens">
-              <h3>Existing tokens</h3>
-              {tokens === null && !tokensError && <p className="hint">Loading…</p>}
-              {tokens !== null && mine.length === 0 && (
+          <div className="seg" role="group" aria-label="Tool scope">
+            {(["all", "readonly", "choose"] as const).map((entry) => (
+              <button
+                key={entry}
+                type="button"
+                aria-pressed={preset === entry}
+                onClick={() => setPreset(entry)}
+              >
+                {entry === "all" ? "All tools" : entry === "readonly" ? "Read-only" : "Choose tools…"}
+              </button>
+            ))}
+          </div>
+
+          {preset === "choose" && (
+            <div className="scope-groups">
+              {offline && (
                 <p className="hint">
-                  No permanent tokens for this device. One keeps a client's fixed configuration
-                  working across restarts.
+                  The machine is offline. The list below is the static fallback; the console
+                  refuses a plugin tool it cannot verify.
                 </p>
               )}
-              {mine.length > 0 && (
-                <ul>
-                  {mine.map((entry) => (
-                    <li className="token-row" key={entry.id}>
-                      <div className="token-row-head">
-                        <strong>{entry.name}</strong>
-                        <span className="muted">
-                          {new Date(entry.created_at_ms).toLocaleDateString()}
+              {groups.map((group) => (
+                <fieldset className="scope-group" key={group.name}>
+                  <legend>{group.name}</legend>
+                  {group.tools.map((entry) => (
+                    <label className="check mono" key={entry.name}>
+                      <input
+                        type="checkbox"
+                        checked={effectiveChosen.has(entry.name)}
+                        onChange={() => toggle(entry.name)}
+                      />
+                      {entry.name}
+                    </label>
+                  ))}
+                </fieldset>
+              ))}
+            </div>
+          )}
+
+          <p className="hint">
+            {selectedTools.length} tool{selectedTools.length === 1 ? "" : "s"} ·{" "}
+            {destructiveCount} can change the machine
+            {scope === "fleet" ? " · one list for every machine in the token's scope" : ""}
+          </p>
+
+          <div className="grant-row">
+            <label htmlFor="token-expiry">Expires</label>
+            <select
+              id="token-expiry"
+              value={tokenExpiry}
+              onChange={(event) => setTokenExpiry(Number(event.target.value))}
+            >
+              {TOKEN_EXPIRIES.map((choice) => (
+                <option key={choice.seconds} value={choice.seconds}>
+                  {choice.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <label className="check">
+            <input
+              type="checkbox"
+              checked={destructive}
+              onChange={(event) => setDestructive(event.target.checked)}
+            />
+            Allow destructive tools
+          </label>
+          <p className="hint">
+            Without this, the machine refuses anything that changes it; read-only tools still work.
+          </p>
+
+          {createError && <p className="error">{createError}</p>}
+          <div className="connect-actions">
+            <button type="button" className="primary" disabled={creating || !canCreate} onClick={() => void create()}>
+              {creating ? "Creating…" : "Create token"}
+            </button>
+          </div>
+        </section>
+      )}
+
+      <section className="token-list" aria-label="Existing tokens">
+        <h3>Existing tokens</h3>
+        {tokens === null && !tokensError && <p className="hint">Loading…</p>}
+        {tokens !== null && tokens.length === 0 && (
+          <p className="hint">
+            A token is the credential a client keeps in its configuration, and none has been minted
+            yet; create one above.
+          </p>
+        )}
+        {tokens !== null && tokens.length > 0 && (
+          <div className="table-scroll" role="region" aria-label="Token list" tabIndex={0}>
+            <table className="token-table">
+              <thead>
+                <tr>
+                  <th scope="col">Name</th>
+                  <th scope="col">Scope</th>
+                  <th scope="col">Tools</th>
+                  <th scope="col">Expires</th>
+                  <th scope="col">Created</th>
+                  <th scope="col">
+                    <span className="sr-only">Actions</span>
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {tokens.map((entry) => {
+                  const label = entry.name || shortId(entry.id);
+                  return (
+                    <tr key={entry.id}>
+                      <td>
+                        <div className="token-name">
+                          <strong>{label}</strong>
+                          <span className="token-id">
+                            <code title={entry.id}>{shortId(entry.id)}</code>
+                            <button
+                              type="button"
+                              className="mini"
+                              aria-label={`Copy id of ${label}`}
+                              onClick={() => void copyId(entry.id)}
+                            >
+                              {copiedId === entry.id ? "Copied" : "Copy"}
+                            </button>
+                          </span>
+                          <span className="hint">{lastUsed(entry)}</span>
+                        </div>
+                      </td>
+                      <td>
+                        <span className="chip">{scopeLabel(entry)}</span>
+                      </td>
+                      <td className="token-tools">
+                        <span title={entry.tools.join(", ")}>
+                          {entry.tools.length} tool{entry.tools.length === 1 ? "" : "s"}
                         </span>
-                      </div>
-                      <p className="token-row-meta">
-                        {entry.tools.length} tools ·{" "}
-                        {entry.allow_destructive ? "destructive allowed" : "read-only"} ·{" "}
-                        {expiry(entry)} · {lastUsed(entry)}
-                      </p>
-                      <div className="token-row-actions">
+                        <span className="hint">
+                          {entry.allow_destructive ? "destructive allowed" : "read-only"}
+                        </span>
+                      </td>
+                      <td className="token-expires">{expiry(entry)}</td>
+                      <td className="token-created">
+                        <time dateTime={new Date(entry.created_at_ms).toISOString()}>
+                          {new Date(entry.created_at_ms).toLocaleDateString()}
+                        </time>
+                      </td>
+                      <td className="token-actions">
                         <button
                           type="button"
+                          className="mini"
                           onClick={() => {
                             setRotateError(null);
                             setRotating(entry);
@@ -566,6 +714,7 @@ function TokensSection({
                         </button>
                         <button
                           type="button"
+                          className="mini"
                           onClick={() => {
                             setRevokeError(null);
                             setRevoking(entry);
@@ -573,29 +722,16 @@ function TokensSection({
                         >
                           Revoke
                         </button>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              )}
-              {tokensError && <p className="error">{tokensError}</p>}
-            </section>
-          )}
-        </>
-      ) : (
-        <p className="hint">
-          The endpoint <code className="mono">{endpoint}</code> spans the fleet. Create a fleet token
-          below; every tool on it takes a required <code>device</code> argument.
-        </p>
-      )}
-
-      <details
-        className={"fleet-token-disclosure" + (device === null ? " fleet-only" : "")}
-        open={device === null}
-      >
-        <summary>Fleet tokens</summary>
-        <FleetTokens devices={devices} tokens={tokens ?? []} embedded onChanged={() => void refresh()} />
-      </details>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+        {tokensError && <p className="error">{tokensError}</p>}
+      </section>
 
       {rotating && (
         <Modal
@@ -609,7 +745,7 @@ function TokensSection({
             refused on its next request, and the old value cannot be recovered.
           </p>
           <p className="hint">
-            The new token keeps this one's name, device, tools and destructive consent. Its value is
+            The new token keeps this one's name, scope, tools and destructive consent. Its value is
             shown once, right after — the console keeps only its hash.
           </p>
           {rotateError && <p className="error">{rotateError}</p>}
@@ -632,6 +768,7 @@ function TokensSection({
           }}
         >
           <p className="hint">
+            {tokenScope(revoking) === "fleet" ? "This token is accepted on /mcp/all. " : ""}
             Any client using this token stops on its next request, and the token cannot be
             recovered. To keep the client working, create a new token and update its configuration.
           </p>

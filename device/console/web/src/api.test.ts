@@ -312,6 +312,22 @@ describe("the endpoints", () => {
     expect(init.method).toBeUndefined();
   });
 
+  it("deviceTokens GETs one machine's records at /tokens/<device>", async () => {
+    const meta: TokenMeta = {
+      id: "tok-1",
+      name: "laptop-dsh",
+      device_id: "dev-1",
+      tools: ["files.read"],
+      allow_destructive: false,
+      created_at_ms: 1
+    };
+    fetchMock.mockResolvedValue(answer({ json: [meta] }));
+    await expect(api.deviceTokens("dev-1")).resolves.toEqual([meta]);
+    const { path, init } = lastRequest();
+    expect(path).toBe("/tokens/dev-1");
+    expect(init.method).toBeUndefined();
+  });
+
   it("createToken POSTs exactly the name, device, tools and destructive flag", async () => {
     const init = await request(
       () =>
