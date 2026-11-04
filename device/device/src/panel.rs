@@ -58,7 +58,7 @@ const COMPONENTS: &str = r##"  * { box-sizing: border-box; }
 
   table { width: 100%; border-collapse: collapse; }
   th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); font-size: var(--fs-base); }
-  th { font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: 0.05em; color: var(--ink-faint); font-weight: 600; }
+  th { font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: var(--tracking-label); color: var(--ink-faint); font-weight: 600; }
   tr:last-child td { border-bottom: 0; }
   td.kind { color: var(--ink-muted); }
   .none { color: var(--ink-muted); font-size: var(--fs-md); }
@@ -142,8 +142,8 @@ const COMPONENTS: &str = r##"  * { box-sizing: border-box; }
 
   /* The first screen is a sentence and two actions, not a config block. */
   .hero { display: grid; gap: 2px; padding: 2px 0 6px; }
-  .hero .eyebrow { margin: 0; color: var(--ink-faint); font-size: var(--fs-xs); font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; }
-  .hero h2 { margin: 2px 0 0; font-size: var(--fs-xl); line-height: 1.15; letter-spacing: -0.02em; }
+  .hero .eyebrow { margin: 0; color: var(--ink-faint); font-size: var(--fs-xs); font-weight: 600; letter-spacing: var(--tracking-eyebrow); text-transform: uppercase; }
+  .hero h2 { margin: 2px 0 0; font-size: var(--fs-xl); line-height: 1.15; letter-spacing: var(--tracking-tight); }
   .hero .meta { margin: 6px 0 0; color: var(--ink-muted); font-size: var(--fs-base); }
   .hero .lede { margin: 6px 0 0; }
   .hero .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
@@ -1068,6 +1068,28 @@ mod tests {
             rest = &after[end..];
         }
         assert!(!seen.is_empty(), "the panel declares no font sizes at all");
+    }
+
+    /// **A TRACKING VALUE IS A STEP, NOT A NUMBER.** The panel set 0.08, 0.05 and -0.02 by hand while
+    /// the console set 0.05, 0.04 and -0.011: six numbers for three intents, and nothing read either
+    /// sheet. The steps are tokens now (`--tracking-eyebrow`, `--tracking-label`, `--tracking-tight`),
+    /// and a bare length here is the failure.
+    #[test]
+    fn the_panel_uses_the_shared_tracking_steps() {
+        let mut rest = COMPONENTS;
+        let mut seen = 0;
+        while let Some(at) = rest.find("letter-spacing:") {
+            let after = &rest[at + "letter-spacing:".len()..];
+            let end = after.find([';', '}']).unwrap_or(after.len());
+            let value = after[..end].trim();
+            seen += 1;
+            assert!(
+                value.starts_with("var(--tracking-") || value == "normal" || value == "inherit",
+                "letter-spacing:{value} is not a shared step"
+            );
+            rest = &after[end..];
+        }
+        assert!(seen > 0, "the panel declares no letter spacing at all");
     }
 
     /// The panel's primary action and its console chip were the two places the surface claimed

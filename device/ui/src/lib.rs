@@ -41,7 +41,11 @@ pub const TOKENS: &str = r#":root {
   --fs-2xs:10px; --fs-xs:11px; --fs-sm:12px; --fs-base:13px;
   --fs-md:14px; --fs-lg:17px; --fs-xl:22px;
   --fw-regular:400; --fw-medium:500; --fw-semi:600; --fw-bold:700;
-  --tracking-display:-0.011em;
+  /* Three tracking steps, because a letter that is set tight is a decision and a number written at
+     the call site is a habit: labels (small caps, table heads), the eyebrow above a heading, and the
+     display line itself. */
+  --tracking-display:-0.011em; --tracking-tight:-0.02em;
+  --tracking-label:0.05em; --tracking-eyebrow:0.08em;
   --sp-0-5:2px; --sp-1:4px; --sp-1-5:6px; --sp-2:8px; --sp-2-5:10px;
   --sp-3:12px; --sp-3-5:14px; --sp-4:16px; --sp-5:24px;
 

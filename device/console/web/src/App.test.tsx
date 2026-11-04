@@ -229,6 +229,25 @@ describe("App", () => {
     window.history.replaceState(null, "", window.location.pathname);
   });
 
+  it("follows the fragment when the address bar changes, not only at first render", async () => {
+    await bootAndSignIn();
+    expect(screen.getByRole("heading", { name: "Machines", level: 1 })).toBeInTheDocument();
+
+    // A hash change is what Back, Forward and a pasted link produce. Nothing fired a click here.
+    window.history.replaceState(null, "", "#device/files");
+    window.dispatchEvent(new Event("hashchange"));
+    expect(await screen.findByRole("heading", { name: "Files", level: 1 })).toBeInTheDocument();
+
+    window.history.replaceState(null, "", "#activity");
+    window.dispatchEvent(new Event("hashchange"));
+    expect(await screen.findByRole("heading", { name: "Activity", level: 1 })).toBeInTheDocument();
+
+    // A fragment the app cannot read leaves the view alone rather than guessing at it.
+    window.history.replaceState(null, "", "#not-a-page");
+    window.dispatchEvent(new Event("hashchange"));
+    expect(screen.getByRole("heading", { name: "Activity", level: 1 })).toBeInTheDocument();
+  });
+
   it("names the current destination in the tab title", async () => {
     await bootAndSignIn();
     expect(document.title).toBe("Machines · Summrise console");

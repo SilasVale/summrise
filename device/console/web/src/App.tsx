@@ -282,6 +282,35 @@ export function App() {
     if (window.location.hash !== wanted) window.history.replaceState(null, "", wanted);
   }, [page, tab, screenView, openTool, runsFocus, session?.authenticated]);
 
+  // **THE ADDRESS BAR IS PART OF THE SURFACE, NOT ONLY A RECORD OF IT.** Every navigation wrote the
+  // fragment and nothing read it back: Back and Forward moved the URL and left the view where it was,
+  // and a link pasted into a running tab did nothing until a reload. The same parsers the first render
+  // uses apply every fragment change, so a hash the app cannot read leaves the screen alone.
+  useEffect(() => {
+    const apply = () => {
+      const run = parseRunLink(window.location.hash);
+      if (run) {
+        setSelected(run.deviceId);
+        storeSelectedDevice(run.deviceId);
+        setRunsFocus(run.runId);
+        setPage("device");
+        setTab("runs");
+        return;
+      }
+      const surface = parseSurfaceHash(window.location.hash);
+      if (!surface) return;
+      setRunsFocus(null);
+      setPage(surface.page);
+      if (surface.page === "device") {
+        if (surface.tab) setTab(surface.tab);
+        if (surface.tab === "screen" && surface.view) setScreenView(surface.view);
+      }
+      if (surface.page === "capabilities") setOpenTool(surface.tool ?? null);
+    };
+    window.addEventListener("hashchange", apply);
+    return () => window.removeEventListener("hashchange", apply);
+  }, []);
+
   // The tab is part of the surface: a window full of consoles should say which one this is, and
   // the signed-out tab should not claim a machine page it is not showing.
   useEffect(() => {
