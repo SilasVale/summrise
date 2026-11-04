@@ -20,6 +20,7 @@ mod access;
 mod activity;
 mod audit;
 mod auth;
+mod captures;
 mod channels;
 mod codes;
 mod config;

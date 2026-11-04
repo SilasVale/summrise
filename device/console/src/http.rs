@@ -131,6 +131,9 @@ struct Inner {
     approvals: Mutex<HashMap<String, Pending>>,
     /// Vitals points collected by opening the vitals page: one per visit, capped, memory only.
     vitals: Mutex<HashMap<String, Vec<page::VitalPoint>>>,
+    /// The last screen captures, bounded and memory only: an activity row can open the image the
+    /// device just sent, and a restart forgets every one of them.
+    captures: crate::captures::Captures,
     codes: Mutex<EnrollmentCodes>,
     channels: ChannelRegistry,
     audit: Audit,
@@ -222,6 +225,7 @@ impl Console {
                 last_evals: Mutex::new(HashMap::new()),
                 approvals: Mutex::new(HashMap::new()),
                 vitals: Mutex::new(HashMap::new()),
+                captures: crate::captures::Captures::new(),
                 codes: Mutex::new(codes),
                 channels: ChannelRegistry::new(),
                 audit: Audit::new(&config.data, audit_max_bytes),
@@ -479,6 +483,11 @@ impl Console {
             // event per line as it is written. It is the operator's own audit, so it needs the same
             // session `/audit` does.
             .route("/events", get(event_stream))
+            // **THE FRAME ITSELF, NOT A DATA URL.** A screenshot can be megabytes; the event carries
+            // a same-origin path and this route answers the bytes, behind the same operator gate the
+            // page and `/audit` already use. The store is memory only, so an id that a restart or an
+            // older capture forgot is a JSON 404, never a broken image.
+            .route("/activity/shot/:device/:id", get(activity_shot))
             // The same read as `/audit`, over the unauthenticated-refusal log. Operator-only: the
             // log holds what probing looks like, and it is surfaced read-only.
             .route("/denials", get(list_denials))
@@ -576,6 +585,33 @@ fn run_evidence(reply: &Reply) -> Option<RunEvidence> {
         exit_code,
         timed_out,
     })
+}
+
+/// The base64 PNG a `screen.capture` answer carries, if it carries one at all.
+///
+/// The device's own tool answers a text content item holding `{format, data, width, height}`; an MCP
+/// image content item (`content[0].data`) is accepted too, because that is the shape the protocol
+/// names for an image and a future device may use it. The base64 is not decoded here: the capture
+/// store validates it against the PNG signature before the image gets an id or a URL.
+fn screen_png(reply: &Reply) -> Option<String> {
+    let Reply::Result(result) = reply else {
+        return None;
+    };
+    let body = result.get("result").unwrap_or(result);
+    if body
+        .get("isError")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+    {
+        return None;
+    }
+    let first = body.get("content")?.as_array()?.first()?;
+    if let Some(data) = first.get("data").and_then(Value::as_str) {
+        return Some(data.to_owned());
+    }
+    let text = first.get("text")?.as_str()?;
+    let parsed: Value = serde_json::from_str(text).ok()?;
+    parsed.get("data")?.as_str().map(str::to_owned)
 }
 
 /// The facts one audit line names. One shape, named at the call site: the three `Option`s are
@@ -1214,12 +1250,21 @@ async fn root(uri: axum::http::Uri) -> Response {
 /// Every answer this console gives is for one request, and a cache that disagrees is how a browser
 /// keeps running yesterday's page — or yesterday's `{"authenticated":false}` — after a deploy or a
 /// login. One layer says so instead of a list of routes that has to stay complete as routes are added.
+///
+/// The one exception is a screen capture: it answers its own `private, max-age=60`, because the image
+/// is the operator's own and a minute of browser cache saves the second fetch that opening the same
+/// row again would cost.
 async fn no_store(request: axum::extract::Request, next: axum::middleware::Next) -> Response {
+    let is_shot = request.uri().path().starts_with("/activity/shot/");
     let mut response = next.run(request).await;
-    response.headers_mut().insert(
-        header::CACHE_CONTROL,
-        axum::http::HeaderValue::from_static("no-store"),
-    );
+    // Only a served image keeps its own header. A 401 or a 404 on the same path is no-store like
+    // everything else, so a refusal is never what a browser shows after the operator signs in.
+    if !(is_shot && response.status() == StatusCode::OK) {
+        response.headers_mut().insert(
+            header::CACHE_CONTROL,
+            axum::http::HeaderValue::from_static("no-store"),
+        );
+    }
     // The credential-entry surface must not be frameable: a clickjacked token box is the one way a
     // page this small can leak the operator secret.
     response.headers_mut().insert(
@@ -6598,6 +6643,24 @@ async fn proxy_reply(
                     }
                 }
             }
+            // A screenshot is evidence a row can open, not a data URL in an event: the image stays
+            // in the console's memory, and the event names the path and the moment. A device answer
+            // that is not a PNG is still the device's result, but it gets no `shot` it cannot serve.
+            if ok && tool.as_deref() == Some("screen.capture") {
+                if let (Some(device), Some(encoded)) = (audit_id.as_deref(), screen_png(&reply)) {
+                    let captured_at_ms = (app.now)();
+                    if let Some(image_id) = app.captures.remember(device, &encoded) {
+                        let evidence = evidence.get_or_insert_with(|| json!({}));
+                        if let Some(object) = evidence.as_object_mut() {
+                            object.insert(
+                                "shot".to_owned(),
+                                json!(format!("/activity/shot/{device}/{image_id}")),
+                            );
+                            object.insert("captured_at_ms".to_owned(), json!(captured_at_ms));
+                        }
+                    }
+                }
+            }
             app.publish_call(LiveCall {
                 device_id: audit_id.as_deref(),
                 tool: tool.as_deref(),
@@ -7823,6 +7886,36 @@ async fn list_audit(
     Ok(Json(lines))
 }
 
+/// `GET /activity/shot/:device/:id`: one remembered screen capture, exactly as the device sent it.
+///
+/// The event's `evidence.shot` names this path, and the operator's session is the gate: the image is
+/// their own screen, so an unauthenticated read gets no bytes. An id that was never stored, has been
+/// evicted, or belongs to another device is a JSON 404 — a page can say "this frame is gone" instead
+/// of drawing a broken image.
+async fn activity_shot(
+    State(app): State<AppState>,
+    _: OperatorSession,
+    Path((device_id, image_id)): Path<(String, String)>,
+) -> Response {
+    match app.captures.get(&device_id, &image_id) {
+        Some(png) => (
+            [
+                (
+                    header::CONTENT_TYPE,
+                    axum::http::HeaderValue::from_static("image/png"),
+                ),
+                (
+                    header::CACHE_CONTROL,
+                    axum::http::HeaderValue::from_static("private, max-age=60"),
+                ),
+            ],
+            axum::body::Bytes::copy_from_slice(&png),
+        )
+            .into_response(),
+        None => ApiError::not_found("shot_not_found").into_response(),
+    }
+}
+
 /// `GET /events`: the audit as a stream of server-sent events.
 ///
 /// A `snapshot` carries the newest lines so the page opens with context, then each appended line is
@@ -8054,6 +8147,41 @@ mod tests {
             "params": { "name": "" },
         });
         assert_eq!(requested_tool(&empty), Err(()));
+    }
+
+    #[test]
+    fn a_screen_capture_is_read_from_a_text_item_or_an_image_item() {
+        // The device's own tool answers a text item holding JSON; an MCP image item is the protocol's
+        // other shape. Both carry the same base64, and neither is decoded until the capture store
+        // checks the PNG signature.
+        let text = Reply::Result(json!({
+            "content": [{
+                "type": "text",
+                "text": json!({ "format": "png", "data": "QUJD", "width": 1, "height": 1 })
+                    .to_string(),
+            }],
+            "isError": false,
+        }));
+        assert_eq!(screen_png(&text).as_deref(), Some("QUJD"));
+
+        let image = Reply::Result(json!({
+            "content": [{ "type": "image", "data": "QUJD", "mimeType": "image/png" }],
+        }));
+        assert_eq!(screen_png(&image).as_deref(), Some("QUJD"));
+
+        let nested = Reply::Result(json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": { "content": [{ "type": "image", "data": "QUJD" }] },
+        }));
+        assert_eq!(screen_png(&nested).as_deref(), Some("QUJD"));
+
+        assert_eq!(screen_png(&Reply::Error(json!({ "error": {} }))), None);
+        let failed = Reply::Result(json!({
+            "content": [{ "type": "image", "data": "QUJD" }],
+            "isError": true,
+        }));
+        assert_eq!(screen_png(&failed), None);
     }
 
     #[test]

@@ -12029,6 +12029,91 @@ async fn read_until(socket: &mut tokio::net::TcpStream, seen: &mut String, needl
     }
 }
 
+/// Like [`read_until`], but only after `from`: one capture's event, not the previous capture's.
+///
+/// The stream is one connection for the page's life, so a needle that was already consumed once
+/// would otherwise satisfy every later wait.
+async fn read_until_after(
+    socket: &mut tokio::net::TcpStream,
+    seen: &mut String,
+    needle: &str,
+    from: usize,
+) {
+    use tokio::io::AsyncReadExt;
+    let mut chunk = [0u8; 4096];
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    loop {
+        if seen.get(from..).is_some_and(|tail| tail.contains(needle)) {
+            return;
+        }
+        match tokio::time::timeout_at(deadline, socket.read(&mut chunk)).await {
+            Ok(Ok(0)) | Err(_) | Ok(Err(_)) => return,
+            Ok(Ok(read)) => seen.push_str(&String::from_utf8_lossy(&chunk[..read])),
+        }
+    }
+}
+
+/// The newest `evidence.shot` path in an SSE buffer, without pulling a JSON parser into a test that
+/// only needs the one string.
+fn last_shot(seen: &str) -> Option<String> {
+    let marker = "\"shot\":\"";
+    let start = seen.rfind(marker)? + marker.len();
+    let rest = &seen[start..];
+    let end = rest.find('"')?;
+    Some(rest[..end].to_owned())
+}
+
+/// A response that is not JSON: an image's exact bytes and headers.
+async fn send_bytes(
+    app: Router,
+    request: Request<Body>,
+) -> (StatusCode, axum::http::HeaderMap, Vec<u8>) {
+    let response = app.oneshot(request).await.expect("the router answers");
+    let status = response.status();
+    let headers = response.headers().clone();
+    let bytes = axum::body::to_bytes(response.into_body(), 1 << 20)
+        .await
+        .expect("the body is readable")
+        .to_vec();
+    (status, headers, bytes)
+}
+
+/// A 1×1 PNG, as the device's `screen.capture` answers: 68 bytes, valid chunks, a real signature.
+const ONE_PIXEL_PNG: &str =
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
+
+/// The bytes behind [`ONE_PIXEL_PNG`], for byte-for-byte comparisons without a base64 dependency.
+fn one_pixel_png() -> Vec<u8> {
+    let text = "89504e470d0a1a0a0000000d4948445200000001000000010804000000b51c0c020000000b4944415478da6364f80f00010501012718e3660000000049454e44ae426082";
+    (0..text.len())
+        .step_by(2)
+        .map(|index| {
+            u8::from_str_radix(&text[index..index + 2], 16).expect("the fixture is lowercase hex")
+        })
+        .collect()
+}
+
+/// One successful `screen.capture` from the fake device: the real channel carries the JSON-RPC
+/// envelope, whose `result` is the MCP content list.
+fn screen_capture_result(id: u64) -> Value {
+    json!({
+        "jsonrpc": "2.0",
+        "id": id,
+        "result": {
+            "content": [{
+                "type": "text",
+                "text": json!({
+                    "format": "png",
+                    "data": ONE_PIXEL_PNG,
+                    "width": 1,
+                    "height": 1,
+                }).to_string()
+            }],
+            "isError": false
+        }
+    })
+}
+
 async fn open_events(server: &TestServer, session: &str) -> tokio::net::TcpStream {
     use tokio::io::AsyncWriteExt;
     let mut socket = tokio::net::TcpStream::connect(server.addr)
@@ -12176,6 +12261,154 @@ async fn a_proxied_call_carries_its_evidence_to_the_stream() {
         seen.contains("\"evidence\":{\"path\":\"notes.txt\"}"),
         "the live event carries the arguments the caller sent: {seen}"
     );
+}
+
+/// A screen capture is evidence, not only a sentence: the row names a path, the same operator session
+/// that reads the page can open it, and the bytes are the device's own PNG.
+#[tokio::test]
+async fn a_screen_capture_carries_a_shot_the_operator_can_open() {
+    let fixture = Fixture::new("activity-shot");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0x58)).await;
+    let session = fixture.authenticate().await;
+
+    let mut socket = open_events(&server, &session).await;
+    let mut seen = String::new();
+    read_until(&mut socket, &mut seen, "event: snapshot").await;
+
+    let from = seen.len();
+    let app = fixture.app();
+    let call_device = device_id.clone();
+    let call_session = session.clone();
+    let call = tokio::spawn(async move {
+        send(
+            app,
+            post_json_bearer(
+                "/mcp",
+                &call_session,
+                json!({
+                    "device_id": call_device,
+                    "request": {
+                        "jsonrpc": "2.0",
+                        "id": 5,
+                        "method": "tools/call",
+                        "params": { "name": "screen.capture", "arguments": {} },
+                    },
+                }),
+            ),
+        )
+        .await
+    });
+
+    let frame = next_json(&mut device).await;
+    assert_eq!(
+        frame["mcp"]["params"]["name"],
+        json!("screen.capture"),
+        "{frame}"
+    );
+    answer(&mut device, &frame, screen_capture_result(5)).await;
+    let (status, _) = call.await.expect("the call finished");
+    assert_eq!(status, StatusCode::OK);
+
+    read_until_after(&mut socket, &mut seen, "\"shot\"", from).await;
+    let shot = last_shot(&seen).unwrap_or_else(|| panic!("the event carries a shot: {seen}"));
+    let prefix = format!("/activity/shot/{device_id}/");
+    assert!(shot.starts_with(&prefix), "{shot}");
+    assert!(
+        shot.len() > prefix.len(),
+        "the path names an image id: {shot}"
+    );
+    assert!(
+        seen.get(from..).is_some_and(
+            |event| event.contains(&format!("\"captured_at_ms\":{}", fixture.now_ms()))
+        ),
+        "the event says when the frame was taken: {seen}"
+    );
+
+    // The operator's own session is the gate: with it, the exact bytes and a private, short cache.
+    let (status, headers, bytes) = send_bytes(fixture.app(), get(&shot, Some(&session))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        headers
+            .get(header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok()),
+        Some("image/png")
+    );
+    assert_eq!(
+        headers
+            .get(header::CACHE_CONTROL)
+            .and_then(|value| value.to_str().ok()),
+        Some("private, max-age=60")
+    );
+    assert_eq!(bytes, one_pixel_png(), "the served image is the device's");
+
+    // Without a credential the route must not hand out the image at all.
+    let (anonymous, _, _) = send_bytes(fixture.app(), get(&shot, None)).await;
+    assert!(
+        matches!(anonymous, StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN),
+        "an unauthenticated shot is refused, not a broken image: {anonymous}"
+    );
+}
+
+/// Four frames per device is the bound, and the fifth capture evicts the first one's id. The evicted
+/// id stays a 404 with a JSON error rather than a broken image.
+#[tokio::test]
+async fn five_screen_captures_keep_four_and_evict_the_first() {
+    let fixture = Fixture::new("activity-shot-eviction");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0x59)).await;
+    let session = fixture.authenticate().await;
+
+    let mut socket = open_events(&server, &session).await;
+    let mut seen = String::new();
+    read_until(&mut socket, &mut seen, "event: snapshot").await;
+
+    let mut shots = Vec::new();
+    for capture in 0..5u64 {
+        let from = seen.len();
+        let app = fixture.app();
+        let request = post_json_bearer(
+            "/mcp",
+            &session,
+            json!({
+                "device_id": &device_id,
+                "request": {
+                    "jsonrpc": "2.0",
+                    "id": 10 + capture,
+                    "method": "tools/call",
+                    "params": { "name": "screen.capture", "arguments": {} },
+                },
+            }),
+        );
+        let call = tokio::spawn(async move { send(app, request).await });
+
+        let frame = next_json(&mut device).await;
+        answer(&mut device, &frame, screen_capture_result(10 + capture)).await;
+        let (status, _) = call.await.expect("the call finished");
+        assert_eq!(status, StatusCode::OK);
+
+        read_until_after(&mut socket, &mut seen, "\"shot\"", from).await;
+        shots.push(last_shot(&seen).unwrap_or_else(|| panic!("capture {capture}: {seen}")));
+    }
+    assert_eq!(shots.len(), 5);
+
+    let (evicted, body) = send(fixture.app(), get(&shots[0], Some(&session))).await;
+    assert_eq!(
+        evicted,
+        StatusCode::NOT_FOUND,
+        "the first frame was evicted"
+    );
+    assert!(
+        body.get("error").and_then(Value::as_str).is_some(),
+        "an evicted id is a JSON error, never a broken image: {body}"
+    );
+    for shot in &shots[1..] {
+        let (status, _, bytes) = send_bytes(fixture.app(), get(shot, Some(&session))).await;
+        assert_eq!(status, StatusCode::OK, "{shot}");
+        assert_eq!(bytes, one_pixel_png(), "{shot}");
+    }
 }
 
 /// A device refusal is HTTP 200 with a JSON-RPC error body, so the status alone would make a refused
