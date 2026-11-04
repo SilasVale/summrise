@@ -742,7 +742,11 @@ export function TerminalWorkspace({
         scrollback: 20_000,
         fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
         fontSize,
-        theme: terminalTheme()
+        theme: terminalTheme(),
+        // The search addon highlights matches with `registerDecoration`, which xterm still gates
+        // behind this flag. Without it `findNext` throws "You must set the allowProposedApi option"
+        // on the first hit — the bar looks alive, nothing scrolls, and no sentence says why.
+        allowProposedApi: true
       });
       const fit = new FitAddon();
       term.loadAddon(fit);

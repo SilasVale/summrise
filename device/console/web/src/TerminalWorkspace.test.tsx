@@ -1152,6 +1152,15 @@ describe("TerminalWorkspace recovery", () => {
 });
 
 describe("TerminalWorkspace display", () => {
+  it("allows the proposed API the search addon's decorations need", async () => {
+    render(<TerminalWorkspace grant={GRANT} />);
+    await startPtyTab();
+    // findNext() calls registerDecoration, and xterm refuses that without this flag: the search
+    // reported a hit and then threw, so nothing scrolled and no sentence said why. Seen in a real
+    // browser as "Uncaught Error: You must set the allowProposedApi option to true".
+    expect(mockedXterm.instances[0].options.allowProposedApi).toBe(true);
+  });
+
   it("keeps twenty thousand lines of scrollback", async () => {
     render(<TerminalWorkspace grant={GRANT} />);
     await startPtyTab();
