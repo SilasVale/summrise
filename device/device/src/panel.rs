@@ -468,17 +468,19 @@ fn render(facts: &PanelFacts, outcome: Option<&EnrollOutcome>) -> Markup {
                             p class="hint" {
                                 "Not linked. In the console, create a one-time enrollment code; paste the URL and the code here."
                             }
-                            dl id="console" {
-                                @if let Some(note) = attempt {
+                            // **A ROW ABOUT A LINK THAT DOES NOT EXIST.** Unlinked, the card printed
+                            // "Link: no failed attempt since this process started" — a reassuring
+                            // answer to a question the reader has not asked yet, above the form that
+                            // is the actual content. The row appears when there is a failure to
+                            // report and stays away when there is not.
+                            @if let Some(note) = attempt {
+                                dl id="console" {
                                     dt { "Link" }
                                     dd { "retried after " (note.attempts) " " (failure_noun(note.attempts)) }
                                     dt { "Reason" }
                                     dd {
                                         @if note.reason.is_empty() { "(none given)" } @else { (note.reason) }
                                     }
-                                } @else {
-                                    dt { "Link" }
-                                    dd { "no failed attempt since this process started" }
                                 }
                             }
                             (enroll_form(facts, outcome))
@@ -1090,8 +1092,12 @@ mod tests {
         first.console_url = None;
         let html = page(&first).into_string();
         assert!(
-            html.contains("no failed attempt since this process started"),
-            "no note is not 'connected': {html}"
+            !html.contains("no failed attempt since this process started"),
+            "an unlinked card does not print a row about a link that does not exist: {html}"
+        );
+        assert!(
+            html.contains("Not linked."),
+            "the card says it is not linked instead: {html}"
         );
         assert!(
             !html.contains("class=\"chip ok\" id=\"console-chip\""),
@@ -1120,6 +1126,17 @@ mod tests {
         empty.state = None;
         std::fs::write(dir.join("panel-empty.html"), page(&empty).into_string())
             .expect("the empty panel is written");
+        // **THE FIRST RUN IS A THIRD PAGE, NOT THE EMPTY ONE.** "Empty" above still knows a console
+        // and a machine that has been updated once; a fresh install knows neither, and that screen is
+        // the one an operator meets first. It is rendered here so it can be looked at.
+        let mut fresh = facts();
+        fresh.sessions.clear();
+        fresh.events.clear();
+        fresh.state = None;
+        fresh.console_url = None;
+        fresh.console_attempt = None;
+        std::fs::write(dir.join("panel-fresh.html"), page(&fresh).into_string())
+            .expect("the first-run panel is written");
     }
 
     #[test]
@@ -1228,7 +1245,6 @@ mod tests {
             "the empty-state line is visible when there is no event"
         );
         assert!(html.contains("unreadable"));
-        assert!(html.contains("no failed attempt since this process started"));
         // **THE OLD TEST PINNED THE LIE**: it asserted a green "connected" chip for a page whose
         // facts carry no attempt at all. No note means nothing was observed, not that the link works.
         assert!(html.contains(r#"<span id="console-chip" class="chip muted">"#));
