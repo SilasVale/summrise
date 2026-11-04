@@ -163,6 +163,9 @@ async function startPtyTab() {
   await waitFor(() =>
     expect(screen.queryByRole("dialog", { name: "New terminal session" })).not.toBeInTheDocument()
   );
+  // The xterm instance is created in an effect after the pty answers; every test that reads
+  // `mockedXterm.instances[0]` right after this helper was racing that effect (one run in three).
+  await waitFor(() => expect(mockedXterm.instances[0]).toBeDefined());
 }
 
 function reads(): number {
