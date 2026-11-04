@@ -1335,6 +1335,13 @@ button.files-crumb:hover {
   color: var(--ink);
   font: inherit;
 }
+.files-summary {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  flex-wrap: wrap;
+}
+.files-summary .hint { margin: 0; }
 .files-filter { margin-left: auto; }
 .files-filter input {
   width: 14rem;

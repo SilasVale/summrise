@@ -436,7 +436,6 @@ export function FilesPage({
         })}
       </nav>
 
-      <p className="hint">{note}</p>
       {listError && <p className="error">{listError}</p>}
 
       <div className="files-tools">
@@ -475,6 +474,12 @@ export function FilesPage({
           {uploading && <span className="hint">Uploading…</span>}
         </div>
 
+      </div>
+
+      {/* THE FILTER SITS WITH THE COUNT, NOT WITH "CREATE FOLDER". It filters the list, and in the
+          actions row it floated to the panel's right edge, 250 px from anything it belonged to. */}
+      <div className="files-summary">
+        <p className="hint">{note}</p>
         {(entries.length > 0 || up !== null) && (
           <label className="files-filter">
             <span className="sr-only">Filter this folder</span>
