@@ -50,13 +50,13 @@ host's `runs.exec`. Code-only work continues; nothing ships until a device answe
    this machine do", with plugins as a section of the same answer.
 10. **The Runs page's exec form moves** under Tools; Runs becomes the history, not a second way to
     run a command.
-11. **Accessibility sweep.** Every row that opens is a button with `aria-expanded`; every icon has a
+11. **Accessibility sweep.** *(Done 2026-11-04, b7ba553: `scripts/a11y-audit.mjs` measures 17 page states and reports 0 findings and 3 allowed tab stops — the named scrollable regions; the audit row's opener is a real button with `aria-expanded`; the warning colour is in the AA pair test.)* Every row that opens is a button with `aria-expanded`; every icon has a
     name; focus order follows reading order; the warning colour is checked against the AA pairs.
 12. **Long timelines.** *(Done 2026-11-04: measured before optimising. The page now asks the
     console's 1000-line cap instead of 200, and the stub's 1000-row day takes **427 ms** from
     navigation to the last row painted at 1280 (403 ms at 390), so virtualisation was not done; the
-    merged window is capped at 1000 and the page says "Showing the newest 1000 of today" when the cut
-    happens.)* Measure a 1000-row day before optimising; virtualise only if the frame
+    merged window is capped at 1000 and the page says "Showing the newest 1000 lines; older ones are not on this page." when the cut
+    happens, in the timeline and in the Table (4b26900).)* Measure a 1000-row day before optimising; virtualise only if the frame
     budget says so.
 13. **Phone.** The timeline at 390 px: the time column narrows, the age drops, the evidence panel
     stacks (already true) and the day label sticks.
