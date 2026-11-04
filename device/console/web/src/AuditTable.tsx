@@ -313,16 +313,18 @@ export function AuditTable({
             Clear
           </button>
         )}
-        <details className="row-menu audit-overflow">
-          <summary aria-label="Audit actions" title="Audit actions">
-            ⋯
-          </summary>
-          <div className="row-menu-pop">
-            <button type="button" disabled={shown.length === 0} onClick={exportCsv}>
-              Export CSV
-            </button>
-          </div>
-        </details>
+        {/* **A MENU WITH ONE ITEM HIDES THE FEATURE.** "Export CSV" was behind an unlabelled "⋯"
+            whose only content it was: two clicks and a discovery problem for the one action here that
+            leaves the page with data. It is a button. */}
+        <button
+          type="button"
+          className="audit-export"
+          disabled={shown.length === 0}
+          onClick={exportCsv}
+          title="Download the rows on screen as CSV"
+        >
+          Export CSV
+        </button>
       </div>
 
       {shown.length === 0 ? (

@@ -1855,7 +1855,8 @@ button.toggle[aria-pressed="true"] { background: var(--panel-3); font-weight: va
 .audit-record dt { color: var(--ink-muted); font-size: var(--fs-sm); }
 .audit-record dd { margin: 0; overflow-wrap: anywhere; }
 .audit-empty { display: grid; gap: var(--sp-2); justify-items: start; padding: var(--sp-3) 0; }
-.audit-overflow { margin-left: auto; }
+/* The one action that leaves the page with data sits at the far end of the filter row. */
+.audit-export { margin-left: auto; }
 
 .screen-shot { max-width: 100%; border: 1px solid var(--line); border-radius: var(--radius); }
 
