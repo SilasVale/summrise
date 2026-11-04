@@ -7651,7 +7651,21 @@ async fn list_audit(
     _: OperatorSession,
     Query(query): Query<LogQuery>,
 ) -> Result<Json<Vec<Value>>, ApiError> {
-    Ok(Json(app.audit.newest(log_limit(query.limit)?).await))
+    // The same sentence the live stream carries, so a fetched window and a streamed line read the
+    // same way. A stored line never had the call's arguments, so this is the general sentence for
+    // its kind rather than the call's own.
+    let lines = app
+        .audit
+        .newest(log_limit(query.limit)?)
+        .await
+        .into_iter()
+        .map(|mut line| {
+            let sentence = crate::activity::line_sentence(&line);
+            line["sentence"] = json!(sentence);
+            line
+        })
+        .collect();
+    Ok(Json(lines))
 }
 
 /// `GET /events`: the audit as a stream of server-sent events.
@@ -7683,9 +7697,7 @@ async fn event_stream(State(app): State<AppState>, _: OperatorSession) -> Respon
     let live_events = futures_util::stream::unfold(live, |mut live| async move {
         match live.recv().await {
             Ok(value) => Some((
-                Ok::<Event, Infallible>(
-                    Event::default().event("activity").data(value.to_string()),
-                ),
+                Ok::<Event, Infallible>(Event::default().event("activity").data(value.to_string())),
                 live,
             )),
             Err(tokio::sync::broadcast::error::RecvError::Lagged(dropped)) => {

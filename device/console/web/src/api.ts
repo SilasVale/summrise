@@ -152,6 +152,11 @@ export type AuditLine = {
   tool?: string | null;
   detail?: string | null;
   status: number;
+  /**
+   * The console's human sentence for this line, when it wrote one. The live stream always carries
+   * it; a fetched window carries it since the console started describing its own index.
+   */
+  sentence?: string;
 };
 
 /// The console did not answer with JSON: the edge answered instead — an Access login page after the

@@ -344,7 +344,7 @@ export function AuditTable({
                 <th>When</th>
                 <th>Device</th>
                 <th>Token</th>
-                <th>Tool</th>
+                <th>What happened</th>
                 <th>Status</th>
                 <th>
                   <span className="sr-only">Record</span>
@@ -390,8 +390,12 @@ export function AuditTable({
                             "—"
                           )}
                         </td>
-                        <td className="mono">
-                          {line.tool ?? line.detail ?? ""}
+                        <td title={line.tool ?? undefined}>
+                          {line.sentence ? (
+                            <span>{line.sentence}</span>
+                          ) : (
+                            <span className="mono">{line.tool ?? line.detail ?? ""}</span>
+                          )}
                           {deviceError && (
                             <>
                               {" "}

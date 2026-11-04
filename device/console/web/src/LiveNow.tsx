@@ -43,6 +43,8 @@ export function LiveNow(props: {
   devices: Device[];
   state: "connecting" | "live" | "offline";
   onAll: () => void;
+  /** Open a machine's Terminal tab, where an AI's session can be watched. */
+  onWatch?: (deviceId: string) => void;
 }) {
   // The age column and the sparkline advance on their own clock: a stream of timestamps that never
   // ticks reads as a screenshot, not as something happening.
@@ -131,6 +133,16 @@ export function LiveNow(props: {
                   {machine && <span className="live-machine"> on {machine}</span>}
                 </span>
                 {typeof line.ms === "number" && <span className="live-ms">{line.ms} ms</span>}
+                {line.tool?.startsWith("terminal.") && line.device_id && props.onWatch && (
+                  <button
+                    type="button"
+                    className="live-watch"
+                    title="Open this machine's Terminal and watch the session"
+                    onClick={() => props.onWatch?.(line.device_id as string)}
+                  >
+                    Watch
+                  </button>
+                )}
                 <span className="live-age" title={new Date(line.ts_ms).toLocaleString()}>
                   {age(line.ts_ms)}
                 </span>

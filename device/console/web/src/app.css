@@ -2460,3 +2460,11 @@ main::-webkit-scrollbar-track, .sheet-body::-webkit-scrollbar-track, .scroll::-w
   .live-entry { animation: none; }
   .live-state.is-active .live-dot { animation: none; }
 }
+
+/* The band's one action: a terminal call is something the operator can go and watch. */
+.live-watch {
+  min-height: 22px; padding: 1px 8px; flex: none;
+  font-size: var(--fs-2xs); color: var(--ink-muted);
+  background: var(--control-bg); border: 1px solid var(--hairline); border-radius: 999px;
+}
+.live-watch:hover { color: var(--ink); background: var(--row-hover); }

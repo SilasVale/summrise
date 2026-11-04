@@ -105,17 +105,17 @@ pub(crate) fn describe(tool: &str, arguments: &Value) -> String {
         "terminal.resize" => "Resized a terminal".to_owned(),
         "terminal.close" => "Closed a terminal session".to_owned(),
         "terminal.list" => "Listed the terminal sessions".to_owned(),
-        "runs.exec" => {
-            let command = quoted("command", arguments).unwrap_or_else(|| "a command".to_owned());
-            match arguments.get("args").and_then(Value::as_array) {
+        "runs.exec" => match quoted("command", arguments) {
+            Some(command) => match arguments.get("args").and_then(Value::as_array) {
                 Some(args) if !args.is_empty() => {
                     let joined: Vec<String> =
                         args.iter().filter_map(Value::as_str).map(excerpt).collect();
                     format!("Ran `{command} {}`", joined.join(" "))
                 }
                 _ => format!("Ran `{command}`"),
-            }
-        }
+            },
+            None => "Ran a command".to_owned(),
+        },
         "runs.list" => "Read the run history".to_owned(),
         "state.get" => "Read the machine's state".to_owned(),
         "screen.capture" => "Took a screenshot of the screen".to_owned(),
@@ -154,6 +154,8 @@ pub(crate) fn describe(tool: &str, arguments: &Value) -> String {
         "memory.append" => "Wrote a memory entry".to_owned(),
         "memory.list" => "Read its memory".to_owned(),
         "plugins.list" => "Listed the plugins".to_owned(),
+        "host.facts" => "Read the machine's facts".to_owned(),
+        "host.report" => "Reported the machine's facts".to_owned(),
         "mesh.status" => "Read the mesh status".to_owned(),
         "tools/list" => "Listed the machine's tools".to_owned(),
         _ => format!("Used `{tool}`"),
@@ -172,13 +174,10 @@ pub(crate) fn line_sentence(line: &Value) -> String {
     let failed = status >= 400;
     match kind {
         "mcp" => match tool {
+            // A stored line has no arguments, so it gets the template's own generic sentence — never
+            // the raw tool name, which is the index's language and not a person's.
             Some(tool) if failed => format!("`{tool}` failed"),
-            Some(tool) => match tool {
-                "tools/list" => "Listed the machine's tools".to_owned(),
-                "terminal.list" => "Listed the terminal sessions".to_owned(),
-                "state.get" => "Read the machine's state".to_owned(),
-                _ => format!("Used `{tool}`"),
-            },
+            Some(tool) => describe(tool, &Value::Null),
             None if failed => "A tools request failed".to_owned(),
             None => "Listed the machine's tools".to_owned(),
         },
@@ -252,6 +251,18 @@ mod tests {
         assert_eq!(
             describe("plugins.install", &json!({})),
             "Used `plugins.install`"
+        );
+    }
+
+    #[test]
+    fn a_stored_line_gets_the_sentence_for_its_tool_not_a_raw_name() {
+        assert_eq!(
+            line_sentence(&json!({ "kind": "mcp", "tool": "runs.exec", "status": 200 })),
+            "Ran a command"
+        );
+        assert_eq!(
+            line_sentence(&json!({ "kind": "mcp", "tool": "host.facts", "status": 200 })),
+            "Read the machine's facts"
         );
     }
 

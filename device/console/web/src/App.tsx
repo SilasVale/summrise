@@ -14,6 +14,7 @@ import { shortId } from "./format";
 import { retrySentence } from "./logic";
 import { recordVitals, type VitalsSample } from "./vitals";
 import { AUDIT_WINDOW, AuditTable } from "./AuditTable";
+import { mergeActivity } from "./activityMerge";
 import { DEVICE_TAB_LABELS, PAGE_LABELS, Rail, type DeviceTab, type Page } from "./Rail";
 import { Modal } from "./Modal";
 import { ConnectSheet, type ConnectSection } from "./ConnectSheet";
@@ -64,6 +65,17 @@ export function App() {
   const [audit, setAudit] = useState<AuditLine[]>([]);
   // The same index, streamed: what the AI is doing now, not what it did before the last refresh.
   const live = useLiveActivity(Boolean(session?.authenticated));
+  // Activity follows the stream unless the operator paused it: a paused table is a snapshot of the
+  // list at that moment, and the lines that arrived since are counted rather than lost.
+  const [activityPaused, setActivityPaused] = useState(false);
+  const [frozenActivity, setFrozenActivity] = useState<AuditLine[] | null>(null);
+  const activityLines = mergeActivity(audit, live.lines);
+  const shownActivity = activityPaused && frozenActivity ? frozenActivity : activityLines;
+  const freshActivity = frozenActivity ? Math.max(0, activityLines.length - frozenActivity.length) : 0;
+  const pauseActivity = () => {
+    setFrozenActivity(activityPaused ? null : activityLines);
+    setActivityPaused((current) => !current);
+  };
   // The operator's permanent tokens, fetched so the audit can name the token behind a call and
   // Connect can list what exists. Empty when the console would not answer: the table falls back to
   // record ids.
@@ -602,6 +614,11 @@ export function App() {
             consoleVersion={consoleVersion}
             liveLines={live.lines}
             liveState={live.state}
+            onWatchTerminal={(deviceId) => {
+              choose(deviceId);
+              setPage("device");
+              setTab("terminal");
+            }}
           />
         )}
 
@@ -647,14 +664,28 @@ export function App() {
             <header className="page-head">
               <div>
                 <h1>Activity</h1>
+                <p className="page-sub">
+                  {live.state === "live"
+                    ? "Following the console's audit as it is written."
+                    : live.state === "offline"
+                      ? "The live stream is down; this is the last read."
+                      : "Opening the live stream."}
+                </p>
               </div>
               <div className="page-actions">
+                <span className={"live-state" + (live.state === "live" && !activityPaused ? " is-active" : "")}>
+                  <span className="live-dot" aria-hidden="true" />
+                  {activityPaused ? "Paused" : live.state === "live" ? "Live" : live.state === "offline" ? "Offline" : "Connecting"}
+                </span>
+                <button type="button" onClick={pauseActivity}>
+                  {activityPaused ? (freshActivity > 0 ? `Resume (${freshActivity} new)` : "Resume") : "Pause"}
+                </button>
                 <button type="button" onClick={() => void load()}>Refresh</button>
               </div>
             </header>
             <section className="panel">
               <AuditTable
-                lines={audit}
+                lines={shownActivity}
                 devices={devices}
                 tokens={tokens}
                 selectedDeviceId={selected}

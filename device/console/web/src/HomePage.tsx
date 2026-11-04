@@ -156,6 +156,8 @@ function HubHome(
     /** The live activity stream, newest first. Absent in tests and before the stream opens. */
     liveLines?: LiveLine[];
     liveState?: "connecting" | "live" | "offline";
+    /** Open a machine's Terminal tab, where an AI's session can be watched. */
+    onWatchTerminal?: (deviceId: string) => void;
   }
 ) {
   const device = props.device;
@@ -215,7 +217,13 @@ function HubHome(
         </div>
       )}
 
-      <LiveNow lines={props.liveLines ?? []} devices={props.devices} state={props.liveState ?? "connecting"} onAll={props.onActivity} />
+      <LiveNow
+        lines={props.liveLines ?? []}
+        devices={props.devices}
+        state={props.liveState ?? "connecting"}
+        onAll={props.onActivity}
+        onWatch={props.onWatchTerminal}
+      />
 
       <section className="home-hero" aria-label="The endpoint">
         <p className="hint">This is the door your AI clients connect to.</p>
@@ -296,6 +304,8 @@ export type HomePageProps = FleetProps & {
   /** The live activity stream, newest first. Absent in tests and before the stream opens. */
   liveLines?: LiveLine[];
   liveState?: "connecting" | "live" | "offline";
+  /** Open a machine's Terminal tab, where an AI's session can be watched. */
+  onWatchTerminal?: (deviceId: string) => void;
 };
 
 export function HomePage(props: HomePageProps) {
