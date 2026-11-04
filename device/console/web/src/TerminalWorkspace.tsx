@@ -483,7 +483,7 @@ export function TerminalWorkspace({
   // A preference of the operator, not of a tab: every xterm and every tab opened later uses it.
   const [fontSize, setFontSize] = useState(() => loadFontSize(fontStorage()));
   const [connect, setConnect] = useState<Connect | null>(null);
-  const [renaming, setRenaming] = useState<{ key: string; title: string; error: string | null } | null>(null);
+  const [renaming, setRenaming] = useState<{ key: string; title: string } | null>(null);
   const [presetDialog, setPresetDialog] = useState(false);
   const [preset, setPreset] = useState<Preset>({ ...NEW_PRESET });
   const [presetError, setPresetError] = useState<string | null>(null);
@@ -1478,15 +1478,13 @@ export function TerminalWorkspace({
    * Give the tab the operator is looking at a name of its own.
    *
    * This is a console label, not a device operation: no call leaves the page and the session id is
-   * unchanged. An empty name is refused here rather than silently turning into the old title.
+   * unchanged. The field opens empty with the current label as its placeholder, because prefilling
+   * it with the generated "pty · 12m" and saving it verbatim froze an age that should keep moving.
+   * Saving an empty field therefore clears the custom title and the generated label returns.
    */
   const submitRename = () => {
     if (!renaming) return;
     const title = titleFromInput(renaming.title);
-    if (title === null) {
-      setRenaming({ ...renaming, error: "A tab needs a name." });
-      return;
-    }
     setTabs((previous) => renameTab(previous, renaming.key, title));
     setActive(renaming.key);
     setRenaming(null);
@@ -1792,11 +1790,7 @@ export function TerminalWorkspace({
                         onClick={() => {
                           closeTools();
                           if (activeTab) {
-                            setRenaming({
-                              key: activeTab.key,
-                              title: tabLabel(activeTab, Date.now()),
-                              error: null
-                            });
+                            setRenaming({ key: activeTab.key, title: "" });
                           }
                         }}
                       >
@@ -2112,13 +2106,16 @@ export function TerminalWorkspace({
           <input
             id="rename-title"
             value={renaming.title}
-            onChange={(event) => setRenaming({ ...renaming, title: event.target.value, error: null })}
+            placeholder={tabLabels.get(renaming.key) ?? ""}
+            onChange={(event) => setRenaming({ ...renaming, title: event.target.value })}
             onKeyDown={(event) => {
               if (event.key === "Enter") submitRename();
             }}
           />
-          <p className="hint">The name stays in this console. The device session keeps its own id.</p>
-          {renaming.error && <p className="error">{renaming.error}</p>}
+          <p className="hint">
+            The name stays in this console. Leave it empty to keep the generated label; the device
+            session keeps its own id.
+          </p>
           <div className="modal-actions">
             <button type="button" onClick={() => setRenaming(null)}>Cancel</button>
             <button type="button" className="primary" onClick={() => submitRename()}>Save</button>

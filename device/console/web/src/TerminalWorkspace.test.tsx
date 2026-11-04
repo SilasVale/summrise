@@ -369,7 +369,9 @@ describe("TerminalWorkspace tab names", () => {
     fireEvent.click(screen.getByRole("button", { name: "Rename tab" }));
     const dialog = await screen.findByRole("dialog", { name: "Rename tab" });
     const input = within(dialog).getByLabelText("Tab name");
-    expect((input as HTMLInputElement).value).toMatch(/^pty · \d+s$/);
+    // The field opens empty: the generated label is the placeholder, not a value Save would store.
+    expect((input as HTMLInputElement).value).toBe("");
+    expect((input as HTMLInputElement).placeholder).toMatch(/^pty · \d+s$/);
 
     fireEvent.change(input, { target: { value: "  prod   db " } });
     fireEvent.click(within(dialog).getByRole("button", { name: "Save" }));
@@ -386,19 +388,38 @@ describe("TerminalWorkspace tab names", () => {
     expect(screen.queryByRole("tab", { name: /pty · / })).not.toBeInTheDocument();
   });
 
-  it("refuses an empty name and leaves the title and the dialog alone", async () => {
+  it("saves an empty rename as no custom title, so the label keeps its live age", async () => {
     render(<TerminalWorkspace grant={GRANT} />);
     await startPtyTab();
     await screen.findByRole("tab", { name: /pty · / });
 
     fireEvent.click(screen.getByRole("button", { name: "Rename tab" }));
     const dialog = await screen.findByRole("dialog", { name: "Rename tab" });
-    fireEvent.change(within(dialog).getByLabelText("Tab name"), { target: { value: "   " } });
-    fireEvent.click(within(dialog).getByRole("button", { name: "Save" }));
+    const input = within(dialog).getByLabelText("Tab name") as HTMLInputElement;
+    expect(input.value).toBe("");
+    expect(input.placeholder).toMatch(/^pty · \d+s$/);
 
-    expect(within(dialog).getByText("A tab needs a name.")).toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: /pty · / })).toBeInTheDocument();
-    expect(screen.getByRole("dialog", { name: "Rename tab" })).toBeInTheDocument();
+    // The generated label is a placeholder, not a stored name. Advancing the clock before Save
+    // separates the two: a generated label now says 1m, while the old bug's saved "pty · 0s"
+    // would still say 0s.
+    const clock = vi.spyOn(Date, "now").mockReturnValue(Date.now() + 65_000);
+    try {
+      fireEvent.click(within(dialog).getByRole("button", { name: "Save" }));
+
+      expect(screen.queryByRole("dialog", { name: "Rename tab" })).not.toBeInTheDocument();
+      const tab = await screen.findByRole("tab", { name: /^pty · 1m/ });
+      expect(tab).toHaveTextContent(/^pty · 1m/);
+
+      // Nothing was stored: reopening offers the same empty field, and the placeholder is the
+      // generated label the tab is showing right now.
+      fireEvent.click(screen.getByRole("button", { name: "Rename tab" }));
+      const reopened = await screen.findByRole("dialog", { name: "Rename tab" });
+      const again = within(reopened).getByLabelText("Tab name") as HTMLInputElement;
+      expect(again.value).toBe("");
+      expect(again.placeholder).toMatch(/^pty · 1m$/);
+    } finally {
+      clock.mockRestore();
+    }
   });
 
   it("labels a second tab by its kind and age too, and the session id keeps them apart", async () => {

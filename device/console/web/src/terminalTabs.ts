@@ -41,7 +41,7 @@ export function tabLabel(tab: Tab, nowMs: number): string {
   return `${tab.kind} · ${compactAge(nowMs - tab.startedAtMs)}`;
 }
 
-/** What the rename field means: trimmed, internal runs collapsed, empty refused, at most 60 chars. */
+/** What the rename field means: trimmed, runs collapsed, empty means "no custom title", at most 60 chars. */
 export function titleFromInput(value: string): string | null {
   const collapsed = value.trim().replace(/\s+/g, " ");
   if (!collapsed) return null;
@@ -49,8 +49,8 @@ export function titleFromInput(value: string): string | null {
   return Array.from(collapsed).slice(0, 60).join("");
 }
 
-/** Replace one tab's title, keeping every other tab object as it was. */
-export function renameTab(tabs: readonly Tab[], key: string, title: string): Tab[] {
+/** Replace one tab's title; `null` clears it and lets the generated label return. */
+export function renameTab(tabs: readonly Tab[], key: string, title: string | null): Tab[] {
   if (!tabs.some((tab) => tab.key === key)) return [...tabs];
   return tabs.map((tab) => (tab.key === key ? { ...tab, title } : tab));
 }

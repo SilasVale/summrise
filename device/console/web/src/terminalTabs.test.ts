@@ -32,7 +32,7 @@ describe("titleFromInput", () => {
     expect(titleFromInput("  prod   db  ")).toBe("prod db");
   });
 
-  it("refuses a name that is only whitespace", () => {
+  it("returns null for a field with nothing in it, which clears the custom title", () => {
     expect(titleFromInput("   ")).toBeNull();
   });
 
@@ -54,6 +54,14 @@ describe("renameTab", () => {
     expect(renamed.map((entry) => entry.title)).toEqual(["prod db", "staging"]);
     expect(renamed[0]).not.toBe(first);
     expect(renamed[1]).toBe(second);
+  });
+
+  it("clears a custom title, after which the generated label ages again", () => {
+    const named = tab("a", "pty", "prod db", NOW);
+    const cleared = renameTab([named], "a", null);
+
+    expect(cleared[0].title).toBeNull();
+    expect(tabLabel(cleared[0], NOW + MINUTE)).toBe("pty · 1m");
   });
 
   it("returns an unchanged copy when the key is absent", () => {
