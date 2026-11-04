@@ -74,6 +74,26 @@ function toggleRow(text: string): HTMLElement {
   return button;
 }
 
+it("says so when the window it was given was cut", () => {
+  // The table cannot know more than the lines it was handed; when the fetch came back full, "All
+  // time" is a window, and saying nothing would present it as the whole history.
+  const full: AuditLine[] = Array.from({ length: 1000 }, (_, index) => ({
+    ...lines[0],
+    ts_ms: lines[0].ts_ms - index * 1000,
+    tool: `tool.${index}`
+  }));
+  const { rerender } = render(<AuditTable lines={lines} devices={devices} tokens={[]} capped />);
+  expect(
+    screen.getByText("Showing the newest 1000 lines; older ones are not on this page.")
+  ).toBeInTheDocument();
+
+  rerender(<AuditTable lines={lines} devices={devices} tokens={[]} />);
+  expect(
+    screen.queryByText("Showing the newest 1000 lines; older ones are not on this page.")
+  ).not.toBeInTheDocument();
+  expect(full).toHaveLength(1000);
+});
+
 it("makes the row's opener a real button with aria-expanded", () => {
   render(<AuditTable lines={lines} devices={devices} tokens={[]} />);
   const row = rowOf("memory.export");

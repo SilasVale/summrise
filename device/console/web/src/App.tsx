@@ -780,6 +780,7 @@ export function App() {
               ) : (
                 <AuditTable
                   lines={shownActivity}
+                  capped={audit.length >= AUDIT_WINDOW}
                   devices={devices}
                   tokens={tokens}
                   selectedDeviceId={selected}

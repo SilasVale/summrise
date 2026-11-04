@@ -1,3 +1,4 @@
+import { capSentence } from "./activityMerge";
 import { Fragment, useMemo, useState } from "react";
 import type { AuditLine, Device, TokenMeta } from "./api";
 import { auditFailed, filterAudit, type AuditFilter } from "./auditFilter";
@@ -171,9 +172,11 @@ export function AuditTable({
   since: sharedSince,
   onSince,
   scope: sharedScope,
-  onScope
+  onScope,
+  capped = false
 }: {
   lines: AuditLine[];
+  capped?: boolean;
   devices: Device[];
   tokens: TokenMeta[];
   /** The machine the operator is on; the default scope follows it when it exists. */
@@ -441,6 +444,7 @@ export function AuditTable({
         </div>
       ) : (
         <div className="table-scroll" tabIndex={0} role="region" aria-label="Audit lines">
+          {capped && <p className="hint audit-cap">{capSentence()}</p>}
           <table className="audit-table">
             <thead>
               <tr>
