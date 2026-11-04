@@ -4,9 +4,11 @@ import type { LiveLine } from "./liveActivity";
 import type { AuditLine, Device } from "./api";
 import { DeviceCard } from "./DeviceCard";
 import { copyText } from "./copy";
-import { age, shortId } from "./format";
+import { shortId } from "./format";
 import { listPlugins } from "./pluginApi";
 import { useLiveTools } from "./useLiveTools";
+import { ActivityTimeline } from "./ActivityTimeline";
+import { mergeActivity } from "./activityMerge";
 
 /** A one-time enrollment code and the command that redeems it. */
 export type Enrollment = { code: string; expires_at_ms: number } | null;
@@ -138,10 +140,18 @@ function plural(count: number, noun: string, many = `${noun}s`): string {
   return `${count} ${count === 1 ? noun : many}`;
 }
 
+/** Midnight in the console's own timezone; the hub's timeline is today's, not the audit window's. */
+function startOfToday(now = Date.now()): number {
+  const date = new Date(now);
+  date.setHours(0, 0, 0, 0);
+  return date.getTime();
+}
+
 /**
- * The hub, once a machine is chosen: is it running, where is the door, what can it do, what next.
- * One status line, the endpoint, one accent, one counts line and the last three calls. Identity is
- * the header's; this page does not repeat it, and the catalogue is Capabilities' job, not a tile grid.
+ * The hub, once a machine is chosen: is it running, what is it doing now, what did it do today.
+ * One status line, one Connect action, the Now band, this machine's timeline and one counts line.
+ * Identity is the header's; this page does not repeat it, and the catalogue is Capabilities' job,
+ * not a tile grid. The endpoint lives in Connect, so this page never names the URL.
  */
 function HubHome(
   props: FleetProps & {
@@ -149,7 +159,6 @@ function HubHome(
     audit: AuditLine[];
     onConnect: () => void;
     onCapabilities: () => void;
-    onPlugins: () => void;
     onActivity: () => void;
     /** The console's own build, from /health; the chip next door is the device's. */
     consoleVersion?: string | null;
@@ -168,8 +177,17 @@ function HubHome(
   const known = live.tools.length > 0 || (!live.loading && live.error === null);
   const pluginsTool = live.tools.some((tool) => tool.name === "plugins.list");
   const plugins = usePluginCount(device.id, known, pluginsTool);
-  const [copied, setCopied] = useState(false);
-  const endpoint = `${location.origin}/mcp/${device.id}`;
+  // The page's subject is the machine: the stream's lines are the newest of the same audit, and
+  // both the Now band and the timeline drop every other machine's. The timeline is today's; older
+  // days belong to Activity, behind the All activity link.
+  const liveLines = (props.liveLines ?? []).filter((line) => line.device_id === device.id);
+  const todayStart = startOfToday();
+  const timelineLines = mergeActivity(
+    props.audit.filter((line) => line.device_id === device.id),
+    liveLines
+  )
+    .filter((line) => line.ts_ms >= todayStart)
+    .sort((a, b) => b.ts_ms - a.ts_ms);
 
   const offline = !device.online || live.offline;
   // **THE MACHINE CHIP ALREADY SAYS "Running · v…".** Repeating it here spent the page's one subtitle
@@ -182,22 +200,11 @@ function HubHome(
     .filter(Boolean)
     .join(" · ");
   const capabilities = new Set(live.tools.map((tool) => tool.capability)).size;
-  const calls = props.audit.filter((line) => line.device_id === device.id).slice(0, 3);
   const notice = offline
     ? `${name} is not connected. The console keeps trying; open the machine's panel if it stays offline.`
     : live.error
       ? "The machine is running. The console could not read its tool list, so these counts may be stale."
       : null;
-
-  const copyEndpoint = async () => {
-    if (offline) return;
-    if (await copyText(endpoint)) {
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 2000);
-    } else {
-      props.onNotice("Could not copy the endpoint: the browser refused the clipboard.");
-    }
-  };
 
   return (
     <div className="page home-page">
@@ -205,6 +212,11 @@ function HubHome(
         <div>
           <h1>Home</h1>
           <p className="page-sub">{statusLine}</p>
+        </div>
+        <div className="page-actions">
+          <button type="button" onClick={props.onConnect}>
+            Connect a client
+          </button>
         </div>
       </header>
 
@@ -218,75 +230,33 @@ function HubHome(
       )}
 
       <LiveNow
-        lines={props.liveLines ?? []}
+        lines={liveLines}
         devices={props.devices}
         state={props.liveState ?? "connecting"}
         onAll={props.onActivity}
         onWatch={props.onWatchTerminal}
       />
 
-      <section className="home-hero" aria-label="The endpoint">
-        <p className="hint">This is the door your AI clients connect to.</p>
-        <div className="endpoint-row">
-          <code className={"endpoint mono" + (offline ? " dim" : "")}>{endpoint}</code>
-          <button
-            type="button"
-            disabled={offline}
-            title={offline ? "The machine is not connected" : undefined}
-            onClick={() => void copyEndpoint()}
-          >
-            {copied ? "Copied" : "Copy"}
-          </button>
-        </div>
-        <div className="home-actions">
-          <button type="button" className="primary" onClick={props.onConnect}>
-            Connect a client
-          </button>
-          <button type="button" className="link" onClick={props.onPlugins}>
-            Add a capability
-          </button>
-        </div>
+      <section className="panel home-timeline" aria-label="This machine's activity">
+        <ActivityTimeline
+          lines={timelineLines}
+          devices={props.devices}
+          onWatch={props.onWatchTerminal}
+          empty={`No calls from ${name} today. When an AI client calls this machine, its work appears here.`}
+        />
       </section>
 
-      <div className="home-lower">
-        {offline ? (
-          <p className="hint">Tool counts are unavailable while the machine is offline.</p>
-        ) : live.error && live.tools.length === 0 ? (
-          <p className="hint">Tool counts are unavailable until the console can read the machine's list.</p>
-        ) : (
-          <button type="button" className="counts-line" onClick={props.onCapabilities}>
-            {plural(live.tools.length, "tool")} · {plural(capabilities, "capability", "capabilities")}
-            {plugins !== null ? ` · ${plural(plugins, "plugin")}` : ""}
-            {live.stale ? " · stale" : ""} <span aria-hidden="true">→</span>
-          </button>
-        )}
-
-        <section className="home-recent" aria-labelledby="recent-calls">
-          <div className="home-recent-head">
-            <h2 id="recent-calls">Recent calls</h2>
-            <button type="button" className="link" onClick={props.onActivity}>
-              All activity <span aria-hidden="true">→</span>
-            </button>
-          </div>
-          {calls.length === 0 ? (
-            <p className="hint">No calls yet.</p>
-          ) : (
-            <ul className="recent-calls">
-              {calls.map((line, index) => (
-                <li key={`${line.ts_ms}-${index}`}>
-                  <span className="mono">{line.tool ?? line.detail ?? "call"}</span>
-                  <span className={"chip " + (line.status >= 400 ? "chip-bad" : "chip-ok")}>
-                    {line.status}
-                  </span>
-                  <span className="recent-age" title={new Date(line.ts_ms).toLocaleString()}>
-                    {age(line.ts_ms)}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
-      </div>
+      {offline ? (
+        <p className="hint">Tool counts are unavailable while the machine is offline.</p>
+      ) : live.error && live.tools.length === 0 ? (
+        <p className="hint">Tool counts are unavailable until the console can read the machine's list.</p>
+      ) : (
+        <button type="button" className="counts-line" onClick={props.onCapabilities}>
+          {plural(live.tools.length, "tool")} · {plural(capabilities, "capability", "capabilities")}
+          {plugins !== null ? ` · ${plural(plugins, "plugin")}` : ""}
+          {live.stale ? " · stale" : ""} <span aria-hidden="true">→</span>
+        </button>
+      )}
     </div>
   );
 }
@@ -297,7 +267,6 @@ export type HomePageProps = FleetProps & {
   audit: AuditLine[];
   onConnect: () => void;
   onCapabilities: () => void;
-  onPlugins: () => void;
   onActivity: () => void;
   /** The console's own build, from /health; the machine chip next door is the device's. */
   consoleVersion?: string | null;

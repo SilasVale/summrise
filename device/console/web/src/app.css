@@ -359,16 +359,15 @@ main.terminal-main { display: grid; grid-template-rows: auto minmax(0, 1fr); ali
 }
 .row-menu-pop button:hover { background: var(--panel-3); border-color: transparent; }
 
-/* The hub: one status line, the door, one accent, one counts line, three calls. No second header,
-   no tile grid, no second Connect button. */
+/* The hub: one status line, one Connect action, the Now band, this machine's timeline, one counts
+   line. No second header, no tile grid, no endpoint card — Connect owns the URL. */
 .notice {
   display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap;
   padding: var(--sp-3); border: 1px solid var(--line-strong); border-radius: var(--radius-sm);
   background: var(--panel-2); font-size: var(--fs-sm);
 }
 .notice span { flex: 1; min-width: 12rem; }
-.home-hero { display: grid; gap: var(--sp-3); min-width: 0; }
-.home-hero > .hint { margin: 0; }
+.home-timeline { display: grid; gap: var(--sp-3); min-width: 0; }
 .endpoint-row {
   display: flex; align-items: center; gap: var(--sp-2); min-width: 0;
   padding: var(--sp-2) var(--sp-3);
@@ -376,26 +375,12 @@ main.terminal-main { display: grid; grid-template-rows: auto minmax(0, 1fr); ali
 }
 .endpoint { flex: 1; min-width: 0; overflow-wrap: anywhere; word-break: break-all; white-space: normal; font-size: var(--fs-sm); }
 .endpoint.dim { color: var(--ink-faint); }
-.home-actions { display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap; }
-.home-lower { display: grid; gap: var(--sp-4); }
 .counts-line {
   justify-self: start; display: inline-flex; align-items: center; gap: var(--sp-1);
   padding: var(--sp-1) 0; border: 0; border-radius: var(--radius-xs);
   background: transparent; color: var(--ink); font-size: var(--fs-sm); font-weight: var(--fw-medium);
 }
 .counts-line:hover { background: transparent; color: var(--accent); border-color: transparent; }
-.home-recent { display: grid; gap: var(--sp-2); min-width: 0; }
-.home-recent-head { display: flex; align-items: center; gap: var(--sp-2); }
-.home-recent-head h2 { font-size: var(--fs-base); font-weight: var(--fw-semi); }
-.home-recent-head .link { margin-left: auto; }
-.recent-calls { list-style: none; margin: 0; padding: 0; display: grid; }
-.recent-calls li {
-  display: flex; align-items: center; gap: var(--sp-2);
-  padding: var(--sp-2) 0; border-bottom: 1px solid var(--line-soft); min-width: 0;
-}
-.recent-calls li:last-child { border-bottom: 0; }
-.recent-calls .mono { flex: 1; min-width: 0; }
-.recent-age { color: var(--ink-faint); font-size: var(--fs-xs); white-space: nowrap; }
 
 .empty-state { display: grid; gap: var(--sp-3); justify-items: start; padding: var(--sp-4) 0; min-width: 0; }
 .empty-state h2 { font-size: var(--fs-lg); }
@@ -2250,20 +2235,6 @@ input:not([type="checkbox"]):not([type="radio"]):focus, select:focus, textarea:f
 .system-section > .hint { max-width: 68ch; }
 .system-section .card { border: 0; background: var(--canvas); }
 
-/* The hub's three answers are groups too. */
-.home-hero {
-  background: var(--panel); border: 1px solid var(--hairline); border-radius: var(--radius);
-  padding: 18px;
-}
-.home-hero > .hint { margin: 0; }
-.home-lower { gap: var(--sp-4); }
-.home-recent {
-  background: var(--panel); border: 1px solid var(--hairline); border-radius: var(--radius);
-  padding: 12px 16px;
-}
-.recent-calls li { padding: 9px 0; }
-.home-recent-head { padding-bottom: 4px; }
-
 /* ── The files page ─────────────────────────────────────────────────────────────────────────────
    A file browser is a path, a toolbar and a list. The path is a bar (not a heading floating beside
    the root picker), the toolbar is one row, and the list is grouped rows with hairlines. */
@@ -2307,8 +2278,6 @@ input:not([type="checkbox"]):not([type="radio"]):focus, select:focus, textarea:f
   padding: 4px 12px; font-size: var(--fs-sm); color: var(--ink);
 }
 .counts-line:hover { background: var(--control-hover-bg); color: var(--ink); }
-/* The endpoint is a value with a Copy action, so it is a field (filled), not a box inside a box. */
-.home-hero .endpoint-row { background: var(--canvas); border: 0; border-radius: var(--radius-sm2); }
 
 /* Quiet scrollbars: the page and the terminal scroll without a system rail competing with the card. */
 main, .sheet-body, .scroll, .term-host .xterm-viewport { scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--ink) 22%, transparent) transparent; }

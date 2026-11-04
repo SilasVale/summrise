@@ -624,7 +624,6 @@ export function App() {
             audit={audit}
             onConnect={() => setConnect({ section: "endpoint", device: chosen })}
             onCapabilities={() => setPage("capabilities")}
-            onPlugins={() => setPage("plugins")}
             onActivity={() => setPage("activity")}
             consoleVersion={consoleVersion}
             liveLines={live.lines}
