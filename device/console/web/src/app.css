@@ -962,6 +962,14 @@ main.terminal-main:has(.terminal-workspace-empty) { grid-template-rows: auto aut
   line-height: 1.5;
   white-space: nowrap;
 }
+/* The device session behind the tab. Titles are console-local ("pty 1"), so with more than one
+   shell open this is how a tab is matched to the id Sessions lists. */
+.tab-session {
+  color: var(--ink-faint);
+  font-size: var(--fs-2xs);
+  font-variant-numeric: tabular-nums;
+}
+
 .tab-state.state-closed { background: var(--surface-chip); color: var(--ink-muted); }
 .tab-state.state-unreachable { background: var(--warn-soft); color: var(--warn); }
 .tab-state.state-grant { background: var(--error-soft); color: var(--error); }

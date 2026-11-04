@@ -249,6 +249,24 @@ describe("TerminalWorkspace tab names", () => {
     expect(reads[0][2]).toMatchObject({ id: "new" });
   });
 
+  it("shows the device session behind each tab", async () => {
+    callToolMock.mockImplementation(async (_grant, name) => {
+      if (name === "terminal.list") {
+        return JSON.stringify([{ id: "session-7", kind: "pty", started_at_ms: 1_000 }]);
+      }
+      if (name === "terminal.resize") return JSON.stringify({ rows: 24, cols: 80 });
+      if (name === "terminal.read") return JSON.stringify({ data: "", cursor: 0 });
+      throw new Error(`the test did not expect a ${name} call`);
+    });
+    render(<TerminalWorkspace grant={GRANT} />);
+
+    // "pty 1" is this console's name for the tab; #7 is what the device calls the session, and the
+    // Sessions list speaks in those. Without it two open shells are two identical-looking tabs.
+    const tab = await screen.findByRole("tab", { name: /pty 1/ });
+    expect(tab).toHaveTextContent("#7");
+    expect(tab.querySelector(".tab-session")).toHaveAttribute("title", "session-7");
+  });
+
   it("reads the session list again when the tab becomes visible", async () => {
     render(<TerminalWorkspace grant={GRANT} />);
     await screen.findByText(/No session is open on this device/);
@@ -706,7 +724,7 @@ describe("TerminalWorkspace session end", () => {
     await waitFor(() => expect(mockedXterm.instances).toHaveLength(1));
     await waitFor(() => expect(mockedXterm.instances[0].write).toHaveBeenCalledWith("bye\n"));
     // One mark: the suffix ends the label, and the old "closed" chip is not drawn beside it.
-    expect(tab).toHaveTextContent(/^pty 1 · ended$/);
+    expect(tab).toHaveTextContent(/pty 1 · ended/);
     expect(within(tab).queryByText("closed")).not.toBeInTheDocument();
 
     // The read that discovered the end sets `closed`; the next 250 ms tick must send nothing.
@@ -1031,7 +1049,7 @@ describe("TerminalWorkspace recovery", () => {
     const close = screen.getByRole("button", { name: "Close pty 1" });
     expect(close.tagName).toBe("BUTTON");
     expect(close.closest("button")).toBe(close);
-    expect(screen.getByRole("tab", { name: "pty 1" }).contains(close)).toBe(false);
+    expect(screen.getByRole("tab", { name: /pty 1/ }).contains(close)).toBe(false);
   });
 
   it("asks before closing a live session, and keeps it when the operator declines", async () => {
@@ -1049,7 +1067,7 @@ describe("TerminalWorkspace recovery", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
     expect(screen.queryByRole("dialog", { name: "Close pty 1?" })).not.toBeInTheDocument();
     expect(callToolMock.mock.calls.some(([, name]) => name === "terminal.close")).toBe(false);
-    expect(screen.getByRole("tab", { name: "pty 1" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: /pty 1/ })).toBeInTheDocument();
   });
 
   it("detaches without ending the shell, and offers the session again", async () => {
@@ -1072,7 +1090,7 @@ describe("TerminalWorkspace recovery", () => {
 
     // Detach is a view change: the device is never asked to end anything.
     expect(callToolMock.mock.calls.some(([, name]) => name === "terminal.close")).toBe(false);
-    expect(screen.queryByRole("tab", { name: "pty 1" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("tab", { name: /pty 1/ })).not.toBeInTheDocument();
     // The device still lists it, and the page offers it again instead of hiding it.
     expect(await screen.findByRole("button", { name: "Attach" })).toBeInTheDocument();
   });
@@ -1147,7 +1165,7 @@ describe("TerminalWorkspace recovery", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "End session" }));
 
     expect(await screen.findByText(/Could not close pty 1: device disconnected/)).toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: "pty 1" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: /pty 1/ })).toBeInTheDocument();
   });
 });
 

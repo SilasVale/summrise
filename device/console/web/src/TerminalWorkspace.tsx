@@ -233,6 +233,18 @@ function safeSession(session: string): string {
 }
 
 /**
+ * The tail of a session id, short enough for a tab: "session-3" -> "3", "t1" -> "1".
+ *
+ * A tab's title is console-local ("pty 1"), so with two shells open the strip alone cannot say which
+ * device session a tab belongs to; the Sessions list speaks in ids. This is the bridge between them.
+ */
+function shortSession(session: string): string {
+  const digits = /(\d+)$/.exec(session);
+  if (digits) return digits[1];
+  return session.slice(-4);
+}
+
+/**
  * The sentence a refused call deserves, or `null` when the failure was not a refusal.
  *
  * The console checks the operator's session before the frame leaves (HTTP 403 with a code), and the
@@ -1548,7 +1560,10 @@ export function TerminalWorkspace({
                 onClick={() => setActive(tab.key)}
               >
                 {tab.title}
-                {faults[tab.key]?.kind === "closed" && " · ended"}
+                {faults[tab.key]?.kind === "closed" && " · ended"}{" "}
+                <span className="tab-session" title={tab.session}>
+                  #{shortSession(tab.session)}
+                </span>
                 {faults[tab.key] && faults[tab.key].kind !== "closed" && (
                   <span
                     className={"tab-state state-" + faults[tab.key].kind}
