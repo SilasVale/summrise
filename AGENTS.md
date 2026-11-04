@@ -26,8 +26,9 @@ The console page is the one deliberate exception — see below.
 page; Vite builds `dist/index.html`, `summrise-console` embeds it with `include_str!`, and there is
 no Node at runtime. A page change is a change in that tree followed by `scripts/build-web.sh
 --check` — CI's `console-web` job runs the same typecheck and fails on a stale committed bundle.
-`/next` is the maud fallback that redeems a login code; it is not the operator's path. The vendored
-xterm and the device's own pages are separate.
+The console is the React page at `/` and `/app`, and the legacy server-rendered pages are gone;
+`/next` survives only as the one link that redeems a `--login-link` code and lands on `/`. The
+device's own pages are separate.
 
 **THE PAGE'S LOOK IS TESTED, NOT ARGUED.** A styling change that skips these is a guess:
 
