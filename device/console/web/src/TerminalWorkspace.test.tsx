@@ -922,6 +922,26 @@ describe("TerminalWorkspace search", () => {
     await waitFor(() => expect(screen.queryByText("No match.")).not.toBeInTheDocument());
   });
 
+  it("searches while the operator types, without waiting for Enter", async () => {
+    render(<TerminalWorkspace grant={GRANT} />);
+    await startPtyTab();
+    await screen.findByRole("tab", { name: /pty 1/ });
+    const input = openSearch();
+    const addon = mockedSearch.instances[0];
+
+    vi.useFakeTimers();
+    try {
+      fireEvent.change(input, { target: { value: "line 199" } });
+      act(() => {
+        vi.advanceTimersByTime(200);
+      });
+      // A field that waits for Enter reads as broken; the term searches itself after the pause.
+      expect(addon.findNext).toHaveBeenCalledWith("line 199", expect.anything());
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("clears the decorations of the tab it searched when the bar closes", async () => {
     render(<TerminalWorkspace grant={GRANT} />);
     await startPtyTab();

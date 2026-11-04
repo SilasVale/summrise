@@ -1329,7 +1329,10 @@ export function TerminalWorkspace({
    * The addon walks the xterm's own retained output, so a search is answered from what the page
    * already has: it never becomes a device call, and it dies with the terminal it belongs to.
    */
-  const activeSearch = () => instanceAt(activeRef.current)?.search;
+  const activeSearch = useCallback(
+    () => instanceAt(activeRef.current)?.search,
+    [instanceAt]
+  );
 
   /** Search the active tab's scrollback; a miss is the bar's sentence, not a fault on the tab. */
   const findStep = (direction: "next" | "previous") => {
@@ -1340,6 +1343,36 @@ export function TerminalWorkspace({
       direction === "next" ? search.findNext(findTerm, options) : search.findPrevious(findTerm, options);
     setFindMiss(!hit);
   };
+
+  // THE BAR SEARCHES WHILE THE OPERATOR TYPES. It used to wait for Enter, so typing a term looked like
+  // a broken field until the second action; a 120 ms pause is enough for a person to see the matches
+  // spread out before stepping through them, and short enough to feel immediate on a 20 000-line
+  // buffer. Emptying the field takes the highlights away instead of leaving the last term's marks.
+  const lastFindTerm = useRef("");
+  useEffect(() => {
+    if (!findOpen) {
+      lastFindTerm.current = "";
+      return;
+    }
+    const search = activeSearch();
+    if (!search) return;
+    if (findTerm === "") {
+      // Only a term that was actually searched is cleared: opening the bar with an empty field has
+      // nothing to take away, and a redundant call would look like the page cleaning up after itself.
+      if (lastFindTerm.current !== "") {
+        search.clearDecorations();
+        setFindMiss(false);
+      }
+      lastFindTerm.current = "";
+      return;
+    }
+    lastFindTerm.current = findTerm;
+    const timer = window.setTimeout(() => {
+      const hit = search.findNext(findTerm, { decorations: searchDecorations() });
+      setFindMiss(!hit);
+    }, 120);
+    return () => window.clearTimeout(timer);
+  }, [findOpen, findTerm, activeSearch]);
 
   /** Put the bar away, taking the decorations it drew with it, and give the keys back to the session. */
   const closeFind = () => {
