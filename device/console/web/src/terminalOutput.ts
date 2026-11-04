@@ -13,6 +13,14 @@
 export const WRITE_SLICE_CHARS = 64 * 1024;
 
 /**
+ * Text small enough to hand xterm now instead of on the next frame.
+ *
+ * One screenful. xterm draws on the browser's next frame either way, so scheduling this pump for a
+ * keystroke's echo only added a frame of latency to every character typed; a burst is still paced.
+ */
+export const IMMEDIATE_CHARS = 4096;
+
+/**
  * Cut `text` into slices of at most `size` UTF-16 units without splitting a surrogate pair.
  *
  * `String.prototype.slice` counts UTF-16 units, so an arbitrary cut can leave half of an emoji or any
@@ -106,9 +114,16 @@ export function createOutputPump(
       for (const slice of splitWriteSlices(text)) {
         queue.push(slice);
       }
-      if (handle === null) {
-        handle = schedule(pump);
+      if (handle !== null) {
+        return;
       }
+      // A small chunk — a keystroke's echo, one line of output — is written now: the terminal
+      // paints on the next frame anyway, and waiting for one here would put it two frames away.
+      if (queue.length === 1 && queue[0]!.length <= IMMEDIATE_CHARS) {
+        pump();
+        return;
+      }
+      handle = schedule(pump);
     },
     cancel() {
       if (handle !== null) {

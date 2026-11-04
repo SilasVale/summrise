@@ -6,13 +6,16 @@
 //! codes.
 
 use std::collections::HashMap;
+use std::convert::Infallible;
 use std::net::{IpAddr, SocketAddr};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use axum::extract::ws::WebSocketUpgrade;
 use axum::extract::{ConnectInfo, Form, Path, Query, State};
 use axum::http::{header, HeaderMap, HeaderValue, StatusCode};
+use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
@@ -464,6 +467,11 @@ impl Console {
             .route("/mcp", post(proxy_mcp))
             .route("/mcp/all", post(aggregate_mcp))
             .route("/mcp/:id", post(standard_mcp))
+            // **THE TERMINAL'S OUTPUT AS ONE OPEN STREAM.** The page asked for each chunk with a
+            // `terminal.read` long-poll, so every answer cost a request and the device had no reader
+            // parked between them; a stream keeps the read parked and writes each answer down the
+            // connection the moment it lands, which is the shape the device's own panel always had.
+            .route("/terminal/:device/:session/stream", get(terminal_stream))
             .route("/audit", get(list_audit))
             // The same read as `/audit`, over the unauthenticated-refusal log. Operator-only: the
             // log holds what probing looks like, and it is surfaced read-only.
@@ -2592,6 +2600,215 @@ fn as_session_id(raw: &str) -> Option<&str> {
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
     valid.then_some(raw)
+}
+
+// ---- one open stream per terminal ---------------------------------------------------------------
+
+/// How many terminal streams one console carries at once.
+///
+/// A stream is a parked `terminal.read` and one HTTP connection; the cap is what keeps a page that
+/// reloads in a loop, or a dozen browser tabs, from parking a hundred device reads at once.
+pub(crate) const MAX_TERMINAL_STREAMS: usize = 64;
+
+/// How long one stream's device read parks before its answer comes back empty.
+///
+/// It has to fit inside [`crate::channels::REPLY_TIMEOUT`] (30 s) or every quiet stream would turn
+/// into a 504 the moment the device went quiet; 20 s leaves the channel time to answer.
+const TERMINAL_STREAM_WAIT_MS: u64 = 20_000;
+
+/// The pause between reads for a device older than `wait_ms`.
+///
+/// A read with no wait returns whatever is buffered and returns at once, so a stream against such a
+/// device would spin; this is the page's old 250 ms poll, tightened because the console — not a
+/// browser over a WAN — is the caller.
+const TERMINAL_STREAM_GAP: Duration = Duration::from_millis(120);
+
+/// The live terminal streams, process-wide. A slot is held by the stream itself and released when
+/// the client disconnects or the session ends.
+static TERMINAL_STREAMS: AtomicUsize = AtomicUsize::new(0);
+
+/// A slot in the stream pool, released on drop.
+struct StreamSlot;
+
+impl StreamSlot {
+    fn acquire() -> Option<Self> {
+        let previous = TERMINAL_STREAMS.fetch_add(1, Ordering::SeqCst);
+        if previous < MAX_TERMINAL_STREAMS {
+            Some(Self)
+        } else {
+            TERMINAL_STREAMS.fetch_sub(1, Ordering::SeqCst);
+            None
+        }
+    }
+}
+
+impl Drop for StreamSlot {
+    fn drop(&mut self) {
+        TERMINAL_STREAMS.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
+/// `GET /terminal/:device/:session/stream?from=N`: the session's output as server-sent events.
+///
+/// Three events cross it. `output` carries the bytes since the cursor, exactly what `terminal.read`
+/// answered; `end` says the session ended (with the device's exit facts when it gave them); `fault`
+/// carries the sentence a refused read produced, which is the same one the page showed when a poll
+/// failed. A stream that ends without `end` is the link, not the session, and the page reconnects
+/// from its cursor.
+///
+/// **THE CURSOR IS THE PAGE'S**, not the console's: `from` is where its xterm's output ends, so a
+/// reconnect after a dropped connection replays only what was missed and never duplicates a byte.
+async fn terminal_stream(
+    State(app): State<AppState>,
+    _: OperatorSession,
+    Path((device_id, session_id)): Path<(String, String)>,
+    Query(query): Query<TerminalStreamQuery>,
+) -> Response {
+    let Some(session_id) = as_session_id(&session_id) else {
+        return (
+            StatusCode::BAD_REQUEST,
+            "a session id is letters, digits, - and _",
+        )
+            .into_response();
+    };
+    if let Err(error) = ensure_registered(&app, &device_id) {
+        return app
+            .deny(audit_device_id(&device_id).as_deref(), error)
+            .await
+            .into_response();
+    }
+    let Some(slot) = StreamSlot::acquire() else {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            [(header::RETRY_AFTER, HeaderValue::from_static("2"))],
+            "too many terminal streams are open",
+        )
+            .into_response();
+    };
+
+    let state = TerminalStreamState {
+        app,
+        device: device_id,
+        session: session_id.to_owned(),
+        cursor: query.from,
+        wait: true,
+        done: false,
+        _slot: slot,
+    };
+    // `unfold` is the loop: one item per event, and the state carries the cursor (and the slot)
+    // from one item to the next. Nothing is written to the device here that the page could not have
+    // asked for with `terminal.read` — the read, its authorization and its audit are the same ones.
+    let events = futures_util::stream::unfold(state, |mut state| async move {
+        loop {
+            if state.done {
+                return None;
+            }
+            let mut arguments = json!({ "id": state.session, "cursor": state.cursor });
+            if state.wait {
+                arguments["wait_ms"] = json!(TERMINAL_STREAM_WAIT_MS);
+            }
+            match terminal_tool(&state.app, &state.device, "terminal.read", arguments).await {
+                Ok(answer) => {
+                    if let Some(next) = answer.get("cursor").and_then(Value::as_u64) {
+                        state.cursor = next;
+                    }
+                    let data = answer
+                        .get("data")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default()
+                        .to_owned();
+                    if !data.is_empty() {
+                        let payload = json!({ "data": data, "cursor": state.cursor });
+                        return Some((
+                            Ok::<Event, Infallible>(
+                                Event::default().event("output").data(payload.to_string()),
+                            ),
+                            state,
+                        ));
+                    }
+                    if answer.get("alive").and_then(Value::as_bool) == Some(false) {
+                        let payload = json!({
+                            "cursor": state.cursor,
+                            "exit_code": answer.get("exit_code").cloned().unwrap_or(Value::Null),
+                            "signal": answer.get("signal").cloned().unwrap_or(Value::Null),
+                        });
+                        state.done = true;
+                        return Some((
+                            Ok(Event::default().event("end").data(payload.to_string())),
+                            state,
+                        ));
+                    }
+                    if !state.wait {
+                        // No wait field was accepted, so the read returned at once and empty.
+                        tokio::time::sleep(TERMINAL_STREAM_GAP).await;
+                    }
+                }
+                Err(response) => {
+                    let status = response.status();
+                    let sentence = refusal_sentence(*response).await;
+                    // A device from before `wait_ms`: drop the field once and keep the stream, the
+                    // same fallback the page made when it was the one calling `terminal.read`.
+                    if state.wait && refuses_wait_ms(&sentence) {
+                        state.wait = false;
+                        continue;
+                    }
+                    let payload = json!({ "sentence": sentence, "status": status.as_u16() });
+                    state.done = true;
+                    return Some((
+                        Ok(Event::default().event("fault").data(payload.to_string())),
+                        state,
+                    ));
+                }
+            }
+        }
+    });
+
+    let mut response = Sse::new(events)
+        .keep_alive(KeepAlive::default().interval(Duration::from_secs(15)))
+        .into_response();
+    // A reverse proxy that buffers would hold every event until the stream ended, which is the one
+    // way this route could be worse than the polling it replaces. `no-store` (the console's
+    // middleware) is not enough: nginx honors this header and nothing else.
+    response
+        .headers_mut()
+        .insert("x-accel-buffering", HeaderValue::from_static("no"));
+    response
+}
+
+/// The stream's one query parameter.
+#[derive(Deserialize)]
+struct TerminalStreamQuery {
+    /// The byte offset the page's terminal already shows; a reconnect resumes there.
+    #[serde(default)]
+    from: u64,
+}
+
+/// The cursor and the slot, carried from one event to the next.
+struct TerminalStreamState {
+    app: AppState,
+    device: String,
+    session: String,
+    cursor: u64,
+    /// Whether the device accepts `wait_ms`; a refusal switches this off for the stream's life.
+    wait: bool,
+    /// Set once a terminal event has been produced, so the next poll of the stream ends it.
+    done: bool,
+    /// Released when the stream is dropped.
+    _slot: StreamSlot,
+}
+
+/// Whether a refusal is the device not knowing `wait_ms`, which is a version fact, not a fault.
+fn refuses_wait_ms(sentence: &str) -> bool {
+    let lower = sentence.to_ascii_lowercase();
+    [
+        "wait_ms",
+        "unknown field",
+        "unknown argument",
+        "additional propert",
+        "input schema",
+    ]
+    .iter()
+    .any(|needle| lower.contains(needle))
 }
 
 /// `POST /next/terminal/:device/:id/write`: keystrokes.

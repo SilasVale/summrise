@@ -5,6 +5,7 @@ import { SearchAddon } from "@xterm/addon-search";
 import "@xterm/xterm/css/xterm.css";
 import { callTool, ToolError, type Grant } from "./terminal";
 import { createTerminalWriteBatcher, type TerminalWriteBatcher } from "./terminalWriteBatcher";
+import { openTerminalStream, type TerminalStream } from "./terminalStream";
 import { createOutputPump, type OutputPump } from "./terminalOutput";
 import { nextTabTitle, renameTab, titleFromInput, type Tab } from "./terminalTabs";
 import { age } from "./age";
@@ -417,7 +418,6 @@ export function TerminalWorkspace({
   const grantRef = useRef(grant);
   const grantRefusedRef = useRef(onGrantRefused);
   const activeRef = useRef<string | null>(null);
-  const pollTimer = useRef<number | null>(null);
   /** Tabs with a read in flight. A slow device must not queue a second read at the same cursor. */
   const reading = useRef(new Set<string>());
   // A device older than terminal.read's wait_ms refuses the field; fall back once and remember it.
@@ -685,6 +685,28 @@ export function TerminalWorkspace({
     [clearFault, fail]
   );
 
+  /**
+   * The output queue one tab's xterm draws from.
+   *
+   * A read can carry the whole retained ring and a stream can carry a burst: both queue here, and
+   * the pump hands xterm one frame's worth at a time so a busy session cannot freeze the page in
+   * one write.
+   */
+  const pumpFor = useCallback((tab: Tab, instance: Instance) => {
+    let pump = pumps.current.get(tab.key);
+    if (!pump) {
+      pump = createOutputPump((text) => {
+        try {
+          instance.term.write(text);
+        } catch {
+          // Disposed while a queued frame was pending: the tab is gone, the bytes are not.
+        }
+      });
+      pumps.current.set(tab.key, pump);
+    }
+    return pump;
+  }, []);
+
   const poll = useCallback(
     async (tab: Tab) => {
       const instance = instanceAt(tab.key);
@@ -696,20 +718,7 @@ export function TerminalWorkspace({
       try {
         const read = await readOnce(tab);
         if (read.data) {
-          // A read can carry the whole retained ring: queue it and let the pump hand xterm one
-          // frame's worth at a time, so a busy session cannot freeze the page in one write.
-          let pump = pumps.current.get(tab.key);
-          if (!pump) {
-            pump = createOutputPump((text) => {
-              try {
-                instance.term.write(text);
-              } catch {
-                // Disposed while a queued frame was pending: the tab is gone, the bytes are not.
-              }
-            });
-            pumps.current.set(tab.key, pump);
-          }
-          pump.push(read.data);
+          pumpFor(tab, instance).push(read.data);
           // A long poll returns as soon as bytes arrive; take the next read now instead of waiting
           // for the 250 ms interval, so continuous output keeps flowing. Single-flight still guards
           // a slow answer, and a fallback device's immediate empty read keeps the interval's pace.
@@ -738,7 +747,7 @@ export function TerminalWorkspace({
         reading.current.delete(tab.key);
       }
     },
-    [clearFault, fail, instanceAt, readOnce, setFault]
+    [clearFault, fail, instanceAt, pumpFor, readOnce, setFault]
   );
 
   // One xterm per tab, created when its host element exists and disposed when the tab goes away.
@@ -923,15 +932,98 @@ export function TerminalWorkspace({
     }
   }, [active, findOpen]);
 
-  // The active tab polls; switching polls once immediately so the tab is current when it appears.
-  //
-  // A page change does not unmount the workspace, so `visible` is what stops the poll instead: a
-  // hidden tab must not keep a device session alive past its idle close. On return the effect runs
-  // again, refits the terminal to a host that has a size again, and reads everything the device
-  // retained since the cursor — which is what makes a live tab reappear without an Attach.
+  /**
+   * The active tab's output feed: the stream while it answers, the polling loop when it does not.
+   *
+   * **THE STREAM IS ONE CONNECTION, NOT ONE REQUEST PER CHUNK.** The console relays this session's
+   * `terminal.read` answers down a server-sent stream, so the device always has a read parked and
+   * the browser is not opening a request between two chunks. The polling loop stays as the fallback
+   * — a console older than the route, a browser without `EventSource` (jsdom), or a stream that
+   * keeps failing — because a terminal that cannot stream must still be a terminal.
+   *
+   * A page change does not unmount the workspace, so `visible` is what stops the feed: a hidden tab
+   * must not keep a device session alive past its idle close. On return the effect runs again,
+   * refits the terminal to a host that has a size again, and reads everything the device retained
+   * since the cursor — which is what makes a live tab reappear without an Attach.
+   */
+  const startFeed = useCallback(
+    (tab: Tab, instance: Instance | undefined) => {
+      let stopped = false;
+      let stream: TerminalStream | null = null;
+      let timer: number | null = null;
+      let retry: number | null = null;
+      let attempt = 0;
+
+      const startPolling = () => {
+        if (stopped || timer !== null) return;
+        const tick = () => {
+          if (activeRef.current === tab.key) void poll(tab);
+        };
+        tick();
+        timer = window.setInterval(tick, 250);
+      };
+
+      const connect = () => {
+        if (stopped || !instance) {
+          startPolling();
+          return;
+        }
+        stream = openTerminalStream(
+          grantRef.current.deviceId,
+          tab.session,
+          cursors.current.get(tab.key) ?? 0,
+          {
+            output: (data, cursor) => {
+              attempt = 0;
+              cursors.current.set(tab.key, cursor);
+              if (!data) return;
+              pumpFor(tab, instance).push(data);
+              // A stream that carries bytes answers the question a read fault asked.
+              const fault = faultRef.current.get(tab.key);
+              if (fault && (fault.kind === "unreachable" || fault.kind === "read")) {
+                clearFault(tab.key);
+              }
+            },
+            end: (facts) => {
+              setFault(tab.key, { kind: "closed", sentence: endedSentence(facts) });
+            },
+            fault: (sentence, status) => {
+              // The stream carries the device's own refusal; the tab renders it as a failed read.
+              fail(tab, "read", new ToolError(sentence, status ?? 502, null, true));
+            },
+            error: () => {
+              stream = null;
+              if (stopped) return;
+              attempt += 1;
+              // A console from before this route answers 404, and an EventSource cannot see the
+              // status of a failed connection. Two attempts is where the polling loop — the path
+              // that shipped before the stream — is the better bet.
+              if (attempt >= 2) {
+                startPolling();
+                return;
+              }
+              retry = window.setTimeout(connect, attempt === 1 ? 400 : 1_500);
+            }
+          }
+        );
+        // No `EventSource` in this runtime: the polling loop is the whole feed.
+        if (!stream) startPolling();
+      };
+
+      connect();
+
+      return () => {
+        stopped = true;
+        if (timer !== null) window.clearInterval(timer);
+        if (retry !== null) window.clearTimeout(retry);
+        stream?.close();
+        stream = null;
+      };
+    },
+    [clearFault, fail, poll, pumpFor, setFault]
+  );
+
   useEffect(() => {
-    if (pollTimer.current !== null) window.clearInterval(pollTimer.current);
-    pollTimer.current = null;
     if (!active || !visible) return;
     const tab = tabs.find((entry) => entry.key === active);
     if (!tab) return;
@@ -940,16 +1032,9 @@ export function TerminalWorkspace({
       // The host has a size again; the device hears about a changed grid only.
       fitActive();
       instance.term.focus();
-      void poll(tab);
     }
-    pollTimer.current = window.setInterval(() => {
-      if (activeRef.current === active) void poll(tab);
-    }, 250);
-    return () => {
-      if (pollTimer.current !== null) window.clearInterval(pollTimer.current);
-      pollTimer.current = null;
-    };
-  }, [active, tabs, grant, visible, poll, instanceAt]);
+    return startFeed(tab, instance);
+  }, [active, tabs, grant, visible, startFeed, fitActive, instanceAt]);
 
   // The presets belong to the device, so they are re-read when the grant's device changes.
   useEffect(() => {

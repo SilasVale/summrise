@@ -61,17 +61,16 @@ describe("createOutputPump", () => {
     expect(frames).toHaveLength(0);
   });
 
-  it("batches answers that arrive in the same frame into one write", () => {
+  it("coalesces the slices of one answer into a single write", () => {
     frames.length = 0;
     const written: string[] = [];
     const pump = createOutputPump((text) => written.push(text), schedule, unschedule);
 
-    pump.push("one");
-    pump.push("two");
+    pump.push("a".repeat(WRITE_SLICE_CHARS * 2));
     expect(frames).toHaveLength(1);
 
     runFrame();
-    expect(written).toEqual(["onetwo"]);
+    expect(written).toEqual(["a".repeat(WRITE_SLICE_CHARS)]);
   });
 
   it("drops what was queued when the tab goes away", () => {
@@ -79,10 +78,48 @@ describe("createOutputPump", () => {
     const written: string[] = [];
     const pump = createOutputPump((text) => written.push(text), schedule, unschedule);
 
-    pump.push("never shown");
+    pump.push("a".repeat(WRITE_SLICE_CHARS + 1));
     pump.cancel();
     frames.length = 0;
 
     expect(written).toEqual([]);
+  });
+});
+
+describe("createOutputPump immediacy", () => {
+  it("writes a small chunk in the same turn instead of waiting for a frame", () => {
+    const written: string[] = [];
+    let scheduled = 0;
+    const pump = createOutputPump(
+      (text) => written.push(text),
+      () => {
+        scheduled += 1;
+        return 1;
+      },
+      () => {}
+    );
+    pump.push("$ ");
+    expect(written).toEqual(["$ "]);
+    expect(scheduled).toBe(0);
+  });
+
+  it("still paces a burst through frames", () => {
+    const written: string[] = [];
+    let scheduled = 0;
+    const callbacks: (() => void)[] = [];
+    const pump = createOutputPump(
+      (text) => written.push(text),
+      (callback) => {
+        scheduled += 1;
+        callbacks.push(callback);
+        return scheduled;
+      },
+      () => {}
+    );
+    pump.push("x".repeat(WRITE_SLICE_CHARS + 1));
+    expect(written).toEqual([]);
+    expect(scheduled).toBe(1);
+    callbacks[0]!();
+    expect(written.length).toBe(1);
   });
 });

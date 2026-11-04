@@ -27,6 +27,9 @@ summrise-core = { path = "../core" }
 # The mesh: the readiness probe asks the broker whether a device is registered, and the console's
 # data path will speak the mesh's envelope (docs/superpowers/specs/2026-10-25-console-mesh-surface-design.md).
 summrise-mesh = { path = "../mesh" }
+# The terminal stream is one `Stream` of SSE events; `unfold` is what makes it a stream rather than
+# a hand-written `Stream` impl, and axum already builds on this crate.
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
 # `sync` carries the channel's outbound queue and the waiters; `time` is the proxy's 30 s bound;
 # `fs` is the audit index, whose writer must not block the async runtime.
 tokio = { version = "1", features = [

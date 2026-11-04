@@ -11726,3 +11726,200 @@ async fn an_empty_forwarded_user_is_not_an_identity() {
     assert_eq!(status, StatusCode::OK);
     assert_eq!(body["authenticated"], json!(false));
 }
+
+// ---- the terminal stream: the page's one open connection per session --------------------------
+
+/// A raw HTTP/1.1 GET whose body is read as it arrives.
+///
+/// The SSE route never ends on its own while a session is live, so a tower `oneshot` (which waits
+/// for the whole body) cannot see it; this is the smallest client that can, and it reads the same
+/// socket the browser does.
+async fn raw_get(server: &TestServer, path: &str, headers: &str, until: &str) -> String {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let mut socket = tokio::net::TcpStream::connect(server.addr)
+        .await
+        .expect("a connection to the test server");
+    let request = format!(
+        "GET {path} HTTP/1.1\r\nHost: 127.0.0.1\r\nAccept: text/event-stream\r\nConnection: close\r\n{headers}\r\n"
+    );
+    socket
+        .write_all(request.as_bytes())
+        .await
+        .expect("the request is written");
+    let mut seen: Vec<u8> = Vec::new();
+    let mut chunk = [0u8; 4096];
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    loop {
+        match tokio::time::timeout_at(deadline, socket.read(&mut chunk)).await {
+            Ok(Ok(0)) | Err(_) | Ok(Err(_)) => break,
+            Ok(Ok(read)) => {
+                seen.extend_from_slice(&chunk[..read]);
+                if String::from_utf8_lossy(&seen).contains(until) {
+                    break;
+                }
+            }
+        }
+    }
+    String::from_utf8_lossy(&seen).into_owned()
+}
+
+fn bearer(session: &str) -> String {
+    format!("Authorization: Bearer {session}\r\n")
+}
+
+/// One tool's text answer, as a device sends it: the MCP content envelope around JSON.
+fn tool_result(value: Value) -> Value {
+    json!({ "content": [{ "type": "text", "text": value.to_string() }], "isError": false })
+}
+
+/// The page subscribes once and each read's bytes arrive on that connection; the device sees the
+/// same `terminal.read` it would have answered for a poll.
+#[tokio::test]
+async fn a_terminal_stream_pushes_each_read_down_one_connection() {
+    let fixture = Fixture::new("terminal-stream-output");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0x31)).await;
+    let session = fixture.authenticate().await;
+
+    let path = format!("/terminal/{device_id}/session-1/stream?from=7");
+    let auth = bearer(&session);
+    let stream = raw_get(&server, &path, &auth, "hello-stream");
+    let device_side = async {
+        let frame = next_json(&mut device).await;
+        assert_eq!(frame["mcp"]["params"]["name"], json!("terminal.read"));
+        assert_eq!(frame["mcp"]["params"]["arguments"]["cursor"], json!(7));
+        assert_eq!(
+            frame["mcp"]["params"]["arguments"]["wait_ms"],
+            json!(20_000)
+        );
+        answer(
+            &mut device,
+            &frame,
+            tool_result(json!({ "data": "hello-stream", "cursor": 19, "alive": true })),
+        )
+        .await;
+        // The stream reads again at once; leaving it parked is what a quiet session looks like.
+        let _ = tokio::time::timeout(Duration::from_secs(2), next_json(&mut device)).await;
+    };
+    let (body, ()) = tokio::join!(stream, device_side);
+
+    assert!(body.contains("event: output"), "{body}");
+    assert!(body.contains("hello-stream"), "{body}");
+    assert!(body.contains("\"cursor\":19"), "{body}");
+}
+
+/// A device from before `wait_ms` refuses the field once; the stream drops it and keeps going, and
+/// a read with no wait is paced so the console does not spin against it.
+#[tokio::test]
+async fn a_stream_drops_wait_ms_for_a_device_that_refuses_it() {
+    let fixture = Fixture::new("terminal-stream-nowait");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0x32)).await;
+    let session = fixture.authenticate().await;
+
+    let path = format!("/terminal/{device_id}/session-1/stream");
+    let auth = bearer(&session);
+    let stream = raw_get(&server, &path, &auth, "after-the-refusal");
+    let device_side = async {
+        let first = next_json(&mut device).await;
+        assert!(first["mcp"]["params"]["arguments"]["wait_ms"].is_number());
+        device
+            .send(WsMessage::Text(
+                json!({
+                    "id": first["id"].clone(),
+                    "error": { "code": -32602, "message": "unknown field `wait_ms`" },
+                })
+                .to_string(),
+            ))
+            .await
+            .expect("the refusal is sent");
+        let second = next_json(&mut device).await;
+        assert!(
+            second["mcp"]["params"]["arguments"]["wait_ms"].is_null(),
+            "a refusal must not be followed by the same field: {second}"
+        );
+        answer(
+            &mut device,
+            &second,
+            tool_result(json!({ "data": "after-the-refusal", "cursor": 17, "alive": true })),
+        )
+        .await;
+        let _ = tokio::time::timeout(Duration::from_secs(2), next_json(&mut device)).await;
+    };
+    let (body, ()) = tokio::join!(stream, device_side);
+
+    assert!(body.contains("event: output"), "{body}");
+    assert!(body.contains("after-the-refusal"), "{body}");
+}
+
+/// The session's end is a fact the stream carries, with the device's own exit facts.
+#[tokio::test]
+async fn a_stream_reports_the_end_of_a_session() {
+    let fixture = Fixture::new("terminal-stream-end");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0x33)).await;
+    let session = fixture.authenticate().await;
+
+    let path = format!("/terminal/{device_id}/session-1/stream");
+    let auth = bearer(&session);
+    let stream = raw_get(&server, &path, &auth, "event: end");
+    let device_side = async {
+        let frame = next_json(&mut device).await;
+        answer(
+            &mut device,
+            &frame,
+            tool_result(json!({ "data": "", "cursor": 3, "alive": false, "exit_code": 3 })),
+        )
+        .await;
+    };
+    let (body, ()) = tokio::join!(stream, device_side);
+
+    assert!(body.contains("event: end"), "{body}");
+    assert!(body.contains("\"exit_code\":3"), "{body}");
+}
+
+/// A refused read is the page's fault sentence, on the same connection.
+#[tokio::test]
+async fn a_stream_carries_a_refused_read_as_a_fault() {
+    let fixture = Fixture::new("terminal-stream-fault");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0x34)).await;
+    let session = fixture.authenticate().await;
+
+    let path = format!("/terminal/{device_id}/session-1/stream");
+    let auth = bearer(&session);
+    let stream = raw_get(&server, &path, &auth, "no such session");
+    let device_side = async {
+        let frame = next_json(&mut device).await;
+        device
+            .send(WsMessage::Text(
+                json!({
+                    "id": frame["id"].clone(),
+                    "error": { "code": -32000, "message": "no such session" },
+                })
+                .to_string(),
+            ))
+            .await
+            .expect("the refusal is sent");
+    };
+    let (body, ()) = tokio::join!(stream, device_side);
+
+    assert!(body.contains("event: fault"), "{body}");
+    assert!(body.contains("no such session"), "{body}");
+}
+
+/// The stream is an operator route: no session is no stream.
+#[tokio::test]
+async fn a_terminal_stream_needs_an_operator_session() {
+    let fixture = Fixture::new("terminal-stream-auth");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token) = fixture.register(&signing_key(0x35)).await;
+
+    let path = format!("/terminal/{device_id}/session-1/stream");
+    let body = raw_get(&server, &path, "", "401").await;
+    assert!(body.starts_with("HTTP/1.1 401"), "{body}");
+}

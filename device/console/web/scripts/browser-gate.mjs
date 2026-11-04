@@ -114,8 +114,15 @@ const state = {
   opened: false,
   writes: '',
   echoed: false,
-  cursor: 0
+  cursor: 0,
+  /** Whether the page subscribed to the session's stream: the push path, not the polling one. */
+  streamOpened: false,
+  /** What the stream has already echoed, so a reconnecting client is not told twice. */
+  streamEchoed: false
 };
+
+/** The one route that is a stream: the page subscribes to it and the device's bytes arrive on it. */
+const streamRoute = /^\/terminal\/[^/]+\/[^/]+\/stream$/;
 
 const json = (body, status = 200) => ({ status, body });
 const bodyOf = (request) => {
@@ -227,6 +234,31 @@ const server = http.createServer((request, response) => {
     response.end(ICON_PNG);
     return;
   }
+  // THE STREAM IS ANSWERED BY THIS SERVER, NOT BY Playwright's route stub: a stub response is one
+  // complete body, and a stream that ends immediately is the failure this gate must not disguise.
+  // The echo is written the moment `terminal.write` saw the marker, which is what the page reads
+  // back through xterm.
+  if (request.method === 'GET' && streamRoute.test(url.pathname)) {
+    state.streamOpened = true;
+    response.writeHead(200, {
+      'content-type': 'text/event-stream; charset=utf-8',
+      'cache-control': 'no-store',
+      'x-accel-buffering': 'no'
+    });
+    response.write(': stream open\n\n');
+    const timer = setInterval(() => {
+      if (state.echoed && !state.streamEchoed) {
+        state.streamEchoed = true;
+        response.write(
+          `event: output\ndata: ${JSON.stringify({ data: MARKER + '\r\n', cursor: MARKER.length + 2 })}\n\n`
+        );
+        return;
+      }
+      response.write(': ping\n\n');
+    }, 25);
+    request.on('close', () => clearInterval(timer));
+    return;
+  }
   response.writeHead(404, { 'content-type': 'text/plain' });
   response.end('not found');
 });
@@ -249,6 +281,7 @@ await page.route('**/*', async (route) => {
   const url = new URL(route.request().url());
   if (url.origin !== base) return route.continue();
   if (url.pathname === '/' || url.pathname === '/index.html') return route.continue();
+  if (streamRoute.test(url.pathname)) return route.continue();
   const reply = apiReply(route.request(), url);
   const headers = { 'cache-control': 'no-store' };
   if (reply.status === 204) return route.fulfill({ status: 204, headers });
@@ -273,7 +306,7 @@ try {
 
   await page.getByLabel('Operator token').fill(TOKEN);
   await page.getByRole('button', { name: 'Sign in' }).click();
-  await page.getByRole('heading', { name: 'Machines' }).waitFor({ timeout: 10_000 });
+  await page.getByRole('heading', { name: 'Machines', exact: true }).waitFor({ timeout: 10_000 });
   step('signed in through /auth; the fleet is Home\'s zero state');
   await page.screenshot({ path: path.join(OUT, '02-machines.png') });
 
@@ -299,7 +332,8 @@ try {
     { timeout: 10_000 }
   );
   if (!state.writes.includes(MARKER)) throw new Error('the marker never reached terminal.write');
-  step('typed a marker; it reached terminal.write and returned through terminal.read');
+  if (!state.streamOpened) throw new Error('the page never subscribed to the terminal stream');
+  step('typed a marker; it reached terminal.write and returned down the open stream');
   await page.screenshot({ path: path.join(OUT, '03-terminal-marker.png') });
 
   await page.getByRole('button', { name: 'Activity' }).click();
