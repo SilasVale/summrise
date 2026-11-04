@@ -1488,104 +1488,6 @@ export function TerminalWorkspace({
           detail="A shell cannot start until it reconnects; the console keeps trying on its own."
         />
       )}
-      <div className="panel-head">
-        <div className="actions">
-          {/* THE TOOLBAR BELONGS TO A SESSION. Before one exists, the page's only action is the one
-              that creates it; seven controls over an empty box were chrome pretending to be work. */}
-          {tabs.length > 0 && (
-            <>
-              <button type="button" disabled={!activeTab} onClick={toggleFind}>Find</button>
-              {/* Seven labelled buttons became Find plus one menu. The actions are still one
-                  keystroke away, but the terminal keeps the width; a session is not a form. */}
-              <details
-                className="session-menu"
-                ref={toolsRef}
-                onToggle={(event) => setToolsOpen(event.currentTarget.open)}
-              >
-                <summary className="session-tools" aria-label="Session tools" title="Session tools">
-                  ⋯
-                </summary>
-                <div className="session-menu-pop">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      closeTools();
-                      setPresetDialog(true);
-                    }}
-                  >
-                    Save a preset
-                  </button>
-                  <button
-                    type="button"
-                    disabled={!activeTab}
-                    onClick={() => {
-                      closeTools();
-                      if (activeTab) {
-                        setRenaming({ key: activeTab.key, title: activeTab.title, error: null });
-                      }
-                    }}
-                  >
-                    Rename tab
-                  </button>
-                  <button
-                    type="button"
-                    disabled={!activeTab}
-                    onClick={() => {
-                      closeTools();
-                      void exportLog();
-                    }}
-                  >
-                    Export log
-                  </button>
-                  {/* THE OTHER SESSIONS ARE NOT LOST, THEY ARE ELSEWHERE ON THE MACHINE. A tab is a
-                      view of one; this is how a second one gets a view without ending the first. */}
-                  <button
-                    type="button"
-                    disabled={offline}
-                    onClick={() => {
-                      closeTools();
-                      setSessionsOpen(true);
-                    }}
-                  >
-                    Sessions{available.length > 0 ? ` (${available.length})` : ""}
-                  </button>
-                  <div className="session-menu-row">
-                    <span className="hint">Text size</span>
-                    <button
-                      type="button"
-                      title={`Smaller terminal text (now ${fontSize})`}
-                      disabled={fontSize <= MIN_FONT_SIZE}
-                      onClick={() => setFontSize(clampFontSize(fontSize - 1))}
-                    >
-                      A−
-                    </button>
-                    <button
-                      type="button"
-                      title={`Larger terminal text (now ${fontSize})`}
-                      disabled={fontSize >= MAX_FONT_SIZE}
-                      onClick={() => setFontSize(clampFontSize(fontSize + 1))}
-                    >
-                      A+
-                    </button>
-                  </div>
-                </div>
-              </details>
-            </>
-          )}
-          {/* A control that cannot work is off, with the reason on it. The button used to open the
-              dialog and fail at the device, which read as a fault in the console. */}
-          <button
-            type="button"
-            className="primary"
-            disabled={offline}
-            title={offline ? "The machine is offline; a session can start when it reconnects" : undefined}
-            onClick={() => openDialog({}, null)}
-          >
-            + New session
-          </button>
-        </div>
-      </div>
-
       {status && <p className={status.startsWith("Could not") ? "error" : "hint"}>{status}</p>}
 
       {tabs.length === 0 && (
@@ -1668,44 +1570,142 @@ export function TerminalWorkspace({
         </div>
       )}
 
-      {tabs.length > 0 && (
-        <div className="tabbar" role="tablist">
-          {tabs.map((tab) => (
-            <span
-              key={tab.key}
-              className={"tab" + (tab.key === active ? " tab-active" : "")}
-            >
-              <button
-                type="button"
-                role="tab"
-                aria-selected={tab.key === active}
-                className="tab-main"
-                onClick={() => setActive(tab.key)}
+      <div className="terminal-bar">
+        {tabs.length > 0 && (
+          <div className="tabbar" role="tablist">
+            {tabs.map((tab) => (
+              <span
+                key={tab.key}
+                className={"tab" + (tab.key === active ? " tab-active" : "")}
               >
-                {tab.title}
-                {faults[tab.key]?.kind === "closed" && " · ended"}{" "}
-                <span className="tab-session" title={tab.session}>
-                  #{shortSession(tab.session)}
-                </span>
-                {faults[tab.key] && faults[tab.key].kind !== "closed" && (
-                  <span
-                    className={"tab-state state-" + faults[tab.key].kind}
-                    title={faults[tab.key].sentence}
-                  >
-                    {FAULT_LABELS[faults[tab.key].kind]}
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={tab.key === active}
+                  className="tab-main"
+                  onClick={() => setActive(tab.key)}
+                >
+                  {tab.title}
+                  {faults[tab.key]?.kind === "closed" && " · ended"}{" "}
+                  <span className="tab-session" title={tab.session}>
+                    #{shortSession(tab.session)}
                   </span>
-                )}
-              </button>
-              <button
-                type="button"
-                className="tab-close"
-                aria-label={`Close ${tab.title}`}
-                onClick={() => setClosing(tab)}
-              />
-            </span>
-          ))}
+                  {faults[tab.key] && faults[tab.key].kind !== "closed" && (
+                    <span
+                      className={"tab-state state-" + faults[tab.key].kind}
+                      title={faults[tab.key].sentence}
+                    >
+                      {FAULT_LABELS[faults[tab.key].kind]}
+                    </span>
+                  )}
+                </button>
+                <button
+                  type="button"
+                  className="tab-close"
+                  aria-label={`Close ${tab.title}`}
+                  onClick={() => setClosing(tab)}
+                />
+              </span>
+            ))}
+          </div>
+        )}
+        <div className="terminal-actions">
+            {/* THE TOOLBAR BELONGS TO A SESSION. Before one exists, the page's only action is the one
+                that creates it; seven controls over an empty box were chrome pretending to be work. */}
+            {tabs.length > 0 && (
+              <>
+                <button type="button" disabled={!activeTab} onClick={toggleFind}>Find</button>
+                {/* Seven labelled buttons became Find plus one menu. The actions are still one
+                    keystroke away, but the terminal keeps the width; a session is not a form. */}
+                <details
+                  className="session-menu"
+                  ref={toolsRef}
+                  onToggle={(event) => setToolsOpen(event.currentTarget.open)}
+                >
+                  <summary className="session-tools" aria-label="Session tools" title="Session tools">
+                    ⋯
+                  </summary>
+                  <div className="session-menu-pop">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        closeTools();
+                        setPresetDialog(true);
+                      }}
+                    >
+                      Save a preset
+                    </button>
+                    <button
+                      type="button"
+                      disabled={!activeTab}
+                      onClick={() => {
+                        closeTools();
+                        if (activeTab) {
+                          setRenaming({ key: activeTab.key, title: activeTab.title, error: null });
+                        }
+                      }}
+                    >
+                      Rename tab
+                    </button>
+                    <button
+                      type="button"
+                      disabled={!activeTab}
+                      onClick={() => {
+                        closeTools();
+                        void exportLog();
+                      }}
+                    >
+                      Export log
+                    </button>
+                    {/* THE OTHER SESSIONS ARE NOT LOST, THEY ARE ELSEWHERE ON THE MACHINE. A tab is a
+                        view of one; this is how a second one gets a view without ending the first. */}
+                    <button
+                      type="button"
+                      disabled={offline}
+                      onClick={() => {
+                        closeTools();
+                        setSessionsOpen(true);
+                      }}
+                    >
+                      Sessions{available.length > 0 ? ` (${available.length})` : ""}
+                    </button>
+                    <div className="session-menu-row">
+                      <span className="hint">Text size</span>
+                      <button
+                        type="button"
+                        title={`Smaller terminal text (now ${fontSize})`}
+                        disabled={fontSize <= MIN_FONT_SIZE}
+                        onClick={() => setFontSize(clampFontSize(fontSize - 1))}
+                      >
+                        A−
+                      </button>
+                      <button
+                        type="button"
+                        title={`Larger terminal text (now ${fontSize})`}
+                        disabled={fontSize >= MAX_FONT_SIZE}
+                        onClick={() => setFontSize(clampFontSize(fontSize + 1))}
+                      >
+                        A+
+                      </button>
+                    </div>
+                  </div>
+                </details>
+              </>
+            )}
+            {/* A control that cannot work is off, with the reason on it. The button used to open the
+                dialog and fail at the device, which read as a fault in the console. */}
+            <button
+              type="button"
+              className="primary"
+              disabled={offline}
+              title={offline ? "The machine is offline; a session can start when it reconnects" : undefined}
+              onClick={() => openDialog({}, null)}
+            >
+              + New session
+            </button>
+        
         </div>
-      )}
+      </div>
 
       {/* Escape is the bar's key, not the field's: a key pressed on Next or Close still puts the bar
           away, because the event bubbles to the container that owns it. */}
