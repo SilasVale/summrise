@@ -62,12 +62,32 @@ function rowOf(text: string): HTMLElement {
   return row as HTMLElement;
 }
 
-/** The whole row is the control: one click opens its record, a second closes it. */
-function toggleRow(text: string): HTMLElement {
-  const row = rowOf(text);
-  fireEvent.click(row);
-  return row;
+/** The row's one control: its disclosure button. */
+function disclosureOf(row: HTMLElement): HTMLElement {
+  return within(row).getByRole("button", { name: /the record for/ });
 }
+
+/** One click on the row's disclosure opens its record, a second closes it. */
+function toggleRow(text: string): HTMLElement {
+  const button = disclosureOf(rowOf(text));
+  fireEvent.click(button);
+  return button;
+}
+
+it("makes the row's opener a real button with aria-expanded", () => {
+  render(<AuditTable lines={lines} devices={devices} tokens={[]} />);
+  const row = rowOf("memory.export");
+  expect(row).not.toHaveAttribute("tabindex");
+  const button = disclosureOf(row);
+  expect(button.tagName).toBe("BUTTON");
+  expect(button).toHaveAttribute("type", "button");
+  expect(button).toHaveAttribute("aria-expanded", "false");
+
+  fireEvent.click(button);
+
+  expect(button).toHaveAttribute("aria-expanded", "true");
+  expect(document.querySelector(".audit-record")).not.toBeNull();
+});
 
 // Two record ids as the console writes them: 64 lowercase hex, never the `srm_` secret.
 const tokenA = "a".repeat(64);
@@ -178,7 +198,7 @@ describe("AuditTable", () => {
     render(
       <AuditTable lines={[run]} devices={devices} tokens={[]} onOpenRun={onOpenRun} />
     );
-    fireEvent.click(rowOf("runs.exec"));
+    fireEvent.click(disclosureOf(rowOf("runs.exec")));
     fireEvent.click(screen.getByRole("button", { name: "Open in Runs" }));
 
     expect(onOpenRun).toHaveBeenCalledWith(alpha, "r-9");
@@ -342,7 +362,7 @@ describe("AuditTable", () => {
       target: { value: "terminal.list" }
     });
     expect(auditRows()).toHaveLength(1);
-    expect(auditRows()[0]).toHaveAttribute("aria-expanded", "true");
+    expect(disclosureOf(auditRows()[0])).toHaveAttribute("aria-expanded", "true");
   });
 
   it("marks a device error that arrived as HTTP 200", () => {
@@ -423,8 +443,8 @@ describe("AuditTable", () => {
       />
     );
 
-    fireEvent.click(rowOf(shortA));
-    expect(rowOf(shortA)).toHaveAttribute("aria-expanded", "true");
+    fireEvent.click(disclosureOf(rowOf(shortA)));
+    expect(disclosureOf(rowOf(shortA))).toHaveAttribute("aria-expanded", "true");
 
     rerender(
       <AuditTable
@@ -434,8 +454,8 @@ describe("AuditTable", () => {
       />
     );
 
-    expect(rowOf(shortA)).toHaveAttribute("aria-expanded", "true");
-    expect(rowOf(shortB)).toHaveAttribute("aria-expanded", "false");
+    expect(disclosureOf(rowOf(shortA))).toHaveAttribute("aria-expanded", "true");
+    expect(disclosureOf(rowOf(shortB))).toHaveAttribute("aria-expanded", "false");
   });
 
   it("names the token that made a call, and keeps the short id when the list does not know it", () => {

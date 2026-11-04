@@ -733,6 +733,13 @@ tr:last-child td { border-bottom: 0; }
 .browser-view img { display: block; cursor: crosshair; border: 0; border-radius: 0; }
 .browser-view.fit img { width: 100%; height: auto; }
 .browser-view.actual img { width: auto; max-width: none; height: auto; }
+/* The picture is a button so Tab reaches it; the reset keeps the frame the picture had. */
+.browser-shot-button {
+  display: block; width: 100%; padding: 0; border: 0; background: none;
+  line-height: 0; cursor: crosshair;
+}
+.browser-view.actual .browser-shot-button { width: max-content; }
+.browser-shot-button:focus-visible { box-shadow: var(--ring); outline: none; }
 .browser-meta { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
 
 .browser-pane .row input {
@@ -1222,8 +1229,6 @@ button.chip-tag:hover {
   white-space: pre-wrap;
 }
 .runs-history td { vertical-align: top; }
-.runs-row { cursor: pointer; }
-.runs-row:hover td { background: var(--surface-chip); }
 .runs-row-active td { background: var(--accent-soft); }
 button.runs-open {
   border: 0;
@@ -1780,12 +1785,17 @@ span.files-name {
   padding: var(--sp-2); background: var(--panel-2);
   color: var(--ink-muted); font-size: var(--fs-xs); font-weight: var(--fw-semi);
 }
-.audit-row { cursor: pointer; }
-.audit-row:hover td { background: var(--panel-2); }
-.audit-row:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
 .audit-when { white-space: nowrap; }
 .audit-chevron-cell { width: 1%; text-align: right; }
 .audit-chevron { color: var(--ink-faint); }
+.audit-disclosure {
+  display: inline-grid; place-items: center;
+  width: 24px; height: 24px; padding: 0;
+  border: 0; border-radius: var(--radius-xs); background: transparent;
+  color: inherit; font: inherit; cursor: pointer;
+}
+.audit-disclosure:hover { background: var(--row-hover); }
+.audit-disclosure:focus-visible { box-shadow: var(--ring); outline: none; }
 .audit-record-row td { padding: var(--sp-3); background: var(--panel-2); }
 .audit-record {
   display: grid; grid-template-columns: 10rem minmax(0, 1fr);
@@ -2054,7 +2064,6 @@ input:not([type="checkbox"]):not([type="radio"]):focus, select:focus, textarea:f
   text-transform: none; letter-spacing: normal; font-weight: var(--fw-medium);
 }
 .audit-row td { border-bottom: 1px solid var(--hairline); }
-.audit-row:hover td { background: var(--row-hover); }
 .audit-record-row td { background: var(--canvas); }
 
 /* ── Motion ──────────────────────────────────────────────────────────────────────────────────── */
@@ -2340,8 +2349,6 @@ main::-webkit-scrollbar-track, .sheet-body::-webkit-scrollbar-track, .scroll::-w
 }
 .runs-history td { padding: 9px 12px; border-bottom: 1px solid var(--hairline); }
 .runs-history tr:last-child td { border-bottom: 0; }
-.runs-row { cursor: pointer; }
-.runs-row:hover td { background: var(--row-hover); }
 .runs-row-active td { background: color-mix(in srgb, var(--accent) 8%, transparent); }
 
 .runs-history-head { display: flex; align-items: center; gap: var(--sp-2); }
@@ -2524,7 +2531,7 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
   box-shadow: 0 0 0 3px var(--panel);
 }
 .timeline-dot[data-tone="bad"] { background: var(--error); }
-.timeline-dot[data-tone="warn"] { background: var(--warn, #b26a00); }
+.timeline-dot[data-tone="warn"] { background: var(--warn); }
 .timeline-words { min-width: 0; display: grid; gap: 2px; }
 .timeline-sentence {
   font-size: var(--fs-sm); color: var(--ink);
@@ -2535,7 +2542,7 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
   font-size: var(--fs-2xs); color: var(--ink-faint);
 }
 .timeline-outcome.is-bad { color: var(--error); }
-.timeline-outcome.is-warn { color: var(--warn, #b26a00); }
+.timeline-outcome.is-warn { color: var(--warn); }
 .timeline-chev {
   align-self: center; color: var(--ink-faint); font-size: var(--fs-xs);
   transition: transform 140ms var(--ease);
@@ -2595,7 +2602,7 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
 .evidence-facts dd.is-bad { color: var(--error); }
 .evidence-go {
   margin-top: 10px; width: 100%; min-height: 26px; border: 0; border-radius: 7px;
-  background: var(--accent-solid); color: #fff; font-size: var(--fs-2xs);
+  background: var(--accent-solid); color: var(--accent-fg); font-size: var(--fs-2xs);
 }
 @media (max-width: 720px) {
   .evidence { grid-template-columns: 1fr; margin-left: 0; }

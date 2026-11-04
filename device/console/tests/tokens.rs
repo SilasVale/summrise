@@ -184,13 +184,24 @@ fn every_text_pair_reads_on_the_surface_it_sits_on() {
         // --ink, and a future palette that darkened the wash would have to keep that pair readable.
         ("body on the warning wash", "ink", "warn-soft"),
         ("error on its wash", "error", "error-soft"),
+        // The timeline and the evidence panel put the outcome ON a card, not on its wash: the row's
+        // warning/error word sits on --surface, and on an open row on --surface-recessed. Both were
+        // drawn without a measured pair before this test existed.
+        ("warning on a card", "warn", "surface"),
+        ("warning on an open row", "warn", "surface-recessed"),
+        ("error on a card", "error", "surface"),
+        ("error on an open row", "error", "surface-recessed"),
+        // The live band's "Active now" and the evidence panel's Result status are --ok text on the
+        // same card, not the success wash.
+        ("success on a card", "ok", "surface"),
     ];
     for dark in [false, true] {
         let sheet = theme(dark);
         for (use_name, ink, surface) in pairs {
             // The dark success wash is a translucent green; it is measured by the runtime probe, not
-            // compared against a hex it is not the background of.
-            if dark && (*ink == "ok") {
+            // compared against a hex it is not the background of. --ok on an opaque card is still a
+            // real pair and is measured in both themes.
+            if dark && *ink == "ok" && *surface == "ok-soft" {
                 continue;
             }
             let ink_value = follows(sheet, ink).unwrap_or_else(|| panic!("--{ink} is missing"));
@@ -204,6 +215,18 @@ fn every_text_pair_reads_on_the_surface_it_sits_on() {
             );
         }
     }
+}
+
+/// The evidence output is a terminal surface drawn with two literal colours rather than a theme
+/// token: it is always dark, in both themes, because it is output and not body copy. It is still a
+/// pair the operator reads, so it is measured with the same 4.5 threshold as the token pairs.
+#[test]
+fn the_evidence_output_reads_on_its_terminal_surface() {
+    let measured = contrast("#d6dae0", "#14161a");
+    assert!(
+        measured >= 4.5,
+        "evidence output: #d6dae0 on #14161a measures {measured:.2}:1 (AA needs 4.5)"
+    );
 }
 
 #[test]

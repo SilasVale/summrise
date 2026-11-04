@@ -470,18 +470,7 @@ export function AuditTable({
                     : "—";
                   return (
                     <Fragment key={key}>
-                      <tr
-                        className="audit-row"
-                        tabIndex={0}
-                        aria-expanded={isOpen}
-                        onClick={() => toggle(key)}
-                        onKeyDown={(event) => {
-                          if (event.key === "Enter" || event.key === " ") {
-                            event.preventDefault();
-                            toggle(key);
-                          }
-                        }}
-                      >
+                      <tr className="audit-row">
                         <td className="audit-when" title={new Date(line.ts_ms).toISOString()}>
                           {age(line.ts_ms)}
                         </td>
@@ -524,19 +513,25 @@ export function AuditTable({
                           </span>
                         </td>
                         <td className="audit-chevron-cell">
-                          <span className="audit-chevron" aria-hidden="true">
-                            {isOpen ? "▾" : "›"}
-                          </span>
+                          <button
+                            type="button"
+                            className="audit-disclosure"
+                            aria-expanded={isOpen}
+                            aria-label={`${isOpen ? "Hide" : "Show"} the record for ${
+                              line.tool ?? line.kind
+                            }`}
+                            onClick={() => toggle(key)}
+                          >
+                            <span className="audit-chevron" aria-hidden="true">
+                              {isOpen ? "▾" : "›"}
+                            </span>
+                          </button>
                         </td>
                       </tr>
                       {isOpen && (
                         <tr className="audit-record-row">
                           <td colSpan={6}>
-                            <dl
-                              className="audit-record"
-                              onClick={(event) => event.stopPropagation()}
-                              onKeyDown={(event) => event.stopPropagation()}
-                            >
+                            <dl className="audit-record">
                               <dt>Time</dt>
                               <dd title={new Date(line.ts_ms).toISOString()}>
                                 {new Date(line.ts_ms).toLocaleString()} · {age(line.ts_ms)}
