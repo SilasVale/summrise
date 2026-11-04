@@ -465,8 +465,11 @@ fn render(facts: &PanelFacts, outcome: Option<&EnrollOutcome>) -> Markup {
                                 (enroll_form(facts, outcome))
                             }
                         } @else {
+                            // The chip beside the card's title already says "not linked", and the lede
+                            // above says it once more; the hint's job is the instruction, not the third
+                            // statement of the same fact.
                             p class="hint" {
-                                "Not linked. In the console, create a one-time enrollment code; paste the URL and the code here."
+                                "In the console, create a one-time enrollment code; paste the URL and the code here."
                             }
                             // **A ROW ABOUT A LINK THAT DOES NOT EXIST.** Unlinked, the card printed
                             // "Link: no failed attempt since this process started" — a reassuring
@@ -1096,8 +1099,12 @@ mod tests {
             "an unlinked card does not print a row about a link that does not exist: {html}"
         );
         assert!(
-            html.contains("Not linked."),
-            "the card says it is not linked instead: {html}"
+            html.contains("In the console, create a one-time enrollment code"),
+            "the card carries the instruction instead: {html}"
+        );
+        assert!(
+            html.contains(r#"<span id="console-chip" class="chip muted">"#),
+            "and the chip beside the title carries the state: {html}"
         );
         assert!(
             !html.contains("class=\"chip ok\" id=\"console-chip\""),
