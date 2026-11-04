@@ -1172,6 +1172,14 @@ describe("TerminalWorkspace recovery", () => {
 });
 
 describe("TerminalWorkspace display", () => {
+  it("builds the overview ruler the search's match colours are drawn on", async () => {
+    render(<TerminalWorkspace grant={GRANT} />);
+    await startPtyTab();
+    // xterm only instantiates the ruler renderer when a width is configured; without this the
+    // matchOverviewRuler colours go nowhere and a long scrollback has no map of its hits.
+    expect(mockedXterm.instances[0].options.overviewRuler).toEqual({ width: 14 });
+  });
+
   it("allows the proposed API the search addon's decorations need", async () => {
     render(<TerminalWorkspace grant={GRANT} />);
     await startPtyTab();

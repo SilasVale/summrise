@@ -759,7 +759,11 @@ export function TerminalWorkspace({
         // The search addon highlights matches with `registerDecoration`, which xterm still gates
         // behind this flag. Without it `findNext` throws "You must set the allowProposedApi option"
         // on the first hit — the bar looks alive, nothing scrolls, and no sentence says why.
-        allowProposedApi: true
+        allowProposedApi: true,
+        // The overview ruler is opt-in: xterm only builds it when a width is given, so the colours
+        // `searchDecorations()` hands the addon had nowhere to be drawn. It sits over the scrollbar
+        // and marks every match, which is the map a long scrollback needs.
+        overviewRuler: { width: 14 }
       });
       const fit = new FitAddon();
       term.loadAddon(fit);
