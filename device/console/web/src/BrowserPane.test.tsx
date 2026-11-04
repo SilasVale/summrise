@@ -140,7 +140,8 @@ describe("BrowserPane", () => {
     render(<BrowserPane grant={grant} />);
     // The initial status is the same sentence, so wait for the answer itself before asserting on it.
     await waitFor(() => expect(callToolMock).toHaveBeenCalledWith(grant, "browser.list", {}));
-    await screen.findByText("No browser is open on this device.");
+    const empty = await screen.findByText(/No browser is open on this device/);
+    expect(empty).toHaveTextContent(/Open new tab/);
 
     fireEvent.change(screen.getByLabelText("Address"), { target: { value: "https://b.test" } });
     expect(screen.getByRole("button", { name: "Navigate" })).toBeDisabled();
@@ -177,6 +178,7 @@ describe("BrowserPane", () => {
 
     const stopped = await screen.findByText(/No browser is open on this device/);
     expect(stopped).toHaveTextContent(/browser is stopped/i);
+    expect(stopped).toHaveTextContent(/Open new tab/);
     expect(container.querySelector(".browser-shot")).toBeNull();
     expect(screen.queryByLabelText("Page")).toBeNull();
   });
@@ -393,7 +395,7 @@ describe("BrowserPane", () => {
       await act(async () => {
         await vi.advanceTimersByTimeAsync(0);
       });
-      expect(screen.getByText("No browser is open on this device.")).toBeInTheDocument();
+      expect(screen.getByText(/No browser is open on this device/)).toBeInTheDocument();
       expect(screen.getByRole("button", { name: "Start live view" })).toBeInTheDocument();
       await tick(6_000);
       expect(shotCalls()).toHaveLength(1);

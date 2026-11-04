@@ -60,7 +60,13 @@ describe("FilesPage listing", () => {
 
     fireEvent.change(screen.getByLabelText("Filter this folder"), { target: { value: "zzz" } });
 
-    expect(screen.getByRole("status")).toHaveTextContent("No entry matches “zzz”.");
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "No entry matches “zzz” in this folder."
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Clear filter" }));
+
+    expect(screen.getByLabelText("Filter this folder")).toHaveValue("");
+    expect(screen.getByRole("button", { name: "notes.txt" })).toBeInTheDocument();
   });
 
   it("does not ask a machine the fleet says is down, and says so", async () => {

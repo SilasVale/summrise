@@ -79,7 +79,9 @@ const RESULT: RunResult = {
   history_recorded: true
 };
 
-const EMPTY_NOTE = "The device's run history is empty; the form above runs the first command.";
+const EMPTY_NOTE =
+  "No runs yet on this machine. Run a command in the form above; the device keeps the last 20 " +
+  "and lists them here, newest first.";
 
 /// The calls made to one tool, as `[grant, name, args]` triples, in the order the page made them.
 const called = (name: string) => mocked.mock.calls.filter((call) => call[1] === name);
@@ -99,6 +101,20 @@ describe("RunsPage", () => {
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Refresh history" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Run" })).toBeDisabled();
+  });
+
+  it("says there are no runs yet and names the form that makes one", async () => {
+    mocked.mockResolvedValue(JSON.stringify([]));
+
+    render(<RunsPage grant={GRANT} />);
+
+    expect(
+      await screen.findByText(
+        "No runs yet on this machine. Run a command in the form above; the device keeps the last " +
+          "20 and lists them here, newest first."
+      )
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Run" })).toBeInTheDocument();
   });
 
   it("lists the history with each row's command, exit and bytes, and Refresh history asks again", async () => {

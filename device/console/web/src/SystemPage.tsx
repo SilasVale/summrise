@@ -383,8 +383,9 @@ export function SystemPage({
           <HostFactsBlock host={device.host} vitals={vitals} collecting={!offline} />
         ) : (
           <p className="hint">
-            This device has not reported machine facts yet. They arrive with the fleet read; refresh
-            once it reconnects.
+            The console has no machine facts from this device yet. They travel with the fleet read,
+            which the console repeats every few seconds; a device that does not report them leaves
+            this section with none.
           </p>
         )}
         {device && (

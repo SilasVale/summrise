@@ -494,13 +494,20 @@ export function FilesPage({
         <p className="hint">{note}</p>
       </div>
 
-      {needle !== "" && (
+      {needle !== "" && shown.length === 0 ? (
+        <div className="files-filter-empty">
+          <p className="hint" role="status">
+            No entry matches “{filter.trim()}” in this folder.
+          </p>
+          <button type="button" onClick={() => setFilter("")}>
+            Clear filter
+          </button>
+        </div>
+      ) : needle !== "" ? (
         <p className="hint" role="status">
-          {shown.length === 0
-            ? `No entry matches “${filter.trim()}”.`
-            : `${shown.length} of ${entries.length} ${entries.length === 1 ? "entry" : "entries"} match “${filter.trim()}”.`}
+          {`${shown.length} of ${entries.length} ${entries.length === 1 ? "entry" : "entries"} match “${filter.trim()}”.`}
         </p>
-      )}
+      ) : null}
 
       {actionNote && <p className="hint">{actionNote}</p>}
       {actionError && <p className="error">{actionError}</p>}

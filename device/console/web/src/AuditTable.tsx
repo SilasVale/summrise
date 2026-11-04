@@ -39,6 +39,48 @@ function tokenLabel(id: string, names: ReadonlyMap<string, string>): string {
   return name != null && name !== "" ? name : shortId(id);
 }
 
+/** How the table's time window reads in a sentence. */
+const SINCE_LABEL: Record<Exclude<AuditSince, "all">, string> = {
+  hour: "last hour",
+  day: "last day",
+  week: "last week"
+};
+
+/** "a", "a and b", "a, b and c" — the one spelling the filter sentence uses. */
+function joinAnd(parts: string[]): string {
+  if (parts.length <= 1) return parts[0] ?? "";
+  return parts.slice(0, -1).join(", ") + " and " + parts[parts.length - 1];
+}
+
+/**
+ * The sentence for a filter that hides every line: names what is narrowing the table, so the clear
+ * next to it has an object. The caller's `emptyFiltered` replaces it whole.
+ */
+function filterSentence(args: {
+  filter: AuditFilter;
+  since: AuditSince;
+  scope: AuditScope;
+  selectedDeviceId: string | null;
+  deviceNames: ReadonlyMap<string, string>;
+  tokenNames: ReadonlyMap<string, string>;
+}): string {
+  const { filter, since, scope, selectedDeviceId, deviceNames, tokenNames } = args;
+  const parts: string[] = [];
+  if (scope === "machine" && selectedDeviceId !== null) {
+    parts.push(`the machine ${deviceNames.get(selectedDeviceId) ?? shortId(selectedDeviceId)}`);
+  } else if (filter.device !== "") {
+    parts.push(`the machine ${deviceNames.get(filter.device) ?? shortId(filter.device)}`);
+  }
+  if (filter.token !== "") parts.push(`the token ${tokenLabel(filter.token, tokenNames)}`);
+  if (filter.tool.trim() !== "") parts.push(`the search “${filter.tool.trim()}”`);
+  if (filter.status !== "all") {
+    parts.push(filter.status === "ok" ? "succeeded calls" : "failed calls");
+  }
+  if (since !== "all") parts.push(`the ${SINCE_LABEL[since]}`);
+  if (parts.length === 1 && since !== "all") return `No calls in ${parts[0]}.`;
+  return `No calls match ${joinAnd(parts)}.`;
+}
+
 /**
  * One key per line, stable across filtering and polling.
  *
@@ -121,8 +163,9 @@ export function AuditTable({
   tokens,
   selectedDeviceId = null,
   onOpenRun,
-  empty = "No calls yet.",
-  emptyFiltered = "No calls match.",
+  empty = "No calls yet. Every call a client makes is written here; when an AI client calls a " +
+    "machine with its token, its first line appears. Connect a client sets one up.",
+  emptyFiltered,
   filter: sharedFilter,
   onFilter,
   since: sharedSince,
@@ -139,7 +182,10 @@ export function AuditTable({
   onOpenRun?: (deviceId: string, runId: string) => void;
   /** The sentence for no lines at all. */
   empty?: string;
-  /** The sentence for a filter that matches nothing. */
+  /**
+   * The sentence for a filter that matches nothing. The default names the active filters, so a
+   * caller that supplies one takes over that explanation as well.
+   */
   emptyFiltered?: string;
   /**
    * The six filters are the page's when it wants them shared with the timeline (its search is the
@@ -223,6 +269,14 @@ export function AuditTable({
     setOpen(new Set());
   };
 
+  // The empty state's clear also widens the machine scope, which the toolbar's Clear leaves alone:
+  // an empty state the operator cannot leave is a dead end, and the scope is how Activity follows
+  // the header's machine by default.
+  const clearAll = () => {
+    clear();
+    setScope("all");
+  };
+
   const exportCsv = () => {
     if (shown.length === 0) return;
     downloadFile(
@@ -254,8 +308,24 @@ export function AuditTable({
     });
   };
 
-  const narrowed = filter.device !== "" || filter.token !== "" || filter.tool.trim() !== "" || filter.status !== "all";
-  const emptySentence = narrowed ? emptyFiltered : since !== "all" ? "No calls in this window." : empty;
+  const narrowed =
+    (scope === "machine" && selectedDeviceId !== null) ||
+    filter.device !== "" ||
+    filter.token !== "" ||
+    filter.tool.trim() !== "" ||
+    filter.status !== "all" ||
+    since !== "all";
+  const emptySentence = narrowed
+    ? (emptyFiltered ??
+      filterSentence({
+        filter,
+        since,
+        scope,
+        selectedDeviceId,
+        deviceNames,
+        tokenNames
+      }))
+    : empty;
 
   return (
     <div>
@@ -363,9 +433,9 @@ export function AuditTable({
       {shown.length === 0 ? (
         <div className="audit-empty">
           <p className="hint">{emptySentence}</p>
-          {since !== "all" && (
-            <button type="button" className="link" onClick={() => setSince("week")}>
-              Last week
+          {narrowed && (
+            <button type="button" onClick={clearAll}>
+              Clear filters
             </button>
           )}
         </div>

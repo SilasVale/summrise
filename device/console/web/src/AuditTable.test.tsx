@@ -233,26 +233,41 @@ describe("AuditTable", () => {
     expect(within(record).getByText("200")).toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText("Tool or detail"), { target: { value: "zzz-no-such-tool" } });
-    expect(screen.getByText("No calls match.")).toBeInTheDocument();
+    expect(
+      screen.getByText("No calls match the machine Alpha and the search “zzz-no-such-tool”.")
+    ).toBeInTheDocument();
     expect(auditRows()).toHaveLength(0);
 
-    fireEvent.click(screen.getByRole("button", { name: "Clear" }));
+    fireEvent.click(screen.getByRole("button", { name: "Clear filters" }));
     expect(auditRows()).toHaveLength(3);
-    expect(screen.queryByText("No calls match.")).not.toBeInTheDocument();
+    expect(screen.queryByText(/No calls match/)).not.toBeInTheDocument();
+  });
+
+  it("names the machine scope when it hides the fleet's calls, and clears back to the fleet", () => {
+    render(
+      <AuditTable lines={[lines[0]]} devices={devices} tokens={[]} selectedDeviceId={beta} />
+    );
+    expect(screen.getByText("No calls match the machine Beta.")).toBeInTheDocument();
+    expect(auditRows()).toHaveLength(0);
+
+    fireEvent.click(screen.getByRole("button", { name: "Clear filters" }));
+    expect(auditRows()).toHaveLength(1);
   });
 
   it("tells an empty audit apart from a filter with no matches", () => {
     render(<AuditTable lines={[]} devices={devices} tokens={[]} />);
-    expect(screen.getByText("No calls yet.")).toBeInTheDocument();
-    expect(screen.queryByText("No calls match.")).not.toBeInTheDocument();
+    expect(screen.getByText(/No calls yet\./)).toBeInTheDocument();
+    expect(screen.getByText(/Connect a client/)).toBeInTheDocument();
+    expect(screen.queryByText(/No calls match/)).not.toBeInTheDocument();
   });
 
-  it("offers Last week when the window is narrower than all time", () => {
+  it("names the time window and offers the way back to all of it", () => {
     render(<AuditTable lines={[line({ tool: "files.read", ts_ms: Date.now() - 10 * 86_400_000 })]} devices={devices} tokens={[]} />);
     fireEvent.change(screen.getByLabelText("Time"), { target: { value: "hour" } });
 
-    expect(screen.getByText("No calls in this window.")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Last week" })).toBeInTheDocument();
+    expect(screen.getByText("No calls in the last hour.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Clear filters" }));
+    expect(auditRows()).toHaveLength(1);
   });
 
   it("names the caller's log when a filter matches nothing", () => {

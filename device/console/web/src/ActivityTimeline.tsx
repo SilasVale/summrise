@@ -488,7 +488,12 @@ export function ActivityTimeline(props: {
             </div>
           </div>
         ) : (
-          <p className="hint timeline-empty">{props.empty ?? "Nothing has happened yet."}</p>
+          <p className="hint timeline-empty">
+            {props.empty ??
+              "No activity yet. Every call a client makes is written here; when an AI client calls " +
+                "a machine with its token, the first line appears. Connect a client sets up the " +
+                "credential."}
+          </p>
         )
       ) : (
         <div className="timeline">

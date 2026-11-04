@@ -593,7 +593,10 @@ function bytes(count: number): string {
 
 function historyNoteFor(rows: RunRecord[]): string {
   if (rows.length === 0) {
-    return "The device's run history is empty; the form above runs the first command.";
+    return (
+      "No runs yet on this machine. Run a command in the form above; the device keeps the last " +
+      `${HISTORY_LIMIT} and lists them here, newest first.`
+    );
   }
   const noun = rows.length === 1 ? "run" : "runs";
   // The device answers the newest rows up to the limit; only a full answer is worth calling the

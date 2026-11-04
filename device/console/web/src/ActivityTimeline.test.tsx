@@ -356,6 +356,13 @@ describe("ActivityTimeline", () => {
     expect(screen.getByRole("searchbox", { name: "Search activity" })).toHaveValue("");
   });
 
+  it("says what this page is and how its first line gets there when it has none", () => {
+    render(<ActivityTimeline lines={[]} devices={[]} />);
+    expect(screen.getByText(/No activity yet\./)).toBeInTheDocument();
+    expect(screen.getByText(/Connect a client/)).toBeInTheDocument();
+    expect(screen.queryByText("Nothing has happened yet.")).not.toBeInTheDocument();
+  });
+
   it("draws a full 1000-row day, down to the last row", () => {
     // P2-12 measured this: the page asks for the server's cap and the timeline draws all of it.
     // The fixture is one day, newest first, with a unique timestamp so every row has its own key.

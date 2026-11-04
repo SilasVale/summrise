@@ -141,6 +141,7 @@ describe("Home — the hub", () => {
     const { onConnect } = draw({ audit: [] });
 
     expect(await screen.findByText(/No calls from workshop today/)).toBeInTheDocument();
+    expect(screen.getByText(/Connect a client sets one up/)).toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: "Connect a client" })).toHaveLength(1);
     expect(screen.getAllByRole("button", { name: /Connect/ })).toHaveLength(1);
     const connect = screen.getByRole("button", { name: "Connect a client" });

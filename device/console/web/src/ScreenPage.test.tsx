@@ -30,9 +30,23 @@ describe("ScreenPage", () => {
     render(
       <ScreenPage grant={grant} view="desktop" onViewChange={() => undefined} deviceOnline={false} />
     );
+    expect(
+      screen.getByText("The machine is offline; a capture is not possible until it reconnects.")
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/No capture yet/)).not.toBeInTheDocument();
     const capture = screen.getByRole("button", { name: "Capture screen" });
     expect(capture).toBeDisabled();
     expect(capture.getAttribute("title")).toMatch(/reconnects/);
+  });
+
+  it("says no picture has been taken and names the control that takes one", () => {
+    render(<ScreenPage grant={grant} view="desktop" onViewChange={() => undefined} />);
+    expect(
+      screen.getByText(
+        "No capture yet. Capture screen takes one when you ask; nothing is captured on a timer."
+      )
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Capture screen" })).toBeInTheDocument();
   });
 
   it("says the helper has not registered before the operator clicks", () => {

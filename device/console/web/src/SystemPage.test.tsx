@@ -45,6 +45,26 @@ describe("SystemPage", () => {
     expect(screen.getByRole("button", { name: "Test" })).toBeDisabled();
   });
 
+  it("says the console has no machine facts yet instead of drawing an empty fact list", async () => {
+    device((name) => {
+      if (name !== "system.process_list") {
+        throw new Error(`the test did not expect a ${name} call`);
+      }
+      return JSON.stringify([]);
+    });
+    render(
+      <SystemPage
+        grant={GRANT}
+        device={{ id: "device-1", name: "workshop", online: true, version: "0.3.1", last_seen_ms: 1 }}
+      />
+    );
+
+    expect(
+      await screen.findByText(/The console has no machine facts from this device yet/)
+    ).toBeInTheDocument();
+    expect(screen.getByText(/repeats every few seconds/)).toBeInTheDocument();
+  });
+
   it("lists the device's processes and sends the filter the box asked for", async () => {
     device((name, args) => {
       if (name !== "system.process_list") {

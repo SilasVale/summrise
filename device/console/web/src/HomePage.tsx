@@ -250,7 +250,10 @@ function HubHome(
           // "All machines" over one machine's lines, which would be a lie.
           showFilters={false}
           onWatch={props.onWatchTerminal}
-          empty={`No calls from ${name} today. When an AI client calls this machine, its work appears here.`}
+          empty={
+            `No calls from ${name} today. When an AI client calls this machine with its token, ` +
+            "its work appears here; Connect a client sets one up."
+          }
         />
       </section>
 

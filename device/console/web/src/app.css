@@ -2272,6 +2272,8 @@ input:not([type="checkbox"]):not([type="radio"]):focus, select:focus, textarea:f
 .files-summary .hint { margin: 0; }
 .files-filter { margin-left: auto; }
 .files-filter input { min-height: 28px; width: 16rem; max-width: 100%; }
+.files-filter-empty { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
+.files-filter-empty .hint { margin: 0; }
 .files-list {
   background: var(--panel); border: 1px solid var(--hairline);
   border-radius: var(--radius); overflow: hidden; margin: 0;

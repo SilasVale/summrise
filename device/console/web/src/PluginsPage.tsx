@@ -129,7 +129,10 @@ export function PluginsPage({
           <h1>Plugins</h1>
           <p className="page-sub">{subtitle}</p>
         </div>
-        {device && known && supported && (
+        {/* THE EMPTY LIST IS THE ONE PLACE THE ACTION BELONGS WHEN THERE IS NO LIST: the empty
+            state below carries its own Add plugin, and rendering this header control too put two
+            identical primary buttons on a page with nothing in it. */}
+        {device && known && supported && (remote.loading || remote.error !== null || remote.plugins.length > 0) && (
           <div className="page-actions">
             <button type="button" className="primary" onClick={() => setAdding(true)}>
               Add plugin
@@ -196,6 +199,9 @@ export function PluginsPage({
       ) : remote.plugins.length === 0 ? (
         <section className="empty-state">
           <p className="hint">No plugins yet. Add one when a built-in cannot do the job.</p>
+          <button type="button" className="primary" onClick={() => setAdding(true)}>
+            Add plugin
+          </button>
         </section>
       ) : (
         <div className="plugin-list">

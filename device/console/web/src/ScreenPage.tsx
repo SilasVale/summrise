@@ -155,6 +155,14 @@ export function ScreenPage({
             </p>
           )}
 
+          {!shot && !error && !busy && (
+            <p className="hint">
+              {offline
+                ? "The machine is offline; a capture is not possible until it reconnects."
+                : "No capture yet. Capture screen takes one when you ask; nothing is captured on a timer."}
+            </p>
+          )}
+
           {shot && (
             <>
               <p className="hint">

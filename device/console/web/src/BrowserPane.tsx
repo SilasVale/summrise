@@ -18,6 +18,11 @@ function isPageTarget(entry: Target): boolean {
 const LIVE_MS = 1_500;
 /** The interval the operator reads comes from the interval the timer uses. */
 const LIVE_LABEL = `Live · ${LIVE_MS / 1_000} s`;
+/** No browser, or no usable page: the address form below is what starts one. */
+const NO_BROWSER =
+  "No browser is open on this device. Type an address below and choose Open new tab to start one.";
+const NO_PAGE =
+  "No browser page is open on this device. Type an address below and choose Open new tab to start one.";
 
 // The device drives a real Chrome over CDP; the page's half of that is an <img>. `browser.screenshot`
 // answers a base64 PNG, which needs no plugin, no second port and no native window.
@@ -28,7 +33,7 @@ export function BrowserPane({ grant, deviceOnline }: { grant: Grant; deviceOnlin
   const [shot, setShot] = useState<string | null>(null);
   const [url, setUrl] = useState("");
   const [text, setText] = useState("");
-  const [status, setStatus] = useState("No browser is open on this device.");
+  const [status, setStatus] = useState(NO_BROWSER);
   const [live, setLive] = useState(false);
   const [frames, setFrames] = useState(0);
   const [size, setSize] = useState<{ width: number; height: number } | null>(null);
@@ -59,11 +64,7 @@ export function BrowserPane({ grant, deviceOnline }: { grant: Grant; deviceOnlin
       if (pages.length === 0) {
         setTarget("");
         setShot(null);
-        setStatus(
-          answer.length === 0
-            ? "No browser is open on this device."
-            : "No browser page is open on this device."
-        );
+        setStatus(answer.length === 0 ? NO_BROWSER : NO_PAGE);
         return pages;
       }
       const next = prefer && pages.some((entry) => entry.id === prefer) ? prefer : pages[0].id;
@@ -171,7 +172,7 @@ export function BrowserPane({ grant, deviceOnline }: { grant: Grant; deviceOnlin
       setTargets([]);
       setTarget("");
       setShot(null);
-      setStatus("The browser is stopped. No browser is open on this device.");
+      setStatus("The browser is stopped. " + NO_BROWSER);
     } catch (cause) {
       setStatus("Stop failed: " + toolFailure(cause));
     }

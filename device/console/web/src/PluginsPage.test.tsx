@@ -106,14 +106,18 @@ beforeEach(() => {
 });
 
 describe("PluginsPage", () => {
-  it("teaches the empty state, with Add plugin as the header's action and no manifest example", async () => {
+  it("puts Add plugin inside the empty state, as the one action, and no manifest example", async () => {
     draw();
     expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
     expect(screen.getByRole("heading", { name: "Plugins", level: 1 })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Add plugin" })).toBeInTheDocument();
     expect(await screen.findByText("No plugins yet. Add one when a built-in cannot do the job.")).toBeInTheDocument();
     expect(screen.queryByText(/plugin\.json/)).not.toBeInTheDocument();
     expect(screen.queryByText(/manifest/i)).not.toBeInTheDocument();
+
+    const add = screen.getByRole("button", { name: "Add plugin" });
+    expect(add.closest(".empty-state")).not.toBeNull();
+    fireEvent.click(add);
+    expect(screen.getByRole("dialog", { name: "Add plugin" })).toBeInTheDocument();
   });
 
   it("renders an older build as a sentence with Open Machine, and shows no Add button", () => {

@@ -567,7 +567,7 @@ describe("App", () => {
     expect(screen.getByRole("heading", { name: "Activity", level: 1 })).toBeInTheDocument();
     // The empty sentence below is the table's; Activity opens on the timeline, so open the table.
     fireEvent.click(screen.getByRole("tab", { name: "Table" }));
-    expect(screen.getByText("No calls yet.")).toBeInTheDocument();
+    expect(screen.getByText(/No calls yet\./)).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Device" }));
     expect(screen.getByRole("heading", { name: "Terminal", level: 1 })).toBeInTheDocument();
@@ -644,7 +644,7 @@ describe("App", () => {
     fireEvent.click(screen.getByRole("button", { name: "Activity" }));
     // The empty sentence below is the table's; Activity opens on the timeline, so open the table.
     fireEvent.click(screen.getByRole("tab", { name: "Table" }));
-    expect(screen.getByText("No calls yet.")).toBeInTheDocument();
+    expect(screen.getByText("No calls match the machine workshop.")).toBeInTheDocument();
     // Hidden, not unmounted: the tabs, their cursors and their names live in this subtree.
     expect(screen.getByTestId("workspace")).toBe(workspace);
     expect(workspace).toHaveAttribute("data-visible", "no");
