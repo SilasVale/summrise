@@ -13,7 +13,8 @@ import { copyText } from "./copy";
 import { shortId } from "./format";
 import { retrySentence } from "./logic";
 import { recordVitals, type VitalsSample } from "./vitals";
-import { AUDIT_WINDOW, AuditTable } from "./AuditTable";
+import { AUDIT_WINDOW, AuditTable, type AuditScope, type AuditSince } from "./AuditTable";
+import type { AuditFilter } from "./auditFilter";
 import { mergeActivity } from "./activityMerge";
 import { ActivityTimeline } from "./ActivityTimeline";
 import { DEVICE_TAB_LABELS, PAGE_LABELS, Rail, type DeviceTab, type Page } from "./Rail";
@@ -70,6 +71,18 @@ export function App() {
   // list at that moment, and the lines that arrived since are counted rather than lost.
   const [activityPaused, setActivityPaused] = useState(false);
   const [activityView, setActivityView] = useState<"stream" | "table">("stream");
+  // The filters live above both views: the timeline's search is the table's tool field and its
+  // machine chip is the table's device filter, so switching views cannot drop either of them.
+  const [activityFilter, setActivityFilter] = useState<AuditFilter>({
+    device: "",
+    token: "",
+    tool: "",
+    status: "all"
+  });
+  const [activitySince, setActivitySince] = useState<AuditSince>("all");
+  // `null` follows the header's machine, which is the scope the table opens on; after the operator
+  // picks a scope or a chip, the choice stays explicit for this page's lifetime.
+  const [activityScope, setActivityScope] = useState<AuditScope | null>(null);
   const [frozenActivity, setFrozenActivity] = useState<AuditLine[] | null>(null);
   // The moment the freeze was taken, so the count is "lines newer than this" rather than a length
   // difference: the fetched window slides, and a difference under-reports once it does.
@@ -141,6 +154,11 @@ export function App() {
   const [accessNote, setAccessNote] = useState<string | null>(null);
   const phone = useMediaQuery("(max-width: 639px)");
   const chosen = devices.find((device) => device.id === selected) ?? null;
+  // The scope defaults to the chosen machine and follows it while it stays implicit; the timeline
+  // shows the same device the table is applying, so neither view can silently disagree.
+  const activityScopeNow: AuditScope = activityScope ?? (selected ? "machine" : "all");
+  const activityMachine =
+    activityScopeNow === "machine" && selected ? selected : activityFilter.device;
 
   // The operator's session is the credential. Selecting a machine starts a session-scoped grant
   // (no envelope); `/mcp` treats an absent grant as full operator authority on that device, so every
@@ -725,6 +743,17 @@ export function App() {
                 <ActivityTimeline
                   lines={shownActivity}
                   devices={devices}
+                  query={activityFilter.tool}
+                  onQuery={(tool) => setActivityFilter((current) => ({ ...current, tool }))}
+                  device={activityMachine}
+                  onDevice={(deviceId) => {
+                    setActivityFilter((current) => ({ ...current, device: deviceId }));
+                    // A chip for the header's machine is the scope the table already calls "This
+                    // machine"; any other machine is the table's explicit device filter.
+                    setActivityScope(
+                      deviceId !== "" && deviceId === selected ? "machine" : "all"
+                    );
+                  }}
                   nowMs={activityPaused && pausedAt !== null ? pausedAt : undefined}
                   onWatch={(deviceId) => {
                     choose(deviceId);
@@ -739,6 +768,12 @@ export function App() {
                   tokens={tokens}
                   selectedDeviceId={selected}
                   onOpenRun={openRun}
+                  filter={activityFilter}
+                  onFilter={setActivityFilter}
+                  since={activitySince}
+                  onSince={setActivitySince}
+                  scope={activityScopeNow}
+                  onScope={setActivityScope}
                 />
               )}
             </section>

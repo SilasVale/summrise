@@ -446,6 +446,111 @@ describe("App", () => {
       .getAllByRole("button", { name: "All machines" })
       .find((button) => button.hasAttribute("aria-pressed"));
     expect(all).toHaveAttribute("aria-pressed", "false");
+
+    // The timeline cannot draw the table's scope toggle; the chip for the chosen machine is what
+    // carries the same filter back to it.
+    fireEvent.click(screen.getByRole("tab", { name: "Timeline" }));
+    const chips = screen.getByRole("group", { name: "Filter by machine" });
+    expect(within(chips).getByRole("button", { name: "workshop" })).toHaveAttribute(
+      "aria-pressed",
+      "true"
+    );
+  });
+
+  it("gives the timeline chips and a search, and keeps the six filters on the table", async () => {
+    mocks.tokens.mockResolvedValue([laptop]);
+    mocks.audit.mockResolvedValue([
+      { ...tokenCall, ts_ms: Date.now(), sentence: "Read the workshop's notes" },
+      {
+        ...tokenCall,
+        ts_ms: Date.now() - 1_000,
+        device_id: attic.id,
+        token_id: null,
+        tool: "files.list",
+        sentence: "Listed the attic"
+      }
+    ]);
+    await bootAndSignIn();
+    fireEvent.click(screen.getByRole("button", { name: "Activity" }));
+    await screen.findByRole("heading", { name: "Activity", level: 1 });
+
+    // The timeline: one search and one chip per machine in the lines, All machines included.
+    expect(screen.getByRole("searchbox", { name: "Search activity" })).toBeInTheDocument();
+    const chips = screen.getByRole("group", { name: "Filter by machine" });
+    expect(within(chips).getByRole("button", { name: "workshop" })).toBeInTheDocument();
+    expect(within(chips).getByRole("button", { name: "attic" })).toBeInTheDocument();
+    expect(within(chips).getByRole("button", { name: "All machines" })).toBeInTheDocument();
+
+    // The table's own controls are not on this view.
+    expect(screen.queryByRole("group", { name: "Audit scope" })).toBeNull();
+    expect(screen.queryByLabelText("Time")).toBeNull();
+    expect(screen.queryByLabelText("Device")).toBeNull();
+    expect(screen.queryByLabelText("Token")).toBeNull();
+    expect(screen.queryByLabelText("Status")).toBeNull();
+
+    // The table still has all six.
+    fireEvent.click(screen.getByRole("tab", { name: "Table" }));
+    expect(screen.getByRole("group", { name: "Audit scope" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Time")).toBeInTheDocument();
+    expect(screen.getByLabelText("Device")).toBeInTheDocument();
+    expect(screen.getByLabelText("Token")).toBeInTheDocument();
+    expect(screen.getByLabelText("Tool or detail")).toBeInTheDocument();
+    expect(screen.getByLabelText("Status")).toBeInTheDocument();
+  });
+
+  it("carries the timeline's search to the table and back", async () => {
+    mocks.audit.mockResolvedValue([{ ...tokenCall, ts_ms: Date.now() }]);
+    await bootAndSignIn();
+    fireEvent.click(screen.getByRole("button", { name: "Activity" }));
+    await screen.findByRole("heading", { name: "Activity", level: 1 });
+
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search activity" }), {
+      target: { value: "tools/list" }
+    });
+    expect(screen.getByText("tools/list")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("tab", { name: "Table" }));
+    expect(screen.getByLabelText("Tool or detail")).toHaveValue("tools/list");
+
+    fireEvent.change(screen.getByLabelText("Tool or detail"), {
+      target: { value: "files.read" }
+    });
+    fireEvent.click(screen.getByRole("tab", { name: "Timeline" }));
+    expect(screen.getByRole("searchbox", { name: "Search activity" })).toHaveValue("files.read");
+  });
+
+  it("reflects the table's device filter in the timeline's machine chip", async () => {
+    mocks.audit.mockResolvedValue([
+      { ...tokenCall, ts_ms: Date.now(), sentence: "Read the workshop's notes" },
+      {
+        ...tokenCall,
+        ts_ms: Date.now() - 1_000,
+        device_id: attic.id,
+        token_id: null,
+        tool: "files.list",
+        sentence: "Listed the attic"
+      }
+    ]);
+    await bootAndSignIn();
+    fireEvent.click(screen.getByRole("button", { name: "Activity" }));
+    await screen.findByRole("heading", { name: "Activity", level: 1 });
+
+    fireEvent.click(screen.getByRole("tab", { name: "Table" }));
+    fireEvent.change(screen.getByLabelText("Device"), { target: { value: attic.id } });
+    fireEvent.click(screen.getByRole("tab", { name: "Timeline" }));
+
+    const chips = screen.getByRole("group", { name: "Filter by machine" });
+    expect(within(chips).getByRole("button", { name: "attic" })).toHaveAttribute(
+      "aria-pressed",
+      "true"
+    );
+    expect(screen.getByText("Listed the attic")).toBeInTheDocument();
+    expect(screen.queryByText("Read the workshop's notes")).not.toBeInTheDocument();
+
+    // And the other way: a chip is the table's device filter when the views change back.
+    fireEvent.click(within(chips).getByRole("button", { name: "workshop" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Table" }));
+    expect(screen.getByLabelText("Device")).toHaveValue(workshop.id);
   });
 
   it("navigates the rail to Activity and to the Device picker", async () => {

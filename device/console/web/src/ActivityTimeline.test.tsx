@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import type { AuditLine } from "./api";
+import type { AuditLine, Device } from "./api";
 import { ActivityTimeline } from "./ActivityTimeline";
 
 // The timeline is the proof, not the summary: a row that opens must show the call as it was sent and
@@ -18,6 +18,30 @@ function line(overrides: Partial<AuditLine> = {}): AuditLine {
     ...overrides
   };
 }
+
+const alpha = "device-alpha-0123456789ab";
+const beta = "device-beta-0123456789ab";
+
+const devices: Device[] = [
+  { id: alpha, name: "Alpha", online: true, version: "1.0.0", last_seen_ms: 1 },
+  { id: beta, name: "Beta", online: false, version: null, last_seen_ms: null }
+];
+
+const fromAlpha = line({
+  ts_ms: Date.UTC(2026, 10, 5, 9, 0, 0),
+  device_id: alpha,
+  sentence: "Read notes.txt",
+  tool: "files.read",
+  detail: "notes.txt"
+});
+
+const fromBeta = line({
+  ts_ms: Date.UTC(2026, 10, 5, 9, 1, 0),
+  device_id: beta,
+  sentence: "Ran a command",
+  tool: "runs.exec",
+  detail: "exit 0"
+});
 
 /** The evidence panel, which exists only while the row that carries it is open. */
 function evidencePanel(): HTMLElement {
@@ -246,5 +270,89 @@ describe("ActivityTimeline", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("narrows the rows to a machine chip and restores them with All machines", () => {
+    render(<ActivityTimeline lines={[fromAlpha, fromBeta]} devices={devices} />);
+
+    expect(screen.getByText("Read notes.txt")).toBeInTheDocument();
+    expect(screen.getByText("Ran a command")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Beta" }));
+
+    expect(screen.queryByText("Read notes.txt")).not.toBeInTheDocument();
+    expect(screen.getByText("Ran a command")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Beta" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "All machines" })).toHaveAttribute(
+      "aria-pressed",
+      "false"
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "All machines" }));
+
+    expect(screen.getByText("Read notes.txt")).toBeInTheDocument();
+    expect(screen.getByText("Ran a command")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "All machines" })).toHaveAttribute(
+      "aria-pressed",
+      "true"
+    );
+  });
+
+  it("keeps a device filter visible as a chip when this window has no line for it", () => {
+    // The table can narrow to a machine whose lines are not in the window the page fetched. The
+    // timeline must still show that filter, rather than reading as All machines and lying about it.
+    render(<ActivityTimeline lines={[fromAlpha]} devices={devices} device={beta} />);
+
+    const chips = screen.getByRole("group", { name: "Filter by machine" });
+    expect(within(chips).getByRole("button", { name: "Beta" })).toHaveAttribute(
+      "aria-pressed",
+      "true"
+    );
+    expect(within(chips).getByRole("button", { name: "All machines" })).toHaveAttribute(
+      "aria-pressed",
+      "false"
+    );
+    expect(screen.getByText(/No activity on Beta/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Clear machine filter" })).toBeInTheDocument();
+  });
+
+  it("searches sentence, tool, machine and detail, and names a query that hides everything", () => {
+    render(<ActivityTimeline lines={[fromAlpha, fromBeta]} devices={devices} />);
+    const search = screen.getByRole("searchbox", { name: "Search activity" });
+
+    // The sentence, case-insensitively.
+    fireEvent.change(search, { target: { value: "COMMAND" } });
+    expect(screen.getByText("Ran a command")).toBeInTheDocument();
+    expect(screen.queryByText("Read notes.txt")).not.toBeInTheDocument();
+
+    // The tool.
+    fireEvent.change(search, { target: { value: "files.read" } });
+    expect(screen.getByText("Read notes.txt")).toBeInTheDocument();
+    expect(screen.queryByText("Ran a command")).not.toBeInTheDocument();
+
+    // The fleet's name for the machine.
+    fireEvent.change(search, { target: { value: "alpha" } });
+    expect(screen.getByText("Read notes.txt")).toBeInTheDocument();
+    expect(screen.queryByText("Ran a command")).not.toBeInTheDocument();
+
+    // The detail.
+    fireEvent.change(search, { target: { value: "exit 0" } });
+    expect(screen.getByText("Ran a command")).toBeInTheDocument();
+    expect(screen.queryByText("Read notes.txt")).not.toBeInTheDocument();
+
+    // Nothing matches: the page says what was searched and keeps the field, so it can be cleared.
+    fireEvent.change(search, { target: { value: "no-such-line" } });
+    expect(screen.queryByText("Read notes.txt")).not.toBeInTheDocument();
+    expect(screen.queryByText("Ran a command")).not.toBeInTheDocument();
+    expect(screen.getByText(/No activity matches/)).toBeInTheDocument();
+    expect(screen.getByText(/no-such-line/)).toBeInTheDocument();
+    expect(screen.getByRole("searchbox", { name: "Search activity" })).toHaveValue("no-such-line");
+    expect(screen.getByRole("group", { name: "Filter by machine" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Clear search" }));
+
+    expect(screen.getByText("Read notes.txt")).toBeInTheDocument();
+    expect(screen.getByText("Ran a command")).toBeInTheDocument();
+    expect(screen.getByRole("searchbox", { name: "Search activity" })).toHaveValue("");
   });
 });

@@ -15,12 +15,15 @@ const EMPTY: AuditFilter = { device: "", token: "", tool: "", status: "all" };
 
 /// The toolbar's time window. The table already holds the newest 200 lines, so this only narrows
 /// what is on screen; it never asks the console for a different slice.
-type Since = "all" | "hour" | "day" | "week";
-const SINCE_MS: Record<Exclude<Since, "all">, number> = {
+export type AuditSince = "all" | "hour" | "day" | "week";
+const SINCE_MS: Record<Exclude<AuditSince, "all">, number> = {
   hour: 60 * 60_000,
   day: 24 * 60 * 60_000,
   week: 7 * 24 * 60 * 60_000
 };
+
+/** The table's scope: the machine in the header, or the whole fleet. */
+export type AuditScope = "machine" | "all";
 
 /**
  * What to call one token in a cell or an option.
@@ -118,7 +121,13 @@ export function AuditTable({
   selectedDeviceId = null,
   onOpenRun,
   empty = "No calls yet.",
-  emptyFiltered = "No calls match."
+  emptyFiltered = "No calls match.",
+  filter: sharedFilter,
+  onFilter,
+  since: sharedSince,
+  onSince,
+  scope: sharedScope,
+  onScope
 }: {
   lines: AuditLine[];
   devices: Device[];
@@ -131,14 +140,37 @@ export function AuditTable({
   empty?: string;
   /** The sentence for a filter that matches nothing. */
   emptyFiltered?: string;
+  /**
+   * The six filters are the page's when it wants them shared with the timeline (its search is the
+   * table's tool field, its chip the table's device). Omitted, the table owns the same state, which
+   * is how it is tested and how it stood alone.
+   */
+  filter?: AuditFilter;
+  onFilter?: (filter: AuditFilter) => void;
+  since?: AuditSince;
+  onSince?: (since: AuditSince) => void;
+  scope?: AuditScope;
+  onScope?: (scope: AuditScope) => void;
 }) {
-  const [filter, setFilter] = useState<AuditFilter>(EMPTY);
-  const [scope, setScope] = useState<"machine" | "all">(selectedDeviceId ? "machine" : "all");
-  const [since, setSince] = useState<Since>("all");
+  const [ownFilter, setOwnFilter] = useState<AuditFilter>(EMPTY);
+  const filter = sharedFilter ?? ownFilter;
+  const setFilter = onFilter ?? setOwnFilter;
+  const [ownSince, setOwnSince] = useState<AuditSince>("all");
+  const since = sharedSince ?? ownSince;
+  const setSince = onSince ?? setOwnSince;
+  const [ownScope, setOwnScope] = useState<AuditScope>(selectedDeviceId ? "machine" : "all");
+  const scope = sharedScope ?? ownScope;
+  const setScope = onScope ?? setOwnScope;
   const [open, setOpen] = useState<ReadonlySet<string>>(new Set());
   // THE SCOPE IS THE SELECTION. Activity follows the machine in the header unless the operator asks
   // for the fleet's record.
-  const applied = scope === "machine" && selectedDeviceId ? { ...filter, device: selectedDeviceId } : filter;
+  const applied = useMemo(
+    () =>
+      scope === "machine" && selectedDeviceId
+        ? { ...filter, device: selectedDeviceId }
+        : filter,
+    [scope, selectedDeviceId, filter]
+  );
   const windowed = useMemo(() => {
     if (since === "all") return lines;
     const cutoff = Date.now() - SINCE_MS[since];
@@ -242,7 +274,7 @@ export function AuditTable({
         </div>
         <label className="audit-field">
           <span>Time</span>
-          <select value={since} onChange={(event) => setSince(event.target.value as Since)}>
+          <select value={since} onChange={(event) => setSince(event.target.value as AuditSince)}>
             <option value="all">All time</option>
             <option value="hour">Last hour</option>
             <option value="day">Last day</option>

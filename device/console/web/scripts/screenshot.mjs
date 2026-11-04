@@ -972,7 +972,12 @@ const PAGES = [
     heading: 'Plugins',
     state: 'the plugins the selected machine hosts'
   },
-  { id: 'activity', label: 'Activity', heading: 'Activity', state: 'the audit table' },
+  {
+    id: 'activity',
+    label: 'Activity',
+    heading: 'Activity',
+    state: 'the timeline: machine chips and one search over the record'
+  },
   {
     id: 'terminal',
     label: 'Device',

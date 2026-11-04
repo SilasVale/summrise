@@ -2482,6 +2482,23 @@ main::-webkit-scrollbar-track, .sheet-body::-webkit-scrollbar-track, .scroll::-w
 .stream-views { width: 160px; }
 .stream-note { margin: 0; }
 
+/* The timeline filters with what a row actually carries: the machine that wrote it, and one search
+   over the sentence, tool, machine and detail. The table's column filters stay with the table. */
+.timeline-filters {
+  display: flex; align-items: flex-end; flex-wrap: wrap; gap: var(--sp-3);
+  margin: 0 0 var(--sp-3); padding-bottom: var(--sp-3);
+  border-bottom: 1px solid var(--hairline);
+}
+.timeline-machines { align-items: center; flex: 1 1 auto; }
+.timeline-machines .chip { border: 0; cursor: pointer; }
+.timeline-machines .chip[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); }
+.timeline-search { margin-left: auto; }
+.timeline-search input { width: 18rem; max-width: 100%; }
+@media (max-width: 639px) {
+  .timeline-search { margin-left: 0; width: 100%; }
+  .timeline-search input { width: 100%; }
+}
+
 /* ── The timeline: time on the left, one dot per action, one sentence each ─────────────────────────
    Outside: one line per action. Click: the evidence for that one call. */
 
@@ -2543,6 +2560,10 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
 .timeline-chev.is-open { transform: rotate(180deg); }
 .timeline-row.is-open { background: var(--panel-2); }
 .timeline-empty { margin: var(--sp-3) 0; }
+/* A filter that hid every row is not an empty audit: the page names it, offers the way back, and
+   keeps the chips and the field above it. */
+.timeline-empty-filtered { display: grid; gap: var(--sp-2); justify-items: start; }
+.timeline-empty-actions { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
 
 /* The evidence panel: what the call carried, and what it returned. */
 .evidence {

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { AuditLine, Device } from "./api";
 import { auditFailed } from "./auditFilter";
 import { ageAt, shortId } from "./format";
@@ -327,7 +327,33 @@ function Row(props: {
   );
 }
 
-/** The dated record: days, rows, and the evidence of the row that is open. */
+/** The machines the lines name, in the order they first appear, plus the active one if absent. */
+function machineOptions(
+  lines: AuditLine[],
+  devices: Device[],
+  active: string
+): Array<{ id: string; name: string }> {
+  const present = new Map<string, string>();
+  for (const line of lines) {
+    const id = line.device_id;
+    if (!id || present.has(id)) continue;
+    present.set(id, machineName(devices, id) ?? id);
+  }
+  // The table can narrow to a machine this window has no line for — a retired device, or a window
+  // that slid. The chip is how that filter stays visible (and clearable) on the timeline.
+  if (active !== "" && !present.has(active)) {
+    present.set(active, machineName(devices, active) ?? active);
+  }
+  return Array.from(present, ([id, name]) => ({ id, name }));
+}
+
+/**
+ * The dated record: days, rows, the machine chips and one search.
+ *
+ * The timeline keeps only the filters it can honour. The scope toggle, the time window, the token
+ * and the status describe columns of the table; here a row is narrowed by the machine that wrote it
+ * and by what its sentence, tool, machine or detail says.
+ */
 export function ActivityTimeline(props: {
   lines: AuditLine[];
   devices: Device[];
@@ -338,9 +364,23 @@ export function ActivityTimeline(props: {
    * counting up, and the 1 s ticker that would move it is not started.
    */
   nowMs?: number;
+  /** The search text, shared with the table's "Tool or detail" field. */
+  query?: string;
+  onQuery?: (value: string) => void;
+  /** The machine the rows are narrowed to, or "" for every machine. */
+  device?: string;
+  onDevice?: (value: string) => void;
 }) {
   const [now, setNow] = useState(() => Date.now());
   const [openKey, setOpenKey] = useState<string | null>(null);
+  // Uncontrolled when rendered on its own; the page passes the shared values so a search survives
+  // the switch to the table and back.
+  const [ownQuery, setOwnQuery] = useState("");
+  const [ownDevice, setOwnDevice] = useState("");
+  const query = props.query ?? ownQuery;
+  const setQuery = props.onQuery ?? setOwnQuery;
+  const device = props.device ?? ownDevice;
+  const setDevice = props.onDevice ?? setOwnDevice;
   const paused = props.nowMs !== undefined;
   useEffect(() => {
     if (paused) return;
@@ -349,41 +389,119 @@ export function ActivityTimeline(props: {
   }, [paused]);
 
   const at = props.nowMs ?? now;
-  const days = groupDays(props.lines, at);
-  if (days.length === 0) {
-    return <p className="hint timeline-empty">{props.empty ?? "Nothing has happened yet."}</p>;
-  }
+  const needle = query.trim().toLowerCase();
+  const machines = useMemo(
+    () => machineOptions(props.lines, props.devices, device),
+    [props.lines, props.devices, device]
+  );
+  const filtered = useMemo(() => {
+    if (needle === "" && device === "") return props.lines;
+    return props.lines.filter((line) => {
+      if (device !== "" && line.device_id !== device) return false;
+      if (needle === "") return true;
+      const machine = line.device_id ? machineName(props.devices, line.device_id) : null;
+      return [line.sentence, line.tool, line.detail, machine]
+        .filter((value): value is string => typeof value === "string")
+        .some((value) => value.toLowerCase().includes(needle));
+    });
+  }, [props.lines, props.devices, device, needle]);
+  const days = groupDays(filtered, at);
+  const filtering = needle !== "" || device !== "";
+  const deviceLabel = device !== "" ? (machineName(props.devices, device) ?? device) : "";
 
   return (
-    <div className="timeline">
-      {days.map((day) => (
-        <section key={day.key} className="timeline-day" aria-label={day.label}>
-          <h2 className="timeline-day-label">{day.label}</h2>
-          <ol className="timeline-rows">
-            {day.lines.map((line, index) => {
-              const key = `${line.ts_ms}-${line.tool ?? line.kind}-${line.status}`;
-              // A minute of quiet, or a different machine, is where one stretch of work ends.
-              const previous = day.lines[index - 1];
-              const newStretch =
-                previous !== undefined &&
-                (previous.device_id !== line.device_id ||
-                  Math.abs(previous.ts_ms - line.ts_ms) > 60_000);
-              return (
-                <Row
-                  key={key}
-                  line={line}
-                  devices={props.devices}
-                  open={openKey === key}
-                  stretch={newStretch}
-                  nowMs={at}
-                  onToggle={() => setOpenKey((current) => (current === key ? null : key))}
-                  onWatch={props.onWatch}
-                />
-              );
-            })}
-          </ol>
-        </section>
-      ))}
+    <div className="activity-timeline">
+      <div className="timeline-filters">
+        <div className="chips timeline-machines" role="group" aria-label="Filter by machine">
+          <button
+            type="button"
+            className="chip"
+            aria-pressed={device === ""}
+            onClick={() => setDevice("")}
+          >
+            All machines
+          </button>
+          {machines.map((machine) => (
+            <button
+              key={machine.id}
+              type="button"
+              className="chip"
+              title={machine.id}
+              aria-pressed={device === machine.id}
+              onClick={() => setDevice(machine.id)}
+            >
+              {machine.name}
+            </button>
+          ))}
+        </div>
+        <label className="audit-field timeline-search">
+          <span>Search activity</span>
+          <input
+            type="search"
+            value={query}
+            placeholder="sentence, tool, machine or detail"
+            onChange={(event) => setQuery(event.target.value)}
+          />
+        </label>
+      </div>
+      {days.length === 0 ? (
+        filtering ? (
+          // A filter that hides every row is not "nothing happened": the page names what narrowed
+          // the list and keeps the way back next to it.
+          <div className="timeline-empty timeline-empty-filtered">
+            <p className="hint">
+              {needle !== ""
+                ? `No activity matches “${query.trim()}”${device !== "" ? ` on ${deviceLabel}` : ""}.`
+                : `No activity on ${deviceLabel}.`}
+            </p>
+            <div className="timeline-empty-actions">
+              {needle !== "" && (
+                <button type="button" onClick={() => setQuery("")}>
+                  Clear search
+                </button>
+              )}
+              {device !== "" && (
+                <button type="button" onClick={() => setDevice("")}>
+                  Clear machine filter
+                </button>
+              )}
+            </div>
+          </div>
+        ) : (
+          <p className="hint timeline-empty">{props.empty ?? "Nothing has happened yet."}</p>
+        )
+      ) : (
+        <div className="timeline">
+          {days.map((day) => (
+            <section key={day.key} className="timeline-day" aria-label={day.label}>
+              <h2 className="timeline-day-label">{day.label}</h2>
+              <ol className="timeline-rows">
+                {day.lines.map((line, index) => {
+                  const key = `${line.ts_ms}-${line.tool ?? line.kind}-${line.status}`;
+                  // A minute of quiet, or a different machine, is where one stretch of work ends.
+                  const previous = day.lines[index - 1];
+                  const newStretch =
+                    previous !== undefined &&
+                    (previous.device_id !== line.device_id ||
+                      Math.abs(previous.ts_ms - line.ts_ms) > 60_000);
+                  return (
+                    <Row
+                      key={key}
+                      line={line}
+                      devices={props.devices}
+                      open={openKey === key}
+                      stretch={newStretch}
+                      nowMs={at}
+                      onToggle={() => setOpenKey((current) => (current === key ? null : key))}
+                      onWatch={props.onWatch}
+                    />
+                  );
+                })}
+              </ol>
+            </section>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
