@@ -68,6 +68,8 @@ export function FilesPage({
   const [root, setRoot] = useState<"workspace" | "shared">("workspace");
   const [dir, setDir] = useState("");
   const [entries, setEntries] = useState<Entry[]>([]);
+  /** The client-side filter over the listing; a folder with 900 names is not read by scrolling. */
+  const [filter, setFilter] = useState("");
   const [note, setNote] = useState("Reading the device's files root…");
   const [loadingDir, setLoadingDir] = useState(false);
   const [listError, setListError] = useState<string | null>(null);
@@ -118,6 +120,7 @@ export function FilesPage({
         // the entries it cannot open.
         rows.sort(entryOrder);
         setEntries(rows);
+        setFilter("");
         setDir(wanted);
         dirRef.current = wanted;
         setNote(listNote(rows));
@@ -375,6 +378,10 @@ export function FilesPage({
   const dirty = open !== null && open.mode === "text" && open.text !== open.saved;
   const busy = opening !== null || saving;
 
+  // Case-insensitive substring, the same reading as the Capabilities search: one field, no syntax.
+  const needle = filter.trim().toLowerCase();
+  const shown = needle === "" ? entries : entries.filter((entry) => entry.name.toLowerCase().includes(needle));
+
   return (
     <div className="files-page">
       <div className="panel-head">
@@ -467,7 +474,28 @@ export function FilesPage({
           </label>
           {uploading && <span className="hint">Uploading…</span>}
         </div>
+
+        {(entries.length > 0 || up !== null) && (
+          <label className="files-filter">
+            <span className="sr-only">Filter this folder</span>
+            <input
+              type="search"
+              aria-label="Filter this folder"
+              placeholder="Filter this folder"
+              value={filter}
+              onChange={(event) => setFilter(event.target.value)}
+            />
+          </label>
+        )}
       </div>
+
+      {needle !== "" && (
+        <p className="hint" role="status">
+          {shown.length === 0
+            ? `No entry matches “${filter.trim()}”.`
+            : `${shown.length} of ${entries.length} ${entries.length === 1 ? "entry" : "entries"} match “${filter.trim()}”.`}
+        </p>
+      )}
 
       {actionNote && <p className="hint">{actionNote}</p>}
       {actionError && <p className="error">{actionError}</p>}
@@ -489,7 +517,7 @@ export function FilesPage({
               <span className="files-size">—</span>
             </li>
           )}
-          {entries.map((entry) => (
+          {shown.map((entry) => (
             <li className={"files-row files-" + entry.kind} key={entry.name}>
               {entry.kind === "other" ? (
                 <span

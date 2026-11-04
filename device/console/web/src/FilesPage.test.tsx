@@ -38,6 +38,31 @@ describe("FilesPage listing", () => {
     mocked.mockReset();
   });
 
+  it("filters the listing by name without asking the device", async () => {
+    mocked.mockResolvedValue(JSON.stringify(ROOT));
+    render(<FilesPage grant={GRANT} />);
+    const filter = await screen.findByLabelText("Filter this folder");
+    expect(screen.getByText("docs/")).toBeInTheDocument();
+    fireEvent.change(filter, { target: { value: "NOTE" } });
+
+    // Case-insensitive substring over the names already on screen; the device is asked once, for
+    // the listing, and never again for a keystroke.
+    expect(screen.getByText("notes.txt")).toBeInTheDocument();
+    expect(screen.queryByText("docs/")).not.toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent("1 of 2 entries match “NOTE”.");
+    expect(mocked).toHaveBeenCalledTimes(1);
+  });
+
+  it("says when nothing matches instead of an empty list", async () => {
+    mocked.mockResolvedValue(JSON.stringify(ROOT));
+    render(<FilesPage grant={GRANT} />);
+    await screen.findByRole("button", { name: "notes.txt" });
+
+    fireEvent.change(screen.getByLabelText("Filter this folder"), { target: { value: "zzz" } });
+
+    expect(screen.getByRole("status")).toHaveTextContent("No entry matches “zzz”.");
+  });
+
   it("does not ask a machine the fleet says is down, and says so", async () => {
     render(<FilesPage grant={GRANT} deviceOnline={false} />);
     // THE READ IS NOT SENT. The page used to sit on "Reading the device's files root…" until the
