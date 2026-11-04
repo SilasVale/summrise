@@ -1,8 +1,10 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import type { ComponentProps } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Device, LiveTool } from "./api";
 import type { PluginRecord } from "./pluginApi";
 import { ToolsTab } from "./ToolsTab";
+import { callTool, ToolError, type Grant } from "./terminal";
 
 const live = vi.hoisted(() => ({ value: {} as Record<string, unknown> }));
 vi.mock("./useLiveTools", () => ({ useLiveTools: () => live.value }));
@@ -13,12 +15,46 @@ vi.mock("./pluginApi", async (importOriginal) => {
   return { ...actual, listPlugins: mocks.list };
 });
 
+// The run form's whole device surface is `callTool`; the real `ToolError` stays so a refusal is the
+// class the form actually receives from `./terminal`.
+vi.mock("./terminal", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./terminal")>();
+  return { ...actual, callTool: vi.fn() };
+});
+
+const mocked = vi.mocked(callTool);
+
+const GRANT: Grant = { deviceId: "dev-workshop", envelope: { token: "envelope" } };
+
 const workshop: Device = {
   id: "dev-workshop",
   name: "workshop",
   online: true,
   version: "0.3.246",
   last_seen_ms: 1
+};
+
+/// The form's answer, in the wire shape `runs.exec` really returns.
+type RunResult = {
+  id: string;
+  exit_code: number | null;
+  timed_out: boolean;
+  duration_ms: number;
+  stdout: string;
+  stderr: string;
+  truncated: boolean;
+  history_recorded: boolean;
+};
+
+const RESULT: RunResult = {
+  id: "run-3",
+  exit_code: 0,
+  timed_out: false,
+  duration_ms: 12,
+  stdout: "hello\n",
+  stderr: "",
+  truncated: false,
+  history_recorded: true
 };
 
 function tool(overrides: Partial<LiveTool> & { name: string }): LiveTool {
@@ -44,6 +80,21 @@ const plugin: PluginRecord = {
   last_error: null
 };
 
+function renderTools(overrides: Partial<ComponentProps<typeof ToolsTab>> = {}) {
+  return render(
+    <ToolsTab
+      device={workshop}
+      deviceOnline
+      grant={GRANT}
+      tool={null}
+      onTool={vi.fn()}
+      onMachine={vi.fn()}
+      onBrowser={vi.fn()}
+      {...overrides}
+    />
+  );
+}
+
 beforeEach(() => {
   live.value = {
     tools: [tool({ name: "files.read", description: "read a file" }), tool({ name: "plugins.list" })],
@@ -55,39 +106,178 @@ beforeEach(() => {
   };
   mocks.list.mockReset();
   mocks.list.mockResolvedValue([plugin]);
+  mocked.mockReset();
 });
 
 describe("ToolsTab", () => {
-  it("answers with the catalogue first and the plugins second, one h2 each", async () => {
-    render(
-      <ToolsTab
-        device={workshop}
-        deviceOnline
-        tool={null}
-        onTool={vi.fn()}
-        onMachine={vi.fn()}
-        onBrowser={vi.fn()}
-      />
-    );
+  it("answers with the catalogue first, the plugins second and the run form third, one h2 each", async () => {
+    renderTools();
 
     expect(
       screen.getAllByRole("heading", { level: 2 }).map((heading) => heading.textContent)
-    ).toEqual(["Tools on this machine", "Plugins"]);
+    ).toEqual(["Tools on this machine", "Plugins", "Run a command on this machine"]);
     expect(screen.getByRole("button", { name: /files\.read/ })).toBeInTheDocument();
     expect(await screen.findByText("Hello")).toBeInTheDocument();
+
+    // The exec form is a section of this page, not a second page: its fields live under the h2.
+    const heading = screen.getByRole("heading", {
+      name: "Run a command on this machine",
+      level: 2
+    });
+    const section = heading.closest("section") as HTMLElement | null;
+    expect(section).not.toBeNull();
+    expect(within(section as HTMLElement).getByLabelText("Command")).toBeInTheDocument();
+    expect(within(section as HTMLElement).getByRole("button", { name: "Run" })).toBeInTheDocument();
   });
 
   it("opens a tool's sheet inside the catalogue section", () => {
-    render(
-      <ToolsTab
-        device={workshop}
-        deviceOnline
-        tool="files.read"
-        onTool={vi.fn()}
-        onMachine={vi.fn()}
-        onBrowser={vi.fn()}
-      />
-    );
+    renderTools({ tool: "files.read" });
     expect(screen.getByRole("dialog", { name: "files.read" })).toBeInTheDocument();
+  });
+});
+
+describe("the run form under Tools", () => {
+  it("calls runs.exec with the form's line and opens the finished run's record", async () => {
+    mocked.mockResolvedValue(JSON.stringify(RESULT));
+
+    renderTools();
+    fireEvent.change(screen.getByLabelText("Command"), { target: { value: "echo hello" } });
+    fireEvent.click(screen.getByRole("button", { name: "Run" }));
+
+    await waitFor(() => expect(mocked).toHaveBeenCalledTimes(1));
+    // The request the form made on the Runs page, moved without a wire change.
+    expect(mocked.mock.calls[0]).toEqual([
+      GRANT,
+      "runs.exec",
+      { command: "echo", args: ["hello"], timeout_ms: 60_000 }
+    ]);
+
+    // A completed run still opens its record: the id, the exit and the retained output.
+    const result = (await screen.findByText("Result")).closest("section") as HTMLElement;
+    expect(result).not.toBeNull();
+    expect(within(result).getByText("run-3")).toBeInTheDocument();
+    expect(within(result).getByText("exit 0")).toBeInTheDocument();
+    expect(within(result).getByText("recorded")).toBeInTheDocument();
+    expect(within(result).getByText("hello")).toBeInTheDocument();
+  });
+
+  it("sends a shell line whole when Through the shell is ticked", async () => {
+    mocked.mockResolvedValue(JSON.stringify(RESULT));
+
+    renderTools();
+    fireEvent.click(screen.getByLabelText("Through the shell"));
+    expect(screen.getByPlaceholderText("echo hello && echo bye")).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Command"), {
+      target: { value: "echo a && echo b" }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Run" }));
+
+    await waitFor(() => expect(mocked).toHaveBeenCalledTimes(1));
+    expect(mocked.mock.calls[0][2]).toEqual({
+      command: "echo a && echo b",
+      shell: true,
+      timeout_ms: 60_000
+    });
+  });
+
+  it("sends a typed working directory trimmed, and no cwd key when the box is empty", async () => {
+    mocked.mockResolvedValue(JSON.stringify(RESULT));
+
+    renderTools();
+    fireEvent.change(screen.getByLabelText("Command"), { target: { value: "echo hi" } });
+    fireEvent.change(screen.getByLabelText("Working directory (optional)"), {
+      target: { value: "  docs  " }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Run" }));
+
+    await waitFor(() => expect(mocked).toHaveBeenCalledTimes(1));
+    expect(mocked.mock.calls[0][2]).toEqual({
+      command: "echo",
+      args: ["hi"],
+      cwd: "docs",
+      timeout_ms: 60_000
+    });
+
+    // The second run waits for the first to settle, then leaves the box empty.
+    await waitFor(() => expect(screen.getByRole("button", { name: "Run" })).toBeEnabled());
+    fireEvent.change(screen.getByLabelText("Working directory (optional)"), {
+      target: { value: "" }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Run" }));
+
+    await waitFor(() => expect(mocked).toHaveBeenCalledTimes(2));
+    const second = mocked.mock.calls[1][2] as Record<string, unknown>;
+    expect(second).toEqual({ command: "echo", args: ["hi"], timeout_ms: 60_000 });
+    expect(second).not.toHaveProperty("cwd");
+  });
+
+  it("sends a typed timeout as a number", async () => {
+    mocked.mockResolvedValue(JSON.stringify(RESULT));
+
+    renderTools();
+    fireEvent.change(screen.getByLabelText("Command"), { target: { value: "echo hello" } });
+    fireEvent.change(screen.getByLabelText("Timeout (ms)"), { target: { value: "120000" } });
+    fireEvent.click(screen.getByRole("button", { name: "Run" }));
+
+    await waitFor(() => expect(mocked).toHaveBeenCalledTimes(1));
+    expect(mocked.mock.calls[0][2]).toEqual({
+      command: "echo",
+      args: ["hello"],
+      timeout_ms: 120_000
+    });
+  });
+
+  it("shows a device refusal as its own sentence and keeps the previous result", async () => {
+    let runs = 0;
+    mocked.mockImplementation(async () => {
+      runs += 1;
+      if (runs === 1) return JSON.stringify(RESULT);
+      throw new ToolError("the device refused to run it", 200, null, true);
+    });
+
+    renderTools();
+    fireEvent.change(screen.getByLabelText("Command"), { target: { value: "echo hello" } });
+    fireEvent.click(screen.getByRole("button", { name: "Run" }));
+    expect(await screen.findByText("Result")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Run" })).toBeEnabled());
+
+    fireEvent.change(screen.getByLabelText("Command"), { target: { value: "false" } });
+    fireEvent.click(screen.getByRole("button", { name: "Run" }));
+
+    expect(
+      await screen.findByText("Could not run the command: the device refused to run it")
+    ).toBeInTheDocument();
+    // The failed attempt did not replace the run that did finish; the form says so in its own words.
+    const result = screen.getByText("Result").closest("section") as HTMLElement;
+    expect(within(result).getByText("hello")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "The result below is from the last run that finished; this attempt did not replace it."
+      )
+    ).toBeInTheDocument();
+  });
+
+  it("warns that a disconnected run may have executed", async () => {
+    mocked.mockRejectedValue(new ToolError("device disconnected", 502));
+
+    renderTools();
+    fireEvent.change(screen.getByLabelText("Command"), { target: { value: "echo once" } });
+    fireEvent.click(screen.getByRole("button", { name: "Run" }));
+
+    expect(
+      await screen.findByText(
+        "The device disconnected before the console heard the result: the command may have run. " +
+          "Check the history before running it again."
+      )
+    ).toBeInTheDocument();
+  });
+
+  it("does not send a command to a machine the fleet says is down", async () => {
+    renderTools({ deviceOnline: false });
+
+    expect(screen.getByRole("button", { name: "Run" })).toBeDisabled();
+    fireEvent.change(screen.getByLabelText("Command"), { target: { value: "echo hello" } });
+    fireEvent.click(screen.getByRole("button", { name: "Run" }));
+    await waitFor(() => expect(mocked).not.toHaveBeenCalled());
   });
 });

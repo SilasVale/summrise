@@ -839,6 +839,7 @@ export function App() {
                   <ToolsTab
                     device={chosen}
                     deviceOnline={chosen.online}
+                    grant={grant}
                     tool={openTool}
                     onTool={setOpenTool}
                     onMachine={() => {

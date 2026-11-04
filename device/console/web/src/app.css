@@ -1128,9 +1128,14 @@ button.chip-tag:hover {
   letter-spacing: var(--tracking-label);
 }
 
-/* The runs page: one command per call, its two streams, and the device's history of the last runs.
-   The form wraps like the monitors add form; the history is a table in a capped scroll box so the
-   record it loads stays on the same screen as the row that was clicked. */
+/* The run form lives under Tools now; the history below it is the Runs page. The form wraps like the
+   monitors add form; the history is a table in a capped scroll box so the record it loads stays on
+   the same screen as the row that was clicked. `.runs-exec` keeps the form and its result at the
+   spacing they had when they led the Runs page. */
+.runs-exec {
+  display: grid;
+  gap: var(--sp-2);
+}
 .runs-page {
   display: grid;
   gap: var(--sp-2);

@@ -1,61 +1,31 @@
-import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { copyText } from "./copy";
 import { message } from "./format";
 import { useRequestGate } from "./requests";
 import { age } from "./age";
-import { callTool, ToolError, type Grant } from "./terminal";
+import { callTool, type Grant } from "./terminal";
+import {
+  HISTORY_LIMIT,
+  bytes,
+  commandLine,
+  exitChip,
+  exitSentence,
+  shortCommand,
+  spellDuration,
+  type RunRecord
+} from "./runFormat";
 
 /**
- * `runs.exec`'s answer: the run's outcome and the retained head of each stream.
+ * Runs, as a page: the history of the last runs and the record one kept.
  *
- * `exit_code` is null both when the timeout killed the process group (`timed_out`) and when the
- * process ended from a signal; the two nulls are different facts and the result panel says which.
- */
-type RunResult = {
-  id: string;
-  exit_code: number | null;
-  timed_out: boolean;
-  duration_ms: number;
-  stdout: string;
-  stderr: string;
-  truncated: boolean;
-  history_recorded: boolean;
-};
-
-/**
- * One run as the device's history keeps it: the metadata, and the output only as byte counts.
- *
- * `runs.list` and `runs.get` return this same shape; neither carries stdout or stderr, because the
- * history never stored them.
- */
-type RunRecord = {
-  id: string;
-  command: string;
-  args: string[];
-  cwd: string;
-  exit_code: number | null;
-  timed_out: boolean;
-  duration_ms: number;
-  started_at_ms: number;
-  stdout_bytes: number;
-  stderr_bytes: number;
-};
-
-/// The rows one history read asks for: `runs.list` defaults to 20 and refuses more than 100.
-const HISTORY_LIMIT = 20;
-
-/// `runs.exec`'s timeout default and ceiling, mirrored from the device so the form states them.
-const DEFAULT_TIMEOUT_MS = 60_000;
-const MAX_TIMEOUT_MS = 600_000;
-
-/**
- * Runs, as a page: one command on the device, its exit and output, and the history of the last runs.
+ * THE EXEC FORM LIVES UNDER TOOLS NOW. `#device/tools` is where a command is composed; this page is
+ * the history (`runs.list`), the record a row opens (`runs.get`), and the sentences that say what
+ * the history does and does not keep. There is no route that makes a run from here, so the history
+ * cannot become a second way to run a command.
  *
  * A run is a device call like any other, so it goes through the same grant as the terminal, the
- * browser, memory and monitors: `runs.exec` runs it and blocks until it has finished or timed out,
- * `runs.list` reads the history and `runs.get` reads one row. There is no console route. The history
- * keeps no output bodies, so this page never grows an output box for a past run: it says why there
- * is nothing to show instead.
+ * browser, memory and monitors. The history keeps no output bodies, so this page never grows an
+ * output box for a past run: it says why there is nothing to show instead.
  */
 export function RunsPage({
   grant,
@@ -76,30 +46,17 @@ export function RunsPage({
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [loadingHistory, setLoadingHistory] = useState(false);
 
-  const [command, setCommand] = useState("");
-  const [shell, setShell] = useState(false);
-  const [cwd, setCwd] = useState("");
-  const [timeoutMs, setTimeoutMs] = useState(String(DEFAULT_TIMEOUT_MS));
-  const [running, setRunning] = useState(false);
-  const [runError, setRunError] = useState<string | null>(null);
-  const [result, setResult] = useState<RunResult | null>(null);
-  const [copied, setCopied] = useState<"stdout" | "stderr" | "command" | null>(null);
-
   const [detail, setDetail] = useState<RunRecord | null>(null);
   const [detailId, setDetailId] = useState<string | null>(null);
   const [detailError, setDetailError] = useState<string | null>(null);
+  const [copied, setCopied] = useState<"command" | null>(null);
 
   // A failed first read has nothing to keep showing; a failed refresh must leave the previous rows
   // where they are, so the two cases are told apart by whether a list ever arrived.
   const listed = useRef(false);
-  // The disabled button is the visible guard, but a second submit can arrive before the re-render
-  // disables it; `running` in this handler is the value from the render that created it, so the ref
-  // is the real gate. Answer ordering is a different job and belongs to a ticket: the three streams
-  // below (the history, a run, one row's record) each get their own, because a refresh of the list
-  // must not discard a run that is still waiting.
-  const runningRef = useRef(false);
+  // Answer ordering belongs to a ticket: the history and one row's record each get their own, because
+  // a refresh of the list must not discard a record that is still waiting.
   const historyGate = useRequestGate();
-  const runGate = useRequestGate();
   const detailGate = useRequestGate();
   // The Activity → Runs handoff is consumed once. `show` is re-created every render, so the effect
   // reads the latest one through a ref instead of taking it as a dependency.
@@ -137,27 +94,18 @@ export function RunsPage({
     }
   }, [grant, historyGate]);
 
-  // A different grant is a different device's history and a different draft. It also invalidates a
-  // run or a row read that is still waiting: its answer belongs to the device this page has left.
+  // A different grant is a different device's history. It also invalidates a row read that is still
+  // waiting: its answer belongs to the device this page has left.
   useEffect(() => {
-    runGate.begin();
     detailGate.begin();
-    runningRef.current = false;
-    setRunning(false);
     listed.current = false;
     focused.current = null;
     setHistory([]);
     setHistoryNote("Reading the device's run history…");
     setHistoryError(null);
-    setResult(null);
-    setRunError(null);
     setDetail(null);
     setDetailId(null);
     setDetailError(null);
-    setCommand("");
-    setShell(false);
-    setCwd("");
-    setTimeoutMs(String(DEFAULT_TIMEOUT_MS));
     // A MACHINE THE FLEET SAYS IS DOWN IS NOT ASKED — the read cannot reach it, and the page would
     // sit on "Reading the device's run history…" until the console's dial timed out.
     if (offline) {
@@ -165,14 +113,14 @@ export function RunsPage({
       return;
     }
     void read();
-  }, [read, runGate, detailGate, offline]);
+  }, [read, detailGate, offline]);
 
   // **A RUN LINK CAN ARRIVE AT A PAGE THAT IS ALREADY OPEN.** The focus used to be consumed only
   // inside a history read, so a hash change to #run/… while Runs was mounted loaded nothing and left
   // the previous sentence on screen. A new id now loads its record directly; the read path keeps its
   // own consumption for the first mount, and `focused` stops the two from loading the same run twice.
   //
-  // **IT IS DECLARED AFTER THE DEVICE RESET ON PURPOSE.** That effect begins both gates, which
+  // **IT IS DECLARED AFTER THE DEVICE RESET ON PURPOSE.** That effect begins the gate, which
   // invalidates any read already in flight — correct for a device switch and fatal for this one on a
   // first mount, where the focus effect used to run first and have its answer discarded as stale:
   // an Activity → Runs link opened the history and never the run. Effects run in declaration order,
@@ -183,54 +131,6 @@ export function RunsPage({
     void showRef.current({ id: focusRunId } as RunRecord);
     onFocusConsumedRef.current?.();
   }, [focusRunId]);
-
-  const run = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    if (runningRef.current) return;
-    runningRef.current = true;
-    const ticket = runGate.begin();
-    const line = command.trim();
-    // argv mode splits on whitespace and does no quoting: the first word is the program and the rest
-    // are its arguments. A shell line is handed over whole. An empty command is sent as the empty
-    // string rather than refused here, so the sentence the operator reads is the device's.
-    const words = line.split(/\s+/).filter((word) => word !== "");
-    const request: Record<string, unknown> = shell
-      ? { command: line, shell: true }
-      : { command: words[0] ?? "", args: words.slice(1) };
-    if (cwd.trim() !== "") request.cwd = cwd.trim();
-    const wantedTimeout = Number(timeoutMs);
-    if (timeoutMs.trim() !== "" && Number.isFinite(wantedTimeout)) {
-      // A value outside 1..600000 is still sent: the device refuses it in its own words, and a
-      // min/max the page enforced would replace that sentence with the browser's.
-      request.timeout_ms = wantedTimeout;
-    }
-
-    setRunning(true);
-    setRunError(null);
-    setCopied(null);
-    try {
-      const finished = JSON.parse(
-        await callTool(grant, "runs.exec", request)
-      ) as RunResult;
-      if (runGate.stale(ticket)) return;
-      // Show the run before the re-read: a history read that fails afterwards must not make a
-      // successful run look like it did not happen.
-      setResult(finished);
-      await read();
-    } catch (cause) {
-      if (runGate.stale(ticket)) return;
-      // The last result stays where it is: a failed run says nothing about the one that did run.
-      setRunError(runFailure(cause));
-      // A console timeout is not a device refusal — the row may already have been written for a
-      // command the console stopped waiting on, so the history is read again instead of left stale.
-      await read();
-    } finally {
-      if (!runGate.stale(ticket)) {
-        runningRef.current = false;
-        setRunning(false);
-      }
-    }
-  };
 
   const show = async (row: RunRecord) => {
     if (detailId !== null) return;
@@ -255,178 +155,18 @@ export function RunsPage({
 
   showRef.current = show;
 
-  const copyStream = async (which: "stdout" | "stderr", text: string) => {
-    if (await copyText(text)) setCopied(which);
-  };
-
   const copyCommand = async (text: string) => {
     if (await copyText(text)) setCopied("command");
   };
 
   return (
     <div className="runs-page">
-      {/*
-        `noValidate`: the device owns the bounds. Its refusal — an empty command, a timeout outside
-        1..600000 — is the sentence worth showing, and the browser's would replace it.
-      */}
-      <form className="runs-form" noValidate onSubmit={(event) => void run(event)}>
-        <div className="runs-field command">
-          <label htmlFor="runs-command">Command</label>
-          <input
-            id="runs-command"
-            value={command}
-            onChange={(event) => setCommand(event.target.value)}
-            placeholder={shell ? "echo hello && echo bye" : "echo hello"}
-            autoComplete="off"
-            spellCheck={false}
-          />
-          <span className="field-help">
-            {shell ? "Run through the platform shell." : "Split on whitespace; no quoting."}
-          </span>
-        </div>
-        <div className="runs-field cwd">
-          <label htmlFor="runs-cwd">Working directory (optional)</label>
-          <input
-            id="runs-cwd"
-            value={cwd}
-            onChange={(event) => setCwd(event.target.value)}
-            placeholder="relative to the files root"
-            autoComplete="off"
-            spellCheck={false}
-          />
-          <span className="field-help">Relative to the files root; not a jail.</span>
-        </div>
-        <div className="runs-field timeout">
-          <label htmlFor="runs-timeout">Timeout (ms)</label>
-          <input
-            id="runs-timeout"
-            type="number"
-            min={1}
-            max={MAX_TIMEOUT_MS}
-            step={1000}
-            value={timeoutMs}
-            onChange={(event) => setTimeoutMs(event.target.value)}
-          />
-          <span className="field-help">1 to {MAX_TIMEOUT_MS} ms; default {DEFAULT_TIMEOUT_MS}.</span>
-        </div>
-        <label className="check runs-shell">
-          <input
-            type="checkbox"
-            checked={shell}
-            onChange={(event) => setShell(event.target.checked)}
-          />
-          Through the shell
-        </label>
-        <button
-          type="submit"
-          className="primary"
-          disabled={running || offline}
-          title={offline ? "The machine is offline; a command can run when it reconnects" : undefined}
-        >
-          {running ? "Running…" : "Run"}
-        </button>
-      </form>
-
-      {running && (
-        <p className="hint">
-          Running on the device… runs.exec does not return until the command finishes or the timeout
-          kills it, and the form stays disabled until it does.
-        </p>
-      )}
-      {runError && <p className="error">{runError}</p>}
-      {runError && result && (
-        <p className="hint">
-          The result below is from the last run that finished; this attempt did not replace it.
-        </p>
-      )}
-
-      {result && (
-        <section className="card runs-result">
-          <header>
-            <strong>Result</strong>
-            <span className="mono muted" title="run id">
-              {result.id}
-            </span>
-          </header>
-          <dl className="facts">
-            <div>
-              <dt>Exit</dt>
-              <dd>{exitSentence(result)}</dd>
-            </div>
-            <div>
-              <dt>Duration</dt>
-              <dd>{spellDuration(result.duration_ms)}</dd>
-            </div>
-            <div>
-              <dt>Output</dt>
-              <dd>{result.truncated ? "truncated" : "complete"}</dd>
-            </div>
-            <div>
-              <dt>History</dt>
-              <dd>{result.history_recorded ? "recorded" : "not recorded"}</dd>
-            </div>
-          </dl>
-          {result.truncated && (
-            <p className="hint">
-              The device kept the head of each stream (1 MiB) and drained the rest, so the output
-              below is cut, not complete.
-            </p>
-          )}
-          {!result.history_recorded && (
-            <p className="hint">
-              The command ran and its output is below, but its history row could not be written; the
-              device's events log carries the failure.
-            </p>
-          )}
-          <div className="runs-streams">
-            <div className="runs-stream">
-              <div className="runs-stream-head">
-                <h3>stdout</h3>
-                {result.stdout !== "" && (
-                  <button
-                    type="button"
-                    className="mini"
-                    onClick={() => void copyStream("stdout", result.stdout)}
-                  >
-                    {copied === "stdout" ? "Copied" : "Copy stdout"}
-                  </button>
-                )}
-              </div>
-              {result.stdout === "" ? (
-                <p className="hint">(no stdout)</p>
-              ) : (
-                <pre>{result.stdout}</pre>
-              )}
-            </div>
-            <div className="runs-stream">
-              <div className="runs-stream-head">
-                <h3>stderr</h3>
-                {result.stderr !== "" && (
-                  <button
-                    type="button"
-                    className="mini"
-                    onClick={() => void copyStream("stderr", result.stderr)}
-                  >
-                    {copied === "stderr" ? "Copied" : "Copy stderr"}
-                  </button>
-                )}
-              </div>
-              {result.stderr === "" ? (
-                <p className="hint">(no stderr)</p>
-              ) : (
-                <pre>{result.stderr}</pre>
-              )}
-            </div>
-          </div>
-        </section>
-      )}
-
       <div className="runs-history-head">
         <p className="hint">{historyNote}</p>
         <button
           type="button"
           className="mini"
-          disabled={loadingHistory || running || offline}
+          disabled={loadingHistory || offline}
           title={offline ? "The machine is offline; the history refreshes when it reconnects" : undefined}
           onClick={() => void read()}
         >
@@ -461,7 +201,8 @@ export function RunsPage({
           <p className="hint">
             This is the record the history kept. The device stores each stream's size, not its
             bytes, so a past run has no stdout or stderr to fetch: output is shown only for a run
-            this page has just made, and every earlier run's output is gone.
+            that has just finished under Tools → Run a command, and every earlier run's output is
+            gone.
           </p>
           <dl className="facts">
             <div>
@@ -540,66 +281,15 @@ export function RunsPage({
   );
 }
 
-/** A row's command, shortened for the table; the full line is the button's title and the detail. */
-function shortCommand(line: string): string {
-  const one = line.replace(/\s+/g, " ").trim();
-  return one.length <= 110 ? one : one.slice(0, 109) + "…";
-}
-
-/// A history row's command line: a shell line as it was, or an argv array quoted only where a word
-/// would otherwise split. The history does not record whether the shell was used, so this is a
-/// readable spelling of the row, not a reconstruction of the request.
-function commandLine(row: RunRecord): string {
-  if (row.args.length === 0) return row.command;
-  return [row.command, ...row.args]
-    .map((part) => (/[\s"']/.test(part) ? JSON.stringify(part) : part))
-    .join(" ");
-}
-
-/// The exit as one phrase. A timed-out run and a run killed by a signal both have no exit code, and
-/// the timeout is the one the page can name.
-function exitSentence(run: { exit_code: number | null; timed_out: boolean }): string {
-  if (run.timed_out) return "timed out";
-  if (run.exit_code === null) return "no exit status";
-  return "exit " + String(run.exit_code);
-}
-
-/// The chip that colours the same phrase: 0 is success, any other exit is a failure, and a run with
-/// no exit status (a timeout or a signal) is neither.
-function exitChip(run: { exit_code: number | null; timed_out: boolean }): string {
-  if (run.timed_out || run.exit_code === null) return "chip chip-warn";
-  return "chip " + (run.exit_code === 0 ? "chip-ok" : "chip-bad");
-}
-
-/// "42 ms", "1.5 s", "2m 03s" — a duration, read at a glance next to a byte count.
-function spellDuration(ms: number): string {
-  if (ms < 1000) return `${ms} ms`;
-  if (ms < 60_000) {
-    const seconds = (ms / 1000).toFixed(2).replace(/\.?0+$/, "");
-    return `${seconds} s`;
-  }
-  const seconds = Math.floor(ms / 1000);
-  const minutes = Math.floor(seconds / 60);
-  return `${minutes}m ${String(seconds % 60).padStart(2, "0")}s`;
-}
-
-
-
-/// "0 B", "812 B", "4.2 KB", "1.0 MB" — the history stores bytes, so the row reports them as such.
-function bytes(count: number): string {
-  if (count < 1024) return `${count} B`;
-  if (count < 1024 * 1024) return `${(count / 1024).toFixed(1)} KB`;
-  return `${(count / (1024 * 1024)).toFixed(1)} MB`;
-}
-
 function historyNoteFor(rows: RunRecord[]): string {
   if (rows.length === 0) {
     // `HISTORY_LIMIT` is this page's request, not the device's retention: the device keeps
     // `HISTORY_LINES` (10_000, device/device/src/capabilities/runs.rs) and can answer up to 100
-    // rows per read. Saying it keeps "the last 20" was false; the empty state names the request.
+    // rows per read. Saying it keeps "the last 20" was false; the empty state names the request and
+    // the page that now makes a run.
     return (
-      "No runs yet on this machine. Run a command in the form above; this page asks for the newest " +
-      `${HISTORY_LIMIT} runs, and the machine keeps more history than that.`
+      "No runs yet on this machine. Run one from Tools → Run a command; this page asks for the " +
+      `newest ${HISTORY_LIMIT} runs, and the machine keeps more history than that.`
     );
   }
   const noun = rows.length === 1 ? "run" : "runs";
@@ -610,27 +300,4 @@ function historyNoteFor(rows: RunRecord[]): string {
       ? `The newest ${HISTORY_LIMIT} ${noun}`
       : `${rows.length} recent ${noun}`;
   return `${count}, newest first. Choose a command to read its record.`;
-}
-
-/// The sentence for a failed `runs.exec`. A console timeout is not a device refusal: the proxy
-/// stopped waiting for an answer while the command may still be running, and its history row can
-/// land later. Every other failure is the device's own sentence.
-function runFailure(cause: unknown): string {
-  const sentence = message(cause);
-  // Two console answers mean "I stopped waiting", and neither is the device refusing: the proxy's own
-  // backstop (`device timeout`) and the channel's answer bound (`device did not answer`). The command
-  // is not cancelled by either — it keeps running on the device and its history row lands when it ends.
-  if (sentence === "device timeout" || sentence === "device did not answer") {
-    return (
-      "The console stopped waiting for the device: the command may still be running there, and its " +
-      "history row may appear when it finishes. Refresh the history to look for it."
-    );
-  }
-  if (cause instanceof ToolError && cause.status === 502) {
-    return (
-      "The device disconnected before the console heard the result: the command may have run. " +
-      "Check the history before running it again."
-    );
-  }
-  return "Could not run the command: " + sentence;
 }

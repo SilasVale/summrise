@@ -2,12 +2,11 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { RunsPage } from "./RunsPage";
 import { copyText } from "./copy";
-import { callTool, ToolError, type Grant } from "./terminal";
+import { callTool, type Grant } from "./terminal";
 
 vi.mock("./copy", () => ({ copyText: vi.fn().mockResolvedValue(true) }));
 
-// The page's whole device surface is `callTool`; the real `ToolError` stays so a refusal is the class
-// the page actually receives from `./terminal`.
+// The page's whole device surface is `callTool`; the module's other exports are kept as they are.
 vi.mock("./terminal", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./terminal")>();
   return { ...actual, callTool: vi.fn() };
@@ -17,7 +16,7 @@ const mocked = vi.mocked(callTool);
 
 const GRANT: Grant = { deviceId: "device-1", envelope: { token: "envelope" } };
 
-// The page's `RunRecord`/`RunResult` are private; these are their wire shapes, not a second definition.
+// The page's `RunRecord` is private; this is its wire shape, not a second definition.
 type RunRecord = {
   id: string;
   command: string;
@@ -29,17 +28,6 @@ type RunRecord = {
   started_at_ms: number;
   stdout_bytes: number;
   stderr_bytes: number;
-};
-
-type RunResult = {
-  id: string;
-  exit_code: number | null;
-  timed_out: boolean;
-  duration_ms: number;
-  stdout: string;
-  stderr: string;
-  truncated: boolean;
-  history_recorded: boolean;
 };
 
 const HELLO: RunRecord = {
@@ -68,19 +56,8 @@ const CARGO: RunRecord = {
   stderr_bytes: 12
 };
 
-const RESULT: RunResult = {
-  id: "run-3",
-  exit_code: 0,
-  timed_out: false,
-  duration_ms: 12,
-  stdout: "hello\n",
-  stderr: "",
-  truncated: false,
-  history_recorded: true
-};
-
 const EMPTY_NOTE =
-  "No runs yet on this machine. Run a command in the form above; this page asks for the newest " +
+  "No runs yet on this machine. Run one from Tools → Run a command; this page asks for the newest " +
   "20 runs, and the machine keeps more history than that.";
 
 /// The calls made to one tool, as `[grant, name, args]` triples, in the order the page made them.
@@ -100,21 +77,31 @@ describe("RunsPage", () => {
       screen.getByText("The machine is offline; its run history cannot be read until it reconnects.")
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Refresh history" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Run" })).toBeDisabled();
   });
 
-  it("says there are no runs yet and names the form that makes one", async () => {
+  it("is the history only: no command field, no Run button and no runs.exec", async () => {
+    mocked.mockResolvedValue(JSON.stringify([HELLO]));
+
+    render(<RunsPage grant={GRANT} />);
+
+    expect(await screen.findByText("echo hello")).toBeInTheDocument();
+    // THE FORM MOVED TO TOOLS. A history page that still carried a second way to run a command
+    // would be the place the item deleted; this proves the page has neither the field nor the call.
+    expect(screen.queryByLabelText("Command")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Run" })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/Working directory/)).not.toBeInTheDocument();
+    expect(called("runs.exec")).toHaveLength(0);
+  });
+
+  it("says there are no runs yet and points at Tools → Run a command", async () => {
     mocked.mockResolvedValue(JSON.stringify([]));
 
     render(<RunsPage grant={GRANT} />);
 
-    expect(
-      await screen.findByText(
-        "No runs yet on this machine. Run a command in the form above; this page asks for the " +
-          "newest 20 runs, and the machine keeps more history than that."
-      )
-    ).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Run" })).toBeInTheDocument();
+    expect(await screen.findByText(EMPTY_NOTE)).toBeInTheDocument();
+    expect(EMPTY_NOTE).toContain("Tools → Run a command");
+    // The empty state names the page that now makes a run, not a form this page no longer has.
+    expect(screen.queryByRole("button", { name: "Run" })).not.toBeInTheDocument();
   });
 
   it("lists the history with each row's command, exit and bytes, and Refresh history asks again", async () => {
@@ -214,112 +201,6 @@ describe("RunsPage", () => {
     expect(consumed).toHaveBeenCalled();
   });
 
-  it("runs an argv line as command plus args, shows the result and reads the history again", async () => {
-    let lists = 0;
-    mocked.mockImplementation(async (_grant, name) => {
-      if (name === "runs.list") {
-        lists += 1;
-        // The first read is the page's mount; the second is the one after the run.
-        return JSON.stringify(lists === 1 ? [] : [HELLO]);
-      }
-      if (name === "runs.exec") return JSON.stringify(RESULT);
-      throw new Error(`the test did not expect a ${name} call`);
-    });
-
-    render(<RunsPage grant={GRANT} />);
-    await screen.findByText(EMPTY_NOTE);
-
-    fireEvent.change(screen.getByLabelText("Command"), { target: { value: "echo hello" } });
-    fireEvent.click(screen.getByRole("button", { name: "Run" }));
-
-    await waitFor(() => expect(called("runs.exec")).toHaveLength(1));
-    // The page's request, not the row the device writes: the timeout is the form's 60000 default.
-    expect(called("runs.exec")[0]).toEqual([
-      GRANT,
-      "runs.exec",
-      { command: "echo", args: ["hello"], timeout_ms: 60_000 }
-    ]);
-
-    const result = (await screen.findByText("Result")).closest("section") as HTMLElement;
-    expect(result).not.toBeNull();
-    expect(within(result).getByText("exit 0")).toBeInTheDocument();
-    expect(within(result).getByText("recorded")).toBeInTheDocument();
-    expect(within(result).getByText("hello")).toBeInTheDocument();
-    fireEvent.click(within(result).getByRole("button", { name: "Copy stdout" }));
-    await waitFor(() => expect(copyText).toHaveBeenCalledWith("hello\n"));
-    expect(within(result).getByRole("button", { name: "Copied" })).toBeInTheDocument();
-
-    // The run's row arrives only from the re-read the page does after a successful run.
-    expect(await screen.findByText("echo hello")).toBeInTheDocument();
-    expect(
-      screen.getByText("1 recent run, newest first. Choose a command to read its record.")
-    ).toBeInTheDocument();
-    expect(called("runs.list")).toHaveLength(2);
-  });
-
-  it("sends a shell line whole when Through the shell is ticked", async () => {
-    mocked.mockImplementation(async (_grant, name) => {
-      if (name === "runs.list") return JSON.stringify([]);
-      if (name === "runs.exec") return JSON.stringify(RESULT);
-      throw new Error(`the test did not expect a ${name} call`);
-    });
-
-    render(<RunsPage grant={GRANT} />);
-    await screen.findByText(EMPTY_NOTE);
-
-    // Ticking the box changes the page's own wording around the line; the line itself goes whole.
-    fireEvent.click(screen.getByLabelText("Through the shell"));
-    expect(screen.getByPlaceholderText("echo hello && echo bye")).toBeInTheDocument();
-    fireEvent.change(screen.getByLabelText("Command"), {
-      target: { value: "echo a && echo b" }
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Run" }));
-
-    await waitFor(() => expect(called("runs.exec")).toHaveLength(1));
-    expect(called("runs.exec")[0][2]).toEqual({
-      command: "echo a && echo b",
-      shell: true,
-      timeout_ms: 60_000
-    });
-  });
-
-  it("sends a typed working directory trimmed, and no cwd key when the box is empty", async () => {
-    mocked.mockImplementation(async (_grant, name) => {
-      if (name === "runs.list") return JSON.stringify([]);
-      if (name === "runs.exec") return JSON.stringify(RESULT);
-      throw new Error(`the test did not expect a ${name} call`);
-    });
-
-    render(<RunsPage grant={GRANT} />);
-    await screen.findByText(EMPTY_NOTE);
-
-    fireEvent.change(screen.getByLabelText("Command"), { target: { value: "echo hi" } });
-    fireEvent.change(screen.getByLabelText("Working directory (optional)"), {
-      target: { value: "  docs  " }
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Run" }));
-
-    await waitFor(() => expect(called("runs.exec")).toHaveLength(1));
-    expect(called("runs.exec")[0][2]).toEqual({
-      command: "echo",
-      args: ["hi"],
-      cwd: "docs",
-      timeout_ms: 60_000
-    });
-
-    // The second run waits for the first to settle, then leaves the box empty.
-    await waitFor(() => expect(screen.getByRole("button", { name: "Run" })).toBeEnabled());
-    fireEvent.change(screen.getByLabelText("Working directory (optional)"), {
-      target: { value: "" }
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Run" }));
-
-    await waitFor(() => expect(called("runs.exec")).toHaveLength(2));
-    const second = called("runs.exec")[1][2];
-    expect(second).toEqual({ command: "echo", args: ["hi"], timeout_ms: 60_000 });
-    expect(second).not.toHaveProperty("cwd");
-  });
-
   it("opens a history row with runs.get and Close returns to the table", async () => {
     const record: RunRecord = {
       ...HELLO,
@@ -364,65 +245,5 @@ describe("RunsPage", () => {
     expect(screen.queryByText("run-2")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "echo hello" })).toBeInTheDocument();
     expect(called("runs.get")).toHaveLength(1);
-  });
-
-  it("shows a device refusal as its own sentence and keeps the previous result", async () => {
-    let runs = 0;
-    mocked.mockImplementation(async (_grant, name) => {
-      if (name === "runs.list") return JSON.stringify([]);
-      if (name === "runs.exec") {
-        runs += 1;
-        if (runs === 1) return JSON.stringify(RESULT);
-        throw new ToolError("the device refused to run it", 200, null, true);
-      }
-      throw new Error(`the test did not expect a ${name} call`);
-    });
-
-    render(<RunsPage grant={GRANT} />);
-    await screen.findByText(EMPTY_NOTE);
-
-    fireEvent.change(screen.getByLabelText("Command"), { target: { value: "echo hello" } });
-    fireEvent.click(screen.getByRole("button", { name: "Run" }));
-    expect(await screen.findByText("Result")).toBeInTheDocument();
-    await waitFor(() => expect(screen.getByRole("button", { name: "Run" })).toBeEnabled());
-
-    fireEvent.change(screen.getByLabelText("Command"), { target: { value: "false" } });
-    fireEvent.click(screen.getByRole("button", { name: "Run" }));
-
-    expect(
-      await screen.findByText("Could not run the command: the device refused to run it")
-    ).toBeInTheDocument();
-    // The failed attempt did not replace the run that did finish; the page says so in its own words.
-    expect(screen.getByText("Result")).toBeInTheDocument();
-    expect(screen.getByText("hello")).toBeInTheDocument();
-    expect(
-      screen.getByText(
-        "The result below is from the last run that finished; this attempt did not replace it."
-      )
-    ).toBeInTheDocument();
-    // Both the success and the refusal read the history again: mount, after the run, after the refusal.
-    await waitFor(() => expect(called("runs.list")).toHaveLength(3));
-  });
-});
-
-describe("RunsPage recovery", () => {
-  it("warns that a disconnected run may have executed", async () => {
-    mocked.mockImplementation(async (_grant, name) => {
-      if (name === "runs.list") return JSON.stringify([]);
-      if (name === "runs.exec") throw new ToolError("device disconnected", 502);
-      throw new Error(`the test did not expect a ${name} call`);
-    });
-
-    render(<RunsPage grant={GRANT} />);
-    await screen.findByText(EMPTY_NOTE);
-    fireEvent.change(screen.getByLabelText("Command"), { target: { value: "echo once" } });
-    fireEvent.click(screen.getByRole("button", { name: "Run" }));
-
-    expect(
-      await screen.findByText(
-        "The device disconnected before the console heard the result: the command may have run. " +
-          "Check the history before running it again."
-      )
-    ).toBeInTheDocument();
   });
 });
