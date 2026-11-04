@@ -648,10 +648,6 @@ export function App() {
               setPage("device");
               setTab("machine");
             }}
-            onActivity={() => {
-              setOpenTool(null);
-              setPage("activity");
-            }}
             onBrowser={() => {
               setOpenTool(null);
               setPage("device");

@@ -5,10 +5,10 @@ import { Modal } from "./Modal";
 
 function open(onClose = vi.fn(), busy = false) {
   return render(
-    <Sheet title="Try a tool" onClose={onClose} busy={busy}>
+    <Sheet title="Edit a setting" onClose={onClose} busy={busy}>
       <label htmlFor="path">Path</label>
       <input id="path" defaultValue="" />
-      <button type="button">Run</button>
+      <button type="button">Save</button>
     </Sheet>
   );
 }
@@ -17,7 +17,7 @@ describe("Sheet", () => {
   it("is a labelled modal, focuses its first control and locks the page behind it", () => {
     const { unmount } = open();
 
-    const dialog = screen.getByRole("dialog", { name: "Try a tool" });
+    const dialog = screen.getByRole("dialog", { name: "Edit a setting" });
     expect(dialog).toHaveAttribute("aria-modal", "true");
     expect(screen.getByLabelText("Path")).toHaveFocus();
     expect(screen.getByTestId("sheet-scrim")).toBeInTheDocument();
@@ -29,30 +29,30 @@ describe("Sheet", () => {
 
   it("focuses the first field even when a mode toggle comes before it", () => {
     render(
-      <Sheet title="Try a tool" onClose={vi.fn()}>
-        <button type="button">Raw JSON</button>
+      <Sheet title="Edit a setting" onClose={vi.fn()}>
+        <button type="button">Advanced</button>
         <label htmlFor="path">Path</label>
         <input id="path" defaultValue="" />
       </Sheet>
     );
 
-    // "Raw JSON" is a way of not filling the form; the form is the job.
+    // "Advanced" is a way of not filling the form; the form is the job.
     expect(screen.getByLabelText("Path")).toHaveFocus();
-    expect(screen.getByRole("button", { name: "Raw JSON" })).not.toHaveFocus();
+    expect(screen.getByRole("button", { name: "Advanced" })).not.toHaveFocus();
   });
 
   it("traps Tab and Shift+Tab inside the sheet", () => {
     open();
     const close = screen.getByRole("button", { name: "Close" });
-    const run = screen.getByRole("button", { name: "Run" });
+    const save = screen.getByRole("button", { name: "Save" });
 
-    run.focus();
+    save.focus();
     fireEvent.keyDown(document, { key: "Tab" });
     expect(close).toHaveFocus();
 
     close.focus();
     fireEvent.keyDown(document, { key: "Tab", shiftKey: true });
-    expect(run).toHaveFocus();
+    expect(save).toHaveFocus();
   });
 
   it("closes on Escape and on a backdrop press, and returns focus to the trigger", async () => {

@@ -1649,8 +1649,8 @@ span.files-name {
 .tool-detail { display: grid; gap: var(--sp-3); min-width: 0; }
 .tool-meta { margin: 0; color: var(--ink-muted); font-size: var(--fs-sm); }
 .chips { display: flex; gap: var(--sp-1); flex-wrap: wrap; }
-.schema, .try { display: grid; gap: var(--sp-2); min-width: 0; }
-.schema h3, .try h3 { margin: 0; font-size: var(--fs-base); font-weight: var(--fw-semi); }
+.schema { display: grid; gap: var(--sp-2); min-width: 0; }
+.schema h3 { margin: 0; font-size: var(--fs-base); font-weight: var(--fw-semi); }
 .schema-fields {
   list-style: none; margin: 0; padding: 0;
   border: 1px solid var(--line); border-radius: var(--radius-sm); overflow: hidden;
@@ -1662,14 +1662,6 @@ span.files-name {
 .schema-fields li:last-child { border-bottom: 0; }
 .schema-help { flex-basis: 100%; color: var(--ink-muted); font-size: var(--fs-sm); }
 .schema-required { color: var(--ink-muted); font-size: var(--fs-xs); font-weight: var(--fw-semi); }
-.try-head { display: flex; align-items: center; gap: var(--sp-2); }
-.try-head h3 { margin-right: auto; }
-button.toggle {
-  border: 1px solid var(--line-strong); background: var(--surface);
-  font-size: var(--fs-xs); padding: var(--sp-1) var(--sp-2);
-}
-button.toggle[aria-pressed="true"] { background: var(--panel-3); font-weight: var(--fw-semi); }
-.form-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr)); gap: var(--sp-3); }
 .field { display: grid; gap: var(--sp-1); align-content: start; font-size: var(--fs-sm); }
 .field-label { font-weight: var(--fw-medium); }
 .field .required { color: var(--ink-muted); font-weight: var(--fw-regular); }
@@ -1681,24 +1673,6 @@ button.toggle[aria-pressed="true"] { background: var(--panel-3); font-weight: va
 }
 .field textarea { min-height: 10rem; resize: vertical; font-family: var(--font-mono); font-size: var(--fs-xs); }
 .field-help { color: var(--ink-muted); font-size: var(--fs-xs); }
-.confirm-run {
-  display: grid; gap: var(--sp-2); padding: var(--sp-3);
-  border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: var(--panel-2);
-}
-.confirm-run p { margin: 0; font-size: var(--fs-sm); }
-.confirm-run .actions { justify-content: flex-end; }
-.result { display: grid; gap: var(--sp-2); min-width: 0; }
-.result-head { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
-.result-head .hint { margin: 0 auto 0 0; }
-.result-pre, .result-error {
-  margin: 0; padding: var(--sp-3); max-height: 40vh; overflow: auto;
-  border: 1px solid var(--line); border-radius: var(--radius-sm);
-  background: var(--panel-2); font-size: var(--fs-xs); line-height: 1.5;
-  white-space: pre-wrap; overflow-wrap: anywhere;
-}
-.result-pre.expanded { max-height: none; }
-.result-error { color: var(--error); }
-.sheet-status { margin-right: auto; color: var(--ink-muted); font-size: var(--fs-sm); }
 
 /* ── Plugins: one row per installed server, and the three focused sheets ─────────────────────── */
 .plugin-list { display: grid; gap: var(--sp-2); min-width: 0; }

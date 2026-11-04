@@ -6,7 +6,7 @@ const FOCUSABLE =
   'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 /**
- * One sheet for every focused job: Connect, Try it, Add plugin, Logs and Remove.
+ * One sheet for every focused job: Connect, Add plugin, Logs, Remove and the tool catalogue.
  *
  * Right drawer at ≥800 px (600 px), bottom sheet between 640 and 799, full screen on a phone. It traps Tab, closes on Escape and a backdrop press (not while `busy`), locks the body,
  * returns focus to the trigger and is labelled by its title. `prefers-reduced-motion` removes the
@@ -21,7 +21,7 @@ export function Sheet({
 }: {
   title: string;
   children: ReactNode;
-  /// The pinned action row. Try it's Run lives here so a long result never pushes it off screen.
+  /// The pinned action row: an action that must never scroll away lives here.
   footer?: ReactNode;
   onClose: () => void;
   /// A running call: Escape, the close button and the backdrop are inert until it answers.
@@ -45,9 +45,9 @@ export function Sheet({
     const items = () =>
       Array.from(dialog?.querySelectorAll<HTMLElement>(FOCUSABLE) ?? []);
     // Focus the job, not the way out: a FIELD if the body has one, then the body's first control,
-    // then the dialog itself. The tool sheet puts its mode toggle ahead of its fields in the markup,
-    // so "first focusable" landed a keyboard user on Raw JSON — a way of not filling the form — while
-    // the form was the job.
+    // then the dialog itself. A control that is not the job (a mode toggle, a way out) can come
+    // first in the markup, and "first focusable" would land a keyboard user on it while the form
+    // was the job.
     const body = dialog?.querySelector(".sheet-body");
     const field = body?.querySelector<HTMLElement>(
       "input:not([disabled]), select:not([disabled]), textarea:not([disabled])"

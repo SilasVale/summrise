@@ -17,7 +17,6 @@ export function CapabilitiesPage({
   onChoose,
   onTool,
   onMachine,
-  onActivity,
   onBrowser
 }: {
   devices: Device[];
@@ -27,7 +26,6 @@ export function CapabilitiesPage({
   onChoose: (id: string) => void;
   onTool: (name: string | null) => void;
   onMachine: () => void;
-  onActivity: () => void;
   onBrowser: () => void;
 }) {
   const live = useLiveTools(device?.id ?? null);
@@ -39,7 +37,6 @@ export function CapabilitiesPage({
   const capabilities = useMemo(() => groupByCapability(live.tools).length, [live.tools]);
   const openTool = tool ? live.tools.find((entry) => entry.name === tool) ?? null : null;
   const missingTool = tool !== null && !live.loading && live.tools.length > 0 && !openTool;
-  const grant = device ? { deviceId: device.id, envelope: null } : null;
   const name = device?.name ?? "";
 
   return (
@@ -179,14 +176,8 @@ export function CapabilitiesPage({
         </>
       )}
 
-      {openTool && grant && (
-        <ToolSheet
-          key={openTool.name}
-          tool={openTool}
-          grant={grant}
-          onClose={() => onTool(null)}
-          onActivity={onActivity}
-        />
+      {openTool && (
+        <ToolSheet key={openTool.name} tool={openTool} onClose={() => onTool(null)} />
       )}
     </div>
   );
