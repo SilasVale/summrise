@@ -228,6 +228,27 @@ describe("TerminalWorkspace tab names", () => {
     expect(callToolMock).toHaveBeenCalledWith(GRANT, "terminal.list", {});
   });
 
+  it("attaches the newest session, not the first one the device lists", async () => {
+    callToolMock.mockImplementation(async (_grant, name) => {
+      if (name === "terminal.list") {
+        // The device answers oldest-first: the shell abandoned an hour ago comes before the one an
+        // AI client started a minute ago. The page attaches to the head of its own list.
+        return JSON.stringify([
+          { id: "old", kind: "pty", started_at_ms: 1_000 },
+          { id: "new", kind: "pty", started_at_ms: 2_000 }
+        ]);
+      }
+      if (name === "terminal.resize") return JSON.stringify({ rows: 24, cols: 80 });
+      if (name === "terminal.read") return JSON.stringify({ data: "", cursor: 0 });
+      throw new Error(`the test did not expect a ${name} call`);
+    });
+    render(<TerminalWorkspace grant={GRANT} />);
+
+    await screen.findByRole("tab", { name: /pty 1/ });
+    const reads = callToolMock.mock.calls.filter(([, name]) => name === "terminal.read");
+    expect(reads[0][2]).toMatchObject({ id: "new" });
+  });
+
   it("reads the session list again when the tab becomes visible", async () => {
     render(<TerminalWorkspace grant={GRANT} />);
     await screen.findByText(/No session is open on this device/);

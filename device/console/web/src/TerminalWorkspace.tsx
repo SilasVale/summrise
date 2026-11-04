@@ -363,7 +363,9 @@ export function TerminalWorkspace({
   const [faults, setFaults] = useState<Record<string, Fault>>({});
   const [status, setStatus] = useState("");
   const [closing, setClosing] = useState<Tab | null>(null);
-  const [available, setAvailable] = useState<{ id: string; kind: string }[]>([]);
+  const [available, setAvailable] = useState<
+    { id: string; kind: string; started_at_ms?: number }[]
+  >([]);
   // The device's session list is read on mount now, not behind an "Attach" click. These are the two
   // states that read has: a request in flight, and the sentence when it failed.
   const [listing, setListing] = useState(true);
@@ -1092,7 +1094,13 @@ export function TerminalWorkspace({
     setListError(null);
     try {
       const answer = JSON.parse(await callTool(grantRef.current, "terminal.list", {}));
-      const sessions: { id: string; kind: string }[] = Array.isArray(answer) ? answer : [];
+      const sessions: { id: string; kind: string; started_at_ms?: number }[] = Array.isArray(answer)
+        ? answer
+        : [];
+      // Newest first. The device lists its sessions oldest-first, and the page attaches to the head:
+      // without this an operator opening the Terminal met the shell they abandoned an hour ago,
+      // while the one an AI client had just started sat at the bottom of the list.
+      sessions.sort((a, b) => (b.started_at_ms ?? 0) - (a.started_at_ms ?? 0));
       setAvailable(sessions);
       if (announce) {
         setStatus(
