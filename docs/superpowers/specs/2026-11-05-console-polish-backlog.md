@@ -8,7 +8,8 @@ Each item ships on its own: the web gates, the console's Rust tests, a live chec
 
 ## P0 — the record of what the AI did
 
-1. **Timeline + evidence** *(in flight)*. One row per action (time, sentence, machine, outcome,
+1. **Timeline + evidence** *(code complete 2026-11-04; deployment blocked by the device outage —
+   see 2026-11-04-device-outage.md; ship the console as soon as a host answers).* One row per action (time, sentence, machine, outcome,
    duration); a click opens the evidence (command, output tail, session, links). The audit table
    stays behind the `Table` toggle.
 2. **Screenshots as evidence.** A `screen.capture` call keeps its last image in console memory
@@ -17,8 +18,14 @@ Each item ships on its own: the web gates, the console's Rust tests, a live chec
 3. **The session card.** The Terminal page shows the session before the terminal: machine, shell,
    how long it has been open, the last command, the last few lines, and one button to attach. The
    raw terminal is what you get after that card, not the first thing.
-4. **Home stops leading with the endpoint.** The hub becomes this machine's live page: Now (presence,
+4. **Home stops leading with the endpoint** *(in flight)*. The hub becomes this machine's live page: Now (presence,
    rate, last steps), today's timeline, the session preview. The endpoint lives in the Connect sheet.
+
+## Blocked on 2026-11-04
+
+The device fleet is offline after canary `0.3.272`; the console is healthy but every deploy needs a
+host's `runs.exec`. Code-only work continues; nothing ships until a device answers. The console build
+`0.3.272-ux37` (timeline + evidence + review fixes) is green and queued.
 
 ## P1 — the console stops feeling like a configuration tool
 
