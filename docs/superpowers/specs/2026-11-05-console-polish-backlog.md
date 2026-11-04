@@ -29,6 +29,11 @@ The device fleet is offline after canary `0.3.272`; the console is healthy but e
 host's `runs.exec`. Code-only work continues; nothing ships until a device answers. The console build
 `0.3.272-ux37` (timeline + evidence + review fixes) is green and queued.
 
+5. **The device's own panel gets the same record.** The panel the device serves
+   (`device/device/src/panel.rs`, reachable on the machine and from the console's Screen page) still
+   shows raw tables. It should show the same day-grouped timeline — the device already has the audit
+   and every call it serves, so this is device-side work and ships with a device release, never alone.
+
 ## P1 — the console stops feeling like a configuration tool
 
 5. **Activity filters become chips.** Machine chips and a search field; the time-range select, the
