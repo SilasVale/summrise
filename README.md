@@ -72,8 +72,9 @@ Linux `cargo test` proves the portable half. `--windows` compiles the Windows-on
 it proves they build, not that they pass.
 
 The console page is **React 19** (`device/console/web`). Vite builds it into one self-contained HTML
-file, `summrise-console` embeds that file with `include_str!`, and `/` serves it. `/next` is the Rust
-fallback that redeems a login code; it is not the operator's normal path. There is no Node at runtime.
+file, `summrise-console` embeds that file with `include_str!`, and `/` serves it. `GET /next` is a
+303 shim that redeems a login code (`?code=…`, printed by `--login-link`) and hands the browser to the
+React page; the maud pages behind it were deleted on 2026-11-04. There is no Node at runtime.
 
 ```bash
 cd device/console/web
@@ -246,7 +247,6 @@ The design is a record, not a wiki page: each document states a decision and wha
 - `docs/superpowers/specs/` — the designs and decisions, including the ones that were reversed.
 - `device/console/web/` — the React page and its screenshot harness; the built `dist/index.html` is
   committed and embedded in the console binary.
-- `device/console/src/http/page.rs` — the maud fallback at `/next`, kept for login-code redemption.
 - `device/device/src/panel.rs` — the device's own panel, rendered in Rust from the same design tokens.
 
 ## License

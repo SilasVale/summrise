@@ -22,8 +22,7 @@ use wry::WebViewBuilder;
 use crate::health::{self, State};
 use crate::helper;
 
-/// Where the product console lives: the 0.3.4x console (fleet, terminal, `/next`), not the legacy
-/// SPA. The shell and the device sit on the same tailnet; a public hostname, when there is one, is
+/// Where the product console lives: the 0.3.4x console (fleet, terminal), not the legacy SPA. The shell and the device sit on the same tailnet; a public hostname, when there is one, is
 /// the console's to publish.
 const CONSOLE: &str = "http://100.74.250.98:7736/";
 /// Where the device's own panel lives: what works when the console does not. This is the product's

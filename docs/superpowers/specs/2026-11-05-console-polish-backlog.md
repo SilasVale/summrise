@@ -65,13 +65,13 @@ workstream owns; each one ships with the same gates as a feature.
 - **C1. The hub's endpoint hero.** *(Done 2026-11-04, f6ff6aa.)* The machine page leads with an URL and a Copy button while the
   Connect sheet already owns that job. Delete the hero; the sheet is the only place the endpoint
   appears. *(P0-4 covers the page; C1 is the deletion.)*
-- **C2. The Activity filter bar in the timeline view.** Six controls (scope, time, device, token,
+- **C2. The Activity filter bar in the timeline view.** *(Done 2026-11-04, e918981: machine chips and a search on the timeline, the six controls table-only, the shared state survives a switch.)* Six controls (scope, time, device, token,
   search, status) belong to the table. The timeline gets machine chips and a search field; the rest
   moves behind `Table`. *(P1-5.)*
 - **C3. The tool sheet's "Try it" panel.** *(Done 2026-11-04: 634c438 removed the panel, ce4602d the helpers only it used.)* A browser that can invoke any tool with raw JSON is a
   developer toy with the operator's full authority; Capabilities is a catalogue, not a REPL. Delete
   the panel, keep the catalogue. *(Revisit: the operator may want it under a "Developer" sheet.)*
-- **C4. The legacy server-rendered pages under `/next`.** They predate the React console and the
+- **C4. The legacy server-rendered pages under `/next`.** *(Done 2026-11-04, cec8b28: 55 routes, 7002 lines of page.rs, 91 HTML-only tests, maud and six page-only assets deleted; `GET /next` kept as a 303 shim because `--login-link` prints `?code=` and the React page does not redeem it.)* They predate the React console and the
   React page is `/`. Measure what still links to them before deleting; if nothing does, the routes
   and `page.rs` go in one commit. *(Needs the measurement first — not tonight.)*
 - **C5. Fleet tokens as a second minting place.** One credential list with a scope column replaces

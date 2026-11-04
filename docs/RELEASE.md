@@ -662,7 +662,7 @@ deletes it as the receipt.
 | path | through the tunnel | why |
 |---|---|---|
 | `/` | 302 to Cloudflare Access | the console is the operator's, not the internet's |
-| `/next` | 302 to Cloudflare Access | the Rust sign-in and fleet page; the same operator policy as `/` |
+| `/next` | 302 to Cloudflare Access | a 303 shim that redeems a login code and redirects to `/`; the maud pages are gone |
 | `/health` | 302 to Cloudflare Access | same: it names the build and the device count |
 | `/devices` | reaches the console, 401 without a session | the device channel uses this path and bypasses Access |
 | `/mcp/<device-id>` | its own Access application (`/mcp/*`, not the exact `/mcp`): bypass, or a service token; the console still requires the grant | the standard MCP endpoint an AI client uses; see `CONNECT-MCP.md` |
@@ -698,8 +698,9 @@ destinations without a live console:
 node device/console/web/scripts/screenshot.mjs <tag>
 ```
 
-The maud fallback at `/next` (login-code redemption) keeps its own renderer and assets; it is not
-the operator's path. Its screenshots are still produced by `scripts/console-screenshots.bash`.
+`GET /next` is a 303 shim for login-code redemption (`?code=…`); it renders nothing. The maud pages,
+assets and tests behind it were deleted on 2026-11-04, and the screenshots of the operator's pages
+come from the React page's own harness (`device/console/web/scripts/screenshot.mjs`).
 
 ## Rolling back
 
