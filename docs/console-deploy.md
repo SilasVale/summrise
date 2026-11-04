@@ -5,6 +5,44 @@
 > the served page was the committed `dist/index.html` byte for byte, and the real terminal, plugin and
 > live-catalogue checks passed. `0.3.246` is kept below as the previous baseline.
 
+## The interim path (measured 2026-11-04)
+
+**The procedure below cannot run on this box as written.** Measured today: `cargo-xwin` is not
+installed, nothing serves `100.85.163.159:18100` (`/tmp/canary-mirror` still holds installer images),
+and the console builds shipped from `0.3.271-ux17` through `0.3.271-ux31` were made for
+`x86_64-pc-windows-gnu`, not `x86_64-pc-windows-msvc`. Restore the tool and the mirror and the runbook
+applies again unchanged.
+
+Until then, a deploy is three steps on this side and one on the host:
+
+```bash
+cd device
+SUMMRISE_BUILD_VERSION=<version> cargo build --release -p summrise-console --target x86_64-pc-windows-gnu
+sha256sum target/x86_64-pc-windows-gnu/release/summrise-console.exe
+mkdir -p /tmp/console-deploy
+cp target/x86_64-pc-windows-gnu/release/summrise-console.exe /tmp/console-deploy/summrise-console-<version>.exe
+(cd /tmp/console-deploy && nohup python3 -m http.server 8099 --bind 100.85.163.159 &)
+```
+
+On the host, fetch the binary through the device's `runs.exec` and check the digest:
+
+```powershell
+$dst='C:\SummriseConsole\summrise-console.exe.new'; if (Test-Path $dst) { Remove-Item $dst -Force }
+curl.exe -fsS --retry 2 -o $dst http://100.85.163.159:8099/summrise-console-<version>.exe
+' sha=' + (Get-FileHash $dst -Algorithm SHA256).Hash.ToLower()
+```
+
+Then swap it from a **detached** process, because the swap stops the task that serves the shell it was
+started from: `schtasks /end /tn SummriseConsole`, copy the live binary to
+`summrise-console.exe.bak-<previous>`, `Move-Item` the `.new` over it, `schtasks /run`, sleep eight
+seconds, and append `curl /health` to `C:\SummriseConsole\swap-<version>.log`. Poll `/health` from
+Linux until it names the new version.
+
+**What this path does not do:** it skips `scripts/build-web.sh --check`, the dirty-tree refusal and the
+SHA-256 check the `.cmd` performs before touching the live binary. From the repository root, run
+`scripts/build-web.sh --check` by hand before the build, and compare the digest the host reports with
+the one `sha256sum` printed; nothing here verifies that `HEAD` contains `origin/main`.
+
 ## Why the console deploys differently from a device
 
 Three version streams ship from this repository and none of them is deployed by the same act:
