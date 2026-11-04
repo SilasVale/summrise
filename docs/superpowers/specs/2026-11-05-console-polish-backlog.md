@@ -46,7 +46,7 @@ host's `runs.exec`. Code-only work continues; nothing ships until a device answe
 
 ## P2 — consolidation, then polish
 
-9. **Capabilities and Plugins become one Tools tab** under the machine. One place answers "what can
+9. **Capabilities and Plugins become one Tools tab** under the machine. *(Done 2026-11-04, 695be48: the rail is Home · Activity · Device; Tools sits in the machine's tabs; `ToolCatalogue` and `PluginList` are two sections of it; `#capabilities`/`#plugins` map to it.)* One place answers "what can
    this machine do", with plugins as a section of the same answer.
 10. **The Runs page's exec form moves** under Tools; Runs becomes the history, not a second way to
     run a command.

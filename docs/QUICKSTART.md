@@ -50,10 +50,9 @@ Sign in with the operator token (the page keeps its bearer in memory; a reload a
 Home is the fleet until a machine is chosen: one row per machine, its build and when it was last
 seen. Choose the machine; Home becomes the hub.
 
-The hub screen states the three facts in order: **Running** (or **Offline**) with the build, the
-endpoint, and the tool counts. The two actions are **Connect a client** (accent) and **Add a
-capability** (quiet, to Plugins). Recent calls are the last three rows; **All activity** is the full
-record.
+The hub screen states the facts in order: **Running** (or **Offline**) with the build, today's
+timeline for this machine, and the tool counts. The one action is **Connect a client** (the endpoint
+lives in that sheet, nowhere else). **All activity** is the full record.
 
 ## 4. Connect a client
 
@@ -123,8 +122,9 @@ curl -sS -X POST "$ENDPOINT" \
 **Activity** with its tool, token, device and result. Open **Device → Terminal** to see the same
 session and take the keyboard back.
 
-You can also skip the client for a first look: **Capabilities** lists every tool the machine
-advertises, and **Try it** runs one from a form generated from its schema.
+You can also skip the client for a first look: **Device → Tools** lists every tool the machine
+advertises with its schema. To call one, mint a token for it in **Connect → Tokens** and use a client;
+the console does not run tools from the catalogue.
 
 ## 6. Add a plugin
 
@@ -138,15 +138,15 @@ on the device; its tools appear behind the same endpoint, under the same token, 
    Copy-Item -Recurse examples\plugins\hello C:\SummrisePlugin\hello
    ```
 
-2. In the console, **Plugins → Add plugin**, paste `C:\SummrisePlugin\hello`. The path field calls
+2. In the console, **Device → Tools → Plugins → Add plugin**, paste `C:\SummrisePlugin\hello`. The path field calls
    `plugins.inspect`, which reads the manifest and starts nothing; **Add and run** stays disabled
    until the path is valid. The trust sentence is above the button:
 
    > This runs the plugin's code with this machine's privileges. Install only code you trust.
 
-3. The row shows **Running**, its namespace and its tool count. In **Capabilities**, click
-   `hello.greet`, then **Try it** with `{"name":"Ada"}`. It returns `hi, Ada!`, and Activity records
-   `hello.greet`.
+3. The row shows **Running**, its namespace and its tool count. The same page's catalogue lists
+   `hello.greet` with its schema; a client with a token that carries it calls it, and Activity records
+   the call.
 
 **Remove** forgets the plugin and stops its process; it never deletes `C:\SummrisePlugin\hello`. The
 full contract is [`PLUGINS.md`](PLUGINS.md). On the console host,
@@ -188,5 +188,5 @@ Authorization: Bearer <contents of C:\ProgramData\Summrise\token>
 | `503` with `retry_after_ms` | The device has no open channel or its queue is full — offline, between reconnects, or busy. Retry after that many milliseconds; the machine's row in Home says whether it is back. |
 | The machine says **offline** right after enrolment | The console link is built at boot: restart `SummriseLaunch` (the commands in step 2). |
 | The machine stays **offline** after the restart | The device cannot reach the console over outbound HTTPS, or enrolment did not complete. **Last seen** is the last contact, and the retry sentence is one attempt behind, because a device cannot report the connection that failed. |
-| `PLUGIN_TIMEOUT` from a plugin tool | The plugin did not answer inside 120 s. The call may still be running; read the plugin's log in **Plugins → Logs**, then retry. |
+| `PLUGIN_TIMEOUT` from a plugin tool | The plugin did not answer inside 120 s. The call may still be running; read the plugin's log in **Tools → Plugins → Logs**, then retry. |
 | Plugins says the machine needs a newer Summrise | The device build has no plugin host. The endpoint and the built-ins still work; update the device to add plugins. |

@@ -26,15 +26,13 @@ The hub is the device runtime:
 - **`summrise-shell`** is the tray process in the user's session: the icon, the console window, and
   the helper the device calls to launch Chrome or capture that session's screen.
 
-The console is one hub per machine, with five destinations:
+The console is one hub per machine, with three destinations:
 
 | Destination | What it is |
 |---|---|
-| **Home** | The hub at a glance: running, the endpoint, the tool counts, the next action. Before a machine is chosen it is the fleet. |
-| **Capabilities** | Every tool the device advertises — built-in and plugin — grouped by capability, with its schema and **Try it**. |
-| **Plugins** | Install, watch, restart and remove the capabilities that are not built in. |
-| **Activity** | The record: every call, its token, its device and its result. |
-| **Device** | The operator's hands: Terminal · Screen · Files · Runs · Machine, as one workspace. |
+| **Home** | The hub at a glance: running, today's timeline for this machine, the tool counts, the one action that connects a client. Before a machine is chosen it is the fleet. |
+| **Activity** | The record: every call, its sentence, its device and its result; a row opens the evidence behind it. |
+| **Device** | The operator's hands and the machine's own answer: Terminal · Screen · Files · Runs · **Tools** · Machine, as one workspace. **Tools** is the whole catalogue — built-in and plugin, grouped by capability — with the plugin list as a section of the same page. |
 
 **Connect is a sheet, not a destination**: Endpoint, Clients, Tokens. It opens from Home, Device and
 the account menu. The account menu holds the console version, the console URL, the docs link, the

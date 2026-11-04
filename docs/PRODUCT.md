@@ -74,15 +74,15 @@ Five promises, in the order an operator feels them. Each names the code that kee
 
 The console is one hub per machine, not a control panel of features:
 
-**Home · Capabilities · Plugins · Activity · Device**
+**Home · Activity · Device**
 
-- **Home** is the hub at a glance: running, the endpoint, what the AI can do, the next action. Before a
-  machine is chosen it is the fleet.
-- **Capabilities** is every tool the device advertises — built-in and plugin — grouped by capability,
-  with a schema and **Try it**.
-- **Plugins** installs, watches, restarts and removes the capabilities that are not built in.
-- **Activity** is the record: every call, its token, its device and its result.
-- **Device** is the operator's hands: Terminal · Screen · Files · Runs · Machine.
+- **Home** is the hub at a glance: the machine's running state, today's record, the one action that
+  connects a client. Before a machine is chosen it is the fleet.
+- **Activity** is the record: every call, its sentence, its token, its device and its result, with the
+  evidence behind the row.
+- **Device** is the operator's hands, and the machine's own answer: Terminal · Screen · Files · Runs ·
+  **Tools** · Machine. **Tools** is every tool the device advertises — built-in and plugin, grouped by
+  capability — with the plugin list as a section of the same answer.
 
 **Connect is a sheet, not a surface**: a verb with a focused job (endpoint, client config, tokens).
 The fleet is Home's zero state; Settings and About live in the account menu. A capability the AI
