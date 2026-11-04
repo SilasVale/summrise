@@ -78,8 +78,8 @@ workstream owns; each one ships with the same gates as a feature.
 - **C4. The legacy server-rendered pages under `/next`.** *(Done 2026-11-04, cec8b28: 55 routes, 7002 lines of page.rs, 91 HTML-only tests, maud and six page-only assets deleted; `GET /next` kept as a 303 shim because `--login-link` prints `?code=` and the React page does not redeem it.)* They predate the React console and the
   React page is `/`. Measure what still links to them before deleting; if nothing does, the routes
   and `page.rs` go in one commit. *(Needs the measurement first — not tonight.)*
-- **C5. Fleet tokens as a second minting place.** One credential list with a scope column replaces
-  two pages. *(P1-7.)*
+- **C5. Fleet tokens as a second minting place.** *(Done via P1-7: one list with a scope column and one mint form; `FleetTokens.tsx` deleted. Closed 2026-11-04.)* One credential list with a scope column replaces
+  two pages.
 
 ## How a round goes
 
