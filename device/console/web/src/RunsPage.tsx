@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, type FormEvent } from "react"
 import { copyText } from "./copy";
 import { message } from "./format";
 import { useRequestGate } from "./requests";
+import { age } from "./age";
 import { callTool, ToolError, type Grant } from "./terminal";
 
 /**
@@ -565,18 +566,7 @@ function spellDuration(ms: number): string {
   return `${minutes}m ${String(seconds % 60).padStart(2, "0")}s`;
 }
 
-/// "42s", "3m 05s", "2h 10m", "3d 4h" — an age, not a timestamp: a history row is read as how long
-/// ago it started. The same scale as the monitors page's state age.
-function age(ms: number): string {
-  const seconds = Math.max(0, Math.round(ms / 1000));
-  if (seconds < 60) return `${seconds}s`;
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m ${String(seconds % 60).padStart(2, "0")}s`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ${String(minutes % 60).padStart(2, "0")}m`;
-  const days = Math.floor(hours / 24);
-  return `${days}d ${hours % 24}h`;
-}
+
 
 /// "0 B", "812 B", "4.2 KB", "1.0 MB" — the history stores bytes, so the row reports them as such.
 function bytes(count: number): string {

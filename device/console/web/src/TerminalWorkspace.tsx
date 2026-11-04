@@ -7,6 +7,7 @@ import { callTool, ToolError, type Grant } from "./terminal";
 import { createTerminalWriteBatcher, type TerminalWriteBatcher } from "./terminalWriteBatcher";
 import { createOutputPump, type OutputPump } from "./terminalOutput";
 import { nextTabTitle, renameTab, titleFromInput, type Tab } from "./terminalTabs";
+import { age } from "./age";
 import { earliestCursor, readTranscript, transcriptFile } from "./terminalTranscript";
 import {
   clampFontSize,
@@ -1975,6 +1976,9 @@ export function TerminalWorkspace({
                 <li key={entry.id}>
                   <span className="mono">{entry.kind}</span>
                   <span className="mono muted">{entry.id}</span>
+                  {typeof entry.started_at_ms === "number" && (
+                    <span className="hint">opened {age(Date.now() - entry.started_at_ms)} ago</span>
+                  )}
                   <button
                     type="button"
                     className="mini"

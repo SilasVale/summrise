@@ -1125,8 +1125,8 @@ describe("TerminalWorkspace recovery", () => {
   it("attaches another session from the Sessions menu without closing the first", async () => {    callToolMock.mockImplementation(async (_grant, name) => {
       if (name === "terminal.list") {
         return JSON.stringify([
-          { id: "new", kind: "pty", started_at_ms: 2_000 },
-          { id: "older", kind: "pty", started_at_ms: 1_000 }
+          { id: "new", kind: "pty", started_at_ms: Date.now() - 60_000 },
+          { id: "older", kind: "pty", started_at_ms: Date.now() - 5 * 60_000 }
         ]);
       }
       if (name === "terminal.resize") return JSON.stringify({ rows: 24, cols: 80 });
@@ -1141,6 +1141,8 @@ describe("TerminalWorkspace recovery", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Sessions (1)" }));
     const dialog = await screen.findByRole("dialog", { name: "Sessions on this device" });
     expect(within(dialog).getByText("older")).toBeInTheDocument();
+    // The list is about "which one is recent"; the age is what answers it, not a wall-clock stamp.
+    expect(within(dialog).getByText(/opened 5m \d\ds ago/)).toBeInTheDocument();
     fireEvent.click(within(dialog).getByRole("button", { name: "Attach" }));
 
     expect(await screen.findByRole("tab", { name: /pty 2/ })).toBeInTheDocument();
