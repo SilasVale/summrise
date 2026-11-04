@@ -691,44 +691,67 @@ describe("App", () => {
     expect(window.location.hash).toBe("#device/tools");
   });
 
-  it("lands the retired #capabilities and #plugins links on Tools when a machine is selected", async () => {
-    for (const hash of ["#capabilities", "#plugins"]) {
-      signedIn = false;
-      window.history.replaceState(null, "", hash);
-      localStorage.setItem("summrise.selected.device", workshop.id);
-      mocks.liveTools.mockResolvedValue({ tools: [filesTool, pluginTool] });
-      pluginMocks.list.mockResolvedValue([helloPlugin]);
+  // Each retired link is its own test: the two used to share one loop, and the second boot racing
+  // the first unmount made the pair flake about once in ten runs.
+  async function retiredLinkWithMachine(hash: string) {
+    signedIn = false;
+    window.history.replaceState(null, "", hash);
+    localStorage.setItem("summrise.selected.device", workshop.id);
+    mocks.liveTools.mockResolvedValue({ tools: [filesTool, pluginTool] });
+    pluginMocks.list.mockResolvedValue([helloPlugin]);
+    const view = await boot();
+    fireEvent.change(screen.getByLabelText("Operator token"), {
+      target: { value: "operator-token" }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+    return view;
+  }
 
-      const view = await boot();
-      fireEvent.change(screen.getByLabelText("Operator token"), {
-        target: { value: "operator-token" }
-      });
-      fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
-
-      expect(
-        await screen.findByRole("heading", { name: "Tools", level: 1 }, { timeout: 3000 })
-      ).toBeInTheDocument();
-      expect(window.location.hash).toBe("#device/tools");
-      view.unmount();
-    }
+  it("lands the retired #capabilities link on Tools when a machine is selected", async () => {
+    const view = await retiredLinkWithMachine("#capabilities");
+    expect(
+      await screen.findByRole("heading", { name: "Tools", level: 1 }, { timeout: 3000 })
+    ).toBeInTheDocument();
+    expect(window.location.hash).toBe("#device/tools");
+    view.unmount();
   });
 
-  it("lands the retired #capabilities and #plugins links on Home when no machine is selected", async () => {
-    for (const hash of ["#capabilities", "#plugins"]) {
-      signedIn = false;
-      window.history.replaceState(null, "", hash);
-      const view = await boot();
-      fireEvent.change(screen.getByLabelText("Operator token"), {
-        target: { value: "operator-token" }
-      });
-      fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+  it("lands the retired #plugins link on Tools when a machine is selected", async () => {
+    const view = await retiredLinkWithMachine("#plugins");
+    expect(
+      await screen.findByRole("heading", { name: "Tools", level: 1 }, { timeout: 3000 })
+    ).toBeInTheDocument();
+    expect(window.location.hash).toBe("#device/tools");
+    view.unmount();
+  });
 
-      expect(
-        await screen.findByRole("heading", { name: "Machines", level: 1 }, { timeout: 3000 })
-      ).toBeInTheDocument();
-      expect(window.location.hash).toBe("#home");
-      view.unmount();
-    }
+  async function retiredLinkWithoutMachine(hash: string) {
+    signedIn = false;
+    window.history.replaceState(null, "", hash);
+    const view = await boot();
+    fireEvent.change(screen.getByLabelText("Operator token"), {
+      target: { value: "operator-token" }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+    return view;
+  }
+
+  it("lands the retired #capabilities link on Home when no machine is selected", async () => {
+    const view = await retiredLinkWithoutMachine("#capabilities");
+    expect(
+      await screen.findByRole("heading", { name: "Machines", level: 1 }, { timeout: 3000 })
+    ).toBeInTheDocument();
+    expect(window.location.hash).toBe("#home");
+    view.unmount();
+  });
+
+  it("lands the retired #plugins link on Home when no machine is selected", async () => {
+    const view = await retiredLinkWithoutMachine("#plugins");
+    expect(
+      await screen.findByRole("heading", { name: "Machines", level: 1 }, { timeout: 3000 })
+    ).toBeInTheDocument();
+    expect(window.location.hash).toBe("#home");
+    view.unmount();
   });
 
   it("says an offline machine is offline once on the Tools tab", async () => {
