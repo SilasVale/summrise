@@ -737,7 +737,9 @@ describe("App", () => {
     await boot();
     fireEvent.change(screen.getByLabelText("Operator token"), { target: { value: "operator-token" } });
     fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
-    await screen.findByText("2 machines · 1 online");
+    // A whole sign-in is session, fleet, audit and tokens; the default one second has flaked in a
+    // full run before (see the legacy-alias test above).
+    await screen.findByText("2 machines · 1 online", {}, { timeout: 3000 });
     selectDevice("workshop");
 
     fireEvent.click(screen.getByRole("button", { name: "Device" }));

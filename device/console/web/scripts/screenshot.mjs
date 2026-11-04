@@ -995,16 +995,11 @@ const PAGES = [
     state: 'the fleet zero state: each machine\'s build, reachability and the way in'
   },
   {
-    id: 'capabilities',
-    label: 'Capabilities',
-    heading: 'Capabilities',
-    state: 'the live tool catalogue, grouped by capability'
-  },
-  {
-    id: 'plugins',
-    label: 'Plugins',
-    heading: 'Plugins',
-    state: 'the plugins the selected machine hosts'
+    id: 'tools',
+    label: 'Device',
+    tab: 'Tools',
+    heading: 'Tools',
+    state: 'the machine\'s one answer: the live tool catalogue and the plugin list under it'
   },
   {
     id: 'activity',
@@ -1319,51 +1314,21 @@ async function capturePage(page, state, meta, pass) {
   captures.push({ pass: pass.key, page: meta.id, file, note: meta.state });
   console.log(`  ${pass.key.padEnd(6)} ${file}`);
 
-  if (meta.id === 'plugins') {
-    // Three states, three machines: the populated list (workshop), the empty teaching state
-    // (attic) and an older build with no plugins.* (studio).
-    await chooseMachine(page, state, 'attic');
-    await page.getByText('No plugins yet. Add one when a built-in cannot do the job.').waitFor({ state: 'visible', timeout: 5_000 });
-    const emptyFile = `plugins-empty${pass.suffix}.png`;
-    await page.screenshot({ path: path.join(OUT, emptyFile), animations: 'disabled', fullPage: false });
-    captures.push({
-      pass: pass.key,
-      page: 'plugins-empty',
-      file: emptyFile,
-      note: 'the empty state: no manifest example, one Add plugin action'
-    });
-    console.log(`  ${pass.key.padEnd(6)} ${emptyFile}`);
-
-    await chooseMachine(page, state, 'legacy');
-    await page.getByText('This machine needs a newer Summrise to host plugins.').waitFor({ state: 'visible', timeout: 5_000 });
-    const oldFile = `plugins-old${pass.suffix}.png`;
-    await page.screenshot({ path: path.join(OUT, oldFile), animations: 'disabled', fullPage: false });
-    captures.push({
-      pass: pass.key,
-      page: 'plugins-old',
-      file: oldFile,
-      note: 'an older build: the sentence and Open Machine, never an Add button that would fail'
-    });
-    console.log(`  ${pass.key.padEnd(6)} ${oldFile}`);
-
-    await chooseMachine(page, state, 'workshop');
-    await page.locator('.plugin-name').filter({ hasText: 'Hello' }).first().waitFor({ state: 'visible', timeout: 5_000 });
-  }
-
-  if (meta.id === 'capabilities') {
-    // One tool's sheet: the detail, the annotation chip and the schema. There is no Try it form any
-    // more (C3 deleted it), so nothing here invokes a tool.
+  if (meta.id === 'tools') {
+    // ONE TAB, TWO SECTIONS. The gallery's `tools` capture is the top of the catalogue; these are
+    // the states the page offers inside it: one tool's sheet, the no-match search, the plugin half
+    // on the same page, and the two plugin states a machine can be in.
     await page.locator('.tool-row').first().click();
     const dialog = page.getByRole('dialog');
     await dialog.waitFor({ state: 'visible', timeout: 5_000 });
     await settle(page, state, 250);
-    const toolFile = `capability-tool${pass.suffix}.png`;
+    const toolFile = `tools-tool${pass.suffix}.png`;
     await page.screenshot({ path: path.join(OUT, toolFile), animations: 'disabled', fullPage: false });
     captures.push({
       pass: pass.key,
-      page: 'capability-tool',
+      page: 'tools-tool',
       file: toolFile,
-      note: 'one tool: detail, annotations and schema — the sheet is a catalogue'
+      note: 'one tool inside the Tools tab: detail, annotations and schema — the sheet is a catalogue'
     });
     console.log(`  ${pass.key.padEnd(6)} ${toolFile}`);
     await page.locator('.sheet-close').click();
@@ -1373,17 +1338,62 @@ async function capturePage(page, state, meta, pass) {
     const search = page.getByLabel('Search tools');
     await search.fill('zzz-no-such-tool');
     await page.getByText('No tool matches "zzz-no-such-tool".').waitFor({ state: 'visible', timeout: 5_000 });
-    const emptySearch = `capabilities-empty-search${pass.suffix}.png`;
+    const emptySearch = `tools-empty-search${pass.suffix}.png`;
     await page.screenshot({ path: path.join(OUT, emptySearch), animations: 'disabled', fullPage: false });
     captures.push({
       pass: pass.key,
-      page: 'capabilities-empty-search',
+      page: 'tools-empty-search',
       file: emptySearch,
       note: 'the no-match state: the query is quoted and Clear restores the catalogue'
     });
     console.log(`  ${pass.key.padEnd(6)} ${emptySearch}`);
     await page.getByRole('button', { name: 'Clear the search' }).click();
 
+    // The plugin list is the second section of the same page: scroll to it so the capture shows the
+    // section rather than the catalogue that sits above it.
+    await page.locator('section[aria-labelledby="tools-plugins"]').scrollIntoViewIfNeeded();
+    await page.locator('.plugin-name').filter({ hasText: 'Hello' }).first().waitFor({ state: 'visible', timeout: 5_000 });
+    await settle(page, state, 250);
+    const pluginsFile = `tools-plugins${pass.suffix}.png`;
+    await page.screenshot({ path: path.join(OUT, pluginsFile), animations: 'disabled', fullPage: false });
+    captures.push({
+      pass: pass.key,
+      page: 'tools-plugins',
+      file: pluginsFile,
+      note: 'the plugin section of the Tools tab: the rows that add to the catalogue'
+    });
+    console.log(`  ${pass.key.padEnd(6)} ${pluginsFile}`);
+
+    // Two more machines, two more plugin states: the empty teaching state (attic) and an older
+    // build with no plugins.* (legacy).
+    await chooseMachine(page, state, 'attic');
+    await page.getByText('No plugins yet. Add one when a built-in cannot do the job.').waitFor({ state: 'visible', timeout: 5_000 });
+    await page.locator('section[aria-labelledby="tools-plugins"]').scrollIntoViewIfNeeded();
+    const emptyFile = `tools-plugins-empty${pass.suffix}.png`;
+    await page.screenshot({ path: path.join(OUT, emptyFile), animations: 'disabled', fullPage: false });
+    captures.push({
+      pass: pass.key,
+      page: 'tools-plugins-empty',
+      file: emptyFile,
+      note: 'the empty plugin section: no manifest example, one Add plugin action'
+    });
+    console.log(`  ${pass.key.padEnd(6)} ${emptyFile}`);
+
+    await chooseMachine(page, state, 'legacy');
+    await page.getByText('This machine needs a newer Summrise to host plugins.').waitFor({ state: 'visible', timeout: 5_000 });
+    await page.locator('section[aria-labelledby="tools-plugins"]').scrollIntoViewIfNeeded();
+    const oldFile = `tools-plugins-old${pass.suffix}.png`;
+    await page.screenshot({ path: path.join(OUT, oldFile), animations: 'disabled', fullPage: false });
+    captures.push({
+      pass: pass.key,
+      page: 'tools-plugins-old',
+      file: oldFile,
+      note: 'an older build: the sentence and Open Machine, never an Add button that would fail'
+    });
+    console.log(`  ${pass.key.padEnd(6)} ${oldFile}`);
+
+    await chooseMachine(page, state, 'workshop');
+    await page.locator('.plugin-name').filter({ hasText: 'Hello' }).first().waitFor({ state: 'visible', timeout: 5_000 });
   }
 
   if (meta.id === 'home') {

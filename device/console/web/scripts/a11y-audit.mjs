@@ -1131,23 +1131,23 @@ try {
   await settle(page, 200);
   await measure(page, 'activity-table');
 
-  // Capabilities, with one tool's sheet open: the sheet is a dialog with its own focus order.
-  await rail(page, 'Capabilities');
+  // Tools: one tab answers what the machine can do. The catalogue and the plugin list are one page,
+  // so both must have rendered before the state is measured; one tool's sheet is a dialog with its
+  // own focus order.
+  await rail(page, 'Device');
+  await deviceTab(page, 'Tools');
   await page.locator('.tool-row').first().waitFor({ state: 'visible', timeout: 5_000 });
+  await page.locator('.plugin-name').first().waitFor({ state: 'visible', timeout: 5_000 });
+  await settle(page, 200);
+  await measure(page, 'tools');
   await page.locator('.tool-row').first().click();
   await page.getByRole('dialog').first().waitFor({ state: 'visible', timeout: 5_000 });
   await settle(page, 200);
-  await measure(page, 'capabilities');
-  await measure(page, 'capabilities-dialog', '[role="dialog"]');
+  await measure(page, 'tools-dialog', '[role="dialog"]');
   await page.locator('.sheet-close').first().click();
   await page.getByRole('dialog').first().waitFor({ state: 'hidden', timeout: 5_000 }).catch(() => {});
 
-  await rail(page, 'Plugins');
-  await page.locator('.plugin-name').first().waitFor({ state: 'visible', timeout: 5_000 });
-  await settle(page, 200);
-  await measure(page, 'plugins');
-
-  await rail(page, 'Device');
+  await deviceTab(page, 'Terminal');
   await page.getByRole('heading', { name: 'Terminal', exact: true, level: 1 }).waitFor({
     state: 'visible',
     timeout: 5_000

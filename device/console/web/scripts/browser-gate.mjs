@@ -89,6 +89,19 @@ const RUN = {
   stdout_bytes: 6,
   stderr_bytes: 0
 };
+// The machine's one Tools answer needs a plugin row beside the catalogue; without `plugins.list` the
+// page would show the older-build sentence, which is a different thing to photograph.
+const PLUGIN = {
+  id: 'com.example.hello',
+  namespace: 'hello',
+  name: 'Hello',
+  version: '0.1.0',
+  description: 'Two friendly tools',
+  state: 'running',
+  tools: 2,
+  path: 'C:\\dev\\plugins\\hello',
+  last_error: null
+};
 const AUDIT_LINE = {
   ts_ms: NOW - 30_000,
   kind: 'mcp',
@@ -133,7 +146,8 @@ const TOOL_NAMES = [
   'terminal.read',
   'terminal.resize',
   'terminal.write',
-  'terminal.close'
+  'terminal.close',
+  'plugins.list'
 ];
 
 // The only state the gate needs: whether the operator signed in, whether a pty was opened, what the
@@ -237,6 +251,9 @@ function apiReply(request, url) {
       return json({
         result: { content: [{ type: 'text', text: JSON.stringify({ data: '', cursor: state.cursor }) }] }
       });
+    }
+    if (name === 'plugins.list') {
+      return json({ result: { content: [{ type: 'text', text: JSON.stringify([PLUGIN]) }] } });
     }
     if (name === 'runs.list') {
       return json({ result: { content: [{ type: 'text', text: JSON.stringify([RUN]) }] } });
@@ -400,6 +417,19 @@ try {
   step('opened r-1 from its audit line; the terminal panel stayed hidden');
   await page.screenshot({ path: path.join(OUT, '04-activity-run.png') });
 
+  // ONE TAB FOR WHAT THE MACHINE CAN DO. The catalogue and the plugin list are the same answer, so
+  // the gate checks both halves render on the same page before it moves on to credentials.
+  await page.getByRole('button', { name: 'Tools' }).click();
+  await page.getByRole('heading', { name: 'Tools', exact: true }).waitFor({ timeout: 10_000 });
+  await page.locator('.tool-row').first().waitFor({ timeout: 10_000 });
+  await page.locator('.plugin-name').filter({ hasText: 'Hello' }).first().waitFor({ timeout: 10_000 });
+  const toolsText = await page.locator('.tools-tab').innerText();
+  if (!toolsText.includes('Tools on this machine') || !toolsText.includes('plugins.list')) {
+    throw new Error('the Tools tab did not draw the catalogue');
+  }
+  step('opened Device → Tools; the catalogue and the plugin list are one answer');
+  await page.screenshot({ path: path.join(OUT, '05-tools.png') });
+
   // THE CREDENTIAL LIST IS THE WHOLE REGISTRY. `GET /tokens` is the only list route; a row for
   // another machine is still a real token and hidden rows made an occupied registry read "none".
   await page.getByRole('button', { name: 'Connect', exact: true }).click();
@@ -417,7 +447,7 @@ try {
     if (!listed.includes(token.name)) throw new Error(`the token list dropped ${token.name}`);
   }
   step('opened Connect → Tokens; one row per registry token, including another machine\'s');
-  await page.screenshot({ path: path.join(OUT, '05-connect-tokens.png') });
+  await page.screenshot({ path: path.join(OUT, '06-connect-tokens.png') });
 
   if (errors.length > 0) throw new Error('console errors: ' + errors.join(' ;; '));
   console.log(`browser-gate: PASS — ${steps.length} steps, ${state.writes.length} bytes written, marker echoed`);
