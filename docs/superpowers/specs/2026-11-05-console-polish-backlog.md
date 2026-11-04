@@ -34,6 +34,38 @@ host's `runs.exec`. Code-only work continues; nothing ships until a device answe
    shows raw tables. It should show the same day-grouped timeline — the device already has the audit
    and every call it serves, so this is device-side work and ships with a device release, never alone.
 
+## P0 — the next list (2026-11-05 audit of the emptied product)
+
+Ranked by honesty first. Each item names its measurement and its gate.
+
+1. **The Now band must count the AI, not the console's own polling.** With a machine chosen and no
+   session, `TerminalWorkspace.tsx:1367` calls `terminal.list` every 10 s through `/mcp` with no
+   `visible` guard; each call is audited and streamed, so `LiveNow.tsx:58` reads "Active now · 6 calls
+   in the last minute" for an idle machine and the window fills in under three hours. Publish the
+   caller (`console` for an ungranted `/mcp` and `/terminal/*/stream`, `client` for `/mcp/:id`) on the
+   event and the line; count only `client`; mark the console's own rows; stop the poll when hidden.
+   Gate: a `console` line never sets "Active now"; the browser gate serves one `terminal.list` and
+   expects "Quiet". **M.**
+2. **When the stream lags, say what was lost and reread it.** `/events` sends `{"dropped":N}`; the
+   client discards it, so the page says "Following…" over a hole. Parse it, refetch `/audit`, say
+   "N lines were dropped while this tab was behind; rereading" until the answer lands. **S.**
+3. **A machine's scope must read that machine's window.** Activity fetches the fleet's 1000 and
+   filters in the page; `GET /audit?device=` exists. Fetch the machine's own window when a chip is
+   selected, and let the cap sentence name whose window was cut. **S.**
+4. **The hub's day must be reread, not remembered.** The machine window is fetched once per device;
+   after a reconnect or a hiccup the day shows a hole with no cap sentence and the band says "Quiet"
+   while rows exist. Refetch on the app's 5 s tick and on stream recovery; say when it was read. **M.**
+5. **Stop claiming every call is in the record.** Both empty states say "Every call a client makes is
+   written here"; a call straight to a machine's own endpoint is not. Name the boundary. **S.**
+6. **Give every tool a sentence and gate the table against the registry.** 16 of the 46 registry tools
+   fall back to "Used `tool`" (`host.restart` among them) and eight sentences name tools the registry
+   does not have. Write the missing templates and test the table by walking `registry.rs`. **S.**
+7. **Say where one stretch ends.** The 60 s gap is computed and drawn as a hairline; a full day reads
+   as one column. Label each stretch with what it held — "4 calls · 2 m 10 s" — inferring nothing. **S.**
+8. **Delete the retired components and the calls nobody makes.** `TerminalPane.tsx` (159 lines, no
+   importer), `ToolPicker.tsx` (42 + 35), `api.denials`, `api.meshStatus`/`meshReadiness` and their
+   tests; the server routes stay. **S.**
+
 ## P1 — the console stops feeling like a configuration tool
 
 5. **Activity filters become chips.** Machine chips and a search field; the time-range select, the
