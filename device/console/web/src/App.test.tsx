@@ -206,7 +206,12 @@ describe("App", () => {
     fireEvent.change(screen.getByLabelText("Operator token"), { target: { value: "operator-token" } });
     fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
 
-    expect(await screen.findByRole("heading", { name: "Files", level: 1 })).toBeInTheDocument();
+    // Three seconds, not the default one: the suite runs 42 files across workers, and this test waits
+    // for a whole sign-in — session, fleet, audit and tokens — before the surface named in the URL
+    // can render. It flaked once in a full run and never alone; a load-induced timeout is the shape.
+    expect(
+      await screen.findByRole("heading", { name: "Files", level: 1 }, { timeout: 3000 })
+    ).toBeInTheDocument();
     expect(window.location.hash).toBe("#device/files");
     window.history.replaceState(null, "", window.location.pathname);
   });
@@ -217,7 +222,9 @@ describe("App", () => {
     fireEvent.change(screen.getByLabelText("Operator token"), { target: { value: "operator-token" } });
     fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
 
-    expect(await screen.findByRole("heading", { name: "Runs", level: 1 })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { name: "Runs", level: 1 }, { timeout: 3000 })
+    ).toBeInTheDocument();
     expect(window.location.hash).toBe("#run/workshop/r-1");
     window.history.replaceState(null, "", window.location.pathname);
   });

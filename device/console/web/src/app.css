@@ -361,7 +361,6 @@ main.terminal-main { display: grid; grid-template-rows: auto minmax(0, 1fr); ali
 
 /* The hub: one status line, the door, one accent, one counts line, three calls. No second header,
    no tile grid, no second Connect button. */
-.status-line { margin: var(--sp-1) 0 0; color: var(--ink-muted); font-size: var(--fs-sm); }
 .notice {
   display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap;
   padding: var(--sp-3); border: 1px solid var(--line-strong); border-radius: var(--radius-sm);

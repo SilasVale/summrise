@@ -197,7 +197,7 @@ function HubHome(
       <header className="page-head">
         <div>
           <h1>Home</h1>
-          <p className="status-line">{statusLine}</p>
+          <p className="page-sub">{statusLine}</p>
         </div>
       </header>
 
