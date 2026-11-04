@@ -511,12 +511,23 @@ async fn page_not_found(State(app): State<AppState>) -> Response {
         .into_response()
 }
 
-/// The last lines of a run's own output, bounded, for the timeline's expanded row.
+/// The extra facts a run's answer carries for the timeline's expanded row.
+struct RunEvidence {
+    /// The tail of stdout and stderr, when the run wrote anything.
+    tail: Option<String>,
+    /// The process's exit status, when the device reported one (a timeout has none).
+    exit_code: Option<i64>,
+    /// Whether the device killed the run at its timeout.
+    timed_out: Option<bool>,
+}
+
+/// The last lines of a run's own output and its exit facts, bounded, for the timeline's expanded row.
 ///
 /// The console already proxies this answer; showing the caller their own command's output is the
-/// evidence a person wants when they click a run. Nothing is stored: the audit file still never
-/// carries a body.
-fn run_output_tail(reply: &Reply) -> Option<String> {
+/// evidence a person wants when they click a run. The exit code and timeout are facts the output
+/// alone cannot state — a run that printed nothing and exited 1 is not a run that succeeded.
+/// Nothing is stored: the audit file still never carries a body.
+fn run_evidence(reply: &Reply) -> Option<RunEvidence> {
     const TAIL: usize = 1600;
     let Reply::Result(result) = reply else {
         return None;
@@ -529,6 +540,8 @@ fn run_output_tail(reply: &Reply) -> Option<String> {
         .get("text")?
         .as_str()?;
     let parsed: Value = serde_json::from_str(text).ok()?;
+    let exit_code = parsed.get("exit_code").and_then(Value::as_i64);
+    let timed_out = parsed.get("timed_out").and_then(Value::as_bool);
     let stdout = parsed
         .get("stdout")
         .and_then(Value::as_str)
@@ -547,17 +560,22 @@ fn run_output_tail(reply: &Reply) -> Option<String> {
         }
         combined.push_str(stderr);
     }
-    if combined.trim().is_empty() {
-        return None;
-    }
-    let length = combined.chars().count();
-    let tail: String = if length > TAIL {
-        let skip = length - TAIL;
-        format!("…{}", combined.chars().skip(skip).collect::<String>())
+    let tail = if combined.trim().is_empty() {
+        None
     } else {
-        combined
+        let length = combined.chars().count();
+        Some(if length > TAIL {
+            let skip = length - TAIL;
+            format!("…{}", combined.chars().skip(skip).collect::<String>())
+        } else {
+            combined
+        })
     };
-    Some(tail)
+    Some(RunEvidence {
+        tail,
+        exit_code,
+        timed_out,
+    })
 }
 
 /// The facts one audit line names. One shape, named at the call site: the three `Option`s are
@@ -569,6 +587,22 @@ struct AuditFacts<'a> {
     detail: Option<&'a str>,
     tool: Option<&'a str>,
     token_id: Option<&'a str>,
+}
+
+/// One proxied call, as the live stream describes it.
+///
+/// `detail` is the failure sentence the evidence panel shows — the device's own message, or the
+/// console's reason for giving up — and `ok` is not the status: a device's JSON-RPC error is HTTP
+/// 200 and still a refusal. The audit line keeps only the numeric code; this is what a person reads.
+struct LiveCall<'a> {
+    device_id: Option<&'a str>,
+    tool: Option<&'a str>,
+    sentence: &'a str,
+    status: StatusCode,
+    ok: bool,
+    detail: &'a str,
+    ms: u64,
+    evidence: Option<Value>,
 }
 
 /// The consent the operator gave, as the audit's fixed pair of strings for a grant or a token.
@@ -752,12 +786,15 @@ impl Inner {
             })
             .await;
         // A call's live event is published by the proxy, which has the call's arguments; everything
-        // else (a grant, a token, a refusal) is described from what this line already holds.
+        // else (a grant, a token, a refusal) is described from what this line already holds. These
+        // events are live too: a row a page just watched arrive is not a row read back from the
+        // audit file, even when the tool behind it has no evidence to show.
         if facts.kind != "mcp" {
             let mut event = json!({
                 "ts_ms": ts_ms,
                 "kind": facts.kind,
                 "status": facts.status.as_u16(),
+                "live": true,
             });
             if let Some(device_id) = facts.device_id {
                 event["device_id"] = json!(device_id);
@@ -765,38 +802,37 @@ impl Inner {
             if let Some(tool) = facts.tool {
                 event["tool"] = json!(tool);
             }
+            if let Some(detail) = facts.detail {
+                event["detail"] = json!(detail);
+            }
             let sentence = crate::activity::line_sentence(&event);
             event["sentence"] = json!(sentence);
             self.audit.publish(event);
         }
     }
 
-    /// Publish one proxied call to the live stream: the sentence, the tool, the device, the outcome
-    /// and how long the device took.
-    fn publish_call(
-        &self,
-        device_id: Option<&str>,
-        tool: Option<&str>,
-        sentence: &str,
-        status: StatusCode,
-        ms: u64,
-        evidence: Option<Value>,
-    ) {
+    /// Publish one proxied call to the live stream: the sentence, the tool, the device, the outcome,
+    /// why it failed, and how long the device took.
+    fn publish_call(&self, call: LiveCall<'_>) {
         let mut event = json!({
             "ts_ms": (self.now)(),
             "kind": "mcp",
-            "status": status.as_u16(),
-            "ok": status.is_success(),
-            "ms": ms,
-            "sentence": sentence,
+            "status": call.status.as_u16(),
+            "ok": call.ok,
+            "live": true,
+            "ms": call.ms,
+            "sentence": call.sentence,
         });
-        if let Some(device_id) = device_id {
+        if let Some(device_id) = call.device_id {
             event["device_id"] = json!(device_id);
         }
-        if let Some(tool) = tool {
+        if let Some(tool) = call.tool {
             event["tool"] = json!(tool);
         }
-        if let Some(evidence) = evidence {
+        if !call.detail.is_empty() {
+            event["detail"] = json!(call.detail);
+        }
+        if let Some(evidence) = call.evidence {
             event["evidence"] = evidence;
         }
         self.audit.publish(event);
@@ -6325,6 +6361,26 @@ fn error_code(reply: &Reply) -> Option<i64> {
     }
 }
 
+/// The message a device's JSON-RPC error carries, when it is one.
+///
+/// The console forwards the error envelope whole, so the message sits under `error`; the direct
+/// shape is accepted too, because a caller reading only the message should not depend on the wrap.
+fn error_message(reply: &Reply) -> Option<&str> {
+    let Reply::Error(error) = reply else {
+        return None;
+    };
+    error
+        .get("error")
+        .and_then(|body| body.get("message"))
+        .or_else(|| error.get("message"))
+        .and_then(Value::as_str)
+}
+
+/// A device's message, bounded for one row's evidence: a panel is not a log.
+fn bounded_detail(message: &str) -> String {
+    message.chars().take(64).collect()
+}
+
 async fn proxy_reply(
     app: &AppState,
     device_id: &str,
@@ -6424,14 +6480,16 @@ async fn proxy_reply(
 
     match answer {
         Err(_) => {
-            app.publish_call(
-                audit_id.as_deref(),
-                tool.as_deref(),
-                &publish_sentence,
-                StatusCode::GATEWAY_TIMEOUT,
-                started.elapsed().as_millis() as u64,
-                evidence.clone(),
-            );
+            app.publish_call(LiveCall {
+                device_id: audit_id.as_deref(),
+                tool: tool.as_deref(),
+                sentence: &publish_sentence,
+                status: StatusCode::GATEWAY_TIMEOUT,
+                ok: false,
+                detail: "device timeout",
+                ms: started.elapsed().as_millis() as u64,
+                evidence: evidence.clone(),
+            });
             app.record_facts(AuditFacts {
                 kind: "denied",
                 device_id: audit_id.as_deref(),
@@ -6447,14 +6505,16 @@ async fn proxy_reply(
         }
         Ok(Err(error)) => {
             let failure = failure_for(error);
-            app.publish_call(
-                audit_id.as_deref(),
-                tool.as_deref(),
-                &publish_sentence,
-                failure.status,
-                started.elapsed().as_millis() as u64,
-                evidence.clone(),
-            );
+            app.publish_call(LiveCall {
+                device_id: audit_id.as_deref(),
+                tool: tool.as_deref(),
+                sentence: &publish_sentence,
+                status: failure.status,
+                ok: false,
+                detail: failure.detail,
+                ms: started.elapsed().as_millis() as u64,
+                evidence: evidence.clone(),
+            });
             app.record_facts(AuditFacts {
                 kind: "denied",
                 device_id: audit_id.as_deref(),
@@ -6478,14 +6538,16 @@ async fn proxy_reply(
                         );
                     }
                 }
-                app.publish_call(
-                    audit_id.as_deref(),
-                    tool.as_deref(),
-                    &publish_sentence,
-                    StatusCode::FORBIDDEN,
-                    started.elapsed().as_millis() as u64,
-                    evidence.clone(),
-                );
+                app.publish_call(LiveCall {
+                    device_id: audit_id.as_deref(),
+                    tool: tool.as_deref(),
+                    sentence: &publish_sentence,
+                    status: StatusCode::FORBIDDEN,
+                    ok: false,
+                    detail: "destructive_without_consent",
+                    ms: started.elapsed().as_millis() as u64,
+                    evidence: evidence.clone(),
+                });
                 app.record_facts(AuditFacts {
                     kind: "denied",
                     device_id: audit_id.as_deref(),
@@ -6502,26 +6564,50 @@ async fn proxy_reply(
                     crate::mcp::filter_tools(result, allowed);
                 }
             }
+            // The audit keeps the outcome as a code; the live event also carries the device's own
+            // sentence, because the panel is where a person reads why a call was refused.
             let detail = if tool.as_deref() == Some("runs.exec") {
                 run_detail(&reply)
             } else {
                 reply_detail(&reply)
             };
+            let (ok, live_detail) = match &reply {
+                Reply::Result(_) => (true, detail.clone().unwrap_or_default()),
+                Reply::Error(_) => (
+                    false,
+                    error_message(&reply)
+                        .map(bounded_detail)
+                        .unwrap_or_else(|| detail.clone().unwrap_or_default()),
+                ),
+            };
             if tool.as_deref() == Some("runs.exec") {
-                if let Some(output) = run_output_tail(&reply) {
-                    if let Some(evidence) = evidence.as_mut() {
-                        evidence["output"] = json!(output);
+                // The evidence object is the page's, not the audit's: a run with no arguments still
+                // gets one so its exit facts have somewhere to live.
+                if let Some(run) = run_evidence(&reply) {
+                    let evidence = evidence.get_or_insert_with(|| json!({}));
+                    if let Some(object) = evidence.as_object_mut() {
+                        if let Some(output) = run.tail {
+                            object.insert("output".to_owned(), json!(output));
+                        }
+                        if let Some(exit_code) = run.exit_code {
+                            object.insert("exit_code".to_owned(), json!(exit_code));
+                        }
+                        if let Some(timed_out) = run.timed_out {
+                            object.insert("timed_out".to_owned(), json!(timed_out));
+                        }
                     }
                 }
             }
-            app.publish_call(
-                audit_id.as_deref(),
-                tool.as_deref(),
-                &publish_sentence,
-                StatusCode::OK,
-                started.elapsed().as_millis() as u64,
+            app.publish_call(LiveCall {
+                device_id: audit_id.as_deref(),
+                tool: tool.as_deref(),
+                sentence: &publish_sentence,
+                status: StatusCode::OK,
+                ok,
+                detail: &live_detail,
+                ms: started.elapsed().as_millis() as u64,
                 evidence,
-            );
+            });
             app.record_facts(AuditFacts {
                 kind: "mcp",
                 device_id: audit_id.as_deref(),
@@ -8109,6 +8195,32 @@ mod tests {
             Some("jsonrpc error -32603")
         );
         assert_eq!(run_detail(&result("not json")), None);
+    }
+
+    #[test]
+    fn a_run_carries_its_exit_facts_and_output_tail_as_evidence() {
+        let result =
+            |text: &str| Reply::Result(json!({"content": [{"type": "text", "text": text}]}));
+        let evidence = run_evidence(&result(
+            r#"{"id":"r-1","exit_code":3,"timed_out":false,"stdout":"boom\n","stderr":""}"#,
+        ))
+        .expect("a run answer parses");
+        assert_eq!(evidence.exit_code, Some(3));
+        assert_eq!(evidence.timed_out, Some(false));
+        assert_eq!(evidence.tail.as_deref(), Some("boom\n"));
+
+        // A run that printed nothing is still a fact: its exit code is what the panel says.
+        let quiet = run_evidence(&result(
+            r#"{"id":"r-2","exit_code":null,"timed_out":true,"stdout":"","stderr":""}"#,
+        ))
+        .expect("a run answer parses");
+        assert_eq!(quiet.exit_code, None);
+        assert_eq!(quiet.timed_out, Some(true));
+        assert_eq!(quiet.tail, None);
+
+        // A device error carries no run body, and a message is bounded for one row.
+        assert!(run_evidence(&Reply::Error(json!({"error": {"code": -32001}}))).is_none());
+        assert_eq!(bounded_detail(&"x".repeat(100)), "x".repeat(64));
     }
 
     /// The live catalogue's classification: the device's advertisement plus the console's source,

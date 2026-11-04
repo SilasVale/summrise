@@ -12177,3 +12177,67 @@ async fn a_proxied_call_carries_its_evidence_to_the_stream() {
         "the live event carries the arguments the caller sent: {seen}"
     );
 }
+
+/// A device refusal is HTTP 200 with a JSON-RPC error body, so the status alone would make a refused
+/// call look green. The live event carries the device's own reason and says it was not a success.
+#[tokio::test]
+async fn a_device_refusal_reaches_the_stream_as_a_failure_with_its_reason() {
+    let fixture = Fixture::new("activity-refusal");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0x57)).await;
+    let session = fixture.authenticate().await;
+
+    let mut socket = open_events(&server, &session).await;
+    let mut seen = String::new();
+    read_until(&mut socket, &mut seen, "event: snapshot").await;
+
+    let app = fixture.app();
+    let call = tokio::spawn(async move {
+        send(
+            app,
+            post_json_bearer(
+                "/mcp",
+                &session,
+                json!({
+                    "device_id": device_id,
+                    "request": {
+                        "jsonrpc": "2.0",
+                        "id": 8,
+                        "method": "tools/call",
+                        "params": { "name": "files.read", "arguments": { "path": "notes.txt" } },
+                    },
+                }),
+            ),
+        )
+        .await
+    });
+
+    let frame = next_json(&mut device).await;
+    answer_error(
+        &mut device,
+        &frame,
+        json!({
+            "jsonrpc": "2.0",
+            "id": 8,
+            "error": { "code": -32001, "message": "tool not permitted by grant" }
+        }),
+    )
+    .await;
+    let (status, _) = call.await.expect("the call finished");
+    assert_eq!(status, StatusCode::OK, "a JSON-RPC error stays HTTP 200");
+
+    read_until(&mut socket, &mut seen, "\"ok\":false").await;
+    assert!(
+        seen.contains("\"ok\":false"),
+        "the refusal is a failure: {seen}"
+    );
+    assert!(
+        seen.contains("not permitted"),
+        "the device's own reason reaches the page: {seen}"
+    );
+    assert!(
+        seen.contains("\"live\":true"),
+        "a proxied call is a live event, not an audit row: {seen}"
+    );
+}

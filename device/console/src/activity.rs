@@ -173,7 +173,7 @@ pub(crate) fn detail(tool: &str, arguments: &Value) -> Option<Value> {
             .get(key)
             .and_then(Value::as_str)
             .filter(|value| !value.is_empty())
-            .map(|value| excerpt(value))
+            .map(excerpt)
     };
     let mut out = serde_json::Map::new();
     match tool {
@@ -184,12 +184,7 @@ pub(crate) fn detail(tool: &str, arguments: &Value) -> Option<Value> {
             let args: Vec<String> = arguments
                 .get("args")
                 .and_then(Value::as_array)
-                .map(|list| {
-                    list.iter()
-                        .filter_map(Value::as_str)
-                        .map(|value| excerpt(value))
-                        .collect()
-                })
+                .map(|list| list.iter().filter_map(Value::as_str).map(excerpt).collect())
                 .unwrap_or_default();
             if !args.is_empty() {
                 out.insert("args".to_owned(), json!(args));
