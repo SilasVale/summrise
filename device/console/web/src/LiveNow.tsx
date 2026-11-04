@@ -127,7 +127,11 @@ export function LiveNow(props: {
             const machine = deviceName(props.devices, line.device_id);
             return (
               <li key={`${line.ts_ms}-${line.tool ?? line.kind}`} className="live-entry">
-                <span className="live-entry-dot" aria-hidden="true" />
+                <span
+                  className="live-entry-dot"
+                  data-tone={line.ok === false || line.status >= 400 ? "bad" : "ok"}
+                  aria-hidden="true"
+                />
                 <span className="live-sentence">
                   {line.sentence}
                   {machine && <span className="live-machine"> on {machine}</span>}

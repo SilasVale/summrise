@@ -18,7 +18,9 @@ Each item ships on its own: the web gates, the console's Rust tests, a live chec
 3. **The session card.** The Terminal page shows the session before the terminal: machine, shell,
    how long it has been open, the last command, the last few lines, and one button to attach. The
    raw terminal is what you get after that card, not the first thing.
-4. **Home stops leading with the endpoint** *(in flight)*. The hub becomes this machine's live page: Now (presence,
+4. **Home stops leading with the endpoint** *(code complete 2026-11-04, queued behind the outage:
+   the hub is the machine — Now band, today's timeline, one `Connect a client` action; the endpoint
+   lives only in the Connect sheet).* The hub becomes this machine's live page: Now (presence,
    rate, last steps), today's timeline, the session preview. The endpoint lives in the Connect sheet.
 
 ## Blocked on 2026-11-04

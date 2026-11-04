@@ -426,6 +426,28 @@ const TOKENS = [
   }
 ];
 
+/** The console writes a sentence for every stored line; the stub must too, or the page renders codes. */
+const LINE_SENTENCES = {
+  'runs.exec': 'Ran a command',
+  'terminal.write': 'Typed into a terminal',
+  'terminal.list': 'Listed the terminal sessions',
+  'files.read': 'Read a file',
+  'files.list': 'Listed a folder',
+  'memory.search': 'Searched its memory',
+  'state.get': "Read the machine's state",
+  'browser.screenshot': 'Read the browser\'s page',
+  'system.net_test': 'Tested a connection',
+  'tools/list': "Listed the machine's tools"
+};
+const KIND_SENTENCES = {
+  grant: 'Issued a grant',
+  token: 'Issued a client token',
+  token_revoke: 'Revoked a client token',
+  register: 'A machine registered',
+  enroll: 'Created an enrollment code',
+  denied: 'Refused a request'
+};
+
 /** One audit line, newest first in the list below. `kind` is the console's closed set. */
 function auditLine(agoMs, kind, { device, status = 200, tool = null, detail = null, token = null } = {}) {
   const line = { ts_ms: NOW - agoMs, kind, status };
@@ -433,6 +455,8 @@ function auditLine(agoMs, kind, { device, status = 200, tool = null, detail = nu
   if (tool) line.tool = tool;
   if (detail) line.detail = detail;
   if (token) line.token_id = token;
+  line.sentence =
+    (tool && LINE_SENTENCES[tool]) ?? KIND_SENTENCES[kind] ?? (tool ? `Used \`${tool}\`` : 'Listed the tools');
   return line;
 }
 
@@ -626,6 +650,7 @@ const API_PATHS = new Set([
 function isApiPath(pathname) {
   return (
     API_PATHS.has(pathname) ||
+    pathname === '/events' ||
     pathname.startsWith('/fleet/') ||
     pathname.startsWith('/tokens/')
   );
@@ -654,6 +679,13 @@ function replyFor(request, url) {
   if (method === 'GET' && pathname === '/session') return json(SESSION);
   if (method === 'GET' && pathname === '/health') return json(HEALTH);
   if (method === 'GET' && pathname === '/audit') return json(AUDIT);
+  // The page follows the audit as it happens; the stub answers with one snapshot, in the order the
+  // console sends it (oldest first), so the Now band and the timeline are photographed live rather
+  // than stuck on "Reconnecting".
+  if (method === 'GET' && pathname === '/events') {
+    const lines = AUDIT.slice(0, 8).reverse();
+    return { status: 200, sse: `event: snapshot\ndata: ${JSON.stringify({ lines })}\n\n` };
+  }
   if (method === 'GET' && pathname === '/denials') return json(DENIALS);
   if (method === 'GET' && pathname === '/tools') return json(TOOL_NAMES.map((name) => ({ name })));
   if (method === 'GET' && pathname === '/mesh') return json(MESH);
@@ -898,6 +930,14 @@ async function fulfill(route, reply) {
   const headers = { 'cache-control': 'no-store' };
   if (reply.status === 204) {
     await route.fulfill({ status: 204, headers });
+    return;
+  }
+  if (reply.sse !== undefined) {
+    await route.fulfill({
+      status: reply.status,
+      headers: { ...headers, 'content-type': 'text/event-stream' },
+      body: reply.sse
+    });
     return;
   }
   await route.fulfill({
@@ -1440,11 +1480,16 @@ async function capturePage(page, state, meta, pass) {
 
     await chooseMachine(page, state, 'workshop');
     // The hub's door card is what says "a machine is chosen and its page is up"; the old anchor was
-    // `.status-line`, which the hub stopped rendering, so every home capture timed out.
-    await page.locator('main .home-hero').waitFor({ state: 'visible', timeout: 5_000 });
+    // The anchor must be something the hub actually renders on every capture: `.status-line` and
+    // then `.home-hero` both stopped existing, and each time every home capture timed out. The Now
+    // band is the page's first real subject now, and it is always there (empty or not).
+    await page.locator('main .live-now, main .page-head').first().waitFor({ state: 'visible', timeout: 5_000 });
   }
 
   if (meta.id === 'activity') {
+    // The page opens on the timeline; the table, its disclosure and "Open in Runs" are one tab
+    // away. The harness photographs the table because that is where the id and the run link live.
+    await page.getByRole('tab', { name: 'Table' }).click();
     // The record is the row, but the full id lives in the disclosure. Photograph it open so the
     // name-to-id step and the copy button are reviewed, not just the summary table.
     await page.locator('.audit-row').first().click();

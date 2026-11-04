@@ -2410,7 +2410,9 @@ main::-webkit-scrollbar-track, .sheet-body::-webkit-scrollbar-track, .scroll::-w
   font-size: var(--fs-sm); animation: live-in 160ms var(--ease) both;
 }
 .live-entry:last-child { border-bottom: 0; }
-.live-entry-dot { width: 5px; height: 5px; border-radius: 999px; background: var(--accent-solid); flex: none; }
+.live-entry-dot { width: 5px; height: 5px; border-radius: 999px; flex: none; align-self: center; }
+.live-entry-dot[data-tone="ok"] { background: var(--ok); }
+.live-entry-dot[data-tone="bad"] { background: var(--error); }
 .live-sentence { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .live-machine { color: var(--ink-muted); }
 .live-ms, .live-age { color: var(--ink-faint); font-size: var(--fs-2xs); white-space: nowrap; font-variant-numeric: tabular-nums; }
