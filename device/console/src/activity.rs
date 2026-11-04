@@ -10,7 +10,7 @@
 //! when a tool has no template yet it says `Used \`tool.name\`` instead of pretending to know what
 //! the tool did.
 
-use serde_json::Value;
+use serde_json::{json, Value};
 
 /// The longest piece of caller data quoted into a sentence.
 const EXCERPT: usize = 64;
@@ -162,6 +162,97 @@ pub(crate) fn describe(tool: &str, arguments: &Value) -> String {
     }
 }
 
+/// The evidence for one call: the few facts the page can show when a row is opened.
+///
+/// Only what the caller themselves sent, bounded and flattened — never the device's whole answer.
+/// A tool with nothing worth showing returns `None` rather than an empty object, so the page can say
+/// "this row has no evidence" instead of drawing an empty panel.
+pub(crate) fn detail(tool: &str, arguments: &Value) -> Option<Value> {
+    let text = |key: &str| {
+        arguments
+            .get(key)
+            .and_then(Value::as_str)
+            .filter(|value| !value.is_empty())
+            .map(|value| excerpt(value))
+    };
+    let mut out = serde_json::Map::new();
+    match tool {
+        "runs.exec" => {
+            if let Some(command) = text("command") {
+                out.insert("command".to_owned(), json!(command));
+            }
+            let args: Vec<String> = arguments
+                .get("args")
+                .and_then(Value::as_array)
+                .map(|list| {
+                    list.iter()
+                        .filter_map(Value::as_str)
+                        .map(|value| excerpt(value))
+                        .collect()
+                })
+                .unwrap_or_default();
+            if !args.is_empty() {
+                out.insert("args".to_owned(), json!(args));
+            }
+            if let Some(timeout) = arguments.get("timeout_ms").and_then(Value::as_u64) {
+                out.insert("timeout_ms".to_owned(), json!(timeout));
+            }
+        }
+        "files.read" | "files.write" | "files.list" | "files.mkdir" | "files.delete" => {
+            if let Some(path) = text("path") {
+                out.insert("path".to_owned(), json!(path));
+            }
+            if let Some(content) = arguments.get("content").and_then(Value::as_str) {
+                out.insert("bytes".to_owned(), json!(content.len()));
+            }
+        }
+        "terminal.create" => {
+            if let Some(shell) = text("shell") {
+                out.insert("shell".to_owned(), json!(shell));
+            }
+        }
+        "terminal.write" => {
+            if let Some(id) = text("id") {
+                out.insert("session".to_owned(), json!(id));
+            }
+            if let Some(input) = text("data") {
+                out.insert("input".to_owned(), json!(input));
+            }
+        }
+        "terminal.read" | "terminal.resize" | "terminal.close" => {
+            if let Some(id) = text("id") {
+                out.insert("session".to_owned(), json!(id));
+            }
+        }
+        "screen.capture" | "screen.capture_display" => {
+            if let Some(display) = arguments.get("display").and_then(Value::as_u64) {
+                out.insert("display".to_owned(), json!(display));
+            }
+        }
+        "browser.open" | "browser.navigate" => {
+            if let Some(url) = text("url") {
+                out.insert("url".to_owned(), json!(url));
+            }
+        }
+        "system.net_test" => {
+            if let Some(host) = text("host") {
+                out.insert("host".to_owned(), json!(host));
+            }
+        }
+        "memory.search" => {
+            if let Some(query) = text("query") {
+                out.insert("query".to_owned(), json!(query));
+            }
+        }
+        _ => {}
+    }
+    if out.is_empty() {
+        None
+    } else {
+        Some(Value::Object(out))
+    }
+}
+
 /// A human sentence for one stored audit line, when the event's arguments are no longer available.
 ///
 /// The snapshot that opens the live stream comes from the audit file, which never carried bodies, so
@@ -280,5 +371,49 @@ mod tests {
             line_sentence(&json!({ "kind": "grant", "status": 200 })),
             "Issued a grant"
         );
+    }
+}
+
+#[cfg(test)]
+mod detail_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn a_run_carries_its_command_and_arguments() {
+        let detail = detail(
+            "runs.exec",
+            &json!({ "command": "cargo", "args": ["test", "-p", "console"] }),
+        )
+        .expect("a run has evidence");
+        assert_eq!(detail["command"], json!("cargo"));
+        assert_eq!(detail["args"], json!(["test", "-p", "console"]));
+    }
+
+    #[test]
+    fn a_file_carries_its_path_and_size() {
+        let detail = detail(
+            "files.write",
+            &json!({ "path": "a.txt", "content": "hello" }),
+        )
+        .unwrap();
+        assert_eq!(detail["path"], json!("a.txt"));
+        assert_eq!(detail["bytes"], json!(5));
+    }
+
+    #[test]
+    fn a_terminal_write_carries_the_session_and_the_input() {
+        let detail = detail(
+            "terminal.write",
+            &json!({ "id": "session-2", "data": "npm test" }),
+        )
+        .unwrap();
+        assert_eq!(detail["session"], json!("session-2"));
+        assert_eq!(detail["input"], json!("npm test"));
+    }
+
+    #[test]
+    fn a_tool_with_nothing_to_show_has_no_evidence() {
+        assert!(detail("tools/list", &json!({})).is_none());
     }
 }

@@ -12129,3 +12129,51 @@ async fn a_proxied_call_reaches_the_stream_as_a_sentence() {
     assert!(seen.contains("Read `notes.txt`"), "{seen}");
     assert!(seen.contains("\"ok\":true"), "{seen}");
 }
+
+#[tokio::test]
+async fn a_proxied_call_carries_its_evidence_to_the_stream() {
+    let fixture = Fixture::new("activity-evidence");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0x54)).await;
+    let session = fixture.authenticate().await;
+
+    let mut socket = open_events(&server, &session).await;
+    let mut seen = String::new();
+    read_until(&mut socket, &mut seen, "event: snapshot").await;
+
+    let app = fixture.app();
+    let call = tokio::spawn(async move {
+        send(
+            app,
+            post_json_bearer(
+                "/mcp",
+                &session,
+                json!({
+                    "device_id": device_id,
+                    "request": {
+                        "jsonrpc": "2.0",
+                        "id": 4,
+                        "method": "tools/call",
+                        "params": { "name": "files.read", "arguments": { "path": "notes.txt" } },
+                    },
+                }),
+            ),
+        )
+        .await
+    });
+
+    let frame = next_json(&mut device).await;
+    answer(&mut device, &frame, tool_result(json!({ "content": "hi" }))).await;
+    let (status, _) = call.await.expect("the call finished");
+    assert_eq!(status, StatusCode::OK);
+
+    // The row's proof rides on the event itself: the call's own arguments, bounded at proxy time and
+    // never written to the audit file. The path the caller sent is what the row will open to.
+    read_until(&mut socket, &mut seen, "\"evidence\"").await;
+    assert!(seen.contains("\"evidence\""), "{seen}");
+    assert!(
+        seen.contains("\"evidence\":{\"path\":\"notes.txt\"}"),
+        "the live event carries the arguments the caller sent: {seen}"
+    );
+}

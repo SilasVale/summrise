@@ -511,6 +511,55 @@ async fn page_not_found(State(app): State<AppState>) -> Response {
         .into_response()
 }
 
+/// The last lines of a run's own output, bounded, for the timeline's expanded row.
+///
+/// The console already proxies this answer; showing the caller their own command's output is the
+/// evidence a person wants when they click a run. Nothing is stored: the audit file still never
+/// carries a body.
+fn run_output_tail(reply: &Reply) -> Option<String> {
+    const TAIL: usize = 1600;
+    let Reply::Result(result) = reply else {
+        return None;
+    };
+    let body = result.get("result").unwrap_or(result);
+    let text = body
+        .get("content")?
+        .as_array()?
+        .first()?
+        .get("text")?
+        .as_str()?;
+    let parsed: Value = serde_json::from_str(text).ok()?;
+    let stdout = parsed
+        .get("stdout")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let stderr = parsed
+        .get("stderr")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let mut combined = String::new();
+    if !stdout.trim().is_empty() {
+        combined.push_str(stdout);
+    }
+    if !stderr.trim().is_empty() {
+        if !combined.is_empty() && !combined.ends_with('\n') {
+            combined.push('\n');
+        }
+        combined.push_str(stderr);
+    }
+    if combined.trim().is_empty() {
+        return None;
+    }
+    let length = combined.chars().count();
+    let tail: String = if length > TAIL {
+        let skip = length - TAIL;
+        format!("…{}", combined.chars().skip(skip).collect::<String>())
+    } else {
+        combined
+    };
+    Some(tail)
+}
+
 /// The facts one audit line names. One shape, named at the call site: the three `Option`s are
 /// different facts, not interchangeable positionals.
 struct AuditFacts<'a> {
@@ -731,6 +780,7 @@ impl Inner {
         sentence: &str,
         status: StatusCode,
         ms: u64,
+        evidence: Option<Value>,
     ) {
         let mut event = json!({
             "ts_ms": (self.now)(),
@@ -745,6 +795,9 @@ impl Inner {
         }
         if let Some(tool) = tool {
             event["tool"] = json!(tool);
+        }
+        if let Some(evidence) = evidence {
+            event["evidence"] = evidence;
         }
         self.audit.publish(event);
     }
@@ -6313,6 +6366,11 @@ async fn proxy_reply(
         None => "Listed the machine's tools".to_owned(),
     };
     let publish_sentence = sentence.clone();
+    // What the page shows when the row is opened: the call's own arguments, bounded, plus the run's
+    // output tail when there is one. Built once, before the wait, like the sentence.
+    let mut evidence = tool
+        .as_deref()
+        .and_then(|tool| crate::activity::detail(tool, requested_arguments(&request)));
 
     if let Some(tool) = tool.as_deref() {
         // A `*` is a wildcard, as it is on the device: the operator's own scope is `["*"]`, and an
@@ -6372,6 +6430,7 @@ async fn proxy_reply(
                 &publish_sentence,
                 StatusCode::GATEWAY_TIMEOUT,
                 started.elapsed().as_millis() as u64,
+                evidence.clone(),
             );
             app.record_facts(AuditFacts {
                 kind: "denied",
@@ -6394,6 +6453,7 @@ async fn proxy_reply(
                 &publish_sentence,
                 failure.status,
                 started.elapsed().as_millis() as u64,
+                evidence.clone(),
             );
             app.record_facts(AuditFacts {
                 kind: "denied",
@@ -6424,6 +6484,7 @@ async fn proxy_reply(
                     &publish_sentence,
                     StatusCode::FORBIDDEN,
                     started.elapsed().as_millis() as u64,
+                    evidence.clone(),
                 );
                 app.record_facts(AuditFacts {
                     kind: "denied",
@@ -6446,12 +6507,20 @@ async fn proxy_reply(
             } else {
                 reply_detail(&reply)
             };
+            if tool.as_deref() == Some("runs.exec") {
+                if let Some(output) = run_output_tail(&reply) {
+                    if let Some(evidence) = evidence.as_mut() {
+                        evidence["output"] = json!(output);
+                    }
+                }
+            }
             app.publish_call(
                 audit_id.as_deref(),
                 tool.as_deref(),
                 &publish_sentence,
                 StatusCode::OK,
                 started.elapsed().as_millis() as u64,
+                evidence,
             );
             app.record_facts(AuditFacts {
                 kind: "mcp",
