@@ -12,7 +12,7 @@ Each item ships on its own: the web gates, the console's Rust tests, a live chec
    see 2026-11-04-device-outage.md; ship the console as soon as a host answers).* One row per action (time, sentence, machine, outcome,
    duration); a click opens the evidence (command, output tail, session, links). The audit table
    stays behind the `Table` toggle.
-2. **Screenshots as evidence.** A `screen.capture` call keeps its last image in console memory
+2. **Screenshots as evidence.** *(Code complete 2026-11-04: 4 per device, 32 total, LRU, memory only; the row opens the frame with its capture time; the route is authenticated and a restart forgets it.)* A `screen.capture` call keeps its last image in console memory
    (bounded per device) and the row opens it inline. The image is ephemeral: nothing is written to
    disk and a restart forgets it.
 3. **The session card.** *(Code complete 2026-11-04, queued behind the outage: the card leads the page — machine, session, kind, age, last keystroke from the live evidence.)* The Terminal page shows the session before the terminal: machine, shell,
