@@ -272,7 +272,15 @@ export function App() {
     // Best effort, and deliberately not awaited: the request goes out with the token still in hand,
     // and the page clears whether it answers, fails or never arrives. A slow console must not leave
     // a live session in this tab.
-    api.logout().catch(() => {});
+    // The console's cookie is ours; behind Access the identity is the edge's. When the answer names
+    // the edge's logout, follow it — otherwise the next request is signed straight back in and the
+    // button looks broken.
+    api
+      .logout()
+      .then((answer) => {
+        if (answer?.access_logout) window.location.assign(answer.access_logout);
+      })
+      .catch(() => {});
     setSession({ authenticated: false });
     setDevices([]);
     setVitals({});

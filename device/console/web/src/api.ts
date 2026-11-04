@@ -217,9 +217,11 @@ export const api = {
       method: "POST",
       body: JSON.stringify(credential)
     }),
-  // Ends the presented session on the server. The page calls it best-effort as it signs out; a
+  // Ends the presented session on the server and, behind Cloudflare Access, names the edge's own
+  // logout: clearing only the console cookie is undone by the next request the edge authenticates,
+  // so the page follows `access_logout` when it is there. Best effort as the page signs out; a
   // failure is not a reason to keep the in-memory session alive in the tab.
-  logout: () => call<void>("/logout", { method: "POST" }),
+  logout: () => call<{ access_logout: string | null }>("/logout", { method: "POST" }),
   // `/fleet`, not `/devices`: the device namespace is behind Cloudflare Access's bypass (a
   // device has no email login), and a bypassed request carries no identity for the page to use.
   devices: () => call<Device[]>("/fleet"),
@@ -262,11 +264,9 @@ export const api = {
   // Permanent tokens: the create answer is the only one that carries the plaintext, so it is the one
   // shape that carries `token`. Every list entry is metadata, and a revoke is a bare DELETE.
   tokens: () => call<TokenMeta[]>("/tokens"),
-  // The narrower read for one machine's records. The one credential list asks it and `GET /tokens`
-  // and merges them, so a console that does not serve this route still lists the machine's tokens
-  // from the whole registry.
-  deviceTokens: (deviceId: string) =>
-    call<TokenMeta[]>(`/tokens/${encodeURIComponent(deviceId)}`),
+  // There is no narrower `/tokens/<device>` read: the console serves the whole registry and a bare
+  // DELETE by id. The one credential list splits the registry by scope, which is the same answer
+  // without a request that 405s.
   createToken: (draft: {
     name: string;
     tools: string[];

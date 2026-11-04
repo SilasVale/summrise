@@ -7,7 +7,6 @@ const mocks = vi.hoisted(() => ({
   tools: vi.fn(),
   liveTools: vi.fn(),
   tokens: vi.fn(),
-  deviceTokens: vi.fn(),
   createToken: vi.fn(),
   rotateToken: vi.fn(),
   revokeToken: vi.fn()
@@ -21,7 +20,6 @@ vi.mock("./api", async (importOriginal) => {
       ...actual.api,
       tools: mocks.tools,
       tokens: mocks.tokens,
-      deviceTokens: mocks.deviceTokens,
       createToken: mocks.createToken,
       rotateToken: mocks.rotateToken,
       revokeToken: mocks.revokeToken
@@ -102,7 +100,6 @@ beforeEach(() => {
   mocks.tools.mockResolvedValue([{ name: "files.read" }, { name: "terminal.write" }]);
   mocks.liveTools.mockReturnValue(TOOLS);
   mocks.tokens.mockResolvedValue([]);
-  mocks.deviceTokens.mockResolvedValue([]);
   mocks.createToken.mockReset();
   mocks.rotateToken.mockReset();
   mocks.revokeToken.mockReset();
@@ -313,9 +310,8 @@ describe("ConnectSheet's one credential list", () => {
       allow_destructive: true,
       created_at_ms: Date.UTC(2026, 10, 2)
     });
-    // The whole-registry read also carries the device token: the page merges the two sources and
-    // must not draw the same record twice.
-    mocks.deviceTokens.mockResolvedValue([deviceToken]);
+    // One registry carries both scopes; the list must not draw the same record twice and must
+    // label each row by the scope the registry says it has.
     mocks.tokens.mockResolvedValue([fleetToken, deviceToken]);
 
     draw({ initialSection: "tokens" });

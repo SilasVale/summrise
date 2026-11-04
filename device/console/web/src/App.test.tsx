@@ -665,6 +665,31 @@ describe("App", () => {
     expect(clearInterval).toHaveBeenCalledWith(timer);
   });
 
+  it("follows the edge's sign-out when the console names one", async () => {
+    // Behind Cloudflare Access the console cookie is only half the identity; the answer names the
+    // edge's logout and the page must follow it, or the next request signs the operator back in.
+    const assign = vi.fn();
+    const original = window.location;
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      value: { ...original, assign }
+    });
+    try {
+      mocks.logout.mockResolvedValue({
+        access_logout: "https://edge.example/cdn-cgi/access/logout"
+      });
+      await bootAndSignIn();
+      openAccount();
+      fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
+      await waitFor(() =>
+        expect(assign).toHaveBeenCalledWith("https://edge.example/cdn-cgi/access/logout")
+      );
+    } finally {
+      Object.defineProperty(window, "location", { configurable: true, value: original });
+      mocks.logout.mockResolvedValue(undefined);
+    }
+  });
+
   it("signs out on the server and clears the fleet", async () => {
     await bootAndSignIn();
     expect(screen.getAllByText("workshop").length).toBeGreaterThan(0);

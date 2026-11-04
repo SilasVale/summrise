@@ -330,26 +330,20 @@ function TokensSection({
   ).length;
 
   /**
-   * Read both credential sources and merge them, newest first.
+   * Read the registry and split it by scope, newest first.
    *
-   * `GET /tokens` is the whole registry; `/tokens/<device>` is the narrower machine read. The
-   * narrower route is not served by every console build, so a refusal falls back to the device's
-   * slice of the whole registry instead of hiding the machine's tokens. A failed whole-registry
-   * read keeps the list that is already on screen and says why.
+   * `GET /tokens` is the whole registry and the only list the console serves, so the machine's rows
+   * are its slice of that answer rather than a second request (there is no `/tokens/<device>` route;
+   * asking for one made every Tokens open log a 405). A failed read keeps the list already on screen
+   * and says why.
    */
   const refresh = useCallback(
     async (justCreated?: TokenMeta) => {
       const deviceId = device?.id ?? null;
       try {
-        const [whole, narrower] = await Promise.all([
-          api.tokens(),
-          deviceId ? api.deviceTokens(deviceId).catch(() => null) : Promise.resolve(null)
-        ]);
+        const whole = await api.tokens();
         const deviceRows = deviceId
-          ? // The whole registry also carries the machine's records in this console; merging both
-            // reads means a console that serves the narrower route adds nothing twice, and one
-            // that does not still lists the machine's tokens.
-            mergeTokenRows(narrower ?? [], whole.filter((entry) => entry.device_id === deviceId))
+          ? whole.filter((entry) => entry.device_id === deviceId)
           : [];
         const fleetRows = whole.filter((entry) => tokenScope(entry) === "fleet");
         setTokens(mergeTokenRows(deviceRows, fleetRows, justCreated ? [justCreated] : []));
