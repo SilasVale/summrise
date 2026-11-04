@@ -265,18 +265,6 @@ export function RunsPage({
 
   return (
     <div className="runs-page">
-      <div className="panel-head">
-        <div className="actions">
-          <button
-            type="button"
-            disabled={loadingHistory || running || offline}
-            title={offline ? "The machine is offline; the history refreshes when it reconnects" : undefined}
-            onClick={() => void read()}
-          >
-            {loadingHistory ? "Refreshing…" : "Refresh history"}
-          </button>
-        </div>
-      </div>
       {/*
         `noValidate`: the device owns the bounds. Its refusal — an empty command, a timeout outside
         1..600000 — is the sentence worth showing, and the browser's would replace it.
@@ -433,7 +421,18 @@ export function RunsPage({
         </section>
       )}
 
-      <p className="hint">{historyNote}</p>
+      <div className="runs-history-head">
+        <p className="hint">{historyNote}</p>
+        <button
+          type="button"
+          className="mini"
+          disabled={loadingHistory || running || offline}
+          title={offline ? "The machine is offline; the history refreshes when it reconnects" : undefined}
+          onClick={() => void read()}
+        >
+          {loadingHistory ? "Refreshing…" : "Refresh history"}
+        </button>
+      </div>
       {historyError && <p className="error">{historyError}</p>}
       {detailId && <p className="hint">Reading run {detailId}…</p>}
       {detailError && <p className="error">{detailError}</p>}

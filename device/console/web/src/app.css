@@ -2234,3 +2234,130 @@ input:not([type="checkbox"]):not([type="radio"]):focus, select:focus, textarea:f
 .facts dt { color: var(--ink-muted); font-size: var(--fs-sm); }
 .facts dd { margin: 0; font-variant-numeric: tabular-nums; text-align: right; }
 .page p, .sheet-body > p, .panel > p { max-width: 68ch; }
+
+/* ── One card per fact, not one card per page ────────────────────────────────────────────────────
+   The machine tab was a single panel around four unrelated sections, so a page that answers four
+   questions read as one long form. Each section is its own group now, and the tab body carries no
+   chrome of its own. */
+
+.tab-body { display: grid; gap: var(--sp-4); min-width: 0; }
+.system-page { gap: var(--sp-4); }
+.system-section {
+  background: var(--panel); border: 1px solid var(--hairline);
+  border-radius: var(--radius); padding: 18px; gap: var(--sp-2-5);
+}
+.system-section > h3 { margin: 0; font-size: var(--fs-md); font-weight: var(--fw-semi); letter-spacing: -0.01em; }
+.system-section > .hint { max-width: 68ch; }
+.system-section .card { border: 0; background: var(--canvas); }
+
+/* The hub's three answers are groups too. */
+.home-hero {
+  background: var(--panel); border: 1px solid var(--hairline); border-radius: var(--radius);
+  padding: 18px;
+}
+.home-hero > .hint { margin: 0; }
+.home-lower { gap: var(--sp-4); }
+.home-recent {
+  background: var(--panel); border: 1px solid var(--hairline); border-radius: var(--radius);
+  padding: 12px 16px;
+}
+.recent-calls li { padding: 9px 0; }
+.home-recent-head { padding-bottom: 4px; }
+
+/* ── The files page ─────────────────────────────────────────────────────────────────────────────
+   A file browser is a path, a toolbar and a list. The path is a bar (not a heading floating beside
+   the root picker), the toolbar is one row, and the list is grouped rows with hairlines. */
+
+.files-page { display: grid; gap: var(--sp-3); min-width: 0; }
+.files-page > .panel-head { margin-bottom: 0; }
+.files-root { gap: var(--sp-1-5); font-size: var(--fs-sm); color: var(--ink-muted); }
+.files-crumbs {
+  display: flex; align-items: center; gap: var(--sp-1-5); flex-wrap: wrap;
+  padding: 6px 2px; font-size: var(--fs-sm); color: var(--ink-muted);
+  border-bottom: 1px solid var(--hairline);
+}
+.files-crumb { border: 0; background: transparent; padding: 0; color: var(--ink-muted); text-decoration: none; }
+.files-crumb:hover { background: transparent; color: var(--ink); }
+.files-crumb-current { color: var(--ink); font-weight: var(--fw-semi); }
+.files-crumb-sep { color: var(--ink-faint); }
+.files-tools { align-items: center; gap: var(--sp-2); }
+.files-summary { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
+.files-summary .hint { margin: 0; }
+.files-filter { margin-left: auto; }
+.files-filter input { min-height: 28px; width: 16rem; max-width: 100%; }
+.files-list {
+  background: var(--panel); border: 1px solid var(--hairline);
+  border-radius: var(--radius); overflow: hidden; margin: 0;
+}
+.files-list .files-row {
+  display: flex; align-items: center; gap: var(--sp-2); min-width: 0;
+  padding: 9px 14px; border-bottom: 1px solid var(--hairline);
+  transition: background 120ms var(--ease);
+}
+.files-list .files-row:last-child { border-bottom: 0; }
+.files-list .files-row:hover { background: var(--row-hover); }
+.files-name { flex: 1; min-width: 0; }
+.files-kind { color: var(--ink-muted); font-size: var(--fs-xs); text-transform: none; letter-spacing: normal; }
+.files-size { color: var(--ink-faint); font-size: var(--fs-xs); font-variant-numeric: tabular-nums; }
+.files-viewer { border: 1px solid var(--hairline); border-radius: var(--radius); background: var(--panel); }
+
+/* The hub's counts line is a navigation capsule, not orphan text between two cards. */
+.counts-line {
+  background: var(--control-bg); border-radius: var(--radius-pill);
+  padding: 4px 12px; font-size: var(--fs-sm); color: var(--ink);
+}
+.counts-line:hover { background: var(--control-hover-bg); color: var(--ink); }
+/* The endpoint is a value with a Copy action, so it is a field (filled), not a box inside a box. */
+.home-hero .endpoint-row { background: var(--canvas); border: 0; border-radius: var(--radius-sm2); }
+
+/* Quiet scrollbars: the page and the terminal scroll without a system rail competing with the card. */
+main, .sheet-body, .scroll, .term-host .xterm-viewport { scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--ink) 22%, transparent) transparent; }
+main::-webkit-scrollbar, .sheet-body::-webkit-scrollbar, .scroll::-webkit-scrollbar { width: 10px; height: 10px; }
+main::-webkit-scrollbar-thumb, .sheet-body::-webkit-scrollbar-thumb, .scroll::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--ink) 20%, transparent); border-radius: var(--radius-pill);
+  border: 3px solid transparent; background-clip: content-box;
+}
+main::-webkit-scrollbar-track, .sheet-body::-webkit-scrollbar-track, .scroll::-webkit-scrollbar-track { background: transparent; }
+
+/* The path bar: breadcrumbs left, root picker and Refresh right, one hairline under both. */
+.files-bar {
+  display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap;
+  padding-bottom: var(--sp-2); border-bottom: 1px solid var(--hairline);
+}
+.files-bar .files-crumbs { flex: 1; min-width: 10rem; border-bottom: 0; padding: 0; }
+.files-actions { display: flex; align-items: center; gap: var(--sp-2); flex: none; }
+.files-actions .files-root { display: inline-flex; align-items: center; gap: var(--sp-1-5); }
+.files-tools { display: flex; align-items: flex-end; gap: var(--sp-3); flex-wrap: wrap; }
+.files-new { display: grid; gap: var(--sp-1); }
+.files-new > label { font-size: var(--fs-2xs); color: var(--ink-muted); padding-left: 2px; }
+.files-new-row { display: flex; gap: var(--sp-1-5); }
+.files-new-row input { width: 12rem; }
+.files-upload { display: grid; gap: var(--sp-1); }
+.files-tools .files-filter { margin-left: auto; }
+
+/* ── Runs ───────────────────────────────────────────────────────────────────────────────────────
+   The command form and its history share the card, but not the typography: a field label and a
+   table head are both small caps-free 11 px labels here, and the table is a hairline grid. */
+
+.runs-form { align-items: flex-start; gap: var(--sp-3); }
+.runs-field { display: grid; gap: var(--sp-1); }
+.runs-field > label, .field-label { font-size: var(--fs-2xs); color: var(--ink-muted); padding-left: 2px; }
+.field-help { font-size: var(--fs-2xs); color: var(--ink-muted); max-width: 20rem; line-height: 1.45; }
+.runs-shell { align-self: flex-end; padding-bottom: 8px; gap: var(--sp-1-5); font-size: var(--fs-sm); }
+.runs-shell input { accent-color: var(--accent); }
+.runs-history { background: var(--panel); border: 1px solid var(--hairline); border-radius: var(--radius); overflow: hidden; }
+.runs-history th {
+  text-transform: none; letter-spacing: normal; font-size: var(--fs-2xs);
+  font-weight: var(--fw-medium); color: var(--ink-muted);
+  border-bottom: 1px solid var(--hairline); padding: 8px 12px; text-align: left;
+}
+.runs-history td { padding: 9px 12px; border-bottom: 1px solid var(--hairline); }
+.runs-history tr:last-child td { border-bottom: 0; }
+.runs-row { cursor: pointer; }
+.runs-row:hover td { background: var(--row-hover); }
+.runs-row-active td { background: color-mix(in srgb, var(--accent) 8%, transparent); }
+
+.runs-history-head { display: flex; align-items: center; gap: var(--sp-2); }
+.runs-history-head .hint { margin: 0; }
+.runs-history-head button { margin-left: auto; }
+.runs-form > button.primary { align-self: flex-start; margin-top: 19px; }

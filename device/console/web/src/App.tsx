@@ -715,7 +715,7 @@ export function App() {
                   </section>
                 ) : null}
                 {tab === "machine" && grant ? (
-                  <section className="panel">
+                  <section className="tab-body">
                     <SystemPage
                       grant={grant}
                       device={chosen}

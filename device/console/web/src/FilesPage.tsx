@@ -384,8 +384,36 @@ export function FilesPage({
 
   return (
     <div className="files-page">
-      <div className="panel-head">
-        <div className="actions">
+      <div className="files-bar">
+        <nav className="files-crumbs" aria-label="Breadcrumb">
+          {trail.map((crumb, index) => {
+            const current = index === trail.length - 1;
+            return (
+              <Fragment key={"crumb:" + crumb.path}>
+                {index > 0 && (
+                  <span className="files-crumb-sep" aria-hidden="true">
+                    /
+                  </span>
+                )}
+                {current ? (
+                  <span className="files-crumb-current" aria-current="location">
+                    {crumb.name}
+                  </span>
+                ) : (
+                  <button
+                    type="button"
+                    className="files-crumb"
+                    disabled={loadingDir}
+                    onClick={() => void read(crumb.path)}
+                  >
+                    {crumb.name}
+                  </button>
+                )}
+              </Fragment>
+            );
+          })}
+        </nav>
+        <div className="files-actions">
           <label className="files-root">
             Root
             <select
@@ -407,34 +435,6 @@ export function FilesPage({
           </button>
         </div>
       </div>
-      <nav className="files-crumbs" aria-label="Breadcrumb">
-        {trail.map((crumb, index) => {
-          const current = index === trail.length - 1;
-          return (
-            <Fragment key={"crumb:" + crumb.path}>
-              {index > 0 && (
-                <span className="files-crumb-sep" aria-hidden="true">
-                  /
-                </span>
-              )}
-              {current ? (
-                <span className="files-crumb-current" aria-current="location">
-                  {crumb.name}
-                </span>
-              ) : (
-                <button
-                  type="button"
-                  className="files-crumb"
-                  disabled={loadingDir}
-                  onClick={() => void read(crumb.path)}
-                >
-                  {crumb.name}
-                </button>
-              )}
-            </Fragment>
-          );
-        })}
-      </nav>
 
       {listError && <p className="error">{listError}</p>}
 
@@ -474,12 +474,6 @@ export function FilesPage({
           {uploading && <span className="hint">Uploading…</span>}
         </div>
 
-      </div>
-
-      {/* THE FILTER SITS WITH THE COUNT, NOT WITH "CREATE FOLDER". It filters the list, and in the
-          actions row it floated to the panel's right edge, 250 px from anything it belonged to. */}
-      <div className="files-summary">
-        <p className="hint">{note}</p>
         {(entries.length > 0 || up !== null) && (
           <label className="files-filter">
             <span className="sr-only">Filter this folder</span>
@@ -492,6 +486,12 @@ export function FilesPage({
             />
           </label>
         )}
+      </div>
+
+      {/* THE FILTER SITS WITH THE COUNT, NOT WITH "CREATE FOLDER". It filters the list, and in the
+          actions row it floated to the panel's right edge, 250 px from anything it belonged to. */}
+      <div className="files-summary">
+        <p className="hint">{note}</p>
       </div>
 
       {needle !== "" && (
