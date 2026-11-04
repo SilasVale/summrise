@@ -62,7 +62,9 @@ Audit recorded `device disconnected 502` followed by operator calls refused `503
 0. **Preferred:** run `http://100.85.163.159:18100/SummriseSetup-0.3.273.exe` elevated. It installs
    the launcher with the port fix and the current app; the fleet is already dark, so this is the one
    action that both recovers and prevents a repeat. Nothing points the canary channel at it: the
-   pointer names `0.3.271` on purpose.
+   pointer names `0.3.271` on purpose. After it, confirm `/fleet` shows the machine on `0.3.273` and
+   read `C:\ProgramData\Summrise\device.port` — it names the port the app actually bound, which is
+   what the local panel and the tray should use if the installer rewrote the launch config.
 1. If an installer cannot be used: `sc query SummriseLaunch` — if `STOPPED`, `sc start
    SummriseLaunch`. The service starts the app from its baseline and waits for health; the TIME_WAIT
    window is long gone by morning, so this should bring the device back on `0.3.271`.
