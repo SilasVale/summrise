@@ -1,11 +1,12 @@
 // The layout gate: every page in a directory, at every width, must fit the window.
 //
-// Two callers: the console's review pages (rendered by `render_pages_for_review`) and the landing
-// page in `landing/public`. It drives headless Chrome over the DevTools protocol to measure what a
-// screenshot only shows to an eye — a card hiding a horizontal scrollbar, content painted past its
-// clipping box, a page without one h1.
+// Two callers: the device panel (rendered by `render_panel_for_review`) and the landing page in
+// `landing/public`. The console page is measured by its own screenshot harness instead; this gate
+// never sees it. It drives headless Chrome over the DevTools protocol to measure what a screenshot
+// only shows to an eye — a card hiding a horizontal scrollbar, content painted past its clipping
+// box, a page without one h1.
 //
-//   node scripts/layout-gate.mjs /tmp/console-shots/pages 390 800 1280
+//   node scripts/layout-gate.mjs /tmp/panel-pages 390 1280
 //   node scripts/layout-gate.mjs landing/public 390 768 1280
 //
 // Exits 1 on a failure, 2 when no Chromium is found.

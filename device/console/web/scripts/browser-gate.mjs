@@ -98,6 +98,35 @@ const AUDIT_LINE = {
   detail: 'run r-1 exited 0 in 42 ms',
   status: 200
 };
+// The whole registry, not the selected machine's slice: one token for this machine, one for a
+// machine the gate never selects, and one aggregate. The Tokens leg counts the rows against this.
+const TOKENS = [
+  {
+    id: 'gate-token-on-gate-device',
+    name: 'gate-laptop',
+    device_id: DEVICE.id,
+    tools: ['files.read', 'terminal.read'],
+    allow_destructive: false,
+    created_at_ms: NOW - 2 * 60 * 60_000
+  },
+  {
+    id: 'gate-token-elsewhere',
+    name: 'attic-ops',
+    device_id: 'gate-device-attic-0123456789',
+    tools: ['runs.list'],
+    allow_destructive: false,
+    created_at_ms: NOW - 3 * 60 * 60_000
+  },
+  {
+    id: 'gate-token-fleet',
+    name: 'gate-fleet',
+    device_id: '',
+    device_ids: [DEVICE.id, 'gate-device-attic-0123456789'],
+    tools: ['files.read', 'runs.exec'],
+    allow_destructive: true,
+    created_at_ms: NOW - 4 * 60 * 60_000
+  }
+];
 const TOOL_NAMES = [
   'terminal.create',
   'terminal.list',
@@ -151,7 +180,9 @@ function apiReply(request, url) {
   }
   if (method === 'POST' && pathname === '/logout') {
     state.signedIn = false;
-    return { status: 204, body: null };
+    // The console's contract: 200 and a JSON body. `access_logout` is the edge's logout URL to
+    // follow after the console's own cookie is cleared; null when there is no edge.
+    return json({ access_logout: null });
   }
   if (method === 'GET' && pathname === '/health') {
     return json({ status: 'ok', devices: 1, online: 1, version: 'browser-gate' });
@@ -170,7 +201,7 @@ function apiReply(request, url) {
     });
   }
   if (method === 'GET' && /^\/fleet\/[^/]+\/connections$/.test(pathname)) return json([]);
-  if (method === 'GET' && pathname === '/tokens') return json([]);
+  if (method === 'GET' && pathname === '/tokens') return json(TOKENS);
   if (method === 'GET' && pathname === '/audit') return json([AUDIT_LINE]);
   if (method === 'GET' && pathname === '/denials') return json([]);
   if (method === 'GET' && pathname === '/tools') return json(TOOL_NAMES.map((name) => ({ name })));
@@ -259,6 +290,20 @@ const server = http.createServer((request, response) => {
     request.on('close', () => clearInterval(timer));
     return;
   }
+  // THE ACTIVITY STREAM, ANSWERED THE SAME WAY. The page follows /events for its newest lines; a
+  // 404 there is a console error and the gate fails on it at the end. One snapshot is enough, and
+  // the stream stays open so EventSource does not reconnect in a loop.
+  if (request.method === 'GET' && url.pathname === '/events') {
+    response.writeHead(200, {
+      'content-type': 'text/event-stream; charset=utf-8',
+      'cache-control': 'no-store',
+      'x-accel-buffering': 'no'
+    });
+    response.write(`event: snapshot\ndata: ${JSON.stringify({ lines: [AUDIT_LINE] })}\n\n`);
+    const timer = setInterval(() => response.write(': ping\n\n'), 25_000);
+    request.on('close', () => clearInterval(timer));
+    return;
+  }
   response.writeHead(404, { 'content-type': 'text/plain' });
   response.end('not found');
 });
@@ -281,6 +326,7 @@ await page.route('**/*', async (route) => {
   const url = new URL(route.request().url());
   if (url.origin !== base) return route.continue();
   if (url.pathname === '/' || url.pathname === '/index.html') return route.continue();
+  if (url.pathname === '/events') return route.continue();
   if (streamRoute.test(url.pathname)) return route.continue();
   const reply = apiReply(route.request(), url);
   const headers = { 'cache-control': 'no-store' };
@@ -338,9 +384,13 @@ try {
 
   await page.getByRole('button', { name: 'Activity' }).click();
   await page.getByRole('heading', { name: 'Activity' }).waitFor({ timeout: 10_000 });
-  step('opened Activity; the audit window carries the run');
-
-  await page.locator('.audit-row').first().click();
+  // Activity opens on the timeline; the audit rows are the table view.
+  await page.getByRole('tab', { name: 'Table' }).click();
+  const auditRow = page.locator('.audit-row').first();
+  await auditRow.waitFor({ timeout: 10_000 });
+  step('opened Activity and its Table view; the audit window carries the run');
+  // The record is disclosed by its own button, so a keyboard reaches it too.
+  await auditRow.getByRole('button', { name: /Show the record for/ }).click();
   await page.getByRole('button', { name: 'Open in Runs' }).click();
   await page.getByRole('heading', { name: 'Runs' }).waitFor({ timeout: 10_000 });
   await page.getByText('r-1', { exact: true }).first().waitFor({ timeout: 10_000 });
@@ -349,6 +399,25 @@ try {
   }
   step('opened r-1 from its audit line; the terminal panel stayed hidden');
   await page.screenshot({ path: path.join(OUT, '04-activity-run.png') });
+
+  // THE CREDENTIAL LIST IS THE WHOLE REGISTRY. `GET /tokens` is the only list route; a row for
+  // another machine is still a real token and hidden rows made an occupied registry read "none".
+  await page.getByRole('button', { name: 'Connect', exact: true }).click();
+  const connect = page.getByRole('dialog', { name: 'Connect a client' });
+  await connect.waitFor({ timeout: 10_000 });
+  await connect.getByRole('tab', { name: 'Tokens' }).click();
+  const tokenRows = page.locator('.token-table tbody tr');
+  await tokenRows.first().waitFor({ timeout: 10_000 });
+  const drawn = await tokenRows.count();
+  if (drawn !== TOKENS.length) {
+    throw new Error(`the token list drew ${drawn} rows for ${TOKENS.length} registry tokens`);
+  }
+  const listed = await page.locator('.token-table tbody').innerText();
+  for (const token of TOKENS) {
+    if (!listed.includes(token.name)) throw new Error(`the token list dropped ${token.name}`);
+  }
+  step('opened Connect → Tokens; one row per registry token, including another machine\'s');
+  await page.screenshot({ path: path.join(OUT, '05-connect-tokens.png') });
 
   if (errors.length > 0) throw new Error('console errors: ' + errors.join(' ;; '));
   console.log(`browser-gate: PASS — ${steps.length} steps, ${state.writes.length} bytes written, marker echoed`);

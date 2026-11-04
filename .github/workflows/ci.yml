@@ -114,17 +114,21 @@ jobs:
       - name: the page typechecks
         working-directory: device/console/web
         run: npm run typecheck
-      # **THE JSDOM SUITE IS NOT A REQUIRED GATE.** Its 334 tests assert markup and component
-      # internals; the legacy record has a green jsdom suite beside a page whose buttons were dead.
-      # Typecheck catches the type-level break, the Rust suite covers logic, the layout gate and the
-      # Playwright gate below cover the browser. The suite stays in `npm test` for the author.
+      # **THE JSDOM SUITE IS A REQUIRED GATE.** Its tests assert the markup, labels and component
+      # decisions that typecheck cannot see (an empty state's sentence, a rename that must not
+      # freeze a generated label). Run it before the build check so a red suite fails on its own
+      # name, not as a stale page.
+      - name: the page's suite
+        working-directory: device/console/web
+        run: npm test
       # The page is embedded in the console binary with include_str!, so a source change that does
       # not update dist/index.html still compiles and still ships yesterday's UI. This is the gate.
       - name: the committed page is this source
         run: ./scripts/build-web.sh --check
-      # SIGN IN → DEVICE → PTY → MARKER. The `/mcp` answer is an echo, not a shell; the gate fails on
-      # any console error, which is how the missing saved-connections stub was found.
-      - name: sign in, open a pty, and read the marker back
+      # SIGN IN → DEVICE → PTY → MARKER → CONNECT → TOKENS. The `/mcp` answer is an echo, not a
+      # shell; the gate fails on any console error, which is how the missing saved-connections stub
+      # was found.
+      - name: sign in, open a pty, read the marker back, and count the token rows
         working-directory: device/console/web
         run: npm run gate:browser
 

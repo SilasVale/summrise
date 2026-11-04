@@ -127,10 +127,10 @@ is a constraint on a change, not a mood.
    privileges" appears where the install happens.
 10. **Deletion is part of the design.** Every addition names what it replaces. The default answer to
     "and also" is no.
-11. **Measured, not argued.** Contrast and type are a Rust test; layout is `scripts/layout-gate.mjs`;
-    the page is compared at 360/390/800/1280 in light and dark by
-    `device/console/web/scripts/screenshot.mjs`. A change that moves a page nobody meant to touch is a
-    finding.
+11. **Measured, not argued.** Contrast and type are a Rust test; the panel and landing are
+    `scripts/layout-gate.mjs`, and the console page is compared at 360/390/800/1280 in light and
+    dark by `device/console/web/scripts/screenshot.mjs`. A change that moves a page nobody meant to
+    touch is a finding.
 
 ## How we know it works
 
