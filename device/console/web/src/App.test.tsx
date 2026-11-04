@@ -1,5 +1,5 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
 import { VITALS_KEY_PREFIX, type VitalsSample } from "./vitals";
 
@@ -106,8 +106,35 @@ const tokenCall = {
   token_id: tokenId
 };
 
+/**
+ * The browser's own `EventSource`, replaced with one the test drives.
+ *
+ * The live stream is a real connection in production and an `EventSource` the page never sees in
+ * jsdom; without a stand-in `useLiveActivity` reports "offline" and a test cannot deliver a line.
+ */
+class TestEventSource {
+  static instances: TestEventSource[] = [];
+  listeners = new Map<string, (event: MessageEvent) => void>();
+  closed = false;
+  onerror: ((event: Event) => void) | null = null;
+  constructor(public url: string) {
+    TestEventSource.instances.push(this);
+  }
+  addEventListener(type: string, listener: (event: MessageEvent) => void) {
+    this.listeners.set(type, listener);
+  }
+  close() {
+    this.closed = true;
+  }
+  emit(type: string, data: unknown) {
+    this.listeners.get(type)?.({ data: JSON.stringify(data) } as MessageEvent);
+  }
+}
+
 beforeEach(() => {
   localStorage.clear();
+  TestEventSource.instances = [];
+  vi.stubGlobal("EventSource", TestEventSource);
   // The fragment is the page's address; a test that leaves Device open must not decide where the
   // next one boots.
   window.history.replaceState(null, "", window.location.pathname);
@@ -140,6 +167,10 @@ beforeEach(() => {
   // The hub reads the selected machine's live catalogue. An empty list is a real answer; these tests
   // are about the shell, not about what the device advertises.
   mocks.liveTools.mockResolvedValue({ tools: [] });
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
 });
 
 /** Render the page and wait for the signed-out boot to settle on the login form. */
@@ -658,5 +689,61 @@ describe("App", () => {
     fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
     await waitFor(() => expect(mocks.devices).toHaveBeenCalledTimes(2));
     expect(JSON.parse(localStorage.getItem(VITALS_KEY_PREFIX + workshop.id) ?? "[]")).toHaveLength(2);
+  });
+
+  it("counts the lines that arrived while Activity was paused", async () => {
+    await bootAndSignIn();
+    fireEvent.click(screen.getByRole("button", { name: "Activity" }));
+    await screen.findByRole("heading", { name: "Activity", level: 1 });
+
+    const source = TestEventSource.instances[TestEventSource.instances.length - 1];
+    expect(source).toBeDefined();
+
+    fireEvent.click(screen.getByRole("button", { name: "Pause" }));
+    // The subheading says the page is paused, not that it is still following the stream.
+    expect(screen.getByText(/Paused — the stream is still running/)).toBeInTheDocument();
+
+    // One call arrives after the freeze. Its console clock is the fact the count reads, and it is
+    // strictly after the moment of pausing (the two events can land in the same millisecond).
+    act(() => {
+      source.emit("activity", {
+        ts_ms: Date.now() + 5_000,
+        kind: "mcp",
+        status: 200,
+        ok: true,
+        sentence: "Read `notes.txt`",
+        tool: "files.read"
+      });
+    });
+
+    const resume = await screen.findByRole("button", { name: "Resume (1 new)" });
+    expect(resume).toBeInTheDocument();
+
+    fireEvent.click(resume);
+    // Resuming shows the line the frozen list held back.
+    expect(await screen.findByText("Read `notes.txt`")).toBeInTheDocument();
+  });
+
+  it("counts a line the fetched window slid in, not the list's length", async () => {
+    // The window that fills the list is `/audit`, and it slides: one old line leaves while one new
+    // line arrives, so the list's length does not move even though a call is new.
+    mocks.audit.mockResolvedValue([{ ...tokenCall, ts_ms: 1 }]);
+    await bootAndSignIn();
+    fireEvent.click(screen.getByRole("button", { name: "Activity" }));
+    await screen.findByRole("heading", { name: "Activity", level: 1 });
+
+    fireEvent.click(screen.getByRole("button", { name: "Pause" }));
+    mocks.audit.mockResolvedValue([
+      {
+        ...tokenCall,
+        ts_ms: Date.now() + 5_000,
+        tool: "files.read",
+        detail: null,
+        status: 200
+      }
+    ]);
+    fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
+
+    expect(await screen.findByRole("button", { name: "Resume (1 new)" })).toBeInTheDocument();
   });
 });

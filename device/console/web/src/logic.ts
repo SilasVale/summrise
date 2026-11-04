@@ -33,6 +33,16 @@ export function age(ms: number | null): string {
   return wasmAge(ms === null ? Number.NaN : ms, Date.now());
 }
 
+/**
+ * How long before `nowMs` a timestamp was.
+ *
+ * The same formatter as [`age`], with the clock supplied instead of read: a paused page stops at the
+ * moment it was paused, and its age column must stop with it.
+ */
+export function ageAt(ms: number | null, nowMs: number): string {
+  return wasmAge(ms === null ? Number.NaN : ms, nowMs);
+}
+
 /** The one sentence both surfaces use for a link that came back. */
 export function retrySentence(attempts: number, reason: string): string {
   return retry_sentence(attempts, reason);

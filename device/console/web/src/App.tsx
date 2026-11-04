@@ -71,12 +71,25 @@ export function App() {
   const [activityPaused, setActivityPaused] = useState(false);
   const [activityView, setActivityView] = useState<"stream" | "table">("stream");
   const [frozenActivity, setFrozenActivity] = useState<AuditLine[] | null>(null);
+  // The moment the freeze was taken, so the count is "lines newer than this" rather than a length
+  // difference: the fetched window slides, and a difference under-reports once it does.
+  const [pausedAt, setPausedAt] = useState<number | null>(null);
   const activityLines = mergeActivity(audit, live.lines);
   const shownActivity = activityPaused && frozenActivity ? frozenActivity : activityLines;
-  const freshActivity = frozenActivity ? Math.max(0, activityLines.length - frozenActivity.length) : 0;
+  const freshActivity =
+    activityPaused && pausedAt !== null
+      ? activityLines.filter((line) => line.ts_ms > pausedAt).length
+      : 0;
   const pauseActivity = () => {
-    setFrozenActivity(activityPaused ? null : activityLines);
-    setActivityPaused((current) => !current);
+    if (activityPaused) {
+      setActivityPaused(false);
+      setFrozenActivity(null);
+      setPausedAt(null);
+    } else {
+      setPausedAt(Date.now());
+      setFrozenActivity(activityLines);
+      setActivityPaused(true);
+    }
   };
   // The operator's permanent tokens, fetched so the audit can name the token behind a call and
   // Connect can list what exists. Empty when the console would not answer: the table falls back to
@@ -667,11 +680,13 @@ export function App() {
               <div>
                 <h1>Activity</h1>
                 <p className="page-sub">
-                  {live.state === "live"
-                    ? "Following the console's audit as it is written."
-                    : live.state === "offline"
-                      ? "The live stream is down; this is the last read."
-                      : "Opening the live stream."}
+                  {activityPaused
+                    ? "Paused — the stream is still running; Resume shows what arrived."
+                    : live.state === "live"
+                      ? "Following the console's audit as it is written."
+                      : live.state === "offline"
+                        ? "The live stream is down; this is the last read."
+                        : "Opening the live stream."}
                 </p>
               </div>
               <div className="page-actions">
@@ -715,6 +730,7 @@ export function App() {
                 <ActivityTimeline
                   lines={shownActivity}
                   devices={devices}
+                  nowMs={activityPaused && pausedAt !== null ? pausedAt : undefined}
                   onWatch={(deviceId) => {
                     choose(deviceId);
                     setPage("device");

@@ -159,6 +159,13 @@ export type AuditLine = {
   sentence?: string;
   /** How long the device took, when the console measured it (live lines only). */
   ms?: number;
+  /**
+   * Whether the device's answer was a success, when the console said so. A device's JSON-RPC error
+   * is HTTP 200, so the status alone cannot tell a refusal from a result.
+   */
+  ok?: boolean;
+  /** Whether this line arrived on the live stream rather than being read back from the audit file. */
+  live?: boolean;
   /** The evidence for this call, when the live stream carried it. */
   evidence?: Record<string, unknown>;
 };

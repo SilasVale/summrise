@@ -28,6 +28,11 @@ export type LiveLine = {
   detail?: string;
   /** Whether the device's answer was a success. */
   ok?: boolean;
+  /**
+   * Whether this line was watched live. A line in a `snapshot` was read back from the audit file and
+   * does not carry it; only an event published as it happened does.
+   */
+  live?: boolean;
   /** How long the device took, when the console measured it. */
   ms?: number;
   /** The human sentence the console wrote for this event. */
@@ -129,6 +134,7 @@ function asLine(value: unknown): LiveLine | null {
     ...(typeof frame.tool === "string" ? { tool: frame.tool } : {}),
     ...(typeof frame.detail === "string" ? { detail: frame.detail } : {}),
     ...(typeof frame.ok === "boolean" ? { ok: frame.ok } : {}),
+    ...(typeof frame.live === "boolean" ? { live: frame.live } : {}),
     ...(typeof frame.ms === "number" ? { ms: frame.ms } : {}),
     ...(frame.evidence && typeof frame.evidence === "object"
       ? { evidence: frame.evidence as Record<string, unknown> }

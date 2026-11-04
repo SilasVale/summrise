@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { AuditLine, Device } from "./api";
-import { age, shortId } from "./format";
+import { auditFailed } from "./auditFilter";
+import { ageAt, shortId } from "./format";
 
 /**
  * The activity as a record: what happened, when, on which machine.
@@ -10,7 +11,9 @@ import { age, shortId } from "./format";
  * places to go and watch it. The list is the summary; the panel is the proof.
  *
  * A row fetched from the audit file has no evidence, because the file never carried arguments. It
- * says so rather than drawing an empty panel.
+ * says so rather than drawing an empty panel. A live row whose tool has no evidence template is a
+ * different case: it is the call's own result, and the panel must not blame the audit file for what
+ * the tool never offered.
  */
 
 const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
@@ -50,8 +53,13 @@ export function groupDays(lines: AuditLine[], now = Date.now()): Day[] {
   return days;
 }
 
+/**
+ * The row's tone, which is the audit's own rule rather than a second opinion: a device's JSON-RPC
+ * error is HTTP 200 and still a failure, and `ok: false` says so directly.
+ */
 function tone(line: AuditLine): "ok" | "bad" | "warn" {
-  if (line.status >= 400) return "bad";
+  if (auditFailed(line)) return "bad";
+  // The audit's generic failure marker, from before the status existed.
   if (line.detail === "error") return "warn";
   return "ok";
 }
@@ -89,41 +97,40 @@ const DETAIL_LABELS: Record<string, string> = {
   bytes: "Size",
   display: "Display",
   timeout_ms: "Timeout",
-  query: "Query"
+  query: "Query",
+  exit_code: "Exit",
+  timed_out: "Timed out"
 };
+
+/** One evidence key as a fact, or `null` when the value is not one this panel can show. */
+function fact(evidence: Record<string, unknown>, key: string, label: string): readonly [string, string] | null {
+  const value = evidence[key];
+  if (typeof value === "string" && value !== "") return [label, value];
+  if (typeof value === "number") {
+    const shown = key === "bytes" ? `${value} B` : key === "timeout_ms" ? `${value} ms` : String(value);
+    return [label, shown];
+  }
+  if (typeof value === "boolean") return [label, value ? "yes" : "no"];
+  return null;
+}
 
 /** The evidence panel for one row. */
 function Evidence(props: { line: AuditLine; onWatch?: (deviceId: string) => void }) {
-  const evidence = props.line.evidence;
+  const line = props.line;
+  const evidence = line.evidence;
   const command = evidence ? commandLine(evidence) : null;
   const input = evidence ? text(evidence, "input") : null;
   const output = evidence ? text(evidence, "output") : null;
   const facts = evidence
     ? Object.entries(DETAIL_LABELS)
-        .map(([key, label]) => {
-          const value = evidence[key];
-          if (typeof value === "string" && value !== "") return [label, value] as const;
-          if (typeof value === "number") {
-            const shown =
-              key === "bytes" ? `${value} B` : key === "timeout_ms" ? `${value} ms` : String(value);
-            return [label, shown] as const;
-          }
-          return null;
-        })
+        .map(([key, label]) => fact(evidence, key, label))
         .filter((entry): entry is readonly [string, string] => entry !== null)
     : [];
-  const canWatch = props.line.device_id && props.line.tool?.startsWith("terminal.");
-
-  if (!evidence && !output) {
-    return (
-      <div className="evidence evidence-quiet">
-        <p className="hint">
-          This row comes from the audit file, which never carries arguments — only the outcome. New
-          calls open with their command and output.
-        </p>
-      </div>
-    );
-  }
+  const failed = auditFailed(line);
+  const live = line.live === true;
+  const detail = line.detail && line.detail !== "" ? line.detail : null;
+  const canWatch = line.device_id && line.tool?.startsWith("terminal.");
+  const empty = !command && !input && !output && facts.length === 0;
 
   return (
     <div className="evidence">
@@ -146,8 +153,14 @@ function Evidence(props: { line: AuditLine; onWatch?: (deviceId: string) => void
             <pre className="evidence-output">{output}</pre>
           </>
         )}
-        {!command && !input && !output && facts.length === 0 && (
-          <p className="hint">This call carried nothing the console can show.</p>
+        {empty && (
+          <p className="hint">
+            {evidence
+              ? "This call carried nothing the console can show."
+              : live
+                ? "This tool reports its result only."
+                : "This row comes from the audit file, which never carries arguments — only the outcome. New calls open with their command and output."}
+          </p>
         )}
       </div>
       <div className="evidence-side">
@@ -155,26 +168,39 @@ function Evidence(props: { line: AuditLine; onWatch?: (deviceId: string) => void
         <dl className="evidence-facts">
           <div>
             <dt>Status</dt>
-            <dd className={props.line.status >= 400 ? "is-bad" : "is-ok"}>
-              {props.line.status || "—"}
-            </dd>
+            <dd className={failed ? "is-bad" : "is-ok"}>{line.status || "—"}</dd>
           </div>
-          {typeof props.line.ms === "number" && (
+          {typeof line.ms === "number" && (
             <div>
               <dt>Took</dt>
-              <dd>{props.line.ms} ms</dd>
+              <dd>{line.ms} ms</dd>
             </div>
           )}
-          {props.line.tool && (
+          {line.tool && (
             <div>
               <dt>Tool</dt>
-              <dd className="mono">{props.line.tool}</dd>
+              <dd className="mono" title={line.tool}>
+                {line.tool}
+              </dd>
+            </div>
+          )}
+          {detail && (
+            <div>
+              <dt>Detail</dt>
+              <dd className={failed ? "is-bad" : undefined} title={detail}>
+                {detail}
+              </dd>
             </div>
           )}
           {facts.map(([label, value]) => (
             <div key={label}>
               <dt>{label}</dt>
-              <dd className={label === "Path" || label === "Session" ? "mono" : undefined}>{value}</dd>
+              <dd
+                className={label === "Path" || label === "Session" ? "mono" : undefined}
+                title={value}
+              >
+                {value}
+              </dd>
             </div>
           ))}
         </dl>
@@ -182,12 +208,13 @@ function Evidence(props: { line: AuditLine; onWatch?: (deviceId: string) => void
           <button
             type="button"
             className="evidence-go"
+            title="Opens this machine's terminal, newest session first"
             onClick={(event) => {
               event.stopPropagation();
-              props.onWatch?.(props.line.device_id as string);
+              props.onWatch?.(line.device_id as string);
             }}
           >
-            Watch the terminal
+            Open the terminal
           </button>
         )}
       </div>
@@ -200,58 +227,64 @@ function Row(props: {
   line: AuditLine;
   devices: Device[];
   open: boolean;
+  stretch: boolean;
+  nowMs: number;
   onToggle: () => void;
   onWatch?: (deviceId: string) => void;
 }) {
-  const kind = tone(props.line);
-  const machine = machineName(props.devices, props.line.device_id);
-  const openable = Boolean(props.line.evidence || props.line.tool);
+  const line = props.line;
+  const kind = tone(line);
+  const machine = machineName(props.devices, line.device_id);
+  // Only a row with something behind it is a control; a grant or a token row is a fact to read.
+  const openable = Boolean(line.evidence || line.tool);
+  const className =
+    "timeline-row" + (props.open ? " is-open" : "") + (props.stretch ? " is-stretch" : "");
+  const contents = (
+    <>
+      <time className="timeline-time" dateTime={new Date(line.ts_ms).toISOString()}>
+        {clock(line.ts_ms)}
+      </time>
+      <span className="timeline-rail" aria-hidden="true">
+        <span className="timeline-dot" data-tone={kind} />
+      </span>
+      <span className="timeline-words">
+        <span className="timeline-sentence">{line.sentence ?? line.tool ?? line.kind}</span>
+        <span className="timeline-facts">
+          {machine && <span className="timeline-machine">{machine}</span>}
+          {typeof line.ms === "number" && line.ms > 0 && (
+            <span className="timeline-ms">{line.ms} ms</span>
+          )}
+          {kind !== "ok" && (
+            <span className={"timeline-outcome is-" + kind}>
+              {line.status ? line.status : "error"}
+            </span>
+          )}
+          <span className="timeline-age">{ageAt(line.ts_ms, props.nowMs)}</span>
+        </span>
+      </span>
+      {openable && (
+        <span className={"timeline-chev" + (props.open ? " is-open" : "")} aria-hidden="true">
+          ⌄
+        </span>
+      )}
+    </>
+  );
+
   return (
-    <li className={"timeline-row" + (props.open ? " is-open" : "")}>
-      <div
-        className="timeline-line"
-        role={openable ? "button" : undefined}
-        tabIndex={openable ? 0 : undefined}
-        aria-expanded={openable ? props.open : undefined}
-        onClick={openable ? props.onToggle : undefined}
-        onKeyDown={(event) => {
-          if (!openable) return;
-          if (event.key === "Enter" || event.key === " ") {
-            event.preventDefault();
-            props.onToggle();
-          }
-        }}
-      >
-        <time className="timeline-time" dateTime={new Date(props.line.ts_ms).toISOString()}>
-          {clock(props.line.ts_ms)}
-        </time>
-        <span className="timeline-rail" aria-hidden="true">
-          <span className="timeline-dot" data-tone={kind} />
-        </span>
-        <span className="timeline-words">
-          <span className="timeline-sentence">
-            {props.line.sentence ?? props.line.tool ?? props.line.kind}
-          </span>
-          <span className="timeline-facts">
-            {machine && <span className="timeline-machine">{machine}</span>}
-            {typeof props.line.ms === "number" && props.line.ms > 0 && (
-              <span className="timeline-ms">{props.line.ms} ms</span>
-            )}
-            {kind !== "ok" && (
-              <span className={"timeline-outcome is-" + kind}>
-                {props.line.status ? props.line.status : "error"}
-              </span>
-            )}
-            <span className="timeline-age">{age(props.line.ts_ms)}</span>
-          </span>
-        </span>
-        {openable && (
-          <span className={"timeline-chev" + (props.open ? " is-open" : "")} aria-hidden="true">
-            ⌄
-          </span>
-        )}
-      </div>
-      {props.open && <Evidence line={props.line} onWatch={props.onWatch} />}
+    <li className={className}>
+      {openable ? (
+        <button
+          type="button"
+          className="timeline-line"
+          aria-expanded={props.open}
+          onClick={props.onToggle}
+        >
+          {contents}
+        </button>
+      ) : (
+        <div className="timeline-line is-static">{contents}</div>
+      )}
+      {props.open && <Evidence line={line} onWatch={props.onWatch} />}
     </li>
   );
 }
@@ -262,15 +295,23 @@ export function ActivityTimeline(props: {
   devices: Device[];
   onWatch?: (deviceId: string) => void;
   empty?: string;
+  /**
+   * A fixed clock, for a page that is paused: the age column stops at this moment instead of
+   * counting up, and the 1 s ticker that would move it is not started.
+   */
+  nowMs?: number;
 }) {
   const [now, setNow] = useState(() => Date.now());
   const [openKey, setOpenKey] = useState<string | null>(null);
+  const paused = props.nowMs !== undefined;
   useEffect(() => {
+    if (paused) return;
     const timer = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(timer);
-  }, []);
+  }, [paused]);
 
-  const days = groupDays(props.lines, now);
+  const at = props.nowMs ?? now;
+  const days = groupDays(props.lines, at);
   if (days.length === 0) {
     return <p className="hint timeline-empty">{props.empty ?? "Nothing has happened yet."}</p>;
   }
@@ -290,15 +331,16 @@ export function ActivityTimeline(props: {
                 (previous.device_id !== line.device_id ||
                   Math.abs(previous.ts_ms - line.ts_ms) > 60_000);
               return (
-                <div key={key} className={newStretch ? "timeline-stretch" : undefined}>
-                  <Row
-                    line={line}
-                    devices={props.devices}
-                    open={openKey === key}
-                    onToggle={() => setOpenKey((current) => (current === key ? null : key))}
-                    onWatch={props.onWatch}
-                  />
-                </div>
+                <Row
+                  key={key}
+                  line={line}
+                  devices={props.devices}
+                  open={openKey === key}
+                  stretch={newStretch}
+                  nowMs={at}
+                  onToggle={() => setOpenKey((current) => (current === key ? null : key))}
+                  onWatch={props.onWatch}
+                />
               );
             })}
           </ol>

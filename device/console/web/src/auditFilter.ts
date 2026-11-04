@@ -18,10 +18,15 @@ export type AuditFilter = {
  * The HTTP status is not enough. A device's JSON-RPC error is returned to the caller as HTTP 200 (an
  * MCP client treats a non-2xx as a transport failure and would lose the error's code), and the console
  * records that 200 with `detail: "jsonrpc error -32002"` — so a refused tool call was a green 200 in
- * the table. The derived outcome is the one the status filter and the row's warning read.
+ * the table. The live stream says so directly with `ok: false`, and that is the same failure. The
+ * derived outcome is the one the status filter and the row's warning read.
  */
 export function auditFailed(line: AuditLine): boolean {
-  return line.status >= 400 || (line.detail ?? "").startsWith("jsonrpc error");
+  return (
+    line.status >= 400 ||
+    line.ok === false ||
+    (line.detail ?? "").startsWith("jsonrpc error")
+  );
 }
 
 /**

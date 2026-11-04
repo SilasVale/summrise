@@ -2510,14 +2510,20 @@ main::-webkit-scrollbar-track, .sheet-body::-webkit-scrollbar-track, .scroll::-w
 .timeline-rows { list-style: none; margin: 0; padding: 0; }
 .timeline-row { border-top: 1px solid var(--hairline); }
 .timeline-row:first-child { border-top: 0; }
-.timeline-stretch { border-top: 1px solid var(--hairline); margin-top: var(--sp-3); }
+.timeline-row.is-stretch { border-top: 1px solid var(--hairline); margin-top: var(--sp-3); }
 .timeline-line {
   display: grid; grid-template-columns: 64px 18px minmax(0, 1fr) 14px;
-  gap: var(--sp-2); align-items: start; padding: 9px 0 9px 2px; cursor: pointer;
+  gap: var(--sp-2); align-items: start; padding: 9px 0 9px 2px;
   border-radius: 6px;
 }
-.timeline-line:hover { background: var(--row-hover); }
-.timeline-line:focus-visible { box-shadow: 0 0 0 2px var(--ring); outline: none; }
+/* A row that opens is a real button, reset to the line so the grid and the type stay the page's. */
+button.timeline-line {
+  width: 100%; min-height: 0; text-align: left; background: none; border: 0;
+  font: inherit; padding: 9px 0 9px 2px; color: inherit; cursor: pointer;
+}
+button.timeline-line:hover { background: var(--row-hover); }
+/* `--ring` is already a shadow; wrapping it in a second one drew the wrong box. */
+button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
 .timeline-time {
   font-family: var(--mono); font-size: var(--fs-2xs); color: var(--ink-faint);
   font-variant-numeric: tabular-nums; padding-top: 2px;
@@ -2528,7 +2534,7 @@ main::-webkit-scrollbar-track, .sheet-body::-webkit-scrollbar-track, .scroll::-w
   background: var(--hairline); transform: translateX(-50%);
 }
 .timeline-row:first-child .timeline-rail::before { top: 4px; }
-.timeline-rows > div:last-child .timeline-rail::before { bottom: auto; height: 13px; }
+.timeline-rows > li:last-child .timeline-rail::before { bottom: auto; height: 13px; }
 .timeline-dot {
   position: absolute; left: 50%; top: 5px; width: 7px; height: 7px; border-radius: 999px;
   background: var(--ok); transform: translateX(-50%);
@@ -2561,8 +2567,6 @@ main::-webkit-scrollbar-track, .sheet-body::-webkit-scrollbar-track, .scroll::-w
   border: 1px solid var(--hairline); border-radius: 10px; margin: 0 0 var(--sp-3) 22px;
   overflow: hidden; background: var(--panel);
 }
-.evidence-quiet { grid-template-columns: 1fr; padding: 10px 14px; }
-.evidence-quiet .hint { margin: 0; }
 .evidence-main { min-width: 0; padding: 12px 14px; display: grid; gap: 6px; align-content: start; }
 .evidence-side { padding: 12px 14px; border-left: 1px solid var(--hairline); }
 .evidence-label {
@@ -2587,8 +2591,8 @@ main::-webkit-scrollbar-track, .sheet-body::-webkit-scrollbar-track, .scroll::-w
 .evidence-facts div:last-child { border-bottom: 0; }
 .evidence-facts dt { color: var(--ink-faint); font-size: var(--fs-2xs); }
 .evidence-facts dd {
-  margin: 0; font-size: var(--fs-2xs); color: var(--ink); text-align: right;
-  overflow: hidden; text-overflow: ellipsis;
+  margin: 0; min-width: 0; font-size: var(--fs-2xs); color: var(--ink); text-align: right;
+  overflow-wrap: anywhere;
 }
 .evidence-facts dd.is-ok { color: var(--ok); }
 .evidence-facts dd.is-bad { color: var(--error); }

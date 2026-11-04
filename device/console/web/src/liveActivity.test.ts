@@ -43,9 +43,15 @@ describe("the live activity stream", () => {
     const source = new FakeSource("/events");
     const handlers = { snapshot: vi.fn(), activity: vi.fn(), lagged: vi.fn(), error: vi.fn() };
     openLiveActivity(handlers, () => source);
-    source.emit("activity", { ...line(3, "Ran `cargo test`"), device_id: "abc", tool: "runs.exec", ms: 120 });
+    source.emit("activity", {
+      ...line(3, "Ran `cargo test`"),
+      device_id: "abc",
+      tool: "runs.exec",
+      ms: 120,
+      live: true
+    });
     expect(handlers.activity).toHaveBeenCalledWith({
-      ts_ms: 3, kind: "mcp", status: 200, ok: true, sentence: "Ran `cargo test`", device_id: "abc", tool: "runs.exec", ms: 120
+      ts_ms: 3, kind: "mcp", status: 200, ok: true, sentence: "Ran `cargo test`", device_id: "abc", tool: "runs.exec", ms: 120, live: true
     });
   });
 

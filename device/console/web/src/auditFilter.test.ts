@@ -103,5 +103,8 @@ describe("filterAudit", () => {
     expect(auditFailed(lines[0])).toBe(false);
     expect(filterAudit([refused], filter({ status: "failed" }))).toEqual([refused]);
     expect(filterAudit([refused], filter({ status: "ok" }))).toEqual([]);
+    // The live stream says the failure directly, because the device's own message displaced the
+    // audit file's `jsonrpc error …` sentence in the frame.
+    expect(auditFailed({ ...lines[0], ok: false, detail: "tool not permitted" })).toBe(true);
   });
 });
