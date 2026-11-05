@@ -55,14 +55,14 @@ Ranked by honesty first. Each item names its measurement and its gate.
 4. **The hub's day must be reread, not remembered.** The machine window is fetched once per device;
    after a reconnect or a hiccup the day shows a hole with no cap sentence and the band says "Quiet"
    while rows exist. Refetch on the app's 5 s tick and on stream recovery; say when it was read. **M.**
-5. **Stop claiming every call is in the record.** Both empty states say "Every call a client makes is
+5. **Stop claiming every call is in the record.** *(Done 2026-11-05, f394b63: both empty states name the boundary — calls routed through the console are written; a call straight to a machine's own endpoint is not.)*** Both empty states say "Every call a client makes is
    written here"; a call straight to a machine's own endpoint is not. Name the boundary. **S.**
 6. **Give every tool a sentence and gate the table against the registry.** *(Done 2026-11-05, a9d9dff: 16 templates added, 10 dead ones removed after a history measurement; `every_registry_tool_has_a_sentence` walks the registry and fails for a declared tool without a sentence.)* 16 of the 46 registry tools
    fall back to "Used `tool`" (`host.restart` among them) and eight sentences name tools the registry
    does not have. Write the missing templates and test the table by walking `registry.rs`. **S.**
 7. **Say where one stretch ends.** The 60 s gap is computed and drawn as a hairline; a full day reads
    as one column. Label each stretch with what it held — "4 calls · 2 m 10 s" — inferring nothing. **S.**
-8. **Delete the retired components and the calls nobody makes.** `TerminalPane.tsx` (159 lines, no
+8. **Delete the retired components and the calls nobody makes.** *(Done 2026-11-05: `TerminalPane.tsx` (159 lines), `ToolPicker.tsx` + its test, `api.denials`, `api.meshStatus`, `api.meshReadiness` and twelve tests deleted; the server routes stay.)*** `TerminalPane.tsx` (159 lines, no
    importer), `ToolPicker.tsx` (42 + 35), `api.denials`, `api.meshStatus`/`meshReadiness` and their
    tests; the server routes stay. **S.**
 
