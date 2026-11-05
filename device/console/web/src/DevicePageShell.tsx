@@ -1,4 +1,5 @@
 import type { Device } from "./api";
+import { lastHeardMs } from "./format";
 import { DEVICE_TABS, DEVICE_TAB_LABELS, type DeviceTab } from "./Rail";
 import { DevicePicker } from "./DevicePicker";
 import { OfflineNotice } from "./OfflineNotice";
@@ -62,7 +63,7 @@ export function DevicePageShell({
           own notice; rendering this one there too would stack two copies of the same sentence. */}
       {chosen && !chosen.online && tab !== "terminal" && (
         <OfflineNotice
-          lastSeenMs={chosen.last_frame_ms}
+          lastSeenMs={lastHeardMs(chosen)}
           detail="Nothing on this page can reach it until it reconnects; the console keeps trying on its own."
         />
       )}

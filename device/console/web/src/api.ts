@@ -127,6 +127,13 @@ export type Device = {
    * seen no frame since it started: a page must not read that as "just now" or as zero.
    */
   last_frame_ms?: number | null;
+  /**
+   * When the current silence started, from the newest `device.left` that no `device.joined` has
+   * closed, in Unix milliseconds. Omitted when the audit's newest window has no such close. It is
+   * the newest evidence a console that restarted mid-outage has: there is no frame, and the
+   * registry's `last_seen_ms` is the previous channel's open, older than the close.
+   */
+  last_left_ms?: number | null;
   registered_at_ms?: number | null;
   last_attempt?: { attempts: number; reason: string } | null;
   /**

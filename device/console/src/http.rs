@@ -4047,7 +4047,7 @@ async fn rename_device(
     // device audit. `session` is what proves the caller is the operator.
     let _ = session;
 
-    let outages = app.audit.last_outages().await;
+    let boundaries = app.audit.boundaries().await;
     Ok(Json(DeviceView {
         online: app.channels.online(&device.id),
         version: app.channels.version(&device.id),
@@ -4058,7 +4058,8 @@ async fn rename_device(
             attempts: note.attempts,
             reason: note.reason,
         }),
-        last_outage: outage_view(outages.get(&device.id).copied()),
+        last_outage: outage_view(boundaries.last_outages.get(&device.id).copied()),
+        last_left_ms: boundaries.last_lefts.get(&device.id).copied(),
         last_frame_ms: app.channels.last_frame(&device.id),
         id: device.id,
         public_key: device.public_key,
@@ -4348,10 +4349,10 @@ async fn device_mesh_readiness(
 }
 
 /// One pass over the audit's newest lines, shared by every row: the file is read once per fleet
-/// call, and the map is built after the read returns, so the writer is not held while the answer is
-/// serialised.
+/// call, and the two boundary maps are built after the read returns, so the writer is not held while
+/// the answer is serialised.
 async fn device_views(app: &AppState) -> Vec<DeviceView> {
-    let outages = app.audit.last_outages().await;
+    let boundaries = app.audit.boundaries().await;
     lock(&app.devices)
         .list()
         .into_iter()
@@ -4368,7 +4369,8 @@ async fn device_views(app: &AppState) -> Vec<DeviceView> {
                 attempts: note.attempts,
                 reason: note.reason,
             }),
-            last_outage: outage_view(outages.get(&device.id).copied()),
+            last_outage: outage_view(boundaries.last_outages.get(&device.id).copied()),
+            last_left_ms: boundaries.last_lefts.get(&device.id).copied(),
             last_frame_ms: app.channels.last_frame(&device.id),
             // A name given at registration wins; the machine's own name is a fallback for the
             // devices that never gave one, which is all of them so far.
@@ -4406,6 +4408,15 @@ struct DeviceView {
     /// has no moment to serve, and a zero or a socket's open time would be an invented one.
     #[serde(skip_serializing_if = "Option::is_none")]
     last_frame_ms: Option<u64>,
+    /// When the current silence started: the newest `device.left` that no `device.joined` closed.
+    ///
+    /// The measured DESKTOP-14RJCR8 case: a console restarted mid-outage has no `last_frame_ms`, and
+    /// the registry's `last_seen_ms` is the previous channel's open (08:06:04), older than the close
+    /// the dead process wrote (08:18:06). This is the newest evidence the console has, so an offline
+    /// row can be aged from it. Omitted when the newest boundary for this device is a join (the
+    /// silence ended) or when the window holds no boundary at all.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    last_left_ms: Option<u64>,
     /// Whether a frame arrived on a live channel inside the presence window.
     online: bool,
     /// The version the device announced on its channel, when it announced one.

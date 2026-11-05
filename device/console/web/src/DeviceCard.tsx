@@ -1,6 +1,6 @@
 import type { DeviceUpdate, HostFacts } from "./api";
 import { AttemptReason, attemptCount, attemptReason, type LastAttempt } from "./attempt";
-import { age, shortId } from "./format";
+import { lastHeardMs, seenAgo, shortId } from "./format";
 import { startedLine } from "./updateStory";
 
 export type Device = {
@@ -10,6 +10,10 @@ export type Device = {
   version: string | null;
   /** When the console last saw a frame, or absent when it has seen none since it started. */
   last_frame_ms?: number | null;
+  /** When the current silence started, from the newest still-open `device.left`. */
+  last_left_ms?: number | null;
+  /** The registry's last channel open: older evidence than either of the two above. */
+  last_seen_ms?: number | null;
   last_attempt?: LastAttempt | null;
   host?: HostFacts | null;
   /** The device's own update story, absent when it never sent one. */
@@ -32,10 +36,11 @@ type Props = {
  */
 export function DeviceCard({ device, selected, onSelect, onRename, onRemove, onDiagnostics }: Props) {
   const label = device.name ?? shortId(device.id);
-  // **THE AGE IS THE LAST FRAME.** `online` is that same moment inside the console's presence
-  // window, so the row states one fact instead of two: a socket that exists but has gone silent is
-  // offline, and the age says when the console last heard it rather than when it last connected.
-  const heard = device.last_frame_ms ?? null;
+  // **THE AGE IS THE NEWEST EVIDENCE THE CONSOLE HAS.** A frame proves presence and wins; a console
+  // that restarted mid-outage still has the audit's newest open `device.left`; the registry's
+  // `last_seen_ms` is the last channel open, older than either. The row states the same moment the
+  // notice will, and `seenAgo` keeps the minutes so "1h 49m" cannot read as "2h".
+  const heard = lastHeardMs(device);
   const state =
     heard === null
       ? device.online
@@ -43,7 +48,7 @@ export function DeviceCard({ device, selected, onSelect, onRename, onRemove, onD
         : "offline"
       : `${device.online ? "online" : "offline"} · ${
           device.online ? "seen" : "last seen"
-        } ${age(heard)}`;
+        } ${seenAgo(heard)}`;
   // The count and the device's own reason on one muted line. The reason is the diagnosis: a proxy's
   // 502 and a channel the console dropped are different faults, and the row must not read them as
   // the same healthy reconnect. A device that has not reconnected says nothing — and a silent

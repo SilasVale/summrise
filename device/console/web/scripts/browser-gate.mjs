@@ -85,6 +85,24 @@ const DEVICE = {
     last_update: { to: '0.3.43', outcome: 'refused', at_ms: NOW - 60_000 }
   }
 };
+// THE OFFLINE ROW'S AGE. The measured DESKTOP-14RJCR8 case: no frame since the console restarted,
+// the registry's last channel open is older than the close, and the pair in `last_outage` belongs to
+// an earlier one-second absence. The row must age the silence from `last_left_ms` — 1 h 49 m — at
+// both widths; the menu must not date the stale pair.
+const OFFLINE_DEVICE = {
+  id: 'gate-asleep-0123456789abcdef',
+  name: 'gate-asleep',
+  online: false,
+  version: '0.3.42',
+  last_seen_ms: NOW - 2 * 60 * 60_000,
+  // 108 m 30 s, so the rounded row reads "1h 49m" for the gate's whole run (its two widths are read
+  // minutes apart, and a fixture exactly on 109 m would tick to 1h 50m between them).
+  last_left_ms: NOW - (109 * 60_000 - 30_000),
+  last_outage: {
+    away_ms: 1_009,
+    back_at_ms: NOW - 2 * 60 * 60_000 - 12 * 60_000
+  }
+};
 const RUN = {
   id: 'r-1',
   command: 'echo',
@@ -249,7 +267,7 @@ function apiReply(request, url) {
   if (method === 'GET' && pathname === '/health') {
     return json({ status: 'ok', devices: 1, online: 1, version: 'browser-gate' });
   }
-  if (method === 'GET' && pathname === '/fleet') return json([DEVICE]);
+  if (method === 'GET' && pathname === '/fleet') return json([DEVICE, OFFLINE_DEVICE]);
   if (method === 'GET' && /^\/fleet\/[^/]+\/tools$/.test(pathname)) {
     return json({
       tools: TOOL_NAMES.map((name) => ({
@@ -437,6 +455,20 @@ try {
   step('signed in through /auth; the fleet is Home\'s zero state');
   await page.screenshot({ path: path.join(OUT, '02-machines.png') });
 
+  // **AN OFFLINE MACHINE'S AGE IS THE NEWEST EVIDENCE.** No frame survived the console restart; the
+  // registry's connect time is two hours old, the open close is 1 h 49 m old, and the pair in
+  // `last_outage` is from an earlier absence. The row must read the open close, at the desktop width.
+  await page.setViewportSize({ width: 1440, height: 960 });
+  await page.waitForTimeout(200);
+  const offlineRow1440 = page.getByRole('button', { name: /^Open gate-asleep/ });
+  const offlineState1440 = (await offlineRow1440.locator('.fleet-state').textContent())?.trim();
+  if (offlineState1440 !== 'offline · last seen 1h 49m ago') {
+    throw new Error(`the offline row read "${offlineState1440}" at 1440`);
+  }
+  step(`at 1440 the offline row says "${offlineState1440}"`);
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.waitForTimeout(200);
+
   await page.locator('.fleet-open').first().click();
   await page.getByRole('heading', { name: 'Home' }).waitFor({ timeout: 10_000 });
   step('opened gate-workshop; Home states the hub');
@@ -553,6 +585,16 @@ try {
   if ((await clientsChip.getAttribute('aria-pressed')) !== 'true') {
     throw new Error('the Clients only chip did not report its pressed state');
   }
+  // THE HEADER FOLLOWS THE CHIP. The chip hides the console's and the unknown rows, so the count
+  // beside it must be the client subset the list draws — not the whole window's sentence over two
+  // rows. This is the item's contract in the browser, not only in jsdom.
+  const narrowedCount = (await page.locator('.activity-today').textContent())?.trim();
+  const expectedNarrowed = `Today ${clientToday} client ${
+    clientToday === 1 ? 'call' : 'calls'
+  } · 0 failed`;
+  if (narrowedCount !== expectedNarrowed) {
+    throw new Error(`the chip-on header stated "${narrowedCount}", expected "${expectedNarrowed}"`);
+  }
   const narrowed = (await page.locator('.timeline-row').first().textContent()) ?? '';
   if (!narrowed.includes('runs.exec')) {
     throw new Error(`the Clients only chip kept a row that is not the AI's call: "${narrowed}"`);
@@ -666,6 +708,21 @@ try {
   await page.waitForTimeout(250);
   await page.setViewportSize({ width: 390, height: 844 });
   await page.waitForTimeout(400);
+  // The same sentence at 390: the state line takes its own row on the card, but it still states the
+  // silence's age and never drops it at the narrow width. The fleet list is Home with no machine
+  // chosen, so clear the choice through the header's own menu first.
+  await page.locator('details.machine-menu > summary').click();
+  await page.getByRole('button', { name: 'All machines' }).click();
+  await page.locator('nav.rail button[title="Home"]').click();
+  await page.getByRole('heading', { name: 'Machines', exact: true }).waitFor({ timeout: 10_000 });
+  await page.getByRole('button', { name: /^Open gate-asleep/ }).waitFor({ timeout: 10_000 });
+  const offlineState390 = (
+    await page.getByRole('button', { name: /^Open gate-asleep/ }).locator('.fleet-state').textContent()
+  )?.trim();
+  if (offlineState390 !== 'offline · last seen 1h 49m ago') {
+    throw new Error(`the offline row read "${offlineState390}" at 390`);
+  }
+  step(`at 390 the offline row says "${offlineState390}"`);
   await page.locator('nav.rail button[title="Activity"]').click();
   await page.getByRole('heading', { name: 'Activity' }).waitFor({ timeout: 10_000 });
   await page.getByRole('tab', { name: 'Table' }).click();

@@ -42,6 +42,18 @@ describe("DevicePageShell offline notice", () => {
     expect(screen.getByRole("status")).toHaveTextContent(/last seen 7m ago/i);
   });
 
+  it("ages the notice from the close when the console has no frame to read", () => {
+    // The console restarted mid-outage: no frame, but the audit's newest `device.left` is the moment
+    // the silence started. The registry's older connect time must not be the age the notice shows.
+    renderShell("files", {
+      ...MACHINE,
+      last_frame_ms: null,
+      last_left_ms: Date.now() - (1 * 60 + 49) * 60_000
+    });
+
+    expect(screen.getByRole("status")).toHaveTextContent(/last seen 1h 49m ago/i);
+  });
+
   it("carries the one notice on Tools too, above both of its sections", () => {
     renderShell("tools");
     expect(screen.getAllByRole("status")).toHaveLength(1);

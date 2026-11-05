@@ -474,6 +474,20 @@ draws no update line — correctly: it said nothing.
    case “a device that is still away”) as the silence's start, age it on the row, the notice and the
    menu (“offline · since 08:18, 1 h 49 m”), and draw `last_outage`'s “back…” line only for an online
    machine. **S.**
+   *(Done 2026-11-05: `/fleet` serves `last_left_ms` — the newest `device.left` that no
+   `device.joined` closed, from the same newest-2,000-line read as `last_outage`, omitted when absent.
+   The row, the notice and the terminal's notice age an offline machine from the newest evidence the
+   console has: `last_frame_ms`, then that close, then the registry's `last_seen_ms`; the minutes are
+   stated, so 1 h 49 m cannot read as “2h ago”. The measured sentence is **“offline · last seen 1h 49m
+   ago”** at both 1440 and 390 against a fixture with no `last_frame_ms`. The machine menu draws the
+   pair's “back …” line only when no later close has started a silence: the measured stale pair now
+   reads **“away since 08:18”** (with the disk: “C: 312 GiB free · away since 08:18”), while a current
+   return still reads **“back 2h ago after 41m”**. Measured: `cargo test -p summrise-console` 365
+   passed / 0 failed / 2 ignored (1 new audit unit test, 1 new fleet integration test); clippy
+   `--all-targets -- -D warnings` clean; `cargo fmt --check` clean; `npx vitest run` 613 passed across
+   51 files (11 new); typecheck and build clean; `./scripts/build-web.sh --check` clean; browser gate
+   PASS 19 steps (the offline row read at 1440 and 390, and the chip-on header); `a11y-audit` 0
+   findings across 16 page states.)*
 
 4. **The console's own reads are most of both timelines.** Activity at 1440 draws **949 rows, 627 of
    them console-marked (66%)**, in **55,973 px**. The “Clients only” chip (c33296d) works — 301

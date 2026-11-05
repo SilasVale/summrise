@@ -80,6 +80,61 @@ describe("MachineMenu", () => {
     expect(row).not.toHaveTextContent("back");
   });
 
+  it("does not date an absence that ended before the current silence", () => {
+    // The measured line "back 2h ago after 1s" described an older one-second absence while the
+    // machine had been down since 08:18. A pair whose return is older than the open close belongs
+    // to that earlier absence; the line must name the silence that is happening instead.
+    vi.useFakeTimers();
+    vi.setSystemTime(NOW);
+    const close = new Date(2026, 10, 5, 8, 18, 0).getTime();
+    draw([
+      device({
+        name: "asleep",
+        online: false,
+        last_frame_ms: null,
+        last_left_ms: close,
+        last_outage: { away_ms: 1_009, back_at_ms: close - 12 * 60_000 }
+      })
+    ]);
+
+    const row = screen.getByRole("button", { name: /^asleep/ });
+    expect(row).toHaveTextContent("away since 08:18");
+    expect(row).not.toHaveTextContent(/back .* after/);
+    expect(row).not.toHaveTextContent("after 1s");
+  });
+
+  it("says away since the close for a machine with no recorded return", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(NOW);
+    const close = new Date(2026, 10, 5, 8, 18, 0).getTime();
+    draw([device({ name: "asleep", online: false, last_frame_ms: null, last_left_ms: close })]);
+
+    const row = screen.getByRole("button", { name: /^asleep/ });
+    expect(row).toHaveTextContent("away since 08:18");
+    expect(row).not.toHaveTextContent(/back /);
+  });
+
+  it("keeps a return that is newer than the silence it sits in", () => {
+    // A silent socket can drop and rejoin without sending a frame; that return is the newest
+    // boundary and there is no later close to contradict it. The menu dates it as the current
+    // absence rather than calling it stale by the mere fact that the machine is offline.
+    vi.useFakeTimers();
+    vi.setSystemTime(NOW);
+    draw([
+      device({
+        name: "rejoined",
+        online: false,
+        last_frame_ms: null,
+        last_left_ms: null,
+        last_outage: { away_ms: 41 * 60_000, back_at_ms: NOW - 3 * 3_600_000 }
+      })
+    ]);
+
+    expect(screen.getByRole("button", { name: /^rejoined/ })).toHaveTextContent(
+      "back 3h ago after 41m"
+    );
+  });
+
   it("leaves the console's own rows alone", () => {
     vi.useFakeTimers();
     vi.setSystemTime(NOW);

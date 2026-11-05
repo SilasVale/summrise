@@ -1,4 +1,4 @@
-import { age } from "./format";
+import { seenAgo } from "./format";
 
 /**
  * The machine's own state, above whatever the page does.
@@ -22,7 +22,7 @@ export function OfflineNotice({
   /** The sentence for this surface, after the machine's state: what cannot happen until it returns. */
   detail: string;
 }) {
-  const lastSeen = typeof lastSeenMs === "number" ? age(lastSeenMs) : null;
+  const lastSeen = typeof lastSeenMs === "number" ? seenAgo(lastSeenMs) : null;
   return (
     <p className="offline-notice" role="status">
       <strong>This machine is offline.</strong>{" "}

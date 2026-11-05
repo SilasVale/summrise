@@ -10,7 +10,7 @@ import {
   type TokenMeta
 } from "./api";
 import { copyText } from "./copy";
-import { shortId } from "./format";
+import { lastHeardMs, shortId } from "./format";
 import { retrySentence } from "./logic";
 import { recordVitals, type VitalsSample } from "./vitals";
 import { AUDIT_WINDOW, AuditTable, type AuditScope, type AuditSince } from "./AuditTable";
@@ -561,10 +561,13 @@ export function App() {
   // console can assemble the same facts it can see, and say which of them it can see.
   const copyDiagnostics = async (device: Device | null) => {
     if (!device) return;
+    // The row's age and this line read the same evidence: a diagnostic that says "never" while the
+    // fleet row says "last seen 1h 49m ago" is the same bug at a different surface.
+    const heard = lastHeardMs(device);
     const lines = [
       "Summrise device diagnostics (from the console)",
       `device: ${device.name ?? "(unnamed)"} (${device.id})`,
-      `online: ${device.online ? "yes" : "no"}  version: ${device.version ?? "unknown"}  last seen: ${device.last_frame_ms != null ? new Date(device.last_frame_ms).toISOString() : "never"}`,
+      `online: ${device.online ? "yes" : "no"}  version: ${device.version ?? "unknown"}  last heard: ${heard !== null ? new Date(heard).toISOString() : "never"}`,
       device.last_attempt && device.last_attempt.attempts > 0
         ? `console link: ${retrySentence(device.last_attempt.attempts, device.last_attempt.reason)}`
         : "console link: no failure reported since it last connected",
@@ -1036,7 +1039,7 @@ export function App() {
                 grant={grant}
                 visible={page === "device" && tab === "terminal"}
                 deviceOnline={chosen.online}
-                lastSeenMs={chosen.last_frame_ms}
+                lastSeenMs={lastHeardMs(chosen)}
                 deviceName={chosen.name ?? shortId(chosen.id)}
                 liveLines={live.lines}
                 onGrantRefused={() => setGrantStale(true)}

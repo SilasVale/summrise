@@ -120,6 +120,20 @@ pub(crate) struct Absence {
     pub(crate) back_at_ms: u64,
 }
 
+/// What the newest audit window proves about devices' channel boundaries.
+///
+/// `last_outages` is the absence that ended; `last_lefts` is the silence that has not. The two are
+/// read from the same window in one file read, so a fleet response cannot pair a return from one
+/// generation with a close from another.
+#[derive(Debug, Default)]
+pub(crate) struct Boundaries {
+    /// Each device's newest completed absence.
+    pub(crate) last_outages: HashMap<String, Absence>,
+    /// Each device's newest `device.left` that no `device.joined` has closed: the start of the
+    /// silence it is still in. Omitted for a device whose newest boundary is a join.
+    pub(crate) last_lefts: HashMap<String, u64>,
+}
+
 /// The append-only audit index; the denial log reuses [`Entry`] as its line shape.
 ///
 /// Cheap to clone: the console's `Inner` and the channel registry hold the same file and the same
@@ -185,26 +199,29 @@ impl Audit {
             .await
     }
 
-    /// Every device's newest completed absence, from the newest [`OUTAGE_WINDOW`] lines.
+    /// Every device's newest completed absence and open close, from the newest
+    /// [`OUTAGE_WINDOW`] lines.
     ///
     /// The file is the record, not this process's memory: a console restarted while a device was
     /// away reads the close the dead process wrote and the open this one wrote, and the pair is the
-    /// interval between them. The read is bounded and the map is built after it returns, so the
-    /// file's writer is not held while a fleet response is serialised.
-    pub(crate) async fn last_outages(&self) -> HashMap<String, Absence> {
-        outages_from(&self.file.newest(OUTAGE_WINDOW).await)
+    /// interval between them. The closing line also names the silence a still-away device is in,
+    /// which is the newest evidence an offline row can be aged from. The read is bounded and the
+    /// maps are built after it returns, so the file's writer is not held while a fleet response is
+    /// serialised.
+    pub(crate) async fn boundaries(&self) -> Boundaries {
+        let lines = self.file.newest(OUTAGE_WINDOW).await;
+        Boundaries {
+            last_outages: outages_from(&lines),
+            last_lefts: open_lefts_from(&lines),
+        }
     }
 }
 
-/// The completed absences in `lines`, newest line first.
+/// The boundary events per device: `(ts_ms, joined, index in lines)`, newest first.
 ///
-/// A pair is a `device.joined` and the `device.left` immediately before it: the newest such join is
-/// the return the fleet row reports. A join with another join before it is not an absence — the
-/// channel was replaced while the device stayed up — and a left with no join after it is a device
-/// that is still away. Ties are ordered by the line's position in the file, so a left appended after
-/// a join it happened before (the two channel tasks race the writer) still pairs with that join.
-fn outages_from(lines: &[Value]) -> HashMap<String, Absence> {
-    // The boundary events per device: (ts_ms, joined, index in `lines`, newest first).
+/// The shared first pass of the two derivations: both ask which boundary a device's window ends
+/// with, and one parse keeps their tie rule identical.
+fn boundary_events(lines: &[Value]) -> HashMap<&str, Vec<(u64, bool, usize)>> {
     let mut events: HashMap<&str, Vec<(u64, bool, usize)>> = HashMap::new();
     for (order, line) in lines.iter().enumerate() {
         let Some(device) = line.get("device_id").and_then(Value::as_str) else {
@@ -223,12 +240,26 @@ fn outages_from(lines: &[Value]) -> HashMap<String, Absence> {
             .or_default()
             .push((ts_ms, joined, order));
     }
+    events
+}
 
+/// Oldest first. At one timestamp the later line in the file is the later event: `order` is
+/// newest-first, so a smaller index is newer.
+fn chronological(events: &mut [(u64, bool, usize)]) {
+    events.sort_by(|left, right| left.0.cmp(&right.0).then_with(|| right.2.cmp(&left.2)));
+}
+
+/// The completed absences in `lines`, newest line first.
+///
+/// A pair is a `device.joined` and the `device.left` immediately before it: the newest such join is
+/// the return the fleet row reports. A join with another join before it is not an absence — the
+/// channel was replaced while the device stayed up — and a left with no join after it is a device
+/// that is still away. Ties are ordered by the line's position in the file, so a left appended after
+/// a join it happened before (the two channel tasks race the writer) still pairs with that join.
+fn outages_from(lines: &[Value]) -> HashMap<String, Absence> {
     let mut absences = HashMap::new();
-    for (device, mut events) in events {
-        // Oldest first. At one timestamp the later line in the file is the later event: `order` is
-        // newest-first, so a smaller index is newer.
-        events.sort_by(|left, right| left.0.cmp(&right.0).then_with(|| right.2.cmp(&left.2)));
+    for (device, mut events) in boundary_events(lines) {
+        chronological(&mut events);
         let Some(newest) = events.iter().rposition(|event| event.1) else {
             continue;
         };
@@ -249,6 +280,25 @@ fn outages_from(lines: &[Value]) -> HashMap<String, Absence> {
         );
     }
     absences
+}
+
+/// Each device's newest `device.left` that no `device.joined` after it closed: the start of the
+/// silence it is still in.
+///
+/// A window whose newest boundary for a device is a join has no current silence — the close was
+/// answered — and is omitted rather than serving the older left as if it were current. A device
+/// with no boundary at all is omitted too.
+fn open_lefts_from(lines: &[Value]) -> HashMap<String, u64> {
+    let mut lefts = HashMap::new();
+    for (device, mut events) in boundary_events(lines) {
+        chronological(&mut events);
+        if let Some((ts_ms, joined, _)) = events.last() {
+            if !joined {
+                lefts.insert(device.to_owned(), *ts_ms);
+            }
+        }
+    }
+    lefts
 }
 
 #[cfg(test)]
@@ -319,6 +369,42 @@ mod tests {
     fn a_left_with_no_joined_is_still_away_and_proves_nothing() {
         let lines = vec![boundary(DEVICE, DEVICE_LEFT, 400)];
         assert!(outages_from(&lines).is_empty());
+    }
+
+    #[test]
+    fn the_silence_start_is_the_newest_left_that_no_join_closed() {
+        // A window with no boundary proves no silence.
+        assert!(open_lefts_from(&[]).is_empty());
+        // The newest close still open is the start `/fleet` uses as `last_left_ms`.
+        assert_eq!(
+            open_lefts_from(&[boundary(DEVICE, DEVICE_LEFT, 400)]).get(DEVICE),
+            Some(&400)
+        );
+        // A join after the close ended that silence, so the close is not the current one.
+        assert!(open_lefts_from(&[
+            boundary(DEVICE, DEVICE_JOINED, 500),
+            boundary(DEVICE, DEVICE_LEFT, 400),
+        ])
+        .is_empty());
+        // Two open closes: the newest is the one a page ages.
+        assert_eq!(
+            open_lefts_from(&[
+                boundary(DEVICE, DEVICE_LEFT, 400),
+                boundary(DEVICE, DEVICE_LEFT, 100),
+            ])
+            .get(DEVICE),
+            Some(&400)
+        );
+        // A close with a join, then another close: only the last one is still open.
+        assert_eq!(
+            open_lefts_from(&[
+                boundary(DEVICE, DEVICE_LEFT, 900),
+                boundary(DEVICE, DEVICE_JOINED, 800),
+                boundary(DEVICE, DEVICE_LEFT, 400),
+            ])
+            .get(DEVICE),
+            Some(&900)
+        );
     }
 
     #[test]
@@ -408,14 +494,18 @@ mod tests {
         write_audit(&dir.0, &lines);
         let audit = Audit::new(&dir.0, u64::MAX);
         assert!(
-            audit.last_outages().await.is_empty(),
+            audit.boundaries().await.last_outages.is_empty(),
             "a pair older than the newest {OUTAGE_WINDOW} lines is not read"
+        );
+        assert!(
+            audit.boundaries().await.last_lefts.is_empty(),
+            "a close older than the newest {OUTAGE_WINDOW} lines is not read either"
         );
 
         // Leave the pair exactly inside the window: 2 boundary lines and 1,998 fillers are 2,000.
         write_audit(&dir.0, &lines[..OUTAGE_WINDOW]);
         assert_eq!(
-            audit.last_outages().await.get(DEVICE),
+            audit.boundaries().await.last_outages.get(DEVICE),
             Some(&Absence {
                 away_ms: 100,
                 back_at_ms: 200,

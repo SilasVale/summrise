@@ -2090,6 +2090,89 @@ async fn a_channel_pair_in_the_audit_is_the_last_outage() {
     );
 }
 
+/// **THE SILENCE'S START IS THE CLOSE THE OLD PROCESS WROTE.** The measured DESKTOP-14RJCR8 case:
+/// the console restarted, so it has no `last_frame_ms`; the registry's `last_seen_ms` is the previous
+/// channel's open (08:06:04) while the audit holds the close that started the silence (08:18:06).
+/// `/fleet` serves that newest still-open `device.left` as `last_left_ms`, so an offline row can be
+/// aged from the newest evidence the console actually has.
+#[tokio::test]
+async fn a_device_still_away_serves_the_close_that_started_its_silence() {
+    let fixture = Fixture::new("fleet-last-left");
+    let device_id = register_fixture_device(&fixture, &signing_key(0x7b)).await;
+    let session = fixture.authenticate().await;
+    let left_at = START_MS + 1_000;
+    let left = |ts_ms: u64| {
+        json!({
+            "ts_ms": ts_ms,
+            "kind": "device",
+            "device_id": device_id,
+            "status": 200,
+            "tool": "device.left",
+            "caller": "console",
+        })
+    };
+
+    // No boundary at all: the device has never dropped in this window, so nothing is invented.
+    let listed = fleet_row(fixture.app(), &session, &device_id).await;
+    assert!(
+        listed.get("last_left_ms").is_none(),
+        "a device that has not dropped has no silence start: {listed}"
+    );
+
+    seed_audit_file(
+        &fixture,
+        "audit.jsonl",
+        std::slice::from_ref(&left(left_at)),
+    );
+    let listed = fleet_row(fixture.app(), &session, &device_id).await;
+    assert_eq!(
+        listed["last_left_ms"],
+        json!(left_at),
+        "the open close is the silence's start: {listed}"
+    );
+    assert!(
+        listed.get("last_outage").is_none(),
+        "a close with no return is still away, not a completed absence: {listed}"
+    );
+
+    // A close followed by a join is a completed absence: the silence is over, so the close is not
+    // served as the current one — `last_outage` carries it instead.
+    let joined_at = left_at + 41 * MINUTE_MS;
+    let joined = json!({
+        "ts_ms": joined_at,
+        "kind": "device",
+        "device_id": device_id,
+        "status": 200,
+        "tool": "device.joined",
+        "caller": "console",
+    });
+    seed_audit_file(&fixture, "audit.jsonl", &[left(left_at), joined.clone()]);
+    let listed = fleet_row(fixture.app(), &session, &device_id).await;
+    assert!(
+        listed.get("last_left_ms").is_none(),
+        "a close the join answered is not the current silence: {listed}"
+    );
+    assert_eq!(
+        listed["last_outage"]["back_at_ms"],
+        json!(joined_at),
+        "{listed}"
+    );
+
+    // A second close after the return: the newest open close is the one that started this silence.
+    let later_left = joined_at + 2 * MINUTE_MS;
+    seed_audit_file(
+        &fixture,
+        "audit.jsonl",
+        &[left(left_at), joined, left(later_left)],
+    );
+    let listed = fleet_row(fixture.app(), &session, &device_id).await;
+    assert_eq!(
+        listed["last_left_ms"],
+        json!(later_left),
+        "the newest open close starts the current silence: {listed}"
+    );
+}
+
 #[tokio::test]
 async fn a_grant_shorter_than_a_minute_is_400_and_a_minute_is_fine() {
     let fixture = Fixture::new("grant-minimum-expiry");

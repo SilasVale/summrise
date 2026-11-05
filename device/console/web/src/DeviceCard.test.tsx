@@ -105,6 +105,48 @@ describe("DeviceCard — one row on the fleet", () => {
     expect(screen.getByText(/offline · last seen 3h ago/)).toBeInTheDocument();
   });
 
+  it("ages a device with no frame from the close the audit recorded", () => {
+    // The measured DESKTOP-14RJCR8 case: the console restart forgot the frame, and the only moment
+    // it has is the newest `device.left` (08:18:06), not the registry's older 08:06:04. The row says
+    // the silence's age, and it says it with the minutes — "2h ago" is this item's bug.
+    draw({
+      online: false,
+      last_frame_ms: null,
+      last_left_ms: Date.now() - (1 * 60 + 49) * 60_000,
+      last_seen_ms: Date.now() - 2 * 3600_000,
+      version: null,
+      host: null
+    });
+
+    expect(screen.getByText("offline · last seen 1h 49m ago")).toBeInTheDocument();
+  });
+
+  it("falls back to the registry's moment only when there is no frame and no close", () => {
+    draw({
+      online: false,
+      last_frame_ms: null,
+      last_left_ms: null,
+      last_seen_ms: Date.now() - 2 * 3600_000,
+      version: null,
+      host: null
+    });
+
+    expect(screen.getByText("offline · last seen 2h ago")).toBeInTheDocument();
+  });
+
+  it("reads the frame before the close, and the close before the registry", () => {
+    draw({
+      online: false,
+      last_frame_ms: Date.now() - 60_000,
+      last_left_ms: Date.now() - 3 * 3600_000,
+      last_seen_ms: Date.now() - 9 * 3600_000,
+      version: null,
+      host: null
+    });
+
+    expect(screen.getByText(/offline · last seen 1m ago/)).toBeInTheDocument();
+  });
+
   it("calls a silent channel offline without inventing a reconnect", () => {
     // The live finding: the socket is still open, the frames stopped seven minutes ago. The row says
     // offline because presence is a frame, and the attempt line is silent because nothing reconnected.
