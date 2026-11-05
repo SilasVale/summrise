@@ -143,6 +143,86 @@ function withheldClause(counts: WindowCounts | null): string | null {
   return parts.length === 0 ? null : `${parts.join(", ")} not drawn`;
 }
 
+/** "3 console reads", "1 channel event": the number and the noun it keeps. */
+function countOf(count: number, one: string, many: string): string {
+  return `${count} ${count === 1 ? one : many}`;
+}
+
+/**
+ * What the hub's window can draw, and what it never can.
+ *
+ * One rule, and it is Activity's header's rule: every non-boundary line is a client's call
+ * (`isClientCall`), the console's own read (`isConsoleRead`), a failed poll (`isPoll`), or
+ * unattributed — a real line written before the audit recorded a caller, with no token that would
+ * prove a client made it (`isUnattributed`). The hub draws the first three: client calls by default,
+ * console reads behind one chip, unattributed rows behind the third fold. A poll is the console
+ * retrying itself, not a read of the screen; it stays Activity's row and is named as not drawn here.
+ */
+export type HubWindowCounts = {
+  /** Today's client-proven calls: the default list. */
+  client: number;
+  /** The console's own reads: one chip. */
+  console: number;
+  /** Lines no caller was recorded for: the third fold. */
+  unattributed: number;
+  /** Failed console polls: rows Activity draws, no hub control offers. */
+  polls: number;
+  /** Channel boundaries in the merged window: console facts, never rows on any timeline. */
+  boundaries: number;
+  /** Lines the merge dropped because an equal line was already in the list. */
+  repeats: number;
+  /** The rows the fold currently draws: `min(HUB_DAY_ROWS, the visible list)`, never a claim. */
+  shown: number;
+};
+
+/**
+ * The hub's one window sentence.
+ *
+ * **IT MAY NOT NAME A NUMBER THE PAGE CANNOT REACH.** The fetched window can be larger than the list
+ * the fold and the two chips present — the measured hub fetched 1004 lines under a sentence that
+ * offered 974, while expanding and turning on the console chip drew 835. So the total here is
+ * `client + console + unattributed`, the rows the three controls actually hold, and the fetched
+ * figure (the one with the repeats and boundaries still in it) is deliberately absent. The bucket
+ * clauses are those controls' counts and add up to the total; the withheld clauses are marked "not
+ * drawn", which is the one thing the page says it cannot show.
+ *
+ * When the fold has drawn every drawable row the sentence says "all" instead of "the newest 974 of
+ * 974"; `shown` is the list's current length, so it moves with the chips and the fold.
+ */
+export function hubWindowSentence(counts: HubWindowCounts): string {
+  const drawable = counts.client + counts.console + counts.unattributed;
+  const shown = Math.max(0, Math.min(counts.shown, drawable));
+  const buckets: string[] = [];
+  if (counts.client > 0) buckets.push(countOf(counts.client, "client call", "client calls"));
+  if (counts.console > 0) buckets.push(countOf(counts.console, "console read", "console reads"));
+  if (counts.unattributed > 0) {
+    buckets.push(countOf(counts.unattributed, "unattributed", "unattributed"));
+  }
+  const withheld: string[] = [];
+  if (counts.polls > 0) withheld.push(countOf(counts.polls, "poll", "polls"));
+  if (counts.boundaries > 0) {
+    withheld.push(countOf(counts.boundaries, "channel event", "channel events"));
+  }
+  if (counts.repeats > 0) {
+    withheld.push(countOf(counts.repeats, "repeat", "repeats"));
+  }
+  // The bucket clauses add up to the total the sentence leads with; the withheld ones are the only
+  // rows it names without a control, so they carry the qualifier that says so.
+  const parenthetical = [
+    buckets.join(", "),
+    withheld.length > 0 ? `${withheld.join(", ")} not drawn` : ""
+  ]
+    .filter((part) => part !== "")
+    .join("; ");
+  const head =
+    drawable === 0
+      ? "No line on this page can be drawn"
+      : shown >= drawable
+        ? `Showing all ${countOf(drawable, "line", "lines")}`
+        : `Showing the newest ${shown} of ${countOf(drawable, "line", "lines")}`;
+  return `${head}${parenthetical === "" ? "" : ` (${parenthetical})`}; older ones are not on this page.`;
+}
+
 /**
  * The one line shown while a scope change's window is being read.
  *

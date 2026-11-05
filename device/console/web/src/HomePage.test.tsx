@@ -121,6 +121,64 @@ function hubDay(consoleReads: number, clientCalls: number): AuditLine[] {
   ];
 }
 
+/**
+ * The measured hub window (2026-11-05): 1004 fetched lines become 974 the hub can draw — 283 AI
+ * calls, 580 console reads and 111 rows with no recorded caller — after 9 channel boundaries and 21
+ * repeated keys are withheld. The newest 60 rows are the fold.
+ */
+function measuredHubWindow(): { audit: AuditLine[]; liveLines: LiveLine[] } {
+  const start = new Date();
+  start.setHours(0, 0, 0, 0);
+  const base = start.getTime() + 6 * 3_600_000;
+  let tick = 0;
+  const next = () => base - tick++ * 1000;
+  const lines: AuditLine[] = [
+    ...Array.from({ length: 9 }, (_, index) =>
+      call({
+        ts_ms: next(),
+        caller: "console",
+        tool: index % 2 === 0 ? "device.left" : "device.joined",
+        sentence: "The console's channel boundary"
+      })
+    ),
+    ...Array.from({ length: 576 }, (_, index) =>
+      call({
+        ts_ms: next(),
+        caller: "console",
+        tool: `console.${index}`,
+        sentence: `Console read ${index}`
+      })
+    ),
+    ...Array.from({ length: 283 }, (_, index) =>
+      call({
+        ts_ms: next(),
+        caller: "client",
+        tool: `client.${index}`,
+        sentence: `Client call ${index}`
+      })
+    ),
+    ...Array.from({ length: 111 }, (_, index) =>
+      call({
+        ts_ms: next(),
+        tool: `unknown.${index}`,
+        sentence: `Unattributed ${index}`
+      })
+    )
+  ];
+  // Lines the file wrote twice: the same instant, tool and status, so the merge draws each once.
+  const repeats = lines.slice(7, 28).map((line) => ({ ...line }));
+  // The console's newest reads, on the live stream rather than in the fetched window.
+  const liveLines: LiveLine[] = Array.from({ length: 4 }, (_, index) =>
+    liveCall({
+      ts_ms: base + 4_000 - index * 1000,
+      caller: "console",
+      tool: `live.${index}`,
+      sentence: `Console read live ${index}`
+    })
+  );
+  return { audit: [...lines, ...repeats], liveLines };
+}
+
 /** An answer the test decides when to give. */
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -744,13 +802,16 @@ describe("Home — the hub", () => {
     draw({ audit: thousand });
 
     expect(
-      await screen.findByText("Showing the newest 1000 lines; older ones are not on this page.")
+      await screen.findByText(
+        "Showing the newest 60 of 1000 lines (1000 client calls); older ones are not on this page."
+      )
     ).toBeInTheDocument();
   });
 
-  it("names the fetched window, the rows it draws and what the merge withheld", async () => {
-    // The measured DESKTOP-14RJCR8 hub: 1000 fetched, 6 channel boundaries and 17 repeated keys,
-    // so 977 rows are in the day list behind the 60-row fold (60 + 917 more).
+  it("names the drawable window, the rows it draws and what the merge withheld", async () => {
+    // The measured DESKTOP-14RJCR8 hub before the console and unattributed chips existed: 1000
+    // fetched, 6 channel boundaries and 17 repeated keys, so 977 rows are in the day list behind
+    // the 60-row fold (60 + 917 more). All 977 are client calls.
     const start = new Date();
     start.setHours(0, 0, 0, 0);
     const base = start.getTime() + 3_600_000;
@@ -775,12 +836,103 @@ describe("Home — the hub", () => {
 
     expect(
       await screen.findByText(
-        "Showing the newest 977 lines of 1000 fetched (6 channel events, 17 repeats not drawn); older ones are not on this page."
+        "Showing the newest 60 of 977 lines (977 client calls; 6 channel events, 17 repeats not drawn); older ones are not on this page."
       )
     ).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: "Show the rest of today (917 more)" })
     ).toBeInTheDocument();
+  });
+
+  it("states a window whose every number its controls can reach, and reaches all of it", async () => {
+    const { audit, liveLines } = measuredHubWindow();
+    draw({ audit, liveLines });
+
+    const sentence = await screen.findByText(/^Showing the newest 60 of 974 lines/);
+    expect(sentence.textContent).toBe(
+      "Showing the newest 60 of 974 lines (283 client calls, 580 console reads, 111 unattributed; 9 channel events, 21 repeats not drawn); older ones are not on this page."
+    );
+    // THE RULE THIS TEST PINS. The fetched window was 1004 lines, but the sentence may not state a
+    // line the fold and the two chips cannot draw: every number it prints is at most the 974 rows
+    // the controls reach.
+    for (const digits of sentence.textContent?.match(/\d+/g) ?? []) {
+      expect(Number(digits)).toBeLessThanOrEqual(974);
+    }
+    expect(sentence.textContent).not.toContain("1004");
+    // One rule: the sentence's client bucket is the number the day line above the list counts.
+    expect(screen.getByText(/^Today 283 client calls/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Console reads · 580" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Unattributed · 111" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Show the rest of today (223 more)" })
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Console reads · 580" }));
+    fireEvent.click(screen.getByRole("button", { name: "Unattributed · 111" }));
+    fireEvent.click(screen.getByRole("button", { name: "Show the rest of today (914 more)" }));
+
+    // The claim is the list's length: the fold draws the last row it says it holds.
+    await waitFor(() => expect(document.querySelectorAll(".timeline-row")).toHaveLength(974));
+    expect(await screen.findByText(/^Showing all 974 lines/)).toHaveTextContent(
+      "Showing all 974 lines (283 client calls, 580 console reads, 111 unattributed; 9 channel events, 21 repeats not drawn); older ones are not on this page."
+    );
+    // The oldest row of the window — the last one the fold claims — is on screen.
+    expect(screen.getByText("Unattributed 110")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Show the rest of today/ })).toBeNull();
+  });
+
+  it("names and draws the unattributed rows even when no window sentence is due", async () => {
+    // The measured DESKTOP-9VH92BJ shape: its window is not cut, so there is no cap sentence, but
+    // 111 of its 311 lines are unattributed. The chip is where those rows are counted and reached.
+    const start = new Date();
+    start.setHours(0, 0, 0, 0);
+    const base = start.getTime() + 3_600_000;
+    let tick = 0;
+    const next = () => base - tick++ * 1000;
+    const audit: AuditLine[] = [
+      ...Array.from({ length: 36 }, (_, index) =>
+        call({
+          ts_ms: next(),
+          caller: "console",
+          tool: index % 2 === 0 ? "device.left" : "device.joined",
+          sentence: "The console's channel boundary"
+        })
+      ),
+      ...Array.from({ length: 145 }, (_, index) =>
+        call({
+          ts_ms: next(),
+          caller: "console",
+          tool: `console.${index}`,
+          sentence: `Console read ${index}`
+        })
+      ),
+      ...Array.from({ length: 19 }, (_, index) =>
+        call({
+          ts_ms: next(),
+          caller: "client",
+          tool: `client.${index}`,
+          sentence: `Client call ${index}`
+        })
+      ),
+      ...Array.from({ length: 111 }, (_, index) =>
+        call({
+          ts_ms: next(),
+          tool: `unknown.${index}`,
+          sentence: `Unattributed ${index}`
+        })
+      )
+    ];
+    draw({ audit });
+
+    await waitFor(() => expect(document.querySelectorAll(".timeline-row")).toHaveLength(19));
+    expect(screen.queryByText(/Showing the newest/)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Unattributed · 111" }));
+    // 19 client calls and 111 unattributed rows: the fold now holds 70 of them.
+    fireEvent.click(screen.getByRole("button", { name: "Show the rest of today (70 more)" }));
+    await waitFor(() => expect(document.querySelectorAll(".timeline-row")).toHaveLength(130));
+    fireEvent.click(screen.getByRole("button", { name: "Console reads · 145" }));
+    await waitFor(() => expect(document.querySelectorAll(".timeline-row")).toHaveLength(275));
+    expect(screen.getByText("Unattributed 110")).toBeInTheDocument();
   });
 
   it("does not say the window was cut for a list shorter than the cap", async () => {

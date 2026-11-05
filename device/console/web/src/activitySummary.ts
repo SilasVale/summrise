@@ -62,6 +62,22 @@ export function isConsoleRead(line: Pick<AuditLine, "caller" | "kind">): boolean
 }
 
 /**
+ * Whether a line belongs to neither the AI nor the console, and is not a poll.
+ *
+ * This is the fourth bucket Activity's header counts: a real line the audit wrote before it recorded
+ * a caller, with no token that would prove a client made it. A channel boundary and a failed poll are
+ * facts of their own, so neither is unattributed. The hub uses exactly this predicate for its third
+ * fold, which is why the chip's count and Activity's "N unattributed" cannot disagree.
+ */
+export function isUnattributed(
+  line: Pick<AuditLine, "caller" | "token_id" | "tool" | "kind">
+): boolean {
+  return (
+    !isChannelBoundary(line) && !isPoll(line) && !isClientCall(line) && !isConsoleRead(line)
+  );
+}
+
+/**
  * The four buckets the Activity header counts, and the failures inside each one.
  *
  * `console` is a bucket of its own rather than part of `unattributed`: the console's own calls are a
@@ -120,10 +136,10 @@ export function activityCounts(lines: readonly AuditLine[], now = Date.now()): A
     } else if (isClientCall(line)) {
       counts.client += 1;
       if (failed) counts.clientFailed += 1;
-    } else if (line.caller === "console") {
+    } else if (isConsoleRead(line)) {
       counts.console += 1;
       if (failed) counts.consoleFailed += 1;
-    } else {
+    } else if (isUnattributed(line)) {
       counts.unattributed += 1;
       if (failed) counts.unattributedFailed += 1;
     }

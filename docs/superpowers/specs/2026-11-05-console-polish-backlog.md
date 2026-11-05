@@ -663,6 +663,27 @@ update line no longer repeats the running version; the run form's placeholder is
    build the hub's day line and cap sentence from the three buckets it can draw, name the
    unattributed rows with Activity's count, and replace the single "showing" number with what the
    controls hold (`60 drawn · 223 more · 552 console reads`). **S.**
+   *(Done 2026-11-05: the hub's window sentence counts the three buckets its fold and two chips can
+   draw — client calls, console reads, unattributed — and no longer prints the fetched total. The live
+   before sentence was `Showing the newest 974 lines of 1004 fetched (9 channel events, 21 repeats not
+   drawn); older ones are not on this page.` while expanding and the console chip reached **835** and
+   the rows with no caller (Activity counted `120 unattributed` for that day) had no control. For the
+   shape this item pins — 974 drawable, 1004 fetched, 60 folded, 111 unattributed — the sentence is
+   now `Showing the newest 60 of 974 lines (283 client calls, 580 console reads, 111 unattributed; 9
+   channel events, 21 repeats not drawn); older ones are not on this page.`, and `Showing all 974
+   lines (...)` once the fold and both chips are on. The third fold `Unattributed · 111` is the bucket
+   Activity's header already counted; it is drawn whenever it has rows, so DESKTOP-9VH92BJ's uncut
+   window (19 client calls, 145 console reads, 111 unattributed) gets the chip even without a cap
+   sentence. Polls are not reads on this page; they, the channel boundaries and the repeats are named
+   "not drawn". One rule, stated in the comment: the same `isClientCall`/`isConsoleRead`/`isPoll`/
+   `isUnattributed` predicates Activity's header uses, so the sentence's 283 client calls is the day
+   line's 283. A test parses every number in the sentence and pins it ≤ the 974 rows the controls
+   draw and expanding reaches the last claimed row (`Unattributed 110`). Measured on the gate's own
+   974-row window (the same 283/580/111 shape): at 390, 60 rows drawn and 974 reachable after the two
+   chips (fold label 914 more); at 1440, the fold draws 974 and the sentence says all 974; no fetched
+   number appears. `npx vitest run` 666 passed across 51 files; typecheck and build clean;
+   `./scripts/build-web.sh --check` clean with dist committed; browser gate PASS 29 steps;
+   `a11y-audit` 0 findings across 16 page states.)*
 
 4. **The fleet compares presence and disk; nothing compares work.** The three fleet rows are 45 px
    of dot, name, `online · seen 44s ago`, version and `›` — no calls. The machine menu's three rows

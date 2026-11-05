@@ -519,6 +519,19 @@ export function ActivityTimeline(props: {
    */
   consoleReads?: { count: number; shown: boolean; onToggle: () => void };
   /**
+   * The hub's third fold: the day's rows that belong to neither the AI nor the console. They are
+   * real lines whose caller was never recorded, so the page counts them and offers them rather than
+   * letting the day read as only the client's calls plus the console's reads. Activity never passes
+   * it: there every caller is drawn by default.
+   */
+  unattributed?: { count: number; shown: boolean; onToggle: () => void };
+  /**
+   * The hub's own window sentence, when its controls are not the cap sentence's two counts. The
+   * page owns the counts (three drawable buckets plus the withheld rows) and the fold, so it owns
+   * the sentence; the timeline only draws it in the place the cap sentence goes.
+   */
+  windowSentence?: string | null;
+  /**
    * The machine chips and the search. The hub's timeline is already one machine's day, so it turns
    * them off rather than offering an All machines chip over one machine's lines.
    */
@@ -635,6 +648,23 @@ export function ActivityTimeline(props: {
           </button>
         </div>
       )}
+      {/* THE ROWS NOBODY CAN ATTRIBUTE GET A CONTROL, NOT A SILENCE. Activity's header has always
+          counted them; the hub used to fold the day to the client's calls and leave them out of
+          every count. The chip's number is that same bucket. It is offered only when there is one:
+          a zero is already stated by Activity's header and would be noise on every machine. */}
+      {props.unattributed && props.unattributed.count > 0 && (
+        <div className="chips timeline-unattributed">
+          <button
+            type="button"
+            className="chip"
+            aria-pressed={props.unattributed.shown}
+            title="Add the lines whose caller was never recorded; they are neither the AI's calls nor the console's reads"
+            onClick={props.unattributed.onToggle}
+          >
+            Unattributed · {props.unattributed.count}
+          </button>
+        </div>
+      )}
       {filterable && (
         <div className="timeline-filters">
           <div className="chips timeline-machines" role="group" aria-label="Filter by machine">
@@ -686,19 +716,21 @@ export function ActivityTimeline(props: {
           {windowLoadingSentence(props.loadingMachine ?? null)}
         </p>
       )}
-      {!props.loading && (props.capped || props.atLimit) && (
+      {!props.loading && (props.windowSentence != null || props.capped || props.atLimit) && (
         // The fetched window and the live lines can add up to more than the console's cap. Dropping
         // the oldest is right; doing it silently would hide rows. The sentence names the window only:
         // the cut rows can be yesterday's, so "of today" would be false on a list that spans days.
         // A full request that dropped nothing is the other fact: the same helper says the window
-        // hit its limit without pretending to know what is behind it.
+        // hit its limit without pretending to know what is behind it. The hub passes its own
+        // sentence because its fold and chips draw a different set from the one capSentence counts.
         <p className="hint timeline-capped">
-          {capSentence(
-            ACTIVITY_LIMIT,
-            props.cappedMachine ?? null,
-            props.capped ? "capped" : "at-limit",
-            props.windowCounts ?? null
-          )}
+          {props.windowSentence ??
+            capSentence(
+              ACTIVITY_LIMIT,
+              props.cappedMachine ?? null,
+              props.capped ? "capped" : "at-limit",
+              props.windowCounts ?? null
+            )}
         </p>
       )}
       {!props.loading && (days.length === 0 ? (

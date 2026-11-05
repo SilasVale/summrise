@@ -140,6 +140,21 @@ const QUIET_DEVICE = {
   today: { client_calls: 84, failed: 2 },
   host: null
 };
+// **THE MEASURED HUB WINDOW HAS ITS OWN MACHINE.** The end of the gate opens this machine's hub to
+// prove the sentence the hub states is the 974 rows its fold and two chips can reach — 283 client
+// calls, 580 console reads and 111 rows no caller was recorded for — under a 1000-line window whose
+// remaining 26 fetched lines are 9 channel boundaries and 17 repeated keys. The day's 283 calls are
+// the number its fleet row states, so the page and the fleet compare agree.
+const BIG_DEVICE = {
+  id: 'gate-bigwindow-0123456789abcdef',
+  name: 'DESKTOP-7QK3MN2',
+  online: true,
+  version: '0.3.42',
+  last_seen_ms: NOW - 45_000,
+  last_frame_ms: NOW - 45_000,
+  today: { client_calls: 283, failed: 0 },
+  host: null
+};
 const RUN = {
   id: 'r-1',
   command: 'echo',
@@ -220,6 +235,59 @@ const ALL_CLIENT = FIXTURE_LINES.filter((line) => line.caller === 'client').leng
 const FIRST_CLIENT = [...FIXTURE_LINES]
   .filter((line) => line.caller === 'client')
   .sort((left, right) => right.ts_ms - left.ts_ms)[0];
+// **THE MEASURED WINDOW: 1004 FETCHED, 974 THE CONTROLS CAN REACH.** A 1000-line answer for
+// BIG_DEVICE: 9 channel boundaries, 17 repeated keys, and 974 rows the hub draws — 283 client calls,
+// 580 console reads and 111 rows no caller was recorded for. All of it inside today's first twenty
+// minutes, so the day filter keeps every row at any hour the gate runs.
+const BIG_CLIENT = 283;
+const BIG_CONSOLE = 580;
+const BIG_UNATTRIBUTED = 111;
+const BIG_BOUNDARIES = 9;
+const BIG_REPEATS = 17;
+const BIG_DRAWABLE = BIG_CLIENT + BIG_CONSOLE + BIG_UNATTRIBUTED;
+let bigTs = DAY_START.getTime() + 1_000 * (BIG_CLIENT + BIG_CONSOLE + BIG_UNATTRIBUTED + BIG_BOUNDARIES + 1);
+const bigLine = (overrides) => ({
+  ts_ms: (bigTs -= 1_000),
+  kind: 'mcp',
+  device_id: BIG_DEVICE.id,
+  token_id: null,
+  detail: null,
+  status: 200,
+  caller: 'client',
+  ...overrides
+});
+const BIG_UNIQUE = [
+  ...Array.from({ length: BIG_BOUNDARIES }, (_, index) =>
+    bigLine({
+      caller: 'console',
+      tool: index % 2 === 0 ? 'device.left' : 'device.joined',
+      sentence: "The console's channel boundary"
+    })
+  ),
+  ...Array.from({ length: BIG_CONSOLE }, (_, index) =>
+    bigLine({ caller: 'console', tool: `big.console.${index}`, sentence: `Console read ${index}` })
+  ),
+  ...Array.from({ length: BIG_CLIENT }, (_, index) =>
+    bigLine({ caller: 'client', tool: `big.client.${index}`, sentence: `Client call ${index}` })
+  ),
+  ...Array.from({ length: BIG_UNATTRIBUTED }, (_, index) =>
+    bigLine({
+      caller: undefined,
+      tool: `big.unknown.${index}`,
+      sentence: `Unattributed ${index}`
+    })
+  )
+];
+const BIG_WINDOW_LINES = [
+  ...BIG_UNIQUE,
+  // Lines the file wrote twice: the same instant, tool and status, so the merge draws each once.
+  ...BIG_UNIQUE.slice(BIG_BOUNDARIES, BIG_BOUNDARIES + BIG_REPEATS).map((line) => ({ ...line }))
+];
+if (BIG_WINDOW_LINES.length !== 1000 || BIG_DRAWABLE !== 974) {
+  throw new Error(
+    `the measured hub fixture is ${BIG_WINDOW_LINES.length} fetched / ${BIG_DRAWABLE} drawable`
+  );
+}
 // The whole registry, not the selected machine's slice: one token for this machine, one for a
 // machine the gate never selects, and one aggregate. The Tokens leg counts the rows against this.
 const TOKENS = [
@@ -320,7 +388,8 @@ function apiReply(request, url) {
   if (method === 'GET' && pathname === '/health') {
     return json({ status: 'ok', devices: 1, online: 1, version: 'browser-gate' });
   }
-  if (method === 'GET' && pathname === '/fleet') return json([DEVICE, OFFLINE_DEVICE, QUIET_DEVICE]);
+  if (method === 'GET' && pathname === '/fleet')
+    return json([DEVICE, OFFLINE_DEVICE, QUIET_DEVICE, BIG_DEVICE]);
   if (method === 'GET' && /^\/fleet\/[^/]+\/tools$/.test(pathname)) {
     return json({
       tools: TOOL_NAMES.map((name) => ({
@@ -339,7 +408,12 @@ function apiReply(request, url) {
   // narrows during the read, exactly as the console does; the gate's one machine owns both rows.
   if (method === 'GET' && pathname === '/audit') {
     const device = url.searchParams.get('device');
-    const lines = [CONSOLE_LINE, AUDIT_LINE, ...HISTORIC_LINES]
+    // **THE END LEG'S WINDOW IS A MACHINE'S OWN 1000 LINES.** The measured shape needs a full answer
+    // under a sentence that claims only the rows the controls reach; the other machines keep the
+    // small day the earlier legs assert on.
+    const source =
+      device === BIG_DEVICE.id ? BIG_WINDOW_LINES : [CONSOLE_LINE, AUDIT_LINE, ...HISTORIC_LINES];
+    const lines = source
       .filter((line) => device === null || line.device_id === device)
       // Newest first, as the console serves it.
       .sort((left, right) => right.ts_ms - left.ts_ms);
@@ -565,7 +639,9 @@ try {
   const expectedWork = new Map([
     ['DESKTOP-9VH92BJ', '283 calls · 38 failed'],
     ['DESKTOP-14RJCR8', '11 calls'],
-    ['DESKTOP-CPH4KB2', '84 calls · 2 failed']
+    ['DESKTOP-CPH4KB2', '84 calls · 2 failed'],
+    // The measured window's machine: the same 283 client calls its hub draws behind the fold.
+    ['DESKTOP-7QK3MN2', '283 calls']
   ]);
   for (const [name, expected] of expectedWork) {
     if (workBy.get(name) !== expected) {
@@ -586,7 +662,7 @@ try {
     }
   }
   step(
-    `the three fleet rows state their days (${[...expectedWork.values()].join(' | ')}); ` +
+    `the four fleet rows state their days (${[...expectedWork.values()].join(' | ')}); ` +
       `the rows without a verdict are ${plainRows.map((row) => `${row.name} ${row.height}px`).join(', ')} ` +
       `at 1440 (45 px is the measured live row)`
   );
@@ -978,7 +1054,7 @@ try {
       rows
     };
   });
-  if (fleet390.rows.length !== 3) {
+  if (fleet390.rows.length !== 4) {
     throw new Error(`the fleet drew ${fleet390.rows.length} rows at 390`);
   }
   for (const row of fleet390.rows) {
@@ -1002,7 +1078,7 @@ try {
   }
   const heights390 = fleet390.rows.map((row) => `${row.name} ${row.height}px`).join(', ');
   step(
-    `at 390 the three rows carry their counts below the name ` +
+    `at 390 the four rows carry their counts below the name ` +
       `(${heights390}); no sideways scroll`
   );
   await page.locator('nav.rail button[title="Activity"]').click();
@@ -1179,6 +1255,109 @@ try {
   step(
     `at 390 the offline reason is whole across ${reason390.lines} lines ` +
       `(${reason390.width} px), not one clipped line`
+  );
+
+  // **THE HUB'S SENTENCE NAMES ONLY ROWS ITS CONTROLS REACH.** The end leg opens the machine whose
+  // 1000-line window holds the measured 974-row day: 283 client calls, 580 console reads and 111
+  // rows no caller was recorded for, with 9 channel boundaries and 17 repeated keys withheld. The
+  // sentence may not print the fetched 1000 (or 1004) as a number of lines: expanding and turning on
+  // both chips is the only way to 974, and this leg measures that those four numbers are the rows
+  // the controls actually draw at both widths.
+  await page.locator('details.machine-menu > summary').click();
+  await page.getByRole('button', { name: 'All machines' }).click();
+  await page.getByRole('button', { name: /^Open DESKTOP-7QK3MN2/ }).click();
+  await page.getByRole('heading', { name: 'Home', exact: true }).waitFor({ timeout: 10_000 });
+  const bigSentence390 = await page.locator('.timeline-capped').textContent();
+  const expectedBigSentence = (shown) =>
+    `Showing ${shown === BIG_DRAWABLE ? 'all' : `the newest ${shown} of`} ${BIG_DRAWABLE} lines ` +
+    `(${BIG_CLIENT} client calls, ${BIG_CONSOLE} console reads, ${BIG_UNATTRIBUTED} unattributed; ` +
+    `${BIG_BOUNDARIES} channel events, ${BIG_REPEATS} repeats not drawn); ` +
+    `older ones are not on this page.`;
+  if (bigSentence390?.trim() !== expectedBigSentence(60)) {
+    throw new Error(
+      `the measured hub's sentence read ${JSON.stringify(bigSentence390?.trim())}, expected ` +
+        `${JSON.stringify(expectedBigSentence(60))}`
+    );
+  }
+  for (const digits of bigSentence390.match(/\d+/g) ?? []) {
+    if (Number(digits) > BIG_DRAWABLE) {
+      throw new Error(
+        `the measured hub's sentence states ${digits}, more than the ${BIG_DRAWABLE} rows its controls draw`
+      );
+    }
+  }
+  // One rule: the sentence's client bucket and the day line above the rows are the same count.
+  const bigToday = (await page.locator('.home-today').textContent())?.trim();
+  if (!bigToday?.startsWith(`Today ${BIG_CLIENT} client calls`)) {
+    throw new Error(`the measured hub's day line read ${JSON.stringify(bigToday)}`);
+  }
+  const bigRows = () => page.locator('.timeline-row').count();
+  const bigMore = (more) =>
+    page.getByRole('button', { name: `Show the rest of today (${more} more)` });
+  if ((await bigRows()) !== 60) {
+    throw new Error(`the measured hub drew ${await bigRows()} rows before the fold, not 60`);
+  }
+  const consoleChip = page.getByRole('button', { name: `Console reads · ${BIG_CONSOLE}` });
+  const unattributedChip = page.getByRole('button', {
+    name: `Unattributed · ${BIG_UNATTRIBUTED}`
+  });
+  await bigMore(BIG_CLIENT - 60).waitFor({ state: 'visible', timeout: 10_000 });
+  await consoleChip.click();
+  await unattributedChip.click();
+  const folded = await bigMore(BIG_DRAWABLE - 60).textContent();
+  const more390 = Number(/\((\d+) more\)/.exec(folded ?? '')?.[1] ?? -1);
+  const reachable390 = (await bigRows()) + more390;
+  if (reachable390 !== BIG_DRAWABLE) {
+    throw new Error(`at 390 the controls reach ${reachable390} rows, not ${BIG_DRAWABLE}`);
+  }
+  const document390 = await page.evaluate(() => ({
+    viewport: document.documentElement.clientWidth,
+    scrollWidth: document.documentElement.scrollWidth
+  }));
+  console.log(
+    `browser-gate: measured hub at 390: ${await bigRows()} rows drawn, ${reachable390} reachable, ` +
+      `document ${document390.viewport}/${document390.scrollWidth}`
+  );
+  await page.screenshot({ path: path.join(OUT, '07c-measured-hub-390.png') });
+  await page.setViewportSize({ width: 1440, height: 960 });
+  await page.waitForTimeout(400);
+  await bigMore(BIG_DRAWABLE - 60).click();
+  await page.waitForFunction(
+    (expected) => document.querySelectorAll('.timeline-row').length === expected,
+    BIG_DRAWABLE,
+    { timeout: 10_000 }
+  );
+  const reachable1440 = await bigRows();
+  const allSentence = (await page.locator('.timeline-capped').textContent())?.trim();
+  if (allSentence !== expectedBigSentence(BIG_DRAWABLE)) {
+    throw new Error(
+      `after expanding, the measured hub's sentence read ${JSON.stringify(allSentence)}`
+    );
+  }
+  const lastBigRow = (await page.locator('.timeline-row').last().textContent())?.trim() ?? '';
+  if (!lastBigRow.includes('Unattributed 110')) {
+    throw new Error(`the expanded day's last row was ${JSON.stringify(lastBigRow)}`);
+  }
+  await page.screenshot({ path: path.join(OUT, '07d-measured-hub-1440.png') });
+  console.log(
+    `browser-gate: measured hub at 1440: ${reachable1440} rows drawn after the fold, ` +
+      `the sentence now says all ${BIG_DRAWABLE}`
+  );
+  if (reachable1440 !== BIG_DRAWABLE) {
+    throw new Error(`at 1440 the controls reached ${reachable1440} rows, not ${BIG_DRAWABLE}`);
+  }
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.waitForTimeout(400);
+  const reachable390After = await bigRows();
+  if (reachable390After !== BIG_DRAWABLE) {
+    throw new Error(
+      `the expanded measured day lost rows at 390: ${reachable390After} of ${BIG_DRAWABLE}`
+    );
+  }
+  step(
+    `the measured hub states only the ${BIG_DRAWABLE} rows its fold and chips reach ` +
+      `(${BIG_CLIENT} client calls, ${BIG_CONSOLE} console reads, ${BIG_UNATTRIBUTED} unattributed); ` +
+      `at 390 ${reachable390} and at 1440 ${reachable1440} are reachable, and the fold reaches the last row`
   );
 
   // The Connect sheet at 390: the same measured promise for the token row.

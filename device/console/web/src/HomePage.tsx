@@ -9,8 +9,19 @@ import { shortId } from "./format";
 import { listPlugins } from "./pluginApi";
 import { useLiveTools } from "./useLiveTools";
 import { ActivityTimeline } from "./ActivityTimeline";
-import { ACTIVITY_LIMIT, capActivity, mergeActivityReport } from "./activityMerge";
-import { isChannelBoundary, isClientCall, isConsoleRead } from "./activitySummary";
+import {
+  ACTIVITY_LIMIT,
+  capActivity,
+  hubWindowSentence,
+  mergeActivityReport
+} from "./activityMerge";
+import {
+  isChannelBoundary,
+  isClientCall,
+  isConsoleRead,
+  isPoll,
+  isUnattributed
+} from "./activitySummary";
 import { auditFailed } from "./auditFilter";
 
 /** A one-time enrollment code and the command that redeems it. */
@@ -326,9 +337,14 @@ function HubHome(
   // are folded behind one counted chip and drawn only when the reader asks. The state is this
   // view's, not a stored preference: another machine starts folded.
   const [showConsoleReads, setShowConsoleReads] = useState(false);
+  // The third fold: the day's lines that belong to neither the AI nor the console. They are real
+  // rows whose caller was never recorded; Activity has always counted them and the hub used to
+  // leave them out of every control. Also this view's, reset with the machine.
+  const [showUnattributed, setShowUnattributed] = useState(false);
   useEffect(() => {
     setWholeDay(false);
     setShowConsoleReads(false);
+    setShowUnattributed(false);
   }, [device.id]);
 
   // A read that answers after the page switched machines is another machine's answer, and must not
@@ -404,33 +420,40 @@ function HubHome(
   const windowBoundaries = windowLines.filter(isChannelBoundary).length;
   const activityLines = windowLines.filter((line) => !isChannelBoundary(line));
   const today = capActivity(activityLines.filter((line) => line.ts_ms >= todayStart));
-  // **THE CAP SENTENCE COUNTS THIS MACHINE'S OWN WINDOW.** `fetched` is what the two reads returned
-  // (the audit's newest 1000 plus the live stream); `drawn` is the day list the fold and the console
-  // chip present; `boundaries` and `repeats` are what neither read draws. The measured hub had 1000
-  // fetched, 6 boundaries and 17 repeats, so 977 rows stood behind "Show the rest of today (917
-  // more)".
-  const windowCounts = {
-    fetched: fetched.length + liveLines.length,
-    drawn: today.lines.length,
-    boundaries: windowBoundaries,
-    repeats: mergedWindow.repeats
-  };
-  // **THE DAY COUNT IS CLIENT-ONLY; THE LIST NOW AGREES WITH IT.** The measured hub drew 60 rows,
-  // 56 of them the console polling itself, above a line that counted four client calls. The default
-  // list is the rule that line uses (a caller, or a token with no caller); the console's own reads
-  // are counted on the chip and added on one click. Unattributed rows are neither and stay out of
-  // both counts: the hub is the AI's page, while Activity remains the audit with every caller.
+  // **THE HUB'S WINDOW HAS THREE DRAWABLE BUCKETS AND THREE WITHHELD KINDS.** One rule, Activity's
+  // header's: every non-boundary line is a client call (`isClientCall`), the console's own read
+  // (`isConsoleRead`), a failed poll (`isPoll`), or unattributed (`isUnattributed` — a real line
+  // with no recorded caller and no token to prove one). The hub draws the first three; the fold and
+  // its two chips hold exactly those rows. The measured 2026-11-05 hub had 1004 fetched lines under
+  // a sentence that named 974, while expanding and turning on the console chip drew 835: the missing
+  // rows were unattributed lines and polls, which no control offered. The sentence's total is now
+  // the three buckets, and every number in it is one of their counts or a withheld count no larger
+  // than their sum; polls, boundaries and repeats are named as not drawn.
   const clientRows = today.lines.filter(isClientCall);
   const consoleRows = today.lines.filter(isConsoleRead);
-  const visibleRows = showConsoleReads
-    ? today.lines.filter((line) => isClientCall(line) || isConsoleRead(line))
-    : clientRows;
+  const pollRows = today.lines.filter(isPoll);
+  const unattributedRows = today.lines.filter(isUnattributed);
+  const visibleRows = today.lines.filter(
+    (line) =>
+      isClientCall(line) ||
+      (showConsoleReads && isConsoleRead(line)) ||
+      (showUnattributed && isUnattributed(line))
+  );
   // **THE DAY IS SCANNABLE; THE RECORD IS NOT HIDDEN.** The newest rows are drawn and one control
   // offers the rest of today in place. The count is the drawn list's own length minus what is
   // drawn, so a live frame that arrives while the day is folded grows the label by the same one
-  // row it adds — and the count follows the console chip, because the chip changes the list.
+  // row it adds — and the count follows the chips, because a chip changes the list.
   const hiddenDayRows = visibleRows.length - HUB_DAY_ROWS;
   const dayRows = wholeDay ? visibleRows : visibleRows.slice(0, HUB_DAY_ROWS);
+  const hubCounts = {
+    client: clientRows.length,
+    console: consoleRows.length,
+    unattributed: unattributedRows.length,
+    polls: pollRows.length,
+    boundaries: windowBoundaries,
+    repeats: mergedWindow.repeats,
+    shown: dayRows.length
+  };
   // Before the first window arrives there is nothing to count; the timeline says it is reading. Once
   // a window (or a live line) is in hand, the summary is a fact about the lines on the page.
   const summary = loaded || liveLines.length > 0 ? todayLine(windowLines, now) : null;
@@ -448,6 +471,10 @@ function HubHome(
     (fetched.length >= ACTIVITY_LIMIT &&
       oldestFetched !== undefined &&
       oldestFetched.ts_ms >= todayStart);
+  // The hub's own sentence, not Activity's cap sentence: its controls hold a different set from
+  // the fetched window, and the sentence counts exactly what they hold. It is drawn where Activity
+  // draws its cap sentence, and only when this machine's window was cut.
+  const windowSentence = ownWindowCut ? hubWindowSentence(hubCounts) : null;
   // The empty sentence names what the list is missing rather than claiming nothing happened. With
   // console reads folded, an empty list is usually the console's own polling, and the chip above is
   // the way to it; a window with only unattributed rows is not the AI's work either, and says so
@@ -560,7 +587,7 @@ function HubHome(
           lines={dayRows}
           devices={props.devices}
           capped={ownWindowCut}
-          windowCounts={windowCounts}
+          windowSentence={windowSentence}
           // The hub's timeline is already this machine's day: a machine chip here could only say
           // "All machines" over one machine's lines, which would be a lie.
           showFilters={false}
@@ -573,6 +600,18 @@ function HubHome(
                   count: consoleRows.length,
                   shown: showConsoleReads,
                   onToggle: () => setShowConsoleReads((shown) => !shown)
+                }
+              : undefined
+          }
+          // The third fold names the rows no caller was recorded for. Activity's header counts the
+          // same bucket; the hub now offers the same rows instead of leaving them out of every list
+          // and every number. It is drawn only when it has rows.
+          unattributed={
+            loaded
+              ? {
+                  count: unattributedRows.length,
+                  shown: showUnattributed,
+                  onToggle: () => setShowUnattributed((shown) => !shown)
                 }
               : undefined
           }

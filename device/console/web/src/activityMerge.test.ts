@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { capActivity, capSentence, mergeActivity, mergeActivityWindow } from "./activityMerge";
+import {
+  capActivity,
+  capSentence,
+  hubWindowSentence,
+  mergeActivity,
+  mergeActivityWindow
+} from "./activityMerge";
 
 const audit = (ts_ms: number, tool: string, status = 200) => ({ ts_ms, kind: "mcp", tool, status });
 const live = (ts_ms: number, tool: string, sentence: string, status = 200) => ({
@@ -172,6 +178,82 @@ describe("what the cap sentence counts", () => {
     );
     expect(capSentence(1000, null, "capped", nothing)).toBe(
       "Showing the newest 1000 lines; older ones are not on this page."
+    );
+  });
+});
+
+describe("the hub's window sentence", () => {
+  /**
+   * The measured DESKTOP-14RJCR8 hub (2026-11-05): 1004 fetched lines become 974 the list can
+   * draw — 283 client calls, 580 console reads and 111 rows whose caller was never recorded — after
+   * 9 channel boundaries and 21 repeated keys are withheld. The fold draws 60 of them.
+   */
+  const measured = {
+    client: 283,
+    console: 580,
+    unattributed: 111,
+    polls: 0,
+    boundaries: 9,
+    repeats: 21,
+    shown: 60
+  };
+  const drawable = measured.client + measured.console + measured.unattributed;
+
+  it("counts the rows the hub's chips and fold can draw, never the fetched total", () => {
+    const sentence = hubWindowSentence(measured);
+    expect(sentence).toBe(
+      "Showing the newest 60 of 974 lines (283 client calls, 580 console reads, 111 unattributed; 9 channel events, 21 repeats not drawn); older ones are not on this page."
+    );
+    // The fetched window was 1004; the sentence must not claim a line its controls cannot draw.
+    expect(sentence).not.toContain("1004");
+    for (const digits of sentence.match(/\d+/g) ?? []) {
+      expect(Number(digits)).toBeLessThanOrEqual(drawable);
+    }
+  });
+
+  it("says all when every drawable row is on screen", () => {
+    expect(hubWindowSentence({ ...measured, shown: drawable })).toBe(
+      "Showing all 974 lines (283 client calls, 580 console reads, 111 unattributed; 9 channel events, 21 repeats not drawn); older ones are not on this page."
+    );
+  });
+
+  it("names the poll rows no hub control draws", () => {
+    // A failed console poll is a row in the audit but not a read the console chip offers; naming it
+    // as withheld keeps it out of the 974 while still accounting for the fetch.
+    expect(hubWindowSentence({ ...measured, polls: 7, shown: drawable })).toBe(
+      "Showing all 974 lines (283 client calls, 580 console reads, 111 unattributed; 7 polls, 9 channel events, 21 repeats not drawn); older ones are not on this page."
+    );
+  });
+
+  it("omits a bucket that has no rows", () => {
+    expect(
+      hubWindowSentence({
+        client: 977,
+        console: 0,
+        unattributed: 0,
+        polls: 0,
+        boundaries: 6,
+        repeats: 17,
+        shown: 60
+      })
+    ).toBe(
+      "Showing the newest 60 of 977 lines (977 client calls; 6 channel events, 17 repeats not drawn); older ones are not on this page."
+    );
+  });
+
+  it("counts one row of each kind without a plural it cannot keep", () => {
+    expect(
+      hubWindowSentence({
+        client: 1,
+        console: 1,
+        unattributed: 1,
+        polls: 1,
+        boundaries: 1,
+        repeats: 1,
+        shown: 1
+      })
+    ).toBe(
+      "Showing the newest 1 of 3 lines (1 client call, 1 console read, 1 unattributed; 1 poll, 1 channel event, 1 repeat not drawn); older ones are not on this page."
     );
   });
 });
