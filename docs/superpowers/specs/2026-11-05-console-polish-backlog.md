@@ -100,6 +100,17 @@ All six console-only; the last is the deletion. Ranked by how often the friction
    fleet. The chip is true — the line is real — but it reads like a machine. Label an unknown id
    "unknown machine · <short id>" and give it no online dot. *(Measured on the live 1000-line window:
    865 + 93 + 41 known, 1 unknown.)* **S.**
+
+## P0 — the fourth list (opened 2026-11-05, from the live fleet)
+
+1. **An absence the console did not witness is forgotten.** DESKTOP-CPH4KB2 was away ~5 h
+   (last frame 03:58:22, back 06:50) and `/fleet` serves `last_outage: None`, because the record is
+   memory-only and the console restarted at 06:47 — the close was never seen by the new process, so
+   the open had nothing to subtract. The machine's own `last_attempt` says `7 attempts — the console
+   accepted the channel and then dropped it`, which is the *reason* but not *how long*. The fix:
+   write `device.left` / `device.joined` lines to the audit on channel close/open, and derive the
+   absence from the audit so a console restart cannot erase it. **S/M.**
+
 ## P1 — the console stops feeling like a configuration tool
 
 5. **Activity filters become chips.** Machine chips and a search field; the time-range select, the
