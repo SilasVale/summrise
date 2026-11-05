@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
 import { HttpError } from "./api";
+import { auditFailed } from "./auditFilter";
 import type { AuditLine } from "./api";
 import { VITALS_KEY_PREFIX, type VitalsSample } from "./vitals";
 import { resetLiveToolsCache } from "./useLiveTools";
@@ -14,6 +15,7 @@ const mocks = vi.hoisted(() => ({
   health: vi.fn(),
   devices: vi.fn(),
   audit: vi.fn(),
+  auditDay: vi.fn(),
   denials: vi.fn(),
   connections: vi.fn(),
   signIn: vi.fn(),
@@ -36,6 +38,7 @@ vi.mock("./api", () => ({
     health: mocks.health,
     devices: mocks.devices,
     audit: mocks.audit,
+    auditDay: mocks.auditDay,
     denials: mocks.denials,
     connections: mocks.connections,
     signIn: mocks.signIn,
@@ -148,6 +151,46 @@ function measuredActivityWindow(): AuditLine[] {
   return lines;
 }
 
+/** The local midnight the pages cut "today" at. */
+function todayStart(now = Date.now()): number {
+  const date = new Date(now);
+  date.setHours(0, 0, 0, 0);
+  return date.getTime();
+}
+
+/** The day summary the mocked `/audit/day` answers when a test does not name one. */
+function dayFromLines(lines: readonly AuditLine[]) {
+  const start = todayStart();
+  const day = {
+    client_calls: 0,
+    failed: 0,
+    console: 0,
+    console_failed: 0,
+    poll: 0,
+    poll_failed: 0,
+    unattributed: 0,
+    unattributed_failed: 0
+  };
+  for (const line of lines) {
+    if (line.ts_ms < start) continue;
+    const failed = auditFailed(line);
+    if (line.kind === "poll") {
+      day.poll += 1;
+      if (failed) day.poll_failed += 1;
+    } else if (line.caller === "client" || (line.caller == null && line.token_id != null)) {
+      day.client_calls += 1;
+      if (failed) day.failed += 1;
+    } else if (line.caller === "console") {
+      day.console += 1;
+      if (failed) day.console_failed += 1;
+    } else {
+      day.unattributed += 1;
+      if (failed) day.unattributed_failed += 1;
+    }
+  }
+  return day;
+}
+
 /** One built-in and the plugin tool that makes the plugin section supported. */
 const filesTool = {
   name: "files.read",
@@ -225,6 +268,15 @@ beforeEach(() => {
   mocks.health.mockResolvedValue({ version: "0.3.42", devices: 2 });
   mocks.devices.mockResolvedValue([workshop, attic]);
   mocks.audit.mockResolvedValue([]);
+  // The day read is its own route now. Tests that care about the difference set it; everyone else
+  // gets the same day the mocked window holds, so a fixture written for one rule keeps its numbers.
+  mocks.auditDay.mockReset();
+  mocks.auditDay.mockImplementation(async () => {
+    const results = mocks.audit.mock.results;
+    const answer = results.length > 0 ? results[results.length - 1].value : undefined;
+    const lines: AuditLine[] = (await answer) ?? [];
+    return dayFromLines(lines);
+  });
   mocks.denials.mockResolvedValue([]);
   mocks.connections.mockResolvedValue([]);
   mocks.signIn.mockImplementation(async () => {
@@ -462,6 +514,197 @@ describe("App", () => {
     expect(screen.getByText("Ran a command")).toBeInTheDocument();
     expect(screen.queryByText("Listed the terminal sessions")).toBeNull();
     expect(screen.queryByText("Moved a file")).toBeNull();
+  });
+
+  it("counts the day from the file, not the newest window on the page", async () => {
+    // The measured defect: Activity said `Today 269 client calls · 39 failed` while the same local
+    // day held 649 calls and 74 failures. The window on the page is 1,000 lines; the day is not.
+    const midnight = todayStart();
+    const at = (seconds: number) => midnight + seconds * 1_000;
+    mocks.audit.mockResolvedValue(
+      [1, 2, 3].map((second) => ({
+        ts_ms: at(second),
+        kind: "mcp",
+        device_id: workshop.id,
+        token_id: null,
+        tool: "files.read",
+        detail: null,
+        status: 200,
+        caller: "client",
+        sentence: "Read a file"
+      }))
+    );
+    mocks.auditDay.mockResolvedValue({
+      client_calls: 10,
+      failed: 1,
+      console: 0,
+      console_failed: 0,
+      poll: 0,
+      poll_failed: 0,
+      unattributed: 0,
+      unattributed_failed: 0
+    });
+    await bootAndSignIn();
+    fireEvent.click(screen.getByRole("button", { name: "Activity" }));
+
+    expect(
+      await screen.findByText("Today 10 client calls · 1 failed · 0 unattributed")
+    ).toBeInTheDocument();
+    // The window still holds three rows; the header's ten is the day, and the cap sentence (absent
+    // here because the window is not cut) remains the only place a window count is named.
+    await waitFor(() => expect(document.querySelectorAll(".timeline-row")).toHaveLength(3));
+  });
+
+  it("keeps the window's own sentence while the header counts the day", async () => {
+    // One page, two scopes: the day at the top, the fetched window below. A window count may stay
+    // where the page says it is a window; it may not become the day.
+    mocks.audit.mockResolvedValue(measuredActivityWindow());
+    mocks.auditDay.mockResolvedValue({
+      client_calls: 649,
+      failed: 74,
+      console: 15,
+      console_failed: 2,
+      poll: 0,
+      poll_failed: 0,
+      unattributed: 0,
+      unattributed_failed: 0
+    });
+    await bootAndSignIn();
+    fireEvent.click(screen.getByRole("button", { name: "Activity" }));
+
+    expect(
+      await screen.findByText("Today 649 client calls · 74 failed · 2 console failures · 0 unattributed")
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Showing the newest 949 lines of 1000 fetched (34 channel events, 17 repeats not drawn)."
+      )
+    ).toBeInTheDocument();
+  });
+
+  it("says since when the day's file starts after midnight", async () => {
+    const midnight = todayStart();
+    const since = midnight + (3 * 60 + 12) * 60_000;
+    mocks.audit.mockResolvedValue([tokenCall]);
+    mocks.auditDay.mockResolvedValue({
+      client_calls: 10,
+      failed: 1,
+      console: 0,
+      console_failed: 0,
+      poll: 0,
+      poll_failed: 0,
+      unattributed: 0,
+      unattributed_failed: 0,
+      since_ms: since
+    });
+    await bootAndSignIn();
+    fireEvent.click(screen.getByRole("button", { name: "Activity" }));
+
+    expect(
+      await screen.findByText(
+        "Today 10 client calls · 1 failed · 0 unattributed · since 03:12"
+      )
+    ).toBeInTheDocument();
+  });
+
+  it("states the hub's day from the day read, not the lines in hand", async () => {
+    const midnight = todayStart();
+    const since = midnight + (3 * 60 + 12) * 60_000;
+    mocks.devices.mockResolvedValue([
+      { ...workshop, today: { client_calls: 10, failed: 1, since_ms: since } },
+      attic
+    ]);
+    mocks.audit.mockResolvedValue(
+      [1, 2, 3].map((second) => ({
+        ts_ms: midnight + second * 1_000,
+        kind: "mcp",
+        device_id: workshop.id,
+        token_id: null,
+        tool: "files.read",
+        detail: null,
+        status: 200,
+        caller: "client",
+        sentence: "Read a file"
+      }))
+    );
+    mocks.auditDay.mockResolvedValue({
+      client_calls: 10,
+      failed: 1,
+      console: 0,
+      console_failed: 0,
+      poll: 0,
+      poll_failed: 0,
+      unattributed: 0,
+      unattributed_failed: 0,
+      since_ms: since
+    });
+    await bootAndSignIn();
+    selectDevice("workshop");
+
+    expect(
+      await screen.findByText(/^Today 10 client calls · 1 failed · last \d\d:\d\d · since 03:12$/)
+    ).toBeInTheDocument();
+    // The timeline is still the fetched window: three rows, not ten invented ones.
+    await waitFor(() => expect(document.querySelectorAll(".timeline-row")).toHaveLength(3));
+  });
+
+  it("reports the day's ten calls above the window's three", async () => {
+    // The window is 1,000 lines and may hold only three of the day's ten client calls. The day line
+    // says ten; the window sentence says three, and says it is the window.
+    const midnight = todayStart();
+    const lines: AuditLine[] = [];
+    for (let index = 0; index < 997; index++) {
+      lines.push({
+        ts_ms: midnight + 2_000 + index,
+        kind: "mcp",
+        device_id: workshop.id,
+        token_id: null,
+        tool: `console.${index}`,
+        detail: null,
+        status: 200,
+        caller: "console",
+        sentence: `Console read ${index}`
+      });
+    }
+    for (let index = 0; index < 3; index++) {
+      lines.push({
+        ts_ms: midnight + 1_000 + index,
+        kind: "mcp",
+        device_id: workshop.id,
+        token_id: null,
+        tool: `client.${index}`,
+        detail: null,
+        status: 200,
+        caller: "client",
+        sentence: `Client call ${index}`
+      });
+    }
+    mocks.devices.mockResolvedValue([
+      { ...workshop, today: { client_calls: 10, failed: 1 } },
+      attic
+    ]);
+    mocks.audit.mockResolvedValue(lines);
+    mocks.auditDay.mockResolvedValue({
+      client_calls: 10,
+      failed: 1,
+      console: 997,
+      console_failed: 0,
+      poll: 0,
+      poll_failed: 0,
+      unattributed: 0,
+      unattributed_failed: 0
+    });
+    await bootAndSignIn();
+    selectDevice("workshop");
+
+    expect(
+      await screen.findByText(/^Today 10 client calls · 1 failed · last /)
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        /Showing the newest 3 of 1000 lines \(3 client calls, 997 console reads\)/
+      )
+    ).toBeInTheDocument();
   });
 
   it("states the same day on the fleet row that the machine's hub counts", async () => {

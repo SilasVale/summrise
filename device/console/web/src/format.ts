@@ -1,19 +1,57 @@
 export { shortId, age, ageAt } from "./logic";
 
+/** A clock a person reads on a summary line: HH:MM in the console's own timezone. */
+export function clockTime(ts: number): string {
+  const date = new Date(ts);
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+/**
+ * The day's coverage, when the file cannot prove all of it.
+ *
+ * `since` is the local time the read starts at — a rotation, or a console that started after
+ * midnight — and the line bound is the other way a read can be partial. Both are stated on the
+ * sentence; a number that covers three hours of a day must not read as the day.
+ */
+export type DayCoverage = {
+  since_ms?: number | null;
+  bounded?: boolean;
+  scan_limit?: number | null;
+};
+
+/** The one coverage clause a day sentence appends, or nothing for a whole day. */
+export function coverageClause(day: DayCoverage): string {
+  const parts: string[] = [];
+  if (day.since_ms != null) parts.push(`since ${clockTime(day.since_ms)}`);
+  if (day.bounded) {
+    parts.push(
+      day.scan_limit != null
+        ? `first ${String(day.scan_limit).replace(/\B(?=(\d{3})+(?!\d))/g, ",")} lines`
+        : "line bound hit"
+    );
+  }
+  return parts.length === 0 ? "" : ` · ${parts.join(" · ")}`;
+}
+
 /**
  * The fleet's one sentence about a machine's day: `283 calls · 38 failed`.
  *
  * The failed half is omitted at zero, so a healthy machine reads as its work and not as a
- * reassurance; a machine the audit window holds no line for has no day at all, and returns null so
- * the row draws nothing rather than a zero. The counts are the window's, and the hub counts the same
- * lines by the same rule.
+ * reassurance; a machine the day's read names nowhere has no day at all, and returns null so the
+ * row draws nothing rather than a zero. The counts are the day's, and the hub's day line reads the
+ * same field by the same rule; when the file cannot prove the whole day, `since` (and a bounded
+ * scan) is stated rather than swallowed.
  */
 export function callsLine(
-  day: { client_calls: number; failed: number } | null | undefined
+  day:
+    | ({ client_calls: number; failed: number } & DayCoverage)
+    | null
+    | undefined
 ): string | null {
   if (!day) return null;
   const calls = `${day.client_calls} ${day.client_calls === 1 ? "call" : "calls"}`;
-  return day.failed > 0 ? `${calls} · ${day.failed} failed` : calls;
+  return (day.failed > 0 ? `${calls} · ${day.failed} failed` : calls) + coverageClause(day);
 }
 
 /** A failed call's sentence: an Error's message, or the value as a string. */

@@ -61,6 +61,14 @@ pub(crate) const AUDIT_MAX_BYTES: u64 = 8 * 1024 * 1024;
 /// fleet's. The bound is the cost of `/fleet`: one read, one pass, no growing map.
 pub(crate) const FLEET_WINDOW: usize = 2000;
 
+/// How many lines the calendar-day read examines before it gives up and says so.
+///
+/// The measured record holds 28,056 lines over 14 days and 2,017 from one local midnight to 21:23,
+/// so the bound is more than a day and a night of the busiest fleet observed. It exists because a
+/// day read runs on every `/fleet` poll: 50,000 lines is the most one read may cost, and a file that
+/// reaches it reports `bounded` rather than passing a partial day off as the whole day.
+pub(crate) const DAY_SCAN_LIMIT: usize = 50_000;
+
 /// The tool name a channel's close writes. A boundary is not a tool call: the name is the marker
 /// the page recognises, and the line's `kind` is `device`, never `mcp`.
 pub(crate) const DEVICE_LEFT: &str = "device.left";
@@ -141,31 +149,68 @@ pub(crate) struct Boundaries {
     pub(crate) last_lefts: HashMap<String, u64>,
 }
 
-/// One machine's day inside `/fleet`'s window: the AI's calls and how many of them failed.
+/// What one read of the newest audit window proves about the fleet: the channel boundaries.
 ///
-/// The window is the newest [`FLEET_WINDOW`] lines of the whole fleet, the same read the absences
-/// come from. It is not cut at the console's local midnight: a busy fleet's window can start before
-/// it, and the page states the window it counted rather than inventing a day the read does not hold.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(crate) struct DayCount {
-    /// Lines a client made: `caller: "client"`, or a token with no caller. The console's own reads,
-    /// failed polls and channel boundaries are never here.
-    pub(crate) client_calls: u64,
-    /// The calls above whose exchange failed (status 400+, `ok: false`, or a JSON-RPC error).
-    pub(crate) failed: u64,
-}
-
-/// What one read of the newest audit window proves about the fleet: the channel boundaries and each
-/// machine's day.
-///
-/// One read serves every row, so two rows cannot be counted from two different generations of the
-/// file, and `/fleet` pays one file read whatever the fleet's size.
+/// One read serves every row, so two rows cannot pair boundaries from two different generations of
+/// the file, and `/fleet` pays one window read whatever the fleet's size. The day is a separate
+/// read ([`Audit::day`]): it starts at midnight, not at this window's oldest line.
 #[derive(Debug, Default)]
 pub(crate) struct FleetWindow {
     pub(crate) boundaries: Boundaries,
-    /// A device appears only when the window holds at least one line naming it: a machine the
-    /// window cannot speak for is omitted, never served as a zero.
-    pub(crate) days: HashMap<String, DayCount>,
+}
+
+/// What one calendar day holds, split by who can be proven to have made each line.
+///
+/// The four buckets and their failures are the page's: client calls, the console's own reads, failed
+/// polls, and the lines no caller was recorded for. `client_calls` and `failed` are the two `/fleet`
+/// serves; the rest are Activity's sentence, counted here once so the page and the fleet cannot use
+/// two rules for the same day.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct DayBuckets {
+    /// Lines a client made: `caller: "client"`, or a token with no caller.
+    pub(crate) client_calls: u64,
+    /// The client calls above whose exchange failed (status 400+, `ok: false`, or a JSON-RPC error).
+    pub(crate) failed: u64,
+    /// The console's own reads: `caller: "console"` and not a failed poll.
+    pub(crate) console: u64,
+    /// The console's reads that failed.
+    pub(crate) console_failed: u64,
+    /// Failed console polls: rows the table draws, no failure count includes them.
+    pub(crate) poll: u64,
+    /// The failed polls above (every poll in the audit is a failure: a successful one is not written).
+    pub(crate) poll_failed: u64,
+    /// Real lines with no caller and no token to prove a client made them.
+    pub(crate) unattributed: u64,
+    /// The unattributed lines that failed.
+    pub(crate) unattributed_failed: u64,
+}
+
+/// One read of the audit for a local calendar day.
+///
+/// The numbers come from the day, not from the newest `FLEET_WINDOW` lines: a count that is derived
+/// from a sliding window shrinks while the day is still running, because the window's oldest line is
+/// newer than midnight (measured on DESKTOP-14RJCR8: `554 calls · 53 failed`, then half an hour later
+/// `529 calls · 53 failed`). Starting at the day's own midnight fixes that rule.
+///
+/// **A COMPLETE DAY READ CANNOT DECREASE WHILE THE DAY RUNS.** New lines are appended after the ones
+/// already counted and are at or after midnight, so the scan sees at least everything the previous
+/// scan saw; only a rotation takes the day's earlier lines out of `audit.jsonl`, and that is reported
+/// as `since` rather than served as a whole day. The line bound is the one other way the read can be
+/// partial, and it says `bounded` when it happens.
+#[derive(Debug, Default)]
+pub(crate) struct DayRead {
+    /// The whole file's day, including lines that name no device (operator actions).
+    pub(crate) all: DayBuckets,
+    /// Each device's day. A device appears only when the day holds a line naming it.
+    pub(crate) devices: HashMap<String, DayBuckets>,
+    /// The local time the read's coverage starts at, when midnight is older than the file (a
+    /// rotation, or a console that started after midnight). `None` means the scan reached midnight
+    /// and the day is whole.
+    pub(crate) since_ms: Option<u64>,
+    /// The scan hit [`DAY_SCAN_LIMIT`] before midnight: the counts are the newest lines only.
+    pub(crate) bounded: bool,
+    /// Lines the scan examined; the read's cost, reported rather than guessed.
+    pub(crate) lines_read: usize,
 }
 
 /// The append-only audit index; the denial log reuses [`Entry`] as its line shape.
@@ -233,25 +278,82 @@ impl Audit {
             .await
     }
 
-    /// Everything `/fleet` derives from the audit, from ONE read of the newest [`FLEET_WINDOW`]
-    /// lines: the channel boundaries every row's absence reads, and each machine's day.
+    /// The channel boundaries every fleet row's absence reads, from ONE read of the newest
+    /// [`FLEET_WINDOW`] lines.
     ///
     /// The file is the record, not this process's memory: a console restarted while a device was
     /// away reads the close the dead process wrote and the open this one wrote, and the pair is the
     /// interval between them. The closing line also names the silence a still-away device is in,
     /// which is the newest evidence an offline row can be aged from. Both maps are built after the
     /// read returns, so the file's writer is not held while a fleet response is serialised.
-    ///
-    /// The routes that need both (the fleet list, and the rename that answers with one row) call
-    /// this rather than two reads; a row's day and its reconnected-after pair therefore come from
-    /// the same generation of the file.
     pub(crate) async fn fleet_window(&self) -> FleetWindow {
         let lines = self.file.newest(FLEET_WINDOW).await;
         FleetWindow {
             boundaries: boundaries_of(&lines),
-            days: days_from(&lines),
         }
     }
+
+    /// The local calendar day's counts, from a backwards scan that stops at local midnight.
+    ///
+    /// This is the count `/fleet` and the hub's day sentence use: the day is the day, not whichever
+    /// slice of it the newest window happens to hold. The scan is bounded by [`DAY_SCAN_LIMIT`] and
+    /// by no I/O beyond the one file read every other audit reader pays.
+    pub(crate) async fn day(&self, now_ms: u64) -> DayRead {
+        self.day_with_limit(now_ms, DAY_SCAN_LIMIT).await
+    }
+
+    /// [`Audit::day`] with the line bound injected, so a test can observe the bound without writing
+    /// 50,000 lines.
+    pub(crate) async fn day_with_limit(&self, now_ms: u64, limit: usize) -> DayRead {
+        let midnight_ms = local_day_start_ms(now_ms);
+        let scan = self.file.newest_since(midnight_ms, limit).await;
+        let mut all = DayBuckets::default();
+        let mut devices: HashMap<String, DayBuckets> = HashMap::new();
+        for line in &scan.lines {
+            add_to_day(&mut all, line);
+            if let Some(device) = line.get("device_id").and_then(Value::as_str) {
+                add_to_day(devices.entry(device.to_owned()).or_default(), line);
+            }
+        }
+        // A scan that ran out of file or hit its bound never saw a line older than midnight; its
+        // oldest line is where the count starts, and the page says so instead of calling it the
+        // whole day. A file whose first line is exactly midnight covers the whole day: there is no
+        // today line it could have missed.
+        let since_ms = if scan.exhausted || scan.bounded {
+            scan.oldest_ts_ms.filter(|oldest| *oldest > midnight_ms)
+        } else {
+            None
+        };
+        DayRead {
+            all,
+            devices,
+            since_ms,
+            bounded: scan.bounded,
+            lines_read: scan.lines_read,
+        }
+    }
+}
+
+/// The console host's local midnight at or before `now_ms`, in Unix milliseconds.
+///
+/// The page's timeline cuts at the browser's local midnight and the console runs in the operator's
+/// timezone (the measured host and browser are both Asia/Shanghai), so the server's local day is the
+/// same cut. A DST transition can make a midnight nonexistent; `earliest` takes the first instant of
+/// the day that exists rather than inventing one.
+pub(crate) fn local_day_start_ms(now_ms: u64) -> u64 {
+    use chrono::{Local, TimeZone};
+
+    let Some(now) = Local.timestamp_millis_opt(now_ms as i64).single() else {
+        return 0;
+    };
+    let Some(midnight) = now.date_naive().and_hms_opt(0, 0, 0) else {
+        return 0;
+    };
+    Local
+        .from_local_datetime(&midnight)
+        .earliest()
+        .map(|midnight| midnight.timestamp_millis().max(0) as u64)
+        .unwrap_or(0)
 }
 
 /// Both boundary maps from one window of lines, so the two derivations share their read.
@@ -390,27 +492,30 @@ fn day_failed(line: &Value) -> bool {
             .is_some_and(|detail| detail.starts_with("jsonrpc error"))
 }
 
-/// Each device's day from one window of lines.
+/// Add one audit line to one day's buckets, by the page's rule.
 ///
-/// A line with no `device_id` belongs to no row. A device with any line in the window is present,
-/// even when every line is the console's own: its day then reads zero calls, which is a fact about
-/// the window. A device the window never names is absent, so a page can draw nothing rather than a
-/// zero it cannot prove.
-fn days_from(lines: &[Value]) -> HashMap<String, DayCount> {
-    let mut days: HashMap<String, DayCount> = HashMap::new();
-    for line in lines {
-        let Some(device) = line.get("device_id").and_then(Value::as_str) else {
-            continue;
-        };
-        let day = days.entry(device.to_owned()).or_default();
-        if is_client_call(line) {
-            day.client_calls += 1;
-            if day_failed(line) {
-                day.failed += 1;
-            }
-        }
+/// The order is the page's: a channel boundary is not a call at all; a failed poll is its own bucket
+/// and no failure count includes it; `caller: "client"` or a token proves a client; `caller:
+/// "console"` is the console's own read; everything else is a real line whose caller was never
+/// recorded. A failure is [`day_failed`]'s rule, the same one `/fleet` and the timeline use.
+fn add_to_day(day: &mut DayBuckets, line: &Value) {
+    if is_channel_boundary(line) {
+        return;
     }
-    days
+    let failed = day_failed(line);
+    if line.get("kind").and_then(Value::as_str) == Some("poll") {
+        day.poll += 1;
+        day.poll_failed += u64::from(failed);
+    } else if is_client_call(line) {
+        day.client_calls += 1;
+        day.failed += u64::from(failed);
+    } else if line.get("caller").and_then(Value::as_str) == Some("console") {
+        day.console += 1;
+        day.console_failed += u64::from(failed);
+    } else {
+        day.unattributed += 1;
+        day.unattributed_failed += u64::from(failed);
+    }
 }
 
 #[cfg(test)]
@@ -660,7 +765,7 @@ mod tests {
     }
 
     #[test]
-    fn a_day_counts_the_ais_calls_and_only_their_failures() {
+    fn the_days_buckets_count_the_ais_calls_and_only_their_failures() {
         let token = "ab".repeat(32);
         let lines = vec![
             // A caller of `client` is a client's call whether or not a token authenticated it.
@@ -695,67 +800,228 @@ mod tests {
             },
         ];
 
+        let mut day = DayBuckets::default();
+        for line in &lines {
+            add_to_day(&mut day, line);
+        }
         assert_eq!(
-            days_from(&lines).get(DEVICE),
-            Some(&DayCount {
+            day,
+            DayBuckets {
                 client_calls: 4,
                 failed: 3,
-            })
-        );
-    }
-
-    #[test]
-    fn a_machines_day_is_a_zero_only_when_the_window_holds_a_line_for_it() {
-        let other = "cd".repeat(32);
-        let lines = vec![call(&other, 900, Some("console"), None, 200)];
-
-        let days = days_from(&lines);
-        assert_eq!(
-            days.get(&other),
-            Some(&DayCount::default()),
-            "a machine with only console reads has a day of zero calls, not an omitted one"
-        );
-        assert!(
-            !days.contains_key(DEVICE),
-            "a machine the window never names has no day to serve"
+                console: 1,
+                console_failed: 1,
+                poll: 1,
+                poll_failed: 1,
+                unattributed: 1,
+                unattributed_failed: 0,
+            }
         );
     }
 
     #[tokio::test]
-    async fn the_fleet_window_reads_the_day_from_the_same_newest_lines_as_the_absences() {
-        let dir = TempDir::new("fleet-window");
+    async fn a_machines_day_is_a_zero_only_when_the_day_holds_a_line_for_it() {
+        let dir = TempDir::new("day-presence");
         let other = "cd".repeat(32);
-        let mut lines = vec![
-            boundary(DEVICE, DEVICE_LEFT, 100),
-            boundary(DEVICE, DEVICE_JOINED, 200),
-            call(DEVICE, 150, Some("client"), None, 200),
-        ];
-        // Push the machine's three lines behind the window: the filler is another device's calls.
-        for index in 0..FLEET_WINDOW {
-            lines.push(call(
-                &other,
-                1_000 + index as u64,
-                Some("client"),
-                None,
-                200,
-            ));
+        let start = day_start(NOW_MS);
+        write_audit(
+            &dir.0,
+            &[call(&other, start + 1_000, Some("console"), None, 200)],
+        );
+        let day = Audit::new(&dir.0, u64::MAX).day(NOW_MS).await;
+
+        assert_eq!(
+            day.devices.get(&other).map(|day| day.client_calls),
+            Some(0),
+            "a machine with only console reads has a day of zero calls, not an omitted one"
+        );
+        assert!(
+            !day.devices.contains_key(DEVICE),
+            "a machine the day never names has no day to serve"
+        );
+    }
+
+    /// One local calendar day, whatever the console host's zone: the tests compute the boundary
+    /// with the same function the read uses, so a machine in UTC and a machine in +08 both pass.
+    fn day_start(now_ms: u64) -> u64 {
+        local_day_start_ms(now_ms)
+    }
+
+    /// 2026-11-05 16:30 UTC, an instant far enough from both midnights that a test's offsets stay
+    /// inside one local day.
+    const NOW_MS: u64 = 1_793_000_000_000;
+
+    #[tokio::test]
+    async fn the_day_is_the_whole_day_not_the_newest_window() {
+        let dir = TempDir::new("day-vs-window");
+        let other = "cd".repeat(32);
+        let start = day_start(NOW_MS);
+        let at = |seconds: u64| start + seconds * 1_000;
+        // Ten client calls at the day's start.
+        let mut lines: Vec<Value> = (0..10)
+            .map(|index| call(DEVICE, at(10 + index), Some("client"), None, 200))
+            .collect();
+        // Then another machine's 1,997 newer calls. The fleet's 2,000-line window drops the seven
+        // oldest of this machine's day; the day read still starts at midnight.
+        for index in 0..1_997 {
+            lines.push(call(&other, at(100 + index), Some("client"), None, 200));
         }
         write_audit(&dir.0, &lines);
         let audit = Audit::new(&dir.0, u64::MAX);
 
-        let window = audit.fleet_window().await;
-        assert!(window.boundaries.last_outages.is_empty());
-        assert!(
-            !window.days.contains_key(DEVICE),
-            "a day older than the newest {FLEET_WINDOW} lines is not read"
+        let day = audit.day(NOW_MS).await;
+        assert_eq!(
+            day.devices.get(DEVICE),
+            Some(&DayBuckets {
+                client_calls: 10,
+                ..DayBuckets::default()
+            }),
+            "the day read starts at midnight, so all ten calls are today"
         );
         assert_eq!(
-            window.days.get(&other),
-            Some(&DayCount {
-                client_calls: FLEET_WINDOW as u64,
-                failed: 0,
-            }),
-            "the same window that dropped the pair holds the newer machine's day"
+            day.lines_read, 2_007,
+            "the scan reads the whole day once, not the fleet's window"
+        );
+
+        // The window read still holds only the newest three of the same day; the day read above
+        // is the one `/fleet` now serves, and the two numbers are allowed to differ.
+        let window = audit.newest(FLEET_WINDOW).await;
+        let window_calls = window
+            .iter()
+            .filter(|line| {
+                line.get("device_id").and_then(Value::as_str) == Some(DEVICE)
+                    && is_client_call(line)
+            })
+            .count();
+        assert_eq!(window_calls, 3, "the window holds only the newest three");
+    }
+
+    #[tokio::test]
+    async fn the_day_count_cannot_shrink_as_the_window_slides() {
+        let dir = TempDir::new("day-monotonic");
+        let other = "cd".repeat(32);
+        let start = day_start(NOW_MS);
+        let at = |seconds: u64| start + seconds * 1_000;
+        let mut lines: Vec<Value> = (0..10)
+            .map(|index| call(DEVICE, at(10 + index), Some("client"), None, 200))
+            .collect();
+        write_audit(&dir.0, &lines);
+        let audit = Audit::new(&dir.0, u64::MAX);
+        let first = audit.day(NOW_MS).await;
+        assert_eq!(
+            first.devices.get(DEVICE).map(|day| day.client_calls),
+            Some(10)
+        );
+
+        // The day goes on: another machine writes past the fleet's window. The day count may only
+        // grow; only a rotation can take today's earlier lines out of the current file.
+        for index in 0..3_000 {
+            lines.push(call(&other, at(1_000 + index), Some("client"), None, 200));
+        }
+        write_audit(&dir.0, &lines);
+        let second = audit.day(NOW_MS).await;
+        assert_eq!(
+            second.devices.get(DEVICE).map(|day| day.client_calls),
+            Some(10),
+            "the sliding window does not shorten the day"
+        );
+        assert!(
+            second.devices[DEVICE].client_calls >= first.devices[DEVICE].client_calls,
+            "a day read may not decrease while the day is still running"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_day_that_reaches_midnight_is_whole_and_says_nothing_about_a_start() {
+        let dir = TempDir::new("day-full");
+        let start = day_start(NOW_MS);
+        // One line before midnight; the scan stops at it and does not count it.
+        let lines = vec![
+            call(DEVICE, start - 1_000, Some("client"), None, 200),
+            call(DEVICE, start, Some("client"), None, 200),
+            call(DEVICE, start + 60_000, Some("client"), None, 424),
+        ];
+        write_audit(&dir.0, &lines);
+        let audit = Audit::new(&dir.0, u64::MAX);
+
+        let day = audit.day(NOW_MS).await;
+        assert_eq!(
+            day.since_ms, None,
+            "midnight is in the file: the day is whole"
+        );
+        assert!(!day.bounded);
+        assert_eq!(
+            day.devices.get(DEVICE),
+            Some(&DayBuckets {
+                client_calls: 2,
+                failed: 1,
+                ..DayBuckets::default()
+            })
+        );
+        assert_eq!(
+            day.lines_read, 3,
+            "the line that proves midnight is read, then the scan stops"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_file_that_starts_after_midnight_says_since_its_oldest_line() {
+        let dir = TempDir::new("day-rotation");
+        let start = day_start(NOW_MS);
+        // 03:12, the shape a rotation leaves: the day's earlier lines are in audit.1.jsonl and the
+        // current file cannot count them.
+        let since = start + (3 * 60 + 12) * 60_000;
+        let lines = vec![
+            call(DEVICE, since, Some("client"), None, 200),
+            call(DEVICE, since + 60_000, Some("client"), None, 500),
+        ];
+        write_audit(&dir.0, &lines);
+        let audit = Audit::new(&dir.0, u64::MAX);
+
+        let day = audit.day(NOW_MS).await;
+        assert_eq!(day.since_ms, Some(since), "the sentence says since 03:12");
+        assert!(!day.bounded);
+        assert_eq!(
+            day.devices.get(DEVICE),
+            Some(&DayBuckets {
+                client_calls: 2,
+                failed: 1,
+                ..DayBuckets::default()
+            })
+        );
+        assert_eq!(day.lines_read, 2);
+    }
+
+    #[tokio::test]
+    async fn the_scan_says_when_its_line_bound_stopped_it() {
+        let dir = TempDir::new("day-bound");
+        let start = day_start(NOW_MS);
+        let lines: Vec<Value> = (0..5)
+            .map(|index| {
+                call(
+                    DEVICE,
+                    start + (index + 1) * 1_000,
+                    Some("client"),
+                    None,
+                    200,
+                )
+            })
+            .collect();
+        write_audit(&dir.0, &lines);
+        let audit = Audit::new(&dir.0, u64::MAX);
+
+        let day = audit.day_with_limit(NOW_MS, 2).await;
+        assert!(day.bounded, "the bound was hit before midnight");
+        assert_eq!(day.lines_read, 2);
+        assert_eq!(
+            day.since_ms,
+            Some(start + 4_000),
+            "the count covers since the oldest line it read"
+        );
+        assert_eq!(
+            day.devices.get(DEVICE).map(|day| day.client_calls),
+            Some(2),
+            "a bounded read reports the lines it counted, not a guess at the rest"
         );
     }
 }

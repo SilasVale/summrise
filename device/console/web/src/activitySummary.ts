@@ -1,5 +1,6 @@
 import { auditFailed } from "./auditFilter";
-import type { AuditLine } from "./api";
+import type { AuditDay, AuditLine } from "./api";
+import { coverageClause } from "./format";
 
 /**
  * The two tool names the console writes when a device's channel closes and opens.
@@ -182,6 +183,28 @@ export function activityCountSentence(counts: ActivityCounts, clientOnly = false
       ? `${counts.unattributed} unattributed`
       : `${counts.unattributed} unattributed (${counts.unattributedFailed} failed)`;
   return `${ai}${consoleClause}${pollClause} · ${unknownClause}`;
+}
+
+/**
+ * The header's day sentence, from the day's own read rather than the fetched window.
+ *
+ * The measured defect: Activity read `Today 269 client calls · 39 failed` while the same local day
+ * held 649 calls and 74 failures, because the number was counted from a 1,000-line window that slid
+ * forward. This sentence takes `/audit/day`'s counts (the hub's rule and the fleet's `today`), and
+ * appends `since` when the file starts after midnight instead of calling a partial day whole.
+ */
+export function activityDaySentence(day: AuditDay, clientOnly = false): string {
+  const counts: ActivityCounts = {
+    client: day.client_calls,
+    clientFailed: day.failed,
+    console: day.console,
+    consoleFailed: day.console_failed,
+    poll: day.poll,
+    pollFailed: day.poll_failed,
+    unattributed: day.unattributed,
+    unattributedFailed: day.unattributed_failed
+  };
+  return activityCountSentence(counts, clientOnly) + coverageClause(day);
 }
 
 /** The sentence from a window and the moment it is read; `clientOnly` mirrors the chip. */

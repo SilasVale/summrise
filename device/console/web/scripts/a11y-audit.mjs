@@ -428,6 +428,41 @@ function replyFor(request, url) {
   if (method === 'GET' && pathname === '/session') return json(SESSION);
   if (method === 'GET' && pathname === '/health') return json(HEALTH);
   if (method === 'GET' && pathname === '/fleet') return json(DEVICES);
+  if (method === 'GET' && pathname === '/audit/day') {
+    // The audit's day, by the page's four buckets: boundaries are not calls, a poll is its own
+    // bucket, and a failed row is status 400+ or a JSON-RPC error inside a 200.
+    const start = new Date(NOW);
+    start.setHours(0, 0, 0, 0);
+    const day = {
+      client_calls: 0,
+      failed: 0,
+      console: 0,
+      console_failed: 0,
+      poll: 0,
+      poll_failed: 0,
+      unattributed: 0,
+      unattributed_failed: 0
+    };
+    for (const line of AUDIT) {
+      if (line.ts_ms < start.getTime()) continue;
+      const failed =
+        line.status >= 400 || String(line.detail ?? '').startsWith('jsonrpc error');
+      if (line.kind === 'poll') {
+        day.poll += 1;
+        if (failed) day.poll_failed += 1;
+      } else if (line.caller === 'client' || (line.caller == null && line.token_id != null)) {
+        day.client_calls += 1;
+        if (failed) day.failed += 1;
+      } else if (line.caller === 'console') {
+        day.console += 1;
+        if (failed) day.console_failed += 1;
+      } else {
+        day.unattributed += 1;
+        if (failed) day.unattributed_failed += 1;
+      }
+    }
+    return json(day);
+  }
   if (method === 'GET' && pathname === '/audit') {
     const raw = Number(url.searchParams.get('limit') ?? 20);
     const limit = Number.isFinite(raw) ? Math.max(0, Math.min(Math.trunc(raw), 1000)) : 20;

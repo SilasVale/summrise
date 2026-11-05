@@ -15,6 +15,24 @@ use serde::Serialize;
 use serde_json::Value;
 use tokio::io::AsyncWriteExt;
 
+/// The newest lines above a cut, and what reading them cost.
+///
+/// The three facts are not the lines: a day read has to state when its coverage starts (the file's
+/// oldest line) and whether the line bound stopped it, and those are properties of the scan rather
+/// than of any line in it.
+pub(crate) struct NewestSince {
+    /// The lines at or after the cut, newest first.
+    pub(crate) lines: Vec<Value>,
+    /// How many lines the scan examined, including the one that proved the cut.
+    pub(crate) lines_read: usize,
+    /// The scan reached the file's first line without finding one older than the cut.
+    pub(crate) exhausted: bool,
+    /// The scan stopped at its line bound before reaching either the cut or the file's start.
+    pub(crate) bounded: bool,
+    /// The oldest line the scan counted, when it counted one.
+    pub(crate) oldest_ts_ms: Option<u64>,
+}
+
 /// One append-only JSONL file.
 pub(crate) struct JsonLines {
     path: PathBuf,
@@ -134,6 +152,84 @@ impl JsonLines {
         lines
     }
 
+    /// Lines at or after `since_ms`, newest first, scanned backwards from the current file's end.
+    ///
+    /// The scan stops at the first line older than the cut, or at the file's first line, or after
+    /// `max_lines` lines — whichever comes first. It deliberately does not read the rotated
+    /// generation: a day whose start is older than the current file is partial, and the caller
+    /// states `since` instead of stitching two generations into a whole the page cannot verify.
+    ///
+    /// The cost is reported as lines examined, not bytes read: the file is opened once, like every
+    /// other read of this index, and the scan is the part the day sets its bound on.
+    pub(crate) async fn newest_since(&self, since_ms: u64, max_lines: usize) -> NewestSince {
+        let _reading = self.append.lock().await;
+        let bytes = match tokio::fs::read(&self.path).await {
+            Ok(bytes) => bytes,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                return NewestSince {
+                    lines: Vec::new(),
+                    lines_read: 0,
+                    exhausted: true,
+                    bounded: false,
+                    oldest_ts_ms: None,
+                }
+            }
+            Err(error) => {
+                eprintln!(
+                    "summrise-console: could not read {}: {error}",
+                    self.path.display()
+                );
+                return NewestSince {
+                    lines: Vec::new(),
+                    lines_read: 0,
+                    exhausted: true,
+                    bounded: false,
+                    oldest_ts_ms: None,
+                };
+            }
+        };
+
+        let text = String::from_utf8_lossy(&bytes);
+        let mut lines = Vec::new();
+        let mut lines_read = 0;
+        let mut bounded = false;
+        let mut stopped_on_older = false;
+        for line in text.lines().rev() {
+            if lines_read == max_lines {
+                bounded = true;
+                break;
+            }
+            lines_read += 1;
+            match serde_json::from_str::<Value>(line) {
+                Ok(value) => {
+                    let older = value
+                        .get("ts_ms")
+                        .and_then(Value::as_u64)
+                        .is_some_and(|ts_ms| ts_ms < since_ms);
+                    if older {
+                        stopped_on_older = true;
+                        break;
+                    }
+                    lines.push(value);
+                }
+                Err(error) => eprintln!(
+                    "summrise-console: skipping an unreadable line in {}: {error}",
+                    self.path.display()
+                ),
+            }
+        }
+
+        NewestSince {
+            oldest_ts_ms: lines
+                .last()
+                .and_then(|line| line.get("ts_ms").and_then(Value::as_u64)),
+            lines,
+            lines_read,
+            exhausted: !stopped_on_older && !bounded,
+            bounded,
+        }
+    }
+
     /// The newest `limit` lines of one file that `matches` accepts, newest first.
     ///
     /// A line that cannot be parsed is skipped and reported: a crash can leave a partial last line,
@@ -160,7 +256,7 @@ impl JsonLines {
             if lines.len() == limit {
                 break;
             }
-            match serde_json::from_str(line) {
+            match serde_json::from_str::<Value>(line) {
                 Ok(value) => {
                     if matches(&value) {
                         lines.push(value);

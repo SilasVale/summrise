@@ -12,6 +12,9 @@ summrise-ui = { path = "../ui" }
 axum = { version = "0.7", features = ["ws"] }
 # The grant key signs; the grant is verified by the device against a pinned public key.
 ed25519-dalek = "2"
+# The day read cuts at the console host's local midnight, the same midnight the page's timeline
+# cuts at. `clock` is only the local-timezone lookup; the console keeps no calendar of its own.
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
 jsonwebtoken = "9"
 # Session tokens, enrollment codes and device tokens are OS randomness. `rand_core` is the RNG
 # boundary `ed25519-dalek` already speaks, so the console does not carry a second RNG stack.

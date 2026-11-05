@@ -646,6 +646,13 @@ update line no longer repeats the running version; the run form's placeholder is
    totals. **Fix:** when the window's oldest line is after local midnight, count the day from the
    file (a bounded scan of today's lines) or state the hours the number covers, with one rule for the
    hub and Activity. **S/M.**
+   *(Done 2026-11-05: `GET /audit/day` scans `audit.jsonl` backwards from the newest line, stops at
+   local midnight, and counts the page's four buckets; `/fleet`'s `today` and the hub's day sentence
+   read the same day, and Activity's header reads the route while its cap sentence keeps describing
+   the fetched window. A file that starts after midnight says `since HH:MM`; the 50,000-line bound
+   says `bounded` and names the bound. Tests first: a fixture whose window holds 3 of the day's 10
+   client calls reports 10 for today and 3 for the window; a count taken twice as the window slides
+   does not decrease; a file starting mid-day reports `since`.)*
 
 3. **The hub's summary counts lines it cannot show and never names the rows it hides.**
    DESKTOP-14RJCR8's hub draws **60** rows under `Showing the newest 974 lines of 1004 fetched (9

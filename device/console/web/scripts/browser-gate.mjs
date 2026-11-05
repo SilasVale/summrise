@@ -77,9 +77,10 @@ const DEVICE = {
   version: '0.3.42',
   last_seen_ms: NOW,
   last_frame_ms: NOW - 12_000,
-  // The day the console's newest audit window counted for this machine: 283 calls, 38 failed. The
-  // row states it on its muted line; the failed half disappears at zero (see OFFLINE_DEVICE).
-  today: { client_calls: 283, failed: 38 },
+  // The local day this machine's audit fixture holds. It is filled in from `TODAY_CLIENT` below,
+  // because the fixture's two recent lines can be yesterday in the first minutes after midnight;
+  // the fleet row and the hub's day line must both say the day the gate actually serves.
+  today: { client_calls: 0, failed: 0 },
   // The attempt before this channel: a count and a reason, and no moment of its own. The row must
   // not draw a sentence about it (C9), so the gate carries the measured one and asserts it is absent.
   last_attempt: {
@@ -229,6 +230,8 @@ const TODAY_LINES = FIXTURE_LINES.filter((line) => line.ts_ms >= DAY_START.getTi
 const TODAY_CLIENT = TODAY_LINES.filter((line) => line.caller === 'client').length;
 const TODAY_CONSOLE = TODAY_LINES.filter((line) => line.caller === 'console').length;
 const ALL_CLIENT = FIXTURE_LINES.filter((line) => line.caller === 'client').length;
+// One day, one number: the fleet's `today` is the day this fixture's `/audit/day` would answer.
+DEVICE.today = { client_calls: TODAY_CLIENT, failed: 0 };
 // The newest client row in the window is the one a narrowed list draws first. It is the run's line
 // at a normal hour and a historic call in the five minutes after midnight, when `AUDIT_LINE` is
 // yesterday; the leg names whichever it is rather than racing the clock.
@@ -341,6 +344,50 @@ const state = {
   streamEchoed: false
 };
 
+/**
+ * The local calendar day for the lines one route serves, by the page's four buckets.
+ *
+ * The gate's `/audit/day` answers this, so Activity's header counts the same day the console would;
+ * a channel boundary is not a call, a poll is its own bucket, and a failure is status 400+ or a
+ * JSON-RPC error carried inside a 200.
+ */
+function dayCounts(lines) {
+  const day = {
+    client_calls: 0,
+    failed: 0,
+    console: 0,
+    console_failed: 0,
+    poll: 0,
+    poll_failed: 0,
+    unattributed: 0,
+    unattributed_failed: 0
+  };
+  for (const line of lines) {
+    if (line.tool === 'device.left' || line.tool === 'device.joined') continue;
+    const failed =
+      Number(line.status) >= 400 ||
+      line.ok === false ||
+      String(line.detail ?? '').startsWith('jsonrpc error');
+    if (line.kind === 'poll') {
+      day.poll += 1;
+      if (failed) day.poll_failed += 1;
+    } else if (
+      line.caller === 'client' ||
+      (line.caller == null && line.token_id != null)
+    ) {
+      day.client_calls += 1;
+      if (failed) day.failed += 1;
+    } else if (line.caller === 'console') {
+      day.console += 1;
+      if (failed) day.console_failed += 1;
+    } else {
+      day.unattributed += 1;
+      if (failed) day.unattributed_failed += 1;
+    }
+  }
+  return day;
+}
+
 /** The one route that is a stream: the page subscribes to it and the device's bytes arrive on it. */
 const streamRoute = /^\/terminal\/[^/]+\/[^/]+\/stream$/;
 
@@ -418,6 +465,14 @@ function apiReply(request, url) {
       // Newest first, as the console serves it.
       .sort((left, right) => right.ts_ms - left.ts_ms);
     return json(lines);
+  }
+  // The day, not the window: Activity's header counts this; the window sentence keeps its own rows.
+  if (method === 'GET' && pathname === '/audit/day') {
+    const device = url.searchParams.get('device');
+    const source = device === BIG_DEVICE.id ? BIG_UNIQUE : TODAY_LINES;
+    return json(
+      dayCounts(source.filter((line) => device === null || line.device_id === device))
+    );
   }
   if (method === 'GET' && pathname === '/denials') return json([]);
   if (method === 'GET' && pathname === '/tools') return json(TOOL_NAMES.map((name) => ({ name })));
@@ -636,8 +691,9 @@ try {
     })
   );
   const workBy = new Map(fleet1440.map((row) => [row.name, row.work]));
+  const dayCalls = `${TODAY_CLIENT} ${TODAY_CLIENT === 1 ? 'call' : 'calls'}`;
   const expectedWork = new Map([
-    ['DESKTOP-9VH92BJ', '283 calls · 38 failed'],
+    ['DESKTOP-9VH92BJ', dayCalls],
     ['DESKTOP-14RJCR8', '11 calls'],
     ['DESKTOP-CPH4KB2', '84 calls · 2 failed'],
     // The measured window's machine: the same 283 client calls its hub draws behind the fold.

@@ -15,10 +15,19 @@ export type Device = {
   /** The registry's last channel open: older evidence than either of the two above. */
   last_seen_ms?: number | null;
   /**
-   * The AI's calls the fleet's audit window holds for this machine, and how many failed. Absent
-   * when the window names the machine nowhere: the row then draws no day at all, never a zero.
+   * The AI's calls the local calendar day holds for this machine, and how many failed. Absent when
+   * the day names the machine nowhere: the row then draws no day at all, never a zero. `since_ms`
+   * and `bounded` say where a partial day's coverage starts rather than letting it read as whole.
    */
-  today?: { client_calls: number; failed: number } | null;
+  today?:
+    | {
+        client_calls: number;
+        failed: number;
+        since_ms?: number | null;
+        bounded?: boolean;
+        scan_limit?: number | null;
+      }
+    | null;
   /**
    * The attempt before the current channel. The row does not draw it: it is a count and a reason
    * with no moment of its own, and a sentence about it read as today's fault (C9). The field stays
@@ -75,9 +84,11 @@ export function DeviceCard({ device, selected, onSelect, onRename, onRemove, onD
     shownVersion: device.version
   });
   // **THE ROW COMPARES THE WORK, NOT ONLY THE PRESENCE.** The day is the fleet read's own count
-  // from the same audit window the hub counts: no request, no page, and nothing for a machine the
-  // window never names. It shares the state's muted line so the row stays one row at 1440; at 390
-  // the status cell takes its own line and the counts wrap below the state.
+  // from the local calendar day the hub counts: no request, no page, and nothing for a machine the
+  // day never names. When the audit file starts after midnight the line says `since`, so a partial
+  // day's 554 calls cannot read as the day's whole 649. It shares the state's muted line so the row
+  // stays one row at 1440; at 390 the status cell takes its own line and the counts wrap below the
+  // state.
   const work = callsLine(device.today);
   return (
     <article className={"fleet-row" + (selected ? " is-current" : "")}>

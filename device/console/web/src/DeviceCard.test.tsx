@@ -69,6 +69,17 @@ describe("DeviceCard — one row on the fleet", () => {
     expect(container.querySelector(".card-details-body")).toBeNull();
   });
 
+  it("names the hour its day starts at when the file rotated", () => {
+    // The day read cannot prove the hours before the rotation; the row says since when it can
+    // instead of letting a partial day read as the whole one.
+    const midnight = new Date();
+    midnight.setHours(0, 0, 0, 0);
+    const since = midnight.getTime() + (3 * 60 + 12) * 60_000;
+    draw({ today: { client_calls: 554, failed: 53, since_ms: since } });
+
+    expect(screen.getByText("554 calls · 53 failed · since 03:12")).toBeInTheDocument();
+  });
+
   it("does not draw a reconnect sentence: the attempt has no moment of its own", () => {
     // The measured row: both online machines carried "Reconnected after 1 attempt — the console
     // accepted the channel and then dropped it" with no date, so the 09:41 restart read at 10:07 as

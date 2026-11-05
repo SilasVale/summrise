@@ -1166,13 +1166,13 @@ async fn re_registering_updates_last_seen_and_keeps_registered_at() {
     );
 }
 
-/// **THE FLEET COMPARES THE WORK, NOT ONLY THE PRESENCE.** Each row carries the AI's calls its
-/// newest audit window holds, by the same rule the hub's day line and Activity's header use:
+/// **THE FLEET COMPARES THE WORK, NOT ONLY THE PRESENCE.** Each row carries the AI's calls in the
+/// local calendar day, by the same rule the hub's day line and Activity's header use:
 /// `caller: "client"`, or no caller with a token; never the console's own read, a failed poll, a
-/// channel boundary, or an unattributed line. The counts come from the same newest 2,000 lines the
-/// absences read, so a route the page polls cannot pay two reads.
+/// channel boundary, or an unattributed line. The counts come from the day read `/audit/day`
+/// serves, so a route the page polls cannot pay two rules for one day.
 #[tokio::test]
-async fn the_fleet_states_each_machines_day_from_its_newest_window() {
+async fn the_fleet_states_each_machines_day_from_the_days_read() {
     let fixture = Fixture::new("fleet-day");
     let session = fixture.authenticate().await;
     let alpha = register_fixture_device(&fixture, &signing_key(0xa1)).await;
@@ -1181,9 +1181,16 @@ async fn the_fleet_states_each_machines_day_from_its_newest_window() {
     let delta = register_fixture_device(&fixture, &signing_key(0xd4)).await;
     let token = "ab".repeat(32);
 
+    // The file's first line is exactly local midnight: the day is whole, not a `since` read.
+    let midnight = json!({
+        "ts_ms": local_midnight(START_MS), "kind": "mcp", "device_id": gamma,
+        "status": 200, "tool": "terminal.list", "caller": "console",
+    });
+
     // One line of each kind the rule has to tell apart. Alpha gets the mixed window; beta's two
     // calls are a plain client's; gamma has only the console's read; delta has no line at all.
     let lines = vec![
+        midnight,
         json!({
             "ts_ms": 900, "kind": "mcp", "device_id": alpha, "status": 200,
             "tool": "files.read", "caller": "client",
@@ -1222,10 +1229,6 @@ async fn the_fleet_states_each_machines_day_from_its_newest_window() {
         json!({
             "ts_ms": 350, "kind": "mcp", "device_id": beta, "status": 200,
             "tool": "files.read", "caller": "client",
-        }),
-        json!({
-            "ts_ms": 300, "kind": "mcp", "device_id": gamma, "status": 200,
-            "tool": "terminal.list", "caller": "console",
         }),
     ];
     seed_audit_file(&fixture, "audit.jsonl", &lines);
@@ -1266,30 +1269,273 @@ async fn the_fleet_states_each_machines_day_from_its_newest_window() {
         );
     }
 
-    // The hub's day is the same lines under the same rule: its machine window is where the page
-    // counts these calls, and this fixture is the shape it reads.
-    let (status, mine) = send(
+    // The hub's day is the same read under the same rule: `/audit/day` is what the page's header
+    // counts, and the fleet's `today` is one row of it.
+    let (status, day) = send(
         fixture.app(),
-        get(&format!("/audit?device={alpha}"), Some(&session)),
+        get(&format!("/audit/day?device={alpha}"), Some(&session)),
     )
     .await;
     assert_eq!(status, StatusCode::OK);
-    let mine = mine.as_array().expect("a list of audit lines");
-    let counted = mine
-        .iter()
-        .filter(|line| {
-            line["tool"] != json!("device.left")
-                && line["kind"] != json!("poll")
-                && (line["caller"] == json!("client")
-                    || (line.get("caller").is_none() && line.get("token_id").is_some()))
-        })
-        .count();
     assert_eq!(
-        counted,
-        row(&alpha)["today"]["client_calls"]
-            .as_u64()
-            .expect("a count") as usize,
-        "the row's calls are the hub's own day for this machine: {mine:?}"
+        day["client_calls"],
+        row(&alpha)["today"]["client_calls"],
+        "the row's calls and the day route are one read: {day}"
+    );
+    assert_eq!(day["failed"], row(&alpha)["today"]["failed"]);
+}
+
+/// The local midnight this test's fixture clock cuts at, computed the way the console computes it:
+/// the page and the console share the operator's timezone, so a test that runs in UTC and one that
+/// runs in +08 both put the fixtures on the same side of the cut.
+fn local_midnight(now_ms: u64) -> u64 {
+    use chrono::{Local, TimeZone};
+    let now = Local
+        .timestamp_millis_opt(now_ms as i64)
+        .single()
+        .expect("the fixture clock is a local instant");
+    let midnight = now
+        .date_naive()
+        .and_hms_opt(0, 0, 0)
+        .expect("a date has a midnight");
+    Local
+        .from_local_datetime(&midnight)
+        .earliest()
+        .expect("the local day has a first instant")
+        .timestamp_millis()
+        .max(0) as u64
+}
+
+/// **TODAY IS THE DAY, NOT THE WINDOW IN HAND.** The measured defect: at 21:23 DESKTOP-14RJCR8's
+/// fleet row said `554 calls · 53 failed`, and half an hour later `529 calls · 53 failed`; the
+/// newest 2,000-line window slid forward and took the day's earlier calls with it. The day read
+/// starts at local midnight, so the window may hold only three of the day's ten calls while the row
+/// still says ten.
+#[tokio::test]
+async fn the_fleet_serves_the_whole_day_not_the_newest_window() {
+    let fixture = Fixture::new("fleet-day-not-window");
+    let session = fixture.authenticate().await;
+    let alpha = register_fixture_device(&fixture, &signing_key(0xa1)).await;
+    let beta = register_fixture_device(&fixture, &signing_key(0xb2)).await;
+    let now = fixture.now_ms();
+
+    // Alpha's ten calls are the day's first; beta's 1,997 newer calls push seven of them out of the
+    // fleet's 2,000-line window. The window holds three; the day holds ten.
+    // The file's first line is exactly local midnight: the day is whole, so no `since` is served.
+    let mut lines: Vec<Value> = vec![json!({
+        "ts_ms": local_midnight(now),
+        "kind": "device",
+        "device_id": beta.as_str(),
+        "status": 200,
+        "tool": "device.joined",
+        "caller": "console",
+    })];
+    lines.extend((0..10).map(|index| {
+        json!({
+        "ts_ms": now - 40_000 + index * 1_000,
+            "kind": "mcp",
+            "device_id": alpha.as_str(),
+            "status": 200,
+            "tool": "files.read",
+            "caller": "client",
+        })
+    }));
+    for index in 0..1_997 {
+        lines.push(json!({
+            "ts_ms": now - 20_000 + index * 10,
+            "kind": "mcp",
+            "device_id": beta.as_str(),
+            "status": 200,
+            "tool": "files.read",
+            "caller": "client",
+        }));
+    }
+    seed_audit_file(&fixture, "audit.jsonl", &lines);
+
+    let (status, fleet) = send(fixture.app(), get("/fleet", Some(&session))).await;
+    assert_eq!(status, StatusCode::OK, "the fleet read: {fleet}");
+    let row = fleet
+        .as_array()
+        .expect("a list")
+        .iter()
+        .find(|row| row["id"] == json!(alpha))
+        .expect("alpha's row");
+    assert_eq!(
+        row["today"],
+        json!({ "client_calls": 10, "failed": 0 }),
+        "the day is ten; the window held three: {fleet}"
+    );
+
+    let (status, day) = send(
+        fixture.app(),
+        get(&format!("/audit/day?device={alpha}"), Some(&session)),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "the day read: {day}");
+    assert_eq!(
+        day,
+        json!({
+            "client_calls": 10,
+            "failed": 0,
+            "console": 0,
+            "console_failed": 0,
+            "poll": 0,
+            "poll_failed": 0,
+            "unattributed": 0,
+            "unattributed_failed": 0,
+            // The scan read the whole day: a boundary and the two machines' calls.
+            "lines_read": 2_008,
+        }),
+        "the day route and the fleet's today are one read: {day}"
+    );
+}
+
+/// A file that starts after midnight is a partial day, and says where its coverage starts: the
+/// rotation's oldest line, not a whole day the read cannot prove.
+#[tokio::test]
+async fn a_file_that_starts_after_midnight_says_since() {
+    let fixture = Fixture::new("fleet-day-since");
+    let session = fixture.authenticate().await;
+    let alpha = register_fixture_device(&fixture, &signing_key(0xa1)).await;
+    let now = fixture.now_ms();
+    // Ten minutes after local midnight, the shape a rotation leaves behind.
+    let since = local_midnight(now) + 10 * MINUTE_MS;
+    let lines = vec![
+        json!({
+            "ts_ms": since,
+            "kind": "mcp",
+            "device_id": alpha.as_str(),
+            "status": 200,
+            "tool": "files.read",
+            "caller": "client",
+        }),
+        json!({
+            "ts_ms": since + MINUTE_MS,
+            "kind": "mcp",
+            "device_id": alpha.as_str(),
+            "status": 500,
+            "tool": "files.read",
+            "caller": "client",
+        }),
+    ];
+    seed_audit_file(&fixture, "audit.jsonl", &lines);
+
+    let (status, fleet) = send(fixture.app(), get("/fleet", Some(&session))).await;
+    assert_eq!(status, StatusCode::OK, "the fleet read: {fleet}");
+    let row = fleet
+        .as_array()
+        .expect("a list")
+        .iter()
+        .find(|row| row["id"] == json!(alpha))
+        .expect("alpha's row");
+    assert_eq!(
+        row["today"],
+        json!({ "client_calls": 2, "failed": 1, "since_ms": since }),
+        "the row states the time its coverage starts: {fleet}"
+    );
+
+    let (status, day) = send(
+        fixture.app(),
+        get(&format!("/audit/day?device={alpha}"), Some(&session)),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "the day read: {day}");
+    assert_eq!(day["since_ms"], json!(since));
+    assert_eq!(day["client_calls"], json!(2));
+    assert_eq!(day["failed"], json!(1));
+}
+
+/// A machine whose only line is yesterday's has no day today, even though the newest window still
+/// holds the yesterday line. A zero would be a fact about a window, not about today.
+#[tokio::test]
+async fn a_machine_with_no_line_today_serves_no_day() {
+    let fixture = Fixture::new("fleet-day-yesterday");
+    let session = fixture.authenticate().await;
+    let alpha = register_fixture_device(&fixture, &signing_key(0xa1)).await;
+    let beta = register_fixture_device(&fixture, &signing_key(0xb2)).await;
+    fixture.advance_ms(DAY_MS);
+    let now = fixture.now_ms();
+    let lines = vec![
+        // Alpha worked yesterday, inside the newest window.
+        json!({
+            "ts_ms": now - DAY_MS + MINUTE_MS,
+            "kind": "mcp",
+            "device_id": alpha.as_str(),
+            "status": 200,
+            "tool": "files.read",
+            "caller": "client",
+        }),
+        // Beta worked today.
+        json!({
+            "ts_ms": now - MINUTE_MS,
+            "kind": "mcp",
+            "device_id": beta.as_str(),
+            "status": 200,
+            "tool": "files.read",
+            "caller": "client",
+        }),
+    ];
+    seed_audit_file(&fixture, "audit.jsonl", &lines);
+
+    let (status, fleet) = send(fixture.app(), get("/fleet", Some(&session))).await;
+    assert_eq!(status, StatusCode::OK, "the fleet read: {fleet}");
+    let rows = fleet.as_array().expect("a list");
+    let row = |id: &str| {
+        rows.iter()
+            .find(|row| row["id"] == json!(id))
+            .unwrap_or_else(|| panic!("{id} is a row: {fleet}"))
+    };
+    assert!(
+        row(&alpha).get("today").is_none(),
+        "yesterday is not today: a day may not be borrowed from the window: {fleet}"
+    );
+    assert_eq!(
+        row(&beta)["today"],
+        json!({ "client_calls": 1, "failed": 0 })
+    );
+}
+
+/// The day route counts the page's four buckets by Activity's rule, from midnight: the console's own
+/// read, a failed poll, an unattributed row and a channel boundary each go to their own place, and a
+/// client failure is the client's.
+#[tokio::test]
+async fn the_day_route_counts_the_pages_four_buckets_from_midnight() {
+    let fixture = Fixture::new("day-buckets");
+    let session = fixture.authenticate().await;
+    let alpha = register_fixture_device(&fixture, &signing_key(0xa1)).await;
+    let now = fixture.now_ms();
+    let token = "ab".repeat(32);
+    let lines = vec![
+        // The file's first line is exactly local midnight: the day is whole.
+        json!({ "ts_ms": local_midnight(now), "kind": "device", "device_id": alpha, "status": 200, "tool": "device.joined", "caller": "console" }),
+        json!({ "ts_ms": now - 60_000, "kind": "mcp", "device_id": alpha, "status": 200, "tool": "files.read", "caller": "client" }),
+        json!({ "ts_ms": now - 50_000, "kind": "mcp", "device_id": alpha, "status": 424, "tool": "runs.exec", "caller": "client" }),
+        // A token with no caller is a client call; its JSON-RPC error is a failure inside a 200.
+        json!({ "ts_ms": now - 40_000, "kind": "mcp", "device_id": alpha, "status": 200, "tool": "files.write", "token_id": token, "detail": "jsonrpc error -32002" }),
+        json!({ "ts_ms": now - 30_000, "kind": "mcp", "device_id": alpha, "status": 500, "tool": "terminal.list", "caller": "console" }),
+        json!({ "ts_ms": now - 20_000, "kind": "poll", "device_id": alpha, "status": 502, "detail": "device offline" }),
+        json!({ "ts_ms": now - 15_000, "kind": "mcp", "device_id": alpha, "status": 200, "tool": "files.list" }),
+        json!({ "ts_ms": now - 10_000, "kind": "device", "device_id": alpha, "status": 200, "tool": "device.left", "caller": "console" }),
+    ];
+    seed_audit_file(&fixture, "audit.jsonl", &lines);
+
+    let (status, day) = send(fixture.app(), get("/audit/day", Some(&session))).await;
+    assert_eq!(status, StatusCode::OK, "the day read: {day}");
+    assert_eq!(
+        day,
+        json!({
+            "client_calls": 3,
+            "failed": 2,
+            "console": 1,
+            "console_failed": 1,
+            "poll": 1,
+            "poll_failed": 1,
+            "unattributed": 1,
+            "unattributed_failed": 0,
+            // The midnight boundary is read too: it is what proves the day is whole.
+            "lines_read": 8,
+        }),
+        "one line per bucket, and the boundary in none of them: {day}"
     );
 }
 

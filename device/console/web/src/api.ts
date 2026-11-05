@@ -148,12 +148,24 @@ export type Device = {
   last_left_ms?: number | null;
   registered_at_ms?: number | null;
   /**
-   * What `/fleet` counted for this machine in the console's newest audit window: the AI's calls
-   * and how many of them failed. Omitted when the window holds no line naming the machine, so a
-   * row draws nothing rather than a zero the read cannot prove. The hub counts the same window
-   * with the same rule (`isClientCall`), which is why the two surfaces agree.
+   * What `/fleet` counted for this machine in the local calendar day: the AI's calls and how many
+   * failed. Omitted when the day holds no line naming the machine, so a row draws nothing rather
+   * than a zero the read cannot prove. The hub's day line reads the same field with the same rule
+   * (`isClientCall`), which is why the two surfaces agree.
+   *
+   * `since_ms` is present when the audit file starts after local midnight (a rotation, or a console
+   * that started later): the count covers the day from that moment, not all of it. `bounded` means
+   * the day scan hit its line bound; `scan_limit` names it.
    */
-  today?: { client_calls: number; failed: number } | null;
+  today?:
+    | {
+        client_calls: number;
+        failed: number;
+        since_ms?: number | null;
+        bounded?: boolean;
+        scan_limit?: number | null;
+      }
+    | null;
   last_attempt?: { attempts: number; reason: string } | null;
   /**
    * The last absence the audit proves: how long the channel was gone, and when it opened again.
@@ -169,6 +181,27 @@ export type Device = {
    */
   update?: DeviceUpdate | null;
 };
+/**
+ * One local calendar day as `/audit/day` serves it: the page's four buckets and their failures.
+ *
+ * `since_ms` is where coverage starts when the file cannot prove the whole day; `bounded` says the
+ * scan hit its line bound, and `scan_limit` names it. A page states both instead of presenting a
+ * partial day as the whole day.
+ */
+export type AuditDay = {
+  client_calls: number;
+  failed: number;
+  console: number;
+  console_failed: number;
+  poll: number;
+  poll_failed: number;
+  unattributed: number;
+  unattributed_failed: number;
+  since_ms?: number | null;
+  bounded?: boolean;
+  scan_limit?: number | null;
+};
+
 /**
  * One permanent token's metadata, as the console lists it: never the token itself.
  *
@@ -313,6 +346,11 @@ export const api = {
     call<AuditLine[]>(
       `/audit?limit=${limit}${device ? `&device=${encodeURIComponent(device)}` : ""}`
     ),
+  // The local calendar day, counted from the file rather than from the newest window. `device`
+  // narrows it during the scan, like `/audit?device=`. The hub's `today` and this route are one
+  // read; Activity's header uses this so a sliding window cannot shrink the day's number.
+  auditDay: (device?: string) =>
+    call<AuditDay>(`/audit/day${device ? `?device=${encodeURIComponent(device)}` : ""}`),
   // The refusal log is a separate file with the audit line's shape: same route rules, same limit, and
   // no token id because the caller never authenticated.
   health: () => call<{ version: string; devices: number }>("/health"),

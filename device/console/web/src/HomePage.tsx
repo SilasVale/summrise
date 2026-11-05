@@ -5,7 +5,7 @@ import { api, type AuditLine, type Device } from "./api";
 import { AttemptReason, attemptCount, attemptReason } from "./attempt";
 import { DeviceCard } from "./DeviceCard";
 import { copyText } from "./copy";
-import { shortId } from "./format";
+import { clockTime, coverageClause, shortId } from "./format";
 import { listPlugins } from "./pluginApi";
 import { useLiveTools } from "./useLiveTools";
 import { ActivityTimeline } from "./ActivityTimeline";
@@ -172,13 +172,6 @@ function sameDay(a: number, b: number): boolean {
   );
 }
 
-/** A clock a person reads on the summary line: HH:MM in the console's own timezone. */
-function shortClock(ts: number): string {
-  const date = new Date(ts);
-  const pad = (value: number) => String(value).padStart(2, "0");
-  return `${pad(date.getHours())}:${pad(date.getMinutes())}`;
-}
-
 /** The day an older line belongs to, named only when the summary can keep the word. */
 function dayWord(ts: number, now: number): string {
   const yesterday = new Date(now);
@@ -199,32 +192,69 @@ function dayWord(ts: number, now: number): string {
 const HUB_DAY_ROWS = 60;
 
 /**
- * The hub's one line about the day, computed from the lines already in hand.
+ * The hub's one line about the day.
  *
- * "Today" is local midnight — the same midnight the timeline cuts at — and only a client's calls
- * count: the console's own failed polls are in the same audit and are not the AI's work. A window with no
- * line today still knows when the machine last worked, so it says that instead of letting the empty
- * timeline above read as a machine that did nothing overnight. A cut or stale window is already
- * named by the cap and read sentences; this line never repeats those.
+ * **THE COUNT IS THE DAY'S, THE "LAST" IS THE WINDOW'S.** The count and the failures come from
+ * `/fleet`'s `today`, which is the local calendar day (the same midnight the timeline cuts at); the
+ * fetched window only says when the machine last worked, because the newest client call is always
+ * the newest line and the window holds the newest lines. When the day read cannot prove the whole
+ * day, it says `since` — a rotation or the scan bound is stated, not hidden.
+ *
+ * Only a client's calls count: the console's own failed polls are in the same audit and are not the
+ * AI's work. A window with no line today still knows when the machine last worked, so it says that
+ * instead of letting the empty timeline above read as a machine that did nothing overnight. A cut or
+ * stale window is already named by the cap and read sentences; this line never repeats those.
  */
-function todayLine(lines: readonly AuditLine[], now = Date.now()): string {
+function todayLine(
+  day: Device["today"],
+  lines: readonly AuditLine[],
+  now = Date.now()
+): string {
   const calls = lines.filter(isClientCall);
   const start = startOfToday(now);
   const today = calls.filter((line) => line.ts_ms >= start);
+  const newestToday = today.reduce<AuditLine | null>(
+    (latest, line) => (latest === null || line.ts_ms > latest.ts_ms ? line : latest),
+    null
+  );
+  if (day && day.client_calls > 0) {
+    // The count is the day's; the moment is the newest call the window holds. In the thousands-of-
+    // console-reads case the window may hold no client call at all, and then the line states the
+    // count without inventing a time it does not have.
+    return (
+      `Today ${plural(day.client_calls, "client call")}` +
+      (day.failed > 0 ? ` · ${day.failed} failed` : "") +
+      (newestToday !== null ? ` · last ${clockTime(newestToday.ts_ms)}` : "") +
+      coverageClause(day)
+    );
+  }
+  if (day) {
+    const newest = calls.reduce<AuditLine | null>(
+      (latest, line) => (latest === null || line.ts_ms > latest.ts_ms ? line : latest),
+      null
+    );
+    const base = newest === null
+      ? "Today no client calls"
+      : `Today no client calls · last ${clockTime(newest.ts_ms)}${dayWord(newest.ts_ms, now)}`;
+    return base + coverageClause(day);
+  }
+  // No day read: the fleet has not answered yet (or the read failed). The window is the fallback
+  // while it is absent; a call today would make the fleet's day read name the machine, so this
+  // branch can only undercount a transiently unavailable day, never replace one.
   if (today.length === 0) {
     const newest = calls.reduce<AuditLine | null>(
       (latest, line) => (latest === null || line.ts_ms > latest.ts_ms ? line : latest),
       null
     );
     if (newest === null) return "Today no client calls";
-    return `Today no client calls · last ${shortClock(newest.ts_ms)}${dayWord(newest.ts_ms, now)}`;
+    return `Today no client calls · last ${clockTime(newest.ts_ms)}${dayWord(newest.ts_ms, now)}`;
   }
   const newest = today.reduce((latest, line) => Math.max(latest, line.ts_ms), 0);
   const failed = today.filter(auditFailed).length;
   return (
     `Today ${plural(today.length, "client call")}` +
     (failed > 0 ? ` · ${failed} failed` : "") +
-    ` · last ${shortClock(newest)}`
+    ` · last ${clockTime(newest)}`
   );
 }
 
@@ -456,7 +486,8 @@ function HubHome(
   };
   // Before the first window arrives there is nothing to count; the timeline says it is reading. Once
   // a window (or a live line) is in hand, the summary is a fact about the lines on the page.
-  const summary = loaded || liveLines.length > 0 ? todayLine(windowLines, now) : null;
+  const summary =
+    loaded || liveLines.length > 0 ? todayLine(device.today, windowLines, now) : null;
   // The window's own newest line and the stream's. When the stream holds a newer line than the
   // window does, the fetched part is behind the live part and the page says when it was read.
   const fetchedNewest = fetched.reduce((newest, line) => Math.max(newest, line.ts_ms), 0);
@@ -571,9 +602,11 @@ function HubHome(
       )}
 
       <section className="panel home-timeline" aria-label="This machine's activity">
-        {/* One line, above the rows it counts: the day at a glance, from the same window the
-            timeline draws. It is not a live region: it moves on the five-second reread, not on every
-            line, and a status role would re-announce the same count. */}
+        {/* One line, above the rows: the day's count from `/fleet`'s day read, and the window's
+            newest call for "last". The rows below are still the fetched window, and the cap
+            sentence names it when they are cut. It is not a live region: it moves on the
+            five-second reread, not on every line, and a status role would re-announce the same
+            count. */}
         {summary !== null && <p className="home-today">{summary}</p>}
         {auditError && today.lines.length > 0 && (
           // Live lines are on screen, but the history behind them is unread: the page says which

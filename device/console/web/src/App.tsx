@@ -4,6 +4,7 @@ import {
   api,
   HttpError,
   NoAnswer,
+  type AuditDay,
   type AuditLine,
   type Device,
   type Session,
@@ -16,7 +17,7 @@ import { recordVitals, type VitalsSample } from "./vitals";
 import { AUDIT_WINDOW, AuditTable, type AuditScope, type AuditSince } from "./AuditTable";
 import type { AuditFilter } from "./auditFilter";
 import { mergeActivityWindow, type WindowCounts } from "./activityMerge";
-import { activityCountLine } from "./activitySummary";
+import { activityDaySentence } from "./activitySummary";
 import { ActivityTimeline } from "./ActivityTimeline";
 import { DEVICE_TAB_LABELS, PAGE_LABELS, Rail, type DeviceTab, type Page } from "./Rail";
 import { Modal } from "./Modal";
@@ -77,6 +78,17 @@ export function App() {
   /** The device the newest read asked for; it differs from `auditDevice` until that read answers. */
   const [auditReadDevice, setAuditReadDevice] = useState<string | null>(null);
   /**
+   * The local day's counts, from `/audit/day`, and the scope they answer for.
+   *
+   * The header counts the day, not the window: the fetched rows are capped at 1,000 and slide, so a
+   * count derived from them shrank during the day (the measured 269 against the file's 649). This is
+   * the same read the fleet serves as each machine's `today`.
+   */
+  const [daySummary, setDaySummary] = useState<{
+    device: string | null;
+    day: AuditDay;
+  } | null>(null);
+  /**
    * Read the audit window again into the page.
    *
    * One function for every reader: the five-second poll, the stream's catch-up after a dropped
@@ -98,12 +110,18 @@ export function App() {
     const device = auditWindowDevice.current;
     const generation = ++auditReadStarted.current;
     setAuditReadDevice(device);
-    const lines =
-      device === null ? await api.audit(AUDIT_WINDOW) : await api.audit(AUDIT_WINDOW, device);
+    // One snapshot, two reads: the rows the page draws from the window, and the day those rows
+    // belong to. Asking together keeps the header and the list on the same clock; the window may be
+    // smaller than the day, and that is exactly what the two numbers are allowed to say.
+    const [lines, day] = await Promise.all([
+      device === null ? api.audit(AUDIT_WINDOW) : api.audit(AUDIT_WINDOW, device),
+      api.auditDay(device ?? undefined)
+    ]);
     if (generation > auditReadApplied.current) {
       auditReadApplied.current = generation;
       setAudit(lines);
       setAuditDevice(device);
+      setDaySummary({ device, day });
     }
   }, []);
   // The same index, streamed: what the AI is doing now, not what it did before the last read.
@@ -138,6 +156,12 @@ export function App() {
   // The window's counts at the freeze, so a paused page keeps the numbers the sentence had, not the
   // numbers the sliding window would give the same list. `null` while following.
   const [frozenCounts, setFrozenCounts] = useState<WindowCounts | null>(null);
+  // The day at the pause, so a paused header keeps the numbers the frozen list had. `null` while
+  // following; a pause with no day answer yet keeps the header absent rather than inventing one.
+  const [frozenDay, setFrozenDay] = useState<{
+    device: string | null;
+    day: AuditDay;
+  } | null>(null);
   // The frozen list's window. The cap sentence and the loading decision describe what is on screen,
   // and a pause keeps the rows it froze even if a scope change fetches another window behind it.
   const [frozenDevice, setFrozenDevice] = useState<string | null>(null);
@@ -183,6 +207,7 @@ export function App() {
       setFrozenCapped(false);
       setFrozenAtLimit(false);
       setFrozenCounts(null);
+      setFrozenDay(null);
       setFrozenDevice(null);
       setPausedAt(null);
     } else {
@@ -191,6 +216,7 @@ export function App() {
       setFrozenCapped(activityWindow.capped);
       setFrozenAtLimit(activityWindow.atLimit);
       setFrozenCounts(activityCounts);
+      setFrozenDay(daySummary);
       setFrozenDevice(auditDevice);
       setActivityPaused(true);
     }
@@ -277,17 +303,20 @@ export function App() {
   // A paused list keeps its own window, so its cap sentence names the machine it was frozen from.
   const shownWindowDevice = activityPaused && frozenActivity ? frozenDevice : auditDevice;
   const shownWindowName = shownWindowDevice === null ? null : deviceName(shownWindowDevice);
-  // **THE HEADER COUNTS THE WINDOW IT IS SHOWING.** One pass over the rows in hand, so the sentence
-  // and the list cannot disagree; a paused page counts the list it froze. A window being replaced is
-  // not described: its rows are replaced by the loading line, and the new window's sentence arrives
-  // with them. "Today" is the same local midnight the timeline's day label cuts at. The chip's
-  // subset gets the hub's sentence: the client calls and the client failures, with nothing the chip
-  // has hidden from the list.
+  // **THE HEADER COUNTS THE DAY, NOT THE WINDOW IT IS SHOWING.** The rows are a 1,000-line slice
+  // that slides; the day is `/audit/day`'s read, the same one the fleet serves as `today`. A paused
+  // page counts the day it froze. A scope being replaced is not described: the old scope's day is
+  // not the new one's, so the sentence is absent until the new answer arrives. The chip's subset
+  // gets the hub's sentence: the day's client calls and failures, with nothing the chip has hidden.
+  const shownDay = activityPaused
+    ? frozenDay
+    : daySummary !== null && daySummary.device === auditScopeDevice
+      ? daySummary
+      : null;
   const activityCount =
-    shownActivity.length > 0 && !auditReadingOther
-      ? activityCountLine(
-          shownActivity,
-          activityPaused && pausedAt !== null ? pausedAt : Date.now(),
+    shownDay !== null && !auditReadingOther
+      ? activityDaySentence(
+          shownDay.day,
           activityView === "stream" && activityClientsOnly
         )
       : null;

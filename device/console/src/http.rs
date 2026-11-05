@@ -313,6 +313,11 @@ impl Console {
             // connection the moment it lands, which is the shape the device's own panel always had.
             .route("/terminal/:device/:session/stream", get(terminal_stream))
             .route("/audit", get(list_audit))
+            // **THE DAY, NOT THE WINDOW.** `/audit` is a bounded window; this is the local calendar
+            // day, scanned backwards from the newest line to the same midnight the page's timeline
+            // cuts at. The hub's day line and Activity's header read it; the window sentence keeps
+            // describing the fetched window.
+            .route("/audit/day", get(audit_day))
             // **THE ACTIVITY AS IT HAPPENS.** The page drew "Recent calls" from a fetch, so a call that
             // happened after the last refresh was invisible until the next one — no sense of the AI
             // working now. This is the same index, streamed: a snapshot of the newest lines, then one
@@ -4117,8 +4122,10 @@ async fn rename_device(
     let _ = session;
 
     // The rename answers with the row the page replaces, so it carries the same day the list
-    // serves: one window, the same rule, and a machine with no line still gets no `today`.
+    // serves: the local calendar day, the same rule, and a machine with no line today still gets no
+    // `today`.
     let window = app.audit.fleet_window().await;
+    let day = app.audit.day((app.now)()).await;
     Ok(Json(DeviceView {
         online: app.channels.online(&device.id),
         version: app.channels.version(&device.id),
@@ -4129,7 +4136,7 @@ async fn rename_device(
             attempts: note.attempts,
             reason: note.reason,
         }),
-        today: day_view(window.days.get(&device.id)),
+        today: day_view(day.devices.get(&device.id), day.since_ms, day.bounded),
         last_outage: outage_view(window.boundaries.last_outages.get(&device.id).copied()),
         last_left_ms: window.boundaries.last_lefts.get(&device.id).copied(),
         last_frame_ms: app.channels.last_frame(&device.id),
@@ -4425,6 +4432,9 @@ async fn device_mesh_readiness(
 /// held while the answer is serialised.
 async fn device_views(app: &AppState) -> Vec<DeviceView> {
     let window = app.audit.fleet_window().await;
+    // `today` is the day read, not the window read: the newest 2,000 lines are still the absence
+    // read and the timeline's window, but a count that shrinks while the day runs is not a day.
+    let day = app.audit.day((app.now)()).await;
     lock(&app.devices)
         .list()
         .into_iter()
@@ -4441,7 +4451,7 @@ async fn device_views(app: &AppState) -> Vec<DeviceView> {
                 attempts: note.attempts,
                 reason: note.reason,
             }),
-            today: day_view(window.days.get(&device.id)),
+            today: day_view(day.devices.get(&device.id), day.since_ms, day.bounded),
             last_outage: outage_view(window.boundaries.last_outages.get(&device.id).copied()),
             last_left_ms: window.boundaries.last_lefts.get(&device.id).copied(),
             last_frame_ms: app.channels.last_frame(&device.id),
@@ -4467,19 +4477,98 @@ struct RetryView {
     reason: String,
 }
 
-/// One machine's day as `/fleet` serves it: the AI's calls inside the console's newest audit
-/// window, and how many of them failed.
+/// One machine's day as `/fleet` serves it: the AI's calls in the local calendar day, how many of
+/// them failed, and where the day's coverage starts when the file cannot prove all of it.
 #[derive(serde::Serialize)]
 struct DayView {
     client_calls: u64,
     failed: u64,
+    /// The local time the read's coverage starts at, when a rotation (or the scan bound) means the
+    /// file does not hold the whole day. Omitted for a whole day.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    since_ms: Option<u64>,
+    /// The scan hit its line bound before midnight: the numbers are the newest lines only.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    bounded: bool,
+    /// The line bound, when it was hit. The page states how many lines the count covers.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    scan_limit: Option<usize>,
 }
 
-/// The day of one machine, or `None` when the window holds no line naming it.
-fn day_view(day: Option<&crate::audit::DayCount>) -> Option<DayView> {
+/// The day of one machine, or `None` when today's read names it nowhere.
+fn day_view(
+    day: Option<&crate::audit::DayBuckets>,
+    since_ms: Option<u64>,
+    bounded: bool,
+) -> Option<DayView> {
     day.map(|day| DayView {
         client_calls: day.client_calls,
         failed: day.failed,
+        since_ms,
+        bounded,
+        scan_limit: bounded.then_some(crate::audit::DAY_SCAN_LIMIT),
+    })
+}
+
+/// `GET /audit/day`: the local calendar day's counts, by the page's four buckets.
+#[derive(serde::Deserialize)]
+struct AuditDayQuery {
+    /// One machine's day; absent is the fleet's, including lines that name no device.
+    device: Option<String>,
+}
+
+/// One day as the route serves it: the same numbers the hub's sentence and Activity's header read,
+/// so two surfaces of one day cannot count two different sets of lines.
+#[derive(serde::Serialize)]
+struct DaySummary {
+    client_calls: u64,
+    failed: u64,
+    console: u64,
+    console_failed: u64,
+    poll: u64,
+    poll_failed: u64,
+    unattributed: u64,
+    unattributed_failed: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    since_ms: Option<u64>,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    bounded: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    scan_limit: Option<usize>,
+    /// How many lines the backwards scan examined. The day is bounded by lines, and this is the
+    /// cost the bound paid: a live day is the number of lines after midnight, not the whole file.
+    lines_read: usize,
+}
+
+/// `GET /audit/day?device=`: the local calendar day, counted from the file rather than from the
+/// newest window.
+///
+/// A line at local midnight or later is today; the scan stops at the first older line. A file that
+/// starts after midnight (one rotation keeps the older generation) is partial, and the answer says
+/// `since_ms` instead of presenting it as the whole day. A scan that hits its line bound says so.
+async fn audit_day(
+    State(app): State<AppState>,
+    _: OperatorSession,
+    Query(query): Query<AuditDayQuery>,
+) -> Json<DaySummary> {
+    let read = app.audit.day((app.now)()).await;
+    let day = match query.device.as_deref() {
+        Some(device) => read.devices.get(device).copied().unwrap_or_default(),
+        None => read.all,
+    };
+    Json(DaySummary {
+        client_calls: day.client_calls,
+        failed: day.failed,
+        console: day.console,
+        console_failed: day.console_failed,
+        poll: day.poll,
+        poll_failed: day.poll_failed,
+        unattributed: day.unattributed,
+        unattributed_failed: day.unattributed_failed,
+        since_ms: read.since_ms,
+        bounded: read.bounded,
+        scan_limit: read.bounded.then_some(crate::audit::DAY_SCAN_LIMIT),
+        lines_read: read.lines_read,
     })
 }
 
@@ -4491,9 +4580,9 @@ struct DeviceView {
     name: Option<String>,
     registered_at_ms: u64,
     last_seen_ms: u64,
-    /// The AI's calls this machine made inside the console's newest audit window, and how many of
-    /// them failed: the fleet's comparison line. Omitted when the window holds no line naming the
-    /// machine, so a page draws nothing rather than a zero the read cannot prove.
+    /// The AI's calls this machine made in the local calendar day, and how many of them failed:
+    /// the fleet's comparison line. Omitted when the day holds no line naming the machine, so a
+    /// page draws nothing rather than a zero the read cannot prove. A partial day says `since_ms`.
     #[serde(skip_serializing_if = "Option::is_none")]
     today: Option<DayView>,
     /// When the console last saw any frame from this device, in Unix milliseconds. `online` is this

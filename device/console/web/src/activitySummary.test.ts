@@ -4,6 +4,7 @@ import {
   activityCountLine,
   activityCounts,
   activityCountSentence,
+  activityDaySentence,
   isClientCall,
   isConsoleRead
 } from "./activitySummary";
@@ -240,6 +241,48 @@ describe("activityCountSentence", () => {
   it("reads its sentence from the window and the clock", () => {
     expect(activityCountLine([line({ caller: "client" })], NOW)).toBe(
       "Today 1 client call · 0 failed · 0 unattributed"
+    );
+  });
+
+  it("states the day's route counts, even when its window holds fewer", () => {
+    // The measured disagreement: the header said 269 while the file's day held 649. The day route
+    // is the sentence's source now; the window is only the cap sentence's subject.
+    const day = {
+      client_calls: 649,
+      failed: 74,
+      console: 15,
+      console_failed: 2,
+      poll: 41,
+      poll_failed: 41,
+      unattributed: 3,
+      unattributed_failed: 1
+    };
+    expect(activityDaySentence(day)).toBe(
+      "Today 649 client calls · 74 failed · 2 console failures · 41 poll failures · " +
+        "3 unattributed (1 failed)"
+    );
+    expect(activityDaySentence(day, true)).toBe("Today 649 client calls · 74 failed");
+  });
+
+  it("says since when the day's file starts after midnight", () => {
+    const since = new Date(2026, 10, 5, 3, 12, 0).getTime();
+    const day = {
+      client_calls: 10,
+      failed: 1,
+      console: 0,
+      console_failed: 0,
+      poll: 0,
+      poll_failed: 0,
+      unattributed: 0,
+      unattributed_failed: 0,
+      since_ms: since
+    };
+    expect(activityDaySentence(day)).toBe(
+      "Today 10 client calls · 1 failed · 0 unattributed · since 03:12"
+    );
+    // The bound is a second way a day is partial, and it is stated with its name.
+    expect(activityDaySentence({ ...day, bounded: true, scan_limit: 50_000 })).toBe(
+      "Today 10 client calls · 1 failed · 0 unattributed · since 03:12 · first 50,000 lines"
     );
   });
 });
