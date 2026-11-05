@@ -403,3 +403,105 @@ locked `device.lock` (os error 33), the installer only ever ran `--migrate-layou
 pointer did not restart the process. The contract now holds: **setup exit 0 ⇒ `/api/health` reports
 the installed version; non-zero ⇒ the old version still serves and the pointers are left for a
 one-write rollback.**
+
+## P0 — the fifth list (audited 2026-11-05, live 0.3.273-ux49)
+
+Measured on `https://console.saisi.online` with Playwright at 1440×960 and 390×844, 09:46–10:15 UTC.
+`/health` read `{"devices":3,"online":2,...,"version":"0.3.273-ux49"}`; `/fleet` had
+DESKTOP-9VH92BJ and DESKTOP-CPH4KB2 on 0.3.277 and DESKTOP-14RJCR8 offline on 0.3.275, which
+carries no `update` section. Every number below is from the page or from its own `/audit` answer. The folding
+holds: 60 rows, then 108 after “Show the rest of today (47 more)”, then 112 after four live lines,
+with the control gone; the capability line is at 410 px at 1440 and 426 at 390; a paused page says
+“Paused” in the live chip and froze 949 rows for 11 s. The offline device with no `update` section
+draws no update line — correctly: it said nothing.
+
+1. **A tool's own refusal is written as a success.** At 10:00:17 on DESKTOP-9VH92BJ the Tools form
+   ran `echo audit5-live` and answered **“Could not run the command: runs.exec: program not found”**
+   in 4 ms; the same call is `/audit`'s 10:00:17 line — `runs.exec`, **status 200**, sentence “Ran a
+   command”, no `detail` — and the timeline draws it “Ran `echo audit5-live` … console 4 ms” with no
+   *failed* word. The browser already treats `result.isError` as a refusal (`terminal.ts:87-89`); the
+   proxy treats every `Reply::Result` as `ok` (`http.rs:3113-3121`), and `run_detail` returns `None`
+   for a result that is not a run, so nothing in the file records the refusal. **Cost:** the record
+   cannot answer which of today's runs failed: the operator's failed run is a green row, and a
+   client's `runs.exec` that returns `isError` is a successful client call that never reaches the
+   failed count. **Fix:** when a `tools/call` result carries `isError: true`, write the device's
+   message as `detail` and `ok:false` on the audit line and the live event (`AuditLine.ok` already
+   exists), and let `auditFailed` read it. **M.**
+
+2. **Activity's “M failed” counts every caller, beside a client-call count.** At 09:52 the header
+   read **“Today 301 client calls · 55 failed · 21 unattributed”**; the page's own
+   `/audit?limit=1000` answer (1000 lines, 949 drawn after 34 `device.left`/`device.joined` lines and
+   17 duplicate `(ts,tool,status)` keys) holds **54 non-200 rows: 37 client, 15 console, 2
+   unattributed** — and the header read 55, one failed row more than the fetched window held.
+   **Cost:** 18 of the 55 failed rows (33%) are not the AI's calls; the sentence's grammar (“301
+   client calls · 55 failed”) reads as a failure rate for the AI that the record does not support
+   (37/301 = 12.3%, not 18.3%), and the hub's own line counts client failures only (“Today 283
+   client calls · 38 failed” on 14RJCR8), so the word means two things on two pages. **Fix:** count
+   the failures per bucket on the hub's rule and put the client's first — “Today 301 client calls ·
+   37 failed · 21 unattributed · 15 console reads failed”. **S.**
+
+3. **The machine that is down has no age, and the only absence it dates says it came back.**
+   DESKTOP-14RJCR8's newest `device.left` is **08:18:06** (1 h 49 m at 10:07); `/fleet` serves
+   `online:false`, no `last_frame_ms`, `last_seen_ms` 08:06:04 and `last_outage {away_ms:1009,
+   back_at_ms:08:06:04}`. The fourth list's pair derivation (8449fc8) only closes an absence on a
+   later join, and this one has no join after the 08:18 close, so `/fleet` serves the previous pair
+   instead. The fleet row at 1440 and 390 reads **“DESKTOP-14RJCR8 offline v0.3.275”** with no age
+   (45 px at 1440, 87 at 390); the device notice reads “This machine is offline. Nothing on this page
+   can reach it until it reconnects…” with no age; the machine menu reads **“Offline · v0.3.275 back
+   2h ago after 1s”**. **Cost:** the one absence the console witnessed (the close at 08:18) is on no
+   surface, while the only line that dates an absence says a one-second one ended two hours ago. A
+   machine down for two hours reads like one that just dropped, and the compare line says it is
+   back. **Fix:** serve the newest `device.left` with no join after it (`audit.rs` already names that
+   case “a device that is still away”) as the silence's start, age it on the row, the notice and the
+   menu (“offline · since 08:18, 1 h 49 m”), and draw `last_outage`'s “back…” line only for an online
+   machine. **S.**
+
+4. **The console's own reads are most of both timelines.** Activity at 1440 draws **949 rows, 627 of
+   them console-marked (66%)**, in **55,973 px**. The “Clients only” chip (c33296d) works — 301
+   rows, 18,236 px — but it is off by default, and the hub has no equivalent. DESKTOP-9VH92BJ's hub
+   draws **60 rows, 56 console (93%)**, above **“Today 4 client calls · last 08:55”**; at 390 its
+   first screen is two “Listed the plugins … console” rows. (14RJCR8's hub is the other way — 13
+   console of 60 — because it is offline and the console cannot poll it.) **Cost:** the 60-row fold,
+   added to make the day scannable, buys four rows of the AI's work on the busiest machine; the
+   page's own count and Now band already decide the console's reads are not the AI's, and the rows
+   still are the list. **Fix:** draw client-proven rows on both timelines and fold the
+   console's own reads behind one counted line (“56 console reads today”), keeping them in the Table.
+   **M.**
+
+5. **The update line repeats the running version and dates nothing.** On the 1440 fleet row,
+   `v0.3.277` sits at x=1233 and **“started 0.3.277 (updated)”** at x=350, 22 px apart; at 390 the
+   same card spends two of its lines on `v0.3.277` and `started 0.3.277 (updated)`. Every device tab
+   at 1440 shows `Running · v0.3.277` in the header and the same started line at y=129, and the
+   Machine tab adds `build 0.3.277 · online` — three copies. `/fleet`'s `update.last_update` is
+   `{to: "0.3.273", applied, 2026-11-04 19:11}` on 9VH92BJ (14 h 30 m before its 09:41 start of
+   0.3.277) and `{to: "0.3.275", applied, 07:21}` on CPH4KB2 (2 h 22 m before its 09:43 start), so
+   “(updated)” is attached to a start it predates and names neither the version it moved to nor
+   when. **Cost:** the story's one question — “did the 0.3.277 update take?” — cannot be answered
+   from the line, while the running version is printed twice on the row and three times on the
+   Machine tab. **Fix:** draw the version once and, when `last_update.to` is not `update.current`,
+   print the update's own target and age (“last update to 0.3.273, 15 h ago”) or nothing. **S.**
+
+6. **The cap sentence's 1000 is the fetch's, not the list's.** The sentence landed in c704084; its
+   number is the fetched window's, not the drawn list's. DESKTOP-14RJCR8's hub at 09:57 says
+   **“Showing the newest 1000 lines; older ones are not on this page.”** and, 60 rows later, **“Show
+   the rest of today (917 more)”** — 977 rows. Its `/audit?device=` (the same window, whose newest
+   line is 09:23:43) has 1000 lines, 6 `device.left`/`device.joined` and 17 duplicate keys: 977
+   drawn, 23 not. Activity at 1440 draws **949** rows under **“Showing the newest 1000 lines — the
+   window's limit.”**; its 1000-line window has 34 boundaries and 17 duplicates: 51 not drawn.
+   **Cost:** the page's two counts cannot both be true (1000 and 60 + 917), and the 23/51 rows are
+   hidden by rules the sentence does not name; the cap sentence is the only place a cut is
+   explained. **Fix:** say what was read and what is drawn (“1000 read · 977 shown; 23 channel facts
+   and repeated lines are not drawn”), from the same list the fold counts. **S.**
+
+### Cuts
+
+- **C8. The `echo hello` example.** The run form's placeholder is `echo hello` at both widths and the
+  help says “Split on whitespace; no quoting.” On the two machines that answer — both Windows 11 —
+  `echo` is a shell builtin, not a program: running the placeholder's own shape (`echo audit5-live`)
+  answered “runs.exec: program not found” in 4 ms and wrote the green line in item 1. Delete the
+  placeholder, or name a program the machines have; the help already says how the field splits. **S.**
+- **C9. The fleet row's “Reconnected after 1 attempt — …” subline.** Both online rows carry it (17 px
+  each), both carry `last_attempt {attempts: 1, reason: "the console accepted the channel and then
+  dropped it"}`, and neither dates it; the 0.3.277 restarts at 09:41 and 09:43 are the one failed
+  attempt, and at 10:07 the sentence still reads as a fault. Delete it from the row (Copy
+  diagnostics already carries the device record), or date it in the machine menu. **S.**
