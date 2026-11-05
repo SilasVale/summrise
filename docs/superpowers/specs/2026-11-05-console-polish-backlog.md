@@ -341,3 +341,24 @@ nothing points at. The installer understands the first migration and not the sec
 **The fix:** after the files land, the installer must call the launcher's upgrade path —
 `--install-version <versions\V> <sidecar>` (probe, then atomic pointer write) or `--apply` — and the
 page must show the result. Until then, "installer exit 0" means "files copied", never "running".
+
+### The real reason a staged version is never made current (measured 2026-11-05, host)
+
+Running the launcher's own upgrade path by hand on DESKTOP-9VH92BJ:
+
+```
+summrise-launch.exe --install-version "…\versions\0.3.276" "…\versions\0.3.276\summrise-device.json" …
+launch: version 0.3.276 failed its health check and was not made current:
+cannot copy C:\ProgramData\Summrise\device.lock: another program has locked a part of the file
+(os error 33)
+EXIT=1
+```
+
+The probe copies the whole data directory to run the candidate on a scratch port, and the **running
+app holds `device.lock`**. So the candidate can never start, the probe always fails, and the pointer
+never moves — on every machine, every time. The NSIS script calling `--migrate-layout` is the second
+bug; this is the first and it alone would block every upgrade.
+
+**The fix:** the probe's copy must exclude the files the running app owns — `device.lock`,
+`device.pid`, `device.port`, `restarts.jsonl`'s open handle — and give the candidate its own lock and
+port file. A test must run a probe while the data dir contains a locked `device.lock` and still pass.
