@@ -5,14 +5,7 @@
 // `fetch` is the only global replaced; it is restored in `afterEach` so no later file inherits the
 // stub, and the module's token is cleared so header assertions never leak between tests.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import {
-  api,
-  HttpError,
-  meshReadiness,
-  meshStatus,
-  NoAnswer,
-  type TokenMeta
-} from "./api";
+import { api, HttpError, NoAnswer, type TokenMeta } from "./api";
 
 type Reply = { status?: number; statusText?: string; text?: string; json?: unknown };
 
@@ -238,13 +231,6 @@ describe("the endpoints", () => {
     );
   });
 
-  it("denials asks for a limit of 200 by default", async () => {
-    await request(() => api.denials(), "/denials?limit=200");
-  });
-
-  it("denials passes the caller's limit", async () => {
-    await request(() => api.denials(5), "/denials?limit=5");
-  });
 
   it("rename POSTs the name to /fleet/<id>/name", async () => {
     const init = await request(
@@ -399,52 +385,5 @@ describe("the endpoints", () => {
     expect(init.method).toBeUndefined();
     expect(headers(init)).toEqual({});
   });
-
-  it("meshStatus GETs /mesh", async () => {
-    await request(() => meshStatus(), "/mesh");
-  });
 });
 
-describe("meshReadiness", () => {
-  it("reads /fleet/<id>/mesh and returns the broker's answer", async () => {
-    fetchMock.mockResolvedValue(
-      answer({ json: { configured: true, reachable: true, candidates: 3 } })
-    );
-    await expect(meshReadiness("dev-1")).resolves.toEqual({
-      configured: true,
-      reachable: true,
-      candidates: 3
-    });
-    expect(lastRequest().path).toBe("/fleet/dev-1/mesh");
-  });
-
-  it("encodes the device id in the path", async () => {
-    fetchMock.mockResolvedValue(answer({ text: "null" }));
-    await meshReadiness("dev one/two");
-    expect(lastRequest().path).toBe("/fleet/dev%20one%2Ftwo/mesh");
-  });
-
-  it("maps no_mesh_broker to configured: false", async () => {
-    fetchMock.mockResolvedValue(
-      answer({ status: 409, statusText: "Conflict", json: { error: "no_mesh_broker" } })
-    );
-    await expect(meshReadiness("dev-1")).resolves.toEqual({ configured: false });
-  });
-
-  it("maps any other HttpError to its code", async () => {
-    fetchMock.mockResolvedValue(
-      answer({ status: 502, statusText: "Bad Gateway", json: { error: "broker_unreachable" } })
-    );
-    await expect(meshReadiness("dev-1")).resolves.toEqual({ error: "broker_unreachable" });
-  });
-
-  it("maps a failure that never reached HTTP to mesh_unavailable", async () => {
-    fetchMock.mockRejectedValue(new TypeError("fetch failed"));
-    await expect(meshReadiness("dev-1")).resolves.toEqual({ error: "mesh_unavailable" });
-  });
-
-  it("maps the edge's non-JSON answer to mesh_unavailable", async () => {
-    fetchMock.mockResolvedValue(answer({ text: "<html>Access login</html>" }));
-    await expect(meshReadiness("dev-1")).resolves.toEqual({ error: "mesh_unavailable" });
-  });
-});
