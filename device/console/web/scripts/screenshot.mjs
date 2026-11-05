@@ -1748,6 +1748,9 @@ async function captureActivity1000(browser, origin, width) {
     // the fetch and the whole first render rather than only the last React commit.
     const ms = Math.round(await page.evaluate(() => performance.now()));
     const rows = await page.locator('.timeline-row').count();
+    // The stretch labels are a count a person can walk the day by: item 5 dropped the one-call
+    // ones, so the harness prints how many the fixture still draws on a 1000-row day.
+    const stretches = await page.locator('.timeline-stretch').count();
     const file = `activity-1000-${width}.png`;
     await page.screenshot({ path: path.join(OUT, file), animations: 'disabled', fullPage: false });
     captures.push({
@@ -1757,7 +1760,10 @@ async function captureActivity1000(browser, origin, width) {
       note: `1000 rows of one day at ${width}px: ${ms} ms from navigation to the last row painted`
     });
     console.log(`  ${passKey.padEnd(6)} ${file}`);
-    console.log(`activity-1000${width === 1280 ? '' : ` at ${width}`}: ${ms} ms, ${rows} rows`);
+    console.log(
+      `activity-1000${width === 1280 ? '' : ` at ${width}`}: ${ms} ms, ${rows} rows, ` +
+        `${stretches} stretch labels`
+    );
     // A day long enough to scroll past its label: the one place the sticky rule can be seen. The
     // measured offset stays 0 while the day passes under the label.
     const sticky = await page.evaluate(() => {

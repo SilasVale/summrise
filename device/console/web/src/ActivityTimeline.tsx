@@ -21,6 +21,16 @@ import { tokenFact } from "./tokenFact";
 
 const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
+/**
+ * How many calls a stretch must hold before its summary is drawn above its rows.
+ *
+ * Ten rows is about one screen at this density: below it the boundary label is still in view while
+ * the rows it counts are, so moving it would announce a handful of rows rather than let a reader
+ * skip them. The measured outlier was 470 rows / 25,850 px / 46% of the timeline — far past any
+ * screen — and that is the one whose summary must arrive before the walk, not after it.
+ */
+const STRETCH_HEADER_ROWS = 10;
+
 type Day = { key: string; label: string; lines: AuditLine[] };
 
 function dayKey(ts: number): string {
@@ -300,23 +310,41 @@ function Evidence(props: {
   );
 }
 
-/** One closed line, or one opened line with its evidence. */
-/** What the stretch ending at `index - 1` held: how many calls, over how long. */
-function stretchBefore(
-  lines: readonly { device_id?: string | null; ts_ms: number }[],
-  index: number
-): {
-  count: number;
-  spanMs: number;
-} {
-  let first = index - 1;
-  while (first > 0) {
-    const before = lines[first - 1];
-    const at = lines[first];
-    if (before.device_id !== at.device_id || Math.abs(before.ts_ms - at.ts_ms) > 60_000) break;
-    first -= 1;
+/** One stretch of work: a run of rows on one machine, none more than a minute apart. */
+type Stretch = { start: number; count: number; spanMs: number };
+
+/**
+ * The stretches of one day, newest first.
+ *
+ * A stretch begins where the machine changes or a minute passes — the same rule that draws the
+ * hairline. Computing every stretch once lets the list know a brace of rows is long before it draws
+ * the first of them; the old form could only count backwards from a boundary it had already passed.
+ */
+function dayStretches(lines: readonly AuditLine[]): Stretch[] {
+  const stretches: Stretch[] = [];
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    const previous = lines[index - 1];
+    const begins =
+      previous === undefined ||
+      previous.device_id !== line.device_id ||
+      Math.abs(previous.ts_ms - line.ts_ms) > 60_000;
+    if (begins) {
+      stretches.push({ start: index, count: 1, spanMs: 0 });
+    } else {
+      const stretch = stretches[stretches.length - 1];
+      stretch.count += 1;
+      // The list is newest first: the span runs from the stretch's first row to its newest.
+      stretch.spanMs = Math.abs(line.ts_ms - lines[stretch.start].ts_ms);
+    }
   }
-  return { count: index - first, spanMs: Math.abs(lines[index - 1].ts_ms - lines[first].ts_ms) };
+  return stretches;
+}
+
+/** What a stretch held, in the one spelling both forms use. */
+function stretchText(stretch: Stretch): string {
+  const calls = `${stretch.count} ${stretch.count === 1 ? "call" : "calls"}`;
+  return stretch.spanMs > 0 ? `${calls} · ${spanText(stretch.spanMs)}` : calls;
 }
 
 /** A duration a person reads: 45 s, 2 m 10 s, 1 h 5 m. */
@@ -331,6 +359,7 @@ function spanText(spanMs: number): string {
   return rest === 0 ? `${hours} h` : `${hours} h ${rest} m`;
 }
 
+/** One closed line, or one opened line with its evidence. */
 function Row(props: {
   line: AuditLine;
   devices: Device[];
@@ -633,49 +662,63 @@ export function ActivityTimeline(props: {
         )
       ) : (
         <div className="timeline">
-          {days.map((day) => (
-            <section key={day.key} className="timeline-day" aria-label={day.label}>
-              <h2 className="timeline-day-label is-sticky">{day.label}</h2>
-              <ol className="timeline-rows">
-                {day.lines.map((line, index) => {
-                  const key = `${line.ts_ms}-${line.tool ?? line.kind}-${line.status}`;
-                  // A minute of quiet, or a different machine, is where one stretch of work ends.
-                  const previous = day.lines[index - 1];
-                  const newStretch =
-                    previous !== undefined &&
-                    (previous.device_id !== line.device_id ||
-                      Math.abs(previous.ts_ms - line.ts_ms) > 60_000);
-                  // Where one stretch ends, say what it held. The boundary is derived from the same
-                  // rule that draws the hairline: nothing is collapsed and no row is hidden.
-                  const ended = newStretch ? stretchBefore(day.lines, index) : null;
-                  return (
-                    <Fragment key={`stretch-${key}`}>
-                      {ended && (
-                        <li className="timeline-stretch" aria-label="one stretch of work ends">
-                          <span className="timeline-stretch-text">
-                            {ended.count} {ended.count === 1 ? "call" : "calls"}
-                            {ended.spanMs > 0 ? ` · ${spanText(ended.spanMs)}` : ""}
-                          </span>
-                        </li>
-                      )}
-                    <Row
-                      key={key}
-                      line={line}
-                      devices={props.devices}
-                      tokenNames={tokenNames}
-                      open={openKey === key}
-                      stretch={newStretch}
-                      nowMs={at}
-                      onToggle={() => setOpenKey((current) => (current === key ? null : key))}
-                      onWatch={props.onWatch}
-                      onManageToken={props.onManageToken}
-                    />
-                    </Fragment>
-                  );
-                })}
-              </ol>
-            </section>
-          ))}
+          {days.map((day) => {
+            const stretches = dayStretches(day.lines);
+            const orderAt = new Map(stretches.map((stretch, order) => [stretch.start, order]));
+            return (
+              <section key={day.key} className="timeline-day" aria-label={day.label}>
+                <h2 className="timeline-day-label is-sticky">{day.label}</h2>
+                <ol className="timeline-rows">
+                  {day.lines.map((line, index) => {
+                    const key = `${line.ts_ms}-${line.tool ?? line.kind}-${line.status}`;
+                    const order = orderAt.get(index);
+                    const current = order === undefined ? null : stretches[order];
+                    const previous = order !== undefined && order > 0 ? stretches[order - 1] : null;
+                    // A stretch worth more than a screen says what it is before its first row.
+                    const header =
+                      current !== null && current.count > STRETCH_HEADER_ROWS ? current : null;
+                    // Everything shorter keeps the form it had: the label arrives where the stretch
+                    // ends. One call is not a stretch; its row already says what happened.
+                    const footer =
+                      previous !== null &&
+                      previous.count > 1 &&
+                      previous.count <= STRETCH_HEADER_ROWS
+                        ? previous
+                        : null;
+                    const newStretch = order !== undefined && order > 0;
+                    return (
+                      <Fragment key={`stretch-${key}`}>
+                        {footer && (
+                          <li className="timeline-stretch" aria-label="one stretch of work ends">
+                            <span className="timeline-stretch-text">{stretchText(footer)}</span>
+                          </li>
+                        )}
+                        {header && (
+                          <li
+                            className="timeline-stretch is-header"
+                            aria-label="the stretch below begins"
+                          >
+                            <span className="timeline-stretch-text">{stretchText(header)}</span>
+                          </li>
+                        )}
+                        <Row
+                          line={line}
+                          devices={props.devices}
+                          tokenNames={tokenNames}
+                          open={openKey === key}
+                          stretch={newStretch}
+                          nowMs={at}
+                          onToggle={() => setOpenKey((current) => (current === key ? null : key))}
+                          onWatch={props.onWatch}
+                          onManageToken={props.onManageToken}
+                        />
+                      </Fragment>
+                    );
+                  })}
+                </ol>
+              </section>
+            );
+          })}
         </div>
       ))}
     </div>

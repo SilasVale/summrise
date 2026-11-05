@@ -83,6 +83,74 @@ describe("ActivityTimeline stretches", () => {
     render(<ActivityTimeline lines={lines} devices={devices} />);
     expect(screen.getByText("3 calls · 1 m")).toBeInTheDocument();
   });
+
+  it("puts a long stretch's summary above its first row, and keeps no footer for it", () => {
+    // The measured stretch was 470 rows and its summary arrived after them, where the only way to
+    // use it was to walk the rows it described. Above a threshold the summary is the header of the
+    // stretch: the next row the reader meets is the first row it counts.
+    const start = Date.UTC(2026, 10, 5, 9, 0, 0);
+    const long = Array.from({ length: 12 }, (_, index) =>
+      line({
+        ts_ms: start - index * 10_000,
+        device_id: alpha,
+        sentence: `Long ${index + 1}`,
+        tool: "files.read"
+      })
+    );
+    const older = line({
+      ts_ms: start - 11 * 10_000 - 61_000,
+      device_id: alpha,
+      sentence: "Older",
+      tool: "files.read"
+    });
+    render(<ActivityTimeline lines={[...long, older]} devices={devices} />);
+
+    const header = document.querySelector<HTMLElement>(".timeline-stretch.is-header");
+    expect(header).not.toBeNull();
+    expect(header).toHaveTextContent("12 calls · 1 m 50 s");
+    // It belongs to the list, not to the copy: the item after it is the stretch's first row.
+    expect(header?.nextElementSibling).toHaveTextContent("Long 1");
+    // The summary moved rather than copied: a long stretch is not summarized a second time below.
+    expect(document.querySelectorAll(".timeline-stretch")).toHaveLength(1);
+  });
+
+  it("keeps a short stretch's summary inline after its rows", () => {
+    // Below the threshold the old form stays: the label sits where the stretch ends, so a day of
+    // short bursts still reads as boundaries without a header over every two rows.
+    const start = Date.UTC(2026, 10, 5, 9, 0, 0);
+    const lines = [
+      line({ ts_ms: start, device_id: alpha, sentence: "Newest 1", tool: "files.read" }),
+      line({ ts_ms: start - 10_000, device_id: alpha, sentence: "Newest 2", tool: "files.read" }),
+      line({ ts_ms: start - 71_000, device_id: alpha, sentence: "Older 1", tool: "files.read" }),
+      line({ ts_ms: start - 81_000, device_id: alpha, sentence: "Older 2", tool: "files.read" })
+    ];
+    render(<ActivityTimeline lines={lines} devices={devices} />);
+
+    expect(document.querySelector(".timeline-stretch.is-header")).toBeNull();
+    const footer = screen.getByText("2 calls · 10 s").closest("li");
+    expect(footer).not.toBeNull();
+    expect(footer).not.toHaveClass("is-header");
+    expect(footer?.previousElementSibling).toHaveTextContent("Newest 2");
+  });
+
+  it("draws no summary for a stretch that held one call", () => {
+    // "1 call" is the row above it said again. Twenty-eight of the live page's sixty-four labels
+    // were exactly that noise, so a one-call stretch is drawn without one.
+    const start = Date.UTC(2026, 10, 5, 9, 0, 0);
+    const lines = [
+      line({ ts_ms: start, device_id: alpha, sentence: "Newest 1", tool: "files.read" }),
+      line({ ts_ms: start - 10_000, device_id: alpha, sentence: "Newest 2", tool: "files.read" }),
+      line({ ts_ms: start - 71_000, device_id: alpha, sentence: "Single", tool: "files.read" }),
+      line({ ts_ms: start - 132_000, device_id: alpha, sentence: "Older 1", tool: "files.read" }),
+      line({ ts_ms: start - 137_000, device_id: alpha, sentence: "Older 2", tool: "files.read" })
+    ];
+    render(<ActivityTimeline lines={lines} devices={devices} />);
+
+    expect(screen.queryByText("1 call")).toBeNull();
+    // The stretch above it keeps its summary: only the one-call label is dropped.
+    expect(screen.getByText("2 calls · 10 s")).toBeInTheDocument();
+    expect(screen.getByText("Single")).toBeInTheDocument();
+  });
 });
 
 describe("ActivityTimeline unknown machines", () => {

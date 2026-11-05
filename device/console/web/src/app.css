@@ -2763,12 +2763,17 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
 }
 @media (prefers-reduced-motion: reduce) { .timeline-chev { transition: none; } }
 
-/* WHERE ONE STRETCH ENDS. The boundary is derived (a minute of quiet or a different machine); the
-   label says what the stretch held, so a day is not one undifferentiated column. */
+/* WHERE ONE STRETCH ENDS, OR WHAT THE NEXT ONE IS. The boundary is derived (a minute of quiet or a
+   different machine); the label says what the stretch held, so a day is not one undifferentiated
+   column. A stretch too long to see the end of says it above the rows instead, its rule trailing
+   the words so the header reads at the start of the work rather than after it. */
 .timeline-stretch { display: flex; align-items: center; gap: var(--sp-2); margin: var(--sp-1) 0; }
 .timeline-stretch::before, .timeline-stretch::after {
   content: ""; height: 1px; background: var(--hairline); flex: 1;
 }
+.timeline-stretch.is-header { margin: var(--sp-2) 0 0; }
+.timeline-stretch.is-header::before { display: none; }
+.timeline-stretch.is-header .timeline-stretch-text { color: var(--ink-muted); }
 .timeline-stretch-text {
   color: var(--ink-faint); font-size: var(--fs-2xs); letter-spacing: 0.02em; white-space: nowrap;
 }
