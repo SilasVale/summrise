@@ -322,3 +322,22 @@ at 0.3.275 (the probe refused). Both outcomes are safe by design: a refused cand
 pointer untouched. When the machine is back, read `C:\SummriseInstall\current.txt`, the `versions\`
 directories, and `state.json`'s `update`/`lastVerdict`; that is the evidence, not the version in the
 fleet alone.
+
+### Why an installed 0.3.276 did not become current (measured 2026-11-05)
+
+On DESKTOP-9VH92BJ after installing 0.3.276 (installer exit 0, health still 0.3.275):
+
+```
+C:\Program Files\Summrise\versions = 0.3.275, 0.3.276
+C:\Program Files\Summrise\current.txt = 0.3.275
+C:\Program Files\Summrise\versions\0.3.276\summrise-device.exe exists = True
+```
+
+The installer **did** stage the new version; the **pointer never moved**. The NSIS script runs
+`summrise-launch --migrate-layout`, which on an already-migrated install answers "already on the
+versioned layout" and does nothing — so every upgrade after the first migration installs files that
+nothing points at. The installer understands the first migration and not the second upgrade.
+
+**The fix:** after the files land, the installer must call the launcher's upgrade path —
+`--install-version <versions\V> <sidecar>` (probe, then atomic pointer write) or `--apply` — and the
+page must show the result. Until then, "installer exit 0" means "files copied", never "running".
