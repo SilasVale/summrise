@@ -376,6 +376,8 @@ main.terminal-main { display: grid; grid-template-rows: auto minmax(0, 1fr); ali
 /* When the fetched window is older than the live lines, the hub says when it was read. It is a note
    under the timeline, not a second list header: one line, at the panel's own gap. */
 .home-read { margin: 0; }
+/* The day's fold control is a text button in the panel's own column, not a centred page footer. */
+.home-more { justify-self: start; }
 .endpoint-row {
   display: flex; align-items: center; gap: var(--sp-2); min-width: 0;
   padding: var(--sp-2) var(--sp-3);

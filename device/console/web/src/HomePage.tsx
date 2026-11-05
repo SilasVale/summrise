@@ -176,6 +176,16 @@ function dayWord(ts: number, now: number): string {
 }
 
 /**
+ * How many rows of the day the hub draws before folding the rest behind one control.
+ *
+ * The hub's timeline is one machine's whole day: on the busiest machine measured (2026-11-05) that
+ * was 935 rows, a 51,620 px page with the capability line 56 screens down. Sixty rows is a day a
+ * person can scan; the remaining rows are still one click away, in place, never paginated out of
+ * reach. The Activity page keeps the whole record and is not folded.
+ */
+const HUB_DAY_ROWS = 60;
+
+/**
  * The hub's one line about the day, computed from the lines already in hand.
  *
  * "Today" is local midnight — the same midnight the timeline cuts at — and only a client's calls
@@ -322,6 +332,12 @@ function HubHome(
     readAt: number;
   } | null>(null);
   const [auditError, setAuditError] = useState(false);
+  // The hub draws the newest rows of the day; this remembers that the rest were asked for. It
+  // resets with the machine, so one machine's expanded day cannot stand for another's.
+  const [wholeDay, setWholeDay] = useState(false);
+  useEffect(() => {
+    setWholeDay(false);
+  }, [device.id]);
 
   // A read that answers after the page switched machines is another machine's answer, and must not
   // replace this one's window.
@@ -391,6 +407,11 @@ function HubHome(
   // them to say when the machine last worked. The timeline itself is still today's only.
   const windowLines = mergeActivity(fetched, liveLines).sort((a, b) => b.ts_ms - a.ts_ms);
   const timeline = capActivity(windowLines.filter((line) => line.ts_ms >= todayStart));
+  // **THE DAY IS SCANNABLE; THE RECORD IS NOT HIDDEN.** The newest rows are drawn and one control
+  // offers the rest of today in place. The count is the list's own length minus what is drawn, so a
+  // live frame that arrives while the day is folded grows the label by the same one row it adds.
+  const hiddenDayRows = timeline.lines.length - HUB_DAY_ROWS;
+  const dayRows = wholeDay ? timeline.lines : timeline.lines.slice(0, HUB_DAY_ROWS);
   // Before the first window arrives there is nothing to count; the timeline says it is reading. Once
   // a window (or a live line) is in hand, the summary is a fact about the lines on the page.
   const summary = loaded || liveLines.length > 0 ? todayLine(windowLines, now) : null;
@@ -467,6 +488,22 @@ function HubHome(
         onWatch={props.onWatchTerminal}
       />
 
+      {/* **THE CAPABILITY LINE IS ABOVE THE LOG.** What this machine can do was drawn after the
+          timeline, which on the busiest measured machine put it 51,599 px down a 51,620 px page.
+          The line is the answer to a first question, so it sits with the Now band, not after the
+          day's record. */}
+      {offline ? (
+        <p className="hint">Tool counts are unavailable while the machine is offline.</p>
+      ) : live.error && live.tools.length === 0 ? (
+        <p className="hint">Tool counts are unavailable until the console can read the machine's list.</p>
+      ) : (
+        <button type="button" className="counts-line" onClick={props.onTools}>
+          {plural(live.tools.length, "tool")} · {plural(capabilities, "capability", "capabilities")}
+          {plugins !== null ? ` · ${plural(plugins, "plugin")}` : ""}
+          {live.stale ? " · stale" : ""} <span aria-hidden="true">→</span>
+        </button>
+      )}
+
       <section className="panel home-timeline" aria-label="This machine's activity">
         {/* One line, above the rows it counts: the day at a glance, from the same window the
             timeline draws. It is not a live region: it moves on the five-second reread, not on every
@@ -481,7 +518,7 @@ function HubHome(
           </p>
         )}
         <ActivityTimeline
-          lines={timeline.lines}
+          lines={dayRows}
           devices={props.devices}
           capped={ownWindowCut}
           // The hub's timeline is already this machine's day: a machine chip here could only say
@@ -490,20 +527,16 @@ function HubHome(
           onWatch={props.onWatchTerminal}
           empty={empty}
         />
+        {!wholeDay && hiddenDayRows > 0 && (
+          // A real control over the same list: it expands in place, so the count it shows is the
+          // rows behind it, not a page number made up from a cut. A live frame that lands while
+          // folded redraws this label with one more, because it is derived, not remembered.
+          <button type="button" className="link home-more" onClick={() => setWholeDay(true)}>
+            Show the rest of today ({hiddenDayRows} more)
+          </button>
+        )}
         <WindowRead readAt={readAt} fetchedNewest={fetchedNewest} liveNewest={liveNewest} />
       </section>
-
-      {offline ? (
-        <p className="hint">Tool counts are unavailable while the machine is offline.</p>
-      ) : live.error && live.tools.length === 0 ? (
-        <p className="hint">Tool counts are unavailable until the console can read the machine's list.</p>
-      ) : (
-        <button type="button" className="counts-line" onClick={props.onTools}>
-          {plural(live.tools.length, "tool")} · {plural(capabilities, "capability", "capabilities")}
-          {plugins !== null ? ` · ${plural(plugins, "plugin")}` : ""}
-          {live.stale ? " · stale" : ""} <span aria-hidden="true">→</span>
-        </button>
-      )}
     </div>
   );
 }

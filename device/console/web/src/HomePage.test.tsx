@@ -69,6 +69,19 @@ function liveCall(overrides: Partial<LiveLine> = {}): LiveLine {
   };
 }
 
+/**
+ * `count` calls today, newest first: the hub's day when a test needs more rows than one screen.
+ * The times sit in today's first hour, so the day filter keeps every row whatever the wall clock.
+ */
+function todayCalls(count: number): AuditLine[] {
+  const start = new Date();
+  start.setHours(0, 0, 0, 0);
+  const base = start.getTime() + 3_600_000;
+  return Array.from({ length: count }, (_, index) =>
+    call({ ts_ms: base - index * 1000, tool: `tool.${index}`, sentence: `Call ${index}` })
+  );
+}
+
 /** An answer the test decides when to give. */
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -609,5 +622,59 @@ describe("Home — the hub", () => {
       )
     ).toBeInTheDocument();
     expect(screen.queryByText(/No calls from workshop today/)).toBeNull();
+  });
+
+  it("puts the capability line above this machine's timeline", async () => {
+    draw();
+
+    const counts = await screen.findByRole("button", {
+      name: /6 tools · 4 capabilities · 2 plugins/
+    });
+    const timeline = screen.getByRole("region", { name: "This machine's activity" });
+    // The line answers "what can this machine do now"; at the bottom it was 56 screens down.
+    expect(counts.compareDocumentPosition(timeline) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("draws the newest 60 rows and offers the rest of today", async () => {
+    draw({ audit: todayCalls(75) });
+
+    // 60 rows, not 1000: the day is scannable, and the record behind it is one control away.
+    await waitFor(() => expect(document.querySelectorAll(".timeline-row")).toHaveLength(60));
+    const more = screen.getByRole("button", { name: "Show the rest of today (15 more)" });
+    expect(screen.getByRole("button", { name: /All activity/ })).toBeInTheDocument();
+    fireEvent.click(more);
+
+    await waitFor(() => expect(document.querySelectorAll(".timeline-row")).toHaveLength(75));
+    expect(screen.queryByRole("button", { name: /Show the rest of today/ })).toBeNull();
+    // The expansion is in place: the same region still holds the rows and its summary.
+    expect(
+      within(screen.getByRole("region", { name: "This machine's activity" })).getByText("Call 74")
+    ).toBeInTheDocument();
+  });
+
+  it("recounts the rest when a live row arrives while collapsed", async () => {
+    const { rerenderHub } = draw({ audit: todayCalls(75) });
+    await screen.findByRole("button", { name: "Show the rest of today (15 more)" });
+
+    // A new row at the top pushes the oldest visible row out of the window; N grows by one and the
+    // page says so, rather than keeping the count it happened to draw first.
+    rerenderHub({ liveLines: [liveCall({ sentence: "A brand new call" })] });
+
+    await screen.findByRole("button", { name: "Show the rest of today (16 more)" });
+    expect(document.querySelectorAll(".timeline-row")).toHaveLength(60);
+    expect(screen.getByText("A brand new call")).toBeInTheDocument();
+  });
+
+  it("keeps the whole day drawn when a live row arrives after expanding", async () => {
+    const { rerenderHub } = draw({ audit: todayCalls(75) });
+    fireEvent.click(await screen.findByRole("button", { name: "Show the rest of today (15 more)" }));
+    await waitFor(() => expect(document.querySelectorAll(".timeline-row")).toHaveLength(75));
+
+    rerenderHub({ liveLines: [liveCall({ sentence: "A brand new call" })] });
+
+    await waitFor(() => expect(document.querySelectorAll(".timeline-row")).toHaveLength(76));
+    expect(screen.getByText("A brand new call")).toBeInTheDocument();
+    // Expanded stays expanded; the hidden-rows control has nothing left to offer.
+    expect(screen.queryByRole("button", { name: /Show the rest of today/ })).toBeNull();
   });
 });

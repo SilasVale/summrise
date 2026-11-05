@@ -125,6 +125,22 @@ const CONSOLE_LINE = {
   status: 200,
   caller: 'console'
 };
+// **THE HUB'S DAY IS WIDER THAN ONE SCREEN.** These 75 lines are today's at any hour — they sit one
+// second into the local day, and the distinct tool names keep them distinct even at one instant — so
+// the fold has a remainder to offer without the two rows the other legs assert on. They are the
+// console's calls: the Now band counts the AI and must stay Quiet with them in the day.
+const DAY_START = new Date(NOW);
+DAY_START.setHours(0, 0, 0, 0);
+const HISTORIC_LINES = Array.from({ length: 75 }, (_, index) => ({
+  ts_ms: DAY_START.getTime() + 1_000,
+  kind: 'mcp',
+  device_id: DEVICE.id,
+  token_id: null,
+  tool: `history.${index}`,
+  detail: null,
+  status: 200,
+  caller: 'console'
+}));
 // The whole registry, not the selected machine's slice: one token for this machine, one for a
 // machine the gate never selects, and one aggregate. The Tokens leg counts the rows against this.
 const TOKENS = [
@@ -244,9 +260,10 @@ function apiReply(request, url) {
   // narrows during the read, exactly as the console does; the gate's one machine owns both rows.
   if (method === 'GET' && pathname === '/audit') {
     const device = url.searchParams.get('device');
-    const lines = [CONSOLE_LINE, AUDIT_LINE].filter(
-      (line) => device === null || line.device_id === device
-    );
+    const lines = [CONSOLE_LINE, AUDIT_LINE, ...HISTORIC_LINES]
+      .filter((line) => device === null || line.device_id === device)
+      // Newest first, as the console serves it.
+      .sort((left, right) => right.ts_ms - left.ts_ms);
     return json(lines);
   }
   if (method === 'GET' && pathname === '/denials') return json([]);
@@ -436,6 +453,26 @@ try {
   // And the row is still in the record, marked so a reader can tell it from the AI's calls.
   await page.locator('.timeline-caller').first().waitFor({ state: 'visible', timeout: 10_000 });
   step('the Now band stays Quiet, and the console\'s own row is marked in the timeline');
+
+  // THE DAY IS SCANNABLE WITHOUT HIDING THE RECORD. Seventy-seven rows are today's; the hub draws
+  // the newest sixty and offers the rest by count. The count is read from the control and the
+  // expansion is checked against it, so the leg does not invent an expected remainder.
+  const more = page.getByRole('button', { name: /^Show the rest of today \(\d+ more\)$/ });
+  await more.waitFor({ state: 'visible', timeout: 10_000 });
+  const foldedRows = await page.locator('.timeline-row').count();
+  const moreText = (await more.textContent())?.trim() ?? '';
+  const hidden = Number(/\((\d+) more\)/.exec(moreText)?.[1] ?? 0);
+  if (foldedRows !== 60 || hidden === 0) {
+    throw new Error(`the hub drew ${foldedRows} rows and offered "${moreText}"`);
+  }
+  await more.click();
+  await page.waitForFunction(
+    (expected) => document.querySelectorAll('.timeline-row').length === expected,
+    60 + hidden,
+    { timeout: 10_000 }
+  );
+  if ((await more.count()) !== 0) throw new Error('the fold control stayed after the day expanded');
+  step(`the hub drew 60 rows and expanded the rest of today (${hidden} more)`);
 
   // A CALL IN FLIGHT IS NOT AN AUDIT ROW. The proxy announces it before the device answers; the
   // band must name it while the timeline still has nothing, and the finished frame must clear it.
