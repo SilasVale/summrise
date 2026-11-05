@@ -152,4 +152,33 @@ describe("MachineMenu", () => {
       expect(row).not.toHaveTextContent("back");
     }
   });
+
+  it("states the day's calls and failures beside the disk line", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(NOW);
+    draw([
+      device({
+        host: { disks: [{ name: "C:\\", total_bytes: 1024 * GIB, free_bytes: 312 * GIB }] },
+        today: { client_calls: 283, failed: 38 }
+      })
+    ]);
+
+    expect(screen.getByRole("button", { name: /^workshop/ })).toHaveTextContent(
+      "C: 312 GiB free · 283 calls · 38 failed"
+    );
+  });
+
+  it("omits the failed half at zero and draws no day for a machine with no lines", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(NOW);
+    draw([
+      device({ id: "dev-quiet", name: "quiet", host: null, today: { client_calls: 11, failed: 0 } }),
+      device({ id: "dev-bare", name: "bare", host: null })
+    ]);
+
+    const quiet = screen.getByRole("button", { name: /^quiet/ });
+    expect(quiet).toHaveTextContent("11 calls");
+    expect(quiet).not.toHaveTextContent("failed");
+    expect(screen.getByRole("button", { name: /^bare/ })).not.toHaveTextContent("calls");
+  });
 });

@@ -334,7 +334,13 @@ main.terminal-main { display: grid; grid-template-rows: auto minmax(0, 1fr); ali
 }
 .fleet-open:hover { background: var(--panel-2); border-color: transparent; }
 .fleet-name { font-size: var(--fs-base); font-weight: var(--fw-semi); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* THE DAY AND THE PRESENCE SHARE ONE CELL. `online · seen 44s ago` and `283 calls · 38 failed` are
+   both muted facts about the same machine, so they draw on the row's one line: a second row would
+   make every machine taller to compare four numbers. At 390 the cell takes its own row and the
+   counts wrap below the state (see the <=639 block); the name keeps the line above it. */
+.fleet-now { display: flex; align-items: center; gap: var(--sp-3); min-width: 0; }
 .fleet-state { color: var(--ink-muted); font-size: var(--fs-sm); white-space: nowrap; }
+.fleet-work { color: var(--ink-muted); font-size: var(--fs-sm); white-space: nowrap; }
 .fleet-build { color: var(--ink-faint); font-size: var(--fs-xs); white-space: nowrap; }
 .fleet-chevron { color: var(--ink-faint); font-size: var(--fs-md); line-height: 1; }
 .fleet-verdict {
@@ -426,7 +432,10 @@ button.link:hover { background: transparent; color: var(--accent); border-color:
 @media (max-width: 639px) {
   .fleet-open { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-1) var(--sp-2); padding: var(--sp-3); }
   .fleet-name { flex: 1; }
-  .fleet-state { order: 3; flex-basis: 100%; }
+  /* The status cell takes the whole row below dot and name; the counts take a line of their own so
+     `283 calls · 38 failed` never competes with the name for the first line's width. */
+  .fleet-now { order: 3; flex-basis: 100%; flex-wrap: wrap; gap: var(--sp-1) var(--sp-2); }
+  .fleet-work { flex-basis: 100%; }
   .fleet-build { order: 4; }
   .fleet-chevron { display: none; }
   .fleet-verdict { order: 5; flex-basis: 100%; }

@@ -147,6 +147,13 @@ export type Device = {
    */
   last_left_ms?: number | null;
   registered_at_ms?: number | null;
+  /**
+   * What `/fleet` counted for this machine in the console's newest audit window: the AI's calls
+   * and how many of them failed. Omitted when the window holds no line naming the machine, so a
+   * row draws nothing rather than a zero the read cannot prove. The hub counts the same window
+   * with the same rule (`isClientCall`), which is why the two surfaces agree.
+   */
+  today?: { client_calls: number; failed: number } | null;
   last_attempt?: { attempts: number; reason: string } | null;
   /**
    * The last absence the audit proves: how long the channel was gone, and when it opened again.

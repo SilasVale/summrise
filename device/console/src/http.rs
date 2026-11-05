@@ -4116,7 +4116,9 @@ async fn rename_device(
     // device audit. `session` is what proves the caller is the operator.
     let _ = session;
 
-    let boundaries = app.audit.boundaries().await;
+    // The rename answers with the row the page replaces, so it carries the same day the list
+    // serves: one window, the same rule, and a machine with no line still gets no `today`.
+    let window = app.audit.fleet_window().await;
     Ok(Json(DeviceView {
         online: app.channels.online(&device.id),
         version: app.channels.version(&device.id),
@@ -4127,8 +4129,9 @@ async fn rename_device(
             attempts: note.attempts,
             reason: note.reason,
         }),
-        last_outage: outage_view(boundaries.last_outages.get(&device.id).copied()),
-        last_left_ms: boundaries.last_lefts.get(&device.id).copied(),
+        today: day_view(window.days.get(&device.id)),
+        last_outage: outage_view(window.boundaries.last_outages.get(&device.id).copied()),
+        last_left_ms: window.boundaries.last_lefts.get(&device.id).copied(),
         last_frame_ms: app.channels.last_frame(&device.id),
         id: device.id,
         public_key: device.public_key,
@@ -4418,10 +4421,10 @@ async fn device_mesh_readiness(
 }
 
 /// One pass over the audit's newest lines, shared by every row: the file is read once per fleet
-/// call, and the two boundary maps are built after the read returns, so the writer is not held while
-/// the answer is serialised.
+/// call, and the boundary maps and day counts are built after the read returns, so the writer is not
+/// held while the answer is serialised.
 async fn device_views(app: &AppState) -> Vec<DeviceView> {
-    let boundaries = app.audit.boundaries().await;
+    let window = app.audit.fleet_window().await;
     lock(&app.devices)
         .list()
         .into_iter()
@@ -4438,8 +4441,9 @@ async fn device_views(app: &AppState) -> Vec<DeviceView> {
                 attempts: note.attempts,
                 reason: note.reason,
             }),
-            last_outage: outage_view(boundaries.last_outages.get(&device.id).copied()),
-            last_left_ms: boundaries.last_lefts.get(&device.id).copied(),
+            today: day_view(window.days.get(&device.id)),
+            last_outage: outage_view(window.boundaries.last_outages.get(&device.id).copied()),
+            last_left_ms: window.boundaries.last_lefts.get(&device.id).copied(),
             last_frame_ms: app.channels.last_frame(&device.id),
             // A name given at registration wins; the machine's own name is a fallback for the
             // devices that never gave one, which is all of them so far.
@@ -4463,6 +4467,22 @@ struct RetryView {
     reason: String,
 }
 
+/// One machine's day as `/fleet` serves it: the AI's calls inside the console's newest audit
+/// window, and how many of them failed.
+#[derive(serde::Serialize)]
+struct DayView {
+    client_calls: u64,
+    failed: u64,
+}
+
+/// The day of one machine, or `None` when the window holds no line naming it.
+fn day_view(day: Option<&crate::audit::DayCount>) -> Option<DayView> {
+    day.map(|day| DayView {
+        client_calls: day.client_calls,
+        failed: day.failed,
+    })
+}
+
 #[derive(serde::Serialize)]
 struct DeviceView {
     id: String,
@@ -4471,6 +4491,11 @@ struct DeviceView {
     name: Option<String>,
     registered_at_ms: u64,
     last_seen_ms: u64,
+    /// The AI's calls this machine made inside the console's newest audit window, and how many of
+    /// them failed: the fleet's comparison line. Omitted when the window holds no line naming the
+    /// machine, so a page draws nothing rather than a zero the read cannot prove.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    today: Option<DayView>,
     /// When the console last saw any frame from this device, in Unix milliseconds. `online` is this
     /// moment inside the presence window; a channel that exists but has been silent past it is
     /// offline. Omitted when the console has seen no frame since it started: a device it never heard

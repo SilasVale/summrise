@@ -157,6 +157,8 @@ const DEVICES = [
     last_seen_ms: NOW - 12_000,
     last_frame_ms: NOW - 12_000,
     registered_at_ms: NOW - 41 * 24 * HOUR,
+    // The day `/fleet` counted in the audit's newest window: the row states it on its muted line.
+    today: { client_calls: 283, failed: 38 },
     last_attempt: null,
     // The device's own account of its last start, as the host frame carries it. The line it draws
     // is text, not a control: the audit still finds no unnamed button and no extra tab stop.
@@ -190,6 +192,7 @@ const DEVICES = [
     last_seen_ms: NOW - 38_000,
     last_frame_ms: NOW - 38_000,
     registered_at_ms: NOW - 12 * 24 * HOUR,
+    today: { client_calls: 11, failed: 0 },
     last_attempt: null,
     host: {
       os: { name: 'Ubuntu', version: '24.04.1 LTS', arch: 'x86_64' },
@@ -211,6 +214,7 @@ const DEVICES = [
     last_seen_ms: NOW - 3 * HOUR,
     last_frame_ms: NOW - 3 * HOUR,
     registered_at_ms: NOW - 80 * 24 * HOUR,
+    today: { client_calls: 84, failed: 2 },
     last_attempt: null,
     // The incident's shape: a machine went silent, and its own last story says what happened to the
     // update. It sent no host facts, so there is no boot journal to prove the refusal belongs to

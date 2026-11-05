@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import { compactAge } from "./age";
 import type { Device, HostFacts } from "./api";
-import { ageAt, shortId } from "./format";
+import { ageAt, callsLine, shortId } from "./format";
 
 /**
  * THE HEADER IS ONE CONTROL. `[● workshop · Running · v0.3.246 ▾]` is the machine and the picker at
@@ -104,17 +104,21 @@ export function MachineMenu({
 }
 
 /**
- * One muted line under a machine's name: the disk that fills first and the current absence, side by
- * side so comparing four machines is four rows rather than four Machine pages.
+ * One muted line under a machine's name: the disk that fills first, the day's work the fleet read
+ * counted, and the current absence — side by side so comparing four machines is four rows rather
+ * than four Machine pages.
  *
- * Each half is optional and an unknown half is left out, never zeroed: a machine that has sent no
- * host facts has no disk, and a console that has not seen this device drop omits both the pair and
- * the open close. Two unknowns therefore draw no line rather than an empty or invented one.
+ * Each part is optional and an unknown one is left out, never zeroed: a machine that has sent no
+ * host facts has no disk, a machine the audit window never names has no day, and a console that has
+ * not seen this device drop omits both the pair and the open close. Only unknowns therefore draw
+ * no line rather than an empty or invented one.
  */
 function machineLine(device: Device, now: number): string | null {
   const facts: string[] = [];
   const disk = tightestDisk(device.host?.disks);
   if (disk) facts.push(`${diskLabel(disk.name)} ${gib(disk.free_bytes)} free`);
+  const work = callsLine(device.today);
+  if (work) facts.push(work);
   const absence = absenceLine(device, now);
   if (absence) facts.push(absence);
   return facts.length === 0 ? null : facts.join(" · ");

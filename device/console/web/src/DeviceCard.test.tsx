@@ -244,4 +244,48 @@ describe("DeviceCard — one row on the fleet", () => {
     fireEvent.click(screen.getByRole("button", { name: "Open workshop" }));
     expect(onSelect).toHaveBeenCalledTimes(1);
   });
+
+  it("states the day's calls and failures on the row", () => {
+    const { container } = draw({ today: { client_calls: 283, failed: 38 } });
+
+    expect(screen.getByText("283 calls · 38 failed")).toBeInTheDocument();
+    expect(container.querySelector(".fleet-work")).toHaveTextContent("283 calls · 38 failed");
+    // The counts share the row's one muted status cell, inside the one open button: no new
+    // column, no second line.
+    expect(screen.getByRole("button", { name: "Open workshop" })).toHaveTextContent(
+      "283 calls · 38 failed"
+    );
+    expect(container.querySelectorAll(".fleet-work")).toHaveLength(1);
+  });
+
+  it("omits the failed half at zero", () => {
+    draw({ today: { client_calls: 11, failed: 0 } });
+
+    expect(screen.getByText("11 calls")).toBeInTheDocument();
+    expect(screen.queryByText(/· 0 failed/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/failed/)).not.toBeInTheDocument();
+  });
+
+  it("draws nothing for a machine the audit window holds no line for", () => {
+    const { container } = draw();
+
+    expect(container.querySelector(".fleet-work")).toBeNull();
+    expect(screen.queryByText(/calls/)).not.toBeInTheDocument();
+  });
+
+  it("keeps the name its own node so the counts can wrap below it at 390", () => {
+    // The <=639 stylesheet gives the status cell a full-width row and the counts their own line.
+    // jsdom has no layout, so the test pins the structure that rule acts on: the name is its own
+    // node and the counts are its sibling, never a suffix inside the name.
+    const { container } = draw({ today: { client_calls: 84, failed: 0 } });
+    const name = container.querySelector(".fleet-name");
+    const work = container.querySelector(".fleet-work");
+
+    expect(name).toHaveTextContent(/^workshop$/);
+    expect(work).not.toBeNull();
+    expect(name).not.toContainElement(work as HTMLElement);
+    expect(work?.closest(".fleet-name")).toBeNull();
+    expect(work?.parentElement?.className).toBe("fleet-now");
+    expect(name?.parentElement).toBe(work?.parentElement?.parentElement);
+  });
 });

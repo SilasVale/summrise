@@ -1166,6 +1166,133 @@ async fn re_registering_updates_last_seen_and_keeps_registered_at() {
     );
 }
 
+/// **THE FLEET COMPARES THE WORK, NOT ONLY THE PRESENCE.** Each row carries the AI's calls its
+/// newest audit window holds, by the same rule the hub's day line and Activity's header use:
+/// `caller: "client"`, or no caller with a token; never the console's own read, a failed poll, a
+/// channel boundary, or an unattributed line. The counts come from the same newest 2,000 lines the
+/// absences read, so a route the page polls cannot pay two reads.
+#[tokio::test]
+async fn the_fleet_states_each_machines_day_from_its_newest_window() {
+    let fixture = Fixture::new("fleet-day");
+    let session = fixture.authenticate().await;
+    let alpha = register_fixture_device(&fixture, &signing_key(0xa1)).await;
+    let beta = register_fixture_device(&fixture, &signing_key(0xb2)).await;
+    let gamma = register_fixture_device(&fixture, &signing_key(0xc3)).await;
+    let delta = register_fixture_device(&fixture, &signing_key(0xd4)).await;
+    let token = "ab".repeat(32);
+
+    // One line of each kind the rule has to tell apart. Alpha gets the mixed window; beta's two
+    // calls are a plain client's; gamma has only the console's read; delta has no line at all.
+    let lines = vec![
+        json!({
+            "ts_ms": 900, "kind": "mcp", "device_id": alpha, "status": 200,
+            "tool": "files.read", "caller": "client",
+        }),
+        json!({
+            "ts_ms": 800, "kind": "mcp", "device_id": alpha, "status": 424,
+            "tool": "runs.exec", "caller": "client",
+        }),
+        // No caller + a token is a client call from before the field, and this one failed inside
+        // an HTTP 200 (the device's own JSON-RPC error).
+        json!({
+            "ts_ms": 700, "kind": "mcp", "device_id": alpha, "status": 200,
+            "tool": "files.write", "token_id": token, "detail": "jsonrpc error -32002",
+        }),
+        // The console's own read, unattributed line, failed poll and boundary are not work.
+        json!({
+            "ts_ms": 600, "kind": "mcp", "device_id": alpha, "status": 500,
+            "tool": "terminal.list", "caller": "console",
+        }),
+        json!({
+            "ts_ms": 550, "kind": "mcp", "device_id": alpha, "status": 200,
+            "tool": "files.list",
+        }),
+        json!({
+            "ts_ms": 500, "kind": "poll", "device_id": alpha, "status": 502,
+            "detail": "device offline",
+        }),
+        json!({
+            "ts_ms": 450, "kind": "device", "device_id": alpha, "status": 200,
+            "tool": "device.left", "caller": "console",
+        }),
+        json!({
+            "ts_ms": 400, "kind": "mcp", "device_id": beta, "status": 200,
+            "tool": "files.read", "caller": "client",
+        }),
+        json!({
+            "ts_ms": 350, "kind": "mcp", "device_id": beta, "status": 200,
+            "tool": "files.read", "caller": "client",
+        }),
+        json!({
+            "ts_ms": 300, "kind": "mcp", "device_id": gamma, "status": 200,
+            "tool": "terminal.list", "caller": "console",
+        }),
+    ];
+    seed_audit_file(&fixture, "audit.jsonl", &lines);
+
+    let (status, fleet) = send(fixture.app(), get("/fleet", Some(&session))).await;
+    assert_eq!(status, StatusCode::OK, "the fleet read: {fleet}");
+    let rows = fleet.as_array().expect("a list");
+    assert_eq!(rows.len(), 4, "one row per registered machine: {fleet}");
+    let row = |id: &str| {
+        rows.iter()
+            .find(|row| row["id"] == json!(id))
+            .unwrap_or_else(|| panic!("{id} is a row: {fleet}"))
+    };
+
+    assert_eq!(
+        row(&alpha)["today"],
+        json!({ "client_calls": 3, "failed": 2 }),
+        "two `client` calls and the proven token call, two of them failed: {fleet}"
+    );
+    assert_eq!(
+        row(&beta)["today"],
+        json!({ "client_calls": 2, "failed": 0 }),
+        "the failed half is a count, not a sentence, at the route: {fleet}"
+    );
+    assert_eq!(
+        row(&gamma)["today"],
+        json!({ "client_calls": 0, "failed": 0 }),
+        "a machine the window holds only console reads for has a day of zero calls: {fleet}"
+    );
+    assert!(
+        row(&delta).get("today").is_none(),
+        "a machine with no line in the window serves no day rather than a zero: {fleet}"
+    );
+    for id in [&alpha, &beta, &gamma] {
+        assert!(
+            row(id)["today"]["client_calls"].is_u64() && row(id)["today"]["failed"].is_u64(),
+            "a present day always carries both numbers: {fleet}"
+        );
+    }
+
+    // The hub's day is the same lines under the same rule: its machine window is where the page
+    // counts these calls, and this fixture is the shape it reads.
+    let (status, mine) = send(
+        fixture.app(),
+        get(&format!("/audit?device={alpha}"), Some(&session)),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let mine = mine.as_array().expect("a list of audit lines");
+    let counted = mine
+        .iter()
+        .filter(|line| {
+            line["tool"] != json!("device.left")
+                && line["kind"] != json!("poll")
+                && (line["caller"] == json!("client")
+                    || (line.get("caller").is_none() && line.get("token_id").is_some()))
+        })
+        .count();
+    assert_eq!(
+        counted,
+        row(&alpha)["today"]["client_calls"]
+            .as_u64()
+            .expect("a count") as usize,
+        "the row's calls are the hub's own day for this machine: {mine:?}"
+    );
+}
+
 #[tokio::test]
 async fn an_id_that_is_not_the_public_key_is_400() {
     let fixture = Fixture::new("id-mismatch");

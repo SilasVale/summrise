@@ -53,12 +53,13 @@ use crate::jsonl::JsonLines;
 /// The largest the audit file may become before it is rotated to `audit.1.jsonl`.
 pub(crate) const AUDIT_MAX_BYTES: u64 = 8 * 1024 * 1024;
 
-/// How many of the audit's newest lines an absence may be derived from.
+/// How many of the audit's newest lines `/fleet` reads: the absences and each machine's day both
+/// come from this one window.
 ///
 /// A device that has been away for hours leaves its two lines at the head of the file until its
 /// neighbours push them back; 2,000 lines is days of one machine's traffic and hours of a busy
 /// fleet's. The bound is the cost of `/fleet`: one read, one pass, no growing map.
-pub(crate) const OUTAGE_WINDOW: usize = 2000;
+pub(crate) const FLEET_WINDOW: usize = 2000;
 
 /// The tool name a channel's close writes. A boundary is not a tool call: the name is the marker
 /// the page recognises, and the line's `kind` is `device`, never `mcp`.
@@ -140,6 +141,33 @@ pub(crate) struct Boundaries {
     pub(crate) last_lefts: HashMap<String, u64>,
 }
 
+/// One machine's day inside `/fleet`'s window: the AI's calls and how many of them failed.
+///
+/// The window is the newest [`FLEET_WINDOW`] lines of the whole fleet, the same read the absences
+/// come from. It is not cut at the console's local midnight: a busy fleet's window can start before
+/// it, and the page states the window it counted rather than inventing a day the read does not hold.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct DayCount {
+    /// Lines a client made: `caller: "client"`, or a token with no caller. The console's own reads,
+    /// failed polls and channel boundaries are never here.
+    pub(crate) client_calls: u64,
+    /// The calls above whose exchange failed (status 400+, `ok: false`, or a JSON-RPC error).
+    pub(crate) failed: u64,
+}
+
+/// What one read of the newest audit window proves about the fleet: the channel boundaries and each
+/// machine's day.
+///
+/// One read serves every row, so two rows cannot be counted from two different generations of the
+/// file, and `/fleet` pays one file read whatever the fleet's size.
+#[derive(Debug, Default)]
+pub(crate) struct FleetWindow {
+    pub(crate) boundaries: Boundaries,
+    /// A device appears only when the window holds at least one line naming it: a machine the
+    /// window cannot speak for is omitted, never served as a zero.
+    pub(crate) days: HashMap<String, DayCount>,
+}
+
 /// The append-only audit index; the denial log reuses [`Entry`] as its line shape.
 ///
 /// Cheap to clone: the console's `Inner` and the channel registry hold the same file and the same
@@ -205,21 +233,32 @@ impl Audit {
             .await
     }
 
-    /// Every device's newest completed absence and open close, from the newest
-    /// [`OUTAGE_WINDOW`] lines.
+    /// Everything `/fleet` derives from the audit, from ONE read of the newest [`FLEET_WINDOW`]
+    /// lines: the channel boundaries every row's absence reads, and each machine's day.
     ///
     /// The file is the record, not this process's memory: a console restarted while a device was
     /// away reads the close the dead process wrote and the open this one wrote, and the pair is the
     /// interval between them. The closing line also names the silence a still-away device is in,
-    /// which is the newest evidence an offline row can be aged from. The read is bounded and the
-    /// maps are built after it returns, so the file's writer is not held while a fleet response is
-    /// serialised.
-    pub(crate) async fn boundaries(&self) -> Boundaries {
-        let lines = self.file.newest(OUTAGE_WINDOW).await;
-        Boundaries {
-            last_outages: outages_from(&lines),
-            last_lefts: open_lefts_from(&lines),
+    /// which is the newest evidence an offline row can be aged from. Both maps are built after the
+    /// read returns, so the file's writer is not held while a fleet response is serialised.
+    ///
+    /// The routes that need both (the fleet list, and the rename that answers with one row) call
+    /// this rather than two reads; a row's day and its reconnected-after pair therefore come from
+    /// the same generation of the file.
+    pub(crate) async fn fleet_window(&self) -> FleetWindow {
+        let lines = self.file.newest(FLEET_WINDOW).await;
+        FleetWindow {
+            boundaries: boundaries_of(&lines),
+            days: days_from(&lines),
         }
+    }
+}
+
+/// Both boundary maps from one window of lines, so the two derivations share their read.
+fn boundaries_of(lines: &[Value]) -> Boundaries {
+    Boundaries {
+        last_outages: outages_from(lines),
+        last_lefts: open_lefts_from(lines),
     }
 }
 
@@ -305,6 +344,73 @@ fn open_lefts_from(lines: &[Value]) -> HashMap<String, u64> {
         }
     }
     lefts
+}
+
+/// Whether a line is one of the console's channel boundaries rather than a call.
+fn is_channel_boundary(line: &Value) -> bool {
+    matches!(
+        line.get("tool").and_then(Value::as_str),
+        Some(DEVICE_JOINED | DEVICE_LEFT)
+    )
+}
+
+/// Whether a line is a client's call, by the same proof the hub's day line and Activity's header
+/// use.
+///
+/// `caller: "client"` is the console's own statement that an AI client made the call; a line with
+/// no caller but a token is a client call from before the field existed (the live window at the
+/// time of the fix held 908 caller-less lines, 376 of them with a token); `caller: "console"` is
+/// never one, even if a token were to appear on it. A channel boundary is a fact about the machine
+/// and a failed poll is the console retrying itself — neither is work.
+fn is_client_call(line: &Value) -> bool {
+    if is_channel_boundary(line) {
+        return false;
+    }
+    if line.get("kind").and_then(Value::as_str) == Some("poll") {
+        return false;
+    }
+    match line.get("caller").and_then(Value::as_str) {
+        Some("client") => true,
+        Some("console") => false,
+        _ => line.get("token_id").and_then(Value::as_str).is_some(),
+    }
+}
+
+/// Whether the exchange failed, by the page's rule: a status of 400 or above, the live stream's
+/// explicit `ok: false` (a device's JSON-RPC error is carried inside an HTTP 200), or a JSON-RPC
+/// error's detail on a stored line. The two shapes must count the same way.
+fn day_failed(line: &Value) -> bool {
+    line.get("status")
+        .and_then(Value::as_u64)
+        .is_some_and(|status| status >= 400)
+        || line.get("ok") == Some(&Value::Bool(false))
+        || line
+            .get("detail")
+            .and_then(Value::as_str)
+            .is_some_and(|detail| detail.starts_with("jsonrpc error"))
+}
+
+/// Each device's day from one window of lines.
+///
+/// A line with no `device_id` belongs to no row. A device with any line in the window is present,
+/// even when every line is the console's own: its day then reads zero calls, which is a fact about
+/// the window. A device the window never names is absent, so a page can draw nothing rather than a
+/// zero it cannot prove.
+fn days_from(lines: &[Value]) -> HashMap<String, DayCount> {
+    let mut days: HashMap<String, DayCount> = HashMap::new();
+    for line in lines {
+        let Some(device) = line.get("device_id").and_then(Value::as_str) else {
+            continue;
+        };
+        let day = days.entry(device.to_owned()).or_default();
+        if is_client_call(line) {
+            day.client_calls += 1;
+            if day_failed(line) {
+                day.failed += 1;
+            }
+        }
+    }
+    days
 }
 
 #[cfg(test)]
@@ -488,7 +594,7 @@ mod tests {
             boundary(DEVICE, DEVICE_JOINED, 200),
         ];
         // Push the pair behind the window: a newer line for another device is still a line.
-        for index in 0..OUTAGE_WINDOW {
+        for index in 0..FLEET_WINDOW {
             lines.push(serde_json::json!({
                 "ts_ms": 1_000 + index as u64,
                 "kind": "mcp",
@@ -500,22 +606,156 @@ mod tests {
         write_audit(&dir.0, &lines);
         let audit = Audit::new(&dir.0, u64::MAX);
         assert!(
-            audit.boundaries().await.last_outages.is_empty(),
-            "a pair older than the newest {OUTAGE_WINDOW} lines is not read"
+            audit
+                .fleet_window()
+                .await
+                .boundaries
+                .last_outages
+                .is_empty(),
+            "a pair older than the newest {FLEET_WINDOW} lines is not read"
         );
         assert!(
-            audit.boundaries().await.last_lefts.is_empty(),
-            "a close older than the newest {OUTAGE_WINDOW} lines is not read either"
+            audit.fleet_window().await.boundaries.last_lefts.is_empty(),
+            "a close older than the newest {FLEET_WINDOW} lines is not read either"
         );
 
         // Leave the pair exactly inside the window: 2 boundary lines and 1,998 fillers are 2,000.
-        write_audit(&dir.0, &lines[..OUTAGE_WINDOW]);
+        write_audit(&dir.0, &lines[..FLEET_WINDOW]);
         assert_eq!(
-            audit.boundaries().await.last_outages.get(DEVICE),
+            audit
+                .fleet_window()
+                .await
+                .boundaries
+                .last_outages
+                .get(DEVICE),
             Some(&Absence {
                 away_ms: 100,
                 back_at_ms: 200,
             })
+        );
+    }
+
+    /// One proxied call, with the two proofs of a client and the failure left to the test.
+    fn call(
+        device: &str,
+        ts_ms: u64,
+        caller: Option<&str>,
+        token: Option<&str>,
+        status: u16,
+    ) -> Value {
+        let mut line = serde_json::json!({
+            "ts_ms": ts_ms,
+            "kind": "mcp",
+            "device_id": device,
+            "status": status,
+            "tool": "files.read",
+        });
+        if let Some(caller) = caller {
+            line["caller"] = serde_json::json!(caller);
+        }
+        if let Some(token) = token {
+            line["token_id"] = serde_json::json!(token);
+        }
+        line
+    }
+
+    #[test]
+    fn a_day_counts_the_ais_calls_and_only_their_failures() {
+        let token = "ab".repeat(32);
+        let lines = vec![
+            // A caller of `client` is a client's call whether or not a token authenticated it.
+            call(DEVICE, 900, Some("client"), None, 200),
+            // No caller is not proof of the console: a token is proof of a client. This one
+            // failed at the tool level, carried inside an HTTP 200.
+            {
+                let mut line = call(DEVICE, 800, None, Some(&token), 200);
+                line["detail"] = serde_json::json!("jsonrpc error -32000");
+                line
+            },
+            // The console's own read is never the AI's work, even if a token appeared on it.
+            call(DEVICE, 700, Some("console"), Some(&token), 500),
+            // A failed poll is the console retrying itself: not a call, and no failure of the AI's.
+            {
+                let mut line = call(DEVICE, 600, Some("console"), None, 502);
+                line["kind"] = serde_json::json!("poll");
+                line
+            },
+            // A channel boundary names the machine but is a fact about its channel, not its work.
+            boundary(DEVICE, DEVICE_LEFT, 500),
+            // Neither a caller nor a token: unattributed, and it belongs to no count of the AI's.
+            call(DEVICE, 400, None, None, 200),
+            // A 424 is a tool-level failure the console stored as a refusal.
+            call(DEVICE, 300, Some("client"), None, 424),
+            // The live stream's explicit `ok: false` fails at 200; a stored line has no `ok`, but
+            // the two shapes must count the same way.
+            {
+                let mut line = call(DEVICE, 200, Some("client"), None, 200);
+                line["ok"] = serde_json::json!(false);
+                line
+            },
+        ];
+
+        assert_eq!(
+            days_from(&lines).get(DEVICE),
+            Some(&DayCount {
+                client_calls: 4,
+                failed: 3,
+            })
+        );
+    }
+
+    #[test]
+    fn a_machines_day_is_a_zero_only_when_the_window_holds_a_line_for_it() {
+        let other = "cd".repeat(32);
+        let lines = vec![call(&other, 900, Some("console"), None, 200)];
+
+        let days = days_from(&lines);
+        assert_eq!(
+            days.get(&other),
+            Some(&DayCount::default()),
+            "a machine with only console reads has a day of zero calls, not an omitted one"
+        );
+        assert!(
+            !days.contains_key(DEVICE),
+            "a machine the window never names has no day to serve"
+        );
+    }
+
+    #[tokio::test]
+    async fn the_fleet_window_reads_the_day_from_the_same_newest_lines_as_the_absences() {
+        let dir = TempDir::new("fleet-window");
+        let other = "cd".repeat(32);
+        let mut lines = vec![
+            boundary(DEVICE, DEVICE_LEFT, 100),
+            boundary(DEVICE, DEVICE_JOINED, 200),
+            call(DEVICE, 150, Some("client"), None, 200),
+        ];
+        // Push the machine's three lines behind the window: the filler is another device's calls.
+        for index in 0..FLEET_WINDOW {
+            lines.push(call(
+                &other,
+                1_000 + index as u64,
+                Some("client"),
+                None,
+                200,
+            ));
+        }
+        write_audit(&dir.0, &lines);
+        let audit = Audit::new(&dir.0, u64::MAX);
+
+        let window = audit.fleet_window().await;
+        assert!(window.boundaries.last_outages.is_empty());
+        assert!(
+            !window.days.contains_key(DEVICE),
+            "a day older than the newest {FLEET_WINDOW} lines is not read"
+        );
+        assert_eq!(
+            window.days.get(&other),
+            Some(&DayCount {
+                client_calls: FLEET_WINDOW as u64,
+                failed: 0,
+            }),
+            "the same window that dropped the pair holds the newer machine's day"
         );
     }
 }

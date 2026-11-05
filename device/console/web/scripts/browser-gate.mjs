@@ -77,6 +77,9 @@ const DEVICE = {
   version: '0.3.42',
   last_seen_ms: NOW,
   last_frame_ms: NOW - 12_000,
+  // The day the console's newest audit window counted for this machine: 283 calls, 38 failed. The
+  // row states it on its muted line; the failed half disappears at zero (see OFFLINE_DEVICE).
+  today: { client_calls: 283, failed: 38 },
   // The attempt before this channel: a count and a reason, and no moment of its own. The row must
   // not draw a sentence about it (C9), so the gate carries the measured one and asserts it is absent.
   last_attempt: {
@@ -108,6 +111,8 @@ const OFFLINE_DEVICE = {
   online: false,
   version: '0.3.42',
   last_seen_ms: NOW - 2 * 60 * 60_000,
+  // The quiet machine's day at zero failures: the row states the calls and omits `· 0 failed`.
+  today: { client_calls: 11, failed: 0 },
   // 108 m 30 s, so the rounded row reads "1h 49m" for the gate's whole run (its two widths are read
   // minutes apart, and a fixture exactly on 109 m would tick to 1h 50m between them).
   last_left_ms: NOW - (109 * 60_000 - 30_000),
@@ -115,6 +120,19 @@ const OFFLINE_DEVICE = {
     away_ms: 1_009,
     back_at_ms: NOW - 2 * 60 * 60_000 - 12 * 60_000
   }
+};
+// The third machine: the fleet compares more than two rows, and this one's day has a failure. It
+// carries no update story, so its row stays the measured 45 px at 1440 — the height the day must not
+// add to.
+const QUIET_DEVICE = {
+  id: 'gate-quiet-0123456789abcdef',
+  name: 'gate-quiet',
+  online: true,
+  version: '0.3.42',
+  last_seen_ms: NOW - 30_000,
+  last_frame_ms: NOW - 30_000,
+  today: { client_calls: 84, failed: 2 },
+  host: null
 };
 const RUN = {
   id: 'r-1',
@@ -296,7 +314,7 @@ function apiReply(request, url) {
   if (method === 'GET' && pathname === '/health') {
     return json({ status: 'ok', devices: 1, online: 1, version: 'browser-gate' });
   }
-  if (method === 'GET' && pathname === '/fleet') return json([DEVICE, OFFLINE_DEVICE]);
+  if (method === 'GET' && pathname === '/fleet') return json([DEVICE, OFFLINE_DEVICE, QUIET_DEVICE]);
   if (method === 'GET' && /^\/fleet\/[^/]+\/tools$/.test(pathname)) {
     return json({
       tools: TOOL_NAMES.map((name) => ({
@@ -517,6 +535,55 @@ try {
     throw new Error(`the online row's update line read "${verdict}"`);
   }
   step(`the online row states "${verdict}" and the version once`);
+  // **THE FLEET COMPARES THE WORK, NOT ONLY THE PRESENCE.** Every row states the day the console's
+  // newest audit window counted: `283 calls · 38 failed`, the failed half gone at zero, and nothing
+  // for a machine the window never names. The counts are on the state's muted line, so a row with no
+  // verdict line keeps the measured 45 px.
+  const fleet1440 = await page.evaluate(() =>
+    [...document.querySelectorAll('article.fleet-row')].map((row) => {
+      const name = row.querySelector('.fleet-name');
+      const state = row.querySelector('.fleet-state');
+      const work = row.querySelector('.fleet-work');
+      const height = Math.round(row.getBoundingClientRect().height);
+      return {
+        name: name?.textContent?.trim() ?? '',
+        state: state?.textContent?.trim() ?? '',
+        work: work?.textContent?.trim() ?? null,
+        height,
+        stateTop: state ? Math.round(state.getBoundingClientRect().top) : null,
+        workTop: work ? Math.round(work.getBoundingClientRect().top) : null
+      };
+    })
+  );
+  const workBy = new Map(fleet1440.map((row) => [row.name, row.work]));
+  const expectedWork = new Map([
+    ['gate-workshop', '283 calls · 38 failed'],
+    ['gate-asleep', '11 calls'],
+    ['gate-quiet', '84 calls · 2 failed']
+  ]);
+  for (const [name, expected] of expectedWork) {
+    if (workBy.get(name) !== expected) {
+      throw new Error(`the ${name} row read "${workBy.get(name)}" instead of "${expected}"`);
+    }
+  }
+  const plainRows = fleet1440.filter(
+    (row) => row.name === 'gate-asleep' || row.name === 'gate-quiet'
+  );
+  for (const row of plainRows) {
+    // 45 px is the measured row on the live console; a browser whose font metrics round it to 44
+    // still meets the budget — what must not happen is a second line, which `workTop` rules out.
+    if (row.height > 45) {
+      throw new Error(`the ${row.name} row grew to ${row.height} px at 1440; the row is 45 px`);
+    }
+    if (row.workTop !== row.stateTop) {
+      throw new Error(`the ${row.name} row's day is not on its state's line at 1440`);
+    }
+  }
+  step(
+    `the three fleet rows state their days (${[...expectedWork.values()].join(' | ')}); ` +
+      `the rows without a verdict are ${plainRows.map((row) => `${row.name} ${row.height}px`).join(', ')} ` +
+      `at 1440 (45 px is the measured live row)`
+  );
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.waitForTimeout(200);
 
@@ -880,6 +947,58 @@ try {
     throw new Error(`the offline row read "${offlineState390}" at 390`);
   }
   step(`at 390 the offline row says "${offlineState390}"`);
+  // **AT 390 THE COUNTS GET THEIR OWN LINE, NOT THE NAME'S.** The status cell takes the full width
+  // below dot and name, and the day wraps under the state: every name keeps the first line's width,
+  // and the page grows downward instead of sideways.
+  const fleet390 = await page.evaluate(() => {
+    const rows = [...document.querySelectorAll('article.fleet-row')].map((row) => {
+      const name = row.querySelector('.fleet-name');
+      const work = row.querySelector('.fleet-work');
+      const nameBox = name?.getBoundingClientRect();
+      const workBox = work?.getBoundingClientRect();
+      return {
+        name: name?.textContent?.trim() ?? '',
+        work: work?.textContent?.trim() ?? null,
+        nameWidth: nameBox ? Math.round(nameBox.width) : 0,
+        nameRight: nameBox ? Math.round(nameBox.right) : 0,
+        nameBottom: nameBox ? Math.round(nameBox.bottom) : 0,
+        workTop: workBox ? Math.round(workBox.top) : null,
+        height: Math.round(row.getBoundingClientRect().height)
+      };
+    });
+    return {
+      viewport: window.innerWidth,
+      scrollWidth: document.documentElement.scrollWidth,
+      rows
+    };
+  });
+  if (fleet390.rows.length !== 3) {
+    throw new Error(`the fleet drew ${fleet390.rows.length} rows at 390`);
+  }
+  for (const row of fleet390.rows) {
+    if (!row.work) {
+      throw new Error(`the ${row.name} row lost its day at 390`);
+    }
+    if (row.nameWidth < 120) {
+      throw new Error(`the ${row.name} name is only ${row.nameWidth} px wide at 390`);
+    }
+    if (row.nameRight > fleet390.viewport) {
+      throw new Error(`the ${row.name} name is outside the viewport at 390`);
+    }
+    if (row.workTop === null || row.workTop < row.nameBottom) {
+      throw new Error(`the ${row.name} row's day is not below the name at 390`);
+    }
+  }
+  if (fleet390.scrollWidth > fleet390.viewport) {
+    throw new Error(
+      `the fleet page scrolls sideways at 390: ${fleet390.scrollWidth} > ${fleet390.viewport}`
+    );
+  }
+  const heights390 = fleet390.rows.map((row) => `${row.name} ${row.height}px`).join(', ');
+  step(
+    `at 390 the three rows carry their counts below the name ` +
+      `(${heights390}); no sideways scroll`
+  );
   await page.locator('nav.rail button[title="Activity"]').click();
   await page.getByRole('heading', { name: 'Activity' }).waitFor({ timeout: 10_000 });
   await page.getByRole('tab', { name: 'Table' }).click();

@@ -1,6 +1,6 @@
 import type { DeviceUpdate, HostFacts } from "./api";
 import type { LastAttempt } from "./attempt";
-import { lastHeardMs, seenAgo, shortId } from "./format";
+import { callsLine, lastHeardMs, seenAgo, shortId } from "./format";
 import { startedLine, processStartMs } from "./updateStory";
 
 export type Device = {
@@ -14,6 +14,11 @@ export type Device = {
   last_left_ms?: number | null;
   /** The registry's last channel open: older evidence than either of the two above. */
   last_seen_ms?: number | null;
+  /**
+   * The AI's calls the fleet's audit window holds for this machine, and how many failed. Absent
+   * when the window names the machine nowhere: the row then draws no day at all, never a zero.
+   */
+  today?: { client_calls: number; failed: number } | null;
   /**
    * The attempt before the current channel. The row does not draw it: it is a count and a reason
    * with no moment of its own, and a sentence about it read as today's fault (C9). The field stays
@@ -69,13 +74,19 @@ export function DeviceCard({ device, selected, onSelect, onRename, onRemove, onD
     startedAtMs: processStartMs(device),
     shownVersion: device.version
   });
+  // **THE ROW COMPARES THE WORK, NOT ONLY THE PRESENCE.** The day is the fleet read's own count
+  // from the same audit window the hub counts: no request, no page, and nothing for a machine the
+  // window never names. It shares the state's muted line so the row stays one row at 1440; at 390
+  // the status cell takes its own line and the counts wrap below the state.
+  const work = callsLine(device.today);
   return (
     <article className={"fleet-row" + (selected ? " is-current" : "")}>
       <button type="button" className="fleet-open" aria-label={`Open ${label}`} onClick={onSelect}>
         <span className={"dot " + (device.online ? "dot-ok" : "dot-off")} aria-hidden="true" />
         <span className="fleet-name">{label}</span>
-        <span className={"fleet-state" + (device.online ? " ok" : "")}>
-          {state}
+        <span className="fleet-now">
+          <span className={"fleet-state" + (device.online ? " ok" : "")}>{state}</span>
+          {work && <span className="fleet-work">{work}</span>}
         </span>
         {device.version && <span className="fleet-build mono">v{device.version}</span>}
         <span className="fleet-chevron" aria-hidden="true">›</span>

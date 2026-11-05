@@ -676,6 +676,20 @@ update line no longer repeats the running version; the run form's placeholder is
    quiet without a close loses the one fact its row has. **Fix:** serve a per-device day summary from
    `/fleet` (client calls, failures, last call, from the audit's today scan) as one muted line on the
    fleet row, and read the menu's silence from the same `lastHeardMs` evidence as the row. **M.**
+   *(Done 2026-11-05: `/fleet` serves `today {client_calls, failed}` per device from the one
+   newest-2,000-line read that already feeds the absences — `caller: "client"`, or a token with no
+   caller; never a failed poll, the console's own read, or a channel boundary. It is omitted for a
+   machine the window names nowhere, so a row draws nothing rather than a zero; the fleet list and
+   the rename's single-row answer read the same window once. The row states it on its presence line
+   (`283 calls · 38 failed`, `· failed` gone at zero) and the machine menu draws it beside the disk
+   (`C: 19.7 GiB free · 283 calls · 38 failed`). Measured on the gate's fixture: at 1440 the three
+   rows read `283 calls · 38 failed`, `11 calls`, `84 calls · 2 failed`, the two without a verdict
+   line measured 45 px and 44 px (one line; the live console's 45 px, the browser's font rounding),
+   and at 390 they read the same three strings, the counts wrapped to their own line under the
+   state with the name keeping the row above — 109 px and 108 px plain, 130 px with the update
+   verdict — and no sideways scroll. `npx vitest run` 653 passed across 51 files; typecheck and
+   build clean; `./scripts/build-web.sh --check` clean with dist committed; browser gate PASS 25
+   steps (three rows' counts read at both widths); `a11y-audit` 0 findings across 16 page states.)*
 
 5. **At 390 the audit table spends three lines on the machine's name.** The table is **320 px** wide:
    When **64**, Device **67**, Token **48**, What happened **96**, Status **45**; `DESKTOP-9VH92BJ

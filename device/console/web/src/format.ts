@@ -1,5 +1,21 @@
 export { shortId, age, ageAt } from "./logic";
 
+/**
+ * The fleet's one sentence about a machine's day: `283 calls · 38 failed`.
+ *
+ * The failed half is omitted at zero, so a healthy machine reads as its work and not as a
+ * reassurance; a machine the audit window holds no line for has no day at all, and returns null so
+ * the row draws nothing rather than a zero. The counts are the window's, and the hub counts the same
+ * lines by the same rule.
+ */
+export function callsLine(
+  day: { client_calls: number; failed: number } | null | undefined
+): string | null {
+  if (!day) return null;
+  const calls = `${day.client_calls} ${day.client_calls === 1 ? "call" : "calls"}`;
+  return day.failed > 0 ? `${calls} · ${day.failed} failed` : calls;
+}
+
 /** A failed call's sentence: an Error's message, or the value as a string. */
 export function message(cause: unknown): string {
   return cause instanceof Error ? cause.message : String(cause);

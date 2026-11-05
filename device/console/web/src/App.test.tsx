@@ -464,6 +464,75 @@ describe("App", () => {
     expect(screen.queryByText("Moved a file")).toBeNull();
   });
 
+  it("states the same day on the fleet row that the machine's hub counts", async () => {
+    // The fleet's `today` and the hub's day line are one rule over one window: `/fleet` serves the
+    // counts, and the hub reads the machine's lines and counts them itself. The fixture holds the
+    // four kinds the rule has to tell apart — a client call, a failed client call, the console's
+    // own read and a failed poll — so the row and the hub can only agree by counting the same two.
+    const midnight = new Date();
+    midnight.setHours(0, 0, 0, 0);
+    const at = (seconds: number) => midnight.getTime() + seconds * 1_000;
+    mocks.devices.mockResolvedValue([
+      { ...workshop, today: { client_calls: 2, failed: 1 } },
+      attic
+    ]);
+    mocks.audit.mockResolvedValue([
+      {
+        ts_ms: at(30),
+        kind: "mcp",
+        device_id: workshop.id,
+        token_id: null,
+        tool: "files.read",
+        detail: null,
+        status: 200,
+        caller: "client",
+        sentence: "Read a file"
+      },
+      {
+        ts_ms: at(20),
+        kind: "mcp",
+        device_id: workshop.id,
+        token_id: null,
+        tool: "runs.exec",
+        detail: null,
+        status: 424,
+        caller: "client",
+        sentence: "Ran a command"
+      },
+      {
+        ts_ms: at(10),
+        kind: "mcp",
+        device_id: workshop.id,
+        token_id: null,
+        tool: "terminal.list",
+        detail: "device offline",
+        status: 500,
+        caller: "console",
+        sentence: "Listed the terminal sessions"
+      },
+      {
+        ts_ms: at(5),
+        kind: "poll",
+        device_id: workshop.id,
+        token_id: null,
+        tool: "terminal.read",
+        detail: "device offline",
+        status: 502
+      }
+    ]);
+    await bootAndSignIn();
+
+    const card = screen
+      .getAllByText("workshop")
+      .find((node) => node.closest("article"))
+      ?.closest("article");
+    expect(card).not.toBeNull();
+    expect(within(card as HTMLElement).getByText("2 calls · 1 failed")).toBeInTheDocument();
+
+    selectDevice("workshop");
+    expect(await screen.findByText(/^Today 2 client calls · 1 failed/)).toBeInTheDocument();
+  });
+
   it("names the day's poll failures apart, and draws them in the Table", async () => {
     // The measured shape this work started from: three client failures, two console failures and
     // 41 reconnect-window poll failures. The last group is a sleeping machine's retries, not the
