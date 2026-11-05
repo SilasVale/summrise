@@ -1,23 +1,29 @@
 //! The Windows half of the launcher: SCM registration, the supervisor loop, process termination and
-//! the swap transaction (design §4.1, §4.4; fix design F1/F2/F4/F5).
+//! the version switch (design §4.1, §4.4; fix design F1/F2/F4/F5; the 2026-11-05 versioned layout).
 //!
 //! Every decision this module makes is a call into the pure half in [`summrise_launch`]. What lives
 //! here is only the OS effect: `windows-service` registers and reports the service, `windows-sys`
 //! opens and terminates a PID after checking it is really our binary, and `std::process` owns the app
 //! child. There is no PowerShell and no `sc.exe`: the SCM API is the API.
 //!
-//! **The swap runs in this process.** The app writes `<install>/swap.request.json`; the supervisor
-//! polls it, validates the staged pair, stops its own child, installs the pair, starts the child
-//! again, probes health twice, and only then commits the baseline generation. `--apply` remains as
-//! an operator-only manual entry point that runs the same transaction once; the product never calls
-//! it. Because the supervisor never exits to perform a swap, the SCM owns the process throughout and
+//! **A versioned install boots from `current.txt`.** The supervisor resolves the app through the
+//! pointer at every start; two consecutive failed starts roll the pointer back to `previous.txt`.
+//! `--install-version` is the pointer transaction: verify, health-check the candidate on a scratch
+//! port with a copy of the data directory, then one atomic pointer write. `--apply` is the same plus
+//! the service restart. Nothing overwrites a version directory that already exists.
+//!
+//! **The legacy swap runs in this process.** For a pre-versioned install (no `current.txt`), the app
+//! writes `<install>/swap.request.json`; the supervisor polls it, validates the staged pair, stops
+//! its own child, installs the pair, starts the child again, probes health twice, and only then
+//! commits the baseline generation. A pointer-managed install refuses that request: the legacy swap
+//! would install over a file the pointer never reads, so the stager must use the version layout.
+//! Because the supervisor never exits to perform a switch, the SCM owns the process throughout and
 //! the kill-on-close job cannot kill the updater.
 
 use std::ffi::{OsStr, OsString};
 use std::fs;
 use std::io;
 use std::io::Write as _;
-use std::net::{SocketAddr, TcpStream};
 use std::os::windows::ffi::{OsStrExt, OsStringExt};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitCode};
@@ -26,16 +32,18 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use summrise_launch::{
-    app_arguments, app_exe, app_pid_file, commit_pending, discard_pending, ensure_baseline,
-    failure_code, generation_dir, install_pending_over_app, install_token, launcher_pid_file,
-    link_to_persist, now_ms, parse_config, parse_service_args, read_swap_request, resolve_baseline,
-    restore_current_app, restore_from_previous_at_startup, same_image, service_launch_arguments,
-    sha256_bytes, split_console_args, stage_pending, staged_exe, staged_sidecar, swap_request,
-    swap_result, token_action, token_text, validate_staged_update, verify_or_restore_at_startup,
-    wait_healthy, write_console_link, write_swap_result, Action, Baseline, BaselineChoice,
-    BaselineInstall, Config, ConsoleLink, RestartBudget, Restore, Sidecar, StagedPair,
-    SwapRequestState, SwapResult, TokenAction, APP_EXE, CURRENT_DIR, LAUNCHER_EXE,
-    LAUNCHER_PUBKEY_HEX, MAX_RESTARTS, PENDING_DIR, SWAP_REQUEST_TIMEOUT_MS, TOKEN_BYTES,
+    app_arguments, app_exe, app_pid_file, commit_pending, commit_version, discard_pending,
+    ensure_baseline, failure_code, generation_dir, install_pending_over_app, install_token,
+    launcher_pid_file, link_to_persist, now_ms, parse_config, parse_service_args, prepare_version,
+    read_current_pointer, read_swap_request, resolve_baseline, restore_current_app,
+    restore_from_previous_at_startup, same_image, service_launch_arguments, sha256_bytes,
+    split_console_args, stage_pending, staged_exe, staged_sidecar, swap_request, swap_result,
+    token_action, token_text, validate_staged_update, validate_version_name,
+    verify_or_restore_at_startup, wait_healthy, write_console_link, write_swap_result, Action,
+    AppLocation, Baseline, BaselineChoice, BaselineInstall, Config, ConsoleLink, Generation,
+    Pointer, RestartBudget, Restore, Sidecar, StagedPair, StartWatch, SwapRequestState, SwapResult,
+    TokenAction, Version, VersionProbe, APP_EXE, CURRENT_DIR, LAUNCHER_EXE, LAUNCHER_PUBKEY_HEX,
+    MAX_RESTARTS, PENDING_DIR, STABLE_AFTER_MS, SWAP_REQUEST_TIMEOUT_MS, TOKEN_BYTES,
 };
 use windows_service::service::{
     Service, ServiceAccess, ServiceAction, ServiceActionType, ServiceControl, ServiceControlAccept,
@@ -128,6 +136,18 @@ pub fn entry() -> ExitCode {
                 Err(error) => fail(&error),
             }
         }
+        "--install-version" => {
+            let (Some(dir), Some(sidecar)) = (args.get(1), args.get(2)) else {
+                eprintln!("launch: --install-version needs <version-dir> <sidecar>");
+                return usage();
+            };
+            let dir = absolute(Path::new(dir));
+            let sidecar = absolute(Path::new(sidecar));
+            match config_from_args(&args[3..]) {
+                Ok(config) => install_version_mode(&config, &dir, &sidecar),
+                Err(error) => fail(&error),
+            }
+        }
         "--start-shell" => match parse_start_shell_args(&args[1..]) {
             Ok(install) => start_shell(&install),
             Err(error) => fail(&error),
@@ -216,6 +236,8 @@ summrise-launch — repair, supervise and swap summrise-device.exe
                       [--console-url URL --console-token-file PATH]
                       [--mesh-broker ORIGIN [--mesh-relay ADDR] [--mesh-stun ADDR]]
   summrise-launch service [--service-name NAME]
+  summrise-launch --install-version <version-dir> <sidecar>
+                      [--install DIR] [--data DIR] [--port N]
   summrise-launch --apply <staged> <sidecar> [--install DIR] [--data DIR] [--port N]
                       [--files-shared-root PATH]
   summrise-launch --start-shell [--install <dir>]
@@ -247,6 +269,15 @@ supervisor performs the swap, writing <install>/swap.result.json. --apply is an 
 entry point that runs the same transaction once while no supervisor is serving. There is one
 supervisor per install: a named mutex makes a second `run` (or a `run` beside the service) exit
 rather than race the swap transaction.
+
+--install-version verifies versions/<name>/summrise-device.exe against the signed sidecar, starts it
+on a scratch port with a copy of the data directory, requires two matching /api/health answers, and
+only then writes <install>/current.txt (a temporary file renamed over it) naming the directory. The
+version that was current is recorded in previous.txt and its directory is left on disk; any failure
+leaves current.txt untouched. --apply runs the same steps and then restarts the service (or, with no
+service, leaves a manual child running from the new pointer). A pre-versioned install has no
+current.txt and keeps running the flat app from baseline/current; two failed starts of a versioned
+install's current version roll current.txt back to previous.txt.
 
 The supervisor starts the app with --install, --data, --port, --token-file and the release facts of
 the sidecar it booted: --release-version, --release-sha and --release-channel (stable or canary).
@@ -854,6 +885,7 @@ pub fn supervise(config: &Config, stop: &AtomicBool) -> u32 {
     let job = ChildJob::create();
 
     let mut budget = RestartBudget::new();
+    let mut watch = StartWatch::new();
     let mut child: Option<Child> = None;
     let mut started = Instant::now();
     let mut last_code: u32;
@@ -878,6 +910,9 @@ pub fn supervise(config: &Config, stop: &AtomicBool) -> u32 {
                 SwapPoll::Swapped => {
                     started = Instant::now();
                     restart_at = None;
+                    // The switch was health-checked by the transaction; the new pointer starts with
+                    // a clean failure history, not the previous version's.
+                    watch.on_stable();
                 }
                 SwapPoll::Stopped => {
                     if let Err(error) = stop_child(&mut child) {
@@ -904,6 +939,13 @@ pub fn supervise(config: &Config, stop: &AtomicBool) -> u32 {
                 Err(error) => {
                     eprintln!("launch: cannot start the app: {error}");
                     last_code = 1;
+                    if note_failed_start(config, &mut watch) {
+                        // The pointer moved back to a known-good version: give it a whole budget.
+                        budget = RestartBudget::new();
+                        restart_at = None;
+                        started = Instant::now();
+                        continue;
+                    }
                     if let Action::GiveUp = budget.on_child_exit(Duration::ZERO) {
                         eprintln!(
                             "launch: giving up after {MAX_RESTARTS} consecutive failed starts"
@@ -928,6 +970,16 @@ pub fn supervise(config: &Config, stop: &AtomicBool) -> u32 {
                 last_code = failure_code(status.code());
                 let alive = started.elapsed();
                 child = None;
+                if alive < Duration::from_millis(STABLE_AFTER_MS) {
+                    if note_failed_start(config, &mut watch) {
+                        budget = RestartBudget::new();
+                        restart_at = None;
+                        started = Instant::now();
+                        continue;
+                    }
+                } else {
+                    watch.on_stable();
+                }
                 match budget.on_child_exit(alive) {
                     Action::RetryAfterMs(backoff) => {
                         eprintln!(
@@ -952,6 +1004,12 @@ pub fn supervise(config: &Config, stop: &AtomicBool) -> u32 {
                 let _ = fs::remove_file(app_pid_file(&config.data));
                 last_code = 1;
                 child = None;
+                if note_failed_start(config, &mut watch) {
+                    budget = RestartBudget::new();
+                    restart_at = None;
+                    started = Instant::now();
+                    continue;
+                }
                 if let Action::GiveUp = budget.on_child_exit(Duration::ZERO) {
                     eprintln!("launch: giving up after {MAX_RESTARTS} consecutive restarts");
                     return last_code;
@@ -960,6 +1018,29 @@ pub fn supervise(config: &Config, stop: &AtomicBool) -> u32 {
                 eprintln!("launch: restarting in {next} ms");
                 restart_at = Some(Instant::now() + Duration::from_millis(next));
             }
+        }
+    }
+}
+
+/// Record one failed start; when the pointer rolled back, log it and tell the caller to reset.
+///
+/// The rollback itself is the pure half's rule ([`StartWatch`]) and one pointer write. This function
+/// adds only the operator's sentence and the supervisor's decision to grant the restored version a
+/// fresh restart budget.
+fn note_failed_start(config: &Config, watch: &mut StartWatch) -> bool {
+    match watch.on_failed_start(&config.install) {
+        Ok(Some(rollback)) => {
+            eprintln!(
+                "launch: version {} failed to start twice in a row; rolled current.txt back to {}",
+                rollback.from.as_deref().unwrap_or("<unnamed>"),
+                rollback.to
+            );
+            true
+        }
+        Ok(None) => false,
+        Err(error) => {
+            eprintln!("launch: warning: the version rollback did not happen: {error}");
+            false
         }
     }
 }
@@ -974,37 +1055,49 @@ fn next_restart_delay(budget: &RestartBudget) -> u64 {
         .unwrap_or(4_000)
 }
 
-/// Resolve the baseline, repair the app from it, and start one supervised child.
+/// Resolve where the app lives, repair a legacy install from its baseline, and start one child.
+///
+/// A versioned install is not repaired: a version directory whose bytes do not match its sidecar is
+/// a failed start, and the failure budget rolls the pointer back. Repairing it would overwrite a
+/// version directory, which is the one thing this layout forbids.
 fn start_supervised_child(
     config: &Config,
     job: &Option<ChildJob>,
     child: &mut Option<Child>,
 ) -> Result<(), String> {
-    let baseline = match resolve_baseline(&config.install) {
-        BaselineChoice::Current(baseline) => baseline,
-        BaselineChoice::Previous(_) => {
-            let baseline = restore_from_previous_at_startup(&config.install)?;
-            eprintln!(
-                "launch: current baseline was unusable; restored the previous generation ({})",
-                baseline.sidecar.version
-            );
-            baseline
+    let location = config.app()?;
+    let (exe, sidecar) = match location {
+        AppLocation::Version(version) => (version.exe, version.sidecar),
+        AppLocation::Legacy { exe, baseline } => {
+            let baseline = match baseline.generation {
+                Generation::Previous => {
+                    // `previous` booted because `current` was inconsistent; rebuild `current` from
+                    // the trusted pair before spawning, exactly as the pre-versioned path did.
+                    let restored = restore_from_previous_at_startup(&config.install)?;
+                    eprintln!(
+                        "launch: current baseline was unusable; restored the previous generation ({})",
+                        restored.sidecar.version
+                    );
+                    restored
+                }
+                Generation::Current | Generation::Pending => baseline,
+            };
+            // Round 2: only this startup path records a self-repair. The rollback path uses
+            // `restore_current_app` (silent), so a rolled-back swap keeps its own verdict.
+            match verify_or_restore_at_startup(&config.install, &baseline) {
+                Restore::Ok => {}
+                Restore::Restored => eprintln!(
+                    "launch: restored {} from the {} baseline",
+                    exe.display(),
+                    baseline.generation.label()
+                ),
+                Restore::NeedsHuman(reason) => return Err(format!("needs a human: {reason}")),
+            }
+            (exe, baseline.sidecar)
         }
-        BaselineChoice::NeedsHuman(reason) => return Err(reason),
     };
-    // Round 2: only this startup path records a self-repair. The rollback path uses
-    // `restore_current_app` (silent), so a rolled-back swap keeps its own verdict.
-    match verify_or_restore_at_startup(&config.install, &baseline) {
-        Restore::Ok => {}
-        Restore::Restored => eprintln!(
-            "launch: restored {} from the {} baseline",
-            app_exe(&config.install).display(),
-            baseline.generation.label()
-        ),
-        Restore::NeedsHuman(reason) => return Err(format!("needs a human: {reason}")),
-    }
 
-    let spawned = spawn_app(config, &baseline.sidecar, true)
+    let spawned = spawn_app(config, &exe, &sidecar, true)
         .map_err(|error| format!("cannot spawn the app: {error}"))?;
     if let Some(job) = job {
         if let Err(error) = job.assign(&spawned) {
@@ -1018,7 +1111,12 @@ fn start_supervised_child(
     Ok(())
 }
 
-fn spawn_app(config: &Config, sidecar: &Sidecar, supervised: bool) -> io::Result<Child> {
+fn spawn_app(
+    config: &Config,
+    exe: &Path,
+    sidecar: &Sidecar,
+    supervised: bool,
+) -> io::Result<Child> {
     // The port is the child's first need, and the previous generation may still have connections in
     // the kernel: wait until a bind succeeds before spawning, or the child dies on WSAEADDRINUSE and
     // the health gate turns that into a rollback into the same window.
@@ -1029,14 +1127,14 @@ fn spawn_app(config: &Config, sidecar: &Sidecar, supervised: bool) -> io::Result
     // F6 and the channel fix: the running release is one fact. The app records the sidecar's
     // version, digest and channel rather than re-deriving any of them from its own compile time, so
     // state.json and /api/health report the channel the launcher actually booted.
-    let mut command = Command::new(app_exe(&config.install));
+    let mut command = Command::new(exe);
     command
         .args(app_arguments(config, sidecar))
         .current_dir(&config.install);
     if supervised {
         // The mark the app reads before it restarts after a panel enrollment or host.restart: argv
-        // is caller-supplied, this says a supervisor will bring it back. `--apply`'s standalone
-        // child is not marked: when that console path exits, nothing restarts it.
+        // is caller-supplied, this says a supervisor will bring it back. A candidate probe and the
+        // operator's standalone child are not marked: nothing restarts them.
         command.env("SUMMRISE_SUPERVISED", "1");
     }
     command.spawn()
@@ -1110,11 +1208,11 @@ enum SwapError {
     Stopped(String),
 }
 
-/// Who owns the process during a transaction.
+/// Who owns the process during a legacy (pre-versioned) transaction.
 ///
-/// The supervisor owns one child; the operator's `--apply` owns a stopped service (or console
-/// supervisor) and, while the probes run, a standalone child it must start itself. The transaction
-/// below is identical for both, which is what makes `--apply` "the same swap function once".
+/// The supervisor owns one child; the transaction stops it, replaces the flat app and starts the
+/// replacement. The versioned layout does not use this path: `--apply` and `--install-version` move
+/// a pointer instead of overwriting a running file.
 trait SwapOwner {
     /// Stop the process that was serving before the transaction.
     fn stop_current(&mut self) -> Result<(), String>;
@@ -1123,8 +1221,7 @@ trait SwapOwner {
     fn stop_started(&mut self) -> Result<(), String>;
     /// Start a child from `sidecar` and return its pid.
     fn start(&mut self, sidecar: &Sidecar) -> Result<u32, String>;
-    /// Settle the owner after a committed or rolled-back transaction (the supervisor does nothing;
-    /// `--apply` may hand the app back to the SCM).
+    /// Settle the owner after a committed or rolled-back transaction.
     fn finish(&mut self, act: Finish, sidecar: &Sidecar) -> Result<(), String>;
 }
 
@@ -1164,7 +1261,7 @@ impl SwapOwner for SupervisedOwner<'_> {
                 tracked.id()
             ));
         }
-        let spawned = spawn_app(self.config, sidecar, true)
+        let spawned = spawn_app(self.config, &app_exe(&self.config.install), sidecar, true)
             .map_err(|error| format!("cannot spawn the app: {error}"))?;
         if let Some(job) = self.job {
             if let Err(error) = job.assign(&spawned) {
@@ -1180,79 +1277,6 @@ impl SwapOwner for SupervisedOwner<'_> {
     }
 
     fn finish(&mut self, _act: Finish, _sidecar: &Sidecar) -> Result<(), String> {
-        Ok(())
-    }
-}
-
-/// The operator's owner for `--apply`: stop the service / console supervisor, run the transaction
-/// against a standalone child, then hand a committed app back to the SCM when one is installed.
-struct ManualOwner<'a> {
-    config: &'a Config,
-    service: &'a Option<Service>,
-    child: Option<Child>,
-    /// Whether the service or the console supervisor has been stopped already: `apply` stops it
-    /// before it takes the supervisor lock, and stopping twice is not the same as stopping once.
-    owner_stopped: bool,
-}
-
-impl SwapOwner for ManualOwner<'_> {
-    fn stop_current(&mut self) -> Result<(), String> {
-        stop_child(&mut self.child)?;
-        let _ = fs::remove_file(app_pid_file(&self.config.data));
-        if self.owner_stopped {
-            return Ok(());
-        }
-        stop_owner(self.config, self.service)?;
-        self.owner_stopped = true;
-        Ok(())
-    }
-
-    fn stop_started(&mut self) -> Result<(), String> {
-        stop_child(&mut self.child)?;
-        let _ = fs::remove_file(app_pid_file(&self.config.data));
-        Ok(())
-    }
-
-    fn start(&mut self, sidecar: &Sidecar) -> Result<u32, String> {
-        if let Some(tracked) = self.child.as_ref() {
-            return Err(format!(
-                "a child (pid {}) is still tracked; refusing to start a second one",
-                tracked.id()
-            ));
-        }
-        let spawned = spawn_app(self.config, sidecar, true)
-            .map_err(|error| format!("cannot spawn the app: {error}"))?;
-        let pid = spawned.id();
-        let _ = fs::write(app_pid_file(&self.config.data), pid.to_string());
-        self.child = Some(spawned);
-        Ok(pid)
-    }
-
-    fn finish(&mut self, _act: Finish, sidecar: &Sidecar) -> Result<(), String> {
-        let Some(service) = self.service else {
-            // Console mode: the standalone child stays, exactly as an operator started it.
-            return Ok(());
-        };
-        if let Err(error) = stop_child(&mut self.child) {
-            return Err(format!(
-                "cannot stop the manual app before handing back: {error}"
-            ));
-        }
-        start_service(service)?;
-        let pid = wait_for_pid_file(&app_pid_file(&self.config.data), Duration::from_secs(30))
-            .ok_or_else(|| "the service started but its app did not write a pid".to_string())?;
-        if !wait_healthy(
-            self.config.port,
-            &sidecar.version,
-            pid,
-            HEALTH_TIMEOUT,
-            || false,
-        ) {
-            return Err(format!(
-                "the service started but its app (pid {pid}) did not become healthy on version {}",
-                sidecar.version
-            ));
-        }
         Ok(())
     }
 }
@@ -1309,6 +1333,21 @@ fn poll_swap(
                 "the request names sha256 {}, but the staged sidecar signs {}",
                 request.sha256, pair.sidecar.sha256
             ),
+        );
+    }
+
+    // A versioned install boots a version directory named by `current.txt`. The legacy swap below
+    // installs over the flat exe and rotates baseline generations the pointer never reads: running
+    // it would answer "applied" while the pointer still starts the old version. Fail closed until
+    // the stager writes the version layout through `--install-version`.
+    if !matches!(read_current_pointer(&config.install), Pointer::Missing) {
+        return refuse_request(
+            config,
+            Some(&pair.sidecar.sha256),
+            "this install runs from current.txt; the legacy swap would overwrite a file it never \
+             boots. Stage the release into versions/<version>/ and install it with \
+             --install-version"
+                .to_string(),
         );
     }
 
@@ -1624,9 +1663,11 @@ fn start_current<O: SwapOwner>(
 
 /// `--apply <staged> <sidecar>`: the operator-only manual entry point.
 ///
-/// The product never calls this; the app writes `swap.request.json` instead. An operator uses it
-/// when no supervisor is serving (a stopped service, or a console install that is down). It runs the
-/// same [`run_swap`] transaction once and leaves the device in the same generation layout.
+/// It does what `--install-version` does — verify the pair, stage the version directory, prove the
+/// candidate on a scratch port, and make one atomic pointer write — and then, as before, hands the
+/// install back to its owner: the SCM service is started again so it reads the new pointer, or with
+/// no service a standalone child is left serving it. A failed probe leaves `current.txt` where it
+/// was and never stops the running service.
 pub fn apply(config: &Config, staged: &Path, sidecar_path: &Path) -> ExitCode {
     let pair = match validate_staged_update(staged, sidecar_path) {
         Ok(pair) => pair,
@@ -1669,42 +1710,246 @@ pub fn apply(config: &Config, staged: &Path, sidecar_path: &Path) -> ExitCode {
         Err(error) => return exit_for(Err(error)),
     };
 
-    // The manual transaction is a supervisor for its duration. Without the lock, a console `run`
-    // supervisor or a second `--apply` can rotate the same generations while this one stops and
-    // starts the app; the owner is stopped first because it is the process holding the lock.
+    // The candidate is proven before the owner is touched: the probe runs from a copy of the data
+    // directory on a scratch port, so a build that cannot serve costs a refusal, not an outage.
+    let name = pair.sidecar.version.clone();
+    if let Err(error) = validate_version_name(&name) {
+        return fail(&format!(
+            "the sidecar's version {name:?} cannot name a version directory: {error}"
+        ));
+    }
+    let prepared = match prepare_version(config, &name, &pair, &CandidateProbe) {
+        Ok(version) => version,
+        Err(error) => {
+            // `current.txt` never moved and the live child was never stopped.
+            return exit_for(Err(error));
+        }
+    };
+
+    // The switch is one pointer write under the supervisor lock: no supervisor may start half-way
+    // through a stop/start cycle. The owner is stopped first because it holds the lock.
     if let Err(error) = stop_owner(config, &service) {
         return exit_for(Err(error));
     }
-    let _lock = match SupervisorLock::acquire(&config.install) {
-        Ok(lock) => lock,
+    let switched = match SupervisorLock::acquire(&config.install) {
+        Ok(lock) => {
+            let result = commit_version(&config.install, &prepared);
+            drop(lock);
+            result
+        }
         Err(error) => return fail(&error),
     };
-    let mut owner = ManualOwner {
-        config,
-        service: &service,
-        child: None,
-        owner_stopped: true,
-    };
-    let no_stop = AtomicBool::new(false);
-    match run_swap(config, &pair, &mut owner, &no_stop) {
-        Ok(SwapAct::Applied) => {
+    match switched {
+        Ok(installed) => {
             eprintln!(
-                "launch: update to {} applied and healthy on port {}",
-                pair.sidecar.version, config.port
+                "launch: version {} is current{}",
+                installed.version.name,
+                match installed.previous.as_deref() {
+                    Some(previous) => format!(" (previous: {previous})"),
+                    None => String::new(),
+                }
+            );
+            match start_after_apply(config, &service) {
+                Ok(()) => ExitCode::SUCCESS,
+                Err(error) => exit_for(Err(error)),
+            }
+        }
+        Err(error) => {
+            // `commit_version` writes the pointer last; a failure there leaves the old one in place.
+            eprintln!("launch: the switch failed; current.txt was not moved: {error}");
+            if let Err(restart) = start_after_apply(config, &service) {
+                eprintln!("launch: CRITICAL: the old version did not restart: {restart}");
+            }
+            ExitCode::from(1)
+        }
+    }
+}
+
+/// Hand the install back to whichever owner `--apply` found, from whatever the pointer now says.
+fn start_after_apply(config: &Config, service: &Option<Service>) -> Result<(), String> {
+    let location = config.app()?;
+    if let Some(service) = service {
+        start_service(service)?;
+        let pid = wait_for_pid_file(&app_pid_file(&config.data), Duration::from_secs(30))
+            .ok_or_else(|| "the service started but its app did not write a pid".to_string())?;
+        if !wait_healthy(
+            config.port,
+            &location.sidecar().version,
+            pid,
+            HEALTH_TIMEOUT,
+            || false,
+        ) {
+            return Err(format!(
+                "the service started but its app (pid {pid}) did not become healthy on version {}",
+                location.sidecar().version
+            ));
+        }
+        Ok(())
+    } else {
+        // Console mode: leave a standalone child serving the current pointer, exactly as `--apply`
+        // did before the versioned layout.
+        let spawned = spawn_app(config, location.exe(), location.sidecar(), true)
+            .map_err(|error| format!("the pointer moved but the app cannot start: {error}"))?;
+        let _ = fs::write(app_pid_file(&config.data), spawned.id().to_string());
+        Ok(())
+    }
+}
+
+/// `--install-version <version-dir> <sidecar>`: verify the pair, prove the candidate, move the
+/// pointer. It does not restart anything: the running service keeps serving the old version until
+/// its owner restarts it (that is `--apply`).
+fn install_version_mode(config: &Config, dir: &Path, sidecar_path: &Path) -> ExitCode {
+    let Some(name) = dir.file_name().and_then(OsStr::to_str) else {
+        return fail(&format!(
+            "--install-version needs a directory with a plain name: {}",
+            dir.display()
+        ));
+    };
+    let exe = dir.join(APP_EXE);
+    let pair = match validate_staged_update(&exe, sidecar_path) {
+        Ok(pair) => pair,
+        Err(error) => return fail(&error),
+    };
+    match summrise_launch::install_version(config, name, &pair, &CandidateProbe) {
+        Ok(installed) => {
+            eprintln!(
+                "launch: version {} is current{}",
+                installed.version.name,
+                match installed.previous.as_deref() {
+                    Some(previous) => format!(" (previous: {previous})"),
+                    None => String::new(),
+                }
             );
             ExitCode::SUCCESS
         }
-        Ok(SwapAct::RolledBack { reason }) => {
-            eprintln!(
-                "launch: update to {} rolled back: {reason}",
-                pair.sidecar.version
-            );
-            ExitCode::from(1)
-        }
-        Err(SwapError::Refused(error)) => fail(&error),
-        Err(SwapError::Failed(error)) => exit_for(Err(error)),
-        Err(SwapError::Stopped(error)) => exit_for(Err(error)),
+        Err(error) => exit_for(Err(error)),
     }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────────
+// The candidate's health check (2026-11-05 design, step 3)
+// ─────────────────────────────────────────────────────────────────────────────────────────────────
+
+/// How long a candidate gets to answer `/api/health` twice on its scratch port.
+const CANDIDATE_HEALTH_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// The version probe `--install-version` and `--apply` use.
+struct CandidateProbe;
+
+impl VersionProbe for CandidateProbe {
+    fn probe(&self, config: &Config, version: &Version) -> Result<(), String> {
+        probe_candidate(config, version)
+    }
+}
+
+/// Start `version` on a scratch port with a copy of the data directory, require two matching health
+/// answers, and kill it. The live child keeps serving the old version for the whole check.
+fn probe_candidate(config: &Config, version: &Version) -> Result<(), String> {
+    let scratch = scratch_dir(&version.name);
+    let scratch_data = scratch.join("data");
+    let port = free_loopback_port()?;
+    let result = (|| -> Result<(), String> {
+        copy_data_dir(&config.data, &scratch_data)?;
+        let scratch_config = Config {
+            install: config.install.clone(),
+            data: scratch_data,
+            port,
+        };
+        let mut child = spawn_app(&scratch_config, &version.exe, &version.sidecar, false)
+            .map_err(|error| format!("cannot start version {}: {error}", version.name))?;
+        let pid = child.id();
+        let healthy = wait_healthy(
+            port,
+            &version.sidecar.version,
+            pid,
+            CANDIDATE_HEALTH_TIMEOUT,
+            || false,
+        );
+        let _ = child.kill();
+        let _ = child.wait();
+        if healthy {
+            Ok(())
+        } else {
+            Err(format!(
+                "version {} (pid {pid}) did not answer /api/health twice within {} s on scratch port {port}",
+                version.name,
+                CANDIDATE_HEALTH_TIMEOUT.as_secs()
+            ))
+        }
+    })();
+    if let Err(error) = fs::remove_dir_all(&scratch) {
+        if error.kind() != io::ErrorKind::NotFound {
+            eprintln!(
+                "launch: warning: cannot remove the probe directory {}: {error}",
+                scratch.display()
+            );
+        }
+    }
+    result
+}
+
+/// A fresh probe directory under the OS temp: outside the install, so a probe can never touch a
+/// version directory or the live data.
+fn scratch_dir(version: &str) -> PathBuf {
+    static NEXT: AtomicU32 = AtomicU32::new(0);
+    let nonce = NEXT.fetch_add(1, Ordering::Relaxed);
+    std::env::temp_dir().join(format!(
+        "summrise-candidate-{}-{}-{nonce}-{version}",
+        std::process::id(),
+        now_ms()
+    ))
+}
+
+/// Copy the live data directory for the probe.
+///
+/// The candidate must not write the real `<data>`: state, the install token and the rollback memory
+/// all live there. Entries that are neither a regular file nor a directory (a symlink, a device) are
+/// skipped rather than followed.
+fn copy_data_dir(from: &Path, to: &Path) -> Result<(), String> {
+    fs::create_dir_all(to).map_err(|error| {
+        format!(
+            "cannot create the probe data directory {}: {error}",
+            to.display()
+        )
+    })?;
+    let entries = match fs::read_dir(from) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => {
+            return Err(format!(
+                "cannot read the data directory {}: {error}",
+                from.display()
+            ));
+        }
+    };
+    for entry in entries {
+        let entry = entry.map_err(|error| {
+            format!("cannot read the data directory {}: {error}", from.display())
+        })?;
+        let target = to.join(entry.file_name());
+        let file_type = entry
+            .file_type()
+            .map_err(|error| format!("cannot inspect {}: {error}", entry.path().display()))?;
+        if file_type.is_dir() {
+            copy_data_dir(&entry.path(), &target)?;
+        } else if file_type.is_file() {
+            fs::copy(entry.path(), &target)
+                .map_err(|error| format!("cannot copy {}: {error}", entry.path().display()))?;
+        }
+    }
+    Ok(())
+}
+
+/// Reserve a loopback port for the candidate: bind port 0, read what the kernel chose, release it.
+fn free_loopback_port() -> Result<u16, String> {
+    let listener = std::net::TcpListener::bind(("127.0.0.1", 0))
+        .map_err(|error| format!("cannot reserve a scratch port: {error}"))?;
+    let port = listener
+        .local_addr()
+        .map_err(|error| format!("cannot read the scratch port: {error}"))?
+        .port();
+    drop(listener);
+    Ok(port)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────────────────────────

@@ -15,11 +15,14 @@
 use std::fs;
 use std::path::Path;
 
-use crate::paths::{app_exe, repair_log};
+use crate::paths::{app_exe, current_pointer, previous_pointer, repair_log};
 #[cfg(test)]
 use crate::sha256_bytes;
 use crate::sha256_file;
-use crate::{inspect_generation, resolve_baseline, BaselineChoice, Generation};
+use crate::{
+    inspect_generation, locate_app, read_current_pointer, resolve_baseline, AppLocation,
+    BaselineChoice, Generation, Pointer,
+};
 
 /// One line of the report.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -59,6 +62,51 @@ impl std::fmt::Display for Report {
 /// Inspect an install, and the state document when `data` is given.
 pub fn inspect(install: &Path, data: Option<&Path>) -> Report {
     let mut checks = Vec::new();
+
+    // 0. A versioned install is answered by the pointer, not by the baseline it no longer boots.
+    // A pre-versioned install has no pointer and falls through to the baseline checks unchanged.
+    match read_current_pointer(install) {
+        Pointer::Version(name) => {
+            match locate_app(install) {
+                Ok(AppLocation::Version(version)) => checks.push(Check {
+                    name: "pointer.current",
+                    ok: true,
+                    detail: format!(
+                        "{name} version {} (sha256 {})",
+                        version.sidecar.version,
+                        short(&version.sidecar.sha256)
+                    ),
+                }),
+                Ok(AppLocation::Legacy { .. }) => checks.push(Check {
+                    name: "pointer.current",
+                    ok: false,
+                    detail: format!("{name} resolved as a legacy flat install"),
+                }),
+                Err(reason) => checks.push(Check {
+                    name: "pointer.current",
+                    ok: false,
+                    detail: reason,
+                }),
+            }
+            checks.push(check_previous_pointer(install));
+            checks.push(check_repair_log(install));
+            checks.push(check_state_check(data));
+            return Report { checks };
+        }
+        Pointer::Invalid(reason) => {
+            checks.push(Check {
+                name: "pointer.current",
+                ok: false,
+                detail: format!(
+                    "{} is unusable: {reason}",
+                    current_pointer(install).display()
+                ),
+            });
+            // The rest of the report is still worth having: an operator needs to know whether the
+            // baseline could boot if the pointer were removed.
+        }
+        Pointer::Missing => {}
+    }
 
     // 1. Which generation boots. This is the same call the supervisor makes at start.
     let choice = resolve_baseline(install);
@@ -119,42 +167,82 @@ pub fn inspect(install: &Path, data: Option<&Path>) -> Report {
         }
     }
 
-    // 3. The repair record: a device that repaired itself says when.
+    checks.push(check_repair_log(install));
+    checks.push(check_state_check(data));
+
+    Report { checks }
+}
+
+/// Whether the rollback pointer names a version that could boot.
+fn check_previous_pointer(install: &Path) -> Check {
+    let path = previous_pointer(install);
+    match crate::read_previous_pointer(install) {
+        Pointer::Missing => Check {
+            name: "pointer.previous",
+            ok: true,
+            detail: "none (a failed start of the current version has nowhere to roll back)"
+                .to_owned(),
+        },
+        Pointer::Version(name) => match crate::inspect_version(install, &name) {
+            Ok(version) => Check {
+                name: "pointer.previous",
+                ok: true,
+                detail: format!(
+                    "{name} version {} is rollback-ready",
+                    version.sidecar.version
+                ),
+            },
+            Err(reason) => Check {
+                name: "pointer.previous",
+                ok: false,
+                detail: format!("{name} is not rollback-ready: {reason}"),
+            },
+        },
+        Pointer::Invalid(reason) => Check {
+            name: "pointer.previous",
+            ok: false,
+            detail: format!("{} is unusable: {reason}", path.display()),
+        },
+    }
+}
+
+/// The repair record: a device that repaired itself says when.
+fn check_repair_log(install: &Path) -> Check {
     match fs::metadata(repair_log(install)) {
         Ok(metadata) => {
             let bytes = metadata.len();
             let records = fs::read_to_string(repair_log(install))
                 .map(|text| text.lines().count())
                 .unwrap_or(0);
-            checks.push(Check {
+            Check {
                 name: "repair.log",
                 ok: true,
                 detail: format!("{records} record(s), {bytes} bytes"),
-            });
+            }
         }
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => checks.push(Check {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Check {
             name: "repair.log",
             ok: true,
             detail: "no repair has been recorded".to_owned(),
-        }),
-        Err(error) => checks.push(Check {
+        },
+        Err(error) => Check {
             name: "repair.log",
             ok: false,
             detail: format!("cannot be read ({error})"),
-        }),
+        },
     }
+}
 
-    // 4. The state document, when the caller can name the data directory.
+/// The state document, when the caller can name the data directory.
+fn check_state_check(data: Option<&Path>) -> Check {
     match data {
-        Some(data) => checks.push(check_state(data)),
-        None => checks.push(Check {
+        Some(data) => check_state(data),
+        None => Check {
             name: "state",
             ok: true,
             detail: "not inspected (no --data)".to_owned(),
-        }),
+        },
     }
-
-    Report { checks }
 }
 
 /// What a generation directory holds, without deciding whether it would boot.
@@ -340,6 +428,47 @@ mod tests {
             current.detail.contains("2.0.2"),
             "the report names what would boot instead: {}",
             current.detail
+        );
+    }
+
+    #[test]
+    fn a_versioned_install_reports_the_pointer_not_the_stale_flat_copy() {
+        let root = tempdir("pointer");
+        let install = root.join("install");
+        let version_dir = crate::paths::version_dir(&install, "0.3.274");
+        fs::create_dir_all(&version_dir).expect("version dir");
+        fs::write(
+            crate::paths::version_exe(&install, "0.3.274"),
+            b"versioned bytes",
+        )
+        .expect("version exe");
+        let sidecar = serde_json::json!({
+            "version": "0.3.274",
+            "channel": "stable",
+            "sha256": sha256_bytes(b"versioned bytes"),
+            "signature": "00".repeat(64),
+        });
+        fs::write(
+            crate::paths::version_sidecar(&install, "0.3.274"),
+            sidecar.to_string(),
+        )
+        .expect("version sidecar");
+        fs::write(crate::paths::current_pointer(&install), "0.3.274\n").expect("pointer");
+
+        let report = inspect(&install, None);
+        assert!(
+            report.ok(),
+            "a complete versioned install must not be reported against the flat layout:\n{report}"
+        );
+        let pointer = report
+            .checks
+            .iter()
+            .find(|check| check.name == "pointer.current")
+            .expect("the pointer is checked");
+        assert!(pointer.detail.contains("0.3.274"), "{}", pointer.detail);
+        assert!(
+            !report.checks.iter().any(|check| check.name == "app.copy"),
+            "the flat copy is not the app a versioned install runs"
         );
     }
 

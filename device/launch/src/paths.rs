@@ -12,6 +12,18 @@
 //! <install>/baseline/previous/summrise-device.exe + baseline.json   the pair to fall back to
 //! <install>/baseline/pending/summrise-device.exe + baseline.json    staged, not yet proven
 //! ```
+//!
+//! A versioned install (2026-11-05 design) replaces the single app binary with one directory per
+//! release, named by a pointer:
+//!
+//! ```text
+//! <install>/current.txt                       the one mutable fact: "0.3.274"
+//! <install>/previous.txt                      what current.txt named before the last switch
+//! <install>/versions/0.3.274/summrise-device.exe + summrise-device.json
+//! ```
+//!
+//! A missing `current.txt` is the pre-versioned layout: `<install>/summrise-device.exe` repaired
+//! from `baseline/current`, exactly as before. The installer owns the one-time migration.
 
 use std::path::{Path, PathBuf};
 
@@ -50,6 +62,53 @@ pub const STAGING_DIR: &str = "replacing";
 /// `<install>/summrise-device.exe` — the one binary the app may never write.
 pub fn app_exe(install: &Path) -> PathBuf {
     install.join(APP_EXE)
+}
+
+/// `<install>/versions` — one directory per release, none of them mutable once named.
+pub const VERSIONS_DIR: &str = "versions";
+
+/// `<install>/current.txt` — one line naming the version directory to run.
+///
+/// This is the one mutable fact of an install. It is written by `--install-version`/`--apply` and
+/// read by the supervisor at every start; a missing file means a pre-versioned (flat) install.
+pub const CURRENT_POINTER: &str = "current.txt";
+
+/// `<install>/previous.txt` — the version directory `current.txt` named before the last switch.
+///
+/// It exists only to make the rollback a pointer write. It is consumed by that rollback.
+pub const PREVIOUS_POINTER: &str = "previous.txt";
+
+/// The signed sidecar inside every version directory, beside the app binary.
+pub const VERSION_SIDECAR: &str = "summrise-device.json";
+
+/// `<install>/versions` — the parent of every version directory.
+pub fn versions_dir(install: &Path) -> PathBuf {
+    install.join(VERSIONS_DIR)
+}
+
+/// `<install>/versions/<name>` — one release's directory.
+pub fn version_dir(install: &Path, name: &str) -> PathBuf {
+    versions_dir(install).join(name)
+}
+
+/// `<install>/versions/<name>/summrise-device.exe`.
+pub fn version_exe(install: &Path, name: &str) -> PathBuf {
+    version_dir(install, name).join(APP_EXE)
+}
+
+/// `<install>/versions/<name>/summrise-device.json`.
+pub fn version_sidecar(install: &Path, name: &str) -> PathBuf {
+    version_dir(install, name).join(VERSION_SIDECAR)
+}
+
+/// `<install>/current.txt`.
+pub fn current_pointer(install: &Path) -> PathBuf {
+    install.join(CURRENT_POINTER)
+}
+
+/// `<install>/previous.txt`.
+pub fn previous_pointer(install: &Path) -> PathBuf {
+    install.join(PREVIOUS_POINTER)
 }
 
 /// `<install>/baseline` — the parent of the three generations.

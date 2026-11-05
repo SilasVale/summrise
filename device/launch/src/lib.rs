@@ -9,7 +9,10 @@
 //!    [`STABLE_AFTER_MS`] resets the budget;
 //! 3. **swap** through one staged pair and a baseline transaction — `pending` is written and synced,
 //!    the app is replaced from it, two build-bound health probes must pass, and only then do
-//!    `current` and `previous` rotate (fix design F1/F2/F4).
+//!    `current` and `previous` rotate (fix design F1/F2/F4);
+//! 4. **version an install** (2026-11-05 design) — a release lives in
+//!    `<install>/versions/<name>/`, `current.txt` names the one to run, and an update is one atomic
+//!    pointer write after the candidate has proven it can serve. Nothing running is ever overwritten.
 //!
 //! Everything in this module is pure or ordinary `std` I/O, so it is exercised by `cargo test` on
 //! Linux. The SCM, process termination and the supervisor loop live in the Windows binary.
@@ -20,11 +23,13 @@ mod paths;
 mod self_check;
 
 pub use paths::{
-    app_exe, app_pid_file, baseline_dir, baseline_exe, baseline_sidecar, console_link, flat_exe,
-    flat_sidecar, generation_dir, generation_exe, generation_sidecar, install_token,
-    launcher_pid_file, repair_log, staged_exe, staged_sidecar, swap_request, swap_result, APP_EXE,
-    BASELINE_DIR, BASELINE_SIDECAR, CONSOLE_FILE, CURRENT_DIR, FLAT_SIDECAR, LAUNCHER_EXE,
-    PENDING_DIR, PREVIOUS_DIR, REPAIR_LOG, STAGING_DIR,
+    app_exe, app_pid_file, baseline_dir, baseline_exe, baseline_sidecar, console_link,
+    current_pointer, flat_exe, flat_sidecar, generation_dir, generation_exe, generation_sidecar,
+    install_token, launcher_pid_file, previous_pointer, repair_log, staged_exe, staged_sidecar,
+    swap_request, swap_result, version_dir, version_exe, version_sidecar, versions_dir, APP_EXE,
+    BASELINE_DIR, BASELINE_SIDECAR, CONSOLE_FILE, CURRENT_DIR, CURRENT_POINTER, FLAT_SIDECAR,
+    LAUNCHER_EXE, PENDING_DIR, PREVIOUS_DIR, PREVIOUS_POINTER, REPAIR_LOG, STAGING_DIR,
+    VERSIONS_DIR, VERSION_SIDECAR,
 };
 pub use self_check::{inspect, Check, Report};
 
@@ -1965,6 +1970,723 @@ pub fn next_action(attempts: u8, child_exited: bool) -> Action {
         .get(attempts as usize)
         .map(|backoff| Action::RetryAfterMs(*backoff))
         .unwrap_or(Action::GiveUp)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────────
+// Versioned directories and the current pointer (2026-11-05 design)
+// ─────────────────────────────────────────────────────────────────────────────────────────────────
+
+/// The longest version-directory name this launcher will write into a pointer.
+pub const MAX_VERSION_NAME: usize = 128;
+
+/// The most a pointer file may hold. A pointer is one version-directory name.
+pub const MAX_POINTER_BYTES: u64 = 4 * 1024;
+
+/// Consecutive failed starts of the current version before the supervisor rolls the pointer back.
+///
+/// One failure is an accident; two in a row is a build that cannot start. The rule is deliberately
+/// small: the rollback is a pointer write, so the cost of being wrong is one more restart.
+pub const ROLLBACK_AFTER_FAILED_STARTS: u8 = 2;
+
+/// What a pointer file says.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Pointer {
+    /// No file: a pre-versioned install, or no previous version recorded. Never an error.
+    Missing,
+    /// A well-formed version-directory name. It may still name a directory that is not there.
+    Version(String),
+    /// Present but unusable. It never silently becomes a name, and it never silently becomes
+    /// "missing": a corrupt pointer is a fact an operator has to see.
+    Invalid(String),
+}
+
+/// One version directory, already checked for hash consistency.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Version {
+    /// The directory name under `<install>/versions`; this is what `current.txt` holds.
+    pub name: String,
+    /// `<install>/versions/<name>`.
+    pub dir: PathBuf,
+    /// `<install>/versions/<name>/summrise-device.exe`.
+    pub exe: PathBuf,
+    /// `<install>/versions/<name>/summrise-device.json`.
+    pub sidecar_path: PathBuf,
+    /// The signed release facts from that sidecar.
+    pub sidecar: Sidecar,
+}
+
+/// Where the supervisor starts the app from.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum AppLocation {
+    /// A version directory named by `current.txt`.
+    Version(Version),
+    /// A pre-versioned install: the flat app, repaired from the baseline. The sidecar is the
+    /// baseline's; `exe` is `<install>/summrise-device.exe`, not the baseline copy.
+    Legacy { exe: PathBuf, baseline: Baseline },
+}
+
+impl AppLocation {
+    /// The binary to spawn.
+    pub fn exe(&self) -> &Path {
+        match self {
+            AppLocation::Version(version) => &version.exe,
+            AppLocation::Legacy { exe, .. } => exe,
+        }
+    }
+
+    /// The signed facts the child is started with.
+    pub fn sidecar(&self) -> &Sidecar {
+        match self {
+            AppLocation::Version(version) => &version.sidecar,
+            AppLocation::Legacy { baseline, .. } => &baseline.sidecar,
+        }
+    }
+
+    /// Whether this is the pre-versioned flat layout.
+    pub fn is_legacy(&self) -> bool {
+        matches!(self, AppLocation::Legacy { .. })
+    }
+}
+
+impl Config {
+    /// Where this install's app lives, resolved through `current.txt` (the supervisor's question).
+    pub fn app(&self) -> Result<AppLocation, String> {
+        locate_app(&self.install)
+    }
+}
+
+/// Check one path component is a version-directory name this launcher may write.
+///
+/// The pointer is attacker-writable by anything that can write the install directory, and it is
+/// interpolated into a path the supervisor runs: a name with a separator, `..`, a drive letter, or a
+/// reserved Windows character is refused rather than normalized. A leading dot is reserved for the
+/// launcher's own temporary files.
+pub fn validate_version_name(name: &str) -> Result<(), String> {
+    if name.is_empty() {
+        return Err("the version directory name is empty".to_string());
+    }
+    if name.len() > MAX_VERSION_NAME {
+        return Err(format!(
+            "the version directory name is {} bytes; the limit is {MAX_VERSION_NAME}",
+            name.len()
+        ));
+    }
+    if name.starts_with('.') || name.ends_with('.') || name.ends_with(' ') {
+        return Err(format!(
+            "the version directory name {name:?} must not begin with a dot or end with a dot or a \
+             space"
+        ));
+    }
+    for character in name.chars() {
+        if character.is_control()
+            || matches!(
+                character,
+                '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|'
+            )
+        {
+            return Err(format!(
+                "the version directory name {name:?} contains {character:?}, which is not a file \
+                 name character"
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// Parse one pointer line: either a bare version name (`0.3.274`) or the layout's spelling
+/// (`versions/0.3.274`, `versions\0.3.274`). Only the last path component is ever used.
+fn parse_pointer(bytes: &[u8], path: &Path) -> Pointer {
+    let text = match std::str::from_utf8(bytes) {
+        Ok(text) => text,
+        Err(error) => {
+            return Pointer::Invalid(format!("{} is not UTF-8: {error}", path.display()));
+        }
+    };
+    let line = text.trim();
+    if line.is_empty() {
+        return Pointer::Invalid(format!("{} is empty", path.display()));
+    }
+    if line.contains('\n') || line.contains('\r') {
+        return Pointer::Invalid(format!(
+            "{} has more than one line: {line:?}",
+            path.display()
+        ));
+    }
+    let mut name = line;
+    if let Some(head) = line.get(..8) {
+        if head.eq_ignore_ascii_case(VERSIONS_DIR) {
+            let rest = &line[8..];
+            name = rest
+                .strip_prefix('/')
+                .or_else(|| rest.strip_prefix('\\'))
+                .unwrap_or(rest);
+        }
+    }
+    match validate_version_name(name) {
+        Ok(()) => Pointer::Version(name.to_string()),
+        Err(error) => Pointer::Invalid(format!("{}: {error}", path.display())),
+    }
+}
+
+/// Read and parse one pointer file.
+fn read_pointer(path: &Path) -> Pointer {
+    match read_capped(path, MAX_POINTER_BYTES) {
+        CappedRead::Missing => Pointer::Missing,
+        CappedRead::Failed(reason) => Pointer::Invalid(reason),
+        CappedRead::Bytes(bytes) => parse_pointer(&bytes, path),
+    }
+}
+
+/// `<install>/current.txt`, as read.
+pub fn read_current_pointer(install: &Path) -> Pointer {
+    read_pointer(&current_pointer(install))
+}
+
+/// `<install>/previous.txt`, as read.
+pub fn read_previous_pointer(install: &Path) -> Pointer {
+    read_pointer(&previous_pointer(install))
+}
+
+/// A pointer write that has reached its temporary file and not yet its rename.
+///
+/// Dropping it is a crash between the two: the temporary file is removed and the old pointer is
+/// still the one every reader sees. [`PointerWrite::commit`] is the one atomic step.
+#[derive(Debug)]
+pub struct PointerWrite {
+    tmp: Option<PathBuf>,
+    path: PathBuf,
+}
+
+impl PointerWrite {
+    /// Rename the staged temporary file over the pointer and flush the directory entry.
+    pub fn commit(mut self) -> io::Result<()> {
+        let Some(tmp) = self.tmp.take() else {
+            return Ok(());
+        };
+        if let Err(error) = rename_with_retry(&tmp, &self.path) {
+            let _ = fs::remove_file(&tmp);
+            return Err(error);
+        }
+        if let Some(parent) = self.path.parent() {
+            sync_dir(parent)?;
+        }
+        Ok(())
+    }
+}
+
+impl Drop for PointerWrite {
+    fn drop(&mut self) {
+        if let Some(tmp) = self.tmp.take() {
+            let _ = fs::remove_file(tmp);
+        }
+    }
+}
+
+/// Stage a pointer write: a random temporary sibling, the new line, `sync_all`.
+///
+/// Nothing about the pointer changes until [`PointerWrite::commit`] renames this file over it.
+pub fn stage_pointer_write(path: &Path, name: &str) -> io::Result<PointerWrite> {
+    validate_version_name(name)
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
+    let (tmp, mut file) = create_temp_sibling(path)?;
+    let bytes = format!("{name}\n");
+    if let Err(error) = file
+        .write_all(bytes.as_bytes())
+        .and_then(|()| file.sync_all())
+    {
+        drop(file);
+        let _ = fs::remove_file(&tmp);
+        return Err(error);
+    }
+    drop(file);
+    Ok(PointerWrite {
+        tmp: Some(tmp),
+        path: path.to_path_buf(),
+    })
+}
+
+/// Write one pointer file atomically.
+pub fn write_pointer(path: &Path, name: &str) -> io::Result<()> {
+    stage_pointer_write(path, name)?.commit()
+}
+
+/// Write `<install>/current.txt`.
+pub fn write_current_pointer(install: &Path, name: &str) -> io::Result<()> {
+    write_pointer(&current_pointer(install), name)
+}
+
+/// Write `<install>/previous.txt`.
+pub fn write_previous_pointer(install: &Path, name: &str) -> io::Result<()> {
+    write_pointer(&previous_pointer(install), name)
+}
+
+/// Stage `<install>/current.txt` without making it visible.
+pub fn stage_current_pointer(install: &Path, name: &str) -> io::Result<PointerWrite> {
+    stage_pointer_write(&current_pointer(install), name)
+}
+
+/// Remove a pointer, treating "already gone" as success.
+fn remove_pointer(path: &Path) -> io::Result<()> {
+    match fs::remove_file(path) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error),
+    }
+}
+
+/// Say once per process that this install is still the pre-versioned flat layout.
+fn note_legacy_install(install: &Path) {
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    static NOTED: AtomicBool = AtomicBool::new(false);
+    if !NOTED.swap(true, Ordering::Relaxed) {
+        eprintln!(
+            "launch: no {} under {}; running the pre-versioned flat app (the installer migrates \
+             this install to versions/)",
+            CURRENT_POINTER,
+            install.display()
+        );
+    }
+}
+
+/// Inspect one version directory: the pair present, the sidecar parses, the binary hashes to it,
+/// and (in a keyed build) the sidecar is signed by one of the keys this build trusts.
+///
+/// The supervisor calls this at every start rather than trusting the pointer: the pointer chooses a
+/// directory, and the directory is re-proven against its own sidecar before its bytes are executed.
+pub fn inspect_version(install: &Path, name: &str) -> Result<Version, String> {
+    validate_version_name(name).map_err(|error| format!("refusing version {name:?}: {error}"))?;
+    let dir = version_dir(install, name);
+    if !dir.is_dir() {
+        return Err(format!(
+            "the current pointer names version {name:?}, but its version directory {} is missing",
+            dir.display()
+        ));
+    }
+    // A pointer is a name, not an indirection: a version directory or binary that is a link could
+    // redirect the supervisor to bytes no sidecar in this install describes.
+    let dir_link = fs::symlink_metadata(&dir)
+        .map_err(|error| format!("cannot inspect {}: {error}", dir.display()))?;
+    if dir_link.file_type().is_symlink() {
+        return Err(format!(
+            "the version directory {} is a symbolic link; refusing to run through it",
+            dir.display()
+        ));
+    }
+    let sidecar_path = version_sidecar(install, name);
+    let sidecar = load_sidecar(&sidecar_path).map_err(|error| {
+        format!(
+            "the sidecar of version {name:?} at {} is unusable: {error}",
+            sidecar_path.display()
+        )
+    })?;
+    if !is_sha256_hex(&sidecar.sha256) {
+        return Err(format!(
+            "the sidecar of version {name:?} has a sha256 that is not 64 hex characters: {:?}",
+            sidecar.sha256
+        ));
+    }
+    let exe = version_exe(install, name);
+    let metadata = match fs::symlink_metadata(&exe) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            return Err(format!(
+                "the binary of version {name:?} is missing ({})",
+                exe.display()
+            ));
+        }
+        Err(error) => {
+            return Err(format!(
+                "the binary of version {name:?} ({}) is unreadable: {error}",
+                exe.display()
+            ));
+        }
+    };
+    if metadata.file_type().is_symlink() {
+        return Err(format!(
+            "the binary of version {name:?} ({}) is a symbolic link; refusing to run it",
+            exe.display()
+        ));
+    }
+    if !metadata.is_file() {
+        return Err(format!(
+            "the binary of version {name:?} ({}) is not a regular file",
+            exe.display()
+        ));
+    }
+    if metadata.len() == 0 {
+        return Err(format!(
+            "the binary of version {name:?} ({}) is zero-length",
+            exe.display()
+        ));
+    }
+    match sha256_file(&exe) {
+        Ok(hash) if hash.eq_ignore_ascii_case(&sidecar.sha256) => {}
+        Ok(hash) => {
+            return Err(format!(
+                "the binary of version {name:?} ({}) hashes to {hash}, not the sidecar's {}",
+                exe.display(),
+                sidecar.sha256
+            ));
+        }
+        Err(error) => {
+            return Err(format!(
+                "the binary of version {name:?} ({}) cannot be hashed: {error}",
+                exe.display()
+            ));
+        }
+    }
+    if !(LAUNCHER_PUBKEY_HEX == PLACEHOLDER_PUBKEY_HEX
+        && RELEASE_PUBKEY_HEX == PLACEHOLDER_PUBKEY_HEX)
+    {
+        verify_any_signature(&sidecar, &[LAUNCHER_PUBKEY_HEX, RELEASE_PUBKEY_HEX]).map_err(
+            |error| format!("the sidecar of version {name:?} is not signed by this build: {error}"),
+        )?;
+    }
+    Ok(Version {
+        name: name.to_string(),
+        dir,
+        exe,
+        sidecar_path,
+        sidecar,
+    })
+}
+
+/// Resolve the app to start: `current.txt` first, the pre-versioned flat app when it is absent.
+///
+/// A pointer that is present but names a missing or inconsistent directory is an **error**, not a
+/// silent fallback: falling back to an older flat binary would serve a build nobody chose. The
+/// supervisor turns that error into a failed start, and two of those roll the pointer back to
+/// `previous.txt`.
+pub fn locate_app(install: &Path) -> Result<AppLocation, String> {
+    match read_current_pointer(install) {
+        Pointer::Version(name) => inspect_version(install, &name).map(AppLocation::Version),
+        Pointer::Missing => {
+            note_legacy_install(install);
+            match resolve_baseline(install) {
+                BaselineChoice::Current(baseline) | BaselineChoice::Previous(baseline) => {
+                    Ok(AppLocation::Legacy {
+                        exe: app_exe(install),
+                        baseline,
+                    })
+                }
+                BaselineChoice::NeedsHuman(reason) => Err(reason),
+            }
+        }
+        Pointer::Invalid(reason) => Err(format!(
+            "{} is unusable: {reason}",
+            current_pointer(install).display()
+        )),
+    }
+}
+
+/// What one successful switch produced.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct InstalledVersion {
+    /// The version directory now named by `current.txt`.
+    pub version: Version,
+    /// The version directory that was current before the switch, if one was recorded.
+    pub previous: Option<String>,
+}
+
+/// Proves a candidate version can serve before the pointer names it.
+///
+/// The shipped implementation (in the Windows half) starts the candidate on a scratch port with a
+/// copy of the data directory, requires two matching `/api/health` answers and kills it. Tests and
+/// non-Windows builds supply their own; the install transaction only needs the verdict.
+pub trait VersionProbe {
+    /// How a candidate proves it can serve. Returning `Ok` is the permission to make it current.
+    fn probe(&self, config: &Config, version: &Version) -> Result<(), String>;
+}
+
+/// Put a verified pair into `<install>/versions/<name>` without overwriting a version that is
+/// already there.
+///
+/// A version directory is immutable once it exists: the same bytes may be reused (an installer
+/// re-run), but different bytes are refused. Overwriting is exactly the failure this layout exists
+/// to remove — a running image must never be replaced under its process.
+fn stage_version(install: &Path, name: &str, pair: &StagedPair) -> Result<Version, String> {
+    validate_version_name(name)?;
+    let dir = version_dir(install, name);
+    let exe = version_exe(install, name);
+    let sidecar_path = version_sidecar(install, name);
+
+    if dir.exists() {
+        let metadata = fs::symlink_metadata(&dir)
+            .map_err(|error| format!("cannot inspect {}: {error}", dir.display()))?;
+        if metadata.file_type().is_symlink() {
+            return Err(format!(
+                "the version directory {} is a symbolic link; refusing to write through it",
+                dir.display()
+            ));
+        }
+    }
+
+    if !dir.exists() {
+        fs::create_dir_all(&dir).map_err(|error| {
+            format!(
+                "cannot create the version directory {}: {error}",
+                dir.display()
+            )
+        })?;
+        copy_file_synced(&pair.exe, &exe).map_err(|error| {
+            format!("cannot copy the candidate into {}: {error}", exe.display())
+        })?;
+        save_sidecar(&sidecar_path, &pair.sidecar).map_err(|error| {
+            format!(
+                "cannot write the version sidecar {}: {error}",
+                sidecar_path.display()
+            )
+        })?;
+        if let Some(parent) = dir.parent() {
+            let _ = sync_dir(parent);
+        }
+    } else {
+        if !dir.is_dir() {
+            return Err(format!(
+                "{} exists and is not a version directory",
+                dir.display()
+            ));
+        }
+        if exe.exists() {
+            let existing = sha256_file(&exe).map_err(|error| {
+                format!(
+                    "cannot hash the installed version {}: {error}",
+                    exe.display()
+                )
+            })?;
+            if !existing.eq_ignore_ascii_case(&pair.sidecar.sha256) {
+                return Err(format!(
+                    "version {name:?} is already installed at {} with different bytes; refusing \
+                     to overwrite a version directory that may be running",
+                    exe.display()
+                ));
+            }
+        } else {
+            copy_file_synced(&pair.exe, &exe).map_err(|error| {
+                format!("cannot copy the candidate into {}: {error}", exe.display())
+            })?;
+        }
+        if sidecar_path.exists() {
+            let on_disk = load_sidecar(&sidecar_path).map_err(|error| {
+                format!("the existing sidecar of version {name:?} is unusable: {error}")
+            })?;
+            if on_disk.version != pair.sidecar.version
+                || !on_disk.sha256.eq_ignore_ascii_case(&pair.sidecar.sha256)
+            {
+                return Err(format!(
+                    "version {name:?} is already installed with a different sidecar at {}; \
+                     refusing to rewrite it",
+                    sidecar_path.display()
+                ));
+            }
+        } else {
+            save_sidecar(&sidecar_path, &pair.sidecar).map_err(|error| {
+                format!(
+                    "cannot write the version sidecar {}: {error}",
+                    sidecar_path.display()
+                )
+            })?;
+        }
+    }
+
+    // Probe and switch the bytes that are on disk, not the ones that were in memory when the pair
+    // was verified. `inspect_version` re-hashes the directory we are about to name.
+    inspect_version(install, name)
+}
+
+/// Verify, stage, and health-check a candidate; the pointer is not touched.
+///
+/// This is the half of the transaction that is safe while the old version runs: the candidate is
+/// copied into its own directory and started on a scratch port, and the live service is not
+/// stopped. [`commit_version`] is the one step that changes what boots.
+pub fn prepare_version(
+    config: &Config,
+    name: &str,
+    pair: &StagedPair,
+    probe: &dyn VersionProbe,
+) -> Result<Version, String> {
+    let version = stage_version(&config.install, name, pair)?;
+    probe.probe(config, &version).map_err(|error| {
+        format!(
+            "version {} failed its health check and was not made current: {error}",
+            version.name
+        )
+    })?;
+    Ok(version)
+}
+
+/// Point `current.txt` at a version that has already passed its probe.
+///
+/// The previous name is written first, atomically, so a crash between the two writes leaves the old
+/// pointer in charge with the rollback target already recorded. `previous.txt` is only changed when
+/// the current name changes; reinstalling the same version keeps the older rollback target.
+pub fn commit_version(install: &Path, version: &Version) -> Result<InstalledVersion, String> {
+    let on_disk = inspect_version(install, &version.name)?;
+    if on_disk.sidecar.version != version.sidecar.version
+        || !on_disk
+            .sidecar
+            .sha256
+            .eq_ignore_ascii_case(&version.sidecar.sha256)
+    {
+        return Err(format!(
+            "version {} changed between its health check and the switch; refusing to point at it",
+            version.name
+        ));
+    }
+
+    let previous = match read_current_pointer(install) {
+        Pointer::Version(old) if old == version.name => match read_previous_pointer(install) {
+            Pointer::Version(previous) => Some(previous),
+            _ => None,
+        },
+        Pointer::Version(old) => {
+            write_previous_pointer(install, &old).map_err(|error| {
+                format!(
+                    "cannot record {} before the switch: {error}",
+                    previous_pointer(install).display()
+                )
+            })?;
+            Some(old)
+        }
+        Pointer::Missing | Pointer::Invalid(_) => {
+            remove_pointer(&previous_pointer(install)).map_err(|error| {
+                format!(
+                    "cannot clear the stale {} before the switch: {error}",
+                    previous_pointer(install).display()
+                )
+            })?;
+            None
+        }
+    };
+
+    write_current_pointer(install, &version.name).map_err(|error| {
+        format!(
+            "cannot write {}: {error}",
+            current_pointer(install).display()
+        )
+    })?;
+    Ok(InstalledVersion {
+        version: on_disk,
+        previous,
+    })
+}
+
+/// The whole switch: verify-and-stage-and-probe, then point `current.txt` at the candidate.
+///
+/// Any failure before the final rename leaves the pointer exactly as it was.
+pub fn install_version(
+    config: &Config,
+    name: &str,
+    pair: &StagedPair,
+    probe: &dyn VersionProbe,
+) -> Result<InstalledVersion, String> {
+    let version = prepare_version(config, name, pair, probe)?;
+    commit_version(&config.install, &version)
+}
+
+/// The pointer move a rollback performed.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PointerRollback {
+    /// What `current.txt` named before the rollback, when it named anything.
+    pub from: Option<String>,
+    /// The version directory the pointer now names.
+    pub to: String,
+}
+
+/// Write `current.txt` back to the version `previous.txt` recorded.
+///
+/// The rollback is verified before it is written: a previous pointer that names a missing or
+/// inconsistent directory is refused, so a bad rollback cannot replace a bad current. On success
+/// `previous.txt` is consumed, so the next failure has no target and cannot bounce between two
+/// versions forever.
+pub fn roll_back_pointer(install: &Path) -> Result<Option<PointerRollback>, String> {
+    let previous = match read_previous_pointer(install) {
+        Pointer::Version(name) => name,
+        Pointer::Missing => return Ok(None),
+        Pointer::Invalid(reason) => {
+            return Err(format!(
+                "{} is unusable: {reason}",
+                previous_pointer(install).display()
+            ));
+        }
+    };
+    let current = match read_current_pointer(install) {
+        Pointer::Version(name) => Some(name),
+        Pointer::Missing | Pointer::Invalid(_) => None,
+    };
+    if current.as_deref() == Some(previous.as_str()) {
+        // A crash after the rollback's pointer write but before its cleanup. Nothing to move.
+        remove_pointer(&previous_pointer(install)).map_err(|error| {
+            format!(
+                "cannot remove the consumed {}: {error}",
+                previous_pointer(install).display()
+            )
+        })?;
+        return Ok(None);
+    }
+    inspect_version(install, &previous)
+        .map_err(|error| format!("cannot roll back to version {previous:?}: {error}"))?;
+    write_current_pointer(install, &previous).map_err(|error| {
+        format!(
+            "cannot roll back to version {previous:?}: writing {} failed: {error}",
+            current_pointer(install).display()
+        )
+    })?;
+    remove_pointer(&previous_pointer(install)).map_err(|error| {
+        format!(
+            "the rollback is in place, but {} cannot be removed: {error}",
+            previous_pointer(install).display()
+        )
+    })?;
+    Ok(Some(PointerRollback {
+        from: current,
+        to: previous,
+    }))
+}
+
+/// Counts consecutive failed starts of the version `current.txt` names.
+///
+/// The supervisor feeds it every start that failed (spawn error, or a child that died before it was
+/// stable) and every child that stayed up ([`StartWatch::on_stable`] resets). At
+/// [`ROLLBACK_AFTER_FAILED_STARTS`] it performs the pointer rollback and resets, so the previous
+/// version gets a fresh restart budget instead of inheriting the failed one's.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct StartWatch {
+    failed_starts: u8,
+}
+
+impl StartWatch {
+    /// A watch with no failures yet.
+    pub fn new() -> StartWatch {
+        StartWatch::default()
+    }
+
+    /// How many consecutive failed starts have been recorded.
+    pub fn failed_starts(&self) -> u8 {
+        self.failed_starts
+    }
+
+    /// A child stayed up long enough to count as a successful start.
+    pub fn on_stable(&mut self) {
+        self.failed_starts = 0;
+    }
+
+    /// Record one failed start, and roll the pointer back when the rule says so.
+    ///
+    /// A pre-versioned install has no pointer to write, so failures there stay with the existing
+    /// restart budget.
+    pub fn on_failed_start(&mut self, install: &Path) -> Result<Option<PointerRollback>, String> {
+        if matches!(read_current_pointer(install), Pointer::Missing) {
+            return Ok(None);
+        }
+        self.failed_starts = self.failed_starts.saturating_add(1);
+        if self.failed_starts < ROLLBACK_AFTER_FAILED_STARTS {
+            return Ok(None);
+        }
+        self.failed_starts = 0;
+        roll_back_pointer(install)
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────────────────────────
@@ -5021,6 +5743,324 @@ mod tests {
         assert!(
             !generation_dir(&install, PREVIOUS_DIR).exists(),
             "a fresh install leaves no previous generation behind"
+        );
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────────────────────────
+    // Versioned directories and the current pointer (2026-11-05 design)
+    // ─────────────────────────────────────────────────────────────────────────────────────────────
+
+    /// A version directory as `--install-version` leaves it: the app binary beside its sidecar.
+    fn write_version(install: &Path, name: &str, bytes: &[u8]) -> Version {
+        let dir = version_dir(install, name);
+        fs::create_dir_all(&dir).expect("create version dir");
+        fs::write(version_exe(install, name), bytes).expect("write version exe");
+        let sidecar = sidecar_for(name, bytes, &signing_key());
+        save_sidecar(&version_sidecar(install, name), &sidecar).expect("write version sidecar");
+        Version {
+            name: name.to_string(),
+            dir,
+            exe: version_exe(install, name),
+            sidecar_path: version_sidecar(install, name),
+            sidecar,
+        }
+    }
+
+    /// A candidate pair outside the install, as the stager leaves it for `--apply`.
+    fn stage_candidate(tmp: &TempDir, name: &str, bytes: &[u8]) -> (PathBuf, PathBuf, StagedPair) {
+        let dir = tmp.path().join("staged").join(name);
+        fs::create_dir_all(&dir).expect("create staged dir");
+        let exe = dir.join(APP_EXE);
+        fs::write(&exe, bytes).expect("write staged exe");
+        let sidecar = sidecar_for(name, bytes, &signing_key());
+        let sidecar_path = dir.join(VERSION_SIDECAR);
+        save_sidecar(&sidecar_path, &sidecar).expect("write staged sidecar");
+        let pair = validate_staged_pair(&exe, &sidecar_path, &test_pubkey_hex())
+            .expect("the test candidate verifies");
+        (exe, sidecar_path, pair)
+    }
+
+    struct Probe(Result<(), String>);
+
+    impl VersionProbe for Probe {
+        fn probe(&self, _config: &Config, _version: &Version) -> Result<(), String> {
+            match &self.0 {
+                Ok(()) => Ok(()),
+                Err(reason) => Err(reason.clone()),
+            }
+        }
+    }
+
+    fn config_for(install: &Path) -> Config {
+        Config {
+            install: install.to_path_buf(),
+            data: install.join("data"),
+            port: 7_737,
+        }
+    }
+
+    #[test]
+    fn a_pointer_naming_a_version_directory_makes_that_directory_the_app() {
+        let tmp = TempDir::new("pointer-locate");
+        let install = install_dir(&tmp, "install");
+        write_version(&install, "0.3.274", b"the 0.3.274 build");
+
+        for spelled in ["versions/0.3.274\n", "0.3.274\n", "versions\\0.3.274\r\n"] {
+            fs::write(current_pointer(&install), spelled).expect("write the pointer");
+            let app = locate_app(&install).expect("the pointer resolves");
+            assert_eq!(
+                app.exe(),
+                version_exe(&install, "0.3.274"),
+                "{spelled:?} must name versions/0.3.274"
+            );
+            assert_eq!(app.sidecar().version, "0.3.274");
+            assert!(!app.is_legacy());
+        }
+    }
+
+    #[test]
+    fn a_missing_pointer_falls_back_to_the_flat_app() {
+        let tmp = TempDir::new("pointer-legacy");
+        let install = install_dir(&tmp, "install");
+        write_generation(&install, Generation::Current, "0.3.271", b"legacy bytes");
+        fs::write(app_exe(&install), b"legacy bytes").expect("copy the flat app");
+        assert!(
+            !current_pointer(&install).exists(),
+            "an un-migrated install has no pointer"
+        );
+
+        let app = locate_app(&install).expect("the legacy install still resolves");
+        assert_eq!(app.exe(), app_exe(&install));
+        assert_eq!(app.sidecar().version, "0.3.271");
+        assert!(app.is_legacy());
+    }
+
+    #[test]
+    fn a_pointer_naming_a_missing_version_directory_is_refused_not_silently_ignored() {
+        let tmp = TempDir::new("pointer-missing-version");
+        let install = install_dir(&tmp, "install");
+        fs::write(current_pointer(&install), "0.3.274\n").expect("write the pointer");
+        fs::write(app_exe(&install), b"a stale flat app").expect("copy the flat app");
+
+        let error =
+            locate_app(&install).expect_err("a named but missing version is not the flat app");
+        assert!(error.contains("0.3.274"), "{error}");
+        assert!(
+            error.contains("missing") || error.contains("version directory"),
+            "{error}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_version_directory_that_is_a_symlink_is_refused() {
+        use std::os::unix::fs::symlink;
+
+        let tmp = TempDir::new("pointer-symlink");
+        let install = install_dir(&tmp, "install");
+        let real = tmp.path().join("real-version");
+        fs::create_dir_all(&real).expect("the real version directory");
+        fs::write(real.join(APP_EXE), b"redirected bytes").expect("the real exe");
+        save_sidecar(
+            &real.join(VERSION_SIDECAR),
+            &sidecar_for("0.3.274", b"redirected bytes", &signing_key()),
+        )
+        .expect("the real sidecar");
+        fs::create_dir_all(versions_dir(&install)).expect("versions dir");
+        symlink(&real, version_dir(&install, "0.3.274")).expect("the link");
+        fs::write(current_pointer(&install), "0.3.274\n").expect("the pointer");
+
+        let error = locate_app(&install).expect_err("a linked version directory is not a version");
+        assert!(error.contains("symbolic link"), "{error}");
+    }
+
+    #[test]
+    fn a_pointer_that_escapes_the_versions_directory_is_refused() {
+        let tmp = TempDir::new("pointer-escape");
+        let install = install_dir(&tmp, "install");
+        for spelled in [
+            "../outside\n",
+            "versions/../outside\n",
+            "/etc/passwd\n",
+            "\n",
+        ] {
+            fs::write(current_pointer(&install), spelled).expect("write the pointer");
+            let error = locate_app(&install).expect_err("an escaping pointer is unusable");
+            assert!(
+                error.contains("current.txt"),
+                "{spelled:?} must be refused as a pointer: {error}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_candidate_that_fails_its_health_check_leaves_the_pointer_alone() {
+        let tmp = TempDir::new("install-version-probe-fails");
+        let install = install_dir(&tmp, "install");
+        write_version(&install, "0.3.271", b"the running build");
+        write_current_pointer(&install, "0.3.271").expect("write the pointer");
+        let (_exe, _sidecar, pair) = stage_candidate(&tmp, "0.3.274", b"the unproven build");
+
+        let error = install_version(
+            &config_for(&install),
+            "0.3.274",
+            &pair,
+            &Probe(Err("it never answered".to_string())),
+        )
+        .expect_err("a candidate that cannot serve is not installed");
+        assert!(error.contains("health"), "{error}");
+        assert_eq!(
+            read_current_pointer(&install),
+            Pointer::Version("0.3.271".to_string()),
+            "the pointer is untouched on a failed probe"
+        );
+    }
+
+    #[test]
+    fn a_healthy_candidate_becomes_current_and_the_old_version_is_kept() {
+        let tmp = TempDir::new("install-version-ok");
+        let install = install_dir(&tmp, "install");
+        write_version(&install, "0.3.271", b"the running build");
+        write_current_pointer(&install, "0.3.271").expect("write the pointer");
+        let (_exe, _sidecar, pair) = stage_candidate(&tmp, "0.3.274", b"the proven build");
+
+        let installed = install_version(&config_for(&install), "0.3.274", &pair, &Probe(Ok(())))
+            .expect("a healthy candidate is installed");
+        assert_eq!(installed.version.name, "0.3.274");
+        assert_eq!(installed.previous.as_deref(), Some("0.3.271"));
+        assert_eq!(
+            read_current_pointer(&install),
+            Pointer::Version("0.3.274".to_string())
+        );
+        assert_eq!(
+            read_previous_pointer(&install),
+            Pointer::Version("0.3.271".to_string()),
+            "the pointer to the version that was current before the update"
+        );
+        assert_eq!(
+            fs::read(version_exe(&install, "0.3.274")).expect("the installed exe"),
+            b"the proven build"
+        );
+        assert!(
+            version_exe(&install, "0.3.271").exists(),
+            "the previous version stays on disk for the rollback"
+        );
+    }
+
+    #[test]
+    fn installing_the_same_name_never_overwrites_a_version_directory() {
+        let tmp = TempDir::new("install-version-collision");
+        let install = install_dir(&tmp, "install");
+        write_version(&install, "0.3.274", b"the running build");
+        write_current_pointer(&install, "0.3.274").expect("write the pointer");
+        let (_exe, _sidecar, pair) = stage_candidate(&tmp, "0.3.274", b"different bytes");
+
+        let error = install_version(&config_for(&install), "0.3.274", &pair, &Probe(Ok(())))
+            .expect_err("an existing version directory is immutable");
+        assert!(error.contains("already"), "{error}");
+        assert_eq!(
+            fs::read(version_exe(&install, "0.3.274")).expect("the running exe"),
+            b"the running build"
+        );
+    }
+
+    #[test]
+    fn a_pointer_write_is_a_temp_file_then_a_rename() {
+        let tmp = TempDir::new("pointer-atomic");
+        let install = install_dir(&tmp, "install");
+        write_current_pointer(&install, "0.3.271").expect("write the old pointer");
+
+        let staged = stage_current_pointer(&install, "0.3.274").expect("stage the new pointer");
+        assert_eq!(
+            read_current_pointer(&install),
+            Pointer::Version("0.3.271".to_string()),
+            "the staged write is not visible before its rename"
+        );
+        drop(staged); // the crash between the temp write and the rename
+
+        assert_eq!(
+            read_current_pointer(&install),
+            Pointer::Version("0.3.271".to_string()),
+            "a crash before the rename leaves the old pointer readable"
+        );
+        assert!(
+            !fs::read_dir(&install).expect("the install").any(|entry| {
+                entry
+                    .expect("a directory entry")
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with(".current.txt.")
+            }),
+            "the dropped stage removes its temporary file"
+        );
+
+        let staged = stage_current_pointer(&install, "0.3.274").expect("stage again");
+        staged.commit().expect("commit the rename");
+        assert_eq!(
+            read_current_pointer(&install),
+            Pointer::Version("0.3.274".to_string())
+        );
+    }
+
+    #[test]
+    fn two_failed_starts_of_the_current_version_roll_the_pointer_back() {
+        let tmp = TempDir::new("pointer-rollback");
+        let install = install_dir(&tmp, "install");
+        write_version(&install, "0.3.271", b"the known-good build");
+        write_version(&install, "0.3.274", b"the build that will not start");
+        write_current_pointer(&install, "0.3.274").expect("write the pointer");
+        write_previous_pointer(&install, "0.3.271").expect("write the previous pointer");
+
+        let mut watch = StartWatch::new();
+        assert!(watch
+            .on_failed_start(&install)
+            .expect("the first failure is not rollback-worthy")
+            .is_none());
+        assert_eq!(watch.failed_starts(), 1);
+        assert_eq!(
+            read_current_pointer(&install),
+            Pointer::Version("0.3.274".to_string()),
+            "one failed start is not a pattern"
+        );
+
+        let rolled = watch
+            .on_failed_start(&install)
+            .expect("the second failure rolls back")
+            .expect("a previous version was recorded");
+        assert_eq!(rolled.from.as_deref(), Some("0.3.274"));
+        assert_eq!(rolled.to, "0.3.271");
+        assert_eq!(watch.failed_starts(), 0, "the rollback resets the count");
+        assert_eq!(
+            read_current_pointer(&install),
+            Pointer::Version("0.3.271".to_string())
+        );
+        assert_eq!(
+            read_previous_pointer(&install),
+            Pointer::Missing,
+            "the previous pointer is consumed, so a second rollback cannot bounce back"
+        );
+    }
+
+    #[test]
+    fn a_stable_start_forgets_the_failures_before_it() {
+        let tmp = TempDir::new("pointer-stable");
+        let install = install_dir(&tmp, "install");
+        write_version(&install, "0.3.271", b"the known-good build");
+        write_version(&install, "0.3.274", b"the current build");
+        write_current_pointer(&install, "0.3.274").expect("write the pointer");
+        write_previous_pointer(&install, "0.3.271").expect("write the previous pointer");
+
+        let mut watch = StartWatch::new();
+        watch.on_failed_start(&install).expect("recorded");
+        watch.on_stable();
+        assert_eq!(watch.failed_starts(), 0);
+        assert!(
+            watch.on_failed_start(&install).expect("recorded").is_none(),
+            "a failure after a stable run is the first of a new run"
+        );
+        assert_eq!(
+            read_current_pointer(&install),
+            Pointer::Version("0.3.274".to_string())
         );
     }
 }
