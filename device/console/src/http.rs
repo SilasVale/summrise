@@ -452,6 +452,8 @@ struct CallIdentity<'a> {
 /// `detail` is the failure sentence the evidence panel shows — the device's own message, or the
 /// console's reason for giving up — and `ok` is not the status: a device's JSON-RPC error is HTTP
 /// 200 and still a refusal. The audit line keeps only the numeric code; this is what a person reads.
+/// `token_id` is the same record id the audit line carries: the live event is the newest copy of a
+/// line, so dropping the token here would make the merge show a tokenless row over a named one.
 struct LiveCall<'a> {
     device_id: Option<&'a str>,
     tool: Option<&'a str>,
@@ -462,6 +464,7 @@ struct LiveCall<'a> {
     ms: u64,
     evidence: Option<Value>,
     caller: Caller,
+    token_id: Option<&'a str>,
 }
 
 /// The consent the operator gave, as the audit's fixed pair of strings for a grant or a token.
@@ -668,6 +671,9 @@ impl Inner {
             if let Some(caller) = facts.caller {
                 event["caller"] = json!(caller);
             }
+            if let Some(token_id) = facts.token_id {
+                event["token_id"] = json!(token_id);
+            }
             let sentence = crate::activity::line_sentence(&event);
             event["sentence"] = json!(sentence);
             self.audit.publish(event);
@@ -675,7 +681,9 @@ impl Inner {
     }
 
     /// Publish one proxied call to the live stream: the sentence, the tool, the device, the outcome,
-    /// why it failed, how long the device took, and whether the console or a client made the call.
+    /// why it failed, how long the device took, whether the console or a client made the call, and
+    /// the token record when one authenticated it. The newest rows are these events, so a field the
+    /// audit line has and the event lacks disappears exactly where the page reads first.
     fn publish_call(&self, call: LiveCall<'_>) {
         let mut event = json!({
             "ts_ms": (self.now)(),
@@ -692,6 +700,9 @@ impl Inner {
         }
         if let Some(tool) = call.tool {
             event["tool"] = json!(tool);
+        }
+        if let Some(token_id) = call.token_id {
+            event["token_id"] = json!(token_id);
         }
         if !call.detail.is_empty() {
             event["detail"] = json!(call.detail);
@@ -2954,6 +2965,7 @@ async fn proxy_reply(
                 ms: started.elapsed().as_millis() as u64,
                 evidence: evidence.clone(),
                 caller: identity.caller,
+                token_id: identity.token_id,
             });
             app.record_facts(AuditFacts {
                 kind: "denied",
@@ -2981,6 +2993,7 @@ async fn proxy_reply(
                 ms: started.elapsed().as_millis() as u64,
                 evidence: evidence.clone(),
                 caller: identity.caller,
+                token_id: identity.token_id,
             });
             app.record_facts(AuditFacts {
                 kind: "denied",
@@ -3016,6 +3029,7 @@ async fn proxy_reply(
                     ms: started.elapsed().as_millis() as u64,
                     evidence: evidence.clone(),
                     caller: identity.caller,
+                    token_id: identity.token_id,
                 });
                 app.record_facts(AuditFacts {
                     kind: "denied",
@@ -3096,6 +3110,7 @@ async fn proxy_reply(
                 ms: started.elapsed().as_millis() as u64,
                 evidence,
                 caller: identity.caller,
+                token_id: identity.token_id,
             });
             app.record_facts(AuditFacts {
                 kind: "mcp",

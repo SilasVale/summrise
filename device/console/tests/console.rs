@@ -6108,6 +6108,111 @@ async fn a_client_call_names_the_client_on_its_line_and_event() {
     assert_eq!(line["caller"], json!("client"), "{line}");
 }
 
+/// The live event names the token record that made a client's call, not only the line read back from
+/// `/audit`: the newest rows are the live ones, so a tokenless event would hide the token behind the
+/// call exactly where the page looks first.
+#[tokio::test]
+async fn a_token_call_publishes_its_token_on_the_live_event() {
+    let fixture = Fixture::new("token-live-event");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xc3)).await;
+    let session = fixture.authenticate().await;
+    let (status, created) = fixture
+        .create_token(&session, &device_id, "laptop-dsh", &["files.read"], false)
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{created}");
+    let token_id = created["id"]
+        .as_str()
+        .expect("the token's record id")
+        .to_owned();
+    let plaintext = created["token"].as_str().expect("the token").to_owned();
+
+    let mut socket = open_events(&server, &session).await;
+    let mut seen = String::new();
+    read_until(&mut socket, &mut seen, "event: snapshot").await;
+
+    let request = json!({
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "tools/call",
+        "params": { "name": "files.read", "arguments": { "path": "notes.txt" } },
+    });
+    let http = send(
+        fixture.app(),
+        post_token(&device_id, &plaintext, request.clone()),
+    );
+    let device_side = async {
+        let frame = next_json(&mut device).await;
+        assert_eq!(frame["mcp"], request);
+        answer(&mut device, &frame, tool_result(json!({ "content": "hi" }))).await;
+    };
+    let ((status, body), ()) = tokio::join!(http, device_side);
+    assert_eq!(status, StatusCode::OK, "{body}");
+
+    let needle = format!("\"token_id\":\"{token_id}\"");
+    read_until(&mut socket, &mut seen, &needle).await;
+    assert!(
+        seen.contains(&needle),
+        "the live event carries the token record that made the call: {seen}"
+    );
+    assert!(
+        seen.contains("\"caller\":\"client\""),
+        "the event still names the audience: {seen}"
+    );
+}
+
+/// The operator's own `/mcp` call has no token record, and the live event must not invent one: a
+/// `token_id` on a console row would name a credential that did not make the call.
+#[tokio::test]
+async fn a_console_call_publishes_no_token_on_the_live_event() {
+    let fixture = Fixture::new("console-live-event");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xc4)).await;
+    let session = fixture.authenticate().await;
+
+    let mut socket = open_events(&server, &session).await;
+    let mut seen = String::new();
+    read_until(&mut socket, &mut seen, "event: snapshot").await;
+
+    let app = fixture.app();
+    let call = tokio::spawn(async move {
+        send(
+            app,
+            post_json_bearer(
+                "/mcp",
+                &session,
+                json!({
+                    "device_id": device_id,
+                    "request": {
+                        "jsonrpc": "2.0",
+                        "id": 1,
+                        "method": "tools/call",
+                        "params": { "name": "terminal.list", "arguments": {} },
+                    },
+                }),
+            ),
+        )
+        .await
+    });
+
+    let frame = next_json(&mut device).await;
+    answer(&mut device, &frame, tool_result(json!({ "content": [] }))).await;
+    let (status, _) = call.await.expect("the call finished");
+    assert_eq!(status, StatusCode::OK);
+
+    read_until(&mut socket, &mut seen, "\"caller\":\"console\"").await;
+    assert!(
+        seen.contains("\"caller\":\"console\""),
+        "the live event names the console: {seen}"
+    );
+    assert!(
+        !seen.contains("\"token_id\""),
+        "the console's own call carries no token record: {seen}"
+    );
+}
+
 /// An unknown token, a revoked one and one used against another device are one 401 on the wire; the
 /// denial log keeps the difference, and none of them can rotate the audit.
 #[tokio::test]
