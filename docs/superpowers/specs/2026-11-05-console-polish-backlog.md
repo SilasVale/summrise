@@ -89,7 +89,7 @@ All six console-only; the last is the deletion. Ranked by how often the friction
 4. **Let the machine menu compare machines.** *(Measured: the fleet read carries `host` facts and `last_attempt` (`attempts`, `reason`), not an outage duration — so the line can name disk free and, when offline, the last attempt, but "back 2 h ago after 41 m" needs a new server field first. The item is split: the line now, the duration when the fleet records it.)* It shows dot, name, state, version (`MachineMenu.tsx:72-89`)
    while the fleet read already carries `host` and `last_outage` the web's `Device` does not name; one
    muted line — "C: 312 GiB free · back 2 h ago after 41 m". **S.**
-5. **Put the last column on screen at 390.** The audit table is 44 rem wide with its only opener in the
+5. **Put the last column on screen at 390.** *(Done 2026-11-05, 188d078: at 390 the audit disclosure is the first cell's control and the sixth column is not drawn; the token list is a card layout inside the 600 px drawer — measured Revoke inside the sheet at 390 and 1280; desktop page outside the drawer unchanged.)* The audit table is 44 rem wide with its only opener in the
    sixth column, and the token sheet's Revoke/Rotate are clipped in the 600 px sheet even at 1280;
    move the disclosure to the first cell at ≤639 and stack each token's actions under its name. **S.**
 6. **Delete the device id from the Machine tab.** *(Done 2026-11-05: the 64 hex is gone; build and online stay; the record's Copy id and the Connect endpoint keep it.)* (`SystemPage.tsx:391-397`) prints 64 hex that nothing
