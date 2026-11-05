@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { lastHeardMs, message, seenAgo, shortId } from "./format";
+import { lastHeardMs, message, seenAgo, shortDeviceName, shortId } from "./format";
 
 describe("shortId", () => {
   it("leaves an id of twelve characters alone", () => {
@@ -56,5 +56,31 @@ describe("lastHeardMs", () => {
     expect(lastHeardMs({ last_frame_ms: null, last_left_ms: 200, last_seen_ms: 100 })).toBe(200);
     expect(lastHeardMs({ last_frame_ms: null, last_left_ms: null, last_seen_ms: 100 })).toBe(100);
     expect(lastHeardMs({})).toBeNull();
+  });
+});
+
+describe("shortDeviceName", () => {
+  // The fleet the phone audit measured: three names whose only shared prefix is the vendor's.
+  const desktops = ["DESKTOP-9VH92BJ", "DESKTOP-14RJCR8", "DESKTOP-CPH4KB2"];
+
+  it("drops the prefix every machine shares and keeps what tells them apart", () => {
+    expect(shortDeviceName("DESKTOP-9VH92BJ", desktops)).toBe("9VH92BJ");
+    expect(shortDeviceName("DESKTOP-14RJCR8", desktops)).toBe("14RJCR8");
+    expect(shortDeviceName("DESKTOP-CPH4KB2", desktops)).toBe("CPH4KB2");
+  });
+
+  it("keeps a name whole when the fleet shares no prefix", () => {
+    expect(shortDeviceName("workshop", ["workshop", "attic", "studio"])).toBe("workshop");
+  });
+
+  it("keeps a name whole rather than cutting a shared prefix inside a word", () => {
+    // "alpha" is not a separator: shortening these to "1" and "2" would be a different name, not
+    // the same machine's distinguishing tail.
+    expect(shortDeviceName("alpha1", ["alpha1", "alpha2"])).toBe("alpha1");
+    expect(shortDeviceName("alpha2", ["alpha1", "alpha2"])).toBe("alpha2");
+  });
+
+  it("keeps a lone machine's name whole", () => {
+    expect(shortDeviceName("DESKTOP-9VH92BJ", ["DESKTOP-9VH92BJ"])).toBe("DESKTOP-9VH92BJ");
   });
 });

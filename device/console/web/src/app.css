@@ -356,14 +356,13 @@ main.terminal-main { display: grid; grid-template-rows: auto minmax(0, 1fr); ali
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .attempt-reason {
-  /* The reason inside a sentence: inline, one line, titled — never paraphrased and never a second
-     line of its own at 390. */
-  display: inline-block; max-width: 100%; vertical-align: bottom;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  /* THE REASON WRAPS, IT IS NOT CUT. The measured 390 hub put 283 px of the channel's sentence in
+     a 265 px line and drew "…and then dro…", leaving the last word in a title a phone cannot
+     hover. It is the device's sentence and it flows: a word is never split by an ellipsis, and the
+     notice grows downward instead of losing the diagnosis. */
+  display: inline; max-width: none; overflow: visible; overflow-wrap: anywhere;
+  white-space: normal; text-overflow: clip;
 }
-/* On the fleet row the whole line is the one truncating box (prefix and reason together), so the
-   reason inside it is not a second, narrower cap. */
-.fleet-attempt .attempt-reason { display: inline; max-width: none; overflow: visible; }
 .row-menu { position: relative; display: flex; align-items: center; padding-right: var(--sp-2); }
 .row-menu > summary {
   list-style: none; width: 32px; height: 32px; display: grid; place-items: center;

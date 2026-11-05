@@ -8,7 +8,7 @@ import type { AuditLine, Device, TokenMeta } from "./api";
 import { auditFailed, filterAudit, type AuditFilter } from "./auditFilter";
 import { auditCsv, auditCsvName } from "./audit-export";
 import { downloadFile } from "./download";
-import { age, shortId } from "./format";
+import { age, shortDeviceName, shortId } from "./format";
 import { ConsoleCaller } from "./CallerMark";
 import { tokenFact, tokenLabel } from "./tokenFact";
 import { useMediaQuery } from "./useMediaQuery";
@@ -274,6 +274,9 @@ export function AuditTable({
     () => new Map(devices.map((device) => [device.id, device.name ?? shortId(device.id)])),
     [devices]
   );
+  // The fleet's names are what say which prefix they share; a retired id is not in it and keeps
+  // its whole short id.
+  const fleetNames = useMemo(() => Array.from(deviceNames.values()), [deviceNames]);
   const [copied, setCopied] = useState<string | null>(null);
   // THE OPENER IS IN THE ROW, NOT AT ITS FAR END. A phone cannot see a sixth column, and the old
   // 44 rem table made opening one record cost a sideways swipe; below 640 px the disclosure is the
@@ -536,8 +539,24 @@ export function AuditTable({
                           {!wide && disclosure(key, isOpen, line)}
                           {age(line.ts_ms)}
                         </td>
-                        <td title={line.device_id ?? undefined}>
-                          {deviceName}
+                        <td title={line.device_id ? `${deviceName} (${line.device_id})` : deviceName}>
+                          {wide ? (
+                            deviceName
+                          ) : (
+                            <>
+                              {/* THE PHONE COLUMN IS 67 px. The measured cell held
+                                  "DESKTOP-9VH92BJ" in three lines and grew the row to 91 px; the
+                                  part after the fleet's shared prefix fits on one line. The full
+                                  name stays the cell's accessible name, and its title carries the
+                                  name and the id a hover cannot show on a phone. */}
+                              <span className="sr-only">{deviceName}</span>
+                              <span className="audit-device-short" aria-hidden="true">
+                                {line.device_id
+                                  ? shortDeviceName(deviceName, fleetNames)
+                                  : deviceName}
+                              </span>
+                            </>
+                          )}
                           {line.caller === "console" && (
                             <>
                               {" "}

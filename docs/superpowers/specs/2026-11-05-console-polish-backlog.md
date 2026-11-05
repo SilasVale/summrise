@@ -700,6 +700,15 @@ update line no longer repeats the running version; the run form's placeholder is
    column that identifies the machine, and the sentence that says why a machine is down loses its
    last word. **Fix:** at ≤639 fold the machine into the What happened cell and drop the mostly-empty
    Token column, and let the notice's reason wrap to two lines. **S.**
+   *(Done 2026-11-05: at ≤639 the Device cell draws the name without the fleet's shared prefix —
+   `9VH92BJ`, `14RJCR8`, `CPH4KB2` — with the full name as its accessible name and in its `title`;
+   the cell stays its own column rather than folding into What happened. `DESKTOP-9VH92BJ console`
+   is two lines instead of three, and the row measures **61 px**, not **91** (cell 67×61). The
+   offline notice's reason is inline and wraps: the measured 283 px sentence is whole in two lines
+   (258 px) with no mid-word `…`. `npx vitest run` 658 passed across 51 files; typecheck and build
+   clean; `./scripts/build-web.sh --check` clean with dist committed; browser gate PASS 27 steps
+   (the 390 device tail, row height and reason read); `a11y-audit` 0 findings across 16 page
+   states.)*
 
 ### Cuts
 

@@ -11,8 +11,8 @@
  * and Copy diagnostics keeps the record. What is left here is the hub's offline notice, where the
  * machine is not connected *now* and the attempt is why the console is still trying.
  *
- * Where the reason is drawn it is cut to one line with an ellipsis, and the element's title carries
- * the whole sentence, so a reason longer than a phone-wide row is still reachable.
+ * Where the reason is drawn it flows in the notice's sentence and wraps, so a phone reads the whole
+ * diagnosis rather than a one-line cut; the title still carries the sentence for a pointer.
  */
 
 export type LastAttempt = { attempts: number; reason?: string | null };

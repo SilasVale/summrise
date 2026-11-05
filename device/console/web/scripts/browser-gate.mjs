@@ -72,7 +72,7 @@ const indexHtml = await readFile(DIST_INDEX).catch((error) => {
 const NOW = Date.now();
 const DEVICE = {
   id: 'gate-device-0123456789abcdef',
-  name: 'gate-workshop',
+  name: 'DESKTOP-9VH92BJ',
   online: true,
   version: '0.3.42',
   last_seen_ms: NOW,
@@ -107,7 +107,7 @@ const DEVICE = {
 // both widths; the menu must not date the stale pair.
 const OFFLINE_DEVICE = {
   id: 'gate-asleep-0123456789abcdef',
-  name: 'gate-asleep',
+  name: 'DESKTOP-14RJCR8',
   online: false,
   version: '0.3.42',
   last_seen_ms: NOW - 2 * 60 * 60_000,
@@ -119,6 +119,12 @@ const OFFLINE_DEVICE = {
   last_outage: {
     away_ms: 1_009,
     back_at_ms: NOW - 2 * 60 * 60_000 - 12 * 60_000
+  },
+  // The measured hub notice: the machine is offline and the console's last attempt failed after
+  // the channel was accepted. At 390 the reason used to be cut to one line with an ellipsis.
+  last_attempt: {
+    attempts: 1,
+    reason: 'the console accepted the channel and then dropped it'
   }
 };
 // The third machine: the fleet compares more than two rows, and this one's day has a failure. It
@@ -126,7 +132,7 @@ const OFFLINE_DEVICE = {
 // add to.
 const QUIET_DEVICE = {
   id: 'gate-quiet-0123456789abcdef',
-  name: 'gate-quiet',
+  name: 'DESKTOP-CPH4KB2',
   online: true,
   version: '0.3.42',
   last_seen_ms: NOW - 30_000,
@@ -507,7 +513,7 @@ try {
   // `last_outage` is from an earlier absence. The row must read the open close, at the desktop width.
   await page.setViewportSize({ width: 1440, height: 960 });
   await page.waitForTimeout(200);
-  const offlineRow1440 = page.getByRole('button', { name: /^Open gate-asleep/ });
+  const offlineRow1440 = page.getByRole('button', { name: /^Open DESKTOP-14RJCR8/ });
   const offlineState1440 = (await offlineRow1440.locator('.fleet-state').textContent())?.trim();
   if (offlineState1440 !== 'offline · last seen 1h 49m ago') {
     throw new Error(`the offline row read "${offlineState1440}" at 1440`);
@@ -524,7 +530,7 @@ try {
   // version. The refused answer is one minute old and the journal says the process started an hour
   // ago, so it belongs to this start and is drawn as the updater's own sentence — not as
   // "started 0.3.42 (updated)", which repeated the chip and dated nothing.
-  const onlineRow = page.getByRole('button', { name: /^Open gate-workshop/ });
+  const onlineRow = page.getByRole('button', { name: /^Open DESKTOP-9VH92BJ/ });
   const onlineRowText = (await onlineRow.textContent()) ?? '';
   const versionCopies = (onlineRowText.match(/0\.3\.42/g) ?? []).length;
   if (versionCopies !== 1) {
@@ -557,9 +563,9 @@ try {
   );
   const workBy = new Map(fleet1440.map((row) => [row.name, row.work]));
   const expectedWork = new Map([
-    ['gate-workshop', '283 calls · 38 failed'],
-    ['gate-asleep', '11 calls'],
-    ['gate-quiet', '84 calls · 2 failed']
+    ['DESKTOP-9VH92BJ', '283 calls · 38 failed'],
+    ['DESKTOP-14RJCR8', '11 calls'],
+    ['DESKTOP-CPH4KB2', '84 calls · 2 failed']
   ]);
   for (const [name, expected] of expectedWork) {
     if (workBy.get(name) !== expected) {
@@ -567,7 +573,7 @@ try {
     }
   }
   const plainRows = fleet1440.filter(
-    (row) => row.name === 'gate-asleep' || row.name === 'gate-quiet'
+    (row) => row.name === 'DESKTOP-14RJCR8' || row.name === 'DESKTOP-CPH4KB2'
   );
   for (const row of plainRows) {
     // 45 px is the measured row on the live console; a browser whose font metrics round it to 44
@@ -589,7 +595,7 @@ try {
 
   await page.locator('.fleet-open').first().click();
   await page.getByRole('heading', { name: 'Home' }).waitFor({ timeout: 10_000 });
-  step('opened gate-workshop; Home states the hub');
+  step('opened DESKTOP-9VH92BJ; Home states the hub');
 
   // THE NOW BAND COUNTS THE AI, NOT THE CONSOLE'S OWN READS. The activity stream above serves one
   // `terminal.list` the console made twenty seconds ago and one client call five minutes ago; a
@@ -939,9 +945,9 @@ try {
   await page.getByRole('button', { name: 'All machines' }).click();
   await page.locator('nav.rail button[title="Home"]').click();
   await page.getByRole('heading', { name: 'Machines', exact: true }).waitFor({ timeout: 10_000 });
-  await page.getByRole('button', { name: /^Open gate-asleep/ }).waitFor({ timeout: 10_000 });
+  await page.getByRole('button', { name: /^Open DESKTOP-14RJCR8/ }).waitFor({ timeout: 10_000 });
   const offlineState390 = (
-    await page.getByRole('button', { name: /^Open gate-asleep/ }).locator('.fleet-state').textContent()
+    await page.getByRole('button', { name: /^Open DESKTOP-14RJCR8/ }).locator('.fleet-state').textContent()
   )?.trim();
   if (offlineState390 !== 'offline · last seen 1h 49m ago') {
     throw new Error(`the offline row read "${offlineState390}" at 390`);
@@ -1006,8 +1012,14 @@ try {
   await firstAuditRow.waitFor({ timeout: 10_000 });
   const audit390 = await page.evaluate(() => {
     const row = document.querySelector('.audit-row');
+    const runRow = [...document.querySelectorAll('.audit-row')].find((entry) =>
+      entry.textContent?.includes('runs.exec')
+    );
     const button = row?.querySelector('.audit-disclosure');
     const scroller = row?.closest('.table-scroll');
+    const deviceCell = row?.cells[1];
+    const runDeviceCell = runRow?.cells[1];
+    const short = deviceCell?.querySelector('.audit-device-short');
     const rect = (element) => {
       const box = element.getBoundingClientRect();
       return {
@@ -1016,6 +1028,8 @@ try {
         width: Math.round(box.width)
       };
     };
+    const rowBox = row?.getBoundingClientRect();
+    const deviceBox = deviceCell?.getBoundingClientRect();
     return {
       viewport: document.documentElement.clientWidth,
       documentScrollWidth: document.documentElement.scrollWidth,
@@ -1027,7 +1041,16 @@ try {
             scrollWidth: scroller.scrollWidth,
             clientWidth: scroller.clientWidth
           }
-        : null
+        : null,
+      device: {
+        short: short?.textContent?.trim() ?? null,
+        text: deviceCell?.textContent?.trim() ?? null,
+        title: deviceCell?.getAttribute('title') ?? null,
+        runTitle: runDeviceCell?.getAttribute('title') ?? null,
+        cellWidth: Math.round(deviceBox?.width ?? 0),
+        cellHeight: Math.round(deviceBox?.height ?? 0),
+        rowHeight: Math.round(rowBox?.height ?? 0)
+      }
     };
   });
   console.log(
@@ -1035,7 +1058,39 @@ try {
       audit390.disclosure
     )}, viewport ${audit390.viewport}/${audit390.documentScrollWidth}, scroller ${
       audit390.scroller?.scrollWidth
-    }/${audit390.scroller?.clientWidth}, first-cell ${audit390.firstCellHasButton}`
+    }/${audit390.scroller?.clientWidth}, first-cell ${audit390.firstCellHasButton}, ` +
+      `device ${JSON.stringify(audit390.device)}`
+  );
+  // **THE PHONE'S DEVICE CELL NAMES THE MACHINE IN ONE OR TWO LINES.** The measured cell held
+  // "DESKTOP-9VH92BJ console" in 67 px and grew the row to 91 px. The full name stays the cell's
+  // accessible name and its title; the drawn string is the tail the three machines do not share.
+  if (audit390.device.short !== '9VH92BJ') {
+    throw new Error(
+      `the 390 device cell drew ${JSON.stringify(
+        audit390.device.short ?? audit390.device.text
+      )} instead of the tail "9VH92BJ"`
+    );
+  }
+  if (!audit390.device.title?.includes('DESKTOP-9VH92BJ')) {
+    throw new Error(`the 390 device cell's title is ${JSON.stringify(audit390.device.title)}`);
+  }
+  if (!audit390.device.runTitle?.includes('DESKTOP-9VH92BJ')) {
+    throw new Error(`the run row's device title is ${JSON.stringify(audit390.device.runTitle)}`);
+  }
+  if (audit390.device.rowHeight > 70) {
+    throw new Error(
+      `the 390 audit row is ${audit390.device.rowHeight} px; the device cell is ` +
+        `${audit390.device.cellHeight} px, so the row is still more than two lines`
+    );
+  }
+  const fullNameCells = await page.getByRole('cell', { name: 'DESKTOP-9VH92BJ', exact: true }).count();
+  if (fullNameCells === 0) {
+    throw new Error('the full machine name is not the device cell\'s accessible name at 390');
+  }
+  step(
+    `at 390 the device cell draws "${audit390.device.short}" with the full name in its title ` +
+      `and accessible name; the row is ${audit390.device.rowHeight} px ` +
+      `(cell ${audit390.device.cellWidth}×${audit390.device.cellHeight}, was 67×91)`
   );
   if (!audit390.firstCellHasButton) {
     throw new Error('the audit disclosure is not in the row\'s first cell at 390');
@@ -1064,6 +1119,55 @@ try {
   await page.locator('.audit-record-row').first().waitFor({ state: 'visible', timeout: 5_000 });
   await page.screenshot({ path: path.join(OUT, '07-audit-390.png') });
   step('at 390 the audit opener is in the first cell; the table fits and the record opens');
+
+  // **THE OFFLINE REASON WRAPS INSTEAD OF LOSING ITS LAST WORD.** The measured notice cut
+  // "…and then dropped it" to "…and then dro…": 283 px of text in a 265 px line, with the rest only
+  // in a title a phone cannot hover. The reason must be whole on screen and flow onto a second line.
+  await page.locator('nav.rail button[title="Home"]').click();
+  await page.getByRole('button', { name: /^Open DESKTOP-14RJCR8/ }).click();
+  await page.getByRole('heading', { name: 'Home', exact: true }).waitFor({ timeout: 10_000 });
+  const reason390 = await page.evaluate(() => {
+    const element = document.querySelector('.attempt-reason');
+    if (!element) return null;
+    const style = getComputedStyle(element);
+    const box = element.getBoundingClientRect();
+    return {
+      text: element.textContent?.trim() ?? '',
+      title: element.getAttribute('title'),
+      whiteSpace: style.whiteSpace,
+      textOverflow: style.textOverflow,
+      overflow: style.overflow,
+      lines: element.getClientRects().length,
+      width: Math.round(box.width),
+      right: Math.round(box.right),
+      viewport: document.documentElement.clientWidth
+    };
+  });
+  console.log(`browser-gate: offline reason at 390: ${JSON.stringify(reason390)}`);
+  if (!reason390) throw new Error('the offline hub drew no reason at 390');
+  const reasonText = 'the console accepted the channel and then dropped it';
+  if (reason390.text !== reasonText) {
+    throw new Error(`the offline reason read ${JSON.stringify(reason390.text)}`);
+  }
+  if (reason390.textOverflow === 'ellipsis' || reason390.whiteSpace === 'nowrap') {
+    throw new Error(
+      `the offline reason is still cut to one line: ${JSON.stringify({
+        whiteSpace: reason390.whiteSpace,
+        textOverflow: reason390.textOverflow
+      })}`
+    );
+  }
+  if (reason390.lines < 2) {
+    throw new Error(`the offline reason drew ${reason390.lines} line; the 283 px sentence must wrap`);
+  }
+  if (reason390.right > reason390.viewport) {
+    throw new Error(`the offline reason extends past the viewport at 390: ${reason390.right}`);
+  }
+  await page.screenshot({ path: path.join(OUT, '07b-offline-390.png') });
+  step(
+    `at 390 the offline reason is whole across ${reason390.lines} lines ` +
+      `(${reason390.width} px), not one clipped line`
+  );
 
   // The Connect sheet at 390: the same measured promise for the token row.
   await page.locator('.account > summary').click();

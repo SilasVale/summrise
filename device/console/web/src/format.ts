@@ -63,3 +63,28 @@ export function lastHeardMs(device: {
   return device.last_frame_ms ?? device.last_left_ms ?? device.last_seen_ms ?? null;
 }
 
+/**
+ * The part of a machine's name that tells it apart, for the phone's 67 px audit cell.
+ *
+ * The measured fleet is `DESKTOP-9VH92BJ`, `DESKTOP-14RJCR8` and `DESKTOP-CPH4KB2`: the only shared
+ * prefix is the vendor's, and the tail after it is the whole name a person uses. The prefix is
+ * dropped only when it ends on a separator: `alpha1`/`alpha2` share `alpha` inside a word, and
+ * shortening those to `1`/`2` would be a different name rather than the same name's tail. A name
+ * with no shared prefix, or a fleet of one, stays whole.
+ */
+export function shortDeviceName(name: string, fleetNames: readonly string[]): string {
+  const names = fleetNames.filter((entry) => entry !== "");
+  if (names.length < 2 || name === "") return name;
+  let prefix = names[0];
+  for (const other of names.slice(1)) {
+    let index = 0;
+    while (index < prefix.length && index < other.length && prefix[index] === other[index]) {
+      index += 1;
+    }
+    prefix = prefix.slice(0, index);
+    if (prefix === "") return name;
+  }
+  const separator = prefix.length > 0 && !/[\p{L}\p{N}]$/u.test(prefix);
+  if (!separator || !name.startsWith(prefix) || name.length <= prefix.length) return name;
+  return name.slice(prefix.length);
+}

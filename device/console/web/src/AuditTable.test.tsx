@@ -289,13 +289,39 @@ describe("AuditTable", () => {
   it("names the device in the row and keeps the full id for the record", () => {
     render(<AuditTable lines={lines} devices={devices} tokens={[]} />);
 
-    const cell = within(screen.getByRole("table")).getAllByText("Alpha")[0];
-    expect(cell).toHaveAttribute("title", alpha);
-    const row = cell.closest("tr");
-    expect(row).not.toBeNull();
-    expect(within(row as HTMLElement).getByText("memory.export")).toBeInTheDocument();
+    const row = rowOf("memory.export") as HTMLTableRowElement;
+    const cell = row.cells[1];
+    expect(cell).toHaveTextContent("Alpha");
+    // The title still names the id, which the record's Copy id is the one control for.
+    expect(cell).toHaveAttribute("title", expect.stringContaining(alpha));
+    expect(within(row).getByText("memory.export")).toBeInTheDocument();
     // No KIND column: `mcp` on every row is not information.
     expect(screen.queryByRole("columnheader", { name: /kind/i })).not.toBeInTheDocument();
+  });
+
+  it("shows the distinguishing tail of a machine's name on a phone, named whole to a screen reader", () => {
+    // The measured phone: a 67 px device cell held "DESKTOP-9VH92BJ console" in three lines and
+    // grew the row to 91 px. The cell keeps the whole name as its accessible name and in its
+    // title; what is drawn is the part the three machines do not share.
+    const desktops: Device[] = [
+      { id: "desk-1", name: "DESKTOP-9VH92BJ", online: true, version: "1.0", last_seen_ms: 1 },
+      { id: "desk-2", name: "DESKTOP-14RJCR8", online: true, version: "1.0", last_seen_ms: 1 },
+      { id: "desk-3", name: "DESKTOP-CPH4KB2", online: true, version: "1.0", last_seen_ms: 1 }
+    ];
+    render(
+      <AuditTable
+        lines={[line({ device_id: "desk-1", tool: "terminal.list", status: 200 })]}
+        devices={desktops}
+        tokens={[]}
+      />
+    );
+
+    const row = document.querySelector("tr.audit-row") as HTMLTableRowElement;
+    const cell = row.cells[1];
+    expect(cell).toHaveAccessibleName("DESKTOP-9VH92BJ");
+    expect(cell).toHaveAttribute("title", expect.stringContaining("DESKTOP-9VH92BJ"));
+    // 7 characters, not the 15-character name that broke into three lines.
+    expect(cell.querySelector(".audit-device-short")).toHaveTextContent("9VH92BJ");
   });
 
   it("puts the row's opener in its first cell, so a phone does not swipe to open it", () => {
