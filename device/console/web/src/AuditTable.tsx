@@ -167,6 +167,7 @@ export function AuditTable({
   onScope,
   capped = false,
   cappedMachine = null,
+  atLimit = false,
   loading = false,
   loadingMachine = null
 }: {
@@ -174,6 +175,12 @@ export function AuditTable({
   capped?: boolean;
   /** The machine whose window was cut, or `null` for the fleet's; the notice names it. */
   cappedMachine?: string | null;
+  /**
+   * True when the fetched window came back with exactly the requested limit. The page dropped
+   * nothing, so this is not `capped`; the sentence names the window's limit and claims nothing
+   * about the lines behind it, which the server cannot prove exist.
+   */
+  atLimit?: boolean;
   /** True while a changed scope's window is being read; the table says so instead of the old rows. */
   loading?: boolean;
   /** The machine whose window is being read, or `null` for the fleet's. */
@@ -470,8 +477,16 @@ export function AuditTable({
         </div>
       ) : (
         <div className="table-scroll" tabIndex={0} role="region" aria-label="Audit lines">
-          {capped && (
-            <p className="hint audit-cap">{capSentence(AUDIT_WINDOW, cappedMachine)}</p>
+          {(capped || atLimit) && (
+            // One sentence, two facts: rows were cut, or the request filled the window. Only the
+            // second is true when a duplicate drop left fewer than 1000 rows on screen.
+            <p className="hint audit-cap">
+              {capSentence(
+                AUDIT_WINDOW,
+                cappedMachine,
+                capped ? "capped" : "at-limit"
+              )}
+            </p>
           )}
           <table className="audit-table">
             <thead>

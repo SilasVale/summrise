@@ -28,16 +28,37 @@ export function mergeActivity(audit: AuditLine[], live: LiveLine[]): AuditLine[]
  */
 export const ACTIVITY_LIMIT = 1000;
 
-export type ActivityWindow = { lines: AuditLine[]; capped: boolean };
+export type ActivityWindow = {
+  lines: AuditLine[];
+  /** The merged list was cut at the limit: rows the page already held are not drawn. */
+  capped: boolean;
+  /**
+   * The fetched window came back with exactly the requested limit.
+   *
+   * This is a fact about the request, not about the merged list: three duplicate live lines can
+   * leave 997 rows on screen from a full 1000-line answer, and the page must still say it asked for
+   * a full window. It says no more than that: the server cannot prove an older line exists.
+   */
+  atLimit: boolean;
+};
 
 /**
- * The one sentence a capped list shows.
+ * The one sentence a capped or full list shows.
  *
  * It describes the fetched window, not a day: the rows behind the cut may be yesterday's, so
- * "of today" would be a claim the row list cannot keep. When the window is one machine's, the
+ * "of today" would be a claim the row list cannot keep. When the window is one machine's, the cut
  * sentence names it: the cut is that machine's lines, not the fleet's.
+ *
+ * `at-limit` is the other fact: the request filled and nothing was dropped, so the sentence names
+ * the window's size and claims nothing about what lies behind it. It names no machine because no
+ * cut happened; the machine is the page's scope, not this sentence's subject.
  */
-export function capSentence(limit = ACTIVITY_LIMIT, machine: string | null = null): string {
+export function capSentence(
+  limit = ACTIVITY_LIMIT,
+  machine: string | null = null,
+  fact: "capped" | "at-limit" = "capped"
+): string {
+  if (fact === "at-limit") return `Showing the newest ${limit} lines — the window's limit.`;
   const from = machine === null ? "" : ` from ${machine}`;
   return `Showing the newest ${limit} lines${from}; older ones are not on this page.`;
 }
@@ -57,16 +78,26 @@ export function windowLoadingSentence(machine: string | null = null): string {
 
 /** The newest `limit` lines, and whether anything older was dropped to get there. */
 export function capActivity(lines: AuditLine[], limit = ACTIVITY_LIMIT): ActivityWindow {
-  if (lines.length <= limit) return { lines, capped: false };
+  // `atLimit` is the fetch's fact, not the merged list's: this function only knows the list.
+  if (lines.length <= limit) return { lines, capped: false, atLimit: false };
   // Both sources arrive newest first and the merge keeps that order, so the tail is the older end.
-  return { lines: lines.slice(0, limit), capped: true };
+  return { lines: lines.slice(0, limit), capped: true, atLimit: false };
 }
 
-/** The merged list, capped. The page says so when `capped` is true; it must not hide rows silently. */
+/**
+ * The merged list, capped, with the one fact only the fetch can supply.
+ *
+ * The merge can shrink a full window (a line seen through both the file and the live stream is
+ * drawn once), so `atLimit` is read from the fetched answer's length. A list that was both full
+ * and cut at the merge keeps both facts; the views draw the cut sentence, which is the stronger.
+ */
 export function mergeActivityWindow(
   audit: AuditLine[],
   live: LiveLine[],
   limit = ACTIVITY_LIMIT
 ): ActivityWindow {
-  return capActivity(mergeActivity(audit, live), limit);
+  return {
+    ...capActivity(mergeActivity(audit, live), limit),
+    atLimit: audit.length >= limit
+  };
 }

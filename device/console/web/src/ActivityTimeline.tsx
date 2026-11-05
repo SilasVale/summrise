@@ -488,6 +488,12 @@ export function ActivityTimeline(props: {
    */
   cappedMachine?: string | null;
   /**
+   * True when the fetched window came back with exactly the requested limit. This is not `capped`:
+   * the page dropped nothing, but the server answered a full window and cannot prove an older line
+   * exists. The sentence names the window's limit and claims nothing beyond it.
+   */
+  atLimit?: boolean;
+  /**
    * True while a changed scope's window is being read. The rows still in hand belong to the previous
    * window, so the list shows one reading line instead of drawing another window's rows.
    */
@@ -580,12 +586,18 @@ export function ActivityTimeline(props: {
           {windowLoadingSentence(props.loadingMachine ?? null)}
         </p>
       )}
-      {!props.loading && props.capped && (
+      {!props.loading && (props.capped || props.atLimit) && (
         // The fetched window and the live lines can add up to more than the console's cap. Dropping
         // the oldest is right; doing it silently would hide rows. The sentence names the window only:
         // the cut rows can be yesterday's, so "of today" would be false on a list that spans days.
+        // A full request that dropped nothing is the other fact: the same helper says the window
+        // hit its limit without pretending to know what is behind it.
         <p className="hint timeline-capped">
-          {capSentence(ACTIVITY_LIMIT, props.cappedMachine ?? null)}
+          {capSentence(
+            ACTIVITY_LIMIT,
+            props.cappedMachine ?? null,
+            props.capped ? "capped" : "at-limit"
+          )}
         </p>
       )}
       {!props.loading && (days.length === 0 ? (

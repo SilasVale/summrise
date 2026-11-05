@@ -128,6 +128,9 @@ export function App() {
   // Whether the frozen list itself was cut at the cap. The sentence above the rows must describe
   // what is on screen, not what the merge would be if the page were following again.
   const [frozenCapped, setFrozenCapped] = useState(false);
+  // Whether the window frozen behind the pause filled the server's limit. A paused page keeps
+  // saying what its window is, not what the live window has since become.
+  const [frozenAtLimit, setFrozenAtLimit] = useState(false);
   // The frozen list's window. The cap sentence and the loading decision describe what is on screen,
   // and a pause keeps the rows it froze even if a scope change fetches another window behind it.
   const [frozenDevice, setFrozenDevice] = useState<string | null>(null);
@@ -139,6 +142,9 @@ export function App() {
   const shownActivity = activityPaused && frozenActivity ? frozenActivity : activityLines;
   const shownCapped =
     activityPaused && frozenActivity ? frozenCapped : activityWindow.capped;
+  // The window's limit is the fetch's fact, so a paused page keeps the one it froze with.
+  const shownAtLimit =
+    activityPaused && frozenActivity ? frozenAtLimit : activityWindow.atLimit;
   const freshActivity =
     activityPaused && pausedAt !== null
       ? activityLines.filter((line) => line.ts_ms > pausedAt).length
@@ -148,12 +154,14 @@ export function App() {
       setActivityPaused(false);
       setFrozenActivity(null);
       setFrozenCapped(false);
+      setFrozenAtLimit(false);
       setFrozenDevice(null);
       setPausedAt(null);
     } else {
       setPausedAt(Date.now());
       setFrozenActivity(activityLines);
       setFrozenCapped(activityWindow.capped);
+      setFrozenAtLimit(activityWindow.atLimit);
       setFrozenDevice(auditDevice);
       setActivityPaused(true);
     }
@@ -844,6 +852,7 @@ export function App() {
                   devices={devices}
                   tokens={tokens}
                   capped={shownCapped}
+                  atLimit={shownAtLimit}
                   cappedMachine={shownWindowName}
                   loading={auditReadingOther}
                   loadingMachine={auditReadingName}
@@ -873,6 +882,7 @@ export function App() {
                 <AuditTable
                   lines={shownActivity}
                   capped={shownCapped}
+                  atLimit={shownAtLimit}
                   cappedMachine={shownWindowName}
                   loading={auditReadingOther}
                   loadingMachine={auditReadingName}

@@ -58,4 +58,41 @@ describe("merging the fetched window with the live stream", () => {
       "Showing the newest 1000 lines; older ones are not on this page."
     );
   });
+
+  it("says the window's limit without claiming a cut", () => {
+    // The server answered with exactly the requested 1000. It cannot prove an older line exists, so
+    // the sentence names the window's size and claims nothing about what is behind it. Nothing was
+    // dropped from the list either, so the window has no machine to blame for a cut.
+    expect(capSentence(1000, null, "at-limit")).toBe(
+      "Showing the newest 1000 lines — the window's limit."
+    );
+    expect(capSentence(1000, "workshop", "at-limit")).toBe(
+      "Showing the newest 1000 lines — the window's limit."
+    );
+  });
+
+  it("reports a fetched window that filled the request", () => {
+    const fetched = Array.from({ length: 1000 }, (_, index) => audit(1_000 - index, "files.read"));
+    const window = mergeActivityWindow(fetched, []);
+    expect(window.capped).toBe(false);
+    expect(window.atLimit).toBe(true);
+
+    const short = Array.from({ length: 999 }, (_, index) => audit(1_000 - index, "files.read"));
+    expect(mergeActivityWindow(short, []).atLimit).toBe(false);
+  });
+
+  it("keeps the full-window fact when the merge dropped duplicate lines", () => {
+    // 997 rows drawn from a full 1000-line answer: three lines the file wrote twice (same instant,
+    // tool and status) collapse in the merge. Nothing was cut by the page's cap, but the request
+    // still filled the server's window.
+    const fetched = Array.from({ length: 1000 }, (_, index) => audit(2_000 - index, "files.read"));
+    fetched[1] = { ...fetched[0] };
+    fetched[2] = { ...fetched[0] };
+    fetched[3] = { ...fetched[0] };
+    const window = mergeActivityWindow(fetched, []);
+
+    expect(window.lines).toHaveLength(997);
+    expect(window.capped).toBe(false);
+    expect(window.atLimit).toBe(true);
+  });
 });

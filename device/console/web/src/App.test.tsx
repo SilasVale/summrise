@@ -554,6 +554,37 @@ describe("App", () => {
     expect(screen.queryByText(/from workshop/)).toBeNull();
   });
 
+  it("says the window's limit at exactly 1000 lines, and not at 999", async () => {
+    // The live read returned exactly the requested window. `capped` is false because the page
+    // dropped nothing; the sentence still has to name the limit, in both views.
+    const full = Array.from({ length: 1000 }, (_, index) => ({
+      ...tokenCall,
+      ts_ms: Date.now() - index * 1000,
+      tool: `tool.${index}`,
+      sentence: `Call ${index}`
+    }));
+    mocks.audit.mockResolvedValue(full);
+    await bootAndSignIn();
+    fireEvent.click(screen.getByRole("button", { name: "Activity" }));
+
+    expect(
+      await screen.findByText("Showing the newest 1000 lines — the window's limit.")
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("tab", { name: "Table" }));
+    expect(
+      screen.getByText("Showing the newest 1000 lines — the window's limit.")
+    ).toBeInTheDocument();
+
+    // One line fewer is not the limit: the same page must not keep claiming it.
+    mocks.audit.mockResolvedValue(full.slice(0, 999));
+    fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
+    await waitFor(() =>
+      expect(
+        screen.queryByText("Showing the newest 1000 lines — the window's limit.")
+      ).toBeNull()
+    );
+  });
+
   it("reads a chip's own window instead of filtering another machine's, and says it is reading", async () => {
     const atticLine = {
       ...tokenCall,

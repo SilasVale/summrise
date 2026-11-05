@@ -608,6 +608,18 @@ describe("ActivityTimeline", () => {
     ).toBeInTheDocument();
   });
 
+  it("says the window's limit when the request came back full", () => {
+    const { rerender } = render(<ActivityTimeline lines={[fromAlpha]} devices={[]} />);
+    expect(screen.queryByText(/the window's limit/)).toBeNull();
+
+    // The window filled the server's limit; nothing was dropped here, so the sentence must not
+    // claim older lines exist. The table view reads the same fact.
+    rerender(<ActivityTimeline lines={[fromAlpha]} devices={[]} atLimit />);
+    expect(
+      screen.getByText("Showing the newest 1000 lines — the window's limit.")
+    ).toBeInTheDocument();
+  });
+
   it("reads the new window in one line instead of drawing the old window's rows", () => {
     render(
       <ActivityTimeline

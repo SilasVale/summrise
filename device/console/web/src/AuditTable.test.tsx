@@ -108,6 +108,18 @@ it("names the machine whose window was cut", () => {
   ).toBeInTheDocument();
 });
 
+it("says the window's limit when the request came back full", () => {
+  const { rerender } = render(<AuditTable lines={lines} devices={devices} tokens={[]} />);
+  expect(screen.queryByText(/the window's limit/)).toBeNull();
+
+  // The server answered with exactly the limit. The page does not know an older line exists and
+  // must not say one does; it names the window instead.
+  rerender(<AuditTable lines={lines} devices={devices} tokens={[]} atLimit />);
+  expect(
+    screen.getByText("Showing the newest 1000 lines — the window's limit.")
+  ).toBeInTheDocument();
+});
+
 it("reads the new window in one line instead of drawing the old window's rows", () => {
   render(
     <AuditTable
