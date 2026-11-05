@@ -71,7 +71,11 @@ mod tests {
     #[test]
     fn the_two_addresses_agree_on_the_port() {
         let port = device_port();
-        assert!(panel_url().ends_with(&format!(":{port}/")), "{panel_url()}");
+        assert!(
+            panel_url().ends_with(&format!(":{port}/")),
+            "{}",
+            panel_url()
+        );
         assert_eq!(health_addr(), format!("127.0.0.1:{port}"));
     }
 }
