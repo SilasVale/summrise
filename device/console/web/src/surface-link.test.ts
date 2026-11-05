@@ -91,6 +91,24 @@ describe("surface links", () => {
     expect(surfaceHash({ page: "home" })).toBe("#home");
   });
 
+  it("addresses an Activity time range, so a chosen window can be linked", () => {
+    const range = { from: 1_793_000_000_000, to: 1_793_003_600_000 };
+    expect(surfaceHash({ page: "activity", range })).toBe(
+      "#activity?from=1793000000000&to=1793003600000"
+    );
+    expect(parseSurfaceHash(surfaceHash({ page: "activity", range }))).toEqual({
+      page: "activity",
+      range
+    });
+    // A range belongs to Activity: another destination cannot carry one, and a malformed or
+    // reversed pair is not an address the page may restore.
+    expect(parseSurfaceHash("#device/files?from=1&to=2")).toBeNull();
+    expect(parseSurfaceHash("#activity?from=2&to=1")).toBeNull();
+    expect(parseSurfaceHash("#activity?from=abc&to=2")).toBeNull();
+    expect(parseSurfaceHash("#activity?from=1")).toBeNull();
+    expect(parseSurfaceHash("#activity?to=1")).toBeNull();
+  });
+
   it("rejects run links, unknown names and near misses", () => {
     for (const hash of [
       "",

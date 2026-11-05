@@ -3,9 +3,20 @@ import {
   windowLoadingSentence,
   type WindowCounts
 } from "./activityMerge";
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import type { AuditLine, AuditSource, Device, TokenMeta } from "./api";
 import { auditFailed, filterAudit, type AuditFilter } from "./auditFilter";
+import {
+  dateTimeInputValue,
+  parseDateTimeInput,
+  presetRange,
+  rangeSentence,
+  rangeText,
+  RANGE_PRESETS,
+  type AuditPreset,
+  type AuditRange,
+  type RangeFacts
+} from "./auditTime";
 import { auditCsv, auditCsvName } from "./audit-export";
 import { downloadFile } from "./download";
 import { age, shortDeviceName, shortId } from "./format";
@@ -23,24 +34,11 @@ export const AUDIT_WINDOW = 1000;
 
 const EMPTY: AuditFilter = { device: "", token: "", tool: "", status: "all" };
 
-/// The toolbar's time window. The table already holds the newest 1000 lines, so this only narrows
-/// what is on screen; it never asks the console for a different slice.
-export type AuditSince = "all" | "hour" | "day" | "week";
-const SINCE_MS: Record<Exclude<AuditSince, "all">, number> = {
-  hour: 60 * 60_000,
-  day: 24 * 60 * 60_000,
-  week: 7 * 24 * 60 * 60_000
-};
+/** The Time control's mode: the newest window, one preset, or the custom pair. */
+type TimeMode = "window" | AuditPreset | "custom";
 
 /** The table's scope: the machine in the header, or the whole fleet. */
 export type AuditScope = "machine" | "all";
-
-/** How the table's time window reads in a sentence. */
-const SINCE_LABEL: Record<Exclude<AuditSince, "all">, string> = {
-  hour: "last hour",
-  day: "last day",
-  week: "last week"
-};
 
 /** "a", "a and b", "a, b and c" — the one spelling the filter sentence uses. */
 function joinAnd(parts: string[]): string {
@@ -54,13 +52,13 @@ function joinAnd(parts: string[]): string {
  */
 function filterSentence(args: {
   filter: AuditFilter;
-  since: AuditSince;
+  range: AuditRange | null;
   scope: AuditScope;
   selectedDeviceId: string | null;
   deviceNames: ReadonlyMap<string, string>;
   tokenNames: ReadonlyMap<string, string>;
 }): string {
-  const { filter, since, scope, selectedDeviceId, deviceNames, tokenNames } = args;
+  const { filter, range, scope, selectedDeviceId, deviceNames, tokenNames } = args;
   const parts: string[] = [];
   if (scope === "machine" && selectedDeviceId !== null) {
     parts.push(`the machine ${deviceNames.get(selectedDeviceId) ?? shortId(selectedDeviceId)}`);
@@ -72,8 +70,8 @@ function filterSentence(args: {
   if (filter.status !== "all") {
     parts.push(filter.status === "ok" ? "succeeded calls" : "failed calls");
   }
-  if (since !== "all") parts.push(`the ${SINCE_LABEL[since]}`);
-  if (parts.length === 1 && since !== "all") return `No calls in ${parts[0]}.`;
+  if (range !== null) parts.push(`the range ${rangeText(range)}`);
+  if (parts.length === 1 && range !== null) return `No calls in ${parts[0]}.`;
   return `No calls match ${joinAnd(parts)}.`;
 }
 
@@ -166,8 +164,10 @@ export function AuditTable({
   emptyFiltered,
   filter: sharedFilter,
   onFilter,
-  since: sharedSince,
-  onSince,
+  range: sharedRange,
+  onRange,
+  rangeFacts = null,
+  rangeError = false,
   scope: sharedScope,
   onScope,
   capped = false,
@@ -228,17 +228,50 @@ export function AuditTable({
    */
   filter?: AuditFilter;
   onFilter?: (filter: AuditFilter) => void;
-  since?: AuditSince;
-  onSince?: (since: AuditSince) => void;
+  /**
+   * The Table's chosen time range, in `[from, to)`. Omitted or `null` is the newest window the
+   * page already holds; a range is a different read, so the page hands the table that answer.
+   */
+  range?: AuditRange | null;
+  onRange?: (range: AuditRange | null) => void;
+  /** What the range's answer proved about its bounds: where coverage starts, where the scan cut. */
+  rangeFacts?: RangeFacts | null;
+  /** The range's read failed; the table says so instead of drawing another window's rows. */
+  rangeError?: boolean;
   scope?: AuditScope;
   onScope?: (scope: AuditScope) => void;
 }) {
   const [ownFilter, setOwnFilter] = useState<AuditFilter>(EMPTY);
   const filter = sharedFilter ?? ownFilter;
   const setFilter = onFilter ?? setOwnFilter;
-  const [ownSince, setOwnSince] = useState<AuditSince>("all");
-  const since = sharedSince ?? ownSince;
-  const setSince = onSince ?? setOwnSince;
+  // The range is the page's when the page can issue the request; standalone, the table owns it.
+  const [ownRange, setOwnRange] = useState<AuditRange | null>(null);
+  // `undefined` is "the caller did not take the control", `null` is "the newest window": a parent
+  // that passes a range without a callback still owns what the table draws.
+  const range = sharedRange !== undefined ? sharedRange : ownRange;
+  const setRange = onRange ?? setOwnRange;
+  // The control's mode. A link carries a range's moments but not the preset that chose them, so a
+  // restored range opens as Custom with its two fields filled; choosing a preset sets its own mode.
+  const [timeMode, setTimeMode] = useState<TimeMode>(sharedRange ? "custom" : "window");
+  const [customFrom, setCustomFrom] = useState(() =>
+    dateTimeInputValue((sharedRange ?? presetRange("hour")).from)
+  );
+  const [customTo, setCustomTo] = useState(() =>
+    dateTimeInputValue((sharedRange ?? presetRange("hour")).to)
+  );
+  const rangeKey = range === null ? "" : `${range.from}:${range.to}`;
+  const lastRangeKey = useRef(rangeKey);
+  useEffect(() => {
+    if (rangeKey === lastRangeKey.current) return;
+    lastRangeKey.current = rangeKey;
+    if (range === null) {
+      setTimeMode("window");
+      return;
+    }
+    setTimeMode("custom");
+    setCustomFrom(dateTimeInputValue(range.from));
+    setCustomTo(dateTimeInputValue(range.to));
+  }, [rangeKey]);
   const [ownScope, setOwnScope] = useState<AuditScope>(selectedDeviceId ? "machine" : "all");
   const scope = sharedScope ?? ownScope;
   const setScope = onScope ?? setOwnScope;
@@ -252,12 +285,7 @@ export function AuditTable({
         : filter,
     [scope, selectedDeviceId, filter]
   );
-  const windowed = useMemo(() => {
-    if (since === "all") return lines;
-    const cutoff = Date.now() - SINCE_MS[since];
-    return lines.filter((line) => line.ts_ms >= cutoff);
-  }, [lines, since]);
-  const shown = useMemo(() => filterAudit(windowed, applied), [windowed, applied]);
+  const shown = useMemo(() => filterAudit(lines, applied), [lines, applied]);
   const keys = useMemo(() => lineKeys(lines), [lines]);
   const tokenNames = useMemo(() => new Map(tokens.map((entry) => [entry.id, entry.name])), [tokens]);
   const days = useMemo(() => byDay(shown), [shown]);
@@ -302,11 +330,15 @@ export function AuditTable({
     filter.token !== "" ||
     filter.tool.trim() !== "" ||
     filter.status !== "all" ||
-    since !== "all";
+    range !== null;
 
   const clear = () => {
     setFilter(EMPTY);
-    setSince("all");
+    // The range is a filter too: clearing must put the newest window back, which is a prop change
+    // the page answers by drawing the window it already holds.
+    lastRangeKey.current = "";
+    setTimeMode("window");
+    setRange(null);
     setOpen(new Set());
   };
 
@@ -316,6 +348,37 @@ export function AuditTable({
   const clearAll = () => {
     clear();
     setScope("all");
+  };
+
+  /** Apply one range (or the newest window) and remember how the control should name it. */
+  const applyRange = (next: AuditRange | null, mode: TimeMode) => {
+    lastRangeKey.current = next === null ? "" : `${next.from}:${next.to}`;
+    setTimeMode(mode);
+    setRange(next);
+  };
+
+  /** The custom pair as a range, or `null` while either field is not one. */
+  const customRange = (): AuditRange | null => {
+    const from = parseDateTimeInput(customFrom);
+    const to = parseDateTimeInput(customTo);
+    if (from === null || to === null || from >= to) return null;
+    return { from, to };
+  };
+
+  const chooseTime = (value: string) => {
+    if (value === "window") {
+      applyRange(null, "window");
+      return;
+    }
+    if (value === "custom") {
+      const base = range ?? presetRange("hour");
+      setCustomFrom(dateTimeInputValue(base.from));
+      setCustomTo(dateTimeInputValue(base.to));
+      setTimeMode("custom");
+      return;
+    }
+    const preset = value as AuditPreset;
+    applyRange(presetRange(preset), preset);
   };
 
   const exportCsv = () => {
@@ -355,12 +418,12 @@ export function AuditTable({
     filter.token !== "" ||
     filter.tool.trim() !== "" ||
     filter.status !== "all" ||
-    since !== "all";
+    range !== null;
   const emptySentence = narrowed
     ? (emptyFiltered ??
       filterSentence({
         filter,
-        since,
+        range,
         scope,
         selectedDeviceId,
         deviceNames,
@@ -400,13 +463,48 @@ export function AuditTable({
         </div>
         <label className="audit-field">
           <span>Time</span>
-          <select value={since} onChange={(event) => setSince(event.target.value as AuditSince)}>
-            <option value="all">All time</option>
-            <option value="hour">Last hour</option>
-            <option value="day">Last day</option>
-            <option value="week">Last week</option>
+          <select value={timeMode} onChange={(event) => chooseTime(event.target.value)}>
+            {/* **THE WINDOW SAYS WHAT IT IS.** "All time" named the newest 1,000 lines as the
+                whole record; the page has always drawn the newest window, and now the words do. */}
+            <option value="window">Newest window</option>
+            {RANGE_PRESETS.map((preset) => (
+              <option key={preset.value} value={preset.value}>
+                {preset.label}
+              </option>
+            ))}
+            <option value="custom">Custom…</option>
           </select>
         </label>
+        {timeMode === "custom" && (
+          <>
+            <label className="audit-field">
+              <span>From</span>
+              <input
+                type="datetime-local"
+                value={customFrom}
+                onChange={(event) => setCustomFrom(event.target.value)}
+              />
+            </label>
+            <label className="audit-field">
+              <span>To</span>
+              <input
+                type="datetime-local"
+                value={customTo}
+                onChange={(event) => setCustomTo(event.target.value)}
+              />
+            </label>
+            <button
+              type="button"
+              disabled={customRange() === null}
+              onClick={() => {
+                const chosen = customRange();
+                if (chosen !== null) applyRange(chosen, "custom");
+              }}
+            >
+              Apply
+            </button>
+          </>
+        )}
         {scope === "all" && (
           <label className="audit-field">
             <span>Device</span>
@@ -485,7 +583,18 @@ export function AuditTable({
         </button>
       </div>
 
-      {loading ? (
+      {/* **A RANGE'S SENTENCE IS THE FETCH'S, NOT THE FILTERS'.** It stays above the empty state
+          and the table alike: a range that drew nothing still has to say which range it asked for
+          and where the file's coverage starts, and a range that drew 342 lines says so before the
+          operator's token/tool filters narrow the rows further. */}
+      {range !== null && !loading && (
+        <p className="hint audit-cap">
+          {rangeError
+            ? "The console could not read this range."
+            : rangeSentence(range, lines.length, rangeFacts)}
+        </p>
+      )}
+      {range !== null && rangeError ? null : loading ? (
         <p className="hint audit-loading">{windowLoadingSentence(loadingMachine)}</p>
       ) : shown.length === 0 ? (
         <div className="audit-empty">
@@ -498,7 +607,7 @@ export function AuditTable({
         </div>
       ) : (
         <div className="table-scroll" tabIndex={0} role="region" aria-label="Audit lines">
-          {(capped || atLimit) && (
+          {range === null && (capped || atLimit) && (
             // One sentence, two facts: rows were cut, or the request filled the window. Only the
             // second is true when a duplicate drop left fewer than 1000 rows on screen.
             <p className="hint audit-cap">

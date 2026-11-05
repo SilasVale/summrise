@@ -775,6 +775,26 @@ list is what is left of the page's sense of time, measured.
    UI asks for one. The shape: `GET /audit?from=&to=&device=` bounded by the same scan rules, and a
    time field in the Activity Table's filter that actually issues it (today it filters in the
    browser and fires nothing). **M.**
+   *(Done 2026-11-05: `GET /audit?from=<ms>&to=<ms>&device=&limit=` answers `{lines, lines_read,
+   since_ms?, bounded?, scan_limit?, at_limit?}` — the lines whose `ts_ms` is in `[from, to)`,
+   newest first, from the day read's same backwards scan of the current file (50,000-line bound).
+   `bounded` is omitted unless the bound cut the scan; `since_ms` is present when the range starts
+   before the file; `at_limit` when the range held more lines than the page's window. A request with
+   neither `from` nor `to` keeps the bare array this route has always served. The Table's Time
+   control is the request: `Newest window` (the default, and what the page has always drawn),
+   `Last hour`, `Today`, `Yesterday`, `Last week`, and a custom `From`/`To`. A chosen range is
+   `#activity?from=<ms>&to=<ms>`, so a link restores both the range and the Table view, and the
+   sentence above the rows names what it drew — the gate measured `Showing 18:08–19:08 of 11-05, 2
+   lines` over 2 rows. A range that starts before the file says `since 10-22 10:55`; a range the
+   scan bound cut says `the 50,000-line scan bound cut it`; a range the 1,000-line window cut says
+   `the window's limit`. The 50,001-line route fixture measured `bounded: true`, `scan_limit:
+   50,000`, `since_ms` at the oldest line the bound read, and `at_limit: true` for the newest 1,000.
+   Until a range is chosen the control says `Newest window` and the five-second poll is unchanged.
+   `cargo test -p summrise-console` 390 passed (148 unit, 1 main, 231 console, 10 tokens; 2
+   ignored); clippy and fmt clean. `npx vitest run` 696 passed across 53 files; typecheck and build
+   clean; `./scripts/build-web.sh --check` clean with dist committed; browser gate PASS 31 steps
+   (the preset fires `/audit?from=&to=`, the sentence counts the rows, the fragment carries the
+   range); `a11y-audit` 0 findings across 16 page states.)*
 3. **A day cannot leave the product.** There is no export of a slice, so a report or a hand-off
    means a shell on the host. The shape: an export of the window in hand (JSON Lines, the same lines
    the table draws) with its bounds in the filename. **S/M.**

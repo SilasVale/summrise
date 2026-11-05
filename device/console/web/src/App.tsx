@@ -15,7 +15,8 @@ import { copyText } from "./copy";
 import { lastHeardMs, shortId } from "./format";
 import { retrySentence } from "./logic";
 import { recordVitals, type VitalsSample } from "./vitals";
-import { AUDIT_WINDOW, AuditTable, type AuditScope, type AuditSince } from "./AuditTable";
+import { AUDIT_WINDOW, AuditTable, type AuditScope } from "./AuditTable";
+import { type AuditRange, type RangeFacts } from "./auditTime";
 import type { AuditFilter } from "./auditFilter";
 import { mergeActivityWindow, type WindowCounts } from "./activityMerge";
 import { activityDaySentence } from "./activitySummary";
@@ -139,10 +140,15 @@ export function App() {
   // The same index, streamed: what the AI is doing now, not what it did before the last read.
   // `rereadAudit` is how the hook fills the hole a `lagged` frame says the stream left.
   const live = useLiveActivity(Boolean(session?.authenticated), rereadAudit);
+  // A linked range is read before the sign-in: the fragment is the page's address, and only the
+  // Table can show a range, so such a link opens the Table rather than the live timeline.
+  const linkedRange = parseSurfaceHash(window.location.hash)?.range ?? null;
   // Activity follows the stream unless the operator paused it: a paused table is a snapshot of the
   // list at that moment, and the lines that arrived since are counted rather than lost.
   const [activityPaused, setActivityPaused] = useState(false);
-  const [activityView, setActivityView] = useState<"stream" | "table">("stream");
+  const [activityView, setActivityView] = useState<"stream" | "table">(
+    linkedRange ? "table" : "stream"
+  );
   // The "Clients only" chip belongs to the page, not only to the timeline: the header must state
   // the same subset the rows show, and the choice survives a switch to the table and back.
   const [activityClientsOnly, setActivityClientsOnly] = useState(false);
@@ -154,7 +160,18 @@ export function App() {
     tool: "",
     status: "all"
   });
-  const [activitySince, setActivitySince] = useState<AuditSince>("all");
+  const [activityRange, setActivityRange] = useState<AuditRange | null>(linkedRange);
+  // The range's answer, and whether its read failed. A range is its own request: the page's
+  // five-second poll still reads the newest window for the timeline and the day header.
+  const [rangeAnswer, setRangeAnswer] = useState<{
+    range: AuditRange;
+    device: string | null;
+    lines: AuditLine[];
+    facts: RangeFacts;
+  } | null>(null);
+  const [rangeError, setRangeError] = useState(false);
+  const rangeReadStarted = useRef(0);
+  const rangeReadApplied = useRef(0);
   // `null` follows the header's machine, which is the scope the table opens on; after the operator
   // picks a scope or a chip, the choice stays explicit for this page's lifetime.
   const [activityScope, setActivityScope] = useState<AuditScope | null>(null);
@@ -303,6 +320,54 @@ export function App() {
   // `limit` 3, a machine's six older lines can sit entirely behind another machine's eight newer ones.
   const auditScopeDevice = activityMachine === "" ? null : activityMachine;
   auditWindowDevice.current = auditScopeDevice;
+  // The answer in hand is the current range's, for the current machine's scope. Until it lands the
+  // table reads rather than drawing the previous range's rows under the new range's sentence.
+  const rangeInHand =
+    activityRange !== null &&
+    rangeAnswer !== null &&
+    rangeAnswer.range.from === activityRange.from &&
+    rangeAnswer.range.to === activityRange.to &&
+    rangeAnswer.device === auditScopeDevice;
+  // The range is a read of its own: it is the Table's window, not the live window the poll keeps
+  // fresh. A change of range or of machine scope is a new request; the same one is not repeated on
+  // every poll, because its two moments are fixed and the file behind it only grows at the end.
+  const readRange = useCallback(async (range: AuditRange) => {
+    const device = auditWindowDevice.current;
+    const generation = ++rangeReadStarted.current;
+    try {
+      const answer = await api.auditRange(range, device ?? undefined, AUDIT_WINDOW);
+      if (generation > rangeReadApplied.current) {
+        rangeReadApplied.current = generation;
+        setRangeAnswer({
+          range,
+          device,
+          lines: answer.lines,
+          facts: {
+            since_ms: answer.since_ms,
+            bounded: answer.bounded,
+            scan_limit: answer.scan_limit,
+            at_limit: answer.at_limit
+          }
+        });
+        setRangeError(false);
+      }
+    } catch {
+      if (generation > rangeReadApplied.current) {
+        rangeReadApplied.current = generation;
+        setRangeAnswer(null);
+        setRangeError(true);
+      }
+    }
+  }, []);
+  useEffect(() => {
+    if (!session?.authenticated || activityRange === null) {
+      setRangeAnswer(null);
+      setRangeError(false);
+      return;
+    }
+    setRangeError(false);
+    void readRange(activityRange);
+  }, [session?.authenticated, activityRange, auditScopeDevice, readRange]);
   const deviceName = (id: string) =>
     devices.find((device) => device.id === id)?.name ?? shortId(id);
   const auditReadingName = auditScopeDevice === null ? null : deviceName(auditScopeDevice);
@@ -481,6 +546,9 @@ export function App() {
     setVitals({});
     setAudit([]);
     setTokens([]);
+    setActivityRange(null);
+    setRangeAnswer(null);
+    setRangeError(false);
     setSelected(null);
     storeSelectedDevice(null);
     setRunsFocus(null);
@@ -528,10 +596,13 @@ export function App() {
       page,
       tab: page === "device" ? tab : undefined,
       tool: page === "device" && tab === "tools" ? openTool ?? undefined : undefined,
-      view: page === "device" && tab === "screen" ? screenView : undefined
+      view: page === "device" && tab === "screen" ? screenView : undefined,
+      // The Table's range is the page's address while it is chosen, so the same link reopens the
+      // same request. Clearing it puts `#activity` back.
+      range: page === "activity" ? activityRange ?? undefined : undefined
     });
     if (window.location.hash !== wanted) window.history.replaceState(null, "", wanted);
-  }, [page, tab, screenView, openTool, runsFocus, session?.authenticated]);
+  }, [page, tab, screenView, openTool, runsFocus, session?.authenticated, activityRange]);
 
   // **THE ADDRESS BAR IS PART OF THE SURFACE, NOT ONLY A RECORD OF IT.** Every navigation wrote the
   // fragment and nothing read it back: Back and Forward moved the URL and left the view where it was,
@@ -554,6 +625,10 @@ export function App() {
       if (!surface) return;
       setRunsFocus(null);
       setPage(surface.page);
+      // A fragment that names a range restores that request; one that does not puts the newest
+      // window back. A range link can only be shown by the Table.
+      setActivityRange(surface.range ?? null);
+      if (surface.range) setActivityView("table");
       if (surface.page === "device") {
         if (surface.tab) setTab(surface.tab);
         if (surface.tab === "screen" && surface.view) setScreenView(surface.view);
@@ -887,7 +962,11 @@ export function App() {
                 {/* The day at a glance, from the same rows the timeline draws. It is not a live
                     region: it moves with the whole window, and re-announcing every line would make
                     the stream a conversation. */}
-                {activityCount !== null && (
+                {/* **THE HEADER'S DAY IS NOT A RANGE'S COUNT.** `/audit/day` counts today from
+                    the window's own read; while the Table shows a chosen range, that sentence is
+                    about another interval, and the table's own sentence is the one that names the
+                    rows on screen. */}
+                {activityCount !== null && activityRange === null && (
                   <p className="page-sub activity-today">{activityCount}</p>
                 )}
                 <p className="page-sub">
@@ -976,12 +1055,16 @@ export function App() {
                 />
               ) : (
                 <AuditTable
-                  lines={shownActivity}
-                  capped={shownCapped}
-                  atLimit={shownAtLimit}
+                  // A range's rows are the range's answer; the newest window (and the live lines
+                  // merged into it) is what the page draws until a range is chosen.
+                  lines={activityRange === null ? shownActivity : rangeInHand ? rangeAnswer.lines : []}
+                  capped={activityRange === null && shownCapped}
+                  atLimit={activityRange === null && shownAtLimit}
                   cappedMachine={shownWindowName}
                   windowCounts={shownTableCounts}
-                  loading={auditReadingOther}
+                  loading={
+                    activityRange === null ? auditReadingOther : !rangeInHand && !rangeError
+                  }
                   loadingMachine={auditReadingName}
                   source={auditSource}
                   devices={devices}
@@ -993,8 +1076,10 @@ export function App() {
                   }
                   filter={activityFilter}
                   onFilter={setActivityFilter}
-                  since={activitySince}
-                  onSince={setActivitySince}
+                  range={activityRange}
+                  onRange={setActivityRange}
+                  rangeFacts={rangeInHand ? rangeAnswer.facts : null}
+                  rangeError={activityRange !== null && rangeError}
                   scope={activityScopeNow}
                   onScope={setActivityScope}
                 />

@@ -203,6 +203,24 @@ export type AuditDay = {
 };
 
 /**
+ * One chosen time range, as `/audit?from=&to=` serves it: `[from, to)`, newest first.
+ *
+ * The bare array `/audit` has always answered cannot carry the bounds, so a range's answer is this
+ * object. `since_ms` is where the current file's coverage starts when it starts after `from`;
+ * `bounded` and `scan_limit` name the backwards scan's line bound when it cut the read before the
+ * range's start; `at_limit` says the range held more matching lines than the page's window, and
+ * `lines` is its newest prefix. Every fact is the server's measurement, never the page's guess.
+ */
+export type AuditRangeAnswer = {
+  lines: AuditLine[];
+  lines_read?: number;
+  since_ms?: number | null;
+  bounded?: boolean;
+  scan_limit?: number | null;
+  at_limit?: boolean;
+};
+
+/**
  * The file the audit window is read from, as `/audit/source` serves it.
  *
  * Every field describes a fact the server could read: the current file's name, size and the moments
@@ -363,6 +381,14 @@ export const api = {
   audit: (limit = 20, device?: string) =>
     call<AuditLine[]>(
       `/audit?limit=${limit}${device ? `&device=${encodeURIComponent(device)}` : ""}`
+    ),
+  // A chosen range, `[from, to)`, answered by the same backwards scan `/audit/day` uses. The
+  // page's Time control is the only caller: no range is the newest window above, and a chosen one
+  // is this request. `device` narrows the answer, and `limit` is the page's draw size.
+  auditRange: (range: { from: number; to: number }, device?: string, limit = 1000) =>
+    call<AuditRangeAnswer>(
+      `/audit?from=${Math.trunc(range.from)}&to=${Math.trunc(range.to)}&limit=${limit}` +
+        `${device ? `&device=${encodeURIComponent(device)}` : ""}`
     ),
   // The local calendar day, counted from the file rather than from the newest window. `device`
   // narrows it during the scan, like `/audit?device=`. The hub's `today` and this route are one

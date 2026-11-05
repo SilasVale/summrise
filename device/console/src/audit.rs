@@ -213,6 +213,26 @@ pub(crate) struct DayRead {
     pub(crate) lines_read: usize,
 }
 
+/// One read of the audit for a chosen time range, `[from_ms, to_ms)`.
+///
+/// The range is a slice of the **current file**, read by the day's backwards scan: newest first,
+/// stopping at the first line older than `from_ms`, bounded at [`DAY_SCAN_LIMIT`]. A range that
+/// starts before the current file does is partial, and a scan the line bound stopped before `from_ms`
+/// is partial too; both are stated rather than padded.
+#[derive(Debug, Default)]
+pub(crate) struct RangeRead {
+    /// The lines whose moment falls in `[from_ms, to_ms)`, newest first.
+    pub(crate) lines: Vec<Value>,
+    /// The moment the read's coverage starts at, when the current file starts after `from_ms` (a
+    /// rotation, or a console that started later). `None` means the scan proved the range's start.
+    pub(crate) since_ms: Option<u64>,
+    /// The scan hit [`DAY_SCAN_LIMIT`] before reaching `from_ms`: the answer is the file's newest
+    /// lines only.
+    pub(crate) bounded: bool,
+    /// Lines the scan examined; the read's cost, reported rather than guessed.
+    pub(crate) lines_read: usize,
+}
+
 /// The append-only audit index; the denial log reuses [`Entry`] as its line shape.
 ///
 /// Cheap to clone: the console's `Inner` and the channel registry hold the same file and the same
@@ -300,6 +320,54 @@ impl Audit {
         let lines = self.file.newest(FLEET_WINDOW).await;
         FleetWindow {
             boundaries: boundaries_of(&lines),
+        }
+    }
+
+    /// The lines whose moment falls in `[from_ms, to_ms)`, newest first.
+    ///
+    /// The scan is [`Audit::day`]'s: the current file backwards, stopping at the first line older
+    /// than `from_ms`, bounded by [`DAY_SCAN_LIMIT`]. A line exactly at `from_ms` belongs to the
+    /// range; a line exactly at `to_ms` does not. The device filter is the caller's, applied after
+    /// this read, exactly as `/audit/day?device=` selects a machine from the day it read.
+    ///
+    /// The current file only, deliberately: a range that starts before it is partial, and
+    /// `since_ms` says where coverage starts instead of stitching the rotated generation into a
+    /// whole the page cannot verify.
+    pub(crate) async fn range(&self, from_ms: u64, to_ms: u64) -> RangeRead {
+        self.range_with_limit(from_ms, to_ms, DAY_SCAN_LIMIT).await
+    }
+
+    /// [`Audit::range`] with the line bound injected, so a test can observe the bound without
+    /// writing 50,000 lines.
+    pub(crate) async fn range_with_limit(
+        &self,
+        from_ms: u64,
+        to_ms: u64,
+        limit: usize,
+    ) -> RangeRead {
+        let scan = self.file.newest_since(from_ms, limit).await;
+        // The day read's rule, stated once: a scan that ran out of file or hit its bound never saw
+        // a line older than `from_ms`, so its oldest line is where the coverage starts.
+        let since_ms = if scan.exhausted || scan.bounded {
+            scan.oldest_ts_ms.filter(|oldest| *oldest > from_ms)
+        } else {
+            None
+        };
+        RangeRead {
+            lines: scan
+                .lines
+                .into_iter()
+                // `to_ms` is exclusive. A line with no moment cannot be proven inside any range,
+                // and is not served as if it were.
+                .filter(|line| {
+                    line.get("ts_ms")
+                        .and_then(Value::as_u64)
+                        .is_some_and(|ts_ms| ts_ms < to_ms)
+                })
+                .collect(),
+            since_ms,
+            bounded: scan.bounded,
+            lines_read: scan.lines_read,
         }
     }
 
@@ -1000,6 +1068,88 @@ mod tests {
             })
         );
         assert_eq!(day.lines_read, 2);
+    }
+
+    #[tokio::test]
+    async fn a_range_is_half_open_and_does_not_read_the_rotated_generation() {
+        let dir = TempDir::new("range-half-open");
+        // The older generation holds a line the current file cannot answer for. A range read is
+        // current-file-only, so the line is not stitched in; the answer says where coverage starts.
+        write_audit(&dir.0, &[call(DEVICE, 500, Some("client"), None, 200)]);
+        std::fs::rename(dir.0.join(AUDIT_FILE), dir.0.join("audit.1.jsonl"))
+            .expect("the seeded generation rotates");
+        write_audit(
+            &dir.0,
+            &[
+                call(DEVICE, 1_000, Some("client"), None, 200),
+                call(DEVICE, 1_999, Some("client"), None, 200),
+                call(DEVICE, 2_000, Some("client"), None, 200),
+            ],
+        );
+        let audit = Audit::new(&dir.0, u64::MAX);
+
+        let read = audit.range(1_000, 2_000).await;
+        let times: Vec<u64> = read
+            .lines
+            .iter()
+            .filter_map(|line| line["ts_ms"].as_u64())
+            .collect();
+        assert_eq!(
+            times,
+            vec![1_999, 1_000],
+            "`from` belongs and `to` does not, newest first"
+        );
+        assert!(!read.bounded);
+        assert_eq!(
+            read.lines_read, 3,
+            "the scan stops on the line older than `from`"
+        );
+        assert_eq!(
+            read.since_ms, None,
+            "the current file proves the range's start"
+        );
+
+        let read = audit.range(0, 3_000).await;
+        let times: Vec<u64> = read
+            .lines
+            .iter()
+            .filter_map(|line| line["ts_ms"].as_u64())
+            .collect();
+        assert_eq!(
+            times,
+            vec![2_000, 1_999, 1_000],
+            "the rotated 500 is not in the answer"
+        );
+        assert_eq!(
+            read.since_ms,
+            Some(1_000),
+            "coverage starts at the current file's oldest line"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_range_the_bound_cut_says_where_its_coverage_starts() {
+        let dir = TempDir::new("range-bound-unit");
+        let lines: Vec<Value> = (1..=5)
+            .map(|second| call(DEVICE, second * 1_000, Some("client"), None, 200))
+            .collect();
+        write_audit(&dir.0, &lines);
+        let audit = Audit::new(&dir.0, u64::MAX);
+
+        let read = audit.range_with_limit(1_000, 100_000, 2).await;
+        let times: Vec<u64> = read
+            .lines
+            .iter()
+            .filter_map(|line| line["ts_ms"].as_u64())
+            .collect();
+        assert_eq!(times, vec![5_000, 4_000]);
+        assert!(read.bounded, "the injected bound stopped the scan");
+        assert_eq!(read.lines_read, 2);
+        assert_eq!(
+            read.since_ms,
+            Some(4_000),
+            "the count covers the lines the bound let the scan read"
+        );
     }
 
     #[tokio::test]

@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => ({
   health: vi.fn(),
   devices: vi.fn(),
   audit: vi.fn(),
+  auditRange: vi.fn(),
   auditDay: vi.fn(),
   auditSource: vi.fn(),
   denials: vi.fn(),
@@ -39,6 +40,7 @@ vi.mock("./api", () => ({
     health: mocks.health,
     devices: mocks.devices,
     audit: mocks.audit,
+    auditRange: mocks.auditRange,
     auditDay: mocks.auditDay,
     auditSource: mocks.auditSource,
     denials: mocks.denials,
@@ -270,6 +272,7 @@ beforeEach(() => {
   mocks.health.mockResolvedValue({ version: "0.3.42", devices: 2 });
   mocks.devices.mockResolvedValue([workshop, attic]);
   mocks.audit.mockResolvedValue([]);
+  mocks.auditRange.mockResolvedValue({ lines: [] });
   // The day read is its own route now. Tests that care about the difference set it; everyone else
   // gets the same day the mocked window holds, so a fixture written for one rule keeps its numbers.
   mocks.auditDay.mockReset();
@@ -1292,6 +1295,58 @@ describe("App", () => {
     expect(screen.getByLabelText("Token")).toBeInTheDocument();
     expect(screen.getByLabelText("Tool or detail")).toBeInTheDocument();
     expect(screen.getByLabelText("Status")).toBeInTheDocument();
+  });
+
+  it("asks the console for a preset range and names the range it drew", async () => {
+    mocks.audit.mockResolvedValue([{ ...tokenCall, ts_ms: Date.now() }]);
+    mocks.auditRange.mockResolvedValue({
+      lines: [{ ...tokenCall, ts_ms: Date.now() - 1_000, tool: "files.read" }],
+      lines_read: 2
+    });
+    await bootAndSignIn();
+    fireEvent.click(screen.getByRole("button", { name: "Activity" }));
+    await screen.findByRole("heading", { name: "Activity", level: 1 });
+    fireEvent.click(screen.getByRole("tab", { name: "Table" }));
+
+    fireEvent.change(screen.getByLabelText("Time"), { target: { value: "hour" } });
+
+    // The preset is a request, not a local filter: one `/audit?from=&to=` with the page's window.
+    await waitFor(() => expect(mocks.auditRange).toHaveBeenCalledTimes(1));
+    const [range, device, limit] = mocks.auditRange.mock.calls[0] as [
+      { from: number; to: number },
+      string | undefined,
+      number
+    ];
+    expect(range.to - range.from).toBe(60 * 60_000);
+    expect(device).toBeUndefined();
+    expect(limit).toBe(1000);
+    await screen.findByText(/^Showing \d\d:\d\d–\d\d:\d\d of \d\d-\d\d, 1 line$/);
+    await waitFor(() =>
+      expect(window.location.hash).toBe(`#activity?from=${range.from}&to=${range.to}`)
+    );
+  });
+
+  it("restores a linked activity range and asks for exactly it", async () => {
+    const to = Date.now();
+    const from = to - 3_600_000;
+    window.history.replaceState(null, "", `#activity?from=${from}&to=${to}`);
+    mocks.auditRange.mockResolvedValue({
+      lines: [{ ...tokenCall, ts_ms: to - 1_000 }],
+      lines_read: 1
+    });
+    await boot();
+    fireEvent.change(screen.getByLabelText("Operator token"), {
+      target: { value: "operator-token" }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+
+    // The link is the address of the table's window: it opens Activity on the Table, with the
+    // range's sentence, and the request is the fragment's own two moments.
+    await screen.findByRole("heading", { name: "Activity", level: 1 });
+    await screen.findByRole("tab", { name: "Table" });
+    expect(await screen.findByText(/^Showing .*, 1 line$/)).toBeInTheDocument();
+    expect(mocks.auditRange).toHaveBeenCalledWith({ from, to }, undefined, 1000);
+    expect(window.location.hash).toBe(`#activity?from=${from}&to=${to}`);
   });
 
   it("carries the timeline's search to the table and back", async () => {

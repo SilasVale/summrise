@@ -4731,14 +4731,71 @@ struct LogQuery {
     limit: Option<String>,
 }
 
-/// The `?limit=&device=` shape `/audit` reads.
+/// The `?limit=&device=` shape `/audit` reads, and the optional `?from=&to=` range.
 ///
 /// `device` is optional on purpose: without it the route is the fleet-wide window it has always
-/// been, and a page that names one machine reads that machine's own newest lines instead.
+/// been, and a page that names one machine reads that machine's own newest lines instead. `from`
+/// and `to` arrive together or not at all: one endpoint is not a range.
 #[derive(Deserialize)]
 struct AuditQuery {
     limit: Option<String>,
     device: Option<String>,
+    from: Option<String>,
+    to: Option<String>,
+}
+
+/// What `/audit` was asked to answer: the newest window, or a chosen range.
+enum AuditWindow {
+    Newest,
+    /// `[from_ms, to_ms)`.
+    Range {
+        from_ms: u64,
+        to_ms: u64,
+    },
+}
+
+/// Parse the range pair. Both absent is the window this route has always served; anything else
+/// must name a moment twice and the second must be later than the first.
+fn audit_window(from: Option<&str>, to: Option<&str>) -> Result<AuditWindow, ApiError> {
+    let invalid = || ApiError::bad_request("invalid_range");
+    match (from, to) {
+        (None, None) => Ok(AuditWindow::Newest),
+        (Some(from), Some(to)) => {
+            let from_ms = from.parse::<u64>().map_err(|_| invalid())?;
+            let to_ms = to.parse::<u64>().map_err(|_| invalid())?;
+            // `[from, to)` is empty at equality and reversed after it; neither is a range a caller
+            // can mean, and a page that asks for one has a bug worth naming.
+            if from_ms >= to_ms {
+                return Err(invalid());
+            }
+            Ok(AuditWindow::Range { from_ms, to_ms })
+        }
+        _ => Err(invalid()),
+    }
+}
+
+/// A range's answer: the lines, and the facts the page needs to state the bounds it drew.
+///
+/// An object rather than the bare array `/audit` has always served: a range's answer has to say
+/// whether the scan bound cut it and where the file's coverage starts, and an array cannot carry
+/// either without making every line the envelope. A request with no `from`/`to` keeps the array.
+#[derive(serde::Serialize)]
+struct AuditRangeView {
+    lines: Vec<Value>,
+    /// How many lines the backwards scan examined. The cost, not a count of matches.
+    lines_read: usize,
+    /// The moment coverage starts at, when the current file starts after `from`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    since_ms: Option<u64>,
+    /// The scan stopped at its line bound before reaching `from`.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    bounded: bool,
+    /// The bound's size, named when it was hit.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    scan_limit: Option<usize>,
+    /// The range held more matching lines than `limit`; `lines` is its newest prefix.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    at_limit: bool,
 }
 
 /// The clamped limit both log routes read.
@@ -4773,28 +4830,67 @@ async fn audit_source(
 ///
 /// `?device=` narrows the read to one machine's lines. The filter runs during the scan, not over a
 /// pre-cut fleet window, so another machine's traffic cannot push this machine's lines out.
+///
+/// `?from=&to=` answers a time range instead of the newest window: the lines whose `ts_ms` is in
+/// `[from, to)`, newest first, from the current file's backwards scan. The answer is an object that
+/// states the scan's bound and where coverage starts; no `from`/`to` keeps the bare array this route
+/// has always served.
 async fn list_audit(
     State(app): State<AppState>,
     _: OperatorSession,
     Query(query): Query<AuditQuery>,
-) -> Result<Json<Vec<Value>>, ApiError> {
+) -> Result<Response, ApiError> {
     let limit = log_limit(query.limit)?;
-    let lines = match query.device.as_deref() {
-        Some(device) => app.audit.newest_for(device, limit).await,
-        None => app.audit.newest(limit).await,
-    };
-    // The same sentence the live stream carries, so a fetched window and a streamed line read the
-    // same way. A stored line never had the call's arguments, so this is the general sentence for
-    // its kind rather than the call's own.
-    let lines = lines
+    let window = audit_window(query.from.as_deref(), query.to.as_deref())?;
+    match window {
+        AuditWindow::Newest => {
+            let lines = match query.device.as_deref() {
+                Some(device) => app.audit.newest_for(device, limit).await,
+                None => app.audit.newest(limit).await,
+            };
+            Ok(Json(with_sentences(lines)).into_response())
+        }
+        AuditWindow::Range { from_ms, to_ms } => {
+            let read = app.audit.range(from_ms, to_ms).await;
+            // The device is a selection over the range the scan read, not part of the scan's cut:
+            // `/audit/day?device=` selects the same way from the day it read.
+            let mut lines: Vec<Value> = read
+                .lines
+                .into_iter()
+                .filter(|line| match query.device.as_deref() {
+                    Some(device) => line.get("device_id").and_then(Value::as_str) == Some(device),
+                    None => true,
+                })
+                .collect();
+            // The window's limit is the page's draw size, not the range's definition: say when it
+            // cut the answer rather than serving the newest prefix as the whole range.
+            let at_limit = lines.len() > limit;
+            lines.truncate(limit);
+            Ok(Json(AuditRangeView {
+                lines: with_sentences(lines),
+                lines_read: read.lines_read,
+                since_ms: read.since_ms,
+                bounded: read.bounded,
+                scan_limit: read.bounded.then_some(crate::audit::DAY_SCAN_LIMIT),
+                at_limit,
+            })
+            .into_response())
+        }
+    }
+}
+
+/// The same sentence the live stream carries, so a fetched window and a streamed line read the
+/// same way. A stored line never had the call's arguments, so this is the general sentence for its
+/// kind rather than the call's own.
+fn with_sentences(lines: Vec<Value>) -> Vec<Value> {
+    lines
         .into_iter()
         .map(|mut line| {
             let sentence = crate::activity::line_sentence(&line);
             line["sentence"] = json!(sentence);
             line
         })
-        .collect();
-    Ok(Json(lines))
+        .collect()
 }
 
 /// `GET /activity/shot/:device/:id`: one remembered screen capture, exactly as the device sent it.

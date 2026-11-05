@@ -1,4 +1,5 @@
 import type { DeviceTab, Page } from "./Rail";
+import { parseRangeQuery, rangeQuery, type AuditRange } from "./auditTime";
 
 /**
  * What the fragment names: a destination, the Device tab inside it, or the tool whose sheet is open
@@ -11,6 +12,11 @@ export type Surface = {
   tool?: string;
   /** Screen's second view. A fragment only names it when it is Browser; Desktop is the default. */
   view?: "desktop" | "browser";
+  /**
+   * The Table's time window, `#activity?from=&to=`. Only Activity can carry it: the range is the
+   * Activity Table's request, and a link to one is a link to that view of the record.
+   */
+  range?: AuditRange;
 };
 
 const PAGES: readonly Page[] = ["home", "activity", "device"];
@@ -37,8 +43,11 @@ const LEGACY: Record<string, Surface> = {
   audit: { page: "activity" }
 };
 
-/** The fragment for a surface: `#home`, `#activity`, `#device/<tab>[/<tool>]`. */
+/** The fragment for a surface: `#home`, `#activity[?from=&to=]`, `#device/<tab>[/<tool>]`. */
 export function surfaceHash(surface: Surface): string {
+  if (surface.page === "activity" && surface.range) {
+    return "#activity?" + rangeQuery(surface.range);
+  }
   if (surface.page === "device") {
     const tab = surface.tab ?? "terminal";
     if (tab === "tools" && surface.tool) {
@@ -61,6 +70,12 @@ export function parseSurfaceHash(
   hash: string,
   { machineSelected = false }: { machineSelected?: boolean } = {}
 ): Surface | null {
+  // A range is Activity's own address: `#activity?from=<ms>&to=<ms>`. It is read before the bare
+  // destination regex because the query is not a path segment.
+  if (hash.startsWith("#activity?")) {
+    const range = parseRangeQuery(hash.slice("#activity?".length));
+    return range ? { page: "activity", range } : null;
+  }
   const match = /^#([a-z]+)(?:\/(.+))?$/.exec(hash);
   if (!match) return null;
   const name = match[1];

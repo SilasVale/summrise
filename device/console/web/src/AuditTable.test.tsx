@@ -235,25 +235,111 @@ describe("AuditTable", () => {
     expect(type).toBe("text/csv;charset=utf-8");
   });
 
-  it("narrows the table to a time window", () => {
-    const now = Date.now();
+  it("asks the console for a preset instead of filtering the window it holds", () => {
+    // The Time control used to cut the 1,000-line window in the browser and fire nothing. The
+    // window is the server's answer now: a preset is a request, and the rows it holds are not
+    // filtered locally — the page draws whatever the range's answer carries.
+    const onRange = vi.fn();
     render(
       <AuditTable
         lines={[
-          line({ ts_ms: now - 2 * 24 * 60 * 60_000, tool: "old.tool", status: 200 }),
-          line({ ts_ms: now - 60_000, tool: "recent.tool", status: 200 })
+          line({ ts_ms: Date.now() - 2 * 24 * 60 * 60_000, tool: "old.tool", status: 200 }),
+          line({ ts_ms: Date.now() - 60_000, tool: "recent.tool", status: 200 })
         ]}
         devices={devices}
         tokens={[]}
+        range={null}
+        onRange={onRange}
       />
     );
+    expect(screen.getByLabelText("Time")).toHaveValue("window");
+    expect(screen.getByRole("option", { name: "Newest window" })).toBeInTheDocument();
+    expect(screen.queryByText(/^Showing .*lines?$/)).toBeNull();
     expect(screen.getByText("old.tool")).toBeInTheDocument();
-    expect(screen.getByText("recent.tool")).toBeInTheDocument();
 
+    const before = Date.now();
     fireEvent.change(screen.getByLabelText("Time"), { target: { value: "hour" } });
+    const after = Date.now();
 
-    expect(screen.queryByText("old.tool")).not.toBeInTheDocument();
-    expect(screen.getByText("recent.tool")).toBeInTheDocument();
+    expect(onRange).toHaveBeenCalledTimes(1);
+    const chosen = onRange.mock.calls[0][0];
+    expect(chosen.to - chosen.from).toBe(60 * 60_000);
+    expect(chosen.to).toBeGreaterThanOrEqual(before);
+    expect(chosen.to).toBeLessThanOrEqual(after);
+    // Nothing was filtered in the browser: the preset is an address for a different read.
+    expect(screen.getByText("old.tool")).toBeInTheDocument();
+  });
+
+  it("issues a custom from and to", () => {
+    const onRange = vi.fn();
+    render(
+      <AuditTable lines={lines} devices={devices} tokens={[]} range={null} onRange={onRange} />
+    );
+
+    fireEvent.change(screen.getByLabelText("Time"), { target: { value: "custom" } });
+    fireEvent.change(screen.getByLabelText("From"), { target: { value: "2026-11-05T09:00" } });
+    fireEvent.change(screen.getByLabelText("To"), { target: { value: "2026-11-05T17:00" } });
+    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+
+    expect(onRange).toHaveBeenCalledWith({
+      from: new Date(2026, 10, 5, 9, 0, 0, 0).getTime(),
+      to: new Date(2026, 10, 5, 17, 0, 0, 0).getTime()
+    });
+  });
+
+  it("names the range it drew, and goes back to the newest window", () => {
+    const range = {
+      from: new Date(2026, 10, 5, 9, 0, 0, 0).getTime(),
+      to: new Date(2026, 10, 5, 17, 0, 0, 0).getTime()
+    };
+    const onRange = vi.fn();
+    const { rerender } = render(
+      <AuditTable
+        lines={lines}
+        devices={devices}
+        tokens={[]}
+        range={range}
+        onRange={onRange}
+      />
+    );
+
+    expect(
+      screen.getByText("Showing 09:00–17:00 of 11-05, 3 lines")
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText("Time")).toHaveValue("custom");
+
+    fireEvent.change(screen.getByLabelText("Time"), { target: { value: "window" } });
+    expect(onRange).toHaveBeenCalledWith(null);
+
+    // The page clears the range and the sentence goes with it; the newest window is named by the
+    // control, not by a cap sentence it has no reason to show.
+    rerender(<AuditTable lines={lines} devices={devices} tokens={[]} range={null} onRange={onRange} />);
+    expect(screen.queryByText(/^Showing 09:00/)).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Time")).toHaveValue("window");
+  });
+
+  it("states a range's missing start and the scan bound that cut it", () => {
+    const range = {
+      from: new Date(2026, 10, 5, 9, 0, 0, 0).getTime(),
+      to: new Date(2026, 10, 5, 17, 0, 0, 0).getTime()
+    };
+    render(
+      <AuditTable
+        lines={lines}
+        devices={devices}
+        tokens={[]}
+        range={range}
+        rangeFacts={{
+          since_ms: new Date(2026, 9, 22, 10, 55, 0, 0).getTime(),
+          bounded: true,
+          scan_limit: 50_000
+        }}
+      />
+    );
+
+    const sentence = screen.getByText(/^Showing 09:00/).textContent ?? "";
+    expect(sentence).toContain("since 10-22 10:55");
+    expect(sentence).toContain("the 50,000-line scan bound cut it");
   });
 
   it("opens scoped to the selected machine and can widen to the fleet", () => {
@@ -416,14 +502,6 @@ describe("AuditTable", () => {
     expect(screen.queryByText(/No calls match/)).not.toBeInTheDocument();
   });
 
-  it("names the time window and offers the way back to all of it", () => {
-    render(<AuditTable lines={[line({ tool: "files.read", ts_ms: Date.now() - 10 * 86_400_000 })]} devices={devices} tokens={[]} />);
-    fireEvent.change(screen.getByLabelText("Time"), { target: { value: "hour" } });
-
-    expect(screen.getByText("No calls in the last hour.")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Clear filters" }));
-    expect(auditRows()).toHaveLength(1);
-  });
 
   it("names the caller's log when a filter matches nothing", () => {
     render(

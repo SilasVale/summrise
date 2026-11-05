@@ -3542,6 +3542,225 @@ async fn the_audit_window_can_be_one_machines() {
     );
 }
 
+/// One audit line as a range test seeds it: the moment, the machine and the tool that tell it apart.
+fn seeded_call(ts_ms: u64, device: &str, tool: &str) -> Value {
+    json!({
+        "ts_ms": ts_ms,
+        "kind": "mcp",
+        "device_id": device,
+        "status": 200,
+        "tool": tool,
+        "caller": "client",
+    })
+}
+
+/// The `ts_ms` of every line a range answer holds, newest first.
+fn range_times(body: &Value) -> Vec<u64> {
+    body["lines"]
+        .as_array()
+        .expect("a range answer holds its lines")
+        .iter()
+        .filter_map(|line| line["ts_ms"].as_u64())
+        .collect()
+}
+
+/// **A RANGE IS A SET, NOT A FILTER.** The route returns the lines whose `ts_ms` is in `[from, to)`:
+/// a line exactly at `from` belongs, a line exactly at `to` does not, and a line one millisecond
+/// outside either end is not drawn. The device filter is applied to the same answer.
+#[tokio::test]
+async fn the_audit_range_answers_only_the_lines_inside_it() {
+    let fixture = Fixture::new("audit-range");
+    let session = fixture.authenticate().await;
+    let alpha = "a1".repeat(32);
+    let beta = "b2".repeat(32);
+    let at = |offset: u64| START_MS + offset;
+    let lines = vec![
+        seeded_call(at(999), &alpha, "before-range"),
+        seeded_call(at(1_000), &alpha, "at-from"),
+        seeded_call(at(1_999), &beta, "inside-range"),
+        seeded_call(at(2_000), &alpha, "at-to"),
+    ];
+    seed_audit_file(&fixture, "audit.jsonl", &lines);
+
+    let (status, body) = send(
+        fixture.app(),
+        get(
+            &format!("/audit?from={}&to={}", at(1_000), at(2_000)),
+            Some(&session),
+        ),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        range_times(&body),
+        vec![at(1_999), at(1_000)],
+        "from is included, to is excluded, and the answer is newest first: {body}"
+    );
+    assert!(
+        body.get("since_ms").is_none(),
+        "the file starts before `from`, so the range is whole: {body}"
+    );
+    assert!(
+        !body
+            .get("bounded")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+        "a four-line file cannot hit the scan bound: {body}"
+    );
+    assert_eq!(
+        body["lines_read"],
+        json!(4),
+        "the scan reads through the line at `to` and stops on the one that proves `from`: {body}"
+    );
+
+    // The same range for one machine: the filter is the route's `device` rule, not the caller's.
+    let (status, body) = send(
+        fixture.app(),
+        get(
+            &format!("/audit?from={}&to={}&device={alpha}", at(1_000), at(2_000)),
+            Some(&session),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        range_times(&body),
+        vec![at(1_000)],
+        "another machine's in-range line is not this machine's answer: {body}"
+    );
+}
+
+/// **A RANGE OLDER THAN THE FILE SAYS WHERE COVERAGE STARTS.** A rotation keeps one older
+/// generation, but a range read is current-file-only (the day read's rule): the answer names the
+/// file's oldest moment as `since_ms` instead of stitching two generations into a whole.
+#[tokio::test]
+async fn a_range_that_starts_before_the_file_says_since_its_oldest_line() {
+    let fixture = Fixture::new("audit-range-since");
+    let session = fixture.authenticate().await;
+    let alpha = "a1".repeat(32);
+    let at = |offset: u64| START_MS + offset;
+    // The file starts an hour after the requested start: a rotation, or a console started later.
+    let file_start = at(3_600_000);
+    seed_audit_file(
+        &fixture,
+        "audit.jsonl",
+        &[
+            seeded_call(file_start, &alpha, "first"),
+            seeded_call(file_start + 1_000, &alpha, "second"),
+        ],
+    );
+
+    let (status, body) = send(
+        fixture.app(),
+        get(
+            &format!("/audit?from={}&to={}", at(0), at(7_200_000)),
+            Some(&session),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(range_times(&body), vec![file_start + 1_000, file_start]);
+    assert_eq!(
+        body["since_ms"],
+        json!(file_start),
+        "the sentence can say since the file's oldest line: {body}"
+    );
+
+    // A range entirely before the file: no lines can be served, and the same start is stated
+    // rather than a zero with no explanation.
+    let (status, body) = send(
+        fixture.app(),
+        get(
+            &format!("/audit?from={}&to={}", at(0), at(1_000)),
+            Some(&session),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(range_times(&body), Vec::<u64>::new());
+    assert_eq!(
+        body["since_ms"],
+        json!(file_start),
+        "an empty old range says where the file begins: {body}"
+    );
+}
+
+/// **THE SCAN BOUND IS STATED, NOT HIDDEN.** More than 50,000 lines sit after `from`, so the
+/// backwards scan stops at its bound before proving the range's start: the answer says `bounded`
+/// and names the line its coverage begins at. The HTTP limit then takes the newest slice, and
+/// `at_limit` says the range held more than the window asked for.
+#[tokio::test]
+async fn a_range_the_scan_bound_cut_says_so() {
+    let fixture = Fixture::new("audit-range-bound");
+    let session = fixture.authenticate().await;
+    let alpha = "a1".repeat(32);
+    let count = 50_001u64;
+    let lines: Vec<Value> = (0..count)
+        .map(|index| seeded_call(START_MS + index * 1_000, &alpha, "files.read"))
+        .collect();
+    seed_audit_file(&fixture, "audit.jsonl", &lines);
+
+    let (status, body) = send(
+        fixture.app(),
+        get(
+            &format!(
+                "/audit?from={START_MS}&to={}&limit=1000",
+                START_MS + 100_000_000
+            ),
+            Some(&session),
+        ),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        body.get("bounded").and_then(Value::as_bool),
+        Some(true),
+        "the bound stopped the scan before `from` was proven"
+    );
+    assert_eq!(body["scan_limit"], json!(50_000));
+    assert_eq!(body["lines_read"], json!(50_000));
+    assert_eq!(
+        body["since_ms"],
+        json!(START_MS + 1_000),
+        "coverage starts at the oldest line the bound let the scan read"
+    );
+    assert_eq!(
+        body.get("at_limit").and_then(Value::as_bool),
+        Some(true),
+        "the range held more lines than the 1,000-line window"
+    );
+    let times = range_times(&body);
+    assert_eq!(times.len(), 1_000, "the HTTP limit is the drawn window");
+    assert_eq!(times[0], START_MS + (count - 1) * 1_000);
+    assert_eq!(times[999], START_MS + (count - 1_000) * 1_000);
+}
+
+/// A malformed range is the console's JSON refusal: one endpoint is not a range, a start at or
+/// after the end is not one either, and a value that is not a moment names no range.
+#[tokio::test]
+async fn a_malformed_range_is_a_json_refusal() {
+    let fixture = Fixture::new("audit-range-bad");
+    let session = fixture.authenticate().await;
+
+    for query in [
+        "from=1000",
+        "to=2000",
+        "from=2000&to=1000",
+        "from=abc&to=1000",
+        "from=1000&to=abc",
+    ] {
+        let (status, body) = send(
+            fixture.app(),
+            get(&format!("/audit?{query}"), Some(&session)),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{query}: {body}");
+        assert_eq!(body, json!({ "error": "invalid_range" }), "{query}");
+    }
+}
+
 /// Write `count` denial lines to the current file, oldest first, without going through the writer.
 fn seed_denials(fixture: &Fixture, count: usize) {
     let mut text = String::new();

@@ -341,7 +341,10 @@ const state = {
   /** Whether the page subscribed to the session's stream: the push path, not the polling one. */
   streamOpened: false,
   /** What the stream has already echoed, so a reconnecting client is not told twice. */
-  streamEchoed: false
+  streamEchoed: false,
+  /** How many `/audit?from=&to=` requests the page made, and the last one's moments and count. */
+  rangeRequests: 0,
+  lastRange: null
 };
 
 /**
@@ -460,11 +463,24 @@ function apiReply(request, url) {
     // small day the earlier legs assert on.
     const source =
       device === BIG_DEVICE.id ? BIG_WINDOW_LINES : [CONSOLE_LINE, AUDIT_LINE, ...HISTORIC_LINES];
-    const lines = source
-      .filter((line) => device === null || line.device_id === device)
-      // Newest first, as the console serves it.
-      .sort((left, right) => right.ts_ms - left.ts_ms);
-    return json(lines);
+    const scoped = source.filter((line) => device === null || line.device_id === device);
+    // **A RANGE IS THE TABLE'S REQUEST.** The Time control sends `from`/`to`; the gate serves the
+    // same `[from, to)` rule the console does and records the request the page made, so the leg
+    // below proves a preset fired it rather than filtering a window in the browser.
+    const from = url.searchParams.get('from');
+    const to = url.searchParams.get('to');
+    if (from !== null || to !== null) {
+      const fromMs = Number(from);
+      const toMs = Number(to);
+      const lines = scoped
+        .filter((line) => line.ts_ms >= fromMs && line.ts_ms < toMs)
+        .sort((left, right) => right.ts_ms - left.ts_ms);
+      state.rangeRequests += 1;
+      state.lastRange = { from: fromMs, to: toMs, count: lines.length };
+      return json({ lines, lines_read: scoped.length, at_limit: false });
+    }
+    // Newest first, as the console serves it.
+    return json(scoped.sort((left, right) => right.ts_ms - left.ts_ms));
   }
   // **THE FILE THE WINDOW IS READ FROM.** The page states this beside its cap sentence; the gate
   // serves the measured shape (an 8.4 MiB current file and one older generation) so the line it
@@ -1292,6 +1308,48 @@ try {
   await page.locator('.audit-record-row').first().waitFor({ state: 'visible', timeout: 5_000 });
   await page.screenshot({ path: path.join(OUT, '07-audit-390.png') });
   step('at 390 the audit opener is in the first cell; the table fits and the record opens');
+
+  // **A PRESET IS A REQUEST, NOT A LOCAL FILTER.** The Time control used to narrow the 1,000-line
+  // window in the browser and fire nothing. `Last hour` must ask `/audit?from=&to=`, and the
+  // sentence above the rows must name the range and the count the answer actually held.
+  const rangeRequestsBefore = state.rangeRequests;
+  await page.getByLabel('Time').selectOption('hour');
+  await page.waitForFunction(
+    () => document.querySelector('.audit-cap')?.textContent?.startsWith('Showing '),
+    null,
+    { timeout: 10_000 }
+  );
+  if (state.rangeRequests !== rangeRequestsBefore + 1) {
+    throw new Error(
+      `the preset fired ${state.rangeRequests - rangeRequestsBefore} range requests, not one`
+    );
+  }
+  if (state.lastRange.to - state.lastRange.from !== 3_600_000) {
+    throw new Error(`the preset asked for ${JSON.stringify(state.lastRange)}, not one hour`);
+  }
+  const rangeSentence390 = (await page.locator('.audit-cap').textContent())?.trim() ?? '';
+  const rangeMatch = /^Showing \d{2}:\d{2}–\d{2}:\d{2} of \d{2}-\d{2}, (\d+) lines?$/.exec(
+    rangeSentence390
+  );
+  if (!rangeMatch) {
+    throw new Error(`the range sentence read ${JSON.stringify(rangeSentence390)}`);
+  }
+  const rangeRows = await page.locator('.audit-row').count();
+  if (Number(rangeMatch[1]) !== state.lastRange.count || rangeRows !== state.lastRange.count) {
+    throw new Error(
+      `the sentence and rows counted ${rangeMatch[1]}/${rangeRows}, the answer held ` +
+        `${state.lastRange.count}`
+    );
+  }
+  const rangeHash = await page.evaluate(() => window.location.hash);
+  if (rangeHash !== `#activity?from=${state.lastRange.from}&to=${state.lastRange.to}`) {
+    throw new Error(`the range is not in the address: ${rangeHash}`);
+  }
+  await page.screenshot({ path: path.join(OUT, '07e-range-390.png') });
+  step(
+    `at 390 "Last hour" asked /audit?from=&to= and stated ${JSON.stringify(rangeSentence390)} ` +
+      `over ${rangeRows} rows; the range is in the fragment`
+  );
 
   // **THE OFFLINE REASON WRAPS INSTEAD OF LOSING ITS LAST WORD.** The measured notice cut
   // "…and then dropped it" to "…and then dro…": 283 px of text in a 265 px line, with the rest only
