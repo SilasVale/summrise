@@ -751,3 +751,29 @@ update line no longer repeats the running version; the run form's placeholder is
   the header offers no `Refresh` and that `Pause` then `Resume` returns the page. `npx vitest run`
   659 passed across 51 files; typecheck and build clean; `./scripts/build-web.sh --check` clean with
   dist committed; browser gate PASS 28 steps; `a11y-audit` 0 findings across 16 page states.)*
+
+## P0 — the seventh list (opened 2026-11-05, after the sixth audit's questions)
+
+The sixth audit asked two questions and answered them: **there is no route past the window** (the only
+audit query is `limit` + `device`, clamped to 1,000; the Table's `Last week` fires no request; the
+older ~27,000 lines of a 28,056-line / 14.1-day file are reachable only by a shell on the console
+host) and **there is now a way to compare machines** (the fleet carries each machine's day). This
+list is what is left of the page's sense of time, measured.
+
+1. **Nothing on the page says what file it is reading.** The audit rotates at 8 MiB to one
+   `audit.1.jsonl`; a day's read now says `since HH:MM` when its start is gone, but nowhere does the
+   operator see the file's size, its retention, or that a rotation happened. The page should state
+   the source it reads and its bounds — one line, in the place that already explains the window.
+   **S.**
+2. **A moment older than the window still has no route.** `/audit/day` reads a whole day, but a
+   *chosen* day or a time range is not addressable: no query takes `from`/`to`, and nothing in the
+   UI asks for one. The shape: `GET /audit?from=&to=&device=` bounded by the same scan rules, and a
+   time field in the Activity Table's filter that actually issues it (today it filters in the
+   browser and fires nothing). **M.**
+3. **A day cannot leave the product.** There is no export of a slice, so a report or a hand-off
+   means a shell on the host. The shape: an export of the window in hand (JSON Lines, the same lines
+   the table draws) with its bounds in the filename. **S/M.**
+
+Not items, measured: the day count is now the day's (14c4331, a wake check also landed in 2d4c7ec);
+the hub's numbers are the rows its controls reach (d3c0503); a failed run is 424 with its reason
+(live-verified).
