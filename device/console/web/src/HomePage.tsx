@@ -10,7 +10,7 @@ import { listPlugins } from "./pluginApi";
 import { useLiveTools } from "./useLiveTools";
 import { ActivityTimeline } from "./ActivityTimeline";
 import { ACTIVITY_LIMIT, capActivity, mergeActivity } from "./activityMerge";
-import { isClientCall } from "./activitySummary";
+import { isChannelBoundary, isClientCall } from "./activitySummary";
 import { auditFailed } from "./auditFilter";
 
 /** A one-time enrollment code and the command that redeems it. */
@@ -392,7 +392,9 @@ function HubHome(
   // The merged window keeps the older lines the timeline hides: the summary line below needs one of
   // them to say when the machine last worked. The timeline itself is still today's only.
   const windowLines = mergeActivity(fetched, liveLines).sort((a, b) => b.ts_ms - a.ts_ms);
-  const timeline = capActivity(windowLines.filter((line) => line.ts_ms >= todayStart));
+  // A channel boundary is in the audit to prove an absence, not to be drawn as the machine's work.
+  const activityLines = windowLines.filter((line) => !isChannelBoundary(line));
+  const timeline = capActivity(activityLines.filter((line) => line.ts_ms >= todayStart));
   // **THE DAY IS SCANNABLE; THE RECORD IS NOT HIDDEN.** The newest rows are drawn and one control
   // offers the rest of today in place. The count is the list's own length minus what is drawn, so a
   // live frame that arrives while the day is folded grows the label by the same one row it adds.

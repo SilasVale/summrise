@@ -1640,10 +1640,26 @@ async fn wait_until_offline(app: Router, session: &str, device_id: &str) -> Valu
     panic!("the dropped channel still counts as online");
 }
 
+/// Wait until the reconnect's `device.joined` line is on disk and the row reads it back.
+async fn wait_until_outage(app: Router, session: &str, device_id: &str) -> Value {
+    for _ in 0..100 {
+        let listed = fleet_row(app.clone(), session, device_id).await;
+        if listed.get("last_outage").is_some() {
+            return listed;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    panic!("the reconnect never left an outage");
+}
+
 /// **THE OUTAGE THAT IS OVER IS STILL A FACT.** A fleet row says `online` again the moment a device
 /// comes back; the pair of moments the console observed is what lets a menu line say "back 2h ago
 /// after 41m" without opening the machine. The names are the duration and the return, because those
 /// are the two a reader compares.
+///
+/// The two moments are audit lines now (`device.left`, `device.joined`), and the duration is their
+/// difference on the console's clock. The test moves that clock between the close and the reopen so
+/// the numbers are deterministic rather than a measured wall-clock race.
 #[tokio::test]
 async fn a_reconnect_records_how_long_the_device_was_away() {
     let fixture = Fixture::new("outage-record");
@@ -1657,71 +1673,74 @@ async fn a_reconnect_records_how_long_the_device_was_away() {
         "a device that has never gone away omits the key, rather than inventing a zero: {listed}"
     );
 
-    let dropped_at = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("a clock after the epoch")
-        .as_millis() as u64;
+    let gone_at = fixture.now_ms();
     drop(device);
     // The outage starts when the console notices the close, not when the socket was dropped: wait
     // for the offline row, then measure the gap it stayed away.
     wait_until_offline(fixture.app(), &session, &device_id).await;
-    let gone_at = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("a clock after the epoch")
-        .as_millis() as u64;
-    tokio::time::sleep(Duration::from_millis(80)).await;
+    fixture.advance_ms(80);
+    let back_at = fixture.now_ms();
 
     let _again = open_channel(&server, &device_id, &token)
         .await
         .expect("the device reconnects");
-    tokio::task::yield_now().await;
 
-    let listed = fleet_row(fixture.app(), &session, &device_id).await;
+    let listed = wait_until_outage(fixture.app(), &session, &device_id).await;
     let outage = listed
         .get("last_outage")
         .unwrap_or_else(|| panic!("the reconnect leaves an outage: {listed}"));
-    let away_ms = outage["away_ms"].as_u64().unwrap_or(0);
-    let back_at_ms = outage["back_at_ms"].as_u64().unwrap_or(0);
-    let read_at = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("a clock after the epoch")
-        .as_millis() as u64;
-    assert!(
-        away_ms >= 80,
-        "the gap it was away is recorded, and it is the measured one: {listed}"
+    assert_eq!(outage["away_ms"], json!(80), "{listed}");
+    assert_eq!(outage["back_at_ms"], json!(back_at), "{listed}");
+    assert_eq!(
+        outage["back_at_ms"].as_u64().unwrap_or(0) - outage["away_ms"].as_u64().unwrap_or(0),
+        gone_at,
+        "the absence began when the console saw the close: {listed}"
     );
-    assert!(
-        back_at_ms >= gone_at && back_at_ms <= read_at,
-        "it came back between {gone_at} and {read_at}: {listed}"
-    );
-    let started_ms = back_at_ms.saturating_sub(away_ms);
-    assert!(
-        started_ms >= dropped_at && started_ms <= gone_at,
-        "the outage began when the close was seen, between {dropped_at} and {gone_at}: {listed}"
-    );
+
+    // The two moments are audit lines, marked as the console's own facts rather than a tool call.
+    // The initial connect, the close and the reopen are the three: the outage is the last two.
+    let boundaries: Vec<Value> = audit_lines(&fixture)
+        .into_iter()
+        .filter(|line| line["kind"] == json!("device"))
+        .collect();
+    assert_eq!(boundaries.len(), 3, "{boundaries:?}");
+    for line in &boundaries {
+        assert_eq!(line["device_id"], json!(device_id));
+        assert_eq!(line["caller"], json!("console"));
+        assert_eq!(line["status"], json!(200));
+        assert!(
+            line.get("token_id").is_none(),
+            "a channel boundary is not a client call: {line}"
+        );
+    }
+    assert_eq!(boundaries[0]["tool"], json!("device.joined"));
+    assert_eq!(boundaries[0]["ts_ms"], json!(START_MS));
+    assert_eq!(boundaries[1]["tool"], json!("device.left"));
+    assert_eq!(boundaries[1]["ts_ms"], json!(gone_at));
+    assert_eq!(boundaries[2]["tool"], json!("device.joined"));
+    assert_eq!(boundaries[2]["ts_ms"], json!(back_at));
 }
 
-/// **THE OUTAGE IS MEMORY, NOT HISTORY.** A restart is a new console: it must not read the previous
-/// process's outage back and claim a machine came back when this process never saw it go.
+/// **THE ABSENCE OUTLIVES THE CONSOLE THAT WATCHED IT.** The record is the audit, not a map in the
+/// process: a console restarted mid-outage still reads the close the dead process wrote and the
+/// open the new one wrote, and the pair is the interval between them.
 #[tokio::test]
-async fn an_outage_is_forgotten_by_a_restart() {
-    let fixture = Fixture::new("outage-memory");
+async fn an_absence_outlives_a_console_restart() {
+    let fixture = Fixture::new("outage-audit-restart");
     let server = TestServer::start(&fixture.console).await;
     let (device_id, token, device) = connected_device(&fixture, &server, &signing_key(0x79)).await;
     let session = fixture.authenticate().await;
 
     drop(device);
     wait_until_offline(fixture.app(), &session, &device_id).await;
+    fixture.advance_ms(41 * MINUTE_MS);
     let _again = open_channel(&server, &device_id, &token)
         .await
         .expect("the device reconnects");
-    tokio::task::yield_now().await;
 
-    let listed = fleet_row(fixture.app(), &session, &device_id).await;
-    assert!(
-        listed.get("last_outage").is_some(),
-        "the live console recorded the outage before the restart: {listed}"
-    );
+    let listed = wait_until_outage(fixture.app(), &session, &device_id).await;
+    let outage = listed["last_outage"].clone();
+    assert_eq!(outage["away_ms"], json!(41 * MINUTE_MS), "{listed}");
 
     let on_disk = fs::read_to_string(fixture.config.data.join("devices.json"))
         .expect("the device registry is readable");
@@ -1729,13 +1748,66 @@ async fn an_outage_is_forgotten_by_a_restart() {
         !on_disk.contains("last_outage") && !on_disk.contains("away_ms"),
         "the outage is not written to the device registry: {on_disk}"
     );
+    let audit =
+        fs::read_to_string(fixture.config.data.join("audit.jsonl")).expect("the audit is readable");
+    assert!(
+        audit.contains("\"tool\":\"device.left\"") && audit.contains("\"tool\":\"device.joined\""),
+        "the two boundaries are audit lines: {audit}"
+    );
 
+    // A new process: the channel map is empty, the audit is not.
     let restarted = fixture.restart();
     let session = authenticate_on(&restarted).await;
     let listed = fleet_row(restarted.router(), &session, &device_id).await;
+    assert_eq!(
+        listed.get("last_outage"),
+        Some(&outage),
+        "the pair is read back from the audit, not from the dead process: {listed}"
+    );
+}
+
+/// **THE AUDIT ALONE PROVES AN ABSENCE.** Seeded lines, no channel ever opened in this console: a
+/// `device.left` with no return yet is not an absence; adding the `device.joined` makes it one.
+#[tokio::test]
+async fn a_channel_pair_in_the_audit_is_the_last_outage() {
+    let fixture = Fixture::new("outage-audit-pair");
+    let device_id = register_fixture_device(&fixture, &signing_key(0x7a)).await;
+    let session = fixture.authenticate().await;
+    let left_at = START_MS + 1_000;
+    let joined_at = START_MS + 171 * MINUTE_MS;
+    let left = json!({
+        "ts_ms": left_at,
+        "kind": "device",
+        "device_id": device_id,
+        "status": 200,
+        "tool": "device.left",
+        "caller": "console",
+    });
+
+    seed_audit_file(&fixture, "audit.jsonl", std::slice::from_ref(&left));
+    let listed = fleet_row(fixture.app(), &session, &device_id).await;
     assert!(
         listed.get("last_outage").is_none(),
-        "a console that has seen no drop invents no outage: {listed}"
+        "a drop with no return is still away, so it is not a completed absence: {listed}"
+    );
+
+    let joined = json!({
+        "ts_ms": joined_at,
+        "kind": "device",
+        "device_id": device_id,
+        "status": 200,
+        "tool": "device.joined",
+        "caller": "console",
+    });
+    seed_audit_file(&fixture, "audit.jsonl", &[left, joined]);
+    let listed = fleet_row(fixture.app(), &session, &device_id).await;
+    assert_eq!(
+        listed.get("last_outage"),
+        Some(&json!({
+            "away_ms": joined_at - left_at,
+            "back_at_ms": joined_at,
+        })),
+        "the pair is the absence: {listed}"
     );
 }
 
@@ -2956,11 +3028,13 @@ async fn an_operator_mcp_call_is_one_audit_line_without_its_payload() {
             json!("auth"),
             json!("enroll"),
             json!("register"),
+            // The channel's own join: a console fact, not a call, and not what this test counts.
+            json!("device"),
             json!("auth"),
             json!("grant"),
             json!("mcp")
         ],
-        "one line per operator action"
+        "one line per operator action, plus the channel boundary"
     );
     let mcp = lines.last().expect("the mcp line");
     assert_eq!(mcp["status"], json!(200));

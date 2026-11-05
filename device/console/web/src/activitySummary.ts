@@ -2,15 +2,32 @@ import { auditFailed } from "./auditFilter";
 import type { AuditLine } from "./api";
 
 /**
+ * The two tool names the console writes when a device's channel closes and opens.
+ *
+ * They are console facts, not tool calls: a `device` line with `caller: "console"` records the
+ * boundary the fleet's absence is measured from. The timeline keeps them out of its rows, and no
+ * count on the page may treat them as work.
+ */
+const CHANNEL_BOUNDARIES = ["device.left", "device.joined"];
+
+/** Whether an audit line is one of the console's channel boundaries rather than a call. */
+export function isChannelBoundary(line: Pick<AuditLine, "tool">): boolean {
+  return line.tool != null && CHANNEL_BOUNDARIES.includes(line.tool);
+}
+
+/**
  * Whether a line is a client's call, by the same proof the hub's day line uses.
  *
  * The `caller` field is newer than the audit itself: 908 of the live 1000 lines have no caller, and
  * 376 of those carry a token — no console line carries one (0 of 30). Counting only `caller ===
  * "client"` undercounted the busiest machine's day by 5.9× (62 counted, 363 proven). A line with a
  * token is a client call even when the caller was never recorded; a console line never is, even if
- * a token were to appear on one.
+ * a token were to appear on one. A channel boundary is never one, whatever else the line says.
  */
-export function isClientCall(line: Pick<AuditLine, "caller" | "token_id">): boolean {
+export function isClientCall(
+  line: Pick<AuditLine, "caller" | "token_id" | "tool">
+): boolean {
+  if (isChannelBoundary(line)) return false;
   if (line.caller === "client") return true;
   if (line.caller === "console") return false;
   return line.token_id != null;
@@ -44,6 +61,8 @@ export function activityCounts(lines: readonly AuditLine[], now = Date.now()): A
   const counts: ActivityCounts = { client: 0, console: 0, failed: 0, unattributed: 0 };
   for (const line of lines) {
     if (line.ts_ms < start) continue;
+    // A channel boundary is a console fact, not a call: it belongs to none of the three buckets.
+    if (isChannelBoundary(line)) continue;
     if (isClientCall(line)) counts.client += 1;
     else if (line.caller === "console") counts.console += 1;
     else counts.unattributed += 1;

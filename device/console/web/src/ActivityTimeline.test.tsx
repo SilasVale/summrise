@@ -170,6 +170,36 @@ describe("ActivityTimeline unknown machines", () => {
   });
 });
 
+describe("ActivityTimeline channel boundaries", () => {
+  it("does not draw the console's device.left and device.joined lines as rows", () => {
+    // The audit holds the two moments of a channel so a fleet row can measure an absence. They are
+    // console facts, not calls: the timeline is a list of work, so the boundary stays out of it.
+    const left = line({
+      ts_ms: Date.UTC(2026, 10, 5, 8, 0, 0),
+      kind: "device",
+      device_id: alpha,
+      tool: "device.left",
+      caller: "console",
+      sentence: "The channel closed"
+    });
+    const joined = line({
+      ts_ms: Date.UTC(2026, 10, 5, 9, 0, 0),
+      kind: "device",
+      device_id: alpha,
+      tool: "device.joined",
+      caller: "console",
+      sentence: "The channel opened"
+    });
+    render(<ActivityTimeline lines={[joined, left, fromAlpha]} devices={devices} />);
+
+    expect(screen.queryByText("The channel closed")).not.toBeInTheDocument();
+    expect(screen.queryByText("The channel opened")).not.toBeInTheDocument();
+    expect(screen.queryByText("device.left")).not.toBeInTheDocument();
+    expect(screen.queryByText("device.joined")).not.toBeInTheDocument();
+    expect(screen.getByText("Read notes.txt")).toBeInTheDocument();
+  });
+});
+
 describe("ActivityTimeline", () => {
   it("opens a row's evidence when the row is clicked", () => {
     const run = line({

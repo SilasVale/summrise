@@ -12,6 +12,12 @@
 //! disconnected. This is what makes a device reconnect after a network change without a stale
 //! channel swallowing its answers.
 //!
+//! **THE TWO BOUNDARIES ARE AUDIT LINES.** A channel that becomes live appends `device.joined`, and
+//! one that genuinely ends appends `device.left` — `kind: "device"`, `caller: "console"`, and the
+//! event in `tool`. The pair is what `/fleet` subtracts to say how long a machine was away, and it
+//! lives in the audit rather than in this registry so the answer survives a console restart between
+//! the close and the reopen. A replacement writes only a join: the device stayed up.
+//!
 //! **Every queue is bounded.** One frame may wait for one socket, but no more than
 //! [`CHANNEL_CAPACITY`] may; a producer that finds the queue full gets [`RequestError::Busy`] instead
 //! of adding a request body the device may never read. At most [`MAX_IN_FLIGHT_PER_DEVICE`] requests
@@ -35,6 +41,7 @@ use serde_json::{json, Value};
 use tokio::sync::mpsc::error::TrySendError;
 use tokio::sync::{mpsc, oneshot, Notify};
 
+use crate::audit::{self, Audit, Caller};
 use crate::grants::GrantEnvelope;
 
 /// What authorizes one request on the wire: the legacy signed grant, or the console's permanent
@@ -142,21 +149,12 @@ struct Live {
 /// The requests waiting for an answer, keyed by the envelope id.
 type Pending = Arc<Mutex<HashMap<u64, oneshot::Sender<Answer>>>>;
 
-/// Milliseconds since the Unix epoch, for the two moments an outage has. The registry keeps no
-/// injected clock: both moments are real ones, and a test that needs a duration waits for it.
-fn now_ms() -> u64 {
+/// Milliseconds since the Unix epoch, for a registry with no console clock of its own.
+fn system_now_ms() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|duration| duration.as_millis() as u64)
         .unwrap_or(0)
-}
-
-/// One outage: when a device's channel went away, and how long it stayed away. `duration_ms` is
-/// `None` while the device is still down.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Outage {
-    pub started_ms: u64,
-    pub duration_ms: Option<u64>,
 }
 
 /// How the attempt before a device's current one ended, as that device reported it on connecting.
@@ -188,10 +186,15 @@ pub(crate) struct ChannelRegistry {
     /// a device cannot report a failure over the connection that failed, so the story is one attempt
     /// behind, and the label in the page says so.
     retries: Mutex<HashMap<String, RetryNote>>,
-    /// The last outage each device had: when it began and how long it lasted. A live channel leaves
-    /// no trace of the hours it was gone, and the fleet row that says `online` is answering a
-    /// different question than "was this machine away, and for how long".
-    outages: Mutex<HashMap<String, Outage>>,
+    /// Where a channel's two boundaries are written, when the console gave the registry a sink.
+    ///
+    /// **THE OUTAGE IS NOT KEPT HERE.** The registry used to hold the pair in a map, so a console
+    /// restarted between a close and the reopen forgot the start and the fleet could not say how long
+    /// the machine was gone. The two moments are audit lines ([`Audit`]) now, and the registry's only
+    /// job is to write them at the moment each happens.
+    audit: Option<Audit>,
+    /// The console's clock, so a boundary line carries the same time as the audit's other lines.
+    now: std::sync::Arc<dyn Fn() -> u64 + Send + Sync>,
     /// The capability list each device announced. The console offers a terminal stream only to a
     /// device that names `terminal.stream`; an older build would fail to parse the frame and say
     /// nothing, which is a hung stream rather than a fallback.
@@ -230,16 +233,27 @@ impl ChannelRegistry {
             hosts: Mutex::new(HashMap::new()),
             caps: Mutex::new(HashMap::new()),
             streams: Mutex::new(HashMap::new()),
-            outages: Mutex::new(HashMap::new()),
+            audit: None,
+            now: std::sync::Arc::new(system_now_ms),
             changed: Notify::new(),
             send_timeout,
             reply_timeout,
         }
     }
 
-    /// The last outage of one device, if the console saw it go away and come back.
-    pub(crate) fn last_outage(&self, device_id: &str) -> Option<Outage> {
-        lock(&self.outages).get(device_id).copied()
+    /// The registry that records each channel's two boundaries in `audit`, on the console's clock.
+    ///
+    /// Without one (every unit test that only drives requests) a boundary is not written anywhere:
+    /// the registry still works, it just leaves no record a restart can read.
+    pub(crate) fn recording(
+        audit: Audit,
+        now: std::sync::Arc<dyn Fn() -> u64 + Send + Sync>,
+    ) -> Self {
+        Self {
+            audit: Some(audit),
+            now,
+            ..Self::new()
+        }
     }
 
     /// The deepest any outbound queue has been since the console started.
@@ -320,7 +334,7 @@ impl ChannelRegistry {
 
     /// Serve one upgraded socket until it closes or is replaced.
     pub(crate) async fn serve(&self, device_id: String, mut socket: WebSocket) {
-        let mut open = self.open(&device_id);
+        let mut open = self.open(&device_id).await;
 
         loop {
             tokio::select! {
@@ -371,9 +385,10 @@ impl ChannelRegistry {
 
         // Close first, then fail whatever this channel was waiting for. Removing the channel from
         // the registry before clearing its pending set closes the window in which a request could
-        // find the dying channel and register a waiter whose sender then nobody drops.
-        self.close(&device_id, open.generation);
-        lock(&open.pending).clear();
+        // find the dying channel and register a waiter whose sender then nobody drops. The close
+        // also writes the `device.left` line the fleet needs, after the pending set is cleared so no
+        // waiter waits on the audit's disk.
+        self.close(&device_id, open.generation, &open.pending).await;
     }
 
     /// Forward `mcp` and the grant that authorizes it, then wait for the device's own answer.
@@ -611,32 +626,28 @@ impl ChannelRegistry {
     }
 
     /// Register a socket as the device's live channel, replacing and closing any predecessor.
-    fn open(&self, device_id: &str) -> OpenChannel {
-        // **AN OUTAGE ENDS HERE, NOT WHEN THE PAGE IS NEXT OPENED.** The close is the moment the
-        // console learns the device is gone; this is the moment it learns it is back, which is the
-        // pair the fleet row needs to say "back after 4h 05m".
-        {
-            let mut outages = lock(&self.outages);
-            if let Some(outage) = outages.get_mut(device_id) {
-                if outage.duration_ms.is_none() {
-                    outage.duration_ms = Some(now_ms().saturating_sub(outage.started_ms));
-                }
-            }
-        }
+    ///
+    /// **THE JOIN IS A LINE, NOT A MEMORY.** The moment this channel becomes the live one is what
+    /// the fleet subtracts the previous `device.left` from, so it is recorded where a restart can
+    /// read it. A replacement writes a second `device.joined` with no `device.left` between: the
+    /// device was up the whole time, and the derivation reads that as no absence.
+    async fn open(&self, device_id: &str) -> OpenChannel {
+        let joined_at = (self.now)();
         let generation = self.next_generation.fetch_add(1, Ordering::Relaxed);
         let (outbound, commands) = mpsc::channel(CHANNEL_CAPACITY);
         let pending: Pending = Arc::new(Mutex::new(HashMap::new()));
 
-        let mut live = lock(&self.live);
-        let replaced = live.insert(
-            device_id.to_owned(),
-            Live {
-                generation,
-                outbound,
-                pending: pending.clone(),
-            },
-        );
-        drop(live);
+        let replaced = {
+            let mut live = lock(&self.live);
+            live.insert(
+                device_id.to_owned(),
+                Live {
+                    generation,
+                    outbound,
+                    pending: pending.clone(),
+                },
+            )
+        };
 
         if let Some(replaced) = replaced {
             // Fail the old requests now; the old socket is closed by its own task. A full queue
@@ -648,6 +659,8 @@ impl ChannelRegistry {
         }
 
         self.changed.notify_waiters();
+        self.record_boundary(device_id, audit::DEVICE_JOINED, joined_at)
+            .await;
 
         OpenChannel {
             generation,
@@ -656,26 +669,50 @@ impl ChannelRegistry {
         }
     }
 
-    /// Forget the channel if it is still the one this task opened.
-    fn close(&self, device_id: &str, generation: u64) {
-        let mut live = lock(&self.live);
-        let closed = live.get(device_id).map(|channel| channel.generation) == Some(generation);
-        if closed {
-            live.remove(device_id);
-        }
-        drop(live);
-        if closed {
-            // The device is gone as of now. A replaced channel never reaches this branch: its
-            // generation is not the live one any more, and the replacement already ended the outage.
-            lock(&self.outages).insert(
-                device_id.to_owned(),
-                Outage {
-                    started_ms: now_ms(),
-                    duration_ms: None,
-                },
-            );
-        }
+    /// Forget the channel if it is still the one this task opened, and record that it left.
+    ///
+    /// A replaced channel never reaches the record: its generation is not the live one any more, and
+    /// the replacement already announced the join that says the device stayed up.
+    async fn close(&self, device_id: &str, generation: u64, pending: &Pending) {
+        let left_at = (self.now)();
+        let closed = {
+            let mut live = lock(&self.live);
+            let closed = live.get(device_id).map(|channel| channel.generation) == Some(generation);
+            if closed {
+                live.remove(device_id);
+            }
+            closed
+        };
         self.changed.notify_waiters();
+        // Remove the channel before clearing its waiters, so a request cannot find the dying channel
+        // and register a waiter nobody will drop. The audit write comes after the waiters are told.
+        lock(pending).clear();
+        if closed {
+            self.record_boundary(device_id, audit::DEVICE_LEFT, left_at)
+                .await;
+        }
+    }
+
+    /// Append one channel boundary to the audit, when the console gave the registry a sink.
+    ///
+    /// `kind: "device"` (not `mcp`), `caller: "console"` and the event in `tool`: the page's
+    /// client-call rule sees the console and never counts it, and the timeline drops the marker.
+    async fn record_boundary(&self, device_id: &str, tool: &'static str, ts_ms: u64) {
+        let Some(audit) = &self.audit else {
+            return;
+        };
+        audit
+            .append(&audit::Entry {
+                ts_ms,
+                kind: "device",
+                device_id: Some(device_id),
+                status: 200,
+                detail: None,
+                tool: Some(tool),
+                token_id: None,
+                caller: Some(Caller::Console),
+            })
+            .await;
     }
 }
 
@@ -881,7 +918,7 @@ mod tests {
             Some("desktop-9vh92bj")
         );
 
-        let _open = registry.open(&device_id());
+        let _open = registry.open(&device_id()).await;
         assert!(registry.online(&device_id()), "the channel is open");
     }
 
@@ -913,7 +950,7 @@ mod tests {
     async fn a_socket_that_never_accepts_a_frame_is_a_send_timeout() {
         let registry = ChannelRegistry::with_send_timeout(Duration::from_millis(50));
         // A channel exists, but no serving task ever accepts the frame: the socket is wedged.
-        let _open = registry.open(&device_id());
+        let _open = registry.open(&device_id()).await;
 
         let result = registry
             .request(
@@ -940,7 +977,7 @@ mod tests {
             Duration::from_millis(50),
             Duration::from_millis(50),
         ));
-        let open = registry.open(&device_id());
+        let open = registry.open(&device_id()).await;
         let commands = open.commands;
         // A device that accepts every frame and answers none.
         let acceptor = tokio::spawn(async move {
@@ -972,7 +1009,7 @@ mod tests {
             Duration::from_millis(50),
             Duration::from_millis(20),
         ));
-        let open = registry.open(&device_id());
+        let open = registry.open(&device_id()).await;
         let mut commands = open.commands;
         let pending = open.pending.clone();
         let streams: Arc<Mutex<HashMap<u64, mpsc::Sender<Value>>>> =
@@ -1029,7 +1066,7 @@ mod tests {
         let registry = Arc::new(ChannelRegistry::with_send_timeout(Duration::from_millis(
             100,
         )));
-        let _open = registry.open(&device_id());
+        let _open = registry.open(&device_id()).await;
 
         let mut calls = Vec::new();
         for _ in 0..MAX_IN_FLIGHT_PER_DEVICE {

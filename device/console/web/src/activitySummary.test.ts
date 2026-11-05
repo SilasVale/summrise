@@ -47,6 +47,22 @@ describe("activityCounts", () => {
     expect(isClientCall(line({ caller: "console", token_id: TOKEN }))).toBe(false);
   });
 
+  it("never counts a channel boundary as a call or an activity row", () => {
+    // `device.left` / `device.joined` are the console's own record of a channel, not a tool call.
+    // They carry `caller: "console"` so the client rule already refuses them; the day's counters
+    // must not turn them into console rows either.
+    const left = line({ caller: "console", kind: "device", tool: "device.left" });
+    const joined = line({ caller: "console", kind: "device", tool: "device.joined" });
+    expect(isClientCall(left)).toBe(false);
+    expect(isClientCall(joined)).toBe(false);
+    expect(activityCounts([left, joined, line({ caller: "client" })], NOW)).toEqual({
+      client: 1,
+      console: 0,
+      failed: 0,
+      unattributed: 0
+    });
+  });
+
   it("counts today's rows only, and a failure in any bucket", () => {
     const counts = activityCounts(
       [

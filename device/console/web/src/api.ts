@@ -103,9 +103,10 @@ export type Device = {
   registered_at_ms?: number | null;
   last_attempt?: { attempts: number; reason: string } | null;
   /**
-   * The last absence this console saw end: how long the channel was gone and when it opened again.
-   * Omitted when the device never dropped while the console was running (and while it is still
-   * away); a page must not read a missing outage as a zero one.
+   * The last absence the audit proves: how long the channel was gone, and when it opened again.
+   * Derived from the console's `device.left` / `device.joined` lines, so it survives a console
+   * restart; omitted when the newest lines hold no join with a left before it (a device that has
+   * only dropped has no completed absence). A page must not read a missing outage as a zero one.
    */
   last_outage?: { away_ms: number; back_at_ms: number } | null;
   host?: HostFacts | null;

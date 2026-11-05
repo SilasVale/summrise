@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
 import type { AuditLine, Device, TokenMeta } from "./api";
 import { ACTIVITY_LIMIT, capSentence, windowLoadingSentence } from "./activityMerge";
-import { isClientCall } from "./activitySummary";
+import { isChannelBoundary, isClientCall } from "./activitySummary";
 import { auditFailed } from "./auditFilter";
 import { ageAt, shortId } from "./format";
 import { ConsoleCaller } from "./CallerMark";
@@ -548,7 +548,14 @@ export function ActivityTimeline(props: {
   // machine chips read, and the count on the chip is how many rows it will draw from that window.
   const [ownClientsOnly, setOwnClientsOnly] = useState(false);
   const clientsOnly = filterable && ownClientsOnly;
-  const clientCalls = useMemo(() => props.lines.filter(isClientCall).length, [props.lines]);
+  // **THE ROWS ARE CALLS, NOT CHANNEL FACTS.** `device.left` / `device.joined` are in the audit so a
+  // fleet row can measure an absence, but a person watching the machine's work must not read them
+  // as work. They are dropped before the chips, the counts and the days are derived.
+  const rows = useMemo(
+    () => props.lines.filter((line) => !isChannelBoundary(line)),
+    [props.lines]
+  );
+  const clientCalls = useMemo(() => rows.filter(isClientCall).length, [rows]);
   const paused = props.nowMs !== undefined;
   useEffect(() => {
     if (paused) return;
@@ -563,12 +570,12 @@ export function ActivityTimeline(props: {
     [props.tokens]
   );
   const machines = useMemo(
-    () => machineOptions(props.lines, props.devices, device),
-    [props.lines, props.devices, device]
+    () => machineOptions(rows, props.devices, device),
+    [rows, props.devices, device]
   );
   const filtered = useMemo(() => {
-    if (needle === "" && device === "" && !clientsOnly) return props.lines;
-    return props.lines.filter((line) => {
+    if (needle === "" && device === "" && !clientsOnly) return rows;
+    return rows.filter((line) => {
       if (clientsOnly && !isClientCall(line)) return false;
       if (device !== "" && line.device_id !== device) return false;
       if (needle === "") return true;
@@ -577,7 +584,7 @@ export function ActivityTimeline(props: {
         .filter((value): value is string => typeof value === "string")
         .some((value) => value.toLowerCase().includes(needle));
     });
-  }, [props.lines, props.devices, device, needle, clientsOnly]);
+  }, [rows, props.devices, device, needle, clientsOnly]);
   const days = groupDays(filtered, at);
   const filtering = needle !== "" || device !== "" || clientsOnly;
   const deviceLabel = device !== "" ? (machineName(props.devices, device) ?? device) : "";

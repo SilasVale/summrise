@@ -24,11 +24,11 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::Digest;
 
-use crate::audit::{self, Audit, Caller};
+use crate::audit::{self, Absence, Audit, Caller};
 use crate::auth::{
     bearer_secret, constant_time_eq, new_session_token, random_32, Session, SESSION_LIFETIME_MS,
 };
-use crate::channels::{ChannelRegistry, Outage, Reply, RequestAuth, RequestError};
+use crate::channels::{ChannelRegistry, Reply, RequestAuth, RequestError};
 use crate::codes::{ConsumeError, EnrollmentCodes, IssueError};
 use crate::config::{load_grant_key, load_operator_token, Config, StartupError};
 use crate::connections;
@@ -188,6 +188,10 @@ impl Console {
         let tokens = Tokens::load(&config.data)?;
         let connections = connections::Connections::load(&config.data)?;
         let codes = EnrollmentCodes::load(&config.data)?;
+        // One clock for the console and the channel registry: the audit's lines, timestamped here,
+        // are what the fleet subtracts, so the registry must not read the wall clock itself.
+        let now: Now = Arc::new(now);
+        let audit = Audit::new(&config.data, audit_max_bytes);
 
         Ok(Console {
             inner: Arc::new(Inner {
@@ -199,12 +203,12 @@ impl Console {
                 connections: Mutex::new(connections),
                 captures: crate::captures::Captures::new(),
                 codes: Mutex::new(codes),
-                channels: ChannelRegistry::new(),
-                audit: Audit::new(&config.data, audit_max_bytes),
+                channels: ChannelRegistry::recording(audit.clone(), now.clone()),
+                audit,
                 denials: Denials::new(&config.data),
                 running: crate::running::Running::new(RUNS_MAX_PROXY_WAIT),
                 mcp_timeout,
-                now: Arc::new(now),
+                now,
                 started: Instant::now(),
                 version: config.version.clone(),
                 data: config.data.clone(),
@@ -3906,6 +3910,7 @@ async fn rename_device(
     // device audit. `session` is what proves the caller is the operator.
     let _ = session;
 
+    let outages = app.audit.last_outages().await;
     Ok(Json(DeviceView {
         online: app.channels.online(&device.id),
         version: app.channels.version(&device.id),
@@ -3915,7 +3920,7 @@ async fn rename_device(
             attempts: note.attempts,
             reason: note.reason,
         }),
-        last_outage: outage_view(app.channels.last_outage(&device.id)),
+        last_outage: outage_view(outages.get(&device.id).copied()),
         id: device.id,
         public_key: device.public_key,
         registered_at_ms: device.registered_at_ms,
@@ -4203,7 +4208,11 @@ async fn device_mesh_readiness(
     }
 }
 
-fn device_views(app: &AppState) -> Vec<DeviceView> {
+/// One pass over the audit's newest lines, shared by every row: the file is read once per fleet
+/// call, and the map is built after the read returns, so the writer is not held while the answer is
+/// serialised.
+async fn device_views(app: &AppState) -> Vec<DeviceView> {
+    let outages = app.audit.last_outages().await;
     lock(&app.devices)
         .list()
         .into_iter()
@@ -4219,7 +4228,7 @@ fn device_views(app: &AppState) -> Vec<DeviceView> {
                 attempts: note.attempts,
                 reason: note.reason,
             }),
-            last_outage: outage_view(app.channels.last_outage(&device.id)),
+            last_outage: outage_view(outages.get(&device.id).copied()),
             // A name given at registration wins; the machine's own name is a fallback for the
             // devices that never gave one, which is all of them so far.
             name: device.name.or_else(|| app.channels.name(&device.id)),
@@ -4232,7 +4241,7 @@ fn device_views(app: &AppState) -> Vec<DeviceView> {
 }
 
 async fn list_devices(State(app): State<AppState>, _: OperatorSession) -> Json<Vec<DeviceView>> {
-    Json(device_views(&app))
+    Json(device_views(&app).await)
 }
 
 /// A registered device as the operator's list sees it: the registry's facts plus the channel's.
@@ -4258,9 +4267,10 @@ struct DeviceView {
     /// How the attempt before the last one ended, when the device has said since.
     #[serde(skip_serializing_if = "Option::is_none")]
     last_attempt: Option<RetryView>,
-    /// The last time this device's channel went away and came back, when the console saw both ends.
+    /// The last time this device's channel went away and came back, when the audit proves both ends.
     /// `online` answers "is it up now"; this answers "was it away, and for how long" — the question
-    /// an operator asks when they come back to a fleet where nothing looks wrong any more.
+    /// an operator asks when they come back to a fleet where nothing looks wrong any more. It is
+    /// derived from the audit, so a console restarted mid-outage still has the pair.
     #[serde(skip_serializing_if = "Option::is_none")]
     last_outage: Option<OutageView>,
     /// The machine facts the device last sent over its channel: the operator reads what the device is,
@@ -4271,23 +4281,22 @@ struct DeviceView {
 
 /// One finished outage, as a page reads it.
 ///
-/// Only a finished outage is a view: a device that is away right now has no `back_at_ms`, and a
-/// console that never saw it drop has neither fact. The two names are the two a menu line compares:
-/// how long it was gone, and when it came back.
+/// Only a pair the audit proves is a view: a device that has dropped and not come back has no
+/// `back_at_ms`, and a window with no join is no absence at all. The two names are the two a menu
+/// line compares: how long it was gone, and when it came back.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
 pub(crate) struct OutageView {
     pub(crate) away_ms: u64,
     pub(crate) back_at_ms: u64,
 }
 
-/// The fleet's view of a registry outage: `None` until the device has reconnected, so the page never
-/// renders a duration that is still running (or a zero standing in for "never dropped").
-fn outage_view(outage: Option<Outage>) -> Option<OutageView> {
-    outage.and_then(|outage| {
-        outage.duration_ms.map(|away_ms| OutageView {
-            away_ms,
-            back_at_ms: outage.started_ms.saturating_add(away_ms),
-        })
+/// The fleet's view of an audit absence: `None` when the newest lines hold no join with a left
+/// before it, so the page never renders a duration that is still running (or a zero standing in for
+/// "never dropped").
+fn outage_view(absence: Option<Absence>) -> Option<OutageView> {
+    absence.map(|absence| OutageView {
+        away_ms: absence.away_ms,
+        back_at_ms: absence.back_at_ms,
     })
 }
 

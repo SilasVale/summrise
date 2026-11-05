@@ -300,6 +300,13 @@ pub(crate) fn line_sentence(line: &Value) -> String {
         "token_revoke" => "Revoked a client token".to_owned(),
         "register" => "A machine registered".to_owned(),
         "enroll" => "Created an enrollment code".to_owned(),
+        // The channel's two boundaries are console facts, not calls; the audit table still draws
+        // them, so they get a sentence a person reads rather than the generic operator action.
+        "device" => match tool {
+            Some(crate::audit::DEVICE_LEFT) => "The channel closed".to_owned(),
+            Some(crate::audit::DEVICE_JOINED) => "The channel opened".to_owned(),
+            _ => "The channel changed".to_owned(),
+        },
         "denied" => match tool {
             Some(tool) => format!("Refused `{tool}`"),
             None => "Refused a request".to_owned(),
@@ -393,6 +400,20 @@ mod tests {
         assert_eq!(
             line_sentence(&json!({ "kind": "grant", "status": 200 })),
             "Issued a grant"
+        );
+    }
+
+    #[test]
+    fn a_channel_boundary_is_a_sentence_not_a_tool_call() {
+        // The audit table draws the boundary lines even though the timeline hides them, so their
+        // sentence names the channel rather than borrowing the tool template's "Used …".
+        assert_eq!(
+            line_sentence(&json!({ "kind": "device", "tool": "device.left", "status": 200 })),
+            "The channel closed"
+        );
+        assert_eq!(
+            line_sentence(&json!({ "kind": "device", "tool": "device.joined", "status": 200 })),
+            "The channel opened"
         );
     }
 
