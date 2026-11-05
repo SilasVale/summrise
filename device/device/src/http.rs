@@ -44,6 +44,7 @@ pub(crate) fn router(config: &Config, store: Store) -> Router {
         None,
         restart::none(),
         Arc::new(PluginHost::load(&config.data)),
+        None,
     )
     .0
 }
@@ -65,6 +66,7 @@ pub(crate) fn router_with_limits(
         None,
         restart::none(),
         Arc::new(PluginHost::load(&config.data)),
+        None,
     )
     .0
 }
@@ -86,6 +88,7 @@ fn router_with(
     helper: Option<Arc<helper::Helper>>,
     restart: restart::Hook,
     plugins: Arc<PluginHost>,
+    update_check: Option<Arc<crate::update_check::UpdateChecker>>,
 ) -> (Router, Arc<browser::BrowserRegistry>) {
     // The MCP service and the panel share one terminal registry, so a session an MCP client opened
     // is the session the panel lists. `/mcp` is the same secret as `/api/state`: the gate runs before
@@ -101,6 +104,7 @@ fn router_with(
         mesh,
         restart.clone(),
         plugins,
+        update_check,
     );
     let state = AppState {
         token: load_token(&config.token_file),
@@ -235,6 +239,7 @@ pub async fn serve(
     mesh: Option<crate::mesh::MeshLink>,
     helper: Option<Arc<helper::Helper>>,
     plugins: Arc<PluginHost>,
+    update_check: Option<Arc<crate::update_check::UpdateChecker>>,
 ) -> io::Result<()> {
     // A supervised app restarts through the launcher after the answer reaches the page or the MCP
     // client; a standalone process has no supervisor to bring it back, so its handlers never call
@@ -249,6 +254,7 @@ pub async fn serve(
         helper,
         restart,
         plugins,
+        update_check,
     );
     let listener = bind(&config).await?;
     let address = listener.local_addr()?;
@@ -1508,6 +1514,7 @@ mod tests {
                 helper,
                 restart,
                 Arc::new(PluginHost::load(&self.config.data)),
+                None,
             )
             .0
         }

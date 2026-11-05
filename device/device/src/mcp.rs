@@ -127,6 +127,9 @@ pub(crate) struct DeviceServer {
     /// What `host.restart` does after the answer is built. The production hook exits after a short
     /// delay; tests record the call instead.
     restart: restart::Hook,
+    /// The process's one update checker. The console channel asks it when a connection is a wake;
+    /// a server built without one (a test, a device with no update source) simply never checks.
+    update_check: Option<Arc<crate::update_check::UpdateChecker>>,
     /// The plugin host: the `plugins.*` tools and the namespaced tools of every running plugin.
     plugins: Arc<PluginHost>,
 }
@@ -245,6 +248,7 @@ impl<'a> Caller<'a> {
 /// The MCP service plus the terminal and browser registries behind it, so the device's own panel
 /// can list the live sessions without a second registry, and the run loop can shut the browser down
 /// before the process ends: one machine, one set of terminals, one browser.
+#[allow(clippy::too_many_arguments)] // one argument per capability the process owns, like `router_with`
 pub(crate) fn service_with_terminal(
     config: &Config,
     limits: terminal::Limits,
@@ -253,6 +257,7 @@ pub(crate) fn service_with_terminal(
     mesh: Option<crate::mesh::MeshLink>,
     restart: restart::Hook,
     plugins: Arc<PluginHost>,
+    update_check: Option<Arc<crate::update_check::UpdateChecker>>,
 ) -> (
     StreamableHttpService<DeviceServer, LocalSessionManager>,
     Arc<terminal::PtyRegistry>,
@@ -260,7 +265,8 @@ pub(crate) fn service_with_terminal(
 ) {
     let server = DeviceServer::new_with_plugins(config, limits, plugins)
         .with_restart(restart)
-        .with_audit(audit);
+        .with_audit(audit)
+        .with_update_check(update_check);
     let terminal = Arc::clone(&server.terminal);
     let browser = Arc::clone(&server.browser);
     // The sweeper is the device's, not a client's: it holds a weak reference, so the children are
@@ -370,6 +376,7 @@ impl DeviceServer {
             nonces: crate::remote::NonceLog::new(),
             supervised: config.supervised,
             restart: restart::none(),
+            update_check: None,
             plugins,
         }
     }
@@ -387,6 +394,20 @@ impl DeviceServer {
     pub(crate) fn with_restart(mut self, restart: restart::Hook) -> DeviceServer {
         self.restart = restart;
         self
+    }
+
+    /// Install the process's one update checker, which the console channel asks on a wake.
+    pub(crate) fn with_update_check(
+        mut self,
+        checker: Option<Arc<crate::update_check::UpdateChecker>>,
+    ) -> DeviceServer {
+        self.update_check = checker;
+        self
+    }
+
+    /// The checker this server asks when the console channel comes back, if the device has one.
+    pub(crate) fn update_checker(&self) -> Option<&Arc<crate::update_check::UpdateChecker>> {
+        self.update_check.as_ref()
     }
 
     /// The store, whose data directory holds what the facts report (the boot journal, the swap files).

@@ -26,6 +26,6 @@ pub use registry::{is_destructive, tool, Capability, ToolDef, CAPABILITIES};
 pub use session::{transition, TransitionError};
 pub use state::{
     Baseline, Install, LastVerdict, RolledBackArtifact, Service, ServiceState, SessionKind,
-    SessionRow, SessionState, State, StateError, Update, UpdateOutcome, UpdatePhase,
-    VerdictOutcome, MAX_ROLLED_BACK, SCHEMA_VERSION,
+    SessionRow, SessionState, State, StateError, Update, UpdateCheck, UpdateCheckTrigger,
+    UpdateOutcome, UpdatePhase, VerdictOutcome, MAX_ROLLED_BACK, SCHEMA_VERSION,
 };

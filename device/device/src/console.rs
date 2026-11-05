@@ -507,6 +507,14 @@ async fn run(endpoint: ConsoleEndpoint, server: DeviceServer, key: Option<Verify
         record_attempt(&note);
         match connect(&endpoint, note.as_ref()).await {
             Ok(socket) => {
+                // The channel coming back is the machine's wake signal: while it was away the
+                // process kept running, so no start fired and the schedule may have fired into
+                // sleep. The checker decides whether this connection is a wake (first after a
+                // start, or more than five minutes away) and its own guard decides whether to
+                // check; the check is a task so a slow mirror never delays the channel.
+                if let Some(check) = server.update_checker() {
+                    drop(check.clone().note_channel_connected());
+                }
                 // A connection that opened is a success, but a connection that never served a
                 // frame is not: a console that accepts and immediately drops must back off like
                 // any other failure instead of being retried once a second forever.
@@ -1535,6 +1543,37 @@ mod tests {
             matches!(ConsoleEndpoint::from_config(&config), Ok(None)),
             "no console facts means the feature is off, not an error"
         );
+    }
+
+    /// The channel coming back is the machine's wake, and the console is what tells the checker.
+    ///
+    /// The unit tests prove the guard; this proves the wire from the socket to it: a connection the
+    /// console accepted asks for exactly one check, without waiting for a frame.
+    #[tokio::test]
+    async fn a_console_connection_asks_the_update_checker() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        let (server, _config, _dir) = fixture("console-wake");
+        let probes = Arc::new(AtomicUsize::new(0));
+        let checker =
+            crate::update_check::test_checker(server.store().clone(), Arc::clone(&probes));
+        let server = server.with_update_check(Some(checker));
+        let mut console = FakeConsole::start().await;
+        let _handle = spawn_with_key(
+            endpoint(&console.url),
+            server,
+            Some(signing().verifying_key()),
+        );
+        let _connection = console.next().await;
+
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while probes.load(Ordering::SeqCst) == 0 {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("the accepted channel is a wake");
+        assert_eq!(probes.load(Ordering::SeqCst), 1);
     }
 
     /// A slow tool is one call, not the whole channel.

@@ -36,6 +36,7 @@ mod restart;
 mod restarts;
 mod store;
 mod update;
+mod update_check;
 mod update_source;
 mod updater;
 mod watchdog;
@@ -1026,6 +1027,12 @@ async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
     // A device told where its releases live checks on its own schedule; a device told nothing is
     // exactly what it was before this existed. An unreadable source is a startup error naming the
     // file rather than a device that silently never updates.
+    //
+    // The checker is the one way a check starts: this start, the console channel's return and the
+    // schedule all call it, and its guard makes three wake-ups one check. The start check is a
+    // task, not an await: a slow mirror must not keep the device from serving, and the schedule's
+    // jittered first check is skipped by the guard rather than run five minutes after this one.
+    let mut update_check = None;
     if let Some(source) = update_source::UpdateSource::load(&config.data)? {
         // The source's transport choice is the check's transport choice: a scheduler that fetched
         // with the default (https-only) config would refuse the very mirror the operator named with
@@ -1034,15 +1041,18 @@ async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
             allow_plaintext: source.allow_plaintext,
             ..updater::UpdateConfig::default()
         };
-        update_source::spawn(
+        let checker = std::sync::Arc::new(update_check::UpdateChecker::production(
             store.clone(),
             config.install.clone(),
             config.data.clone(),
-            source,
+            source.clone(),
             update_config,
             config.supervised,
             config.port,
-        );
+        ));
+        drop(checker.start());
+        update_source::spawn(config.data.clone(), source, std::sync::Arc::clone(&checker));
+        update_check = Some(checker);
     }
     // The helper is optional. Without its token the logged-in user's shell can never register, and
     // every tool still works; the only loss is a browser in the user's session.
@@ -1080,6 +1090,7 @@ async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
         mesh,
         helper,
         std::sync::Arc::clone(&plugin_host),
+        update_check,
     )
     .await;
     plugin_host.stop_all().await;

@@ -13,7 +13,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use serde::Deserialize;
 use summrise_core::{
     Baseline, Install, LastVerdict, RolledBackArtifact, Service, ServiceState, State, Update,
-    UpdateOutcome, UpdatePhase, VerdictOutcome, SCHEMA_VERSION,
+    UpdateCheck, UpdateCheckTrigger, UpdateOutcome, UpdatePhase, VerdictOutcome, SCHEMA_VERSION,
 };
 
 use crate::config::Release;
@@ -184,6 +184,7 @@ impl Store {
                 to: None,
                 outcome: None,
                 last_result_at_ms: None,
+                last_check: None,
             },
             rolled_back: Vec::new(),
             repair_offset: 0,
@@ -306,6 +307,19 @@ impl Store {
             return Err(error);
         }
         Ok(())
+    }
+
+    /// Record that an update check started, and what asked for it, keeping every other fact.
+    ///
+    /// The state document is the app's one write; a check that finds nothing must not stage an
+    /// artifact, write a sidecar or change a phase, but it must leave this one line. Without it a
+    /// person cannot tell "it checked when it woke" from "it never checked at all".
+    pub fn record_update_check(&self, at_ms: u64, trigger: UpdateCheckTrigger) -> io::Result<()> {
+        let mut state = self
+            .load()
+            .map_err(|error| io::Error::other(error.to_string()))?;
+        state.update.last_check = Some(UpdateCheck { at_ms, trigger });
+        self.save(&state)
     }
 
     /// `<install>/swap.result.json` — the supervisor's answer to a swap request.
@@ -858,6 +872,7 @@ mod tests {
             to: Some("2.0.4".to_owned()),
             outcome: None,
             last_result_at_ms: None,
+            last_check: None,
         };
         state
     }
