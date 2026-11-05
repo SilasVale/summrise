@@ -2230,6 +2230,23 @@ async fn answer(socket: &mut DeviceSocket, frame: &Value, result: Value) {
         .expect("the device answers");
 }
 
+/// The `tools/call` answer a real device sends: its whole JSON-RPC response.
+///
+/// `summrise-device` answers `tools/call` with `{"jsonrpc","id","result":{content,isError}}`, and its
+/// console channel carries that response whole under the channel's `result`. The console forwards it
+/// unchanged to `/mcp`, where the page reads `body.result.isError`; a test that hands the console a
+/// bare `{content,isError}` is testing a shape no device emits.
+fn tools_call_answer(id: Value, text: &str, is_error: bool) -> Value {
+    json!({
+        "jsonrpc": "2.0",
+        "id": id,
+        "result": {
+            "content": [{ "type": "text", "text": text }],
+            "isError": is_error,
+        },
+    })
+}
+
 #[tokio::test]
 async fn an_unregistered_device_cannot_open_a_channel() {
     let fixture = Fixture::new("channel-unregistered");
@@ -3368,8 +3385,12 @@ async fn an_operator_mcp_call_is_one_audit_line_without_its_payload() {
     }
 }
 
+/// **A TOOL-CALL ERROR ENVELOPE IS ALSO A REFUSAL.** A device that predates MCP's `isError` answers
+/// a refused `tools/call` with a JSON-RPC error envelope. The caller still reads it unchanged (HTTP
+/// 200), but the audit must not draw it green: the envelope's message is the bounded reason, and its
+/// `data` is still not the audit's.
 #[tokio::test]
-async fn a_device_json_rpc_error_is_audited_by_code_not_by_body() {
+async fn a_tool_call_error_envelope_is_a_refusal_in_the_audit() {
     let fixture = Fixture::new("audit-mcp-error");
     let server = TestServer::start(&fixture.console).await;
     let (device_id, _token, mut device) =
@@ -3391,7 +3412,7 @@ async fn a_device_json_rpc_error_is_audited_by_code_not_by_body() {
         "id": 7,
         "error": {
             "code": -32601,
-            "message": "error-message-marker-6b3c",
+            "message": "files.read: no such file",
             "data": { "detail": "error-data-marker-2e5d" },
         },
     });
@@ -3420,24 +3441,83 @@ async fn a_device_json_rpc_error_is_audited_by_code_not_by_body() {
     let lines = audit_lines(&fixture);
     let mcp = lines.last().expect("the mcp line");
     assert_eq!(mcp["kind"], json!("mcp"));
-    assert_eq!(mcp["status"], json!(200));
+    assert_eq!(
+        mcp["status"],
+        json!(424),
+        "a refused tool call is refused: {mcp}"
+    );
     assert_eq!(mcp["tool"], json!("files.read"));
     assert_eq!(
         mcp["detail"],
-        json!("jsonrpc error -32601"),
-        "the numeric error code is allowed; the message and data are not"
+        json!("files.read: no such file"),
+        "the envelope's message is the bounded reason: {mcp}"
     );
 
     let text = audit_text(&fixture);
-    for marker in [
-        "error-request-marker-4f8a",
-        "error-message-marker-6b3c",
-        "error-data-marker-2e5d",
-    ] {
+    for marker in ["error-request-marker-4f8a", "error-data-marker-2e5d"] {
         assert!(
             !text.contains(marker),
             "the audit must never carry a payload body, found {marker}: {text}"
         );
+    }
+}
+
+/// A JSON-RPC error envelope on a method that is not a `tools/call` is an answer the caller reads,
+/// not a tool refusal: `ping`, `initialize` and `tools/list` keep their 200 line and their code.
+#[tokio::test]
+async fn a_non_tool_error_envelope_keeps_a_200_audit_line() {
+    let fixture = Fixture::new("audit-mcp-protocol-error");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xa4)).await;
+    let session = fixture.authenticate().await;
+    let grant = fixture.create_grant(&session, &device_id, 60).await;
+
+    for (id, method) in [(21u64, "ping"), (22, "initialize"), (23, "tools/list")] {
+        let request = json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "method": method,
+            "params": {},
+        });
+        let error = json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "error": { "code": -32601, "message": "no such method" },
+        });
+        let proxy = send(
+            fixture.app(),
+            post_json_bearer(
+                "/mcp",
+                &session,
+                json!({ "device_id": device_id, "grant": grant.clone(), "request": request }),
+            ),
+        );
+        let device_side = async {
+            let frame = next_json(&mut device).await;
+            let reply = json!({ "id": frame["id"].clone(), "error": error.clone() });
+            device
+                .send(WsMessage::Text(reply.to_string()))
+                .await
+                .expect("the device answers with an error envelope");
+        };
+        let ((status, body), ()) = tokio::join!(proxy, device_side);
+        assert_eq!(status, StatusCode::OK, "{method}: {body}");
+
+        let lines = audit_lines(&fixture);
+        let mcp = lines.last().expect("the mcp line");
+        assert_eq!(mcp["kind"], json!("mcp"), "{method}: {mcp}");
+        assert_eq!(
+            mcp["status"],
+            json!(200),
+            "{method} is not a tool call: {mcp}"
+        );
+        assert_eq!(
+            mcp["detail"],
+            json!("jsonrpc error -32601"),
+            "{method}: {mcp}"
+        );
+        assert!(mcp.get("tool").is_none(), "{method}: {mcp}");
     }
 }
 
@@ -3485,13 +3565,12 @@ async fn a_run_that_cannot_start_is_a_failed_audit_line_with_its_reason() {
         "{frame}"
     );
     let reason = "runs.exec: program not found";
+    // The device's actual answer to a missing program: a tool-level `isError` result inside the
+    // JSON-RPC response, not an error envelope.
     answer(
         &mut device,
         &frame,
-        json!({
-            "content": [{ "type": "text", "text": reason }],
-            "isError": true,
-        }),
+        tools_call_answer(json!(9), reason, true),
     )
     .await;
 
@@ -3501,8 +3580,12 @@ async fn a_run_that_cannot_start_is_a_failed_audit_line_with_its_reason() {
         StatusCode::OK,
         "a tool refusal is still an MCP result: {body}"
     );
-    assert_eq!(body["isError"], json!(true), "{body}");
-    assert_eq!(body["content"][0]["text"], json!(reason), "{body}");
+    assert_eq!(body["result"]["isError"], json!(true), "{body}");
+    assert_eq!(
+        body["result"]["content"][0]["text"],
+        json!(reason),
+        "{body}"
+    );
 
     let lines = audit_lines(&fixture);
     let mcp = lines.last().expect("the mcp line");
@@ -3515,8 +3598,72 @@ async fn a_run_that_cannot_start_is_a_failed_audit_line_with_its_reason() {
         "the audit keeps the device's own reason: {mcp}"
     );
     assert_eq!(
-        body["content"][0]["text"], mcp["detail"],
+        body["result"]["content"][0]["text"], mcp["detail"],
         "the form shows the reason the audit keeps: the same text, prefixed by the same sentence"
+    );
+}
+
+/// The device's actual answer for a run that exits 2: a tool-level `isError` whose text is the
+/// device's own exited sentence. The audit must record the same verdict and the same reason.
+#[tokio::test]
+async fn a_run_that_exits_non_zero_is_a_failed_audit_line_from_the_device_iserror() {
+    let fixture = Fixture::new("audit-run-exit-2-device");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0x5e)).await;
+    let session = fixture.authenticate().await;
+
+    let app = fixture.app();
+    let request_session = session.clone();
+    let call = tokio::spawn(async move {
+        send(
+            app,
+            post_json_bearer(
+                "/mcp",
+                &request_session,
+                json!({
+                    "device_id": device_id,
+                    "request": {
+                        "jsonrpc": "2.0",
+                        "id": 13,
+                        "method": "tools/call",
+                        "params": {
+                            "name": "runs.exec",
+                            "arguments": { "command": "sh", "args": ["-c", "exit 2"] },
+                        },
+                    },
+                }),
+            ),
+        )
+        .await
+    });
+
+    let frame = next_json(&mut device).await;
+    let reason = "runs.exec: run run-2 exited 2 in 7 ms";
+    answer(
+        &mut device,
+        &frame,
+        tools_call_answer(json!(13), reason, true),
+    )
+    .await;
+
+    let (status, body) = call.await.expect("the call finishes");
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["result"]["isError"], json!(true), "{body}");
+    assert_eq!(
+        body["result"]["content"][0]["text"],
+        json!(reason),
+        "{body}"
+    );
+
+    let lines = audit_lines(&fixture);
+    let mcp = lines.last().expect("the mcp line");
+    assert_eq!(mcp["tool"], json!("runs.exec"));
+    assert_eq!(mcp["status"], json!(424), "exit 2 is not a success: {mcp}");
+    assert_eq!(
+        mcp["detail"],
+        json!(reason),
+        "the audit keeps the device's exited sentence: {mcp}"
     );
 }
 
@@ -3569,17 +3716,14 @@ async fn a_run_that_exits_non_zero_is_a_failed_audit_line_even_without_iserror()
     answer(
         &mut device,
         &frame,
-        json!({
-            "content": [{ "type": "text", "text": run.to_string() }],
-            "isError": false,
-        }),
+        tools_call_answer(json!(10), &run.to_string(), false),
     )
     .await;
 
     let (status, body) = call.await.expect("the call finishes");
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_eq!(
-        body["isError"],
+        body["result"]["isError"],
         json!(false),
         "the old device did not mark it: {body}"
     );
@@ -3644,15 +3788,13 @@ async fn a_run_that_exits_zero_stays_a_successful_line() {
     answer(
         &mut device,
         &frame,
-        json!({
-            "content": [{ "type": "text", "text": run.to_string() }],
-            "isError": false,
-        }),
+        tools_call_answer(json!(11), &run.to_string(), false),
     )
     .await;
 
     let (status, body) = call.await.expect("the call finishes");
     assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["result"]["isError"], json!(false), "{body}");
 
     let lines = audit_lines(&fixture);
     let mcp = lines.last().expect("the mcp line");
@@ -3704,10 +3846,7 @@ async fn a_failed_run_reaches_the_stream_as_a_failure_with_its_reason() {
     answer(
         &mut device,
         &frame,
-        json!({
-            "content": [{ "type": "text", "text": reason }],
-            "isError": true,
-        }),
+        tools_call_answer(json!(12), reason, true),
     )
     .await;
     let (status, _) = call.await.expect("the call finishes");

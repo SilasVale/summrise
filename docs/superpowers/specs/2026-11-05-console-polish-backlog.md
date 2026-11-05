@@ -415,7 +415,18 @@ with the control gone; the capability line is at 410 px at 1440 and 426 at 390; 
 “Paused” in the live chip and froze 949 rows for 11 s. The offline device with no `update` section
 draws no update line — correctly: it said nothing.
 
-1. **A tool's own refusal is written as a success.** At 10:00:17 on DESKTOP-9VH92BJ the Tools form
+1. **A tool's own refusal is written as a success.** *(Done 2026-11-05: the device answers a
+   failed `runs.exec` with MCP's tool-level error — `{"result":{"content":[{"type":"text","text":
+   "runs.exec: program not found"}],"isError":true}}` — and the console now reads that `isError`
+   where it actually is: inside the device's JSON-RPC `result`, not at the top of the forwarded
+   body. The previous unit and console tests built a bare `{content,isError}`, a shape no device
+   emits, so they were green while `/audit` stayed 200 with no detail. A device that predates the
+   rule and answers a `tools/call` with a JSON-RPC error envelope is a refusal too: 424 with the
+   bounded envelope message, while ping/initialize/tools.list keep 200. The two console tests now
+   send the device's real envelope and record the measured call as
+   `{"tool":"runs.exec","status":424,"detail":"runs.exec: program not found"}`; the device tests
+   pin the missing-program, exit-2 and timeout results and keep a malformed request an error
+   envelope.)* At 10:00:17 on DESKTOP-9VH92BJ the Tools form
    ran `echo audit5-live` and answered **“Could not run the command: runs.exec: program not found”**
    in 4 ms; the same call is `/audit`'s 10:00:17 line — `runs.exec`, **status 200**, sentence “Ran a
    command”, no `detail` — and the timeline draws it “Ran `echo audit5-live` … console 4 ms” with no

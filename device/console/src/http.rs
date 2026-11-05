@@ -874,15 +874,30 @@ fn reply_detail(reply: &Reply) -> Option<String> {
     }
 }
 
+/// The tool result inside a device answer: MCP's `{content, isError}`.
+///
+/// A device's answer to `tools/call` is its JSON-RPC response envelope
+/// (`{"jsonrpc":"2.0","id":N,"result":{...}}`), and the console forwards that envelope unchanged to
+/// `/mcp`, where the page reads `body.result.isError` (`terminal.ts`). The audit must read the same
+/// nesting. An unwrapped result is accepted too, so a caller that already picked the result out does
+/// not have to rebuild the envelope.
+fn tool_result(reply: &Reply) -> Option<&Value> {
+    let Reply::Result(response) = reply else {
+        return None;
+    };
+    Some(response.get("result").unwrap_or(response))
+}
+
 /// The first text item of a tool result, when it carries one.
 ///
 /// MCP's tool result is `{content, isError}`; a run puts its JSON body in the first text item, and
 /// every tool-level refusal puts its sentence there.
 fn tool_text(reply: &Reply) -> Option<&str> {
-    let Reply::Result(result) = reply else {
-        return None;
-    };
-    result.get("content")?.get(0)?.get("text")?.as_str()
+    tool_result(reply)?
+        .get("content")?
+        .get(0)?
+        .get("text")?
+        .as_str()
 }
 
 /// The run body a `runs.exec` answer carries, when its text is a run's JSON.
@@ -917,29 +932,51 @@ fn run_failed(reply: &Reply) -> bool {
 ///
 /// MCP carries a tool-level failure inside a successful exchange: the result has `isError: true`
 /// and the reason in its text, and it is still HTTP 200 because a non-2xx would look like a
-/// transport failure to an MCP client. **424 Failed Dependency** is this console's word for "the
-/// call reached the tool and the tool refused": not a transport answer (5xx), and not a green row.
+/// transport failure to an MCP client. A device that predates that rule answers a refused
+/// `tools/call` with a JSON-RPC error envelope instead. Both are a refusal here. **424 Failed
+/// Dependency** is this console's word for "the call reached the tool and the tool refused": not a
+/// transport answer (5xx), and not a green row.
 const TOOL_REFUSED_STATUS: StatusCode = StatusCode::FAILED_DEPENDENCY;
 
-/// Why a `tools/call` result is a failure, when it is: MCP's `isError`, or a run's exit facts.
+/// Why a `tools/call` is a failure, when it is.
+///
+/// Two wire shapes mean the same thing and both must be recorded as a failure:
+///
+/// - MCP's tool-level error: a result with `isError: true`, reason in its text. The result sits
+///   inside the device's JSON-RPC response envelope.
+/// - An older device's answer: a JSON-RPC error envelope for a `tools/call`. A refusal is the only
+///   reason a device has to answer a well-formed tool call with an envelope, so it is a refusal
+///   too. A protocol error on `ping`/`initialize`/`tools/list` is not a tool call and keeps 200.
+///
+/// A `runs.exec` that exited non-zero (or that the timeout killed) is a failure even when a device
+/// predates `isError`: the run's own exit facts say so.
 ///
 /// The reason is bounded exactly like the device messages other details keep — the audit never
 /// carries a payload body, and a tool's error text is the tool's content.
 fn tool_failure(reply: &Reply, tool: Option<&str>) -> Option<String> {
-    let Reply::Result(result) = reply else {
-        return None;
-    };
+    let tool = tool?;
+    if let Reply::Error(_) = reply {
+        // The envelope's message is the device's own sentence. Its `data` is still not the audit's:
+        // only the message, bounded, is kept.
+        return Some(
+            error_message(reply)
+                .map(bounded_detail)
+                .or_else(|| reply_detail(reply))
+                .unwrap_or_else(|| "the tool refused".to_owned()),
+        );
+    }
+    let result = tool_result(reply)?;
     let marked = result
         .get("isError")
         .and_then(Value::as_bool)
         .unwrap_or(false);
-    let failed_run = tool == Some("runs.exec") && run_failed(reply);
+    let failed_run = tool == "runs.exec" && run_failed(reply);
     if !marked && !failed_run {
         return None;
     }
     // A run's own metadata is the better reason when its body parses; otherwise the device's text
     // is already the sentence a client would show.
-    let reason = if tool == Some("runs.exec") {
+    let reason = if tool == "runs.exec" {
         run_detail(reply)
     } else {
         None
@@ -3185,9 +3222,10 @@ async fn proxy_reply(
                 reply_detail(&reply)
             };
             // **A TOOL THAT ANSWERED IS NOT NECESSARILY A SUCCESS.** MCP puts the failure in the
-            // result (`isError: true` with its reason), and a run says so with its exit code. Both
-            // become a non-200 audit line; the status stays 200 for a genuine success and for a
-            // JSON-RPC error envelope (which is an answer the caller reads, not a transport failure).
+            // result (`isError: true` with its reason), and a run says so with its exit code. A
+            // device older than that rule refuses a `tools/call` with a JSON-RPC error envelope.
+            // All three become a non-200 audit line; the HTTP answer to the caller is untouched,
+            // and a protocol error on ping/initialize/tools/list stays a 200 answer.
             let tool_failure = tool_failure(&reply, tool.as_deref());
             let (ok, status, audit_detail, live_detail) = match &reply {
                 Reply::Result(_) => match tool_failure {
@@ -3199,14 +3237,17 @@ async fn proxy_reply(
                         detail.clone().unwrap_or_default(),
                     ),
                 },
-                Reply::Error(_) => (
-                    false,
-                    StatusCode::OK,
-                    detail.clone(),
-                    error_message(&reply)
-                        .map(bounded_detail)
-                        .unwrap_or_else(|| detail.clone().unwrap_or_default()),
-                ),
+                Reply::Error(_) => match tool_failure {
+                    Some(reason) => (false, TOOL_REFUSED_STATUS, Some(reason.clone()), reason),
+                    None => (
+                        false,
+                        StatusCode::OK,
+                        detail.clone(),
+                        error_message(&reply)
+                            .map(bounded_detail)
+                            .unwrap_or_else(|| detail.clone().unwrap_or_default()),
+                    ),
+                },
             };
             // The row's words match the form's for the one failure a person causes by typing a
             // command: "Could not run the command", with the device's reason one click away.
@@ -4917,8 +4958,14 @@ mod tests {
 
     #[test]
     fn a_run_records_its_outcome_in_the_audit_detail() {
-        let result =
-            |text: &str| Reply::Result(json!({"content": [{"type": "text", "text": text}]}));
+        // The wire shape: the tool result is inside the device's JSON-RPC response.
+        let result = |text: &str| {
+            Reply::Result(json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "result": {"content": [{"type": "text", "text": text}]},
+            }))
+        };
         assert_eq!(
             run_detail(&result(
                 r#"{"id":"r-1","exit_code":0,"timed_out":false,"duration_ms":42}"#
@@ -4940,6 +4987,14 @@ mod tests {
             .as_deref(),
             Some("run r-3 ended without an exit code")
         );
+        // The bare result is still read, for a forwarding path that does not wrap it.
+        assert_eq!(
+            run_detail(&Reply::Result(json!({
+                "content": [{"type": "text", "text": r#"{"id":"r-4","exit_code":0}"#}],
+            })))
+            .as_deref(),
+            Some("run r-4 exited 0")
+        );
         // An error keeps the existing sentence; a reply that is not a run stays detail-less.
         assert_eq!(
             run_detail(&Reply::Error(json!({"error": {"code": -32603}}))).as_deref(),
@@ -4952,8 +5007,12 @@ mod tests {
     fn a_tool_result_that_failed_is_read_from_iserror_or_the_run_exit() {
         let tool = |text: &str, is_error: bool| {
             Reply::Result(json!({
-                "content": [{ "type": "text", "text": text }],
-                "isError": is_error,
+                "jsonrpc": "2.0",
+                "id": 1,
+                "result": {
+                    "content": [{ "type": "text", "text": text }],
+                    "isError": is_error,
+                },
             }))
         };
         // MCP's own marker: the device says the tool refused, and its text is the reason.
@@ -5015,10 +5074,60 @@ mod tests {
         );
     }
 
+    /// **THE FALLBACK THE FLEET NEEDS.** A device that predates `isError` refuses a `tools/call`
+    /// with a JSON-RPC error envelope. That is a refusal, not a green answer; its message is the
+    /// reason and its `data` is not the audit's. A protocol error on ping/initialize/tools/list is
+    /// not a tool call at all, so it is not a tool refusal.
+    #[test]
+    fn a_tool_call_error_envelope_is_a_refusal_with_its_bounded_message() {
+        let envelope = |message: &str| {
+            Reply::Error(json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "error": { "code": -32603, "message": message, "data": {"detail": "SECRET DATA"} },
+            }))
+        };
+        assert_eq!(
+            tool_failure(&envelope("runs.exec: program not found"), Some("runs.exec")).as_deref(),
+            Some("runs.exec: program not found")
+        );
+        assert_eq!(
+            tool_failure(&envelope("files: no such file"), Some("files.read")).as_deref(),
+            Some("files: no such file")
+        );
+        // Not a tool call: ping, initialize and tools/list keep their own 200 answer.
+        assert_eq!(
+            tool_failure(&envelope("runs.exec: program not found"), None),
+            None
+        );
+        // The message is bounded exactly like a tool result's text.
+        assert_eq!(
+            tool_failure(&envelope(&"y".repeat(200)), Some("files.read"))
+                .expect("a refusal")
+                .chars()
+                .count(),
+            64
+        );
+        // A message-less envelope still names a refusal rather than returning None.
+        assert_eq!(
+            tool_failure(
+                &Reply::Error(json!({"error": {"code": -32603}})),
+                Some("files.read")
+            )
+            .as_deref(),
+            Some("jsonrpc error -32603")
+        );
+    }
+
     #[test]
     fn a_run_carries_its_exit_facts_and_output_tail_as_evidence() {
-        let result =
-            |text: &str| Reply::Result(json!({"content": [{"type": "text", "text": text}]}));
+        let result = |text: &str| {
+            Reply::Result(json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "result": {"content": [{"type": "text", "text": text}]},
+            }))
+        };
         let evidence = run_evidence(&result(
             r#"{"id":"r-1","exit_code":3,"timed_out":false,"stdout":"boom\n","stderr":""}"#,
         ))

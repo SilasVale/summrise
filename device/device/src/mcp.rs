@@ -4322,26 +4322,31 @@ mod tests {
                 json!({ "command": "sh", "args": ["-c", "exit 2"] }),
             )
             .await;
+        assert!(
+            failed.get("error").is_none(),
+            "a non-zero run is a tool result, not a protocol error: {failed}"
+        );
         assert_eq!(failed["result"]["isError"], true, "{failed}");
-        let text = text_of(&failed);
-        assert!(
-            text.contains("exited 2"),
-            "the reason names the exit status: {text}"
-        );
-        assert!(
-            text.starts_with("runs.exec:"),
-            "the refusal names the tool: {text}"
-        );
 
         let listed = client.call("runs.list", json!({ "limit": 5 })).await;
         let rows: Value = serde_json::from_str(text_of(&listed)).expect("list is JSON");
         let rows = rows.as_array().expect("the history is an array");
         assert_eq!(rows.len(), 1, "the run happened before it failed: {rows:?}");
         assert_eq!(rows[0]["exit_code"], json!(2));
+        let id = rows[0]["id"].as_str().expect("the row names the run");
+        let duration = rows[0]["duration_ms"]
+            .as_u64()
+            .expect("the row times the run");
+        assert_eq!(
+            text_of(&failed),
+            format!("runs.exec: run {id} exited 2 in {duration} ms"),
+            "the reason is the run's own exit facts: {failed}"
+        );
     }
 
     /// A program that does not exist never starts, and the refusal says so in the same words on
-    /// every platform instead of leaking the operating system's message.
+    /// every platform instead of leaking the operating system's message. It is a **tool-level**
+    /// failure: a `tools/call` result with `isError: true`, not a protocol error envelope.
     #[cfg(unix)]
     #[tokio::test]
     async fn a_run_whose_program_is_missing_is_a_tool_level_failure() {
@@ -4352,10 +4357,81 @@ mod tests {
         let missing = client
             .call("runs.exec", json!({ "command": "audit5-no-such-program" }))
             .await;
-        assert_eq!(missing["result"]["isError"], true, "{missing}");
         assert!(
-            text_of(&missing).contains("program not found"),
-            "the reason names the missing program: {missing}"
+            missing.get("error").is_none(),
+            "a failed run is a tool result, not a protocol error: {missing}"
+        );
+        assert_eq!(missing["result"]["isError"], true, "{missing}");
+        assert_eq!(
+            missing["result"]["content"].as_array().map(Vec::len),
+            Some(1),
+            "MCP puts the reason in one text item: {missing}"
+        );
+        assert_eq!(
+            text_of(&missing),
+            "runs.exec: program not found",
+            "the device's sentence, not the operating system's: {missing}"
+        );
+    }
+
+    /// A run the timeout killed is a failure for the same reason an exit 2 is: the process did not
+    /// succeed, and an MCP client that only reads the result has no other fact. `timed_out` is the
+    /// run's own evidence and the reason says so.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_run_killed_by_its_timeout_is_a_tool_level_failure() {
+        let device = start("mcp-runs-timeout").await;
+        let mut client = Client::authorized(&device);
+        client.initialize().await;
+
+        let killed = client
+            .call(
+                "runs.exec",
+                json!({
+                    "command": "sh",
+                    "args": ["-c", "sleep 5"],
+                    "timeout_ms": 50,
+                }),
+            )
+            .await;
+        assert!(
+            killed.get("error").is_none(),
+            "a killed run is a tool result, not a protocol error: {killed}"
+        );
+        assert_eq!(killed["result"]["isError"], true, "{killed}");
+        let text = text_of(&killed);
+        assert!(
+            text.starts_with("runs.exec: run ") && text.contains("timed out after"),
+            "the reason names the timeout: {text}"
+        );
+
+        let listed = client.call("runs.list", json!({ "limit": 5 })).await;
+        let rows: Value = serde_json::from_str(text_of(&listed)).expect("list is JSON");
+        let rows = rows.as_array().expect("the history is an array");
+        assert_eq!(rows.len(), 1, "the killed run still has its row: {rows:?}");
+        assert_eq!(rows[0]["timed_out"], json!(true));
+        assert_eq!(rows[0]["exit_code"], Value::Null);
+    }
+
+    /// **A MALFORMED REQUEST IS STILL A PROTOCOL ERROR.** The rule above moves a run's own failure
+    /// into the result; it must not turn a request the device cannot parse into a tool refusal. The
+    /// envelope keeps `error` and carries no `result`.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_malformed_run_request_keeps_the_error_envelope() {
+        let device = start("mcp-runs-malformed").await;
+        let mut client = Client::authorized(&device);
+        client.initialize().await;
+
+        let malformed = client.call("runs.exec", json!({ "command": 7 })).await;
+        assert!(
+            malformed.get("result").is_none(),
+            "a malformed request is a protocol error, not a tool result: {malformed}"
+        );
+        assert_eq!(
+            malformed["error"]["code"],
+            json!(-32602),
+            "invalid params is JSON-RPC's protocol code: {malformed}"
         );
     }
 
