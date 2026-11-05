@@ -595,3 +595,101 @@ draws no update line — correctly: it said nothing.
   dropped it"}`, and neither dates it; the 0.3.277 restarts at 09:41 and 09:43 are the one failed
   attempt, and at 10:07 the sentence still reads as a fault. Delete it from the row (Copy
   diagnostics already carries the device record), or date it in the machine menu. **S.**
+
+## P0 — the sixth list (audited 2026-11-05, live 0.3.273-ux55)
+
+Measured on `https://console.saisi.online` with Playwright at 1440×960 and 390×844, 21:07–21:35
++08:00 (13:07–13:35 UTC), browser timezone `Asia/Shanghai` — the console host's own (`Get-TimeZone`
+on DESKTOP-9VH92BJ: `China Standard Time`). `/health` read
+`{"devices":3,"online":3,...,"version":"0.3.273-ux55"}`; DESKTOP-14RJCR8 read offline from 13:24
+(its Terminal said `Last seen 3m ago`) and `offline · last seen 6m ago` at 13:33. Visited at both
+widths: the fleet, the machine menu, all three hubs, Activity's timeline, table and an opened
+record, the device tabs, the Connect sheet's Endpoint and Tokens sections, and a run's record. The
+record's own facts are from
+`C:\SummriseConsole\audit.jsonl` on the console host: **28,056 lines, 4,995,461 bytes**, first line
+2026-10-22 10:55:58 UTC, last 2026-11-05 13:14:06 UTC (14.1 days). It is not unbounded: the console
+rotates it at 8 MiB to one `audit.1.jsonl` (`AUDIT_MAX_BYTES`), which does not exist yet, so the
+whole record is ~16 MiB at most.
+
+What holds, measured: a refusal is a **424 with its reason** (`runs.exec: program not found` at
+11:08:38, `device reconnecting` at 09:23:43, the 504 sentence at 17:23:41); an offline machine's age
+is the newest evidence (`offline · last seen 6m ago` on the fleet row, `Last seen 3m ago` on its
+Terminal); the console's own reads are folded behind a counted chip (`Console reads · 552`); the
+update line no longer repeats the running version; the run form's placeholder is
+`cmd.exe /c echo hello`; and no fleet row draws a reconnect sentence.
+
+1. **There is no route to an answer older than the window.** `/audit` takes `limit` and `device`
+   and nothing else, and `limit` is clamped to **1000** (`MAX_LOG_LIMIT`, `http.rs:50`). The fleet's
+   window is **8.5 h** (04:35:49–13:15:28 UTC); DESKTOP-14RJCR8's 1,000 lines are **10.3%** of its
+   9,747 (9.7 h), DESKTOP-9VH92BJ's **5.7%** of 17,606 (22.8 h). The Table's Time control (All time /
+   Last hour / Last day / Last week) flips to `Last week` with **0 requests** and the same **985
+   rows**; no control on Activity or a hub fetches an older answer — the only "more" is the hub's
+   `Show the rest of today (223 more)`, which expands the list in hand. The Files tab offers
+   Workspace and Shared; its Workspace root lists 54 deploy/scratch files and not `audit.jsonl`, so
+   the 27,000 lines behind the window are reachable only by a shell on the console host reading
+   `C:\SummriseConsole\audit.jsonl`. **Cost:** "what happened at 09:00 yesterday" costs a remote
+   shell and a text search, and the one control that reads as a time query is a filter over eight and
+   a half hours. **Fix:** add `GET /audit?before=<ts>` (scan from the cursor, return the previous
+   1,000) with one older control in Activity and on the hub, and make the Time select a real read or
+   delete it. **M.**
+
+2. **"Today" is the window's today, and the pages disagree about it.** At 21:23 the Activity header
+   read `Today 269 client calls · 39 failed · 16 console failures · 0 unattributed`; the same local
+   day in the audit file holds **649** client calls and **74** failures (2,017 rows from 00:00).
+   DESKTOP-14RJCR8's hub read `Today 283 client calls · 38 failed · last 17:23` against **554** client
+   calls and **53** failures in the file — **271 calls (49%) and 15 failures (28%) are older than its
+   window**, which starts at 11:23 local. The three hubs read **11 + 283 + 84 = 378** client calls,
+   so Activity's 269 and the hubs' 378 disagree with each other and both are under the file's 649
+   (Activity is 41% of the day; 380 calls missing). The fifth list fixed *who* the count counts; it
+   still counts only the lines the window holds. **Cost:** the morning number is half the busiest
+   machine's day, its failure count is 28% short, and two surfaces of the same day print different
+   totals. **Fix:** when the window's oldest line is after local midnight, count the day from the
+   file (a bounded scan of today's lines) or state the hours the number covers, with one rule for the
+   hub and Activity. **S/M.**
+
+3. **The hub's summary counts lines it cannot show and never names the rows it hides.**
+   DESKTOP-14RJCR8's hub draws **60** rows under `Showing the newest 974 lines of 1004 fetched (9
+   channel events, 21 repeats not drawn); older ones are not on this page.`, with `Show the rest of
+   today (223 more)` and `Console reads · 552`; expanding the rest draws **283**, adding the console's
+   rows draws **835**, and the sentence still says **974** — the lines beyond both controls are the
+   rows with no caller, which the same machine's Activity header counts as `120 unattributed (1
+   failed)` and the hub offers no row, chip or count for. The fifth list's cap-sentence fix counts
+   the merged day list; on the hub that list is 974, and what is drawn is 60 before either control.
+   DESKTOP-9VH92BJ's hub draws **11** rows and `Console reads · 122` under `Today 11 client calls ·
+   1 failed`, while its Activity header counts `111 unattributed (7 failed)`; there is no cap
+   sentence because that window is not cut, so the 111 rows get no sentence at all. **Cost:** the
+   one sentence that explains a cut claims 139 more lines than the page can show, and a day with
+   111–140 rows the console cannot attribute reads as 11 client calls and nothing else. **Fix:**
+   build the hub's day line and cap sentence from the three buckets it can draw, name the
+   unattributed rows with Activity's count, and replace the single "showing" number with what the
+   controls hold (`60 drawn · 223 more · 552 console reads`). **S.**
+
+4. **The fleet compares presence and disk; nothing compares work.** The three fleet rows are 45 px
+   of dot, name, `online · seen 44s ago`, version and `›` — no calls. The machine menu's three rows
+   add the disk and nothing else: `I: 24.3 GiB free`, `C: 19.7 GiB free`, `E: 30.1 GiB free`. The
+   day counts are **11 / 283 / 84** client calls, one per hub; Activity's machine chips can produce
+   them one at a time (measured **11 / 290 / 91**) in three chip clicks, and the chips carry no
+   counts. The menu's silence is also incomplete: at 390 DESKTOP-14RJCR8, offline by frame silence,
+   read `Offline · v0.3.275` and its disk line with no age, while the fleet row behind it read
+   `offline · last seen 6m ago`. **Cost:** "which machine is doing the work / failing / quiet" is
+   three screens, the one screen whose job is comparing compares disk, and the machine that went
+   quiet without a close loses the one fact its row has. **Fix:** serve a per-device day summary from
+   `/fleet` (client calls, failures, last call, from the audit's today scan) as one muted line on the
+   fleet row, and read the menu's silence from the same `lastHeardMs` evidence as the row. **M.**
+
+5. **At 390 the audit table spends three lines on the machine's name.** The table is **320 px** wide:
+   When **64**, Device **67**, Token **48**, What happened **96**, Status **45**; `DESKTOP-9VH92BJ
+   console` in the 67 px Device cell breaks as `DESKTO / P- / 9VH92BJ` and the row is **91 px** tall
+   (1440: Device 297 px, row 41 px). The same width clips the offline notice's reason: `the console
+   accepted the channel and then dro…` — 283 px of text in 265, the rest only in a `title`, which a
+   phone cannot hover. **Cost:** every row of the phone's audit spends two extra lines on the one
+   column that identifies the machine, and the sentence that says why a machine is down loses its
+   last word. **Fix:** at ≤639 fold the machine into the What happened cell and drop the mostly-empty
+   Token column, and let the notice's reason wrap to two lines. **S.**
+
+### Cuts
+
+- **C10. The Activity page's Refresh button.** It is the same read as the app's five-second poll —
+  one click fired `/fleet`, `/audit?limit=1000&device=…` and `/tokens` — and it cannot show its
+  answer while the page is paused: with the page paused at **955** rows the click left **955** rows,
+  and only `Resume` shows what arrived. The poll and `Resume` own the two jobs; delete it. **S.**
