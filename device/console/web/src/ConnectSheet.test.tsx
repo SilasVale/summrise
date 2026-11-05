@@ -458,7 +458,9 @@ describe("ConnectSheet's one credential list", () => {
 
       const row = await screen.findByRole("row", { name: /wanted/ });
       expect(row).toHaveClass("is-managed");
-      expect(scrollIntoView).toHaveBeenCalled();
+      // `findByRole` waits for the row's render, not for the effect that scrolls to it: the effect
+      // runs in a later tick, so asserting the call here raced it (a flake under parallel load).
+      await waitFor(() => expect(scrollIntoView).toHaveBeenCalled());
     } finally {
       HTMLElement.prototype.scrollIntoView = original;
     }

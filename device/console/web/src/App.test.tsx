@@ -266,7 +266,8 @@ describe("App", () => {
   it("boots signed out, signs in with the operator token, and renders the fleet on Home", async () => {
     const { container } = await boot();
 
-    expect(document.title).toBe("Sign in · Summrise console");
+    // The title is an effect's write, not part of the render the boot waited for: wait for it.
+    await waitFor(() => expect(document.title).toBe("Sign in · Summrise console"));
     const token = screen.getByLabelText("Operator token");
     expect(token).toHaveAttribute("type", "password");
     expect(screen.getByRole("button", { name: "Sign in" })).toBeDisabled();
@@ -286,8 +287,9 @@ describe("App", () => {
     // canvas repeating facts that already have a home.
     expect(container.querySelector(".statusbar")).toBeNull();
     expect(screen.getByText("2 machines · 2 online")).toBeInTheDocument();
-    expect(document.title).toBe("Machines · Summrise console");
-    expect(window.location.hash).toBe("#home");
+    // The tab title and the address bar are both effects over the route the page has just drawn.
+    await waitFor(() => expect(document.title).toBe("Machines · Summrise console"));
+    await waitFor(() => expect(window.location.hash).toBe("#home"));
   });
 
   it("opens the Device surface named in the URL after sign-in, through the legacy alias", async () => {
@@ -302,7 +304,8 @@ describe("App", () => {
     expect(
       await screen.findByRole("heading", { name: "Files", level: 1 }, { timeout: 3000 })
     ).toBeInTheDocument();
-    expect(window.location.hash).toBe("#device/files");
+    // The address bar is rewritten by an effect after the route renders; a synchronous read raced it.
+    await waitFor(() => expect(window.location.hash).toBe("#device/files"));
     window.history.replaceState(null, "", window.location.pathname);
   });
 
@@ -315,7 +318,7 @@ describe("App", () => {
     expect(
       await screen.findByRole("heading", { name: "Runs", level: 1 }, { timeout: 3000 })
     ).toBeInTheDocument();
-    expect(window.location.hash).toBe("#run/workshop/r-1");
+    await waitFor(() => expect(window.location.hash).toBe("#run/workshop/r-1"));
     window.history.replaceState(null, "", window.location.pathname);
   });
 
@@ -441,17 +444,17 @@ describe("App", () => {
 
   it("names the current destination in the tab title", async () => {
     await bootAndSignIn();
-    expect(document.title).toBe("Machines · Summrise console");
+    await waitFor(() => expect(document.title).toBe("Machines · Summrise console"));
 
     fireEvent.click(screen.getByRole("button", { name: "Activity" }));
     await screen.findByRole("heading", { name: "Activity", level: 1 });
-    expect(document.title).toBe("Activity · Summrise console");
+    await waitFor(() => expect(document.title).toBe("Activity · Summrise console"));
 
     fireEvent.click(screen.getByRole("button", { name: "Device" }));
-    expect(document.title).toBe("Terminal · Summrise console");
+    await waitFor(() => expect(document.title).toBe("Terminal · Summrise console"));
 
     fireEvent.click(screen.getByRole("button", { name: "Tools" }));
-    expect(document.title).toBe("Tools · Summrise console");
+    await waitFor(() => expect(document.title).toBe("Tools · Summrise console"));
   });
 
   it("renders the whole shell: three destinations, one h1, the account menu and the build", async () => {
@@ -511,7 +514,7 @@ describe("App", () => {
     expect(await screen.findByRole("heading", { name: "Tools", level: 1 })).toBeInTheDocument();
     expect(await screen.findByRole("dialog", { name: "files.read" })).toBeInTheDocument();
     // The old fragment keeps working, and the address bar is rewritten as the tab's own link.
-    expect(window.location.hash).toBe("#device/tools/files.read");
+    await waitFor(() => expect(window.location.hash).toBe("#device/tools/files.read"));
     window.history.replaceState(null, "", window.location.pathname);
   });
 
@@ -530,7 +533,7 @@ describe("App", () => {
 
     expect(await screen.findByRole("heading", { name: "Tools", level: 1 })).toBeInTheDocument();
     expect(await screen.findByRole("dialog", { name: "files.read" })).toBeInTheDocument();
-    expect(window.location.hash).toBe("#device/tools/files.read");
+    await waitFor(() => expect(window.location.hash).toBe("#device/tools/files.read"));
     window.history.replaceState(null, "", window.location.pathname);
   });
 
@@ -548,7 +551,7 @@ describe("App", () => {
     // The link is stale: the machine has no such tool. Silence would read as "the console ignored
     // me", so the page says which fact it is.
     expect(await screen.findByText("That tool is not on this machine.")).toBeInTheDocument();
-    expect(window.location.hash).toBe("#device/tools/not-a-tool");
+    await waitFor(() => expect(window.location.hash).toBe("#device/tools/not-a-tool"));
     window.history.replaceState(null, "", window.location.pathname);
   });
 
@@ -917,7 +920,7 @@ describe("App", () => {
     expect(within(screen.getByRole("main")).getByText("Running")).toBeInTheDocument();
     expect(screen.getByLabelText("Machine: workshop")).toBeInTheDocument();
     expect(localStorage.getItem("summrise.selected.device")).toBe(workshop.id);
-    expect(window.location.hash).toBe("#home");
+    await waitFor(() => expect(window.location.hash).toBe("#home"));
 
     fireEvent.click(screen.getByRole("button", { name: "Device" }));
     const workspace = await screen.findByTestId("workspace");
@@ -962,7 +965,7 @@ describe("App", () => {
     expect(await screen.findByRole("button", { name: /files\.read/ })).toBeInTheDocument();
     expect(await screen.findByText("Hello")).toBeInTheDocument();
     expect(screen.getByLabelText("Command")).toBeInTheDocument();
-    expect(window.location.hash).toBe("#device/tools");
+    await waitFor(() => expect(window.location.hash).toBe("#device/tools"));
   });
 
   it("opens the machine's Tools tab from the hub's counts line", async () => {
@@ -979,7 +982,7 @@ describe("App", () => {
     expect(await screen.findByRole("heading", { name: "Tools", level: 1 })).toBeInTheDocument();
     expect(await screen.findByRole("heading", { name: "Tools on this machine", level: 2 })).toBeInTheDocument();
     expect(await screen.findByRole("heading", { name: "Plugins", level: 2 })).toBeInTheDocument();
-    expect(window.location.hash).toBe("#device/tools");
+    await waitFor(() => expect(window.location.hash).toBe("#device/tools"));
   });
 
   // Each retired link is its own test: the two used to share one loop, and the second boot racing
@@ -1003,7 +1006,7 @@ describe("App", () => {
     expect(
       await screen.findByRole("heading", { name: "Tools", level: 1 }, { timeout: 3000 })
     ).toBeInTheDocument();
-    expect(window.location.hash).toBe("#device/tools");
+    await waitFor(() => expect(window.location.hash).toBe("#device/tools"));
     view.unmount();
   });
 
@@ -1012,7 +1015,7 @@ describe("App", () => {
     expect(
       await screen.findByRole("heading", { name: "Tools", level: 1 }, { timeout: 3000 })
     ).toBeInTheDocument();
-    expect(window.location.hash).toBe("#device/tools");
+    await waitFor(() => expect(window.location.hash).toBe("#device/tools"));
     view.unmount();
   });
 
@@ -1032,7 +1035,7 @@ describe("App", () => {
     expect(
       await screen.findByRole("heading", { name: "Machines", level: 1 }, { timeout: 3000 })
     ).toBeInTheDocument();
-    expect(window.location.hash).toBe("#home");
+    await waitFor(() => expect(window.location.hash).toBe("#home"));
     view.unmount();
   });
 
@@ -1041,7 +1044,7 @@ describe("App", () => {
     expect(
       await screen.findByRole("heading", { name: "Machines", level: 1 }, { timeout: 3000 })
     ).toBeInTheDocument();
-    expect(window.location.hash).toBe("#home");
+    await waitFor(() => expect(window.location.hash).toBe("#home"));
     view.unmount();
   });
 
