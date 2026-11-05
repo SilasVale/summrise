@@ -271,3 +271,21 @@ read; nothing here is a suspicion, and the two lists above are not re-opened.
   v0.3.273-ux43" is the page's one subtitle; the Account menu prints "Console 0.3.273-ux43". At 390
   the header chip drops the device's "v0.3.274", so the one build on the page is the console's,
   which the menu already has. Delete the version from the subtitle; keep the menu's. **S.**
+
+## Updates, 2026-11-05: what is now true and what is not yet proven
+
+**True, with evidence.** Three machines run 0.3.275 (9VH92BJ, 14RJCR8, CPH4KB2) and 14R's
+`C:\SummriseInstall\current.txt` names `0.3.275` with `versions\0.3.275\summrise-device.exe` present —
+the versioned layout is live, not planned. The canary channel is re-signed to 0.3.275 and
+`scripts/verify-release.sh` passes (artifact digest, installer served, sha256 a693ab2a…). The
+launcher's own `--migrate-layout` reports "already on the versioned layout", and the device's
+`state.json` records `update {phase, to, outcome, lastResultAtMs}`, `lastVerdict`, a
+`baseline.sha256`, and a `rolledBack` history — so checking, verdicts and rollbacks are not
+theoretical.
+
+**Not yet proven, and the next rehearsal.** No machine has yet walked from 0.3.275 to a newer
+version *by itself* in front of us: that needs a 0.3.276 build published to the channel and the
+device's own scheduled check to stage it, the launcher to probe it on a scratch port, the pointer to
+flip, and `current.txt` to follow — with the old directory left behind for the rollback. Until that
+run is watched, "zero-human update" is structurally true and experimentally unverified; this note is
+here so nobody upgrades the claim without the run.
