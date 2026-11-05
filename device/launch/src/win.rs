@@ -20,6 +20,7 @@
 //! Because the supervisor never exits to perform a switch, the SCM owns the process throughout and
 //! the kill-on-close job cannot kill the updater.
 
+use std::cell::RefCell;
 use std::ffi::{OsStr, OsString};
 use std::fs;
 use std::io;
@@ -32,18 +33,19 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use summrise_launch::{
-    app_arguments, app_exe, app_pid_file, commit_pending, commit_version, discard_pending,
-    ensure_baseline, failure_code, generation_dir, install_pending_over_app, install_token,
-    launcher_pid_file, link_to_persist, now_ms, parse_config, parse_service_args, prepare_version,
-    read_current_pointer, read_swap_request, resolve_baseline, restore_current_app,
-    restore_from_previous_at_startup, same_image, service_launch_arguments, sha256_bytes,
-    split_console_args, stage_pending, staged_exe, staged_sidecar, swap_request, swap_result,
-    token_action, token_text, validate_staged_update, validate_version_name,
+    app_arguments, app_exe, app_pid_file, commit_pending, commit_version, current_pointer,
+    discard_pending, ensure_baseline, failure_code, generation_dir, install_pending_over_app,
+    install_token, launcher_pid_file, link_to_persist, migrate_layout, now_ms, parse_config,
+    parse_service_args, prepare_version, read_current_pointer, read_swap_request, resolve_baseline,
+    restore_current_app, restore_from_previous_at_startup, same_image, service_launch_arguments,
+    sha256_bytes, split_console_args, stage_pending, staged_exe, staged_sidecar, swap_request,
+    swap_result, token_action, token_text, validate_staged_update, validate_version_name,
     verify_or_restore_at_startup, wait_healthy, write_console_link, write_swap_result, Action,
     AppLocation, Baseline, BaselineChoice, BaselineInstall, Config, ConsoleLink, Generation,
-    Pointer, RestartBudget, Restore, Sidecar, StagedPair, StartWatch, SwapRequestState, SwapResult,
-    TokenAction, Version, VersionProbe, APP_EXE, CURRENT_DIR, LAUNCHER_EXE, LAUNCHER_PUBKEY_HEX,
-    MAX_RESTARTS, PENDING_DIR, STABLE_AFTER_MS, SWAP_REQUEST_TIMEOUT_MS, TOKEN_BYTES,
+    Migration, MigrationHost, Pointer, RestartBudget, Restore, Sidecar, StagedPair, StartWatch,
+    SwapRequestState, SwapResult, TokenAction, Version, VersionProbe, APP_EXE, CURRENT_DIR,
+    LAUNCHER_EXE, LAUNCHER_PUBKEY_HEX, MAX_RESTARTS, PENDING_DIR, RELEASE_PUBKEY_HEX,
+    STABLE_AFTER_MS, SWAP_REQUEST_TIMEOUT_MS, TOKEN_BYTES,
 };
 use windows_service::service::{
     Service, ServiceAccess, ServiceAction, ServiceActionType, ServiceControl, ServiceControlAccept,
@@ -148,6 +150,10 @@ pub fn entry() -> ExitCode {
                 Err(error) => fail(&error),
             }
         }
+        "--migrate-layout" => match parse_migrate_args(&args[1..]) {
+            Ok((config, sidecar)) => migrate_layout_mode(&config, sidecar.as_deref()),
+            Err(error) => fail(&error),
+        },
         "--start-shell" => match parse_start_shell_args(&args[1..]) {
             Ok(install) => start_shell(&install),
             Err(error) => fail(&error),
@@ -240,6 +246,8 @@ summrise-launch — repair, supervise and swap summrise-device.exe
                       [--install DIR] [--data DIR] [--port N]
   summrise-launch --apply <staged> <sidecar> [--install DIR] [--data DIR] [--port N]
                       [--files-shared-root PATH]
+  summrise-launch --migrate-layout [--install DIR] [--data DIR] [--port N]
+                      [--sidecar <signed sidecar>]
   summrise-launch --start-shell [--install <dir>]
   summrise-launch --install-service [--replace-baseline] [--seed-sidecar <path>]
                       [--install DIR] [--data DIR] [--port N]
@@ -278,6 +286,14 @@ leaves current.txt untouched. --apply runs the same steps and then restarts the 
 service, leaves a manual child running from the new pointer). A pre-versioned install has no
 current.txt and keeps running the flat app from baseline/current; two failed starts of a versioned
 install's current version roll current.txt back to previous.txt.
+
+--migrate-layout is the installer's one-time move from a flat install to versions/<name>/: it copies
+the flat app and a trusted sidecar (--sidecar when given, else baseline/current) into a version
+directory through a temporary directory and renames it into place, writes current.txt, and restarts
+the service (or the console child) requiring two matching /api/health answers. An existing version
+directory with different bytes is refused, never overwritten. A failure removes current.txt again
+and restarts the flat layout; an existing current.txt makes the mode a successful no-op. It never
+writes previous.txt and never removes the flat exe or the baseline.
 
 The supervisor starts the app with --install, --data, --port, --token-file and the release facts of
 the sidecar it booted: --release-version, --release-sha and --release-channel (stable or canary).
@@ -320,6 +336,33 @@ fn config_from_args(args: &[String]) -> Result<Config, String> {
 
 fn absolute(path: &Path) -> PathBuf {
     std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf())
+}
+
+/// `--migrate-layout`'s arguments: the usual install/data/port plus an optional signed sidecar.
+///
+/// `--sidecar` is split out before [`parse_config`], which refuses flags it does not own. It is a
+/// migration-only input: the version directory's sidecar is the one written into the install.
+fn parse_migrate_args(args: &[String]) -> Result<(Config, Option<PathBuf>), String> {
+    let mut sidecar: Option<PathBuf> = None;
+    let mut config_args: Vec<String> = Vec::with_capacity(args.len());
+    let mut index = 0;
+    while index < args.len() {
+        if args[index] == "--sidecar" {
+            let value = args
+                .get(index + 1)
+                .ok_or_else(|| "--sidecar needs a value".to_string())?;
+            if sidecar.is_some() {
+                return Err("--sidecar was given more than once".to_string());
+            }
+            sidecar = Some(absolute(Path::new(value)));
+            index += 2;
+        } else {
+            config_args.push(args[index].clone());
+            index += 1;
+        }
+    }
+    let config = config_from_args(&config_args)?;
+    Ok((config, sidecar))
 }
 
 /// Parse `--install-service`'s arguments: the installer's normal flags, `--seed-sidecar <path>`, and
@@ -1823,6 +1866,97 @@ fn install_version_mode(config: &Config, dir: &Path, sidecar_path: &Path) -> Exi
             ExitCode::SUCCESS
         }
         Err(error) => exit_for(Err(error)),
+    }
+}
+
+/// `--migrate-layout`: the installer's one-time move from the flat layout to `versions/<name>/`.
+///
+/// The decision and the filesystem transaction live in [`summrise_launch::migrate_layout`]; this
+/// mode supplies the OS effects: the SCM service when one is registered, a console supervisor
+/// otherwise.
+fn migrate_layout_mode(config: &Config, sidecar: Option<&Path>) -> ExitCode {
+    let service = match open_installed_service(
+        ServiceAccess::QUERY_STATUS | ServiceAccess::STOP | ServiceAccess::START,
+    ) {
+        Ok(service) => service,
+        Err(error) => return exit_for(Err(error)),
+    };
+    let host = InstalledOwner {
+        service,
+        child: RefCell::new(None),
+    };
+    match migrate_layout(
+        config,
+        sidecar,
+        &[LAUNCHER_PUBKEY_HEX, RELEASE_PUBKEY_HEX],
+        &host,
+    ) {
+        Ok(Migration::AlreadyMigrated { current }) => {
+            eprintln!(
+                "launch: {} already exists ({}); the install is already on the versioned layout",
+                current_pointer(&config.install).display(),
+                match current {
+                    Pointer::Version(name) => format!("version {name}"),
+                    Pointer::Missing => "no version".to_string(),
+                    Pointer::Invalid(reason) => format!("unusable: {reason}"),
+                }
+            );
+            ExitCode::SUCCESS
+        }
+        Ok(Migration::Migrated { version }) => {
+            eprintln!(
+                "launch: migrated the flat install into {}; {} names it",
+                version.dir.display(),
+                current_pointer(&config.install).display()
+            );
+            ExitCode::SUCCESS
+        }
+        Err(error) => exit_for(Err(error)),
+    }
+}
+
+/// The owner a migration restarts: the SCM service when this tree has one, else a console child.
+struct InstalledOwner {
+    service: Option<Service>,
+    /// The console child this mode started, so a failed migration can stop it before returning to
+    /// the flat layout. The service owns its child through the SCM and needs no such handle.
+    child: RefCell<Option<Child>>,
+}
+
+impl MigrationHost for InstalledOwner {
+    fn restart(&self, config: &Config) -> Result<u32, String> {
+        if let Some(service) = &self.service {
+            stop_service(service)?;
+            start_service(service)?;
+            return wait_for_pid_file(&app_pid_file(&config.data), Duration::from_secs(30))
+                .ok_or_else(|| "the service started but its app did not write a pid".to_string());
+        }
+        // Console mode: stop the child this mode started (if any) and any supervisor still
+        // running, then start a child from whatever current.txt now names.
+        if let Some(mut child) = self.child.borrow_mut().take() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+        stop_console_owner(config)?;
+        let location = config.app()?;
+        let spawned = spawn_app(config, location.exe(), location.sidecar(), true)
+            .map_err(|error| format!("cannot start {}: {error}", location.exe().display()))?;
+        let pid = spawned.id();
+        let _ = fs::write(app_pid_file(&config.data), pid.to_string());
+        *self.child.borrow_mut() = Some(spawned);
+        Ok(pid)
+    }
+
+    fn require_healthy(&self, config: &Config, version: &str, pid: u32) -> Result<(), String> {
+        if wait_healthy(config.port, version, pid, HEALTH_TIMEOUT, || false) {
+            Ok(())
+        } else {
+            Err(format!(
+                "the restarted app (pid {pid}, version {version}) did not answer /api/health twice \
+                 within {}s",
+                HEALTH_TIMEOUT.as_secs()
+            ))
+        }
     }
 }
 

@@ -310,6 +310,19 @@ Section "Summrise runtime" SecRuntime
     Abort
   ${EndIf}
   FileWrite $6 "health: ok on port ${PORT}$\r$\n"
+  ; THE ONE-TIME MOVE to versions\<name>\ + current.txt, after the flat install has answered health.
+  ; The launcher owns the transaction and its fallback: a migration that cannot serve removes
+  ; current.txt again and restarts the flat layout, so a failure here is reported, never fatal.
+  nsExec::ExecToStack '"$INSTDIR\summrise-launch.exe" --migrate-layout --install "$INSTDIR" --data "${DATA_DIR}" --port ${PORT}'
+  Pop $0
+  Pop $1
+  FileWrite $6 "migrate-layout: exit $0$\r$\n$1$\r$\n"
+  ${If} $0 != "0"
+    FileWrite $6 "migrate-layout failed; the flat layout remains in charge$\r$\n"
+    ${IfNot} ${Silent}
+      MessageBox MB_ICONEXCLAMATION "The device was installed, but the one-time migration to the versioned layout failed (exit $0).$\r$\n$\r$\nIt is still running the flat layout.$\r$\n$\r$\n$1"
+    ${EndIf}
+  ${EndIf}
   ; `onInit` killed the tray so the image could be replaced. The login Run entry only covers the next
   ; sign-in; start it now in the logged-on user's session so an upgrade does not look like a
   ; vanished product. The one-shot task only supplies SYSTEM's SeTcb privilege: the launcher itself

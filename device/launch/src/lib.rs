@@ -2585,6 +2585,387 @@ pub fn install_version(
     commit_version(&config.install, &version)
 }
 
+// ─────────────────────────────────────────────────────────────────────────────────────────────────
+// The one-time migration from a flat install (2026-11-05 design)
+// ─────────────────────────────────────────────────────────────────────────────────────────────────
+
+/// What [`migrate_layout`] found, or did.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Migration {
+    /// `<install>/current.txt` already exists: the machine has been migrated. Nothing was touched,
+    /// so the installer can call the mode on every launch.
+    AlreadyMigrated {
+        /// What the pointer said when it was found; reported, never repaired here.
+        current: Pointer,
+    },
+    /// The flat install now boots from `versions/<name>/`, named by `current.txt`.
+    Migrated {
+        /// The version directory the pointer names.
+        version: Version,
+    },
+}
+
+/// The OS effects `--migrate-layout` needs: the launcher core stays testable on Linux.
+///
+/// The Windows implementation stops the service (or the console supervisor) and starts it again
+/// from whatever `current.txt` now names; the tests implement this with a counter.
+pub trait MigrationHost {
+    /// Stop the install's running app and start it again from the layout the install now has.
+    ///
+    /// Returns the pid of the new child, so the health probe can require that exact process.
+    fn restart(&self, config: &Config) -> Result<u32, String>;
+
+    /// Require two matching `/api/health` answers from `pid` reporting `version`.
+    ///
+    /// [`HEALTH_CONSECUTIVE_PROBES`] consecutive answers are the rule, exactly as `--apply` uses.
+    fn require_healthy(&self, config: &Config, version: &str, pid: u32) -> Result<(), String>;
+}
+
+/// `--migrate-layout`: turn a pre-versioned flat install into `versions/<name>/` + `current.txt`.
+///
+/// The one-way, one-time move the installer makes on a machine that still runs
+/// `<install>/summrise-device.exe` repaired from `baseline/current`:
+///
+/// 1. a `current.txt` already there means the migration happened; report it and change nothing;
+/// 2. take the flat binary and a trusted sidecar (the installer's `--sidecar`, else the baseline
+///    generation the launcher already verifies) and copy both into `versions/<version>/` through a
+///    temporary directory, so a half-written version is never named;
+/// 3. write `current.txt` (temp file + rename; no `previous.txt`: the first migration has no older
+///    version to return to);
+/// 4. restart the owner and require two matching `/api/health` answers.
+///
+/// A failure after step 3 removes the pointer again and restarts the flat layout, so a machine
+/// whose new layout cannot serve stays on the layout it had. The flat exe and baseline are never
+/// removed: they are the fallback for one release.
+pub fn migrate_layout(
+    config: &Config,
+    installer_sidecar: Option<&Path>,
+    pubkeys_hex: &[&str],
+    host: &dyn MigrationHost,
+) -> Result<Migration, String> {
+    let install = &config.install;
+    let pointer = current_pointer(install);
+    if pointer.exists() {
+        return Ok(Migration::AlreadyMigrated {
+            current: read_current_pointer(install),
+        });
+    }
+
+    let (sidecar, sidecar_path) = migration_sidecar(install, installer_sidecar, pubkeys_hex)?;
+    let name = sidecar.version.clone();
+    validate_version_name(&name).map_err(|error| {
+        format!("the sidecar's version {name:?} cannot name a version directory: {error}")
+    })?;
+    let source = app_exe(install);
+    if !source.is_file() {
+        return Err(format!(
+            "the flat app {} is missing; the supervisor repairs it at its next start, so the \
+             migration is refused rather than writing a version directory from nothing",
+            source.display()
+        ));
+    }
+    match sha256_file(&source) {
+        Ok(hash) if hash.eq_ignore_ascii_case(&sidecar.sha256) => {}
+        Ok(hash) => {
+            return Err(format!(
+                "the flat app {} hashes to {hash}, not the trusted sidecar's {}; refusing to \
+                 promote bytes the sidecar does not describe",
+                source.display(),
+                sidecar.sha256
+            ))
+        }
+        Err(error) => {
+            return Err(format!(
+                "cannot hash the flat app {}: {error}",
+                source.display()
+            ))
+        }
+    }
+
+    let pair = StagedPair {
+        exe: source,
+        sidecar_path,
+        sidecar,
+    };
+    let version = stage_migration_version(install, &name, &pair)?;
+    write_current_pointer(install, &name).map_err(|error| {
+        format!(
+            "the version directory is ready, but {} could not be written: {error}; the flat \
+             layout is still in charge",
+            pointer.display()
+        )
+    })?;
+
+    let switched = (|| -> Result<(), String> {
+        let pid = host.restart(config)?;
+        host.require_healthy(config, &version.sidecar.version, pid)
+    })();
+    match switched {
+        Ok(()) => Ok(Migration::Migrated { version }),
+        Err(reason) => {
+            // The machine must stay on the layout it had. The pointer is the one fact that made
+            // the new layout boot, so it goes first; the restart then brings the flat app back.
+            let removal = remove_pointer(&pointer);
+            let fallback = host.restart(config);
+            let mut message = format!(
+                "{reason}; {} was removed so the flat layout stays in charge",
+                pointer.display()
+            );
+            if let Err(error) = removal {
+                message.push_str(&format!(
+                    "; CRITICAL: {} could not be removed ({error}), so the unproven version may be booted",
+                    pointer.display()
+                ));
+            }
+            match fallback {
+                Ok(_) => message.push_str(" and the flat app was started again"),
+                Err(error) => message.push_str(&format!(
+                    "; CRITICAL: the flat app could not be started again ({error})"
+                )),
+            }
+            Err(message)
+        }
+    }
+}
+
+/// The sidecar a migration trusts, and where it was read.
+///
+/// The installer's `--sidecar` wins when it passed one; otherwise the baseline generation the
+/// supervisor already boots from is the trusted description of the flat binary. Either way the
+/// signature must verify with a key this build carries before the sidecar can name a version.
+fn migration_sidecar(
+    install: &Path,
+    installer_sidecar: Option<&Path>,
+    pubkeys_hex: &[&str],
+) -> Result<(Sidecar, PathBuf), String> {
+    if let Some(path) = installer_sidecar {
+        let sidecar = load_sidecar(path).map_err(|error| {
+            format!(
+                "cannot read the installer's sidecar {}: {error}",
+                path.display()
+            )
+        })?;
+        verify_migration_signature(&sidecar, pubkeys_hex).map_err(|error| {
+            format!(
+                "the installer's sidecar {} is not trusted: {error}",
+                path.display()
+            )
+        })?;
+        return Ok((sidecar, path.to_path_buf()));
+    }
+
+    let keyed = pubkeys_hex.iter().any(|key| *key != PLACEHOLDER_PUBKEY_HEX);
+    let choice = if keyed {
+        resolve_baseline_signed_with(install, pubkeys_hex)
+    } else {
+        // An unkeyed build cannot check a signature; the hash-consistent baseline is the whole
+        // answer, exactly as `resolve_baseline` treats it for every other reader.
+        resolve_baseline(install)
+    };
+    match choice {
+        BaselineChoice::Current(baseline) | BaselineChoice::Previous(baseline) => {
+            Ok((baseline.sidecar, baseline.sidecar_path))
+        }
+        BaselineChoice::NeedsHuman(reason) => {
+            Err(format!("cannot migrate the flat install: {reason}"))
+        }
+    }
+}
+
+/// Verify a migration sidecar, unless this build carries no key at all.
+fn verify_migration_signature(sidecar: &Sidecar, pubkeys_hex: &[&str]) -> Result<(), String> {
+    if !pubkeys_hex.iter().any(|key| *key != PLACEHOLDER_PUBKEY_HEX) {
+        return Ok(());
+    }
+    verify_any_signature(sidecar, pubkeys_hex)
+}
+
+/// Create one fresh directory with an unpredictable name under `parent`.
+///
+/// The same `RandomState` nonce and `create_new` discipline as [`create_temp_sibling`], for a
+/// directory: a migration is built here and renamed into `versions/<name>` only when complete.
+fn create_temp_dir(parent: &Path, tag: &str) -> io::Result<PathBuf> {
+    use std::collections::hash_map::RandomState;
+    use std::hash::{BuildHasher, Hasher};
+
+    for _ in 0..16 {
+        let nonce = RandomState::new().build_hasher().finish();
+        let directory = parent.join(format!(".{tag}.{nonce:016x}.tmp"));
+        match fs::create_dir(&directory) {
+            Ok(()) => return Ok(directory),
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(error),
+        }
+    }
+    Err(io::Error::new(
+        io::ErrorKind::AlreadyExists,
+        format!(
+            "cannot create a temporary directory under {} after 16 attempts",
+            parent.display()
+        ),
+    ))
+}
+
+/// Reuse a version directory that already exists, or refuse because it is not the same release.
+///
+/// A version directory is immutable once named: the migration is allowed to find its own earlier
+/// attempt (or the device's stager having put the same release there) and reuse it, but different
+/// bytes are never written over a directory a running process may be executing.
+fn reuse_existing_version(
+    install: &Path,
+    name: &str,
+    sidecar: &Sidecar,
+) -> Result<Version, String> {
+    let dir = version_dir(install, name);
+    let metadata = fs::symlink_metadata(&dir)
+        .map_err(|error| format!("cannot inspect {}: {error}", dir.display()))?;
+    if metadata.file_type().is_symlink() {
+        return Err(format!(
+            "version {name:?} already exists at {} as a symbolic link; refusing to write through it",
+            dir.display()
+        ));
+    }
+    if !metadata.is_dir() {
+        return Err(format!(
+            "version {name:?} already exists at {} and is not a directory",
+            dir.display()
+        ));
+    }
+    let exe = version_exe(install, name);
+    match sha256_file(&exe) {
+        Ok(hash) if hash.eq_ignore_ascii_case(&sidecar.sha256) => {}
+        Ok(_) => {
+            return Err(format!(
+                "version {name:?} is already installed at {} with different bytes; refusing to \
+                 overwrite a version directory that may be running",
+                exe.display()
+            ))
+        }
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            return Err(format!(
+                "version {name:?} already exists at {} without {}, so it is not a complete \
+                 version; refusing to overwrite it",
+                dir.display(),
+                APP_EXE
+            ))
+        }
+        Err(error) => {
+            return Err(format!(
+            "version {name:?} is already installed at {} but its binary cannot be read: {error}",
+            exe.display()
+        ))
+        }
+    }
+    let on_disk = load_sidecar(&version_sidecar(install, name)).map_err(|error| {
+        format!(
+            "version {name:?} is already installed at {} but its sidecar is unusable: {error}",
+            dir.display()
+        )
+    })?;
+    if on_disk.version != sidecar.version || !on_disk.sha256.eq_ignore_ascii_case(&sidecar.sha256) {
+        return Err(format!(
+            "version {name:?} is already installed with a different sidecar at {}; refusing to \
+             rewrite it",
+            version_sidecar(install, name).display()
+        ));
+    }
+    inspect_version(install, name)
+}
+
+/// Copy a verified flat pair into `versions/<name>` through a temporary directory, then rename it.
+///
+/// The rename is the only step that makes the directory visible, so a kill leaves either no
+/// `versions/<name>` or a complete one. An existing directory with the same bytes is reused; one
+/// with different bytes is a refusal, never an overwrite.
+fn stage_migration_version(
+    install: &Path,
+    name: &str,
+    pair: &StagedPair,
+) -> Result<Version, String> {
+    validate_version_name(name)?;
+    if !is_sha256_hex(&pair.sidecar.sha256) {
+        return Err(format!(
+            "the trusted sidecar's sha256 is not 64 hex characters: {:?}",
+            pair.sidecar.sha256
+        ));
+    }
+    let versions = versions_dir(install);
+    fs::create_dir_all(&versions).map_err(|error| {
+        format!(
+            "cannot create the versions directory {}: {error}",
+            versions.display()
+        )
+    })?;
+    let target = version_dir(install, name);
+    if target.exists() {
+        return reuse_existing_version(install, name, &pair.sidecar);
+    }
+
+    let staging = create_temp_dir(&versions, "migrating").map_err(|error| {
+        format!(
+            "cannot create a staging directory under {}: {error}",
+            versions.display()
+        )
+    })?;
+    let built = (|| -> Result<(), String> {
+        save_sidecar(&staging.join(VERSION_SIDECAR), &pair.sidecar).map_err(|error| {
+            format!(
+                "cannot write the version sidecar in {}: {error}",
+                staging.display()
+            )
+        })?;
+        let staged_exe = staging.join(APP_EXE);
+        copy_file_synced(&pair.exe, &staged_exe).map_err(|error| {
+            format!(
+                "cannot copy {} into {}: {error}",
+                pair.exe.display(),
+                staging.display()
+            )
+        })?;
+        match sha256_file(&staged_exe) {
+            Ok(hash) if hash.eq_ignore_ascii_case(&pair.sidecar.sha256) => Ok(()),
+            Ok(hash) => Err(format!(
+                "the copied version binary hashes to {hash}, not the sidecar's {}",
+                pair.sidecar.sha256
+            )),
+            Err(error) => Err(format!(
+                "cannot hash the copied version binary {}: {error}",
+                staged_exe.display()
+            )),
+        }?;
+        sync_dir(&staging).map_err(|error| format!("cannot flush {}: {error}", staging.display()))
+    })();
+    if let Err(error) = built {
+        let _ = fs::remove_dir_all(&staging);
+        return Err(error);
+    }
+
+    if let Err(error) = fs::rename(&staging, &target) {
+        let _ = fs::remove_dir_all(&staging);
+        if target.exists() {
+            // Another writer won the rename. Reuse its directory only when it is this release.
+            return reuse_existing_version(install, name, &pair.sidecar).map_err(|conflict| {
+                format!(
+                    "cannot move the staged version into {}: {error}; {conflict}",
+                    target.display()
+                )
+            });
+        }
+        return Err(format!(
+            "cannot move the staged version into {}: {error}",
+            target.display()
+        ));
+    }
+    sync_dir(&versions).map_err(|error| {
+        format!(
+            "the version directory {} is in place but {} could not be flushed: {error}",
+            target.display(),
+            versions.display()
+        )
+    })?;
+    inspect_version(install, name)
+}
+
 /// The pointer move a rollback performed.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PointerRollback {
@@ -6061,6 +6442,266 @@ mod tests {
         assert_eq!(
             read_current_pointer(&install),
             Pointer::Version("0.3.274".to_string())
+        );
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────────────────────────
+    // The one-time migration from a flat install (2026-11-05 design)
+    // ─────────────────────────────────────────────────────────────────────────────────────────────
+
+    /// A pre-versioned install: the flat app the supervisor runs, beside the baseline generation
+    /// the launcher repairs it from. This is exactly the tree the installer leaves before the
+    /// migration step.
+    fn flat_install(tmp: &TempDir, version: &str, bytes: &[u8]) -> PathBuf {
+        let install = install_dir(tmp, "install");
+        fs::write(app_exe(&install), bytes).expect("write the flat app");
+        write_generation(&install, Generation::Current, version, bytes);
+        install
+    }
+
+    /// The OS effects of a migration, without an SCM: one restart counter and a health verdict.
+    struct MigrationProbe {
+        healthy: bool,
+        restarts: std::cell::Cell<u32>,
+        health_checks: std::cell::Cell<u32>,
+    }
+
+    impl MigrationProbe {
+        fn new(healthy: bool) -> MigrationProbe {
+            MigrationProbe {
+                healthy,
+                restarts: std::cell::Cell::new(0),
+                health_checks: std::cell::Cell::new(0),
+            }
+        }
+    }
+
+    impl MigrationHost for MigrationProbe {
+        fn restart(&self, _config: &Config) -> Result<u32, String> {
+            self.restarts.set(self.restarts.get() + 1);
+            Ok(4_242)
+        }
+
+        fn require_healthy(
+            &self,
+            _config: &Config,
+            _version: &str,
+            pid: u32,
+        ) -> Result<(), String> {
+            self.health_checks.set(self.health_checks.get() + 1);
+            assert_eq!(
+                pid, 4_242,
+                "health is asked about the process restart started"
+            );
+            if self.healthy {
+                Ok(())
+            } else {
+                Err("the app did not answer /api/health twice".to_string())
+            }
+        }
+    }
+
+    #[test]
+    fn a_flat_install_migrates_into_a_version_directory_and_keeps_the_flat_fallback() {
+        let tmp = TempDir::new("migrate-flat");
+        let install = flat_install(&tmp, "0.3.274", b"the flat build");
+        let host = MigrationProbe::new(true);
+
+        let outcome = migrate_layout(
+            &config_for(&install),
+            None,
+            &[test_pubkey_hex().as_str()],
+            &host,
+        )
+        .expect("a flat install with a trusted baseline migrates");
+
+        let version = match outcome {
+            Migration::Migrated { version } => version,
+            other => panic!("expected Migrated, got {other:?}"),
+        };
+        assert_eq!(version.name, "0.3.274");
+        assert_eq!(
+            fs::read(version_exe(&install, "0.3.274")).expect("the version exe"),
+            b"the flat build"
+        );
+        assert_eq!(
+            load_sidecar(&version_sidecar(&install, "0.3.274"))
+                .expect("the version sidecar")
+                .version,
+            "0.3.274"
+        );
+        assert_eq!(
+            fs::read_to_string(current_pointer(&install)).expect("the pointer"),
+            "0.3.274\n",
+            "the pointer names the directory, one line"
+        );
+        assert!(
+            app_exe(&install).is_file(),
+            "the flat exe stays as the one-release fallback"
+        );
+        assert!(
+            generation_exe(&install, CURRENT_DIR).is_file(),
+            "the baseline stays as the fallback the flat app boots from"
+        );
+        assert!(
+            !previous_pointer(&install).exists(),
+            "the first migration has no previous version to record"
+        );
+        let leftovers: Vec<String> = fs::read_dir(versions_dir(&install))
+            .expect("the versions directory")
+            .map(|entry| {
+                entry
+                    .expect("an entry")
+                    .file_name()
+                    .to_string_lossy()
+                    .into_owned()
+            })
+            .filter(|name| name.starts_with('.'))
+            .collect();
+        assert!(
+            leftovers.is_empty(),
+            "the staging directory is renamed into place, not left behind: {leftovers:?}"
+        );
+        assert_eq!(host.restarts.get(), 1, "the owner restarted once");
+        assert_eq!(host.health_checks.get(), 1, "health was required once");
+    }
+
+    #[test]
+    fn a_second_migration_is_a_no_op_and_leaves_the_pointer_alone() {
+        let tmp = TempDir::new("migrate-twice");
+        let install = flat_install(&tmp, "0.3.274", b"the flat build");
+        let host = MigrationProbe::new(true);
+        let config = config_for(&install);
+        migrate_layout(&config, None, &[test_pubkey_hex().as_str()], &host)
+            .expect("the first migration");
+        let pointer_before = fs::read(current_pointer(&install)).expect("the pointer");
+        let restarts_before = host.restarts.get();
+
+        let second = migrate_layout(&config, None, &[test_pubkey_hex().as_str()], &host)
+            .expect("a migrated install is not an error");
+
+        assert!(
+            matches!(second, Migration::AlreadyMigrated { .. }),
+            "the second run must report that it did nothing: {second:?}"
+        );
+        assert_eq!(
+            fs::read(current_pointer(&install)).expect("the pointer"),
+            pointer_before,
+            "an idempotent run does not rewrite or move the pointer"
+        );
+        assert_eq!(
+            host.restarts.get(),
+            restarts_before,
+            "an idempotent run does not restart the service"
+        );
+    }
+
+    #[test]
+    fn a_failed_health_check_removes_the_pointer_and_returns_to_the_flat_layout() {
+        let tmp = TempDir::new("migrate-unhealthy");
+        let install = flat_install(&tmp, "0.3.274", b"the flat build");
+        let host = MigrationProbe::new(false);
+
+        let error = migrate_layout(
+            &config_for(&install),
+            None,
+            &[test_pubkey_hex().as_str()],
+            &host,
+        )
+        .expect_err("a version that cannot serve must not stay current");
+
+        assert!(error.contains("health"), "{error}");
+        assert!(
+            !current_pointer(&install).exists(),
+            "the pointer is removed so the flat layout is in charge again"
+        );
+        assert_eq!(
+            host.restarts.get(),
+            2,
+            "one restart into the version, one back into the flat layout"
+        );
+        assert!(
+            app_exe(&install).is_file(),
+            "the flat exe was never removed"
+        );
+        match locate_app(&install).expect("the flat install still resolves") {
+            AppLocation::Legacy { exe, .. } => assert_eq!(exe, app_exe(&install)),
+            other => panic!("expected the flat layout after the failure, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn an_existing_version_directory_with_different_bytes_is_never_overwritten() {
+        let tmp = TempDir::new("migrate-conflict");
+        let install = flat_install(&tmp, "0.3.274", b"the flat build");
+        let existing = write_version(&install, "0.3.274", b"a different build already installed");
+        let sidecar_before = fs::read(&existing.sidecar_path).expect("the existing sidecar");
+        let host = MigrationProbe::new(true);
+
+        let error = migrate_layout(
+            &config_for(&install),
+            None,
+            &[test_pubkey_hex().as_str()],
+            &host,
+        )
+        .expect_err("a conflicting version directory is a refusal");
+
+        assert!(
+            error.contains("already") || error.contains("different"),
+            "the reason names the conflict: {error}"
+        );
+        assert!(
+            !current_pointer(&install).exists(),
+            "a conflict must not write a pointer"
+        );
+        assert_eq!(
+            fs::read(&existing.exe).expect("the existing version"),
+            b"a different build already installed",
+            "the existing version directory is untouched"
+        );
+        assert_eq!(
+            fs::read(&existing.sidecar_path).expect("the existing sidecar"),
+            sidecar_before,
+            "the existing sidecar is untouched"
+        );
+        assert_eq!(host.restarts.get(), 0, "nothing was restarted");
+    }
+
+    #[test]
+    fn the_installers_sidecar_is_preferred_over_the_baseline_one() {
+        let tmp = TempDir::new("migrate-sidecar");
+        let install = flat_install(&tmp, "0.3.271", b"the flat build");
+        let installer_sidecar = tmp.path().join("summrise-device.sidecar.json");
+        save_sidecar(
+            &installer_sidecar,
+            &sidecar_for("0.3.274", b"the flat build", &signing_key()),
+        )
+        .expect("the installer's sidecar");
+        let host = MigrationProbe::new(true);
+
+        let outcome = migrate_layout(
+            &config_for(&install),
+            Some(&installer_sidecar),
+            &[test_pubkey_hex().as_str()],
+            &host,
+        )
+        .expect("the installer's sidecar names the version directory");
+
+        let version = match outcome {
+            Migration::Migrated { version } => version,
+            other => panic!("expected Migrated, got {other:?}"),
+        };
+        assert_eq!(
+            version.name, "0.3.274",
+            "the installer's sidecar wins over baseline/current"
+        );
+        assert!(
+            !version_dir(&install, "0.3.271").exists(),
+            "the baseline's version is not the one that becomes current"
+        );
+        assert_eq!(
+            fs::read_to_string(current_pointer(&install)).expect("the pointer"),
+            "0.3.274\n"
         );
     }
 }
