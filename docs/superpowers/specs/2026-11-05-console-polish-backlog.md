@@ -52,7 +52,7 @@ Ranked by honesty first. Each item names its measurement and its gate.
 3. **A machine's scope must read that machine's window.** *(Done 2026-11-05, 3dfaaeb: one window device derived from the scope; a switch is exactly one `/audit?device=` request; the cap sentence names the machine; chips list every machine and refetch rather than filter the wrong window.)* Activity fetches the fleet's 1000 and
    filters in the page; `GET /audit?device=` exists. Fetch the machine's own window when a chip is
    selected, and let the cap sentence name whose window was cut. **S.**
-4. **The hub's day must be reread, not remembered.** The machine window is fetched once per device;
+4. **The hub's day must be reread, not remembered.** *(Done 2026-11-05, f8ded1c: reread on the 5 s tick and on stream recovery, single-flight per machine; the band reads the machine's own merged window; a stale window says "Read N ago." until a reread includes the live line.)* The machine window is fetched once per device;
    after a reconnect or a hiccup the day shows a hole with no cap sentence and the band says "Quiet"
    while rows exist. Refetch on the app's 5 s tick and on stream recovery; say when it was read. **M.**
 5. **Stop claiming every call is in the record.** *(Done 2026-11-05, f394b63: both empty states name the boundary — calls routed through the console are written; a call straight to a machine's own endpoint is not.)*** Both empty states say "Every call a client makes is
