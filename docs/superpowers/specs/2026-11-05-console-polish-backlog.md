@@ -385,3 +385,21 @@ the old version's directory is untouched — so the operator's rollback is one p
 non-zero ⇒ the old version still serves (the launcher's start watch rolls `current.txt` back to
 `previous.txt` after two failed starts, and the pointers are left in place for the operator's own
 rollback).
+
+## Updates, 2026-11-05 09:45 UTC: the upgrade path is proven on two machines
+
+Two machines walked 0.3.275 → 0.3.277 through the fixed chain (stage `versions\<V>\`, probe the
+candidate on a scratch port while the live `device.lock` stays locked, write the pointer atomically,
+restart, require `/api/health` to report the new version):
+
+- DESKTOP-9VH92BJ: 0.3.275 → **0.3.277**, online, and `/fleet` carries its own words —
+  `update.current = 0.3.277`, `update.verdict = {outcome: ok, detail: started 0.3.277}`.
+- DESKTOP-CPH4KB2: 0.3.275 → **0.3.277**, online.
+- DESKTOP-14RJCR8: still 0.3.275 and **off the tailnet** (asleep since 08:21). It is not a failed
+  update: a failed service leaves the peer online. Upgraded when it wakes.
+
+The three bugs that made every earlier install a no-op are fixed and tested: the probe copied a
+locked `device.lock` (os error 33), the installer only ever ran `--migrate-layout`, and a moved
+pointer did not restart the process. The contract now holds: **setup exit 0 ⇒ `/api/health` reports
+the installed version; non-zero ⇒ the old version still serves and the pointers are left for a
+one-write rollback.**
