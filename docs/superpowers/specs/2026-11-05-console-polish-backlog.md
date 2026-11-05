@@ -82,7 +82,7 @@ All six console-only; the last is the deletion. Ranked by how often the friction
    read "—" and the record says "operator session" (`AuditTable.tsx:579-581`); the evidence has no
    Token fact. Carry `identity.token_id` through the event and `LiveLine`, show "Token <name>", and a
    Manage that opens the Tokens sheet on that record; no token means "signed grant". **M.**
-3. **Show the call that is in flight.** Calls publish only after the device answers and the proxy cuts
+3. **Show the call that is in flight.** *(Done 2026-11-05, 03eb857 + 0438445: a memory-only registry publishes `started`/`finished` and carries the running set in the snapshot; the band shows `running runs.exec · 1m 12s` for client calls and hides console ones. Note: the proxy cuts a call at 90 s and its 504 publishes `finished`, so the audit's `3m 12s` sample is unreachable without raising that cut — the bound is the truth.)* Calls publish only after the device answers and the proxy cuts
    a run at 90 s while it keeps running, so the band says "Quiet" for a three-minute `runs.exec` and
    the timeline has no row. A non-audit `started` frame at `tools/call`, cleared by the result or the
    90 s cut; the band shows "running runs.exec · 3m 12s". **M.**
