@@ -313,6 +313,11 @@ impl Console {
             // connection the moment it lands, which is the shape the device's own panel always had.
             .route("/terminal/:device/:session/stream", get(terminal_stream))
             .route("/audit", get(list_audit))
+            // **WHAT THE WINDOW READS.** `/audit` answers lines; this answers the file those lines
+            // came from — its name, size, both ends, the one older generation, and the retention
+            // rule as configured. The page states it once beside the cap sentence: that sentence
+            // says what is drawn, this fact says what is read.
+            .route("/audit/source", get(audit_source))
             // **THE DAY, NOT THE WINDOW.** `/audit` is a bounded window; this is the local calendar
             // day, scanned backwards from the newest line to the same midnight the page's timeline
             // cuts at. The hub's day line and Activity's header read it; the window sentence keeps
@@ -4749,6 +4754,19 @@ fn log_limit(limit: Option<String>) -> Result<usize, ApiError> {
     };
 
     Ok(limit.min(MAX_LOG_LIMIT))
+}
+
+/// `GET /audit/source`: the file the audit reads, its size and the moments its lines span.
+///
+/// A separate route rather than fields on `/audit`: that answer is a bare array of lines and the
+/// page reads it as one. This fact is about the reader, not about a window or a day, so neither
+/// route's answer has to become about both. Every figure comes from the file or from the writer's
+/// configuration; what could not be read is omitted rather than served as zero.
+async fn audit_source(
+    State(app): State<AppState>,
+    _: OperatorSession,
+) -> Json<crate::jsonl::SourceFacts> {
+    Json(app.audit.source().await)
 }
 
 /// `GET /audit`: the operator's own actions, newest first, one JSON line each.

@@ -266,6 +266,16 @@ impl Audit {
         self.file.newest(limit).await
     }
 
+    /// The file this audit reads, its size and the moments its lines span, for the page's one
+    /// source line.
+    ///
+    /// A fact about the reader, not about a window or a day: `/audit` answers lines and
+    /// `/audit/day` answers a day, and neither can carry "which file is this" without making every
+    /// answer about both.
+    pub(crate) async fn source(&self) -> crate::jsonl::SourceFacts {
+        self.file.source().await
+    }
+
     /// The newest `limit` lines that name `device`, newest first.
     ///
     /// The filter is applied during the read, not to [`Audit::newest`]'s window: another machine's

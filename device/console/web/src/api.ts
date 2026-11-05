@@ -203,6 +203,24 @@ export type AuditDay = {
 };
 
 /**
+ * The file the audit window is read from, as `/audit/source` serves it.
+ *
+ * Every field describes a fact the server could read: the current file's name, size and the moments
+ * of its first and last lines, and the one older generation kept beside it. A missing or unreadable
+ * file leaves its facts out rather than serving zero, and the page then says nothing at all.
+ * `max_bytes` and `rotations` are the writer's configured retention, not a measurement.
+ */
+export type AuditSource = {
+  file?: string;
+  bytes?: number;
+  oldest_ts_ms?: number;
+  newest_ts_ms?: number;
+  max_bytes?: number;
+  rotations?: number;
+  rotated?: { file?: string; oldest_ts_ms?: number };
+};
+
+/**
  * One permanent token's metadata, as the console lists it: never the token itself.
  *
  * The plaintext `srm_…` is returned once by `createToken` and exists nowhere else — the console keeps
@@ -351,6 +369,9 @@ export const api = {
   // read; Activity's header uses this so a sliding window cannot shrink the day's number.
   auditDay: (device?: string) =>
     call<AuditDay>(`/audit/day${device ? `?device=${encodeURIComponent(device)}` : ""}`),
+  // **WHAT THE WINDOW READS.** The file's name, size, the moments its lines span and its one older
+  // generation. A separate read from `/audit` because it is a fact about the reader, not a line.
+  auditSource: () => call<AuditSource>("/audit/source"),
   // The refusal log is a separate file with the audit line's shape: same route rules, same limit, and
   // no token id because the caller never authenticated.
   health: () => call<{ version: string; devices: number }>("/health"),

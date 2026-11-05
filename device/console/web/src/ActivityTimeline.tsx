@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
-import type { AuditLine, Device, TokenMeta } from "./api";
+import type { AuditLine, AuditSource, Device, TokenMeta } from "./api";
 import {
   ACTIVITY_LIMIT,
   capSentence,
@@ -9,6 +9,7 @@ import {
 import { isChannelBoundary, isClientCall } from "./activitySummary";
 import { auditFailed } from "./auditFilter";
 import { ageAt, shortId } from "./format";
+import { AuditSourceLine } from "./AuditSourceLine";
 import { ConsoleCaller } from "./CallerMark";
 import { tokenFact } from "./tokenFact";
 
@@ -566,6 +567,11 @@ export function ActivityTimeline(props: {
   loading?: boolean;
   /** The machine whose window is being read, or `null` for the fleet's. */
   loadingMachine?: string | null;
+  /**
+   * The file the window is read from, as `/audit/source` served it. The line beside the cap
+   * sentence states it; absent or unreadable facts draw nothing rather than a guess.
+   */
+  source?: AuditSource | null;
 }) {
   const [now, setNow] = useState(() => Date.now());
   const [openKey, setOpenKey] = useState<string | null>(null);
@@ -733,6 +739,7 @@ export function ActivityTimeline(props: {
             )}
         </p>
       )}
+      {!props.loading && <AuditSourceLine source={props.source} />}
       {!props.loading && (days.length === 0 ? (
         filtering ? (
           // A filter that hides every row is not "nothing happened": the page names what narrowed

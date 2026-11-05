@@ -41,6 +41,50 @@ pub(crate) struct JsonLines {
     append: tokio::sync::Mutex<()>,
 }
 
+/// How many older generations a [`JsonLines`] keeps beside the current file. The rotation is
+/// `audit.1.jsonl` and nothing beyond it, so the retention rule is this number and [`JsonLines`]'s
+/// byte cap, stated by the source route instead of being inferred from what the disk happens to hold.
+pub(crate) const ROTATIONS: usize = 1;
+
+/// What a reader can prove about the file it reads: the facts a page states instead of guessing.
+///
+/// Every field is optional except the configured retention: a missing or unreadable file has no
+/// name, size or moments to report, and a zero would be an invented fact. The current file's facts
+/// are present only when it was read; the rotated predecessor is present only when it exists, and
+/// its oldest moment only when its first line was readable.
+#[derive(Debug, Serialize)]
+pub(crate) struct SourceFacts {
+    /// The current file's name, without the host's directory.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) file: Option<String>,
+    /// The current file's size in bytes.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) bytes: Option<u64>,
+    /// The moment the current file's oldest line carries.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) oldest_ts_ms: Option<u64>,
+    /// The moment the current file's newest line carries.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) newest_ts_ms: Option<u64>,
+    /// The size cap the writer enforces on the current file.
+    pub(crate) max_bytes: u64,
+    /// How many older generations the writer keeps.
+    pub(crate) rotations: usize,
+    /// The one predecessor, when it exists.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) rotated: Option<RotatedFacts>,
+}
+
+/// The predecessor generation, as far as it could be read.
+#[derive(Debug, Serialize)]
+pub(crate) struct RotatedFacts {
+    /// The predecessor's name, without the host's directory.
+    pub(crate) file: String,
+    /// The moment its oldest line carries, when its first line was readable.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) oldest_ts_ms: Option<u64>,
+}
+
 impl JsonLines {
     /// The file at `path`, capped at `max_bytes`.
     pub(crate) fn new(path: PathBuf, max_bytes: u64) -> JsonLines {
@@ -49,6 +93,59 @@ impl JsonLines {
             path,
             max_bytes,
             append: tokio::sync::Mutex::new(()),
+        }
+    }
+
+    /// What this reader is reading, and how far back it goes.
+    ///
+    /// One read of the current file gives its name, its size and both ends; the predecessor is
+    /// reported only when it exists, and its oldest moment only when its bytes were readable. A
+    /// file that cannot be read contributes no name, no size and no moment — never a zero.
+    pub(crate) async fn source(&self) -> SourceFacts {
+        let _reading = self.append.lock().await;
+        let (file, bytes, oldest_ts_ms, newest_ts_ms) = match tokio::fs::read(&self.path).await {
+            Ok(bytes) => (
+                Some(file_name_of(&self.path)),
+                Some(bytes.len() as u64),
+                first_line_ts(&bytes),
+                last_line_ts(&bytes),
+            ),
+            Err(error) => {
+                if error.kind() != std::io::ErrorKind::NotFound {
+                    eprintln!(
+                        "summrise-console: could not read {}: {error}",
+                        self.path.display()
+                    );
+                }
+                (None, None, None, None)
+            }
+        };
+
+        let rotated = match tokio::fs::read(&self.rotated).await {
+            Ok(bytes) => Some(RotatedFacts {
+                file: file_name_of(&self.rotated),
+                oldest_ts_ms: first_line_ts(&bytes),
+            }),
+            // A predecessor that exists but cannot be read is still a rotation the page must state;
+            // only its moment is withheld. Anything else, "not found" included, means no
+            // predecessor the console can prove.
+            Err(_) => match tokio::fs::metadata(&self.rotated).await {
+                Ok(_) => Some(RotatedFacts {
+                    file: file_name_of(&self.rotated),
+                    oldest_ts_ms: None,
+                }),
+                Err(_) => None,
+            },
+        };
+
+        SourceFacts {
+            file,
+            bytes,
+            oldest_ts_ms,
+            newest_ts_ms,
+            max_bytes: self.max_bytes,
+            rotations: ROTATIONS,
+            rotated,
         }
     }
 
@@ -270,4 +367,32 @@ impl JsonLines {
         }
         lines
     }
+}
+
+/// The name a page may state: the base name, never the host's directory.
+fn file_name_of(path: &Path) -> String {
+    path.file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_else(|| path.to_string_lossy().into_owned())
+}
+
+/// The moment the file's first readable line carries: the oldest thing the file proves.
+fn first_line_ts(bytes: &[u8]) -> Option<u64> {
+    String::from_utf8_lossy(bytes).lines().find_map(line_ts_ms)
+}
+
+/// The moment the file's last readable line carries: the newest thing the file proves.
+fn last_line_ts(bytes: &[u8]) -> Option<u64> {
+    String::from_utf8_lossy(bytes)
+        .lines()
+        .rev()
+        .find_map(line_ts_ms)
+}
+
+/// One line's `ts_ms`, or nothing when the line is torn or carries no moment.
+fn line_ts_ms(line: &str) -> Option<u64> {
+    serde_json::from_str::<Value>(line)
+        .ok()?
+        .get("ts_ms")
+        .and_then(Value::as_u64)
 }

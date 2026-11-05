@@ -6,6 +6,7 @@ import {
   NoAnswer,
   type AuditDay,
   type AuditLine,
+  type AuditSource,
   type Device,
   type Session,
   type TokenMeta
@@ -89,6 +90,12 @@ export function App() {
     day: AuditDay;
   } | null>(null);
   /**
+   * The file the window is read from, from `/audit/source`. It is the same file whatever the scope,
+   * so a scope change does not refetch it for a different answer; a failed read leaves `null` and
+   * the cap sentence's neighbour draws nothing rather than a guess.
+   */
+  const [auditSource, setAuditSource] = useState<AuditSource | null>(null);
+  /**
    * Read the audit window again into the page.
    *
    * One function for every reader: the five-second poll, the stream's catch-up after a dropped
@@ -110,18 +117,23 @@ export function App() {
     const device = auditWindowDevice.current;
     const generation = ++auditReadStarted.current;
     setAuditReadDevice(device);
-    // One snapshot, two reads: the rows the page draws from the window, and the day those rows
-    // belong to. Asking together keeps the header and the list on the same clock; the window may be
-    // smaller than the day, and that is exactly what the two numbers are allowed to say.
-    const [lines, day] = await Promise.all([
+    // One snapshot, three reads: the rows the page draws from the window, the day those rows
+    // belong to, and the file both were read from. Asking together keeps the header, the list and
+    // the source line on the same clock; the window may be smaller than the day, and that is
+    // exactly what the two numbers are allowed to say.
+    const [lines, day, source] = await Promise.all([
       device === null ? api.audit(AUDIT_WINDOW) : api.audit(AUDIT_WINDOW, device),
-      api.auditDay(device ?? undefined)
+      api.auditDay(device ?? undefined),
+      // The source line is a companion fact, not the window: a failed read here must not fail the
+      // rows, and the page then says nothing about the file rather than guessing.
+      api.auditSource().catch(() => null)
     ]);
     if (generation > auditReadApplied.current) {
       auditReadApplied.current = generation;
       setAudit(lines);
       setAuditDevice(device);
       setDaySummary({ device, day });
+      setAuditSource(source);
     }
   }, []);
   // The same index, streamed: what the AI is doing now, not what it did before the last read.
@@ -937,6 +949,7 @@ export function App() {
                   windowCounts={shownCounts}
                   loading={auditReadingOther}
                   loadingMachine={auditReadingName}
+                  source={auditSource}
                   query={activityFilter.tool}
                   onQuery={(tool) => setActivityFilter((current) => ({ ...current, tool }))}
                   clientsOnly={activityClientsOnly}
@@ -970,6 +983,7 @@ export function App() {
                   windowCounts={shownTableCounts}
                   loading={auditReadingOther}
                   loadingMachine={auditReadingName}
+                  source={auditSource}
                   devices={devices}
                   tokens={tokens}
                   selectedDeviceId={selected}

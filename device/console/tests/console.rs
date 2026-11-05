@@ -4544,6 +4544,103 @@ async fn the_audit_cap_rotates_to_one_generation_and_discards_the_older_one() {
     assert_eq!(lines[0]["kind"], json!("auth"));
 }
 
+// ---- the audit source -------------------------------------------------------------------------
+
+/// `/audit/source` names the file it reads, its size and the moments of its first and last lines,
+/// and the retention rule as the fixture configured it. With no `audit.1.jsonl`, the rotated
+/// predecessor is omitted: a page must not draw an older generation the disk does not have.
+#[tokio::test]
+async fn the_audit_source_reports_the_current_file_and_omits_an_absent_rotation() {
+    const CAP: u64 = 4096;
+    let fixture = Fixture::with_audit_cap("audit-source-current", CAP);
+    let session = fixture.authenticate().await;
+    let lines = vec![
+        json!({ "ts_ms": START_MS + 1_000, "kind": "auth", "status": 200 }),
+        json!({ "ts_ms": START_MS + 2_000, "kind": "auth", "status": 200 }),
+    ];
+    seed_audit_file(&fixture, "audit.jsonl", &lines);
+    let bytes = fs::metadata(fixture.config.data.join("audit.jsonl"))
+        .expect("the seeded audit file")
+        .len();
+
+    let (status, body) = send(fixture.app(), get("/audit/source", Some(&session))).await;
+    assert_eq!(status, StatusCode::OK, "the source read: {body}");
+    assert_eq!(body["file"], json!("audit.jsonl"));
+    assert_eq!(body["bytes"], json!(bytes));
+    assert_eq!(body["oldest_ts_ms"], json!(START_MS + 1_000));
+    assert_eq!(body["newest_ts_ms"], json!(START_MS + 2_000));
+    assert_eq!(
+        body["max_bytes"],
+        json!(CAP),
+        "the cap is the fixture's configured one, not the 8 MiB default: {body}"
+    );
+    assert_eq!(body["rotations"], json!(1));
+    assert!(
+        body.get("rotated").is_none(),
+        "no predecessor exists, so the answer must omit it: {body}"
+    );
+}
+
+/// A rotated predecessor that exists is reported with the moment its oldest line carries. The
+/// current file's facts stay its own: the newer moment is the current file's last line, not the
+/// rotated generation's.
+#[tokio::test]
+async fn the_audit_source_reports_a_present_rotation_and_its_oldest_line() {
+    let fixture = Fixture::new("audit-source-rotated");
+    let session = fixture.authenticate().await;
+    seed_audit_file(
+        &fixture,
+        "audit.1.jsonl",
+        &[
+            json!({ "ts_ms": START_MS - 5_000, "kind": "auth", "status": 200 }),
+            json!({ "ts_ms": START_MS - 4_000, "kind": "auth", "status": 200 }),
+        ],
+    );
+    seed_audit_file(
+        &fixture,
+        "audit.jsonl",
+        &[json!({ "ts_ms": START_MS + 1_000, "kind": "auth", "status": 200 })],
+    );
+
+    let (status, body) = send(fixture.app(), get("/audit/source", Some(&session))).await;
+    assert_eq!(status, StatusCode::OK, "the source read: {body}");
+    assert_eq!(body["oldest_ts_ms"], json!(START_MS + 1_000));
+    assert_eq!(body["newest_ts_ms"], json!(START_MS + 1_000));
+    assert_eq!(
+        body["rotated"],
+        json!({ "file": "audit.1.jsonl", "oldest_ts_ms": START_MS - 5_000 }),
+        "one predecessor, with the moment its first line carries: {body}"
+    );
+}
+
+/// A file the console cannot read is omitted, never reported as zero: a page that sees `bytes: 0`
+/// would draw an empty file beside a window it is not reading from.
+#[tokio::test]
+async fn the_audit_source_omits_a_file_it_cannot_read() {
+    let fixture = Fixture::new("audit-source-missing");
+    let session = fixture.authenticate().await;
+    fs::remove_file(fixture.config.data.join("audit.jsonl"))
+        .expect("the authentication's audit line is removable");
+
+    let (status, body) = send(fixture.app(), get("/audit/source", Some(&session))).await;
+    assert_eq!(status, StatusCode::OK, "the source read: {body}");
+    assert!(
+        body.get("file").is_none(),
+        "an unreadable file has no name to state: {body}"
+    );
+    assert!(
+        body.get("bytes").is_none(),
+        "an unreadable file is not zero bytes: {body}"
+    );
+    assert!(body.get("oldest_ts_ms").is_none(), "{body}");
+    assert!(body.get("newest_ts_ms").is_none(), "{body}");
+    assert_eq!(
+        body["max_bytes"],
+        json!(8 * 1024 * 1024),
+        "the retention rule is configured, not read from the file: {body}"
+    );
+}
+
 #[tokio::test]
 async fn a_request_that_arrives_between_channels_waits_for_the_next_one() {
     let fixture = Fixture::new("channel-reconnect-wait");

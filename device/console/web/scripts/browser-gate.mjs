@@ -466,6 +466,23 @@ function apiReply(request, url) {
       .sort((left, right) => right.ts_ms - left.ts_ms);
     return json(lines);
   }
+  // **THE FILE THE WINDOW IS READ FROM.** The page states this beside its cap sentence; the gate
+  // serves the measured shape (an 8.4 MiB current file and one older generation) so the line it
+  // asserts is the sentence the console would produce, not a fixture with no rotation.
+  if (method === 'GET' && pathname === '/audit/source') {
+    return json({
+      file: 'audit.jsonl',
+      bytes: 8_808_038,
+      oldest_ts_ms: DAY_START.getTime() + 1_000,
+      newest_ts_ms: NOW,
+      max_bytes: 8_388_608,
+      rotations: 1,
+      rotated: {
+        file: 'audit.1.jsonl',
+        oldest_ts_ms: DAY_START.getTime() - 6 * 60 * 60_000
+      }
+    });
+  }
   // The day, not the window: Activity's header counts this; the window sentence keeps its own rows.
   if (method === 'GET' && pathname === '/audit/day') {
     const device = url.searchParams.get('device');
@@ -906,6 +923,18 @@ try {
   if (countText !== expectedCount) {
     throw new Error(`the Activity header stated "${countText}", expected "${expectedCount}"`);
   }
+  // THE SOURCE LINE, ONCE, BESIDE THE WINDOW SENTENCE. It says what is read, not what is drawn:
+  // the file's size must be the server's, and a rotation the page was told about must be stated.
+  const sourceLine = page.locator('.audit-source');
+  await sourceLine.waitFor({ timeout: 10_000 });
+  const sourceText = (await sourceLine.textContent())?.trim() ?? '';
+  if (!sourceText.startsWith('Reading audit.jsonl — 8.4 MiB, lines since ')) {
+    throw new Error(`the source line did not state the file and its size: "${sourceText}"`);
+  }
+  if (!sourceText.includes('rotated once, older lines start ')) {
+    throw new Error(`the source line did not state the rotation: "${sourceText}"`);
+  }
+  step(`the window states the file it reads: ${sourceText}`);
   const allActivityRows = await page.locator('.timeline-row').count();
   if (allActivityRows !== FIXTURE_LINES.length) {
     throw new Error(

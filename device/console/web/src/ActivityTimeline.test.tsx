@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import type { AuditLine, Device, TokenMeta } from "./api";
+import type { AuditLine, AuditSource, Device, TokenMeta } from "./api";
 import { ActivityTimeline } from "./ActivityTimeline";
 
 // The timeline is the proof, not the summary: a row that opens must show the call as it was sent and
@@ -818,6 +818,34 @@ describe("ActivityTimeline", () => {
       )
     ).toBeInTheDocument();
     expect(screen.queryByText(/the window's limit/)).toBeNull();
+  });
+
+  it("says which file the window is read from, and nothing when that fact is absent", () => {
+    // The cap sentence says what is drawn; this line says what is read. It carries the server's
+    // facts only — a page that never reached `/audit/source` must draw no line at all.
+    const source: AuditSource = {
+      file: "audit.jsonl",
+      bytes: 8_808_038,
+      oldest_ts_ms: new Date(2026, 10, 2, 9, 12).getTime(),
+      newest_ts_ms: new Date(2026, 10, 5, 17, 0).getTime(),
+      max_bytes: 8_388_608,
+      rotations: 1,
+      rotated: {
+        file: "audit.1.jsonl",
+        oldest_ts_ms: new Date(2026, 10, 2, 3, 10).getTime()
+      }
+    };
+    const { rerender } = render(
+      <ActivityTimeline lines={[fromAlpha]} devices={[]} atLimit source={source} />
+    );
+    expect(
+      screen.getByText(
+        "Reading audit.jsonl — 8.4 MiB, lines since 11-02 09:12; rotated once, older lines start 11-02 03:10."
+      )
+    ).toBeInTheDocument();
+
+    rerender(<ActivityTimeline lines={[fromAlpha]} devices={[]} atLimit />);
+    expect(screen.queryByText(/^Reading audit\.jsonl/)).toBeNull();
   });
 
   it("names the machine and the cut beside the withheld counts", () => {

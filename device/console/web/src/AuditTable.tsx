@@ -4,11 +4,12 @@ import {
   type WindowCounts
 } from "./activityMerge";
 import { Fragment, useMemo, useState } from "react";
-import type { AuditLine, Device, TokenMeta } from "./api";
+import type { AuditLine, AuditSource, Device, TokenMeta } from "./api";
 import { auditFailed, filterAudit, type AuditFilter } from "./auditFilter";
 import { auditCsv, auditCsvName } from "./audit-export";
 import { downloadFile } from "./download";
 import { age, shortDeviceName, shortId } from "./format";
+import { AuditSourceLine } from "./AuditSourceLine";
 import { ConsoleCaller } from "./CallerMark";
 import { tokenFact, tokenLabel } from "./tokenFact";
 import { useMediaQuery } from "./useMediaQuery";
@@ -174,7 +175,8 @@ export function AuditTable({
   atLimit = false,
   windowCounts = null,
   loading = false,
-  loadingMachine = null
+  loadingMachine = null,
+  source = null
 }: {
   lines: AuditLine[];
   capped?: boolean;
@@ -196,6 +198,11 @@ export function AuditTable({
   loading?: boolean;
   /** The machine whose window is being read, or `null` for the fleet's. */
   loadingMachine?: string | null;
+  /**
+   * The file the window is read from, as `/audit/source` served it. The line sits beside the cap
+   * sentence; absent or unreadable facts draw nothing rather than a guess.
+   */
+  source?: AuditSource | null;
   devices: Device[];
   tokens: TokenMeta[];
   /** The machine the operator is on; the default scope follows it when it exists. */
@@ -503,6 +510,7 @@ export function AuditTable({
               )}
             </p>
           )}
+          <AuditSourceLine source={source} />
           <table className="audit-table">
             <thead>
               <tr>

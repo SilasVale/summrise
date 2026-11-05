@@ -463,6 +463,19 @@ function replyFor(request, url) {
     }
     return json(day);
   }
+  // The file the audit window reads. The page draws one muted line from it beside the cap
+  // sentence; the audit measures the same line a person reads.
+  if (method === 'GET' && pathname === '/audit/source') {
+    return json({
+      file: 'audit.jsonl',
+      bytes: 8_808_038,
+      oldest_ts_ms: NOW - 3 * 24 * HOUR,
+      newest_ts_ms: NOW,
+      max_bytes: 8 * 1024 * 1024,
+      rotations: 1,
+      rotated: { file: 'audit.1.jsonl', oldest_ts_ms: NOW - 5 * 24 * HOUR }
+    });
+  }
   if (method === 'GET' && pathname === '/audit') {
     const raw = Number(url.searchParams.get('limit') ?? 20);
     const limit = Number.isFinite(raw) ? Math.max(0, Math.min(Math.trunc(raw), 1000)) : 20;

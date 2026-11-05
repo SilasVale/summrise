@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => ({
   devices: vi.fn(),
   audit: vi.fn(),
   auditDay: vi.fn(),
+  auditSource: vi.fn(),
   denials: vi.fn(),
   connections: vi.fn(),
   signIn: vi.fn(),
@@ -39,6 +40,7 @@ vi.mock("./api", () => ({
     devices: mocks.devices,
     audit: mocks.audit,
     auditDay: mocks.auditDay,
+    auditSource: mocks.auditSource,
     denials: mocks.denials,
     connections: mocks.connections,
     signIn: mocks.signIn,
@@ -277,6 +279,9 @@ beforeEach(() => {
     const lines: AuditLine[] = (await answer) ?? [];
     return dayFromLines(lines);
   });
+  // A route the fixture does not describe answers with no facts, so the page draws no source
+  // line unless a test names one.
+  mocks.auditSource.mockResolvedValue({});
   mocks.denials.mockResolvedValue([]);
   mocks.connections.mockResolvedValue([]);
   mocks.signIn.mockImplementation(async () => {

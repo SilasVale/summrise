@@ -760,11 +760,16 @@ older ~27,000 lines of a 28,056-line / 14.1-day file are reachable only by a she
 host) and **there is now a way to compare machines** (the fleet carries each machine's day). This
 list is what is left of the page's sense of time, measured.
 
-1. **Nothing on the page says what file it is reading.** The audit rotates at 8 MiB to one
-   `audit.1.jsonl`; a day's read now says `since HH:MM` when its start is gone, but nowhere does the
-   operator see the file's size, its retention, or that a rotation happened. The page should state
-   the source it reads and its bounds — one line, in the place that already explains the window.
-   **S.**
+1. **Nothing on the page says what file it is reading.** *(Done 2026-11-05: `GET /audit/source`
+   reports the current `file`, `bytes`, `oldest_ts_ms` and `newest_ts_ms`, the configured
+   `max_bytes`/`rotations`, and `rotated` only when the predecessor exists (its `oldest_ts_ms` only
+   when readable); Activity draws one muted line beside the cap sentence — the measured live shape
+   `Reading audit.jsonl — 8.4 MiB, lines since 11-02 09:12; rotated once, older lines start
+   11-02 03:10.` — and draws nothing when the route does not answer.)* The audit rotates at 8 MiB to
+   one `audit.1.jsonl`; a day's read now says `since HH:MM` when its start is gone, but nowhere does
+   the operator see the file's size, its retention, or that a rotation happened. The page should
+   state the source it reads and its bounds — one line, in the place that already explains the
+   window. **S.**
 2. **A moment older than the window still has no route.** `/audit/day` reads a whole day, but a
    *chosen* day or a time range is not addressable: no query takes `from`/`to`, and nothing in the
    UI asks for one. The shape: `GET /audit?from=&to=&device=` bounded by the same scan rules, and a
