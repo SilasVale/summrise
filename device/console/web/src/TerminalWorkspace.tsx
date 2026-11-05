@@ -78,16 +78,16 @@ const FAULT_LABELS: Record<FaultKind, string> = {
  *
  * The list is the device's answer, so it cannot be pushed: a shell that starts from another tab, a
  * script, or an AI client is invisible to this page until it asks again. Ten seconds is fast enough
- * to feel live and slow enough that an idle page does not write a line a second into the device's
- * audit; the interval stops as soon as one session is listed.
+ * to feel live and slow enough that an idle page does not ask the device once a second; the interval
+ * stops as soon as one session is listed.
  */
 const EMPTY_LIST_POLL_MS = 10_000;
 
 /**
  * Whether the empty session list may be polled right now.
  *
- * The poll is a call the console makes on its own behalf — it is audited and streamed like any other
- * — so it runs only when all four facts hold: the Terminal page is the one in front (the workspace
+ * The poll is a call the console makes on its own behalf; it is marked `poll` and leaves the audit
+ * and the live stream alone, so it runs only when all four facts hold: the Terminal page is the one in front (the workspace
  * stays mounted on every other page), the document itself is not hidden (a background tab is a poll
  * with no reader), the machine is reachable, and the list is empty (a session's own tab probe is what
  * notices one closing). Named as a value so the rule can be tested without a rendered page.
@@ -627,14 +627,21 @@ export function TerminalWorkspace({
     pushActiveSize();
   }, [pushActiveSize]);
 
-  /** One read at this tab's cursor, and the cursor and end facts it returns. */
-  const readOnce = useCallback(async (tab: Tab): Promise<ReadAnswer> => {
+  /**
+   * One read at this tab's cursor, and the cursor and end facts it returns.
+   *
+   * `poll` is true for the feed's own tick: the console is redrawing the screen it already shows,
+   * so the read is not the record. A person's Retry passes false and is recorded.
+   */
+  const readOnce = useCallback(async (tab: Tab, poll: boolean): Promise<ReadAnswer> => {
     const cursor = cursors.current.get(tab.key) ?? 0;
     const args = waitReads.current
       ? { id: tab.session, cursor, wait_ms: 15_000 }
       : { id: tab.session, cursor };
     try {
-      return JSON.parse(await callTool(grantRef.current, "terminal.read", args)) as ReadAnswer;
+      return JSON.parse(
+        await callTool(grantRef.current, "terminal.read", args, { poll })
+      ) as ReadAnswer;
     } catch (cause) {
       // A device from before this field rejects the whole call. Retry once without it, then keep
       // the old 250 ms poll for the rest of this grant; the read itself is unchanged.
@@ -645,7 +652,12 @@ export function TerminalWorkspace({
       ) {
         waitReads.current = false;
         return JSON.parse(
-          await callTool(grantRef.current, "terminal.read", { id: tab.session, cursor })
+          await callTool(
+            grantRef.current,
+            "terminal.read",
+            { id: tab.session, cursor },
+            { poll }
+          )
         ) as ReadAnswer;
       }
       throw cause;
@@ -672,7 +684,9 @@ export function TerminalWorkspace({
       diagnosing.current.add(tab.key);
       probing.current.set(tab.key, Date.now());
       try {
-        const answer = JSON.parse(await callTool(grantRef.current, "terminal.list", {}));
+        const answer = JSON.parse(
+          await callTool(grantRef.current, "terminal.list", {}, { poll: true })
+        );
         const sessions: { id?: string }[] = Array.isArray(answer) ? answer : [];
         if (!sessions.some((entry) => entry.id === tab.session)) {
           // Only a sentence the device itself sent is a reason it gave; a proxy failure is not one.
@@ -821,7 +835,7 @@ export function TerminalWorkspace({
   }, []);
 
   const poll = useCallback(
-    async (tab: Tab) => {
+    async (tab: Tab, explicit = false) => {
       const instance = instanceAt(tab.key);
       if (!instance) return;
       if (reading.current.has(tab.key)) return;
@@ -829,7 +843,8 @@ export function TerminalWorkspace({
       if (current && (current.kind === "closed" || current.kind === "refused")) return;
       reading.current.add(tab.key);
       try {
-        const read = await readOnce(tab);
+        // The feed's own tick is a poll; Try again is a person asking the same read, so it records.
+        const read = await readOnce(tab, !explicit);
         if (read.data) {
           pumpFor(tab, instance).push(read.data);
           // A long poll returns as soon as bytes arrive; take the next read now instead of waiting
@@ -1340,11 +1355,13 @@ export function TerminalWorkspace({
     };
   }, [toolsOpen]);
 
-  const listSessions = useCallback(async (announce = false) => {
+  const listSessions = useCallback(async (announce = false, poll = true) => {
     setListing(true);
     setListError(null);
     try {
-      const answer = JSON.parse(await callTool(grantRef.current, "terminal.list", {}));
+      const answer = JSON.parse(
+        await callTool(grantRef.current, "terminal.list", {}, { poll })
+      );
       const sessions: { id: string; kind: string; started_at_ms?: number }[] = Array.isArray(answer)
         ? answer
         : [];
@@ -1377,8 +1394,8 @@ export function TerminalWorkspace({
   // in better words. The fleet polls, so `offline` becoming false is the read's cue.
   //
   // A PAGE OR A TAB NOBODY IS LOOKING AT IS NOT ASKED EITHER. The workspace stays mounted behind
-  // every other page so its tabs survive a rail click; this call would still be audited and streamed
-  // as the console's own read. Reading on the way in is what keeps the mounted page current.
+  // every other page so its tabs survive a rail click; this call would still be made as the
+  // console's own poll. Reading on the way in is what keeps the mounted page current.
   useEffect(() => {
     if (!visible || !documentIsVisible() || offline) {
       setListing(false);
@@ -1511,7 +1528,7 @@ export function TerminalWorkspace({
   const retry = (tab: Tab) => {
     clearFault(tab.key);
     probing.current.delete(tab.key);
-    void poll(tab);
+    void poll(tab, true);
   };
 
   /**
@@ -1687,7 +1704,7 @@ export function TerminalWorkspace({
                   className="mini"
                   disabled={listing || offline}
                   title={offline ? "The machine is offline; the list refreshes when it reconnects" : undefined}
-                  onClick={() => void listSessions(true)}
+                  onClick={() => void listSessions(true, false)}
                 >
                   {listing ? "Reading…" : "Refresh"}
                 </button>

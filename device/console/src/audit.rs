@@ -2,11 +2,16 @@
 //!
 //! One line per **authenticated** action: `{"ts_ms","kind","device_id?","status","detail?","tool?","token_id?","caller?"}`.
 //! `kind` is a closed set — `enroll`, `register`, `grant`, `token`, `token_revoke`, `auth`, `mcp`,
-//! `device` for a channel's own boundary, and `denied` for a refusal of a request whose caller
-//! proved a credential. `status` is the console's outcome code: the HTTP status a refusal produced,
-//! `200` for an answer that crossed as a success (a channel boundary, a JSON-RPC error envelope),
-//! and `424` for a tool that answered with its own failure (`isError`, or a run that exited
-//! non-zero) — the record's verdict, not always the code the caller's HTTP exchange carried.
+//! `device` for a channel's own boundary, `poll` for a failed read the console's own poller made,
+//! and `denied` for a refusal of a request whose caller proved a credential. A successful poll is
+//! not a line at all: it is a read of the same screen the console already shows, and writing it
+//! would make the record mostly the console talking to itself. A failed poll stays a line so the
+//! operator can see it in the Activity Table, but `poll` is not the AI's work: it is counted apart
+//! and excluded from every `failed` count. `status` is the console's outcome code: the HTTP status a
+//! refusal produced, `200` for an answer that crossed as a success (a channel boundary, a JSON-RPC
+//! error envelope), and `424` for a tool that answered with its own failure (`isError`, or a run
+//! that exited non-zero) — the record's verdict, not always the code the caller's HTTP exchange
+//! carried.
 //! `detail` is a short reason: the console's wire error code for a refusal, or the device's
 //! JSON-RPC error code when it answered with one, or a bounded tool reason. `tool` is the JSON-RPC
 //! tool name for a `tools/call`, and only the name — except on a `device` line, where it names the
@@ -88,7 +93,8 @@ pub(crate) enum Caller {
 pub(crate) struct Entry<'a> {
     /// The console's clock when the action finished, in Unix milliseconds.
     pub(crate) ts_ms: u64,
-    /// `enroll`, `register`, `grant`, `token`, `token_revoke`, `auth`, `mcp`, `device` or `denied`.
+    /// `enroll`, `register`, `grant`, `token`, `token_revoke`, `auth`, `mcp`, `device`, `poll`
+    /// or `denied`. A `poll` line is a failed console poll; a successful one is not written.
     pub(crate) kind: &'static str,
     /// The device the action names, in canonical lowercase hex, when it names one.
     #[serde(skip_serializing_if = "Option::is_none")]

@@ -191,7 +191,7 @@ const HUB_DAY_ROWS = 60;
  * The hub's one line about the day, computed from the lines already in hand.
  *
  * "Today" is local midnight — the same midnight the timeline cuts at — and only a client's calls
- * count: the console's own polling is in the same audit and is not the AI's work. A window with no
+ * count: the console's own failed polls are in the same audit and are not the AI's work. A window with no
  * line today still knows when the machine last worked, so it says that instead of letting the empty
  * timeline above read as a machine that did nothing overnight. A cut or stale window is already
  * named by the cap and read sentences; this line never repeats those.
@@ -321,9 +321,10 @@ function HubHome(
   // The hub draws the newest rows of the day; this remembers that the rest were asked for. It
   // resets with the machine, so one machine's expanded day cannot stand for another's.
   const [wholeDay, setWholeDay] = useState(false);
-  // **THE HUB IS THE AI'S WORK.** The console's own polling is in the machine's audit and is not
-  // the thing this page is about, so it is folded behind one counted chip and drawn only when the
-  // reader asks. The state is this view's, not a stored preference: another machine starts folded.
+  // **THE HUB IS THE AI'S WORK.** The console's own calls (and the failed polls it no longer
+  // records as work) are in the machine's audit and are not the thing this page is about, so they
+  // are folded behind one counted chip and drawn only when the reader asks. The state is this
+  // view's, not a stored preference: another machine starts folded.
   const [showConsoleReads, setShowConsoleReads] = useState(false);
   useEffect(() => {
     setWholeDay(false);

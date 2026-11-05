@@ -1,11 +1,12 @@
 /**
- * The console's own read, marked where a row names its machine.
+ * The console's own call, marked where a row names its machine.
  *
- * The console calls `/mcp` on the operator session for its own page — the terminal's session poll and
- * the terminal stream's parked reads — and those calls are audited like any other. They belong in the
- * record: hiding them would be a different lie, and the audit is the record. One quiet word is what
- * tells them from the AI's calls; a client's call renders nothing, and so does a line older than the
- * `caller` field, because an unknown caller is not a client's call.
+ * The console writes its own explicit actions — a person's list refresh, a retry, an export — on the
+ * operator session, and those calls are audited like any other. Its successful automatic polls are
+ * not: they are the console redrawing the screen it already shows. A failed poll stays a `poll` line
+ * so the machine's silence is visible in the table; it carries `caller: "console"` and this quiet
+ * word, because the retry was the console's, not the AI's. A client's call renders nothing, and so
+ * does a line older than the `caller` field, because an unknown caller is not a client's call.
  */
 
 /** What the muted word explains when a pointer rests on it. */

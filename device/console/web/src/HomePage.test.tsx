@@ -461,7 +461,17 @@ describe("Home — the hub", () => {
         audit: [
           call({ ts_ms: new Date(2026, 10, 5, 14, 32).getTime(), caller: "client" }),
           call({ ts_ms: new Date(2026, 10, 5, 14, 20).getTime(), caller: "client", status: 503 }),
-          call({ ts_ms: new Date(2026, 10, 5, 14, 10).getTime(), caller: "client" })
+          call({ ts_ms: new Date(2026, 10, 5, 14, 10).getTime(), caller: "client" }),
+          // The console's own failed poll is the machine's silence, not the AI's failure: it is
+          // newer than every client call, so a count or a clock that folded it in would move both.
+          {
+            ts_ms: new Date(2026, 10, 5, 14, 40).getTime(),
+            kind: "poll",
+            caller: "console",
+            tool: "terminal.read",
+            detail: "device reconnecting",
+            status: 503
+          }
         ],
         liveLines: []
       });

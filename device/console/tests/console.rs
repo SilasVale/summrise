@@ -8944,6 +8944,203 @@ async fn a_stream_polls_a_device_that_does_not_advertise_it() {
     assert!(body.contains("polled-chunk"), "{body}");
 }
 
+/// **A POLLING READ IS NOT THE RECORD.** The page's parked `terminal.read` is the console showing
+/// the screen it already shows; it leaves no audit line and no live event. The same tool at a
+/// person's action is recorded, which is the rule this pair pins from both sides.
+#[tokio::test]
+async fn a_polling_terminal_read_is_not_audited_and_does_not_reach_the_live_stream() {
+    let fixture = Fixture::new("terminal-poll-not-audited");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0x38)).await;
+    let session = fixture.authenticate().await;
+
+    let mut events = open_events(&server, &session).await;
+    let mut seen = String::new();
+    read_until(&mut events, &mut seen, "event: snapshot").await;
+
+    let path = format!("/terminal/{device_id}/session-1/stream?from=0");
+    let auth = bearer(&session);
+    let stream = raw_get(&server, &path, &auth, "quiet-read");
+    let device_side = async {
+        let frame = next_json(&mut device).await;
+        answer(
+            &mut device,
+            &frame,
+            tool_result(json!({ "data": "quiet-read", "cursor": 10, "alive": true })),
+        )
+        .await;
+        let _ = tokio::time::timeout(Duration::from_secs(1), next_json(&mut device)).await;
+    };
+    let (body, ()) = tokio::join!(stream, device_side);
+    assert!(body.contains("quiet-read"), "{body}");
+
+    let mut live = String::new();
+    read_for(&mut events, &mut live, Duration::from_millis(400)).await;
+    assert!(
+        !live.contains("terminal.read"),
+        "a polling read must not publish a live event: {live}"
+    );
+
+    let lines = audit_lines(&fixture);
+    assert!(
+        lines
+            .iter()
+            .all(|line| line["tool"] != json!("terminal.read")),
+        "a polling read must not write an audit line: {lines:?}"
+    );
+}
+
+/// The other half of the pair: the same `terminal.read` from the UI — the operator route, no poll
+/// marker — is the AI page's own call and is recorded on both the file and the stream.
+#[tokio::test]
+async fn the_same_terminal_read_from_the_ui_is_recorded() {
+    let fixture = Fixture::new("terminal-ui-audited");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0x39)).await;
+    let session = fixture.authenticate().await;
+
+    let mut events = open_events(&server, &session).await;
+    let mut seen = String::new();
+    read_until(&mut events, &mut seen, "event: snapshot").await;
+
+    let app = fixture.app();
+    let call = tokio::spawn(async move {
+        send(
+            app,
+            post_json_bearer(
+                "/mcp",
+                &session,
+                json!({
+                    "device_id": device_id,
+                    "request": {
+                        "jsonrpc": "2.0",
+                        "id": 1,
+                        "method": "tools/call",
+                        "params": { "name": "terminal.read", "arguments": { "id": "s-1", "cursor": 0 } },
+                    },
+                }),
+            ),
+        )
+        .await
+    });
+    let frame = next_json(&mut device).await;
+    answer(
+        &mut device,
+        &frame,
+        tool_result(json!({ "data": "ui-read", "cursor": 6, "alive": true })),
+    )
+    .await;
+    let (status, _) = call.await.expect("the call finished");
+    assert_eq!(status, StatusCode::OK);
+
+    read_until(&mut events, &mut seen, "\"tool\":\"terminal.read\"").await;
+    assert!(
+        seen.contains("\"tool\":\"terminal.read\""),
+        "the UI's read reaches the live stream: {seen}"
+    );
+
+    let lines = audit_lines(&fixture);
+    let line = lines
+        .iter()
+        .find(|line| line["tool"] == json!("terminal.read"))
+        .expect("the UI's read is in the audit");
+    assert_eq!(line["kind"], json!("mcp"), "{line}");
+    assert_eq!(line["caller"], json!("console"), "{line}");
+}
+
+/// The page's automatic list read sends `poll: true`; that read is not the record either.
+#[tokio::test]
+async fn a_poll_marked_read_is_not_audited() {
+    let fixture = Fixture::new("mcp-poll-success");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0x3a)).await;
+    let session = fixture.authenticate().await;
+
+    let mut events = open_events(&server, &session).await;
+    let mut seen = String::new();
+    read_until(&mut events, &mut seen, "event: snapshot").await;
+
+    let app = fixture.app();
+    let call = tokio::spawn(async move {
+        send(
+            app,
+            post_json_bearer(
+                "/mcp",
+                &session,
+                json!({
+                    "device_id": device_id,
+                    "poll": true,
+                    "request": {
+                        "jsonrpc": "2.0",
+                        "id": 1,
+                        "method": "tools/call",
+                        "params": { "name": "terminal.list", "arguments": {} },
+                    },
+                }),
+            ),
+        )
+        .await
+    });
+    let frame = next_json(&mut device).await;
+    answer(&mut device, &frame, tool_result(json!({ "content": [] }))).await;
+    let (status, _) = call.await.expect("the call finished");
+    assert_eq!(status, StatusCode::OK);
+
+    let mut live = String::new();
+    read_for(&mut events, &mut live, Duration::from_millis(400)).await;
+    assert!(
+        !live.contains("terminal.list"),
+        "a polled read must not publish a live event: {live}"
+    );
+    let lines = audit_lines(&fixture);
+    assert!(
+        lines
+            .iter()
+            .all(|line| line["tool"] != json!("terminal.list")),
+        "a polled read must not write an audit line: {lines:?}"
+    );
+}
+
+/// A poll that cannot reach the device is a `poll` line: the machine's silence is not the AI's
+/// failure and must not read as a refusal of its call. The line keeps the status and the reason.
+#[tokio::test]
+async fn a_failed_poll_is_a_poll_line_and_not_a_denial() {
+    let fixture = Fixture::new("mcp-poll-failure");
+    let (device_id, _token) = fixture.register(&signing_key(0x3b)).await;
+    let session = fixture.authenticate().await;
+
+    let (status, body) = send(
+        fixture.app(),
+        post_json_bearer(
+            "/mcp",
+            &session,
+            json!({
+                "device_id": device_id,
+                "poll": true,
+                "request": {
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "tools/call",
+                    "params": { "name": "terminal.read", "arguments": { "id": "s-1", "cursor": 0 } },
+                },
+            }),
+        ),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "{body}");
+    let lines = audit_lines(&fixture);
+    let line = lines.last().expect("the poll line");
+    assert_eq!(line["kind"], json!("poll"), "{line}");
+    assert_eq!(line["status"], json!(503), "{line}");
+    assert_eq!(line["detail"], json!("device reconnecting"), "{line}");
+    assert_eq!(line["tool"], json!("terminal.read"), "{line}");
+    assert_eq!(line["caller"], json!("console"), "{line}");
+}
+
 // ---- the live activity stream: a person reads what the AI did --------------------------------
 
 /// Read an open SSE connection until `needle` appears (or five seconds pass).
@@ -8955,6 +9152,20 @@ async fn read_until(socket: &mut tokio::net::TcpStream, seen: &mut String, needl
         if seen.contains(needle) {
             return;
         }
+        match tokio::time::timeout_at(deadline, socket.read(&mut chunk)).await {
+            Ok(Ok(0)) | Err(_) | Ok(Err(_)) => return,
+            Ok(Ok(read)) => seen.push_str(&String::from_utf8_lossy(&chunk[..read])),
+        }
+    }
+}
+
+/// Read whatever arrives for `window`, without waiting for a needle: the negative half of
+/// [`read_until`], for proving a stream stayed quiet.
+async fn read_for(socket: &mut tokio::net::TcpStream, seen: &mut String, window: Duration) {
+    use tokio::io::AsyncReadExt;
+    let mut chunk = [0u8; 4096];
+    let deadline = tokio::time::Instant::now() + window;
+    loop {
         match tokio::time::timeout_at(deadline, socket.read(&mut chunk)).await {
             Ok(Ok(0)) | Err(_) | Ok(Err(_)) => return,
             Ok(Ok(read)) => seen.push_str(&String::from_utf8_lossy(&chunk[..read])),

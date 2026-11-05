@@ -199,6 +199,11 @@ export type Created = TokenMeta & { token: string };
 
 export type AuditLine = {
   ts_ms: number;
+  /**
+   * `mcp` for a call, `poll` for a failed read the console's own poller made (drawn in the table,
+   * excluded from every failure count), `device` for a channel boundary, and the operator actions
+   * (`grant`, `token`, `auth`, ...). A successful poll is not a line at all.
+   */
   kind: string;
   device_id?: string | null;
   /**
@@ -225,10 +230,10 @@ export type AuditLine = {
   /** Whether this line arrived on the live stream rather than being read back from the audit file. */
   live?: boolean;
   /**
-   * Who made a call the console proxied: `console` for the operator page's own `/mcp` calls and the
-   * terminal stream's reads, `client` for an AI client on `/mcp/:id` or `/mcp/all`. Absent on an
-   * operator action (a grant, a token, a sign-in) and on every line written before the field —
-   * neither is a client's call.
+   * Who made a call the console proxied: `console` for the operator page's own explicit calls and
+   * a failed poll, `client` for an AI client on `/mcp/:id` or `/mcp/all`. Absent on an operator
+   * action (a grant, a token, a sign-in) and on every line written before the field — neither is a
+   * client's call. A successful poll is not written, so no `console` line is one.
    */
   caller?: "console" | "client";
   /** The evidence for this call, when the live stream carried it. */

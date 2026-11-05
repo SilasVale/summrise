@@ -230,7 +230,21 @@ describe("TerminalWorkspace tab names", () => {
     // The list did not report a start, so the label says only the kind; an age is not invented.
     expect(await screen.findByRole("tab", { name: /^pty/ })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Attach" })).not.toBeInTheDocument();
-    expect(callToolMock).toHaveBeenCalledWith(GRANT, "terminal.list", {});
+    expect(callToolMock).toHaveBeenCalledWith(GRANT, "terminal.list", {}, { poll: true });
+  });
+
+  it("marks its automatic list read as a poll, and a Refresh as the person's", async () => {
+    // The marker is what lets the console leave the poll out of the audit. The empty page reads the
+    // list on mount, and Refresh asks the same tool at a click: the two must not travel as one call.
+    render(<TerminalWorkspace grant={GRANT} />);
+    await waitFor(() =>
+      expect(callToolMock).toHaveBeenCalledWith(GRANT, "terminal.list", {}, { poll: true })
+    );
+    callToolMock.mockClear();
+    fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
+    await waitFor(() =>
+      expect(callToolMock).toHaveBeenCalledWith(GRANT, "terminal.list", {}, { poll: false })
+    );
   });
 
   it("attaches the newest session, not the first one the device lists", async () => {
@@ -602,7 +616,7 @@ describe("TerminalWorkspace transcript", () => {
 
     await waitFor(() => expect(readCursors).toContain(4096), { timeout: 3_000 });
     expect(readCursors[0]).toBe(0);
-    expect(callToolMock).toHaveBeenCalledWith(GRANT, "terminal.list", {});
+    expect(callToolMock).toHaveBeenCalledWith(GRANT, "terminal.list", {}, { poll: true });
   });
 
   it("leaves the cursor alone after a transient read failure", async () => {

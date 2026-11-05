@@ -453,6 +453,11 @@ struct AuditFacts<'a> {
 struct CallIdentity<'a> {
     caller: Caller,
     token_id: Option<&'a str>,
+    /// True when the console's own poller made the call rather than a person. A poll's successful
+    /// read of a pollable tool is not recorded at all; its failure is a `poll` line, and no part of
+    /// it reaches the live stream. Only the operator's `/mcp` route and the terminal stream can set
+    /// it; an AI client's routes always pass `false`.
+    poll: bool,
 }
 
 /// One proxied call, as the live stream describes it.
@@ -675,8 +680,10 @@ impl Inner {
         // A call's live event is published by the proxy, which has the call's arguments; everything
         // else (a grant, a token, a refusal) is described from what this line already holds. These
         // events are live too: a row a page just watched arrive is not a row read back from the
-        // audit file, even when the tool behind it has no evidence to show.
-        if facts.kind != "mcp" {
+        // audit file, even when the tool behind it has no evidence to show. A `poll` line is the
+        // exception: the console's own retry is not work to watch, so it stays in the file (the
+        // Activity Table draws it) and never arrives as a live event.
+        if facts.kind != "mcp" && facts.kind != "poll" {
             let mut event = json!({
                 "ts_ms": ts_ms,
                 "kind": facts.kind,
@@ -735,6 +742,16 @@ impl Inner {
             event["evidence"] = evidence;
         }
         self.audit.publish(event);
+    }
+
+    /// Publish one finished call unless it was the console's own poll.
+    ///
+    /// A poll is the console reading the screen it already shows: the record keeps only its failure,
+    /// and even that is not work to watch live. Every ordinary call takes [`Inner::publish_call`].
+    fn publish_work(&self, poll: bool, call: LiveCall<'_>) {
+        if !poll {
+            self.publish_call(call);
+        }
     }
 
     /// Announce one proxied call on the live stream, before the wait for the device.
@@ -1715,6 +1732,7 @@ async fn device_tool(
     device_id: &str,
     tool: &str,
     arguments: Value,
+    poll: bool,
 ) -> Result<String, Box<Response>> {
     let scope = crate::channels::TokenScope {
         token_id: "operator".to_owned(),
@@ -1736,6 +1754,7 @@ async fn device_tool(
         CallIdentity {
             caller: Caller::Console,
             token_id: None,
+            poll,
         },
         request,
         StatusCode::BAD_REQUEST,
@@ -1789,8 +1808,9 @@ async fn terminal_tool(
     device_id: &str,
     tool: &str,
     arguments: Value,
+    poll: bool,
 ) -> Result<Value, Box<Response>> {
-    let text = device_tool(app, device_id, tool, arguments).await?;
+    let text = device_tool(app, device_id, tool, arguments, poll).await?;
     serde_json::from_str(&text).map_err(|_| {
         Box::new(terminal_refusal(
             StatusCode::BAD_GATEWAY,
@@ -1951,7 +1971,7 @@ async fn terminal_stream(
             if state.wait {
                 arguments["wait_ms"] = json!(TERMINAL_STREAM_WAIT_MS);
             }
-            match terminal_tool(&state.app, &state.device, "terminal.read", arguments).await {
+            match terminal_tool(&state.app, &state.device, "terminal.read", arguments, true).await {
                 Ok(answer) => {
                     if let Some(next) = answer.get("cursor").and_then(Value::as_u64) {
                         state.cursor = next;
@@ -2735,6 +2755,11 @@ struct McpProxy {
     /// tool set on the named device, destructive allowed.
     #[serde(default)]
     grant: Option<GrantEnvelope>,
+    /// True when the console's own page is polling, not a person: a read of the same screen the
+    /// console already shows. Honored only on the operator route and only when no grant is
+    /// presented, so an older client that sends a grant cannot hide its call behind the marker.
+    #[serde(default)]
+    poll: bool,
     request: Value,
 }
 
@@ -2759,6 +2784,20 @@ fn requested_tool(request: &Value) -> Result<Option<&str>, ()> {
         Some(Value::String(name)) if !name.is_empty() => Ok(Some(name)),
         _ => Err(()),
     }
+}
+
+/// Whether a tool's answer is the screen or facts the console already shows.
+///
+/// A poll of one of these is not a new fact about the machine: the terminal stream already draws
+/// the same bytes, the Session card the same list, and the System page the same facts. The five are
+/// the read-only tools the page polls; a call that a person makes with the same tool is recorded
+/// because the page does not mark it `poll`. `terminal.create`, `terminal.write`, `terminal.close`
+/// and every other tool stay work even when they come from the page.
+fn is_poll_read(tool: Option<&str>) -> bool {
+    matches!(
+        tool,
+        Some("terminal.read" | "terminal.screen" | "terminal.list" | "state.get" | "host.facts")
+    )
 }
 
 /// A JSON-RPC 2.0 error answer, with the request's own id when it has one.
@@ -3012,7 +3051,10 @@ fn bounded_detail(message: &str) -> String {
 /// `None` and keeps its unfiltered answer. `identity` names whose call it is — the page's own `/mcp`
 /// or the terminal stream, against an AI client on `/mcp/:id` or `/mcp/all` — and the permanent
 /// token's record id when one authenticated the exchange. Both facts are written on every line and
-/// event this function records.
+/// event this function records, except a successful poll: a `poll` read of a screen tool is the
+/// console redrawing what it already shows and writes neither, while a failed one writes a `poll`
+/// line (no live event) so the table keeps the machine's silence visible without counting it as the
+/// AI's failure.
 async fn proxy_reply(
     app: &AppState,
     device_id: &str,
@@ -3023,13 +3065,14 @@ async fn proxy_reply(
     filter: Option<&[String]>,
 ) -> Result<Reply, Box<Response>> {
     let audit_id = audit_device_id(device_id);
+    let poll = identity.poll;
     let started = Instant::now();
     let request_id = request.get("id").cloned().unwrap_or(Value::Null);
     let tool = match requested_tool(&request) {
         Ok(tool) => tool.map(str::to_owned),
         Err(()) => {
             app.record_facts(AuditFacts {
-                kind: "denied",
+                kind: if poll { "poll" } else { "denied" },
                 device_id: audit_id.as_deref(),
                 status: invalid_params_status,
                 detail: Some("invalid_tool_call"),
@@ -3070,7 +3113,7 @@ async fn proxy_reply(
             .any(|allowed| summrise_core::auth::pattern_matches(allowed, tool))
         {
             app.record_facts(AuditFacts {
-                kind: "denied",
+                kind: if poll { "poll" } else { "denied" },
                 device_id: audit_id.as_deref(),
                 status: StatusCode::FORBIDDEN,
                 detail: Some("tool_not_permitted"),
@@ -3092,9 +3135,10 @@ async fn proxy_reply(
     // **ANNOUNCE THE CALL BEFORE THE WAIT.** A run can keep the device five minutes while the proxy
     // gives up at ninety seconds; without this frame the band reads "Quiet" for exactly the call a
     // person most needs to see. The guard clears it on every exit.
-    let _running = tool
-        .as_deref()
-        .map(|tool| app.start_call(identity.caller, audit_id.as_deref(), tool));
+    let _running = match tool.as_deref() {
+        Some(tool) if !poll => Some(app.start_call(identity.caller, audit_id.as_deref(), tool)),
+        _ => None,
+    };
 
     // A run blocks on the device for its own timeout (the device's cap is ten minutes), so both bounds
     // follow it: the channel's wait for the answer and the proxy's backstop around it. Every other
@@ -3121,20 +3165,23 @@ async fn proxy_reply(
 
     match answer {
         Err(_) => {
-            app.publish_call(LiveCall {
-                device_id: audit_id.as_deref(),
-                tool: tool.as_deref(),
-                sentence: &publish_sentence,
-                status: StatusCode::GATEWAY_TIMEOUT,
-                ok: false,
-                detail: "device timeout",
-                ms: started.elapsed().as_millis() as u64,
-                evidence: evidence.clone(),
-                caller: identity.caller,
-                token_id: identity.token_id,
-            });
+            app.publish_work(
+                poll,
+                LiveCall {
+                    device_id: audit_id.as_deref(),
+                    tool: tool.as_deref(),
+                    sentence: &publish_sentence,
+                    status: StatusCode::GATEWAY_TIMEOUT,
+                    ok: false,
+                    detail: "device timeout",
+                    ms: started.elapsed().as_millis() as u64,
+                    evidence: evidence.clone(),
+                    caller: identity.caller,
+                    token_id: identity.token_id,
+                },
+            );
             app.record_facts(AuditFacts {
-                kind: "denied",
+                kind: if poll { "poll" } else { "denied" },
                 device_id: audit_id.as_deref(),
                 status: StatusCode::GATEWAY_TIMEOUT,
                 detail: Some("device timeout"),
@@ -3149,20 +3196,23 @@ async fn proxy_reply(
         }
         Ok(Err(error)) => {
             let failure = failure_for(error);
-            app.publish_call(LiveCall {
-                device_id: audit_id.as_deref(),
-                tool: tool.as_deref(),
-                sentence: &publish_sentence,
-                status: failure.status,
-                ok: false,
-                detail: failure.detail,
-                ms: started.elapsed().as_millis() as u64,
-                evidence: evidence.clone(),
-                caller: identity.caller,
-                token_id: identity.token_id,
-            });
+            app.publish_work(
+                poll,
+                LiveCall {
+                    device_id: audit_id.as_deref(),
+                    tool: tool.as_deref(),
+                    sentence: &publish_sentence,
+                    status: failure.status,
+                    ok: false,
+                    detail: failure.detail,
+                    ms: started.elapsed().as_millis() as u64,
+                    evidence: evidence.clone(),
+                    caller: identity.caller,
+                    token_id: identity.token_id,
+                },
+            );
             app.record_facts(AuditFacts {
-                kind: "denied",
+                kind: if poll { "poll" } else { "denied" },
                 device_id: audit_id.as_deref(),
                 status: failure.status,
                 detail: Some(failure.detail),
@@ -3185,20 +3235,23 @@ async fn proxy_reply(
                         );
                     }
                 }
-                app.publish_call(LiveCall {
-                    device_id: audit_id.as_deref(),
-                    tool: tool.as_deref(),
-                    sentence: &publish_sentence,
-                    status: StatusCode::FORBIDDEN,
-                    ok: false,
-                    detail: "destructive_without_consent",
-                    ms: started.elapsed().as_millis() as u64,
-                    evidence: evidence.clone(),
-                    caller: identity.caller,
-                    token_id: identity.token_id,
-                });
+                app.publish_work(
+                    poll,
+                    LiveCall {
+                        device_id: audit_id.as_deref(),
+                        tool: tool.as_deref(),
+                        sentence: &publish_sentence,
+                        status: StatusCode::FORBIDDEN,
+                        ok: false,
+                        detail: "destructive_without_consent",
+                        ms: started.elapsed().as_millis() as u64,
+                        evidence: evidence.clone(),
+                        caller: identity.caller,
+                        token_id: identity.token_id,
+                    },
+                );
                 app.record_facts(AuditFacts {
-                    kind: "denied",
+                    kind: if poll { "poll" } else { "denied" },
                     device_id: audit_id.as_deref(),
                     status: StatusCode::FORBIDDEN,
                     detail: Some("destructive_without_consent"),
@@ -3292,28 +3345,37 @@ async fn proxy_reply(
                     }
                 }
             }
-            app.publish_call(LiveCall {
-                device_id: audit_id.as_deref(),
-                tool: tool.as_deref(),
-                sentence: &publish_sentence,
-                status,
-                ok,
-                detail: &live_detail,
-                ms: started.elapsed().as_millis() as u64,
-                evidence,
-                caller: identity.caller,
-                token_id: identity.token_id,
-            });
-            app.record_facts(AuditFacts {
-                kind: "mcp",
-                device_id: audit_id.as_deref(),
-                status,
-                detail: audit_detail.as_deref(),
-                tool: tool.as_deref(),
-                token_id: identity.token_id,
-                caller: Some(identity.caller),
-            })
-            .await;
+            // A successful poll of a screen read is the console redrawing what it already has.
+            // It is neither an audit line nor a live event; a failed poll still writes its `poll`
+            // line below, so the operator can find the machine's silence in the Activity Table.
+            let silent_poll = poll && ok && is_poll_read(tool.as_deref());
+            if !silent_poll {
+                app.publish_work(
+                    poll,
+                    LiveCall {
+                        device_id: audit_id.as_deref(),
+                        tool: tool.as_deref(),
+                        sentence: &publish_sentence,
+                        status,
+                        ok,
+                        detail: &live_detail,
+                        ms: started.elapsed().as_millis() as u64,
+                        evidence,
+                        caller: identity.caller,
+                        token_id: identity.token_id,
+                    },
+                );
+                app.record_facts(AuditFacts {
+                    kind: if poll { "poll" } else { "mcp" },
+                    device_id: audit_id.as_deref(),
+                    status,
+                    detail: audit_detail.as_deref(),
+                    tool: tool.as_deref(),
+                    token_id: identity.token_id,
+                    caller: Some(identity.caller),
+                })
+                .await;
+            }
             Ok(reply)
         }
     }
@@ -3412,6 +3474,9 @@ async fn proxy_mcp(
         CallIdentity {
             caller: Caller::Console,
             token_id: None,
+            // The page's own automatic reads say so. A legacy grant on this route is a client that
+            // still uses the operator transport; it must not be able to hide behind the marker.
+            poll: body.poll && body.grant.is_none(),
         },
         body.request,
         StatusCode::BAD_REQUEST,
@@ -3575,6 +3640,7 @@ async fn standard_mcp(
                 CallIdentity {
                     caller: Caller::Client,
                     token_id: token_id.as_deref(),
+                    poll: false,
                 },
                 request,
                 StatusCode::OK,
@@ -3590,6 +3656,7 @@ async fn standard_mcp(
                 CallIdentity {
                     caller: Caller::Client,
                     token_id: token_id.as_deref(),
+                    poll: false,
                 },
                 request,
                 StatusCode::OK,
@@ -3801,6 +3868,7 @@ async fn aggregate_mcp(State(app): State<AppState>, request: axum::extract::Requ
                 CallIdentity {
                     caller: Caller::Client,
                     token_id: Some(&granted.token_id),
+                    poll: false,
                 },
                 request,
                 StatusCode::OK,
@@ -3865,6 +3933,7 @@ async fn aggregate_mcp(State(app): State<AppState>, request: axum::extract::Requ
                         CallIdentity {
                             caller: Caller::Client,
                             token_id: Some(&granted.token_id),
+                            poll: false,
                         },
                         request,
                         StatusCode::OK,

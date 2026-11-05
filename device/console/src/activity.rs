@@ -307,6 +307,14 @@ pub(crate) fn line_sentence(line: &Value) -> String {
             Some(crate::audit::DEVICE_JOINED) => "The channel opened".to_owned(),
             _ => "The channel changed".to_owned(),
         },
+        // A failed poll is a row the Activity Table draws; its sentence says who was reading and
+        // that the read failed, so a reconnect window does not read as the AI's refusal.
+        "poll" => match tool {
+            Some(tool) if failed => format!("The console's `{tool}` poll failed"),
+            Some(tool) => format!("The console polled `{tool}`"),
+            None if failed => "A console poll failed".to_owned(),
+            None => "The console polled the machine".to_owned(),
+        },
         "denied" => match tool {
             Some(tool) => format!("Refused `{tool}`"),
             None => "Refused a request".to_owned(),
@@ -400,6 +408,15 @@ mod tests {
         assert_eq!(
             line_sentence(&json!({ "kind": "grant", "status": 200 })),
             "Issued a grant"
+        );
+        assert_eq!(
+            line_sentence(&json!({
+                "kind": "poll",
+                "tool": "terminal.read",
+                "status": 503,
+                "detail": "device reconnecting",
+            })),
+            "The console's `terminal.read` poll failed"
         );
     }
 

@@ -464,6 +464,72 @@ describe("App", () => {
     expect(screen.queryByText("Moved a file")).toBeNull();
   });
 
+  it("names the day's poll failures apart, and draws them in the Table", async () => {
+    // The measured shape this work started from: three client failures, two console failures and
+    // 41 reconnect-window poll failures. The last group is a sleeping machine's retries, not the
+    // AI's refusals, so the header names it separately and the Table still draws every row.
+    const midnight = new Date();
+    midnight.setHours(0, 0, 0, 0);
+    const at = (seconds: number) => midnight.getTime() + seconds * 1_000;
+    const pollLine = (index: number) => ({
+      ts_ms: at(100 + index),
+      kind: "poll",
+      device_id: workshop.id,
+      token_id: null,
+      tool: "terminal.read",
+      detail: "device reconnecting",
+      status: 503,
+      caller: "console",
+      sentence: "The console's `terminal.read` poll failed"
+    });
+    mocks.audit.mockResolvedValue([
+      ...[1, 2, 3].map((seconds) => ({
+        ts_ms: at(seconds),
+        kind: "mcp",
+        device_id: workshop.id,
+        token_id: null,
+        tool: "files.read",
+        detail: "terminal disconnected",
+        status: 424,
+        caller: "client",
+        sentence: "Read a file"
+      })),
+      ...[4, 5].map((seconds) => ({
+        ts_ms: at(seconds),
+        kind: "mcp",
+        device_id: workshop.id,
+        token_id: null,
+        tool: "terminal.list",
+        detail: "device reconnecting",
+        status: 503,
+        caller: "console",
+        sentence: "Listed the terminal sessions"
+      })),
+      ...Array.from({ length: 41 }, (_, index) => pollLine(index))
+    ]);
+    await bootAndSignIn();
+    fireEvent.click(screen.getByRole("button", { name: "Activity" }));
+
+    expect(
+      await screen.findByText(
+        "Today 3 client calls · 3 failed · 2 console failures · 41 poll failures · 0 unattributed"
+      )
+    ).toBeInTheDocument();
+
+    // The rows are all still there — the poll failures are not erased, only kept out of the count.
+    await waitFor(() => expect(document.querySelectorAll(".timeline-row")).toHaveLength(46));
+
+    // The Table opens one poll row's record: its status and its reason are the operator's.
+    fireEvent.click(screen.getByRole("tab", { name: "Table" }));
+    const pollRows = await screen.findAllByRole("button", {
+      name: "Show the record for terminal.read"
+    });
+    expect(pollRows.length).toBe(41);
+    fireEvent.click(pollRows[0]);
+    expect(screen.getByText("device reconnecting")).toBeInTheDocument();
+    expect(screen.getAllByText("503").length).toBeGreaterThan(0);
+  });
+
   it("follows the fragment when the address bar changes, not only at first render", async () => {
     await bootAndSignIn();
     expect(screen.getByRole("heading", { name: "Machines", level: 1 })).toBeInTheDocument();

@@ -55,7 +55,23 @@ export function toolFailure(cause: unknown): string {
   return sentence;
 }
 
-export async function callTool(grant: Grant, name: string, args: Record<string, unknown>): Promise<string> {
+/**
+ * What a call is besides its tool and arguments.
+ *
+ * `poll` marks the console's own automatic read — the Session card's list refresh, the terminal's
+ * fallback read — so the console can leave it out of the audit and the live stream instead of
+ * recording the console redrawing what it already shows. A person's action never sets it: the same
+ * tool at a click is the page's own call and stays in the record. Only the operator route reads the
+ * marker; an AI client's `/mcp/:id` body is its own JSON-RPC request and never carries it.
+ */
+export type CallOptions = { poll?: boolean };
+
+export async function callTool(
+  grant: Grant,
+  name: string,
+  args: Record<string, unknown>,
+  options: CallOptions = {}
+): Promise<string> {
   let response: Response;
   try {
     response = await fetch("/mcp", {
@@ -67,6 +83,7 @@ export async function callTool(grant: Grant, name: string, args: Record<string, 
         // Omit the field entirely for a session grant: `/mcp` distinguishes absent (operator
         // authority) from present (a legacy grant it must verify).
         ...(grant.envelope === null ? {} : { grant: grant.envelope }),
+        ...(options.poll ? { poll: true } : {}),
         request: { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } }
       })
     });

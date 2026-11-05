@@ -16,18 +16,33 @@ export function isChannelBoundary(line: Pick<AuditLine, "tool">): boolean {
 }
 
 /**
+ * Whether a line is a failed console poll rather than a call.
+ *
+ * A poll that succeeded is not in the audit at all: it was a read of the same screen the console
+ * already shows. A failed one stays a line so the operator can find the machine's silence in the
+ * Activity Table, but it is the console retrying itself, never the AI's work — so it is counted in
+ * its own bucket, excluded from the client, console and unattributed failure counts, and the hub's
+ * day never treats it as a call.
+ */
+export function isPoll(line: Pick<AuditLine, "kind">): boolean {
+  return line.kind === "poll";
+}
+
+/**
  * Whether a line is a client's call, by the same proof the hub's day line uses.
  *
  * The `caller` field is newer than the audit itself: 908 of the live 1000 lines have no caller, and
  * 376 of those carry a token — no console line carries one (0 of 30). Counting only `caller ===
  * "client"` undercounted the busiest machine's day by 5.9× (62 counted, 363 proven). A line with a
  * token is a client call even when the caller was never recorded; a console line never is, even if
- * a token were to appear on one. A channel boundary is never one, whatever else the line says.
+ * a token were to appear on one. A channel boundary is never one, and neither is a failed poll,
+ * whatever else the line says.
  */
 export function isClientCall(
-  line: Pick<AuditLine, "caller" | "token_id" | "tool">
+  line: Pick<AuditLine, "caller" | "token_id" | "tool" | "kind">
 ): boolean {
   if (isChannelBoundary(line)) return false;
+  if (isPoll(line)) return false;
   if (line.caller === "client") return true;
   if (line.caller === "console") return false;
   return line.token_id != null;
@@ -38,28 +53,36 @@ export function isClientCall(
  *
  * The caller is the console's own statement of who made the call. An older line says nothing, and an
  * absent caller is not proof of the console: it belongs to the unattributed bucket. The hub folds
- * these rows behind one chip; Activity keeps them in the list, because the audit is the record.
+ * these rows behind one chip; Activity keeps them in the list, because the audit is the record. A
+ * failed poll is a console fact but not a read of the screen — it gets its own bucket, so the chip
+ * does not offer the machine's retries as console reads.
  */
-export function isConsoleRead(line: Pick<AuditLine, "caller">): boolean {
-  return line.caller === "console";
+export function isConsoleRead(line: Pick<AuditLine, "caller" | "kind">): boolean {
+  return line.caller === "console" && !isPoll(line);
 }
 
 /**
- * The three buckets the Activity header counts, and the failures inside each one.
+ * The four buckets the Activity header counts, and the failures inside each one.
  *
- * `console` is a bucket of its own rather than part of `unattributed`: the console's own polling is
- * a known caller, and folding its 30 rows into "nobody can say who" would overstate the unknown.
+ * `console` is a bucket of its own rather than part of `unattributed`: the console's own calls are a
+ * known caller, and folding them into "nobody can say who" would overstate the unknown. `poll` is
+ * the third: a failed console poll is not work by the console either, it is the console retrying a
+ * read of the screen it already shows. It stays a row in the table, so the machine's silence is
+ * visible, but it is excluded from every call and failure count.
  *
  * The failures are counted per bucket and never summed into one silent number: the measured header
  * read "301 client calls · 55 failed", and 18 of those 55 were not the AI's (15 console, 2
  * unattributed), so "failed" beside "client calls" was 1.5× the client failure rate. `clientFailed`
- * is the one the sentence leads with; the other two are named for what they are.
+ * is the one the sentence leads with; the other three are named for what they are.
  */
 export type ActivityCounts = {
   client: number;
   clientFailed: number;
   console: number;
   consoleFailed: number;
+  /** Failed console polls: rows the table draws, no failure count includes them. */
+  poll: number;
+  pollFailed: number;
   unattributed: number;
   unattributedFailed: number;
 };
@@ -79,15 +102,22 @@ export function activityCounts(lines: readonly AuditLine[], now = Date.now()): A
     clientFailed: 0,
     console: 0,
     consoleFailed: 0,
+    poll: 0,
+    pollFailed: 0,
     unattributed: 0,
     unattributedFailed: 0
   };
   for (const line of lines) {
     if (line.ts_ms < start) continue;
-    // A channel boundary is a console fact, not a call: it belongs to none of the three buckets.
+    // A channel boundary is a console fact, not a call: it belongs to none of the buckets.
     if (isChannelBoundary(line)) continue;
     const failed = auditFailed(line);
-    if (isClientCall(line)) {
+    // A poll is the console retrying itself; it keeps its own count so no failure number can read
+    // a sleeping machine's retries as the AI's refusals. It is still a row in the table.
+    if (isPoll(line)) {
+      counts.poll += 1;
+      if (failed) counts.pollFailed += 1;
+    } else if (isClientCall(line)) {
       counts.client += 1;
       if (failed) counts.clientFailed += 1;
     } else if (line.caller === "console") {
@@ -123,11 +153,19 @@ export function activityCountSentence(counts: ActivityCounts, clientOnly = false
       : ` · ${counts.consoleFailed} console ${
           counts.consoleFailed === 1 ? "failure" : "failures"
         }`;
+  // The measured day's 41 reconnect-window failures were a sleeping machine's retries and read as
+  // the AI's. They are named after the console's failures, and the clause is absent when zero.
+  const pollClause =
+    counts.pollFailed === 0
+      ? ""
+      : ` · ${counts.pollFailed} poll ${
+          counts.pollFailed === 1 ? "failure" : "failures"
+        }`;
   const unknownClause =
     counts.unattributedFailed === 0
       ? `${counts.unattributed} unattributed`
       : `${counts.unattributed} unattributed (${counts.unattributedFailed} failed)`;
-  return `${ai}${consoleClause} · ${unknownClause}`;
+  return `${ai}${consoleClause}${pollClause} · ${unknownClause}`;
 }
 
 /** The sentence from a window and the moment it is read; `clientOnly` mirrors the chip. */

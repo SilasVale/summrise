@@ -38,6 +38,8 @@ describe("activityCounts", () => {
       clientFailed: 0,
       console: 1,
       consoleFailed: 0,
+      poll: 0,
+      pollFailed: 0,
       unattributed: 1,
       unattributedFailed: 0
     });
@@ -59,6 +61,8 @@ describe("activityCounts", () => {
     expect(isClientCall(line({ caller: "client" }))).toBe(true);
     // A token on a row the console marked is still the console's; the marker is the stronger fact.
     expect(isClientCall(line({ caller: "console", token_id: TOKEN }))).toBe(false);
+    // The console's poll is not the AI's call even if a token were ever attached to it.
+    expect(isClientCall(line({ kind: "poll", caller: "console", token_id: TOKEN }))).toBe(false);
   });
 
   it("marks only the console's own caller as a console read", () => {
@@ -68,6 +72,8 @@ describe("activityCounts", () => {
     expect(isConsoleRead(line({ caller: "client" }))).toBe(false);
     expect(isConsoleRead(line({ token_id: TOKEN }))).toBe(false);
     expect(isConsoleRead(line({}))).toBe(false);
+    // A failed poll is a console fact but not a read of the screen: it belongs to its own count.
+    expect(isConsoleRead(line({ kind: "poll", caller: "console" }))).toBe(false);
   });
 
   it("never counts a channel boundary as a call or an activity row", () => {
@@ -83,6 +89,8 @@ describe("activityCounts", () => {
       clientFailed: 0,
       console: 0,
       consoleFailed: 0,
+      poll: 0,
+      pollFailed: 0,
       unattributed: 0,
       unattributedFailed: 0
     });
@@ -105,9 +113,51 @@ describe("activityCounts", () => {
       clientFailed: 1,
       console: 1,
       consoleFailed: 1,
+      poll: 0,
+      pollFailed: 0,
       unattributed: 1,
       unattributedFailed: 1
     });
+  });
+
+  it("counts a failed poll apart from the AI's failures and the console's", () => {
+    // The measured record's 41 `device reconnecting` lines were a sleeping machine's retries, not
+    // the AI's refusals. They stay rows (the table draws them) but leave every failed count.
+    const counts = activityCounts(
+      [
+        line({ caller: "client" }),
+        line({ caller: "client", status: 424 }),
+        line({ caller: "console", status: 500 }),
+        line({
+          kind: "poll",
+          caller: "console",
+          status: 503,
+          detail: "device reconnecting",
+          tool: "terminal.read"
+        }),
+        line({
+          kind: "poll",
+          caller: "console",
+          status: 504,
+          detail: "device did not answer",
+          tool: "terminal.list"
+        })
+      ],
+      NOW
+    );
+    expect(counts).toEqual({
+      client: 2,
+      clientFailed: 1,
+      console: 1,
+      consoleFailed: 1,
+      poll: 2,
+      pollFailed: 2,
+      unattributed: 0,
+      unattributedFailed: 0
+    });
+    expect(activityCountSentence(counts)).toBe(
+      "Today 2 client calls · 1 failed · 1 console failure · 2 poll failures · 0 unattributed"
+    );
   });
 });
 
@@ -117,6 +167,8 @@ describe("activityCountSentence", () => {
     clientFailed: 37,
     console: 627,
     consoleFailed: 15,
+    poll: 0,
+    pollFailed: 0,
     unattributed: 21,
     unattributedFailed: 2
   };
@@ -139,6 +191,26 @@ describe("activityCountSentence", () => {
     );
   });
 
+  it("reads the day header for the measured shape: three client failures, two console, 41 poll", () => {
+    // The measured window's shape at the moment this work started: 41 reconnect-window poll
+    // failures were inside the day's `failed` count and read as the AI's. The header now names
+    // them in their own clause and never adds them to the number beside "client calls".
+    expect(
+      activityCountSentence({
+        client: 3,
+        clientFailed: 3,
+        console: 2,
+        consoleFailed: 2,
+        poll: 41,
+        pollFailed: 41,
+        unattributed: 0,
+        unattributedFailed: 0
+      })
+    ).toBe(
+      "Today 3 client calls · 3 failed · 2 console failures · 41 poll failures · 0 unattributed"
+    );
+  });
+
   it("shows the client subset, and nothing the chip hides, when the chip is on", () => {
     // "Clients only" draws the AI's rows; its header is then the hub's sentence: no console clause,
     // no unattributed count, and the same failure number the visible rows carry.
@@ -156,6 +228,8 @@ describe("activityCountSentence", () => {
           clientFailed: 0,
           console: 0,
           consoleFailed: 0,
+          poll: 0,
+          pollFailed: 0,
           unattributed: 0,
           unattributedFailed: 0
         }
