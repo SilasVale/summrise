@@ -763,6 +763,24 @@ describe("App", () => {
     expect(within(dialog).getByText(/spans the fleet/)).toBeInTheDocument();
   });
 
+  it("opens the Tokens section on the token a record names", async () => {
+    mocks.audit.mockResolvedValue([tokenCall]);
+    mocks.tokens.mockResolvedValue([laptop]);
+    await bootAndSignIn();
+
+    fireEvent.click(screen.getByRole("button", { name: "Activity" }));
+    await screen.findByRole("heading", { name: "Activity", level: 1 });
+    fireEvent.click(screen.getByRole("tab", { name: "Table" }));
+
+    const row = (await screen.findByText("tools/list")).closest("tr");
+    expect(row).not.toBeNull();
+    fireEvent.click(within(row as HTMLElement).getByRole("button", { name: /Show the record for/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Manage" }));
+
+    const dialog = await screen.findByRole("dialog", { name: "Tokens" });
+    expect(await within(dialog).findByText("laptop-dsh")).toBeInTheDocument();
+  });
+
   it("selects a machine without leaving Home, then opens its terminal from Device", async () => {
     await bootAndSignIn();
 

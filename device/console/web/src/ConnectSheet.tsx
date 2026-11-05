@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, type Created, type Device, type LiveTool, type TokenMeta } from "./api";
 import { groupByCapability } from "./capabilities";
 import { copyText } from "./copy";
@@ -93,11 +93,17 @@ export function ConnectSheet({
   device,
   devices,
   initialSection = "endpoint",
+  focusTokenId = null,
   onClose
 }: {
   device: Device | null;
   devices: Device[];
   initialSection?: ConnectSection;
+  /**
+   * The token a record named: open the Tokens list scrolled to that row. The account menu and the
+   * endpoint entry point pass none, and the list opens as it always did.
+   */
+  focusTokenId?: string | null;
   onClose: () => void;
 }) {
   const [section, setSection] = useState<ConnectSection>(initialSection);
@@ -243,6 +249,7 @@ export function ConnectSheet({
               fallbackNames={fallback}
               endpoint={endpoint}
               offline={offline}
+              focusTokenId={focusTokenId}
             />
           </div>
         )}
@@ -257,7 +264,8 @@ function TokensSection({
   liveTools,
   fallbackNames,
   endpoint,
-  offline
+  offline,
+  focusTokenId
 }: {
   device: Device | null;
   devices: Device[];
@@ -265,6 +273,7 @@ function TokensSection({
   fallbackNames: string[];
   endpoint: string;
   offline: boolean;
+  focusTokenId: string | null;
 }) {
   // The minted token's scope: one machine (the sheet's device) or the fleet. With no current
   // machine, the fleet is the only scope a token can be minted for.
@@ -289,6 +298,9 @@ function TokensSection({
   const [revoking, setRevoking] = useState<TokenMeta | null>(null);
   const [revokeBusy, setRevokeBusy] = useState(false);
   const [revokeError, setRevokeError] = useState<string | null>(null);
+  // The row a record's Manage asked for. A ref rather than an effect over the whole table: the
+  // list is drawn from a fetch this component owns, so the row exists only after `tokens` answers.
+  const focusedRow = useRef<HTMLTableRowElement | null>(null);
 
   const catalogue = useMemo(
     () =>
@@ -352,6 +364,13 @@ function TokensSection({
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  // Bring the token a record named into view once the list has answered. `scrollIntoView` is absent
+  // in jsdom and in a runtime that cannot scroll; the row's mark still says which record this is.
+  useEffect(() => {
+    if (!focusTokenId) return;
+    focusedRow.current?.scrollIntoView?.({ block: "center", behavior: "smooth" });
+  }, [focusTokenId, tokens]);
 
   const toggle = (tool: string) => {
     const next = new Set(effectiveChosen);
@@ -653,8 +672,13 @@ function TokensSection({
                 {tokens.map((entry) => {
                   const label = entry.name || shortId(entry.id);
                   const scope = scopeLabel(entry, devices, device?.id ?? null);
+                  const focused = entry.id === focusTokenId;
                   return (
-                    <tr key={entry.id}>
+                    <tr
+                      key={entry.id}
+                      className={focused ? "is-managed" : undefined}
+                      ref={focused ? focusedRow : undefined}
+                    >
                       <td>
                         <div className="token-name">
                           <strong>{label}</strong>

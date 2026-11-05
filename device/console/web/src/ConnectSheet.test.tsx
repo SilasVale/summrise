@@ -423,6 +423,26 @@ describe("ConnectSheet's one credential list", () => {
     expect(screen.queryByRole("table")).not.toBeInTheDocument();
   });
 
+  it("opens on the token a record named, scrolled to its row", async () => {
+    mocks.tokens.mockResolvedValue([
+      tokenMeta({ id: "tok-first", name: "first" }),
+      tokenMeta({ id: "tok-wanted", name: "wanted", created_at_ms: Date.UTC(2026, 10, 2) })
+    ]);
+    const scrollIntoView = vi.fn();
+    const original = HTMLElement.prototype.scrollIntoView;
+    HTMLElement.prototype.scrollIntoView = scrollIntoView;
+
+    try {
+      draw({ initialSection: "tokens", focusTokenId: "tok-wanted" });
+
+      const row = await screen.findByRole("row", { name: /wanted/ });
+      expect(row).toHaveClass("is-managed");
+      expect(scrollIntoView).toHaveBeenCalled();
+    } finally {
+      HTMLElement.prototype.scrollIntoView = original;
+    }
+  });
+
   it("defaults the mint scope to this machine and can be switched before minting", async () => {
     mocks.createToken.mockResolvedValue({ ...CREATED, name: "here" });
     draw({ initialSection: "tokens", devices: [WORKSHOP, ATTIC] });

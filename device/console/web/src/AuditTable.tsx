@@ -153,6 +153,7 @@ export function AuditTable({
   tokens,
   selectedDeviceId = null,
   onOpenRun,
+  onManageToken,
   empty = "No calls yet. Calls routed through this console are written here; a call made " +
     "straight to a machine's own endpoint is not. Connect a client sets up the credential that " +
     "routes one here.",
@@ -182,6 +183,11 @@ export function AuditTable({
   selectedDeviceId?: string | null;
   /** Open a run's record on the device; only the Activity page can navigate to Runs. */
   onOpenRun?: (deviceId: string, runId: string) => void;
+  /**
+   * Open the Connect sheet on the token a record names, so revoking the credential behind a call is
+   * one action from the row rather than a trip through the account menu.
+   */
+  onManageToken?: (tokenId: string) => void;
   /** The sentence for no lines at all. */
   empty?: string;
   /**
@@ -565,7 +571,18 @@ export function AuditTable({
                                 )}
                               </dd>
                               <dt>Token</dt>
-                              <dd>{tokenFact(line, tokenNames)}</dd>
+                              <dd>
+                                {tokenFact(line, tokenNames)}
+                                {line.token_id && onManageToken && (
+                                  <button
+                                    type="button"
+                                    className="mini"
+                                    onClick={() => onManageToken(line.token_id as string)}
+                                  >
+                                    Manage
+                                  </button>
+                                )}
+                              </dd>
                               <dt>Tool</dt>
                               <dd className="mono">{line.tool ?? "—"}</dd>
                               <dt>Detail</dt>

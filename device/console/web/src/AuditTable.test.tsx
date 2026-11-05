@@ -526,6 +526,28 @@ describe("AuditTable", () => {
     expect(clientRecord).not.toHaveTextContent("operator session");
   });
 
+  it("offers Manage where a token is named, and only there", () => {
+    const onManageToken = vi.fn();
+    render(
+      <AuditTable
+        lines={[
+          { ts_ms: 1, kind: "mcp", device_id: alpha, tool: "tools/list", detail: null, status: 200, token_id: tokenA, caller: "client" },
+          { ts_ms: 2, kind: "mcp", device_id: alpha, tool: "files.read", detail: null, status: 200, caller: "client" }
+        ]}
+        devices={devices}
+        tokens={tokens}
+        onManageToken={onManageToken}
+      />
+    );
+
+    toggleRow("tools/list");
+    fireEvent.click(within(recordOf("tools/list")).getByRole("button", { name: "Manage" }));
+    expect(onManageToken).toHaveBeenCalledWith(tokenA);
+
+    toggleRow("files.read");
+    expect(within(recordOf("files.read")).queryByRole("button", { name: "Manage" })).toBeNull();
+  });
+
   it("keeps two otherwise identical lines apart when only their token differs", () => {
     const base: AuditLine = {
       ts_ms: 3,

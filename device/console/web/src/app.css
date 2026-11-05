@@ -1773,6 +1773,9 @@ span.files-name {
 .token-tools .hint { font-size: var(--fs-2xs); white-space: normal; }
 .token-expires, .token-created { white-space: nowrap; }
 .token-actions { display: flex; justify-content: flex-end; gap: var(--sp-1); white-space: nowrap; }
+/* The row a record's Manage opened: a mark, not the only way to find it (the list is short and the
+   sheet scrolled), so the tint has to survive both schemes without becoming the focus ring. */
+.token-table tr.is-managed td { background: var(--accent-soft); }
 
 @media (max-width: 639px) {
   .connect-sheet .connect-tabs button { flex: 1; text-align: center; }
@@ -1832,6 +1835,7 @@ span.files-name {
 }
 .audit-record dt { color: var(--ink-muted); font-size: var(--fs-sm); }
 .audit-record dd { margin: 0; overflow-wrap: anywhere; }
+.audit-record dd .mini, .evidence-facts dd .mini { margin-left: var(--sp-2); }
 .audit-empty { display: grid; gap: var(--sp-2); justify-items: start; padding: var(--sp-3) 0; }
 /* The one action that leaves the page with data sits at the far end of the filter row. */
 .audit-export { margin-left: auto; }

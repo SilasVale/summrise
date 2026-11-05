@@ -200,7 +200,8 @@ describe("ActivityTimeline", () => {
     expect(within(panel).getByText("no")).toBeInTheDocument();
   });
 
-  it("names the token behind a call in the evidence panel", () => {
+  it("names the token behind a call in the evidence panel, and offers Manage", () => {
+    const onManageToken = vi.fn();
     const attributed = line({
       tool: "files.read",
       sentence: "Read notes.txt",
@@ -208,12 +209,21 @@ describe("ActivityTimeline", () => {
       token_id: tokenA,
       evidence: { path: "notes.txt" }
     });
-    render(<ActivityTimeline lines={[attributed]} devices={[]} tokens={tokens} />);
+    render(
+      <ActivityTimeline
+        lines={[attributed]}
+        devices={[]}
+        tokens={tokens}
+        onManageToken={onManageToken}
+      />
+    );
 
     openRow();
 
     const panel = evidencePanel();
     expect(within(panel).getByText("Token").nextElementSibling).toHaveTextContent("laptop-dsh");
+    fireEvent.click(within(panel).getByRole("button", { name: "Manage" }));
+    expect(onManageToken).toHaveBeenCalledWith(tokenA);
   });
 
   it("says signed grant for a client's call with no token record", () => {

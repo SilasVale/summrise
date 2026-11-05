@@ -173,6 +173,7 @@ function Evidence(props: {
   line: AuditLine;
   tokenNames: ReadonlyMap<string, string>;
   onWatch?: (deviceId: string) => void;
+  onManageToken?: (tokenId: string) => void;
 }) {
   const line = props.line;
   const evidence = line.evidence;
@@ -248,7 +249,18 @@ function Evidence(props: {
           )}
           <div>
             <dt>Token</dt>
-            <dd>{tokenFact(line, props.tokenNames)}</dd>
+            <dd>
+              {tokenFact(line, props.tokenNames)}
+              {line.token_id && props.onManageToken && (
+                <button
+                  type="button"
+                  className="mini"
+                  onClick={() => props.onManageToken?.(line.token_id as string)}
+                >
+                  Manage
+                </button>
+              )}
+            </dd>
           </div>
           {detail && (
             <div>
@@ -328,6 +340,7 @@ function Row(props: {
   nowMs: number;
   onToggle: () => void;
   onWatch?: (deviceId: string) => void;
+  onManageToken?: (tokenId: string) => void;
 }) {
   const line = props.line;
   const kind = tone(line);
@@ -386,7 +399,12 @@ function Row(props: {
         <div className="timeline-line is-static">{contents}</div>
       )}
       {props.open && (
-        <Evidence line={line} tokenNames={props.tokenNames} onWatch={props.onWatch} />
+        <Evidence
+          line={line}
+          tokenNames={props.tokenNames}
+          onWatch={props.onWatch}
+          onManageToken={props.onManageToken}
+        />
       )}
     </li>
   );
@@ -433,6 +451,8 @@ export function ActivityTimeline(props: {
   /** The operator's token registry, so a row can name a token instead of showing its id. */
   tokens?: TokenMeta[];
   onWatch?: (deviceId: string) => void;
+  /** Open the Connect sheet on the token a record names. */
+  onManageToken?: (tokenId: string) => void;
   empty?: string;
   /**
    * A fixed clock, for a page that is paused: the age column stops at this moment instead of
@@ -630,6 +650,7 @@ export function ActivityTimeline(props: {
                       nowMs={at}
                       onToggle={() => setOpenKey((current) => (current === key ? null : key))}
                       onWatch={props.onWatch}
+                      onManageToken={props.onManageToken}
                     />
                     </Fragment>
                   );

@@ -202,9 +202,12 @@ export function App() {
   const [proxied, setProxied] = useState(false);
   const [renaming, setRenaming] = useState<Device | null>(null);
   const [removing, setRemoving] = useState<Device | null>(null);
-  const [connect, setConnect] = useState<{ section: ConnectSection; device: Device | null } | null>(
-    null
-  );
+  const [connect, setConnect] = useState<{
+    section: ConnectSection;
+    device: Device | null;
+    /** Scroll the Tokens section to this record, when a row's Manage asked for it. */
+    tokenId?: string | null;
+  } | null>(null);
   const [draftName, setDraftName] = useState("");
   const [notice, setNotice] = useState<string | null>(null);
   const [code, setCode] = useState<{ code: string; expires_at_ms: number } | null>(null);
@@ -861,6 +864,9 @@ export function App() {
                     setPage("device");
                     setTab("terminal");
                   }}
+                  onManageToken={(tokenId) =>
+                    setConnect({ section: "tokens", device: chosen, tokenId })
+                  }
                 />
               ) : (
                 <AuditTable
@@ -873,6 +879,9 @@ export function App() {
                   tokens={tokens}
                   selectedDeviceId={selected}
                   onOpenRun={openRun}
+                  onManageToken={(tokenId) =>
+                    setConnect({ section: "tokens", device: chosen, tokenId })
+                  }
                   filter={activityFilter}
                   onFilter={setActivityFilter}
                   since={activitySince}
@@ -1006,6 +1015,7 @@ export function App() {
           device={connect.device}
           devices={devices}
           initialSection={connect.section}
+          focusTokenId={connect.tokenId ?? null}
           onClose={() => setConnect(null)}
         />
       )}
