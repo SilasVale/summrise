@@ -162,8 +162,10 @@ const CONSOLE_LINE = {
 };
 // **THE HUB'S DAY IS WIDER THAN ONE SCREEN.** These 75 lines are today's at any hour — they sit one
 // second into the local day, and the distinct tool names keep them distinct even at one instant — so
-// the fold has a remainder to offer without the two rows the other legs assert on. They are the
-// console's calls: the Now band counts the AI and must stay Quiet with them in the day.
+// the fold has a remainder to offer without the two rows the other legs assert on. Three of them are
+// client calls, so the newest sixty rows are the measured shape: 4 client calls and 56 console
+// reads. The rest are the console's own calls: its 73 reads are folded behind the hub's one chip,
+// and the Now band counts the AI and must stay Quiet with them in the day.
 const DAY_START = new Date(NOW);
 DAY_START.setHours(0, 0, 0, 0);
 const HISTORIC_LINES = Array.from({ length: 75 }, (_, index) => ({
@@ -171,11 +173,25 @@ const HISTORIC_LINES = Array.from({ length: 75 }, (_, index) => ({
   kind: 'mcp',
   device_id: DEVICE.id,
   token_id: null,
-  tool: `history.${index}`,
+  tool: index < 3 ? `runs.${index}` : `history.${index}`,
   detail: null,
   status: 200,
-  caller: 'console'
+  caller: index < 3 ? 'client' : 'console'
 }));
+// The fixture's own day counts, derived from its clock. The two recent rows are today except in the
+// minutes after local midnight, so every expected number is computed instead of hardcoded: the hub
+// draws the client calls, the chip counts the console reads, and Activity draws every row.
+const FIXTURE_LINES = [CONSOLE_LINE, AUDIT_LINE, ...HISTORIC_LINES];
+const TODAY_LINES = FIXTURE_LINES.filter((line) => line.ts_ms >= DAY_START.getTime());
+const TODAY_CLIENT = TODAY_LINES.filter((line) => line.caller === 'client').length;
+const TODAY_CONSOLE = TODAY_LINES.filter((line) => line.caller === 'console').length;
+const ALL_CLIENT = FIXTURE_LINES.filter((line) => line.caller === 'client').length;
+// The newest client row in the window is the one a narrowed list draws first. It is the run's line
+// at a normal hour and a historic call in the five minutes after midnight, when `AUDIT_LINE` is
+// yesterday; the leg names whichever it is rather than racing the clock.
+const FIRST_CLIENT = [...FIXTURE_LINES]
+  .filter((line) => line.caller === 'client')
+  .sort((left, right) => right.ts_ms - left.ts_ms)[0];
 // The whole registry, not the selected machine's slice: one token for this machine, one for a
 // machine the gate never selects, and one aggregate. The Tokens leg counts the rows against this.
 const TOKENS = [
@@ -491,44 +507,126 @@ try {
 
   // THE NOW BAND COUNTS THE AI, NOT THE CONSOLE'S OWN READS. The activity stream above serves one
   // `terminal.list` the console made twenty seconds ago and one client call five minutes ago; a
-  // console read under ninety seconds must not make an idle machine read "Active now".
-  try {
-    await page.waitForFunction(
-      () => document.querySelector('.live-state')?.textContent?.trim() === 'Quiet',
-      null,
-      { timeout: 10_000 }
-    );
-  } catch {
-    const shown = (await page.locator('.live-state').first().textContent().catch(() => ''))?.trim();
-    throw new Error(`the Now band read "${shown}" with only the console's own read recent`);
+  // console read under ninety seconds must not make an idle machine read "Active now". The three
+  // historic client calls are today's at 00:00:01, so in the first ninety seconds of the day they
+  // are legitimately recent and the band is right to say Active; the leg does not claim otherwise.
+  const historicAge = Date.now() - (DAY_START.getTime() + 1_000);
+  if (historicAge >= 90_000) {
+    try {
+      await page.waitForFunction(
+        () => document.querySelector('.live-state')?.textContent?.trim() === 'Quiet',
+        null,
+        { timeout: 10_000 }
+      );
+    } catch {
+      const shown = (await page.locator('.live-state').first().textContent().catch(() => ''))?.trim();
+      throw new Error(`the Now band read "${shown}" with only the console's own read recent`);
+    }
+    const rate = (await page.locator('.live-rate').first().textContent())?.trim();
+    if (!rate || !rate.includes('no calls in the last minute')) {
+      throw new Error(`the Now rate counted the console's own read: "${rate}"`);
+    }
+    step('the Now band stays Quiet with the console\'s own read in the day');
+  } else {
+    step('the Now band leg skipped: the day is younger than its newest client call');
   }
-  const rate = (await page.locator('.live-rate').first().textContent())?.trim();
-  if (!rate || !rate.includes('no calls in the last minute')) {
-    throw new Error(`the Now rate counted the console's own read: "${rate}"`);
-  }
-  // And the row is still in the record, marked so a reader can tell it from the AI's calls.
-  await page.locator('.timeline-caller').first().waitFor({ state: 'visible', timeout: 10_000 });
-  step('the Now band stays Quiet, and the console\'s own row is marked in the timeline');
 
-  // THE DAY IS SCANNABLE WITHOUT HIDING THE RECORD. Seventy-seven rows are today's; the hub draws
-  // the newest sixty and offers the rest by count. The count is read from the control and the
-  // expansion is checked against it, so the leg does not invent an expected remainder.
-  const more = page.getByRole('button', { name: /^Show the rest of today \(\d+ more\)$/ });
-  await more.waitFor({ state: 'visible', timeout: 10_000 });
-  const foldedRows = await page.locator('.timeline-row').count();
-  const moreText = (await more.textContent())?.trim() ?? '';
-  const hidden = Number(/\((\d+) more\)/.exec(moreText)?.[1] ?? 0);
-  if (foldedRows !== 60 || hidden === 0) {
-    throw new Error(`the hub drew ${foldedRows} rows and offered "${moreText}"`);
+  // **THE HUB IS THE AI'S WORK; THE CONSOLE'S READS ARE ONE CHIP AWAY.** The fixture's newest sixty
+  // rows are the measured shape — 4 client calls and 56 console reads — above a day line that counts
+  // the four. The hub draws the four: the console's own polling is counted on one chip, not drawn
+  // as the machine's work. Clicking the chip adds it; the fold then offers the rest of today, and
+  // nothing is dropped. The heights are measured, not asserted, so the change has a before/after.
+  const hubMeasure = () =>
+    page.evaluate(() => {
+      const main = document.querySelector('main');
+      return {
+        rows: document.querySelectorAll('.timeline-row').length,
+        height: main ? main.scrollHeight : 0
+      };
+    });
+  const hubChip = page.getByRole('button', { name: `Console reads · ${TODAY_CONSOLE}` });
+  await hubChip.waitFor({ state: 'visible', timeout: 10_000 });
+  const todayLine = (await page.locator('.home-today').textContent())?.trim();
+  const todayCalls = `Today ${TODAY_CLIENT} client ${TODAY_CLIENT === 1 ? 'call' : 'calls'}`;
+  if (!todayLine?.startsWith(todayCalls)) {
+    throw new Error(`the hub's day line read "${todayLine}", expected "${todayCalls}"`);
   }
-  await more.click();
+  await page.setViewportSize({ width: 1440, height: 960 });
+  await page.waitForTimeout(500);
+  const hub1440 = await hubMeasure();
+  console.log(
+    `browser-gate: hub at 1440: ${hub1440.rows} rows, main ${hub1440.height} px` +
+      ` (${TODAY_CONSOLE} console reads folded)`
+  );
+  if (hub1440.rows !== TODAY_CLIENT) {
+    throw new Error(`the hub drew ${hub1440.rows} rows; ${TODAY_CLIENT} are the AI's calls`);
+  }
+  if ((await page.locator('.timeline-caller').count()) !== 0) {
+    throw new Error('the hub drew the console\'s own reads before they were asked for');
+  }
+  if ((await hubChip.getAttribute('aria-pressed')) !== 'false') {
+    throw new Error('the console-reads chip was pressed before it was chosen');
+  }
+  await hubChip.click();
+  const foldedRows = Math.min(TODAY_CLIENT + TODAY_CONSOLE, 60);
   await page.waitForFunction(
     (expected) => document.querySelectorAll('.timeline-row').length === expected,
-    60 + hidden,
+    foldedRows,
     { timeout: 10_000 }
   );
-  if ((await more.count()) !== 0) throw new Error('the fold control stayed after the day expanded');
-  step(`the hub drew 60 rows and expanded the rest of today (${hidden} more)`);
+  if ((await hubChip.getAttribute('aria-pressed')) !== 'true') {
+    throw new Error('the console-reads chip did not report its pressed state');
+  }
+  await page.locator('.timeline-caller').first().waitFor({ state: 'visible', timeout: 10_000 });
+  const hubWithConsole = await hubMeasure();
+  console.log(
+    `browser-gate: hub with console reads at 1440: ${hubWithConsole.rows} rows, ` +
+      `main ${hubWithConsole.height} px`
+  );
+  // The rest of today is still behind the fold the console chip just widened.
+  const more = page.getByRole('button', { name: /^Show the rest of today \(\d+ more\)$/ });
+  const hidden = Math.max(0, TODAY_CLIENT + TODAY_CONSOLE - 60);
+  if (hidden > 0) {
+    await more.waitFor({ state: 'visible', timeout: 10_000 });
+    const moreText = (await more.textContent())?.trim() ?? '';
+    if (Number(/\((\d+) more\)/.exec(moreText)?.[1] ?? -1) !== hidden) {
+      throw new Error(`the hub offered "${moreText}" for ${hidden} rows behind the fold`);
+    }
+    await more.click();
+    await page.waitForFunction(
+      (expected) => document.querySelectorAll('.timeline-row').length === expected,
+      TODAY_CLIENT + TODAY_CONSOLE,
+      { timeout: 10_000 }
+    );
+    if ((await more.count()) !== 0) throw new Error('the fold control stayed after the day expanded');
+  }
+  // The toggle is a view, not a stored preference: off again draws only the AI's calls.
+  await hubChip.click();
+  await page.waitForFunction(
+    (expected) => document.querySelectorAll('.timeline-row').length === expected,
+    TODAY_CLIENT,
+    { timeout: 10_000 }
+  );
+  step(
+    `the hub drew the AI's ${TODAY_CLIENT} calls, not the ${TODAY_CONSOLE} console reads, ` +
+      `and the chip restored all ${TODAY_CLIENT + TODAY_CONSOLE} in one click`
+  );
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.waitForTimeout(500);
+  const hub390 = await hubMeasure();
+  console.log(
+    `browser-gate: hub at 390: ${hub390.rows} rows, main ${hub390.height} px`
+  );
+  if (hub390.rows !== TODAY_CLIENT) {
+    throw new Error(`the hub drew ${hub390.rows} rows at 390; ${TODAY_CLIENT} are the AI's calls`);
+  }
+  // The first screen is the AI's work: the first row is the newest client call, not a console read.
+  const firstHubRow = (await page.locator('.timeline-row').first().textContent()) ?? '';
+  if (!firstHubRow.includes(FIRST_CLIENT.tool)) {
+    throw new Error(`the hub's first row was not the AI's call: "${firstHubRow}"`);
+  }
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.waitForTimeout(200);
 
   // A CALL IN FLIGHT IS NOT AN AUDIT ROW. The proxy announces it before the device answers; the
   // band must name it while the timeline still has nothing, and the finished frame must clear it.
@@ -574,28 +672,33 @@ try {
   await page.getByRole('button', { name: 'Activity' }).click();
   await page.getByRole('heading', { name: 'Activity' }).waitFor({ timeout: 10_000 });
 
-  // THE DAY'S COUNT, AND ONE CHIP TO SEE THE AI ALONE. The fixture is one client call and 76
-  // console reads, so the header's count is the day's proof (the client call is today unless the
-  // gate runs in the five minutes after midnight) and the chip narrows 77 rows to that one call.
-  const midnight = new Date(NOW);
-  midnight.setHours(0, 0, 0, 0);
-  const clientToday = AUDIT_LINE.ts_ms >= midnight.getTime() ? 1 : 0;
-  const expectedCount = `Today ${clientToday} client ${
-    clientToday === 1 ? 'call' : 'calls'
+  // THE DAY'S COUNT, AND ONE CHIP TO SEE THE AI ALONE. Activity is the audit: every caller is drawn
+  // by default — all 77 rows — and the hub's console-reads chip must not appear here. Its own
+  // "Clients only" chip is the way to narrow, and the header then states the subset it drew.
+  const expectedCount = `Today ${TODAY_CLIENT} client ${
+    TODAY_CLIENT === 1 ? 'call' : 'calls'
   } · 0 failed · 0 unattributed`;
   const countText = (await page.locator('.activity-today').textContent())?.trim();
   if (countText !== expectedCount) {
     throw new Error(`the Activity header stated "${countText}", expected "${expectedCount}"`);
   }
   const allActivityRows = await page.locator('.timeline-row').count();
-  const clientsChip = page.getByRole('button', { name: 'Clients only · 1' });
+  if (allActivityRows !== FIXTURE_LINES.length) {
+    throw new Error(
+      `Activity drew ${allActivityRows} rows; the audit's default is all ${FIXTURE_LINES.length}`
+    );
+  }
+  if ((await page.locator('.timeline-console-reads').count()) !== 0) {
+    throw new Error('Activity drew the hub\'s console-reads chip');
+  }
+  const clientsChip = page.getByRole('button', { name: `Clients only · ${ALL_CLIENT}` });
   if ((await clientsChip.getAttribute('aria-pressed')) !== 'false') {
     throw new Error('the Clients only chip was pressed before it was chosen');
   }
   await clientsChip.click();
   await page.waitForFunction(
-    () => document.querySelectorAll('.timeline-row').length === 1,
-    null,
+    (expected) => document.querySelectorAll('.timeline-row').length === expected,
+    ALL_CLIENT,
     { timeout: 10_000 }
   );
   if ((await clientsChip.getAttribute('aria-pressed')) !== 'true') {
@@ -605,14 +708,14 @@ try {
   // beside it must be the client subset the list draws — not the whole window's sentence over two
   // rows. This is the item's contract in the browser, not only in jsdom.
   const narrowedCount = (await page.locator('.activity-today').textContent())?.trim();
-  const expectedNarrowed = `Today ${clientToday} client ${
-    clientToday === 1 ? 'call' : 'calls'
+  const expectedNarrowed = `Today ${TODAY_CLIENT} client ${
+    TODAY_CLIENT === 1 ? 'call' : 'calls'
   } · 0 failed`;
   if (narrowedCount !== expectedNarrowed) {
     throw new Error(`the chip-on header stated "${narrowedCount}", expected "${expectedNarrowed}"`);
   }
   const narrowed = (await page.locator('.timeline-row').first().textContent()) ?? '';
-  if (!narrowed.includes('runs.exec')) {
+  if (!narrowed.includes(FIRST_CLIENT.tool)) {
     throw new Error(`the Clients only chip kept a row that is not the AI's call: "${narrowed}"`);
   }
   await clientsChip.click();
@@ -622,8 +725,8 @@ try {
     { timeout: 10_000 }
   );
   step(
-    `the header counted ${clientToday} client call, and Clients only narrowed ` +
-      `${allActivityRows} rows to the AI's one`
+    `the header counted ${TODAY_CLIENT} client calls, Activity kept all ${allActivityRows} rows ` +
+      `and Clients only narrowed them to ${ALL_CLIENT}`
   );
 
   // Activity opens on the timeline; the audit rows are the table view.

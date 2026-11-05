@@ -2626,6 +2626,11 @@ main::-webkit-scrollbar-track, .sheet-body::-webkit-scrollbar-track, .scroll::-w
 .timeline-callers { align-items: center; }
 .timeline-callers .chip { border: 0; cursor: pointer; }
 .timeline-callers .chip[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); }
+/* The hub's one counted fold. It is a chip, not a filter bar: the Console reads row is in the
+   record and this adds it to the AI's list only when the reader asks. */
+.timeline-console-reads { align-items: center; margin: 0 0 var(--sp-2); }
+.timeline-console-reads .chip { border: 0; cursor: pointer; }
+.timeline-console-reads .chip[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); }
 .timeline-search { margin-left: auto; }
 .timeline-search input { width: 18rem; max-width: 100%; }
 @media (max-width: 639px) {

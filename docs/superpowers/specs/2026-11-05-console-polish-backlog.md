@@ -500,6 +500,21 @@ draws no update line — correctly: it said nothing.
    still are the list. **Fix:** draw client-proven rows on both timelines and fold the
    console's own reads behind one counted line (“56 console reads today”), keeping them in the Table.
    **M.**
+   *(Done 2026-11-05: the hub's timeline now draws what its day count counts — a line is the
+   AI's call when its caller says so, or when no caller is recorded and it carries a token — and the
+   console's own reads are folded behind one `Console reads · N` chip, off by default and per view,
+   one click to add and one to fold. The chip counts the day's console rows, the rows stay in
+   Activity and the Table, and an AI-empty hub says “No client calls yet; the console's own reads
+   are hidden.” with the chip still offered. Activity is the audit and keeps every caller by default:
+   its existing “Clients only” chip is the narrowing, and the hub's chip is not rendered there. The
+   day fold follows the drawn list, so it counts the AI's rows rather than the console's polling.
+   Measured in the browser-gate harness with the measured shape in the fixture (4 client calls + 73
+   console reads; the newest 60 hold 56 console): at 1440 the hub went from **60 rows / 3,969 px to
+   4 rows / 908 px**, and at 390 from **60 / 3,977 to 4 / 812**; the chip read `Console reads · 73`
+   and one click restored 60 rows / 4,005 px (77 after “Show the rest of today”; the 60-row/56-console
+   case pins 4 rows and `Console reads · 56` in jsdom). Measured: `npx vitest run` 620 passed across
+   51 files (4 new); typecheck and build clean; `./scripts/build-web.sh --check` clean; browser gate
+   PASS 21 steps; `a11y-audit` 0 findings across 16 page states.)*
 
 5. **The update line repeats the running version and dates nothing.** On the 1440 fleet row,
    `v0.3.277` sits at x=1233 and **“started 0.3.277 (updated)”** at x=350, 22 px apart; at 390 the

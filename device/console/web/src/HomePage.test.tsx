@@ -64,6 +64,9 @@ function liveCall(overrides: Partial<LiveLine> = {}): LiveLine {
     kind: "mcp",
     device_id: workshop.id,
     status: 200,
+    // The hub now draws the AI's work by default, so a test's live line is a client's call unless
+    // it says otherwise; a console line is written where a test needs one.
+    caller: "client",
     sentence: "Did something",
     ...overrides
   };
@@ -72,14 +75,50 @@ function liveCall(overrides: Partial<LiveLine> = {}): LiveLine {
 /**
  * `count` calls today, newest first: the hub's day when a test needs more rows than one screen.
  * The times sit in today's first hour, so the day filter keeps every row whatever the wall clock.
+ * They are the AI's calls: the hub draws client-proven rows, so a fixture without a caller would
+ * be hidden by the very rule these tests exercise.
  */
 function todayCalls(count: number): AuditLine[] {
   const start = new Date();
   start.setHours(0, 0, 0, 0);
   const base = start.getTime() + 3_600_000;
   return Array.from({ length: count }, (_, index) =>
-    call({ ts_ms: base - index * 1000, tool: `tool.${index}`, sentence: `Call ${index}` })
+    call({
+      ts_ms: base - index * 1000,
+      caller: "client",
+      tool: `tool.${index}`,
+      sentence: `Call ${index}`
+    })
   );
+}
+
+/**
+ * A hub day shaped like the measured DESKTOP-9VH92BJ page: `clientCalls` AI calls and
+ * `consoleReads` console reads, newest first, one second apart, all inside today's first hour.
+ * The 60-row case (56 console, 4 client) is the measurement this rule was written from.
+ */
+function hubDay(consoleReads: number, clientCalls: number): AuditLine[] {
+  const start = new Date();
+  start.setHours(0, 0, 0, 0);
+  const base = start.getTime() + 3_600_000;
+  return [
+    ...Array.from({ length: clientCalls }, (_, index) =>
+      call({
+        ts_ms: base - index * 1000,
+        caller: "client",
+        tool: `client.${index}`,
+        sentence: `Client call ${index}`
+      })
+    ),
+    ...Array.from({ length: consoleReads }, (_, index) =>
+      call({
+        ts_ms: base - (clientCalls + index) * 1000,
+        caller: "console",
+        tool: `console.${index}`,
+        sentence: `Console read ${index}`
+      })
+    )
+  ];
 }
 
 /** An answer the test decides when to give. */
@@ -99,10 +138,10 @@ function draw(overrides: Record<string, unknown> = {}) {
   } = overrides;
   const now = Date.now();
   const calls = [
-    call({ ts_ms: now }),
-    call({ tool: "files.read", ts_ms: now }),
-    call({ tool: "screen.capture", ts_ms: now }),
-    call({ tool: "runs.exec", ts_ms: now })
+    call({ ts_ms: now, caller: "client" }),
+    call({ tool: "files.read", ts_ms: now, caller: "client" }),
+    call({ tool: "screen.capture", ts_ms: now, caller: "client" }),
+    call({ tool: "runs.exec", ts_ms: now, caller: "client" })
   ];
   if (auditError) auditApi.audit.mockRejectedValue(new Error("the audit could not be read"));
   else auditApi.audit.mockResolvedValue(audit ?? calls);
@@ -167,8 +206,8 @@ describe("Home — the hub", () => {
 
     // The four fetched calls for this machine are the timeline, newest first. The old "Recent calls"
     // list is gone: it was the same rows without the sentence.
-    await waitFor(() => expect(screen.getAllByRole("listitem")).toHaveLength(4));
-    const rows = screen.getAllByRole("listitem");
+    await waitFor(() => expect(document.querySelectorAll(".timeline-row")).toHaveLength(4));
+    const rows = document.querySelectorAll(".timeline-row");
     expect(rows[0]).toHaveTextContent("terminal.create");
   });
 
@@ -406,7 +445,7 @@ describe("Home — the hub", () => {
     yesterday.setDate(yesterday.getDate() - 1);
     yesterday.setHours(12, 0, 0, 0);
     draw({
-      audit: [call({ ts_ms: yesterday.getTime(), tool: "old.tool", sentence: "Ran yesterday" })],
+      audit: [call({ ts_ms: yesterday.getTime(), caller: "client", tool: "old.tool", sentence: "Ran yesterday" })],
       liveLines: []
     });
 
@@ -492,6 +531,53 @@ describe("Home — the hub", () => {
     } finally {
       clock.mockRestore();
     }
+  });
+
+  it("draws the AI's calls and folds the console's own reads behind one counted chip", async () => {
+    // The measured hub: 60 rows, 56 of them the console's polling. The list is the AI's work.
+    draw({ audit: hubDay(56, 4) });
+
+    await waitFor(() => expect(document.querySelectorAll(".timeline-row")).toHaveLength(4));
+    expect(screen.queryByText("Console read 0")).toBeNull();
+    const chip = screen.getByRole("button", { name: "Console reads · 56" });
+    expect(chip).toHaveAttribute("aria-pressed", "false");
+
+    // One click adds them: the rows were never dropped, only folded.
+    fireEvent.click(chip);
+    await waitFor(() => expect(document.querySelectorAll(".timeline-row")).toHaveLength(60));
+    expect(screen.getByText("Console read 0")).toBeInTheDocument();
+    expect(chip).toHaveAttribute("aria-pressed", "true");
+
+    // And one click takes them back out; the toggle is a view, not a persisted preference.
+    fireEvent.click(chip);
+    await waitFor(() => expect(document.querySelectorAll(".timeline-row")).toHaveLength(4));
+  });
+
+  it("names the hidden console reads when the AI made no calls, with the chip still offered", async () => {
+    draw({ audit: hubDay(56, 0) });
+
+    expect(
+      await screen.findByText("No client calls yet; the console's own reads are hidden.")
+    ).toBeInTheDocument();
+    const chip = screen.getByRole("button", { name: "Console reads · 56" });
+    expect(chip).toHaveAttribute("aria-pressed", "false");
+
+    fireEvent.click(chip);
+    await waitFor(() => expect(document.querySelectorAll(".timeline-row")).toHaveLength(56));
+    expect(
+      screen.queryByText("No client calls yet; the console's own reads are hidden.")
+    ).toBeNull();
+  });
+
+  it("does not invent client calls when the window holds only unattributed rows", async () => {
+    // A caller-less, token-less row is not the AI's proven work. The hub must not draw it, and the
+    // empty state must not claim calls were made or that console reads are hidden when there are
+    // none. Activity still has the row: the hub is the AI's page, not the audit.
+    draw({ audit: [call({ ts_ms: Date.now() - 10_000 })] });
+
+    expect(await screen.findByText("No client calls from workshop today.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Console reads · 0" })).toBeInTheDocument();
+    expect(screen.queryByRole("listitem")).toBeNull();
   });
 
   it("opens the machine's Tools tab from the counts line", async () => {
@@ -641,6 +727,7 @@ describe("Home — the hub", () => {
     const thousand: AuditLine[] = Array.from({ length: 1000 }, (_, index) =>
       call({
         ts_ms: base - index,
+        caller: "client",
         tool: index % 2 === 0 ? "terminal.create" : "files.read"
       })
     );
@@ -707,7 +794,11 @@ describe("Home — the hub", () => {
 
     await screen.findByRole("button", { name: "Show the rest of today (16 more)" });
     expect(document.querySelectorAll(".timeline-row")).toHaveLength(60);
-    expect(screen.getByText("A brand new call")).toBeInTheDocument();
+    expect(
+      within(screen.getByRole("region", { name: "This machine's activity" })).getByText(
+        "A brand new call"
+      )
+    ).toBeInTheDocument();
   });
 
   it("keeps the whole day drawn when a live row arrives after expanding", async () => {
@@ -718,7 +809,11 @@ describe("Home — the hub", () => {
     rerenderHub({ liveLines: [liveCall({ sentence: "A brand new call" })] });
 
     await waitFor(() => expect(document.querySelectorAll(".timeline-row")).toHaveLength(76));
-    expect(screen.getByText("A brand new call")).toBeInTheDocument();
+    expect(
+      within(screen.getByRole("region", { name: "This machine's activity" })).getByText(
+        "A brand new call"
+      )
+    ).toBeInTheDocument();
     // Expanded stays expanded; the hidden-rows control has nothing left to offer.
     expect(screen.queryByRole("button", { name: /Show the rest of today/ })).toBeNull();
   });

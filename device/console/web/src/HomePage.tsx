@@ -10,7 +10,7 @@ import { listPlugins } from "./pluginApi";
 import { useLiveTools } from "./useLiveTools";
 import { ActivityTimeline } from "./ActivityTimeline";
 import { ACTIVITY_LIMIT, capActivity, mergeActivity } from "./activityMerge";
-import { isChannelBoundary, isClientCall } from "./activitySummary";
+import { isChannelBoundary, isClientCall, isConsoleRead } from "./activitySummary";
 import { auditFailed } from "./auditFilter";
 
 /** A one-time enrollment code and the command that redeems it. */
@@ -321,8 +321,13 @@ function HubHome(
   // The hub draws the newest rows of the day; this remembers that the rest were asked for. It
   // resets with the machine, so one machine's expanded day cannot stand for another's.
   const [wholeDay, setWholeDay] = useState(false);
+  // **THE HUB IS THE AI'S WORK.** The console's own polling is in the machine's audit and is not
+  // the thing this page is about, so it is folded behind one counted chip and drawn only when the
+  // reader asks. The state is this view's, not a stored preference: another machine starts folded.
+  const [showConsoleReads, setShowConsoleReads] = useState(false);
   useEffect(() => {
     setWholeDay(false);
+    setShowConsoleReads(false);
   }, [device.id]);
 
   // A read that answers after the page switched machines is another machine's answer, and must not
@@ -394,12 +399,23 @@ function HubHome(
   const windowLines = mergeActivity(fetched, liveLines).sort((a, b) => b.ts_ms - a.ts_ms);
   // A channel boundary is in the audit to prove an absence, not to be drawn as the machine's work.
   const activityLines = windowLines.filter((line) => !isChannelBoundary(line));
-  const timeline = capActivity(activityLines.filter((line) => line.ts_ms >= todayStart));
+  const today = capActivity(activityLines.filter((line) => line.ts_ms >= todayStart));
+  // **THE DAY COUNT IS CLIENT-ONLY; THE LIST NOW AGREES WITH IT.** The measured hub drew 60 rows,
+  // 56 of them the console polling itself, above a line that counted four client calls. The default
+  // list is the rule that line uses (a caller, or a token with no caller); the console's own reads
+  // are counted on the chip and added on one click. Unattributed rows are neither and stay out of
+  // both counts: the hub is the AI's page, while Activity remains the audit with every caller.
+  const clientRows = today.lines.filter(isClientCall);
+  const consoleRows = today.lines.filter(isConsoleRead);
+  const visibleRows = showConsoleReads
+    ? today.lines.filter((line) => isClientCall(line) || isConsoleRead(line))
+    : clientRows;
   // **THE DAY IS SCANNABLE; THE RECORD IS NOT HIDDEN.** The newest rows are drawn and one control
-  // offers the rest of today in place. The count is the list's own length minus what is drawn, so a
-  // live frame that arrives while the day is folded grows the label by the same one row it adds.
-  const hiddenDayRows = timeline.lines.length - HUB_DAY_ROWS;
-  const dayRows = wholeDay ? timeline.lines : timeline.lines.slice(0, HUB_DAY_ROWS);
+  // offers the rest of today in place. The count is the drawn list's own length minus what is
+  // drawn, so a live frame that arrives while the day is folded grows the label by the same one
+  // row it adds — and the count follows the console chip, because the chip changes the list.
+  const hiddenDayRows = visibleRows.length - HUB_DAY_ROWS;
+  const dayRows = wholeDay ? visibleRows : visibleRows.slice(0, HUB_DAY_ROWS);
   // Before the first window arrives there is nothing to count; the timeline says it is reading. Once
   // a window (or a live line) is in hand, the summary is a fact about the lines on the page.
   const summary = loaded || liveLines.length > 0 ? todayLine(windowLines, now) : null;
@@ -413,16 +429,26 @@ function HubHome(
   // here. Live lines can also push the merged list past the cap.
   const oldestFetched = fetched[fetched.length - 1];
   const ownWindowCut =
-    timeline.capped ||
+    today.capped ||
     (fetched.length >= ACTIVITY_LIMIT &&
       oldestFetched !== undefined &&
       oldestFetched.ts_ms >= todayStart);
+  // The empty sentence names what the list is missing rather than claiming nothing happened. With
+  // console reads folded, an empty list is usually the console's own polling, and the chip above is
+  // the way to it; a window with only unattributed rows is not the AI's work either, and says so
+  // without pretending the console's reads are hidden when there are none.
   const empty = auditError
     ? "The console could not read this machine's activity, so this list may be incomplete."
     : !loaded
       ? "Reading this machine's activity…"
-      : `No calls from ${name} today. When an AI client calls this machine with its token, ` +
-        "its work appears here; Connect a client sets one up.";
+      : consoleRows.length > 0 && !showConsoleReads
+        ? "No client calls yet; the console's own reads are hidden."
+        : today.lines.length > 0
+          ? showConsoleReads
+            ? `No client calls or console reads from ${name} today.`
+            : `No client calls from ${name} today.`
+          : `No calls from ${name} today. When an AI client calls this machine with its token, ` +
+            "its work appears here; Connect a client sets one up.";
 
   const offline = !device.online || live.offline;
   // **ONE PLACE FOR EACH BUILD.** The subtitle used to be "Running · console v0.3.273-ux43", while
@@ -478,7 +504,7 @@ function HubHome(
         // The band and the timeline are the same machine's day: feeding the band the fleet's
         // newest 200 live lines made it say "Quiet" while the window below held this machine's
         // calls, and after a reconnect the live list is only the newest forty.
-        lines={timeline.lines}
+        lines={today.lines}
         running={liveRunning}
         devices={props.devices}
         state={props.liveState ?? "connecting"}
@@ -507,7 +533,7 @@ function HubHome(
             timeline draws. It is not a live region: it moves on the five-second reread, not on every
             line, and a status role would re-announce the same count. */}
         {summary !== null && <p className="home-today">{summary}</p>}
-        {auditError && timeline.lines.length > 0 && (
+        {auditError && today.lines.length > 0 && (
           // Live lines are on screen, but the history behind them is unread: the page says which
           // half it is showing instead of letting the list stand for the whole day.
           <p className="hint" role="status">
@@ -522,6 +548,18 @@ function HubHome(
           // The hub's timeline is already this machine's day: a machine chip here could only say
           // "All machines" over one machine's lines, which would be a lie.
           showFilters={false}
+          // The console's own reads are counted here, folded out of the list until asked for. The
+          // count is the day's console rows, not the rows the small fold happens to draw: the chip
+          // must name everything one click adds.
+          consoleReads={
+            loaded
+              ? {
+                  count: consoleRows.length,
+                  shown: showConsoleReads,
+                  onToggle: () => setShowConsoleReads((shown) => !shown)
+                }
+              : undefined
+          }
           onWatch={props.onWatchTerminal}
           empty={empty}
         />

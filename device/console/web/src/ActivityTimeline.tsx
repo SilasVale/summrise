@@ -508,6 +508,12 @@ export function ActivityTimeline(props: {
   clientsOnly?: boolean;
   onClientsOnly?: (next: boolean) => void;
   /**
+   * The hub's one folded chip: the console's own reads in this day, counted and off by default.
+   * The page owns the rows and the toggle; the timeline draws the control. Activity never passes
+   * it, because the audit's default is every caller and its "Clients only" chip is the narrowing.
+   */
+  consoleReads?: { count: number; shown: boolean; onToggle: () => void };
+  /**
    * The machine chips and the search. The hub's timeline is already one machine's day, so it turns
    * them off rather than offering an All machines chip over one machine's lines.
    */
@@ -601,6 +607,23 @@ export function ActivityTimeline(props: {
 
   return (
     <div className="activity-timeline">
+      {/* THE HUB IS THE AI'S WORK; THE CONSOLE'S READS ARE ONE CHIP AWAY. The page hands in the
+          rows it drew, so this is only the control: it says how many console rows are folded and
+          adds them when pressed. It is rendered even when the list is empty, so an empty hub names
+          what is hidden instead of offering nothing to reach it. */}
+      {props.consoleReads && (
+        <div className="chips timeline-console-reads">
+          <button
+            type="button"
+            className="chip"
+            aria-pressed={props.consoleReads.shown}
+            title="Add the console's own reads to this list; they are not an AI client's calls"
+            onClick={props.consoleReads.onToggle}
+          >
+            Console reads · {props.consoleReads.count}
+          </button>
+        </div>
+      )}
       {filterable && (
         <div className="timeline-filters">
           <div className="chips timeline-machines" role="group" aria-label="Filter by machine">

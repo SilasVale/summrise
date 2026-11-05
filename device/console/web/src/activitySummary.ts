@@ -34,6 +34,17 @@ export function isClientCall(
 }
 
 /**
+ * Whether a line is the console's own read of a machine rather than work the AI asked for.
+ *
+ * The caller is the console's own statement of who made the call. An older line says nothing, and an
+ * absent caller is not proof of the console: it belongs to the unattributed bucket. The hub folds
+ * these rows behind one chip; Activity keeps them in the list, because the audit is the record.
+ */
+export function isConsoleRead(line: Pick<AuditLine, "caller">): boolean {
+  return line.caller === "console";
+}
+
+/**
  * The three buckets the Activity header counts, and the failures inside each one.
  *
  * `console` is a bucket of its own rather than part of `unattributed`: the console's own polling is

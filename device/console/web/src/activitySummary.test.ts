@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { AuditLine } from "./api";
-import { activityCountLine, activityCounts, activityCountSentence, isClientCall } from "./activitySummary";
+import {
+  activityCountLine,
+  activityCounts,
+  activityCountSentence,
+  isClientCall,
+  isConsoleRead
+} from "./activitySummary";
 
 // The Activity header's count is the same fact the hub's day line states, from a window that can
 // also hold yesterday's rows. The three buckets are disjoint: a console read is neither the AI's
@@ -53,6 +59,15 @@ describe("activityCounts", () => {
     expect(isClientCall(line({ caller: "client" }))).toBe(true);
     // A token on a row the console marked is still the console's; the marker is the stronger fact.
     expect(isClientCall(line({ caller: "console", token_id: TOKEN }))).toBe(false);
+  });
+
+  it("marks only the console's own caller as a console read", () => {
+    // The hub folds exactly these rows. An absent caller is unattributed, not the console's: the
+    // console now always names itself, and an older row is not proof of who made the call.
+    expect(isConsoleRead(line({ caller: "console" }))).toBe(true);
+    expect(isConsoleRead(line({ caller: "client" }))).toBe(false);
+    expect(isConsoleRead(line({ token_id: TOKEN }))).toBe(false);
+    expect(isConsoleRead(line({}))).toBe(false);
   });
 
   it("never counts a channel boundary as a call or an activity row", () => {

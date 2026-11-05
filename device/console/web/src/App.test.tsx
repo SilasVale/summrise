@@ -412,6 +412,15 @@ describe("App", () => {
       )
     ).toBeInTheDocument();
 
+    // Activity is the audit: every caller is drawn by default, and the hub's console-reads fold is
+    // not offered here — its Clients only chip is the way to narrow, and only when chosen.
+    await waitFor(() => expect(document.querySelectorAll(".timeline-row")).toHaveLength(6));
+    expect(screen.queryByRole("button", { name: /^Console reads ·/ })).toBeNull();
+    expect(screen.getByRole("button", { name: "Clients only · 2" })).toHaveAttribute(
+      "aria-pressed",
+      "false"
+    );
+
     // The chip draws the client subset; the header then reads the same subset the rows show — the
     // hub's sentence, with no console failure and no unknown caller in it.
     fireEvent.click(screen.getByRole("button", { name: "Clients only · 2" }));
