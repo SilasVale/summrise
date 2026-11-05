@@ -20,14 +20,25 @@ import {
  * the Runs page carried, unchanged: the request is still `runs.exec` with `command`/`args` (or
  * `shell`), an optional `cwd` and a `timeout_ms`, and the Tools tab takes the same grant the history
  * page does.
+ *
+ * THE PLACEHOLDER NAMES A PROGRAM THE MACHINE HAS, OR NO EXAMPLE AT ALL. It used to read `echo
+ * hello` on every machine; `echo` is a builtin of both platform shells, so in argv mode the device
+ * looked for a program named `echo` and answered "runs.exec: program not found" (measured on
+ * DESKTOP-9VH92BJ, 4 ms). The example now comes from the machine's own OS fact — `cmd.exe` on
+ * Windows, `uname` elsewhere — and a machine whose platform the console does not know (offline, or
+ * no frame since the console started) gets no example, only the shape of what the field takes. The
+ * shell field keeps `echo hello && echo bye` because there `echo` is the shell's own.
  */
 export function RunForm({
   grant,
-  deviceOnline
+  deviceOnline,
+  osName
 }: {
   grant: Grant;
   /** The fleet's reachability, as the history page takes it; `false` is the only fact. */
   deviceOnline?: boolean;
+  /** The device's own `host.os.name`, when its last frame carried one. */
+  osName?: string | null;
 }) {
   const offline = deviceOnline === false;
   const [command, setCommand] = useState("");
@@ -119,7 +130,7 @@ export function RunForm({
             id="runs-command"
             value={command}
             onChange={(event) => setCommand(event.target.value)}
-            placeholder={shell ? "echo hello && echo bye" : "echo hello"}
+            placeholder={commandPlaceholder(osName, shell)}
             autoComplete="off"
             spellCheck={false}
           />
@@ -265,6 +276,26 @@ export function RunForm({
       )}
     </div>
   );
+}
+
+/**
+ * What the command field shows before anything is typed: an example the machine can run, chosen
+ * from the device's own OS fact, or the field's shape when the console does not know the platform.
+ *
+ * A shell builtin is not a program in argv mode. `echo hello` sent command `echo`, and the device
+ * answered "runs.exec: program not found"; `cmd.exe` is in System32 on every Windows machine, and
+ * `uname` is a program on every Unix-like one. Both take their arguments without quoting, which is
+ * the only shape argv mode can express — `sh -c 'echo hello'` cannot be typed in this field, because
+ * the split is on whitespace and the quotes would be passed through literally. A machine whose
+ * platform the fleet does not know gets no example at all: a plausible one is the bug this replaces.
+ */
+function commandPlaceholder(osName: string | null | undefined, shell: boolean): string {
+  // The shell runs `echo` itself, so this example is a command line the platform shell can execute.
+  if (shell) return "echo hello && echo bye";
+  const name = typeof osName === "string" ? osName.trim().toLowerCase() : "";
+  if (name.includes("windows")) return "cmd.exe /c echo hello";
+  if (name !== "") return "uname -a";
+  return "program and arguments";
 }
 
 /// The sentence for a failed `runs.exec`. A console timeout is not a device refusal: the proxy

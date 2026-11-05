@@ -1,10 +1,15 @@
 /**
- * The reason a console link's last attempt failed, as the fleet row and the hub both state it.
+ * The reason a console link's last attempt failed, as the machine's offline notice states it.
  *
  * `last_attempt.reason` is the device's own sentence about why the attempt before the last one
  * failed. The page adds the count and the punctuation and never rewrites the reason: a proxy's "HTTP
  * error: 502 Bad Gateway" and a channel's "the console accepted the channel and then dropped it" are
  * different diagnoses, and a paraphrase would merge them into one healthy-looking reconnect.
+ *
+ * THE FLEET ROW DOES NOT USE THIS. It drew the same sentence with no date, so a 09:41 reconnect read
+ * as a fault at 10:07; an attempt carries no moment of its own, so the row now says nothing about it
+ * and Copy diagnostics keeps the record. What is left here is the hub's offline notice, where the
+ * machine is not connected *now* and the attempt is why the console is still trying.
  *
  * Where the reason is drawn it is cut to one line with an ellipsis, and the element's title carries
  * the whole sentence, so a reason longer than a phone-wide row is still reachable.

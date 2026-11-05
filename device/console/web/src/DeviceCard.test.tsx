@@ -63,30 +63,30 @@ describe("DeviceCard — one row on the fleet", () => {
     expect(container.querySelector(".card-details-body")).toBeNull();
   });
 
-  it("says the attempt count and the reason the device gave, in its own words", () => {
+  it("does not draw a reconnect sentence: the attempt has no moment of its own", () => {
+    // The measured row: both online machines carried "Reconnected after 1 attempt — the console
+    // accepted the channel and then dropped it" with no date, so the 09:41 restart read at 10:07 as
+    // if the channel had just dropped. `/fleet` serves `last_attempt` as a count and a reason, with
+    // no moment; any date on the row would have to borrow the last frame's, and the reconnect is
+    // before that frame, not at it. So the row shows neither the count nor the reason: the state
+    // line already dates presence, and Copy diagnostics keeps the attempt as a record read on
+    // demand, with the moment the console last heard the machine.
     const { container } = draw({
-      last_attempt: { attempts: 2, reason: "HTTP error: 502 Bad Gateway" }
+      last_attempt: { attempts: 1, reason: "the console accepted the channel and then dropped it" }
     });
 
-    // One line, the count first and the device's sentence after it, not paraphrased.
-    const line = container.querySelector(".fleet-attempt");
-    expect(line).not.toBeNull();
-    expect(line).toHaveTextContent("Reconnected after 2 attempts — HTTP error: 502 Bad Gateway");
-    // Cut to one line at a narrow width; the title is the whole sentence, reason included.
-    expect(line).toHaveAttribute(
-      "title",
-      "Reconnected after 2 attempts — HTTP error: 502 Bad Gateway"
-    );
-    expect(screen.getByTitle("HTTP error: 502 Bad Gateway")).toBeInTheDocument();
+    expect(container.querySelector(".fleet-attempt")).toBeNull();
+    expect(screen.queryByText(/Reconnected after/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/the console accepted the channel/)).not.toBeInTheDocument();
+    // What the row does say: the state with its age, the build, and the device's own start.
+    expect(screen.getByText(/online · seen 15s ago/)).toBeInTheDocument();
+    expect(screen.getByText("v0.3.42")).toBeInTheDocument();
   });
 
-  it("keeps the count alone when the fleet carried no reason", () => {
-    draw({ last_attempt: { attempts: 2, reason: "" } });
-
-    const line = screen.getByText("Reconnected after 2 attempts");
-    expect(line).not.toHaveAttribute("title");
-    expect(line.querySelector(".attempt-reason")).toBeNull();
-    expect(line).not.toHaveTextContent("—");
+  it("draws no line for an attempt the device reported without a reason", () => {
+    const { container } = draw({ last_attempt: { attempts: 2, reason: "" } });
+    expect(container.querySelector(".fleet-attempt")).toBeNull();
+    expect(screen.queryByText(/Reconnected after/)).not.toBeInTheDocument();
   });
 
   it("draws no attempt line at all when there is no attempt to report", () => {

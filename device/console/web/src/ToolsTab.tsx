@@ -56,7 +56,8 @@ export function ToolsTab({
     <div className="tab-body tools-tab">
       <section className="tools-section" aria-labelledby="tools-run">
         <h2 id="tools-run">Run a command on this machine</h2>
-        <RunForm grant={grant} deviceOnline={deviceOnline} />
+        {/* The device's own OS fact, so the form's example is one this machine can run. */}
+        <RunForm grant={grant} deviceOnline={deviceOnline} osName={device.host?.os?.name} />
       </section>
 
       <section className="tools-section" aria-labelledby="tools-on-this-machine">

@@ -528,12 +528,27 @@ draws no update line — correctly: it said nothing.
 
 ### Cuts
 
-- **C8. The `echo hello` example.** The run form's placeholder is `echo hello` at both widths and the
+- **C8. The `echo hello` example.** *(Done 2026-11-05: replaced, not deleted. The field names the
+  program the device's own `host.os.name` says it has — `cmd.exe /c echo hello` on Windows,
+  `uname -a` elsewhere — and says `program and arguments`, with no example, when the fleet has no
+  OS fact (an offline machine, or a console that restarted since the last frame). Measured on
+  DESKTOP-9VH92BJ with the form's exact argv (`command: "cmd.exe"`, `args: ["/c", "echo",
+  "hello"]`): exit 0, stdout `hello`, 40 ms (run-1793879410419-7), where the old placeholder's
+  shape answered `runs.exec: program not found` in 4 ms; `uname` is `/usr/bin/uname` on the Linux
+  host. The shell-mode placeholder keeps
+  `echo hello && echo bye`, because there `echo` is the shell's own command.)* The run form's
+  placeholder is `echo hello` at both widths and the
   help says “Split on whitespace; no quoting.” On the two machines that answer — both Windows 11 —
   `echo` is a shell builtin, not a program: running the placeholder's own shape (`echo audit5-live`)
   answered “runs.exec: program not found” in 4 ms and wrote the green line in item 1. Delete the
   placeholder, or name a program the machines have; the help already says how the field splits. **S.**
-- **C9. The fleet row's “Reconnected after 1 attempt — …” subline.** Both online rows carry it (17 px
+- **C9. The fleet row's “Reconnected after 1 attempt — …” subline.** *(Done 2026-11-05: deleted from
+  the row, not dated. `/fleet` serves `last_attempt` as a count and a reason with no moment of its
+  own, and the row's only moment — the last frame — is after the reconnect, not at it, so any date
+  there would state a different fact. No fleet row draws a reconnect line now: an online row reads
+  “online · seen 12s ago”, its version, and the device's own “started 0.3.277 (updated)” when it
+  sent an update story. The attempt stays in Copy diagnostics, below the ISO moment the console
+  last heard the machine.)* Both online rows carry it (17 px
   each), both carry `last_attempt {attempts: 1, reason: "the console accepted the channel and then
   dropped it"}`, and neither dates it; the 0.3.277 restarts at 09:41 and 09:43 are the one failed
   attempt, and at 10:07 the sentence still reads as a fault. Delete it from the row (Copy

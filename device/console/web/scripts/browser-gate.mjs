@@ -77,13 +77,22 @@ const DEVICE = {
   version: '0.3.42',
   last_seen_ms: NOW,
   last_frame_ms: NOW - 12_000,
+  // The attempt before this channel: a count and a reason, and no moment of its own. The row must
+  // not draw a sentence about it (C9), so the gate carries the measured one and asserts it is absent.
+  last_attempt: {
+    attempts: 1,
+    reason: 'the console accepted the channel and then dropped it'
+  },
   // The device's own update story, so the gate photographs the verdict line beside the state line
   // and the a11y audit measures the same row.
   update: {
     current: '0.3.42',
     verdict: { outcome: 'ok', detail: 'started 0.3.42' },
     last_update: { to: '0.3.43', outcome: 'refused', at_ms: NOW - 60_000 }
-  }
+  },
+  // The platform the run form chooses its example from. Only `os` is here: the form needs the OS
+  // fact and nothing else, and a disk or memory fact would change the menu's line for no reason.
+  host: { os: { name: 'Windows', version: '10.0.26100', arch: 'x86_64' } }
 };
 // THE OFFLINE ROW'S AGE. The measured DESKTOP-14RJCR8 case: no frame since the console restarted,
 // the registry's last channel open is older than the close, and the pair in `last_outage` belongs to
@@ -466,6 +475,13 @@ try {
     throw new Error(`the offline row read "${offlineState1440}" at 1440`);
   }
   step(`at 1440 the offline row says "${offlineState1440}"`);
+  // **A RECONNECT IS NOT SHOWN AS NOW (C9).** The online row carries the measured `last_attempt` —
+  // one attempt, the console's channel drop — and neither row may draw a sentence about it: both
+  // live rows said "Reconnected after 1 attempt — …" at 10:07 about a 09:41 restart, with no date.
+  if ((await page.locator('article.fleet-row .fleet-attempt').count()) !== 0) {
+    throw new Error('a fleet row drew an undated reconnect sentence');
+  }
+  step('the online row carries a last attempt and draws no reconnect sentence');
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.waitForTimeout(200);
 
@@ -661,9 +677,17 @@ try {
   if (!runFirst) {
     throw new Error('the Tools tab draws the catalogue before the exec form');
   }
+  // THE EXAMPLE IS ONE THE MACHINE CAN RUN (C8). The old `echo hello` was a shell builtin typed
+  // into argv mode: the device answered "runs.exec: program not found" in 4 ms. The fixture's OS
+  // fact says Windows, so the field must name cmd.exe — a program in System32, not a builtin.
+  const runExample = (await runSection.locator('#runs-command').getAttribute('placeholder')) ?? '';
+  if (runExample !== 'cmd.exe /c echo hello') {
+    throw new Error(`the run form's example is "${runExample}" on a Windows device`);
+  }
   step(
     'opened Device → Tools; the run form precedes the catalogue, the plugin list and the exec form are one answer'
   );
+  step(`the run form's example is "${runExample}", a program this Windows machine has`);
   await page.screenshot({ path: path.join(OUT, '05-tools.png') });
 
   // THE CREDENTIAL LIST IS THE WHOLE REGISTRY. `GET /tokens` is the only list route; a row for

@@ -226,6 +226,39 @@ describe("the run form under Tools", () => {
     });
   });
 
+  it("puts a program the machine has in the field, not a shell builtin", () => {
+    // The measured bug: the placeholder was `echo hello`, and both answering machines are Windows
+    // 11, where `echo` is a command-prompt builtin rather than a program. Typed as it read, the form
+    // sent command `echo`, the device answered "runs.exec: program not found" in 4 ms, and the
+    // product had offered a command it could not run. The example now comes from the device's own
+    // OS fact: on Windows the program is cmd.exe, which is in System32 on every Windows machine.
+    renderTools({ device: { ...workshop, host: { os: { name: "Windows", version: "11" } } } });
+
+    expect(screen.getByLabelText("Command")).toHaveAttribute(
+      "placeholder",
+      "cmd.exe /c echo hello"
+    );
+  });
+
+  it("names a program that exists on a machine that is not Windows", () => {
+    // The same rule elsewhere: `uname` is a program (/usr/bin/uname on this Linux host), so the
+    // example survives the field's whitespace split without quoting. A quoted `sh -c 'echo hello'`
+    // could not: the form does no quoting, so argv mode would pass the quotes through literally.
+    renderTools({ device: { ...workshop, host: { os: { name: "Linux" } } } });
+
+    expect(screen.getByLabelText("Command")).toHaveAttribute("placeholder", "uname -a");
+  });
+
+  it("says the field's shape and names no command when the fleet has no OS fact", () => {
+    // `workshop` carries no host facts: an offline machine, or a console restarted since the last
+    // frame, has no platform to choose an example from. Then the field gets no example, only shape.
+    renderTools();
+
+    const command = screen.getByLabelText("Command");
+    expect(command).toHaveAttribute("placeholder", "program and arguments");
+    expect(command.getAttribute("placeholder")).not.toMatch(/echo|cmd|uname/);
+  });
+
   it("sends a typed working directory trimmed, and no cwd key when the box is empty", async () => {
     mocked.mockResolvedValue(JSON.stringify(RESULT));
 

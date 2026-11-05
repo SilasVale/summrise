@@ -1,5 +1,5 @@
 import type { DeviceUpdate, HostFacts } from "./api";
-import { AttemptReason, attemptCount, attemptReason, type LastAttempt } from "./attempt";
+import type { LastAttempt } from "./attempt";
 import { lastHeardMs, seenAgo, shortId } from "./format";
 import { startedLine } from "./updateStory";
 
@@ -14,6 +14,11 @@ export type Device = {
   last_left_ms?: number | null;
   /** The registry's last channel open: older evidence than either of the two above. */
   last_seen_ms?: number | null;
+  /**
+   * The attempt before the current channel. The row does not draw it: it is a count and a reason
+   * with no moment of its own, and a sentence about it read as today's fault (C9). The field stays
+   * because the page passes the fleet's row unchanged, and a test pins that the row ignores it.
+   */
   last_attempt?: LastAttempt | null;
   host?: HostFacts | null;
   /** The device's own update story, absent when it never sent one. */
@@ -49,14 +54,12 @@ export function DeviceCard({ device, selected, onSelect, onRename, onRemove, onD
       : `${device.online ? "online" : "offline"} · ${
           device.online ? "seen" : "last seen"
         } ${seenAgo(heard)}`;
-  // The count and the device's own reason on one muted line. The reason is the diagnosis: a proxy's
-  // 502 and a channel the console dropped are different faults, and the row must not read them as
-  // the same healthy reconnect. A device that has not reconnected says nothing — and a silent
-  // channel is not a reconnect, so an open-then-quiet device gets no attempt line at all.
-  const attempt = device.online ? device.last_attempt : null;
-  const count = attempt && attempt.attempts > 0 ? attemptCount(attempt.attempts) : null;
-  const reason = attemptReason(attempt);
-  const sentence = count ? `Reconnected after ${count}${reason ? ` — ${reason}` : ""}` : null;
+  // NO RECONNECT SENTENCE. `last_attempt` is a count and a reason with no moment of its own: both
+  // online rows said "Reconnected after 1 attempt — …" at 10:07 about the 09:41/09:43 restarts, and
+  // the sentence read as a fault that was happening now. `/fleet` carries no time for the attempt,
+  // and the last frame is after the reconnect rather than at it, so any date here would be borrowed
+  // from a different fact. The row draws neither the count nor the reason; Copy diagnostics keeps
+  // the attempt as a record and dates the moment the console last heard the machine.
   // The device's own account of its last start, beside the console's account of its silence. The two
   // lines are independent on purpose: the console knows frames stopped, not that the machine slept,
   // and the device knows what it started, not when the console last heard it.
@@ -74,17 +77,6 @@ export function DeviceCard({ device, selected, onSelect, onRename, onRemove, onD
         {started && (
           <span className="fleet-verdict" title={started}>
             {started}
-          </span>
-        )}
-        {count && (
-          <span className="fleet-attempt" title={reason ? (sentence ?? undefined) : undefined}>
-            Reconnected after {count}
-            {reason && (
-              <>
-                {" — "}
-                <AttemptReason reason={reason} />
-              </>
-            )}
           </span>
         )}
       </button>
