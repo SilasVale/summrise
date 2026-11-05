@@ -66,6 +66,35 @@ Ranked by honesty first. Each item names its measurement and its gate.
    importer), `ToolPicker.tsx` (42 + 35), `api.denials`, `api.meshStatus`/`meshReadiness` and their
    tests; the server routes stay. **S.**
 
+## P0 — the operator's day (2026-11-05, second audit)
+
+All six console-only; the last is the deletion. Ranked by how often the friction happens.
+
+1. **Make the morning's failures countable.** The hub cuts "today" at the browser's midnight, so an
+   08:00 page says "No calls from X today" after a night that ended at 23:50 (`HomePage.tsx:307-314,
+   329-334`); a failed call reads with its HTTP **200** in the timeline (`ActivityTimeline.tsx:345-349`),
+   and "what failed overnight" costs four controls. One "Today 24 client calls · 2 failed · last 14:32"
+   line from the lines already on the page, "last 23:42 yesterday" when there are none, and the
+   timeline's outcome word "failed". Gate: a fixture with 2 ok + 1 failed today plus a 20 h-old line.
+   **S.**
+2. **Name the token on the newest rows.** A live event carries no `token_id` (`http.rs:455-467,
+   679-710`) and the client drops it from the snapshot (`liveActivity.ts:148-172`), so the newest rows
+   read "—" and the record says "operator session" (`AuditTable.tsx:579-581`); the evidence has no
+   Token fact. Carry `identity.token_id` through the event and `LiveLine`, show "Token <name>", and a
+   Manage that opens the Tokens sheet on that record; no token means "signed grant". **M.**
+3. **Show the call that is in flight.** Calls publish only after the device answers and the proxy cuts
+   a run at 90 s while it keeps running, so the band says "Quiet" for a three-minute `runs.exec` and
+   the timeline has no row. A non-audit `started` frame at `tools/call`, cleared by the result or the
+   90 s cut; the band shows "running runs.exec · 3m 12s". **M.**
+4. **Let the machine menu compare machines.** It shows dot, name, state, version (`MachineMenu.tsx:72-89`)
+   while the fleet read already carries `host` and `last_outage` the web's `Device` does not name; one
+   muted line — "C: 312 GiB free · back 2 h ago after 41 m". **S.**
+5. **Put the last column on screen at 390.** The audit table is 44 rem wide with its only opener in the
+   sixth column, and the token sheet's Revoke/Rotate are clipped in the 600 px sheet even at 1280;
+   move the disclosure to the first cell at ≤639 and stack each token's actions under its name. **S.**
+6. **Delete the device id from the Machine tab.** (`SystemPage.tsx:391-397`) prints 64 hex that nothing
+   there acts on; the record's Copy id and the Connect endpoint keep it. **S.**
+
 ## P1 — the console stops feeling like a configuration tool
 
 5. **Activity filters become chips.** Machine chips and a search field; the time-range select, the
