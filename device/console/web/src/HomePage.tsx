@@ -289,8 +289,6 @@ function HubHome(
     onConnect: () => void;
     onTools: () => void;
     onActivity: () => void;
-    /** The console's own build, from /health; the chip next door is the device's. */
-    consoleVersion?: string | null;
     /** The live activity stream, newest first. Absent in tests and before the stream opens. */
     liveLines?: LiveLine[];
     /** The calls the proxy has announced and not cleared, for this machine or another. */
@@ -437,15 +435,11 @@ function HubHome(
         "its work appears here; Connect a client sets one up.";
 
   const offline = !device.online || live.offline;
-  // **THE MACHINE CHIP ALREADY SAYS "Running · v…".** Repeating it here spent the page's one subtitle
-  // line on a fact the header had just stated; the console's own build is the fact the chip cannot
-  // carry, and the one a person needs when a page and a device disagree about what is deployed.
-  const statusLine = [
-    offline ? "Offline" : "Running",
-    props.consoleVersion ? `console v${props.consoleVersion}` : null
-  ]
-    .filter(Boolean)
-    .join(" · ");
+  // **ONE PLACE FOR EACH BUILD.** The subtitle used to be "Running · console v0.3.273-ux43", while
+  // the Account menu already prints "Console 0.3.273-ux43"; at 390 the header chip drops the
+  // device's own "v0.3.274", which made the console's the page's only build — the menu's fact said
+  // twice. The subtitle says what the machine is; the chip and the menu own the versions.
+  const statusLine = offline ? "Offline" : "Running";
   const capabilities = new Set(live.tools.map((tool) => tool.capability)).size;
   const notice = offline
     ? `${name} is not connected. The console keeps trying; open the machine's panel if it stays offline.`
@@ -547,8 +541,6 @@ export type HomePageProps = FleetProps & {
   onConnect: () => void;
   onTools: () => void;
   onActivity: () => void;
-  /** The console's own build, from /health; the machine chip next door is the device's. */
-  consoleVersion?: string | null;
   /** The live activity stream, newest first. Absent in tests and before the stream opens. */
   liveLines?: LiveLine[];
   /** The calls the proxy has announced and not cleared, for any machine. */

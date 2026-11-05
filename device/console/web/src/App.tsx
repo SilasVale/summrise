@@ -778,7 +778,6 @@ export function App() {
               setTab("tools");
             }}
             onActivity={() => setPage("activity")}
-            consoleVersion={consoleVersion}
             liveLines={live.lines}
             liveRunning={live.running}
             liveState={live.state}
