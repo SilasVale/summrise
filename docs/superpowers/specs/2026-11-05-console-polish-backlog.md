@@ -60,7 +60,7 @@ Ranked by honesty first. Each item names its measurement and its gate.
 6. **Give every tool a sentence and gate the table against the registry.** *(Done 2026-11-05, a9d9dff: 16 templates added, 10 dead ones removed after a history measurement; `every_registry_tool_has_a_sentence` walks the registry and fails for a declared tool without a sentence.)* 16 of the 46 registry tools
    fall back to "Used `tool`" (`host.restart` among them) and eight sentences name tools the registry
    does not have. Write the missing templates and test the table by walking `registry.rs`. **S.**
-7. **Say where one stretch ends.** The 60 s gap is computed and drawn as a hairline; a full day reads
+7. **Say where one stretch ends.** *(Done 2026-11-05, dfc35c0: at each boundary the page says what the stretch above it held — "3 calls · 1 m" — from the same rule that draws the hairline; nothing collapsed or inferred.)* The 60 s gap is computed and drawn as a hairline; a full day reads
    as one column. Label each stretch with what it held — "4 calls · 2 m 10 s" — inferring nothing. **S.**
 8. **Delete the retired components and the calls nobody makes.** *(Done 2026-11-05: `TerminalPane.tsx` (159 lines), `ToolPicker.tsx` + its test, `api.denials`, `api.meshStatus`, `api.meshReadiness` and twelve tests deleted; the server routes stay.)*** `TerminalPane.tsx` (159 lines, no
    importer), `ToolPicker.tsx` (42 + 35), `api.denials`, `api.meshStatus`/`meshReadiness` and their
