@@ -165,8 +165,9 @@ export function AuditTable({
   tokens,
   selectedDeviceId = null,
   onOpenRun,
-  empty = "No calls yet. Every call a client makes is written here; when an AI client calls a " +
-    "machine with its token, its first line appears. Connect a client sets one up.",
+  empty = "No calls yet. Calls routed through this console are written here; a call made " +
+    "straight to a machine's own endpoint is not. Connect a client sets up the credential that " +
+    "routes one here.",
   emptyFiltered,
   filter: sharedFilter,
   onFilter,

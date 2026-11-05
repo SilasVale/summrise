@@ -394,6 +394,10 @@ describe("ActivityTimeline", () => {
   it("says what this page is and how its first line gets there when it has none", () => {
     render(<ActivityTimeline lines={[]} devices={[]} />);
     expect(screen.getByText(/No activity yet\./)).toBeInTheDocument();
+    // The record names its own boundary: a call straight to the machine is not in it.
+    expect(
+      screen.getByText(/straight to a machine's own endpoint is not/)
+    ).toBeInTheDocument();
     expect(screen.getByText(/Connect a client/)).toBeInTheDocument();
     expect(screen.queryByText("Nothing has happened yet.")).not.toBeInTheDocument();
   });

@@ -320,6 +320,9 @@ describe("AuditTable", () => {
   it("tells an empty audit apart from a filter with no matches", () => {
     render(<AuditTable lines={[]} devices={devices} tokens={[]} />);
     expect(screen.getByText(/No calls yet\./)).toBeInTheDocument();
+    expect(
+      screen.getByText(/straight to a machine's own endpoint is not/)
+    ).toBeInTheDocument();
     expect(screen.getByText(/Connect a client/)).toBeInTheDocument();
     expect(screen.queryByText(/No calls match/)).not.toBeInTheDocument();
   });

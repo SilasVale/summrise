@@ -734,6 +734,9 @@ describe("App", () => {
     // The empty sentence below is the table's; Activity opens on the timeline, so open the table.
     fireEvent.click(screen.getByRole("tab", { name: "Table" }));
     expect(screen.getByText(/No calls yet\./)).toBeInTheDocument();
+    expect(
+      screen.getByText(/straight to a machine's own endpoint is not/)
+    ).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Device" }));
     expect(screen.getByRole("heading", { name: "Terminal", level: 1 })).toBeInTheDocument();

@@ -537,9 +537,9 @@ export function ActivityTimeline(props: {
         ) : (
           <p className="hint timeline-empty">
             {props.empty ??
-              "No activity yet. Every call a client makes is written here; when an AI client calls " +
-                "a machine with its token, the first line appears. Connect a client sets up the " +
-                "credential."}
+              "No activity yet. Calls routed through this console are written here; a call made " +
+                "straight to a machine's own endpoint is not. Connect a client sets up the " +
+                "credential that routes one here."}
           </p>
         )
       ) : (
