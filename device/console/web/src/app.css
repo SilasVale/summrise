@@ -368,6 +368,12 @@ main.terminal-main { display: grid; grid-template-rows: auto minmax(0, 1fr); ali
 }
 .notice span { flex: 1; min-width: 12rem; }
 .home-timeline { display: grid; gap: var(--sp-3); min-width: 0; }
+/* The hub's one count of the day: a sentence above the rows it counts. It is not a second list
+   header and not a control, so it takes the muted summary type and no rule of its own. */
+.home-today {
+  margin: 0; color: var(--ink-muted); font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
+}
 /* When the fetched window is older than the live lines, the hub says when it was read. It is a note
    under the timeline, not a second list header: one line, at the panel's own gap. */
 .home-read { margin: 0; }

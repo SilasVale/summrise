@@ -342,9 +342,12 @@ function Row(props: {
           {typeof line.ms === "number" && line.ms > 0 && (
             <span className="timeline-ms">{line.ms} ms</span>
           )}
+          {/* The outcome is a word, not the HTTP code: a device's JSON-RPC refusal is a failed call
+              that crossed the console as 200, and "200" read as success. The code and the detail are
+              still the evidence panel's facts for anyone who needs them. */}
           {kind !== "ok" && (
-            <span className={"timeline-outcome is-" + kind}>
-              {line.status ? line.status : "error"}
+            <span className={"timeline-outcome is-" + kind} title={line.detail ?? undefined}>
+              {kind === "bad" ? "failed" : "error"}
             </span>
           )}
           <span className="timeline-age">{ageAt(line.ts_ms, props.nowMs)}</span>

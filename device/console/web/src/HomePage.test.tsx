@@ -348,6 +348,86 @@ describe("Home — the hub", () => {
     expect(await screen.findByText(/No calls from workshop today/)).toBeInTheDocument();
   });
 
+  it("counts today's client calls, the failures among them, and when the last one was", async () => {
+    const now = new Date(2026, 10, 5, 14, 45, 0).getTime();
+    const clock = vi.spyOn(Date, "now").mockReturnValue(now);
+    try {
+      draw({
+        audit: [
+          call({ ts_ms: new Date(2026, 10, 5, 14, 32).getTime(), caller: "client" }),
+          call({ ts_ms: new Date(2026, 10, 5, 14, 20).getTime(), caller: "client", status: 503 }),
+          call({ ts_ms: new Date(2026, 10, 5, 14, 10).getTime(), caller: "client" })
+        ],
+        liveLines: []
+      });
+
+      // Two succeeded and one failed, all after local midnight: the line counts the calls and the
+      // failures, and the last is the newest client call's clock — not a number the page invented.
+      expect(
+        await screen.findByText("Today 3 client calls · 1 failed · last 14:32")
+      ).toBeInTheDocument();
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
+  it("says today is none and when yesterday's last call was", async () => {
+    const now = new Date(2026, 10, 5, 8, 0, 0).getTime();
+    const clock = vi.spyOn(Date, "now").mockReturnValue(now);
+    try {
+      draw({
+        // The newest line is 20 h old: last night's work ended before the browser's midnight, so the
+        // timeline above is empty and the summary still says when the machine last worked.
+        audit: [call({ ts_ms: now - 20 * 3_600_000, caller: "client", tool: "runs.exec" })],
+        liveLines: []
+      });
+
+      expect(
+        await screen.findByText("Today none · last 12:00 yesterday")
+      ).toBeInTheDocument();
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
+  it("says today is none when the window holds no lines at all", async () => {
+    draw({ audit: [], liveLines: [] });
+
+    expect(await screen.findByText("Today none")).toBeInTheDocument();
+  });
+
+  it("does not count the console's own calls in the day's line", async () => {
+    const now = new Date(2026, 10, 5, 14, 45, 0).getTime();
+    const clock = vi.spyOn(Date, "now").mockReturnValue(now);
+    try {
+      draw({
+        audit: [
+          call({ ts_ms: new Date(2026, 10, 5, 14, 32).getTime(), caller: "client" }),
+          call({ ts_ms: new Date(2026, 10, 5, 14, 20).getTime(), caller: "client" }),
+          // The console's own polling is in the record and in the timeline, marked "console"; the
+          // day's count is the AI's work, and a console line must not become a client call.
+          call({
+            ts_ms: new Date(2026, 10, 5, 14, 44).getTime(),
+            caller: "console",
+            tool: "terminal.list"
+          }),
+          call({
+            ts_ms: new Date(2026, 10, 5, 14, 43).getTime(),
+            caller: "console",
+            tool: "terminal.read"
+          })
+        ],
+        liveLines: []
+      });
+
+      expect(
+        await screen.findByText("Today 2 client calls · last 14:32")
+      ).toBeInTheDocument();
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
   it("opens the machine's Tools tab from the counts line", async () => {
     const { onTools } = draw();
     fireEvent.click(await screen.findByRole("button", { name: /6 tools · 4 capabilities/ }));

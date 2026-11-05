@@ -130,6 +130,45 @@ describe("ActivityTimeline", () => {
     expect(path).toHaveAttribute("title", "notes.txt");
   });
 
+  it("says a 200 that failed is failed, and keeps the code in the evidence", () => {
+    // A device's JSON-RPC error crosses the console as HTTP 200. The row used to stand on "200",
+    // which reads as success; the failure's own word is what the row says, and the code is still the
+    // evidence panel's fact for anyone who needs it.
+    const refused = line({
+      tool: "memory.search",
+      sentence: "Searched its memory for `deploy`",
+      status: 200,
+      ok: false,
+      detail: "jsonrpc error -32002",
+      caller: "client"
+    });
+    render(<ActivityTimeline lines={[refused]} devices={[]} />);
+
+    const row = document.querySelector<HTMLElement>(".timeline-row");
+    expect(row).not.toBeNull();
+    expect(within(row as HTMLElement).getByText("failed")).toBeInTheDocument();
+    expect(within(row as HTMLElement).queryByText("200")).toBeNull();
+
+    openRow();
+
+    expect(within(evidencePanel()).getByText("200")).toBeInTheDocument();
+    expect(within(evidencePanel()).getByText("jsonrpc error -32002")).toBeInTheDocument();
+  });
+
+  it("keeps a successful row's presentation without an outcome word", () => {
+    const succeeded = line({
+      tool: "files.read",
+      sentence: "Read notes.txt",
+      status: 200,
+      ok: true,
+      caller: "client"
+    });
+    render(<ActivityTimeline lines={[succeeded]} devices={[]} />);
+
+    expect(document.querySelector(".timeline-outcome")).toBeNull();
+    expect(screen.getByText("Read notes.txt")).toBeInTheDocument();
+  });
+
   it("shows a run's exit facts in the evidence panel", () => {
     // A run that failed silently is a failure the output alone cannot show; the exit facts ride in
     // the evidence object the proxy built.
