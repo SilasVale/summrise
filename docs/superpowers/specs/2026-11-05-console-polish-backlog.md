@@ -86,7 +86,7 @@ All six console-only; the last is the deletion. Ranked by how often the friction
    a run at 90 s while it keeps running, so the band says "Quiet" for a three-minute `runs.exec` and
    the timeline has no row. A non-audit `started` frame at `tools/call`, cleared by the result or the
    90 s cut; the band shows "running runs.exec · 3m 12s". **M.**
-4. **Let the machine menu compare machines.** It shows dot, name, state, version (`MachineMenu.tsx:72-89`)
+4. **Let the machine menu compare machines.** *(Measured: the fleet read carries `host` facts and `last_attempt` (`attempts`, `reason`), not an outage duration — so the line can name disk free and, when offline, the last attempt, but "back 2 h ago after 41 m" needs a new server field first. The item is split: the line now, the duration when the fleet records it.)* It shows dot, name, state, version (`MachineMenu.tsx:72-89`)
    while the fleet read already carries `host` and `last_outage` the web's `Device` does not name; one
    muted line — "C: 312 GiB free · back 2 h ago after 41 m". **S.**
 5. **Put the last column on screen at 390.** The audit table is 44 rem wide with its only opener in the
