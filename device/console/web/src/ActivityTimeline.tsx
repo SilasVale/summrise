@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
 import type { AuditLine, Device, TokenMeta } from "./api";
 import { ACTIVITY_LIMIT, capSentence, windowLoadingSentence } from "./activityMerge";
+import { isClientCall } from "./activitySummary";
 import { auditFailed } from "./auditFilter";
 import { ageAt, shortId } from "./format";
 import { ConsoleCaller } from "./CallerMark";
@@ -541,6 +542,13 @@ export function ActivityTimeline(props: {
   const setQuery = props.onQuery ?? setOwnQuery;
   const device = filterable ? (props.device ?? ownDevice) : "";
   const setDevice = props.onDevice ?? setOwnDevice;
+  // **THE PAGE'S SUBJECT IS THE AI'S WORK.** One chip narrows the timeline to the calls a client can
+  // be proven to have made (its caller, or a token on a row with no console mark), using the same
+  // rule as the header's day count. It is a view control, not a scope: the window stays the one the
+  // machine chips read, and the count on the chip is how many rows it will draw from that window.
+  const [ownClientsOnly, setOwnClientsOnly] = useState(false);
+  const clientsOnly = filterable && ownClientsOnly;
+  const clientCalls = useMemo(() => props.lines.filter(isClientCall).length, [props.lines]);
   const paused = props.nowMs !== undefined;
   useEffect(() => {
     if (paused) return;
@@ -559,8 +567,9 @@ export function ActivityTimeline(props: {
     [props.lines, props.devices, device]
   );
   const filtered = useMemo(() => {
-    if (needle === "" && device === "") return props.lines;
+    if (needle === "" && device === "" && !clientsOnly) return props.lines;
     return props.lines.filter((line) => {
+      if (clientsOnly && !isClientCall(line)) return false;
       if (device !== "" && line.device_id !== device) return false;
       if (needle === "") return true;
       const machine = line.device_id ? machineName(props.devices, line.device_id) : null;
@@ -568,9 +577,9 @@ export function ActivityTimeline(props: {
         .filter((value): value is string => typeof value === "string")
         .some((value) => value.toLowerCase().includes(needle));
     });
-  }, [props.lines, props.devices, device, needle]);
+  }, [props.lines, props.devices, device, needle, clientsOnly]);
   const days = groupDays(filtered, at);
-  const filtering = needle !== "" || device !== "";
+  const filtering = needle !== "" || device !== "" || clientsOnly;
   const deviceLabel = device !== "" ? (machineName(props.devices, device) ?? device) : "";
 
   return (
@@ -598,6 +607,17 @@ export function ActivityTimeline(props: {
                 {machine.name}
               </button>
             ))}
+          </div>
+          <div className="chips timeline-callers">
+            <button
+              type="button"
+              className="chip"
+              aria-pressed={clientsOnly}
+              title="Only calls a client made: the caller says so, or the row carries a token"
+              onClick={() => setOwnClientsOnly((current) => !current)}
+            >
+              Clients only · {clientCalls}
+            </button>
           </div>
           <label className="audit-field timeline-search">
             <span>Search activity</span>
@@ -635,11 +655,20 @@ export function ActivityTimeline(props: {
           // the list and keeps the way back next to it.
           <div className="timeline-empty timeline-empty-filtered">
             <p className="hint">
-              {needle !== ""
-                ? `No activity matches “${query.trim()}”${device !== "" ? ` on ${deviceLabel}` : ""}.`
-                : `No activity on ${deviceLabel}.`}
+              {clientsOnly
+                ? `No client calls${needle !== "" ? ` match “${query.trim()}”` : ""}${
+                    device !== "" ? ` on ${deviceLabel}` : ""
+                  } in this window.`
+                : needle !== ""
+                  ? `No activity matches “${query.trim()}”${device !== "" ? ` on ${deviceLabel}` : ""}.`
+                  : `No activity on ${deviceLabel}.`}
             </p>
             <div className="timeline-empty-actions">
+              {clientsOnly && (
+                <button type="button" onClick={() => setOwnClientsOnly(false)}>
+                  Show every caller
+                </button>
+              )}
               {needle !== "" && (
                 <button type="button" onClick={() => setQuery("")}>
                   Clear search

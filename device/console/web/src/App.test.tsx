@@ -326,6 +326,75 @@ describe("App", () => {
     expect(mocks.audit).toHaveBeenCalledWith(1000);
   });
 
+  it("states the day's count in the Activity header, by the rule the hub uses", async () => {
+    // Five rows: two client-proven (one by its caller, one only by its token), one console read, and
+    // two with neither proof (one of them failed). The header must count the client's two, the
+    // failure, and the two unattributed rows — and must not fold the console read into either bucket.
+    const midnight = new Date();
+    midnight.setHours(0, 0, 0, 0);
+    const at = (seconds: number) => midnight.getTime() + seconds * 1_000;
+    mocks.audit.mockResolvedValue([
+      {
+        ts_ms: at(50),
+        kind: "mcp",
+        device_id: workshop.id,
+        token_id: null,
+        tool: "files.read",
+        detail: null,
+        status: 200,
+        caller: "client",
+        sentence: "Read a file"
+      },
+      {
+        ts_ms: at(40),
+        kind: "mcp",
+        device_id: workshop.id,
+        token_id: tokenId,
+        tool: "runs.exec",
+        detail: null,
+        status: 200,
+        sentence: "Ran a command"
+      },
+      {
+        ts_ms: at(30),
+        kind: "mcp",
+        device_id: workshop.id,
+        token_id: null,
+        tool: "terminal.list",
+        detail: null,
+        status: 200,
+        caller: "console",
+        sentence: "Listed the terminal sessions"
+      },
+      {
+        ts_ms: at(20),
+        kind: "mcp",
+        device_id: workshop.id,
+        token_id: null,
+        tool: "files.write",
+        detail: "jsonrpc error -32002",
+        status: 200,
+        sentence: "Wrote a file"
+      },
+      {
+        ts_ms: at(10),
+        kind: "grant",
+        device_id: workshop.id,
+        token_id: null,
+        tool: null,
+        detail: "allow_destructive=false",
+        status: 200,
+        sentence: "Issued a grant"
+      }
+    ]);
+    await bootAndSignIn();
+    fireEvent.click(screen.getByRole("button", { name: "Activity" }));
+
+    expect(
+      await screen.findByText("Today 2 client calls · 1 failed · 2 unattributed")
+    ).toBeInTheDocument();
+  });
+
   it("follows the fragment when the address bar changes, not only at first render", async () => {
     await bootAndSignIn();
     expect(screen.getByRole("heading", { name: "Machines", level: 1 })).toBeInTheDocument();

@@ -16,6 +16,7 @@ import { recordVitals, type VitalsSample } from "./vitals";
 import { AUDIT_WINDOW, AuditTable, type AuditScope, type AuditSince } from "./AuditTable";
 import type { AuditFilter } from "./auditFilter";
 import { mergeActivityWindow } from "./activityMerge";
+import { activityCountLine } from "./activitySummary";
 import { ActivityTimeline } from "./ActivityTimeline";
 import { DEVICE_TAB_LABELS, PAGE_LABELS, Rail, type DeviceTab, type Page } from "./Rail";
 import { Modal } from "./Modal";
@@ -248,6 +249,14 @@ export function App() {
   // A paused list keeps its own window, so its cap sentence names the machine it was frozen from.
   const shownWindowDevice = activityPaused && frozenActivity ? frozenDevice : auditDevice;
   const shownWindowName = shownWindowDevice === null ? null : deviceName(shownWindowDevice);
+  // **THE HEADER COUNTS THE WINDOW IT IS SHOWING.** One pass over the rows in hand, so the sentence
+  // and the list cannot disagree; a paused page counts the list it froze. A window being replaced is
+  // not described: its rows are replaced by the loading line, and the new window's sentence arrives
+  // with them. "Today" is the same local midnight the timeline's day label cuts at.
+  const activityCount =
+    shownActivity.length > 0 && !auditReadingOther
+      ? activityCountLine(shownActivity, activityPaused && pausedAt !== null ? pausedAt : Date.now())
+      : null;
 
   /**
    * A scope change is a new window, so it is a new read — through the same reader the five-second
@@ -796,6 +805,12 @@ export function App() {
             <header className="page-head">
               <div>
                 <h1>Activity</h1>
+                {/* The day at a glance, from the same rows the timeline draws. It is not a live
+                    region: it moves with the whole window, and re-announcing every line would make
+                    the stream a conversation. */}
+                {activityCount !== null && (
+                  <p className="page-sub activity-today">{activityCount}</p>
+                )}
                 <p className="page-sub">
                   {live.lagged > 0
                     ? `${live.lagged} lines were dropped while this tab was behind; rereading`

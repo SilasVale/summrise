@@ -10,6 +10,7 @@ import { listPlugins } from "./pluginApi";
 import { useLiveTools } from "./useLiveTools";
 import { ActivityTimeline } from "./ActivityTimeline";
 import { ACTIVITY_LIMIT, capActivity, mergeActivity } from "./activityMerge";
+import { isClientCall } from "./activitySummary";
 import { auditFailed } from "./auditFilter";
 
 /** A one-time enrollment code and the command that redeems it. */
@@ -195,20 +196,6 @@ const HUB_DAY_ROWS = 60;
  * timeline above read as a machine that did nothing overnight. A cut or stale window is already
  * named by the cap and read sentences; this line never repeats those.
  */
-/**
- * Whether a line is a client's call.
- *
- * The `caller` field is newer than the audit itself: 908 of the live 1000 lines have no caller, and
- * 376 of those carry a token — no console line carries one (0 of 30). Counting only `caller ===
- * "client"` therefore undercounted the busiest machine's day by 5.9× (62 counted, 363 proven). A line
- * with a token is a client call even when the caller was never recorded; a console line never is.
- */
-function isClientCall(line: AuditLine): boolean {
-  if (line.caller === "client") return true;
-  if (line.caller === "console") return false;
-  return line.token_id != null;
-}
-
 function todayLine(lines: readonly AuditLine[], now = Date.now()): string {
   const calls = lines.filter(isClientCall);
   const start = startOfToday(now);

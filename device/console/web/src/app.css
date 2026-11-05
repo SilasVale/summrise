@@ -391,6 +391,8 @@ main.terminal-main { display: grid; grid-template-rows: auto minmax(0, 1fr); ali
 /* When the fetched window is older than the live lines, the hub says when it was read. It is a note
    under the timeline, not a second list header: one line, at the panel's own gap. */
 .home-read { margin: 0; }
+/* The Activity header's day count: the hub's summary type, above the stream's own sentence. */
+.activity-today { font-variant-numeric: tabular-nums; }
 /* The day's fold control is a text button in the panel's own column, not a centred page footer. */
 .home-more { justify-self: start; }
 .endpoint-row {
@@ -2607,9 +2609,13 @@ main::-webkit-scrollbar-track, .sheet-body::-webkit-scrollbar-track, .scroll::-w
   margin: 0 0 var(--sp-3); padding-bottom: var(--sp-3);
   border-bottom: 1px solid var(--hairline);
 }
-.timeline-machines { align-items: center; flex: 1 1 auto; }
+.timeline-machines { align-items: center; flex: 0 1 auto; }
 .timeline-machines .chip { border: 0; cursor: pointer; }
 .timeline-machines .chip[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); }
+/* One caller chip beside the machine chips: the AI's calls, not a second filter row. */
+.timeline-callers { align-items: center; }
+.timeline-callers .chip { border: 0; cursor: pointer; }
+.timeline-callers .chip[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); }
 .timeline-search { margin-left: auto; }
 .timeline-search input { width: 18rem; max-width: 100%; }
 @media (max-width: 639px) {

@@ -560,6 +560,66 @@ describe("ActivityTimeline", () => {
     expect(screen.getByRole("button", { name: "Clear machine filter" })).toBeInTheDocument();
   });
 
+  it("narrows to the AI's calls with one chip and restores the whole record", () => {
+    // The timeline's machine chips cannot separate the AI from the console or from a row with no
+    // proof at all. One chip does, using the rule the day's count uses, and says how many rows it
+    // will narrow to before it is pressed.
+    const client = line({
+      ts_ms: Date.UTC(2026, 10, 5, 9, 0, 0),
+      device_id: alpha,
+      sentence: "Read notes.txt",
+      tool: "files.read",
+      caller: "client"
+    });
+    const provenByToken = line({
+      ts_ms: Date.UTC(2026, 10, 5, 9, 1, 0),
+      device_id: alpha,
+      sentence: "Ran a command",
+      tool: "runs.exec",
+      token_id: tokenA
+    });
+    const consoleRead = line({
+      ts_ms: Date.UTC(2026, 10, 5, 9, 2, 0),
+      device_id: alpha,
+      sentence: "Listed the terminal sessions",
+      tool: "terminal.list",
+      caller: "console"
+    });
+    const unattributed = line({
+      ts_ms: Date.UTC(2026, 10, 5, 9, 3, 0),
+      device_id: alpha,
+      sentence: "Registered a machine",
+      kind: "register"
+    });
+    render(
+      <ActivityTimeline
+        lines={[unattributed, consoleRead, provenByToken, client]}
+        devices={devices}
+      />
+    );
+
+    const chip = screen.getByRole("button", { name: "Clients only · 2" });
+    expect(chip).toHaveAttribute("aria-pressed", "false");
+    // Unpressed the whole record is drawn: two of these rows are not the AI's calls.
+    expect(document.querySelectorAll(".timeline-row")).toHaveLength(4);
+
+    fireEvent.click(chip);
+
+    expect(chip).toHaveAttribute("aria-pressed", "true");
+    expect(document.querySelectorAll(".timeline-row")).toHaveLength(2);
+    expect(screen.getByText("Read notes.txt")).toBeInTheDocument();
+    expect(screen.getByText("Ran a command")).toBeInTheDocument();
+    expect(screen.queryByText("Listed the terminal sessions")).toBeNull();
+    expect(screen.queryByText("Registered a machine")).toBeNull();
+
+    fireEvent.click(chip);
+
+    expect(chip).toHaveAttribute("aria-pressed", "false");
+    expect(document.querySelectorAll(".timeline-row")).toHaveLength(4);
+    expect(screen.getByText("Listed the terminal sessions")).toBeInTheDocument();
+    expect(screen.getByText("Registered a machine")).toBeInTheDocument();
+  });
+
   it("searches sentence, tool, machine and detail, and names a query that hides everything", () => {
     render(<ActivityTimeline lines={[fromAlpha, fromBeta]} devices={devices} />);
     const search = screen.getByRole("searchbox", { name: "Search activity" });

@@ -517,6 +517,49 @@ try {
 
   await page.getByRole('button', { name: 'Activity' }).click();
   await page.getByRole('heading', { name: 'Activity' }).waitFor({ timeout: 10_000 });
+
+  // THE DAY'S COUNT, AND ONE CHIP TO SEE THE AI ALONE. The fixture is one client call and 76
+  // console reads, so the header's count is the day's proof (the client call is today unless the
+  // gate runs in the five minutes after midnight) and the chip narrows 77 rows to that one call.
+  const midnight = new Date(NOW);
+  midnight.setHours(0, 0, 0, 0);
+  const clientToday = AUDIT_LINE.ts_ms >= midnight.getTime() ? 1 : 0;
+  const expectedCount = `Today ${clientToday} client ${
+    clientToday === 1 ? 'call' : 'calls'
+  } · 0 failed · 0 unattributed`;
+  const countText = (await page.locator('.activity-today').textContent())?.trim();
+  if (countText !== expectedCount) {
+    throw new Error(`the Activity header stated "${countText}", expected "${expectedCount}"`);
+  }
+  const allActivityRows = await page.locator('.timeline-row').count();
+  const clientsChip = page.getByRole('button', { name: 'Clients only · 1' });
+  if ((await clientsChip.getAttribute('aria-pressed')) !== 'false') {
+    throw new Error('the Clients only chip was pressed before it was chosen');
+  }
+  await clientsChip.click();
+  await page.waitForFunction(
+    () => document.querySelectorAll('.timeline-row').length === 1,
+    null,
+    { timeout: 10_000 }
+  );
+  if ((await clientsChip.getAttribute('aria-pressed')) !== 'true') {
+    throw new Error('the Clients only chip did not report its pressed state');
+  }
+  const narrowed = (await page.locator('.timeline-row').first().textContent()) ?? '';
+  if (!narrowed.includes('runs.exec')) {
+    throw new Error(`the Clients only chip kept a row that is not the AI's call: "${narrowed}"`);
+  }
+  await clientsChip.click();
+  await page.waitForFunction(
+    (expected) => document.querySelectorAll('.timeline-row').length === expected,
+    allActivityRows,
+    { timeout: 10_000 }
+  );
+  step(
+    `the header counted ${clientToday} client call, and Clients only narrowed ` +
+      `${allActivityRows} rows to the AI's one`
+  );
+
   // Activity opens on the timeline; the audit rows are the table view.
   await page.getByRole('tab', { name: 'Table' }).click();
   const auditRow = page.locator('.audit-row').filter({ hasText: 'runs.exec' }).first();
