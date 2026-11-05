@@ -721,7 +721,11 @@ function replyFor(request, url) {
     // a window that slid back to 200 would fail the wait, not quietly photograph a slice.
     const raw = Number(url.searchParams.get('limit') ?? 20);
     const limit = Number.isFinite(raw) ? Math.max(0, Math.min(Math.trunc(raw), 1000)) : 20;
-    return json(stubAudit.slice(0, limit));
+    // `?device=` is applied during the read, like the console's own scan: a selected machine's
+    // window is its lines, not a slice of the fleet's that another machine may have filled.
+    const device = url.searchParams.get('device');
+    const window = device === null ? stubAudit : stubAudit.filter((line) => line.device_id === device);
+    return json(window.slice(0, limit));
   }
   // The page follows the audit as it happens; the stub answers with one snapshot, in the order the
   // console sends it (oldest first), so the Now band and the timeline are photographed live rather

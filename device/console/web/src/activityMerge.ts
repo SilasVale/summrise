@@ -34,10 +34,25 @@ export type ActivityWindow = { lines: AuditLine[]; capped: boolean };
  * The one sentence a capped list shows.
  *
  * It describes the fetched window, not a day: the rows behind the cut may be yesterday's, so
- * "of today" would be a claim the row list cannot keep.
+ * "of today" would be a claim the row list cannot keep. When the window is one machine's, the
+ * sentence names it: the cut is that machine's lines, not the fleet's.
  */
-export function capSentence(limit = ACTIVITY_LIMIT): string {
-  return `Showing the newest ${limit} lines; older ones are not on this page.`;
+export function capSentence(limit = ACTIVITY_LIMIT, machine: string | null = null): string {
+  const from = machine === null ? "" : ` from ${machine}`;
+  return `Showing the newest ${limit} lines${from}; older ones are not on this page.`;
+}
+
+/**
+ * The one line shown while a scope change's window is being read.
+ *
+ * The rows still in hand belong to the previous window, so drawing them under the new scope would
+ * answer a question about one machine with another machine's lines. One line says what is happening
+ * instead; the rows return when the read answers.
+ */
+export function windowLoadingSentence(machine: string | null = null): string {
+  return machine === null
+    ? "Reading the fleet's window…"
+    : `Reading ${machine}'s window…`;
 }
 
 /** The newest `limit` lines, and whether anything older was dropped to get there. */

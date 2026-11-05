@@ -48,4 +48,14 @@ describe("merging the fetched window with the live stream", () => {
       "Showing the newest 1000 lines; older ones are not on this page."
     );
   });
+
+  it("names the machine whose window was cut, and only when the window is one machine's", () => {
+    expect(capSentence(1000, "workshop")).toBe(
+      "Showing the newest 1000 lines from workshop; older ones are not on this page."
+    );
+    // The fleet's window has no machine to name; the sentence stays the one it has always used.
+    expect(capSentence(1000, null)).toBe(
+      "Showing the newest 1000 lines; older ones are not on this page."
+    );
+  });
 });

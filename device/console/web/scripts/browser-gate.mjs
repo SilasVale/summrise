@@ -230,8 +230,15 @@ function apiReply(request, url) {
   }
   if (method === 'GET' && /^\/fleet\/[^/]+\/connections$/.test(pathname)) return json([]);
   if (method === 'GET' && pathname === '/tokens') return json(TOKENS);
-  // Newest first, as the console serves it: the console's own read is the newer row.
-  if (method === 'GET' && pathname === '/audit') return json([CONSOLE_LINE, AUDIT_LINE]);
+  // Newest first, as the console serves it: the console's own read is the newer row. `?device=`
+  // narrows during the read, exactly as the console does; the gate's one machine owns both rows.
+  if (method === 'GET' && pathname === '/audit') {
+    const device = url.searchParams.get('device');
+    const lines = [CONSOLE_LINE, AUDIT_LINE].filter(
+      (line) => device === null || line.device_id === device
+    );
+    return json(lines);
+  }
   if (method === 'GET' && pathname === '/denials') return json([]);
   if (method === 'GET' && pathname === '/tools') return json(TOOL_NAMES.map((name) => ({ name })));
 

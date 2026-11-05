@@ -94,6 +94,29 @@ it("says so when the window it was given was cut", () => {
   expect(full).toHaveLength(1000);
 });
 
+it("names the machine whose window was cut", () => {
+  render(<AuditTable lines={lines} devices={devices} tokens={[]} capped cappedMachine="Alpha" />);
+  expect(
+    screen.getByText("Showing the newest 1000 lines from Alpha; older ones are not on this page.")
+  ).toBeInTheDocument();
+});
+
+it("reads the new window in one line instead of drawing the old window's rows", () => {
+  render(
+    <AuditTable
+      lines={lines}
+      devices={devices}
+      tokens={[]}
+      selectedDeviceId={alpha}
+      loading
+      loadingMachine="Alpha"
+    />
+  );
+
+  expect(screen.getByText("Reading Alpha's window…")).toBeInTheDocument();
+  expect(screen.queryByText("memory.export")).toBeNull();
+});
+
 it("makes the row's opener a real button with aria-expanded", () => {
   render(<AuditTable lines={lines} devices={devices} tokens={[]} />);
   const row = rowOf("memory.export");

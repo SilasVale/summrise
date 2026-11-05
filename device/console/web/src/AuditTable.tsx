@@ -1,4 +1,4 @@
-import { capSentence } from "./activityMerge";
+import { capSentence, windowLoadingSentence } from "./activityMerge";
 import { Fragment, useMemo, useState } from "react";
 import type { AuditLine, Device, TokenMeta } from "./api";
 import { auditFailed, filterAudit, type AuditFilter } from "./auditFilter";
@@ -174,10 +174,19 @@ export function AuditTable({
   onSince,
   scope: sharedScope,
   onScope,
-  capped = false
+  capped = false,
+  cappedMachine = null,
+  loading = false,
+  loadingMachine = null
 }: {
   lines: AuditLine[];
   capped?: boolean;
+  /** The machine whose window was cut, or `null` for the fleet's; the notice names it. */
+  cappedMachine?: string | null;
+  /** True while a changed scope's window is being read; the table says so instead of the old rows. */
+  loading?: boolean;
+  /** The machine whose window is being read, or `null` for the fleet's. */
+  loadingMachine?: string | null;
   devices: Device[];
   tokens: TokenMeta[];
   /** The machine the operator is on; the default scope follows it when it exists. */
@@ -434,7 +443,9 @@ export function AuditTable({
         </button>
       </div>
 
-      {shown.length === 0 ? (
+      {loading ? (
+        <p className="hint audit-loading">{windowLoadingSentence(loadingMachine)}</p>
+      ) : shown.length === 0 ? (
         <div className="audit-empty">
           <p className="hint">{emptySentence}</p>
           {narrowed && (
@@ -445,7 +456,9 @@ export function AuditTable({
         </div>
       ) : (
         <div className="table-scroll" tabIndex={0} role="region" aria-label="Audit lines">
-          {capped && <p className="hint audit-cap">{capSentence()}</p>}
+          {capped && (
+            <p className="hint audit-cap">{capSentence(AUDIT_WINDOW, cappedMachine)}</p>
+          )}
           <table className="audit-table">
             <thead>
               <tr>

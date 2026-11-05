@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { AuditLine, Device } from "./api";
-import { capSentence } from "./activityMerge";
+import { ACTIVITY_LIMIT, capSentence, windowLoadingSentence } from "./activityMerge";
 import { auditFailed } from "./auditFilter";
 import { ageAt, shortId } from "./format";
 import { ConsoleCaller } from "./CallerMark";
@@ -347,13 +347,21 @@ function Row(props: {
   );
 }
 
-/** The machines the lines name, in the order they first appear, plus the active one if absent. */
+/**
+ * The machines the timeline can scope to: every registered machine, then any machine the lines
+ * name that the fleet no longer lists, then the active filter if it is neither.
+ *
+ * A chip is a scope, not only a filter over the lines in hand: another machine's chip must stay
+ * reachable while one machine's window is on screen. A machine with no line in this window still
+ * gets a chip, and selecting it reads that machine's window instead of filtering this one.
+ */
 function machineOptions(
   lines: AuditLine[],
   devices: Device[],
   active: string
 ): Array<{ id: string; name: string }> {
   const present = new Map<string, string>();
+  for (const device of devices) present.set(device.id, device.name ?? device.id);
   for (const line of lines) {
     const id = line.device_id;
     if (!id || present.has(id)) continue;
@@ -401,6 +409,18 @@ export function ActivityTimeline(props: {
    * one, so it never guesses.
    */
   capped?: boolean;
+  /**
+   * The machine whose window was cut, when the window is one machine's; `null` for the fleet's.
+   * The cap sentence names it, because the rows behind the cut are that machine's, not the fleet's.
+   */
+  cappedMachine?: string | null;
+  /**
+   * True while a changed scope's window is being read. The rows still in hand belong to the previous
+   * window, so the list shows one reading line instead of drawing another window's rows.
+   */
+  loading?: boolean;
+  /** The machine whose window is being read, or `null` for the fleet's. */
+  loadingMachine?: string | null;
 }) {
   const [now, setNow] = useState(() => Date.now());
   const [openKey, setOpenKey] = useState<string | null>(null);
@@ -478,13 +498,20 @@ export function ActivityTimeline(props: {
           </label>
         </div>
       )}
-      {props.capped && (
+      {props.loading && (
+        <p className="hint timeline-loading">
+          {windowLoadingSentence(props.loadingMachine ?? null)}
+        </p>
+      )}
+      {!props.loading && props.capped && (
         // The fetched window and the live lines can add up to more than the console's cap. Dropping
         // the oldest is right; doing it silently would hide rows. The sentence names the window only:
         // the cut rows can be yesterday's, so "of today" would be false on a list that spans days.
-        <p className="hint timeline-capped">{capSentence()}</p>
+        <p className="hint timeline-capped">
+          {capSentence(ACTIVITY_LIMIT, props.cappedMachine ?? null)}
+        </p>
       )}
-      {days.length === 0 ? (
+      {!props.loading && (days.length === 0 ? (
         filtering ? (
           // A filter that hides every row is not "nothing happened": the page names what narrowed
           // the list and keeps the way back next to it.
@@ -546,7 +573,7 @@ export function ActivityTimeline(props: {
             </section>
           ))}
         </div>
-      )}
+      ))}
     </div>
   );
 }

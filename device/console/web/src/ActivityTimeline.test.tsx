@@ -455,4 +455,36 @@ describe("ActivityTimeline", () => {
     ).toBeInTheDocument();
     expect(screen.queryByText(/of today/)).toBeNull();
   });
+
+  it("names the machine whose window was cut", () => {
+    render(<ActivityTimeline lines={[fromAlpha]} devices={devices} capped cappedMachine="Alpha" />);
+    expect(
+      screen.getByText("Showing the newest 1000 lines from Alpha; older ones are not on this page.")
+    ).toBeInTheDocument();
+  });
+
+  it("reads the new window in one line instead of drawing the old window's rows", () => {
+    render(
+      <ActivityTimeline
+        lines={[fromAlpha]}
+        devices={devices}
+        device={beta}
+        loading
+        loadingMachine="Beta"
+      />
+    );
+
+    // The chip the operator just chose is pressed, and the list says what is happening; the rows in
+    // hand belong to another machine's window, so drawing them under this chip would be the wrong
+    // answer even before the fetch lands.
+    expect(screen.getByRole("button", { name: "Beta" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByText("Reading Beta's window…")).toBeInTheDocument();
+    expect(screen.queryByText("Read notes.txt")).toBeNull();
+    expect(screen.queryByText(/No activity on Beta/)).toBeNull();
+  });
+
+  it("names the fleet when the window being read is the fleet's", () => {
+    render(<ActivityTimeline lines={[fromAlpha]} devices={devices} loading />);
+    expect(screen.getByText("Reading the fleet's window…")).toBeInTheDocument();
+  });
 });

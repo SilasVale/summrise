@@ -496,6 +496,140 @@ describe("App", () => {
     );
   });
 
+  it("reads the scope's machine window and widens to the fleet in one request", async () => {
+    await bootAndSignIn();
+    fireEvent.click(screen.getByRole("button", { name: "Activity" }));
+    await screen.findByRole("heading", { name: "Activity", level: 1 });
+
+    // Select the header's machine from Activity itself. The hub is not mounted here, so the read
+    // that names it can only be the Activity page's own window.
+    fireEvent.click(screen.getByLabelText("All machines"));
+    const menu = screen.getByLabelText("Machines");
+    fireEvent.click(within(menu).getByRole("button", { name: /workshop/ }));
+    await waitFor(() => expect(mocks.audit).toHaveBeenLastCalledWith(1000, workshop.id));
+
+    fireEvent.click(screen.getByRole("tab", { name: "Table" }));
+    const scope = screen.getByRole("group", { name: "Audit scope" });
+    const readsBefore = mocks.audit.mock.calls.length;
+    fireEvent.click(within(scope).getByRole("button", { name: "All machines" }));
+    await waitFor(() => expect(mocks.audit).toHaveBeenCalledTimes(readsBefore + 1));
+    // One request for the switch: the fleet read, not the machine read plus a fleet read.
+    expect(mocks.audit).toHaveBeenLastCalledWith(1000);
+  });
+
+  it("names the machine whose window was cut, and the fleet when the window is the fleet's", async () => {
+    // More than the page's 1000-line cap, so the shown window is cut and must say so.
+    const window = Array.from({ length: 1001 }, (_, index) => ({
+      ...tokenCall,
+      ts_ms: Date.now() - index * 1000,
+      tool: `tool.${index}`,
+      sentence: `Call ${index}`
+    }));
+    mocks.audit.mockResolvedValue(window);
+    await bootAndSignIn();
+    selectDevice("workshop");
+    fireEvent.click(screen.getByRole("button", { name: "Activity" }));
+
+    expect(
+      await screen.findByText(
+        "Showing the newest 1000 lines from workshop; older ones are not on this page."
+      )
+    ).toBeInTheDocument();
+
+    // The table reads the same fact: its notice names the same window.
+    fireEvent.click(screen.getByRole("tab", { name: "Table" }));
+    expect(
+      screen.getByText(
+        "Showing the newest 1000 lines from workshop; older ones are not on this page."
+      )
+    ).toBeInTheDocument();
+
+    const scope = screen.getByRole("group", { name: "Audit scope" });
+    fireEvent.click(within(scope).getByRole("button", { name: "All machines" }));
+    expect(
+      await screen.findByText(
+        "Showing the newest 1000 lines; older ones are not on this page."
+      )
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/from workshop/)).toBeNull();
+  });
+
+  it("reads a chip's own window instead of filtering another machine's, and says it is reading", async () => {
+    const atticLine = {
+      ...tokenCall,
+      ts_ms: Date.now() - 2_000,
+      device_id: attic.id,
+      token_id: null,
+      tool: "files.list",
+      sentence: "Listed the attic"
+    };
+    const workshopLine = {
+      ...tokenCall,
+      ts_ms: Date.now(),
+      tool: "files.read",
+      sentence: "Read the workshop's notes"
+    };
+    // The fleet window names only the attic; the chosen machine's window holds its own line. The
+    // workshop row's appearance therefore proves the machine read landed. The attic still has a
+    // chip: a chip is a scope, not only a filter over the lines in hand.
+    mocks.audit.mockImplementation(async (_limit: number, device?: string) =>
+      device === workshop.id ? [workshopLine] : [atticLine]
+    );
+    await bootAndSignIn();
+    selectDevice("workshop");
+    fireEvent.click(screen.getByRole("button", { name: "Activity" }));
+    expect(await screen.findByText("Read the workshop's notes")).toBeInTheDocument();
+
+    const answer = deferred<unknown[]>();
+    mocks.audit.mockReturnValueOnce(answer.promise);
+    const chips = screen.getByRole("group", { name: "Filter by machine" });
+    const readsBefore = mocks.audit.mock.calls.length;
+    fireEvent.click(within(chips).getByRole("button", { name: "attic" }));
+
+    // The chip is a scope: it asks the console for the attic's window rather than filtering the
+    // workshop's window in the page.
+    await waitFor(() => expect(mocks.audit).toHaveBeenCalledTimes(readsBefore + 1));
+    expect(mocks.audit).toHaveBeenLastCalledWith(1000, attic.id);
+    // Meanwhile the rows in hand belong to the workshop; drawing them under the attic chip would be
+    // an answer from the wrong window.
+    expect(screen.getByText("Reading attic's window…")).toBeInTheDocument();
+    expect(screen.queryByText("Read the workshop's notes")).toBeNull();
+
+    await act(async () => {
+      answer.resolve([{ ...atticLine, ts_ms: Date.now() }]);
+    });
+    expect(await screen.findByText("Listed the attic")).toBeInTheDocument();
+    expect(screen.queryByText("Reading attic's window…")).toBeNull();
+  });
+
+  it("reads the machine's window on the page's read and after a dropped frame", async () => {
+    mocks.audit.mockResolvedValue([
+      { ...tokenCall, ts_ms: Date.now(), sentence: "A call on the chosen machine" }
+    ]);
+    await bootAndSignIn();
+    selectDevice("workshop");
+    fireEvent.click(screen.getByRole("button", { name: "Activity" }));
+    await screen.findByRole("heading", { name: "Activity", level: 1 });
+    const source = TestEventSource.instances[TestEventSource.instances.length - 1];
+    act(() => {
+      source.emit("snapshot", { lines: [] });
+    });
+
+    // Refresh and the five-second tick are the same `load`; both read the scope's window.
+    const beforeRefresh = mocks.audit.mock.calls.length;
+    fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
+    await waitFor(() => expect(mocks.audit).toHaveBeenCalledTimes(beforeRefresh + 1));
+    expect(mocks.audit).toHaveBeenLastCalledWith(1000, workshop.id);
+
+    // The lag reread goes through the same decision: the hole is in this machine's window.
+    const beforeLag = mocks.audit.mock.calls.length;
+    act(() => {
+      source.emit("lagged", { dropped: 2 });
+    });
+    await waitFor(() => expect(mocks.audit).toHaveBeenCalledTimes(beforeLag + 1));
+    expect(mocks.audit).toHaveBeenLastCalledWith(1000, workshop.id);
+  });
+
   it("gives the timeline chips and a search, and keeps the six filters on the table", async () => {
     mocks.tokens.mockResolvedValue([laptop]);
     mocks.audit.mockResolvedValue([

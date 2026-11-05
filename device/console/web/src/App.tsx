@@ -65,11 +65,20 @@ export function App() {
   const [vitals, setVitals] = useState<Record<string, VitalsSample[]>>({});
   const [audit, setAudit] = useState<AuditLine[]>([]);
   /**
+   * The machine whose window is in `audit`; `null` is the fleet's. The page reads a machine's own
+   * window when its scope names one: filtering the fleet's newest window in the page lets another
+   * machine's newer lines push this machine's older ones out of it.
+   */
+  const [auditDevice, setAuditDevice] = useState<string | null>(null);
+  /** The device the newest read asked for; it differs from `auditDevice` until that read answers. */
+  const [auditReadDevice, setAuditReadDevice] = useState<string | null>(null);
+  /**
    * Read the audit window again into the page.
    *
-   * One function for both readers: the five-second poll and the stream's catch-up after a dropped
-   * frame. They ask for the same `AUDIT_WINDOW` and the same device scope, so a line the page reads
-   * back is the line the poll would have read; neither can quietly narrow the window.
+   * One function for every reader: the five-second poll, the stream's catch-up after a dropped
+   * frame, and the scope change. They ask for the same `AUDIT_WINDOW` and the same device scope, so
+   * a line the page reads back is the line the poll would have read; neither can quietly narrow the
+   * window while the other widens it.
    *
    * Both reads can overlap. The file only gains lines and both ask for its newest window, so a
    * response from a read that started later is the fresher answer; a response from an older read
@@ -78,12 +87,19 @@ export function App() {
    */
   const auditReadStarted = useRef(0);
   const auditReadApplied = useRef(0);
+  // The scope's device as of the latest render; the readers use the ref so none of them can fetch a
+  // window the page is not showing.
+  const auditWindowDevice = useRef<string | null>(null);
   const rereadAudit = useCallback(async () => {
+    const device = auditWindowDevice.current;
     const generation = ++auditReadStarted.current;
-    const lines = await api.audit(AUDIT_WINDOW);
+    setAuditReadDevice(device);
+    const lines =
+      device === null ? await api.audit(AUDIT_WINDOW) : await api.audit(AUDIT_WINDOW, device);
     if (generation > auditReadApplied.current) {
       auditReadApplied.current = generation;
       setAudit(lines);
+      setAuditDevice(device);
     }
   }, []);
   // The same index, streamed: what the AI is doing now, not what it did before the last refresh.
@@ -109,6 +125,9 @@ export function App() {
   // Whether the frozen list itself was cut at the cap. The sentence above the rows must describe
   // what is on screen, not what the merge would be if the page were following again.
   const [frozenCapped, setFrozenCapped] = useState(false);
+  // The frozen list's window. The cap sentence and the loading decision describe what is on screen,
+  // and a pause keeps the rows it froze even if a scope change fetches another window behind it.
+  const [frozenDevice, setFrozenDevice] = useState<string | null>(null);
   // The moment the freeze was taken, so the count is "lines newer than this" rather than a length
   // difference: the fetched window slides, and a difference under-reports once it does.
   const [pausedAt, setPausedAt] = useState<number | null>(null);
@@ -126,11 +145,13 @@ export function App() {
       setActivityPaused(false);
       setFrozenActivity(null);
       setFrozenCapped(false);
+      setFrozenDevice(null);
       setPausedAt(null);
     } else {
       setPausedAt(Date.now());
       setFrozenActivity(activityLines);
       setFrozenCapped(activityWindow.capped);
+      setFrozenDevice(auditDevice);
       setActivityPaused(true);
     }
   };
@@ -196,6 +217,43 @@ export function App() {
   const activityScopeNow: AuditScope = activityScope ?? (selected ? "machine" : "all");
   const activityMachine =
     activityScopeNow === "machine" && selected ? selected : activityFilter.device;
+  // THE SCOPE IS THE WINDOW. The rows are narrowed to this machine, and when there is one the read
+  // asks the console for that machine's newest lines rather than filtering the fleet's window: with
+  // `limit` 3, a machine's six older lines can sit entirely behind another machine's eight newer ones.
+  const auditScopeDevice = activityMachine === "" ? null : activityMachine;
+  auditWindowDevice.current = auditScopeDevice;
+  const deviceName = (id: string) =>
+    devices.find((device) => device.id === id)?.name ?? shortId(id);
+  const auditReadingName = auditScopeDevice === null ? null : deviceName(auditScopeDevice);
+  // The rows in hand belong to a machine the scope no longer names. The views say what is happening
+  // in one line instead of drawing another window's rows under the new scope. A fleet window is not
+  // another machine's: it contains every machine's newest lines, so narrowing it locally is still
+  // an answer from a window that includes the scope.
+  const auditReadingOther =
+    !activityPaused && auditDevice !== null && auditDevice !== auditScopeDevice;
+  // A paused list keeps its own window, so its cap sentence names the machine it was frozen from.
+  const shownWindowDevice = activityPaused && frozenActivity ? frozenDevice : auditDevice;
+  const shownWindowName = shownWindowDevice === null ? null : deviceName(shownWindowDevice);
+
+  /**
+   * A scope change is a new window, so it is a new read — through the same reader the five-second
+   * poll and the lag catch-up use, with the scope's device. `auditReadDevice` is the read already in
+   * hand or in flight; when it already names this scope there is nothing to fetch.
+   */
+  useEffect(() => {
+    if (!session?.authenticated) return;
+    if (auditReadDevice === auditScopeDevice) return;
+    rereadAudit().catch((cause) => {
+      setError(
+        "The console could not read " +
+          (auditScopeDevice === null
+            ? "the fleet's audit window"
+            : `the audit window for ${shortId(auditScopeDevice)}`) +
+          ": " +
+          describe(cause)
+      );
+    });
+  }, [session?.authenticated, auditScopeDevice, auditReadDevice, rereadAudit]);
 
   // The operator's session is the credential. Selecting a machine starts a session-scoped grant
   // (no envelope); `/mcp` treats an absent grant as full operator authority on that device, so every
@@ -479,12 +537,23 @@ export function App() {
         : "console link: no failure reported since it last connected",
       "recent audit for this device:"
     ];
-    const mine = audit.filter((line) => line.device_id === device.id).slice(0, 8);
-    if (mine.length === 0) lines.push(`  (none in the last ${AUDIT_WINDOW} lines)`);
-    for (const line of mine) {
-      lines.push(
-        `  ${new Date(line.ts_ms).toISOString()}  ${line.kind} ${line.tool ?? line.detail ?? ""} ${line.status}`.trimEnd()
-      );
+    // THE PAGE'S WINDOW MAY BE ONE MACHINE'S. Diagnostics describe the machine they name, not
+    // whatever window Activity is showing; another machine gets its own short read instead of a
+    // "none" claim about a window that never contained it.
+    let recent: AuditLine[] | null = auditDevice === device.id ? audit : null;
+    if (recent === null) {
+      recent = await api.audit(8, device.id).catch(() => null);
+    }
+    if (recent === null) {
+      lines.push("  (the console could not read this machine's audit)");
+    } else {
+      const mine = recent.filter((line) => line.device_id === device.id).slice(0, 8);
+      if (mine.length === 0) lines.push(`  (none in the newest ${recent.length} lines)`);
+      for (const line of mine) {
+        lines.push(
+          `  ${new Date(line.ts_ms).toISOString()}  ${line.kind} ${line.tool ?? line.detail ?? ""} ${line.status}`.trimEnd()
+        );
+      }
     }
     const text = lines.join("\n");
     if (!(await copyText(text))) {
@@ -764,13 +833,17 @@ export function App() {
                   lines={shownActivity}
                   devices={devices}
                   capped={shownCapped}
+                  cappedMachine={shownWindowName}
+                  loading={auditReadingOther}
+                  loadingMachine={auditReadingName}
                   query={activityFilter.tool}
                   onQuery={(tool) => setActivityFilter((current) => ({ ...current, tool }))}
                   device={activityMachine}
                   onDevice={(deviceId) => {
                     setActivityFilter((current) => ({ ...current, device: deviceId }));
-                    // A chip for the header's machine is the scope the table already calls "This
-                    // machine"; any other machine is the table's explicit device filter.
+                    // A chip is the scope: the header's machine is what the table calls "This
+                    // machine"; another machine is the table's device filter, and either way the
+                    // read above takes its window from this same device.
                     setActivityScope(
                       deviceId !== "" && deviceId === selected ? "machine" : "all"
                     );
@@ -785,7 +858,10 @@ export function App() {
               ) : (
                 <AuditTable
                   lines={shownActivity}
-                  capped={audit.length >= AUDIT_WINDOW}
+                  capped={shownCapped}
+                  cappedMachine={shownWindowName}
+                  loading={auditReadingOther}
+                  loadingMachine={auditReadingName}
                   devices={devices}
                   tokens={tokens}
                   selectedDeviceId={selected}
