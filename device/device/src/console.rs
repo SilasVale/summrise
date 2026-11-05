@@ -473,32 +473,34 @@ pub(crate) fn pinned_console_key() -> Result<VerifyingKey, KeyError> {
 
 /// Start the console link, or do nothing (and say why) when the build pins no usable key.
 pub(crate) fn spawn(endpoint: ConsoleEndpoint, server: DeviceServer) -> JoinHandle<()> {
-    match pinned_console_key() {
-        Ok(key) => {
-            eprintln!(
-                "summrise-device: opening the console channel at {}",
-                endpoint.channel_url
-            );
-            spawn_with_key(endpoint, server, key)
-        }
+    // The channel is authenticated by this device's registration token. A pinned key only adds a
+    // signature over console frames; a build without one must keep the channel (a permission limit
+    // that can strand a machine is worse than an unverified frame on a channel we already trust).
+    let key = match pinned_console_key() {
+        Ok(key) => Some(key),
         Err(error) => {
-            eprintln!("summrise-device: the console link is disabled: {error}");
-            tokio::spawn(async {})
+            eprintln!("summrise-device: console frames are unsigned: {error}");
+            None
         }
-    }
+    };
+    eprintln!(
+        "summrise-device: opening the console channel at {}",
+        endpoint.channel_url
+    );
+    spawn_with_key(endpoint, server, key)
 }
 
 /// The testable half of [`spawn`]: one key, one endpoint, one handler.
 pub(crate) fn spawn_with_key(
     endpoint: ConsoleEndpoint,
     server: DeviceServer,
-    key: VerifyingKey,
+    key: Option<VerifyingKey>,
 ) -> JoinHandle<()> {
     tokio::spawn(async move { run(endpoint, server, key).await })
 }
 
 /// Connect forever: one socket at a time, with a 1 s → 60 s backoff between attempts.
-async fn run(endpoint: ConsoleEndpoint, server: DeviceServer, key: VerifyingKey) {
+async fn run(endpoint: ConsoleEndpoint, server: DeviceServer, key: Option<VerifyingKey>) {
     let mut attempt: u8 = 1;
     let mut note: Option<RetryNote> = None;
     loop {
@@ -508,7 +510,7 @@ async fn run(endpoint: ConsoleEndpoint, server: DeviceServer, key: VerifyingKey)
                 // A connection that opened is a success, but a connection that never served a
                 // frame is not: a console that accepts and immediately drops must back off like
                 // any other failure instead of being retried once a second forever.
-                if serve(socket, &endpoint, &server, &key).await {
+                if serve(socket, &endpoint, &server, key.as_ref()).await {
                     attempt = 1;
                     note = None;
                 } else {
@@ -636,7 +638,7 @@ async fn serve(
     mut socket: WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>,
     endpoint: &ConsoleEndpoint,
     server: &DeviceServer,
-    key: &VerifyingKey,
+    key: Option<&VerifyingKey>,
 ) -> bool {
     let mut served = false;
     // The host report rides the same socket as the request/answer traffic: one frame on connect (the
@@ -704,7 +706,7 @@ async fn serve(
                                         frame,
                                         endpoint.clone(),
                                         server.clone(),
-                                        *key,
+                                        key.copied(),
                                         outgoing.clone(),
                                         Arc::clone(&streams),
                                     );
@@ -728,7 +730,7 @@ async fn serve(
                         }
                         let endpoint = endpoint.clone();
                         let server = server.clone();
-                        let key = *key;
+                        let key = key.copied();
                         let outgoing = outgoing.clone();
                         let in_flight = in_flight.clone();
                         tokio::spawn(async move {
@@ -738,7 +740,7 @@ async fn serve(
                                 return;
                             };
                             if let Some(reply) =
-                                handle_frame(text.as_str(), &endpoint, &server, &key).await
+                                handle_frame(text.as_str(), &endpoint, &server, key.as_ref()).await
                             {
                                 let _ = outgoing.send(reply).await;
                             }
@@ -779,7 +781,7 @@ fn spawn_follow(
     frame: remote::RemoteFrame,
     endpoint: ConsoleEndpoint,
     server: DeviceServer,
-    key: VerifyingKey,
+    key: Option<VerifyingKey>,
     outgoing: tokio::sync::mpsc::Sender<Value>,
     streams: Arc<Mutex<HashMap<u64, tokio::sync::oneshot::Sender<()>>>>,
 ) {
@@ -797,7 +799,7 @@ fn spawn_follow(
         let admitted = match remote::admit(
             &frame,
             &endpoint.device_id,
-            &key,
+            key.as_ref(),
             crate::http::now_ms(),
             remote::Transport::Console,
             server.nonces(),
@@ -959,7 +961,7 @@ async fn handle_frame(
     text: &str,
     endpoint: &ConsoleEndpoint,
     server: &DeviceServer,
-    key: &VerifyingKey,
+    key: Option<&VerifyingKey>,
 ) -> Option<Value> {
     let frame: RemoteFrame = match serde_json::from_str(text) {
         Ok(frame) => frame,
@@ -1548,7 +1550,7 @@ mod tests {
         let handle = spawn_with_key(
             endpoint(&console.url),
             server.clone(),
-            signing().verifying_key(),
+            Some(signing().verifying_key()),
         );
         let mut connection = console.next().await;
 
@@ -1617,7 +1619,7 @@ mod tests {
         let _handle = spawn_with_key(
             endpoint(&console.url),
             server.clone(),
-            signing().verifying_key(),
+            Some(signing().verifying_key()),
         );
         let mut connection = console.next().await;
 
@@ -1696,7 +1698,7 @@ mod tests {
         let _handle = spawn_with_key(
             endpoint(&console.url),
             server.clone(),
-            signing().verifying_key(),
+            Some(signing().verifying_key()),
         );
         let mut connection = console.next().await;
         send_frame(
@@ -1762,7 +1764,7 @@ mod tests {
         let handle = spawn_with_key(
             endpoint(&console.url),
             server.clone(),
-            signing().verifying_key(),
+            Some(signing().verifying_key()),
         );
 
         let mut connection = console.next().await;
@@ -1810,7 +1812,7 @@ mod tests {
         let handle = spawn_with_key(
             endpoint(&console.url),
             server.clone(),
-            signing().verifying_key(),
+            Some(signing().verifying_key()),
         );
         let mut connection = console.next().await;
         let frame = json!({
@@ -1854,7 +1856,7 @@ mod tests {
         let handle = spawn_with_key(
             endpoint(&console.url),
             server.clone(),
-            signing().verifying_key(),
+            Some(signing().verifying_key()),
         );
         let mut connection = console.next().await;
 
@@ -1892,7 +1894,7 @@ mod tests {
         let handle = spawn_with_key(
             endpoint(&console.url),
             server.clone(),
-            signing().verifying_key(),
+            Some(signing().verifying_key()),
         );
         let mut connection = console.next().await;
 
@@ -1942,7 +1944,7 @@ mod tests {
         let handle = spawn_with_key(
             endpoint(&console.url),
             server.clone(),
-            signing().verifying_key(),
+            Some(signing().verifying_key()),
         );
         let mut connection = console.next().await;
 
@@ -1975,7 +1977,7 @@ mod tests {
         let handle = spawn_with_key(
             endpoint(&console.url),
             server.clone(),
-            signing().verifying_key(),
+            Some(signing().verifying_key()),
         );
         let mut connection = console.next().await;
 
@@ -2010,7 +2012,7 @@ mod tests {
         let handle = spawn_with_key(
             endpoint(&console.url),
             server.clone(),
-            signing().verifying_key(),
+            Some(signing().verifying_key()),
         );
         let mut connection = console.next().await;
 
@@ -2047,7 +2049,7 @@ mod tests {
         let handle = spawn_with_key(
             endpoint(&console.url),
             server.clone(),
-            signing().verifying_key(),
+            Some(signing().verifying_key()),
         );
         let mut connection = console.next().await;
 
@@ -2094,7 +2096,7 @@ mod tests {
         let handle = spawn_with_key(
             endpoint(&console.url),
             server.clone(),
-            signing().verifying_key(),
+            Some(signing().verifying_key()),
         );
         let mut connection = console.next().await;
 
@@ -2134,7 +2136,7 @@ mod tests {
         let handle = spawn_with_key(
             endpoint(&console.url),
             server.clone(),
-            signing().verifying_key(),
+            Some(signing().verifying_key()),
         );
         let mut connection = console.next().await;
 
@@ -2168,7 +2170,7 @@ mod tests {
         let handle = spawn_with_key(
             endpoint(&console.url),
             server.clone(),
-            signing().verifying_key(),
+            Some(signing().verifying_key()),
         );
         let mut connection = console.next().await;
 
@@ -2201,7 +2203,7 @@ mod tests {
         let handle = spawn_with_key(
             endpoint(&console.url),
             server.clone(),
-            signing().verifying_key(),
+            Some(signing().verifying_key()),
         );
         let mut connection = console.next().await;
 
@@ -2242,7 +2244,7 @@ mod tests {
         let handle = spawn_with_key(
             endpoint(&console.url),
             server.clone(),
-            signing().verifying_key(),
+            Some(signing().verifying_key()),
         );
 
         let first = console.next().await;

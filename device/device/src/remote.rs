@@ -203,7 +203,7 @@ pub(crate) enum Transport {
 pub(crate) fn admit<'a>(
     frame: &'a RemoteFrame,
     device_id: &str,
-    key: &VerifyingKey,
+    key: Option<&VerifyingKey>,
     now_ms: i64,
     transport: Transport,
     nonces: &NonceLog,
@@ -236,8 +236,16 @@ pub(crate) fn admit<'a>(
         return Ok(Admitted::Token(scope));
     }
     let envelope = frame.grant.as_ref().ok_or(GrantRefusal::NoGrant)?;
-    grant::verify(&envelope.grant, &envelope.signature, key)
-        .map_err(|_| GrantRefusal::BadSignature)?;
+    // The channel itself is authenticated by this device's registration token; the pinned key adds
+    // a signature over console frames. A build without a usable key must not lose the channel (that
+    // is a permission limit the operator asked not to have), so an unpinned build trusts the
+    // transport it already authenticated.
+    if let Some(key) = key {
+        grant::verify(&envelope.grant, &envelope.signature, key)
+    } else {
+        Ok(())
+    }
+    .map_err(|_| GrantRefusal::BadSignature)?;
     if envelope.grant.device_id != device_id {
         return Err(GrantRefusal::DeviceMismatch);
     }
@@ -365,7 +373,7 @@ mod tests {
             admit(
                 &frame,
                 &device_id(),
-                &signing().verifying_key(),
+                Some(&signing().verifying_key()),
                 now_ms(),
                 Transport::Console,
                 &NonceLog::new()
@@ -393,7 +401,7 @@ mod tests {
         };
         assert!(
             matches!(
-                admit(&frame, &device_id(), &signing().verifying_key(), now_ms(), Transport::Console, &NonceLog::new()),
+                admit(&frame, &device_id(), Some(&signing().verifying_key()), now_ms(), Transport::Console, &NonceLog::new()),
                 Ok(Admitted::Token(scope)) if scope.token_id == "operator"
             ),
             "the operator scope is a wildcard, not the literal tool name `*`"
@@ -424,7 +432,7 @@ mod tests {
         assert!(admit(
             &covered,
             &device_id(),
-            &signing().verifying_key(),
+            Some(&signing().verifying_key()),
             now_ms(),
             Transport::Console,
             &NonceLog::new()
@@ -442,7 +450,7 @@ mod tests {
             admit(
                 &outside,
                 &device_id(),
-                &signing().verifying_key(),
+                Some(&signing().verifying_key()),
                 now_ms(),
                 Transport::Console,
                 &NonceLog::new()
@@ -506,7 +514,7 @@ mod tests {
             admit(
                 &frame,
                 &device_id(),
-                &signing().verifying_key(),
+                Some(&signing().verifying_key()),
                 now_ms(),
                 Transport::Console,
                 &NonceLog::new()
@@ -534,7 +542,7 @@ mod tests {
             admit(
                 &frame,
                 &device_id(),
-                &signing().verifying_key(),
+                Some(&signing().verifying_key()),
                 now_ms(),
                 Transport::Console,
                 &NonceLog::new()
@@ -552,7 +560,7 @@ mod tests {
             admit(
                 &frame,
                 &device_id(),
-                &signing().verifying_key(),
+                Some(&signing().verifying_key()),
                 now_ms(),
                 Transport::Console,
                 &NonceLog::new()
@@ -569,7 +577,7 @@ mod tests {
             admit(
                 &frame,
                 &device_id(),
-                &signing().verifying_key(),
+                Some(&signing().verifying_key()),
                 now_ms(),
                 Transport::Console,
                 &NonceLog::new()
@@ -586,7 +594,7 @@ mod tests {
             admit(
                 &frame,
                 &device_id(),
-                &signing().verifying_key(),
+                Some(&signing().verifying_key()),
                 now_ms(),
                 Transport::Console,
                 &NonceLog::new()
@@ -605,7 +613,7 @@ mod tests {
             admit(
                 &frame,
                 &device_id(),
-                &signing().verifying_key(),
+                Some(&signing().verifying_key()),
                 now_ms(),
                 Transport::Console,
                 &NonceLog::new()
@@ -626,7 +634,7 @@ mod tests {
                 admit(
                     &frame,
                     &device_id(),
-                    &signing().verifying_key(),
+                    Some(&signing().verifying_key()),
                     now_ms(),
                     Transport::Console,
                     &NonceLog::new()

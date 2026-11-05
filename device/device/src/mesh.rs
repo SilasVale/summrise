@@ -330,7 +330,7 @@ async fn answer(
     let admitted = match remote::admit(
         &frame,
         device_id,
-        key,
+        Some(key),
         crate::http::now_ms(),
         remote::Transport::Mesh,
         server.nonces(),
