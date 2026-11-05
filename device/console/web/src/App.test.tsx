@@ -326,16 +326,18 @@ describe("App", () => {
     expect(mocks.audit).toHaveBeenCalledWith(1000);
   });
 
-  it("states the day's count in the Activity header, by the rule the hub uses", async () => {
-    // Five rows: two client-proven (one by its caller, one only by its token), one console read, and
-    // two with neither proof (one of them failed). The header must count the client's two, the
-    // failure, and the two unattributed rows — and must not fold the console read into either bucket.
+  it("states the day's count in the Activity header, and says whose failures it counted", async () => {
+    // Six rows: two client-proven (one by its caller, one only by its token), one console read and
+    // one unattributed row, each with a failure beside it. The header leads with the AI's failure;
+    // the console's is named apart, because "failed" beside "client calls" must be the client's —
+    // the measured header counted all 55 and read as a failure rate for the AI that was 18 rows
+    // wrong.
     const midnight = new Date();
     midnight.setHours(0, 0, 0, 0);
     const at = (seconds: number) => midnight.getTime() + seconds * 1_000;
     mocks.audit.mockResolvedValue([
       {
-        ts_ms: at(50),
+        ts_ms: at(60),
         kind: "mcp",
         device_id: workshop.id,
         token_id: null,
@@ -346,17 +348,17 @@ describe("App", () => {
         sentence: "Read a file"
       },
       {
-        ts_ms: at(40),
+        ts_ms: at(50),
         kind: "mcp",
         device_id: workshop.id,
         token_id: tokenId,
         tool: "runs.exec",
-        detail: null,
-        status: 200,
+        detail: "run r-1 exited 1 in 42 ms",
+        status: 424,
         sentence: "Ran a command"
       },
       {
-        ts_ms: at(30),
+        ts_ms: at(40),
         kind: "mcp",
         device_id: workshop.id,
         token_id: null,
@@ -367,32 +369,55 @@ describe("App", () => {
         sentence: "Listed the terminal sessions"
       },
       {
+        ts_ms: at(30),
+        kind: "mcp",
+        device_id: workshop.id,
+        token_id: null,
+        tool: "terminal.read",
+        detail: "terminal disconnected",
+        status: 424,
+        caller: "console",
+        sentence: "Read the terminal"
+      },
+      {
         ts_ms: at(20),
         kind: "mcp",
         device_id: workshop.id,
         token_id: null,
         tool: "files.write",
-        detail: "jsonrpc error -32002",
+        detail: null,
         status: 200,
         sentence: "Wrote a file"
       },
       {
         ts_ms: at(10),
-        kind: "grant",
+        kind: "mcp",
         device_id: workshop.id,
         token_id: null,
-        tool: null,
-        detail: "allow_destructive=false",
+        tool: "files.move",
+        detail: "jsonrpc error -32002",
         status: 200,
-        sentence: "Issued a grant"
+        sentence: "Moved a file"
       }
     ]);
     await bootAndSignIn();
     fireEvent.click(screen.getByRole("button", { name: "Activity" }));
 
     expect(
-      await screen.findByText("Today 2 client calls · 1 failed · 2 unattributed")
+      await screen.findByText(
+        "Today 2 client calls · 1 failed · 1 console failure · 2 unattributed (1 failed)"
+      )
     ).toBeInTheDocument();
+
+    // The chip draws the client subset; the header then reads the same subset the rows show — the
+    // hub's sentence, with no console failure and no unknown caller in it.
+    fireEvent.click(screen.getByRole("button", { name: "Clients only · 2" }));
+    expect(await screen.findByText("Today 2 client calls · 1 failed")).toBeInTheDocument();
+    await waitFor(() => expect(document.querySelectorAll(".timeline-row")).toHaveLength(2));
+    expect(screen.getByText("Read a file")).toBeInTheDocument();
+    expect(screen.getByText("Ran a command")).toBeInTheDocument();
+    expect(screen.queryByText("Listed the terminal sessions")).toBeNull();
+    expect(screen.queryByText("Moved a file")).toBeNull();
   });
 
   it("follows the fragment when the address bar changes, not only at first render", async () => {

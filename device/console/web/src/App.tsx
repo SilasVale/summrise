@@ -113,6 +113,9 @@ export function App() {
   // list at that moment, and the lines that arrived since are counted rather than lost.
   const [activityPaused, setActivityPaused] = useState(false);
   const [activityView, setActivityView] = useState<"stream" | "table">("stream");
+  // The "Clients only" chip belongs to the page, not only to the timeline: the header must state
+  // the same subset the rows show, and the choice survives a switch to the table and back.
+  const [activityClientsOnly, setActivityClientsOnly] = useState(false);
   // The filters live above both views: the timeline's search is the table's tool field and its
   // machine chip is the table's device filter, so switching views cannot drop either of them.
   const [activityFilter, setActivityFilter] = useState<AuditFilter>({
@@ -252,10 +255,16 @@ export function App() {
   // **THE HEADER COUNTS THE WINDOW IT IS SHOWING.** One pass over the rows in hand, so the sentence
   // and the list cannot disagree; a paused page counts the list it froze. A window being replaced is
   // not described: its rows are replaced by the loading line, and the new window's sentence arrives
-  // with them. "Today" is the same local midnight the timeline's day label cuts at.
+  // with them. "Today" is the same local midnight the timeline's day label cuts at. The chip's
+  // subset gets the hub's sentence: the client calls and the client failures, with nothing the chip
+  // has hidden from the list.
   const activityCount =
     shownActivity.length > 0 && !auditReadingOther
-      ? activityCountLine(shownActivity, activityPaused && pausedAt !== null ? pausedAt : Date.now())
+      ? activityCountLine(
+          shownActivity,
+          activityPaused && pausedAt !== null ? pausedAt : Date.now(),
+          activityView === "stream" && activityClientsOnly
+        )
       : null;
 
   /**
@@ -872,6 +881,8 @@ export function App() {
                   loadingMachine={auditReadingName}
                   query={activityFilter.tool}
                   onQuery={(tool) => setActivityFilter((current) => ({ ...current, tool }))}
+                  clientsOnly={activityClientsOnly}
+                  onClientsOnly={setActivityClientsOnly}
                   device={activityMachine}
                   onDevice={(deviceId) => {
                     setActivityFilter((current) => ({ ...current, device: deviceId }));

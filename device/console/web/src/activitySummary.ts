@@ -34,18 +34,23 @@ export function isClientCall(
 }
 
 /**
- * The three buckets the Activity header counts, and the failures across all of them.
+ * The three buckets the Activity header counts, and the failures inside each one.
  *
  * `console` is a bucket of its own rather than part of `unattributed`: the console's own polling is
  * a known caller, and folding its 30 rows into "nobody can say who" would overstate the unknown.
- * `failed` is deliberately not per bucket: the live window's 12 failed rows were all unattributed,
- * so a client-only failure count would have read zero.
+ *
+ * The failures are counted per bucket and never summed into one silent number: the measured header
+ * read "301 client calls · 55 failed", and 18 of those 55 were not the AI's (15 console, 2
+ * unattributed), so "failed" beside "client calls" was 1.5× the client failure rate. `clientFailed`
+ * is the one the sentence leads with; the other two are named for what they are.
  */
 export type ActivityCounts = {
   client: number;
+  clientFailed: number;
   console: number;
-  failed: number;
+  consoleFailed: number;
   unattributed: number;
+  unattributedFailed: number;
 };
 
 /** Midnight in the console's own timezone: the header counts today, not the window's whole span. */
@@ -55,18 +60,32 @@ function startOfToday(now: number): number {
   return date.getTime();
 }
 
-/** Today's rows, split by who can be proven to have made them, with the failures counted beside. */
+/** Today's rows, split by who can be proven to have made them, with each bucket's failures. */
 export function activityCounts(lines: readonly AuditLine[], now = Date.now()): ActivityCounts {
   const start = startOfToday(now);
-  const counts: ActivityCounts = { client: 0, console: 0, failed: 0, unattributed: 0 };
+  const counts: ActivityCounts = {
+    client: 0,
+    clientFailed: 0,
+    console: 0,
+    consoleFailed: 0,
+    unattributed: 0,
+    unattributedFailed: 0
+  };
   for (const line of lines) {
     if (line.ts_ms < start) continue;
     // A channel boundary is a console fact, not a call: it belongs to none of the three buckets.
     if (isChannelBoundary(line)) continue;
-    if (isClientCall(line)) counts.client += 1;
-    else if (line.caller === "console") counts.console += 1;
-    else counts.unattributed += 1;
-    if (auditFailed(line)) counts.failed += 1;
+    const failed = auditFailed(line);
+    if (isClientCall(line)) {
+      counts.client += 1;
+      if (failed) counts.clientFailed += 1;
+    } else if (line.caller === "console") {
+      counts.console += 1;
+      if (failed) counts.consoleFailed += 1;
+    } else {
+      counts.unattributed += 1;
+      if (failed) counts.unattributedFailed += 1;
+    }
   }
   return counts;
 }
@@ -74,16 +93,37 @@ export function activityCounts(lines: readonly AuditLine[], now = Date.now()): A
 /**
  * The header's one sentence.
  *
- * It states the AI's calls, the failures and the rows nobody can attribute. The console's own
- * reads are counted apart (in [`activityCounts`]) and stay out of both the client and the
- * unattributed number; they are not one of the three facts this line is for.
+ * It leads with the AI's calls and the AI's failures, so the number beside "client calls" is the
+ * hub's number and not every caller's. The console's own failures follow as their own clause,
+ * because they used to be folded into that first number (15 of the measured 55). The unattributed
+ * bucket is a count of rows, and the failures among them are stated in a parenthetical only when
+ * there are any — otherwise the line would suggest the unknown rows were all successful.
+ *
+ * With `clientOnly` (the "Clients only" chip) the sentence is the hub's own shape: the client call
+ * count and the client failure count, and nothing the chip has hidden from the list.
  */
-export function activityCountSentence(counts: ActivityCounts): string {
+export function activityCountSentence(counts: ActivityCounts, clientOnly = false): string {
   const calls = counts.client === 1 ? "client call" : "client calls";
-  return `Today ${counts.client} ${calls} · ${counts.failed} failed · ${counts.unattributed} unattributed`;
+  const ai = `Today ${counts.client} ${calls} · ${counts.clientFailed} failed`;
+  if (clientOnly) return ai;
+  const consoleClause =
+    counts.consoleFailed === 0
+      ? ""
+      : ` · ${counts.consoleFailed} console ${
+          counts.consoleFailed === 1 ? "failure" : "failures"
+        }`;
+  const unknownClause =
+    counts.unattributedFailed === 0
+      ? `${counts.unattributed} unattributed`
+      : `${counts.unattributed} unattributed (${counts.unattributedFailed} failed)`;
+  return `${ai}${consoleClause} · ${unknownClause}`;
 }
 
-/** The sentence from a window and the moment it is read. */
-export function activityCountLine(lines: readonly AuditLine[], now = Date.now()): string {
-  return activityCountSentence(activityCounts(lines, now));
+/** The sentence from a window and the moment it is read; `clientOnly` mirrors the chip. */
+export function activityCountLine(
+  lines: readonly AuditLine[],
+  now = Date.now(),
+  clientOnly = false
+): string {
+  return activityCountSentence(activityCounts(lines, now), clientOnly);
 }

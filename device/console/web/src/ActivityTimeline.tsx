@@ -502,6 +502,12 @@ export function ActivityTimeline(props: {
   device?: string;
   onDevice?: (value: string) => void;
   /**
+   * The "Clients only" chip, shared with the page so its header can state the same subset the rows
+   * show. Uncontrolled when the timeline is rendered on its own.
+   */
+  clientsOnly?: boolean;
+  onClientsOnly?: (next: boolean) => void;
+  /**
    * The machine chips and the search. The hub's timeline is already one machine's day, so it turns
    * them off rather than offering an All machines chip over one machine's lines.
    */
@@ -547,7 +553,11 @@ export function ActivityTimeline(props: {
   // rule as the header's day count. It is a view control, not a scope: the window stays the one the
   // machine chips read, and the count on the chip is how many rows it will draw from that window.
   const [ownClientsOnly, setOwnClientsOnly] = useState(false);
-  const clientsOnly = filterable && ownClientsOnly;
+  const clientsOnly = filterable && (props.clientsOnly ?? ownClientsOnly);
+  const setClientsOnly = (next: boolean) => {
+    if (props.onClientsOnly) props.onClientsOnly(next);
+    else setOwnClientsOnly(next);
+  };
   // **THE ROWS ARE CALLS, NOT CHANNEL FACTS.** `device.left` / `device.joined` are in the audit so a
   // fleet row can measure an absence, but a person watching the machine's work must not read them
   // as work. They are dropped before the chips, the counts and the days are derived.
@@ -621,7 +631,7 @@ export function ActivityTimeline(props: {
               className="chip"
               aria-pressed={clientsOnly}
               title="Only calls a client made: the caller says so, or the row carries a token"
-              onClick={() => setOwnClientsOnly((current) => !current)}
+              onClick={() => setClientsOnly(!clientsOnly)}
             >
               Clients only · {clientCalls}
             </button>
@@ -672,7 +682,7 @@ export function ActivityTimeline(props: {
             </p>
             <div className="timeline-empty-actions">
               {clientsOnly && (
-                <button type="button" onClick={() => setOwnClientsOnly(false)}>
+                <button type="button" onClick={() => setClientsOnly(false)}>
                   Show every caller
                 </button>
               )}

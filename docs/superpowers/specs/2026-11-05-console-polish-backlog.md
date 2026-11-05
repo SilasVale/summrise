@@ -450,6 +450,14 @@ draws no update line — correctly: it said nothing.
    client calls · 38 failed” on 14RJCR8), so the word means two things on two pages. **Fix:** count
    the failures per bucket on the hub's rule and put the client's first — “Today 301 client calls ·
    37 failed · 21 unattributed · 15 console reads failed”. **S.**
+   *(Done 2026-11-05: the sentence leads with the client's calls and the client's failures, names the
+   console's failures as their own clause and states the failures among the unattributed rows in a
+   parenthetical — “Today 301 client calls · 37 failed · 15 console failures · 21 unattributed (2
+   failed)”. With `Clients only` on, the header is the hub's shape — “Today 301 client calls · 37
+   failed” — and the chip's two caller counts are the two rows the list draws. Measured on the
+   fixture: `Today 2 client calls · 1 failed · 1 console failure · 2 unattributed (1 failed)`, then
+   `Today 2 client calls · 1 failed` with only the two client rows drawn; `npx vitest run` 602 passed
+   across 51 files; typecheck clean; build clean; `./scripts/build-web.sh --check` clean.)*
 
 3. **The machine that is down has no age, and the only absence it dates says it came back.**
    DESKTOP-14RJCR8's newest `device.left` is **08:18:06** (1 h 49 m at 10:07); `/fleet` serves
