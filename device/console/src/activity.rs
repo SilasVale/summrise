@@ -58,6 +58,15 @@ fn bytes(count: u64) -> String {
     }
 }
 
+/// Tool names the registry no longer declares but a device on an older release can still report.
+///
+/// A name listed here is an alias, not a current tool: its sentence in [`describe`] is kept only
+/// because a shipped device can still send it, and the comment beside the name says which release
+/// last declared it. The list is empty: every template that named a tool outside the registry
+/// (`files.delete`, `system.restart`, …) named a tool no release ever declared, so none was kept.
+#[cfg(test)]
+const ALIASES: &[&str] = &[];
+
 /// A human sentence for one live call.
 pub(crate) fn describe(tool: &str, arguments: &Value) -> String {
     match tool {
@@ -80,16 +89,6 @@ pub(crate) fn describe(tool: &str, arguments: &Value) -> String {
             Some(path) => format!("Created the folder `{path}`"),
             None => "Created a folder".to_owned(),
         },
-        "files.delete" => match quoted("path", arguments) {
-            Some(path) => format!("Deleted `{path}`"),
-            None => "Deleted a file".to_owned(),
-        },
-        "files.move" | "files.rename" => match (quoted("from", arguments), quoted("to", arguments))
-        {
-            (Some(from), Some(to)) => format!("Moved `{from}` to `{to}`"),
-            _ => "Moved a file".to_owned(),
-        },
-        "files.shared.list" => "Listed the shared folder".to_owned(),
         "terminal.create" => match quoted("shell", arguments) {
             Some(shell) => format!("Opened a terminal with `{shell}`"),
             None => "Opened a terminal session".to_owned(),
@@ -105,6 +104,10 @@ pub(crate) fn describe(tool: &str, arguments: &Value) -> String {
         "terminal.resize" => "Resized a terminal".to_owned(),
         "terminal.close" => "Closed a terminal session".to_owned(),
         "terminal.list" => "Listed the terminal sessions".to_owned(),
+        "terminal.screen" => match number("lines", arguments) {
+            Some(lines) if lines > 0 => format!("Read the last {lines} lines of a terminal"),
+            _ => "Read the end of a terminal's output".to_owned(),
+        },
         "runs.exec" => match quoted("command", arguments) {
             Some(command) => match arguments.get("args").and_then(Value::as_array) {
                 Some(args) if !args.is_empty() => {
@@ -117,9 +120,9 @@ pub(crate) fn describe(tool: &str, arguments: &Value) -> String {
             None => "Ran a command".to_owned(),
         },
         "runs.list" => "Read the run history".to_owned(),
+        "runs.get" => "Read one run's record".to_owned(),
         "state.get" => "Read the machine's state".to_owned(),
         "screen.capture" => "Took a screenshot of the screen".to_owned(),
-        "screen.capture_display" => "Took a screenshot of one display".to_owned(),
         "system.process_list" => "Listed the machine's processes".to_owned(),
         "system.process_kill" => {
             match quoted("name", arguments).or_else(|| quoted("pid", arguments)) {
@@ -127,11 +130,11 @@ pub(crate) fn describe(tool: &str, arguments: &Value) -> String {
                 None => "Stopped a process".to_owned(),
             }
         }
-        "system.restart" => "Restarted the machine".to_owned(),
         "system.net_test" => match quoted("host", arguments) {
             Some(host) => format!("Tested the connection to `{host}`"),
             None => "Tested a connection".to_owned(),
         },
+        "browser.list" => "Listed the browser's pages".to_owned(),
         "browser.open" => match quoted("url", arguments) {
             Some(url) => format!("Opened `{url}` in the browser"),
             None => "Opened a browser page".to_owned(),
@@ -140,24 +143,54 @@ pub(crate) fn describe(tool: &str, arguments: &Value) -> String {
             Some(url) => format!("Went to `{url}`"),
             None => "Navigated the browser".to_owned(),
         },
-        "browser.capture" => "Read the browser's page".to_owned(),
         "browser.eval" => "Ran a script in the browser".to_owned(),
+        "browser.screenshot" => "Took a screenshot of a browser page".to_owned(),
+        "browser.cast" => "Took a frame of a live browser page".to_owned(),
         "browser.close" => "Closed a browser page".to_owned(),
         "browser.shutdown" => "Stopped the browser".to_owned(),
         "monitor.add" => "Added a watch".to_owned(),
-        "monitor.probe" => "Probed a watched target".to_owned(),
         "monitor.remove" => "Removed a watch".to_owned(),
+        "monitor.list" => "Listed the watched targets".to_owned(),
+        "monitor.probe" => "Probed a watched target".to_owned(),
+        "monitor.status" => "Read a watch's status".to_owned(),
+        "memory.append" => "Wrote a memory entry".to_owned(),
+        "memory.update" => match quoted("id", arguments) {
+            Some(id) => format!("Rewrote memory entry `{id}`"),
+            None => "Rewrote a memory entry".to_owned(),
+        },
+        "memory.delete" => match quoted("id", arguments) {
+            Some(id) => format!("Deleted memory entry `{id}`"),
+            None => "Deleted a memory entry".to_owned(),
+        },
         "memory.search" => match quoted("query", arguments) {
             Some(query) => format!("Searched its memory for `{query}`"),
             None => "Searched its memory".to_owned(),
         },
-        "memory.append" => "Wrote a memory entry".to_owned(),
         "memory.list" => "Read its memory".to_owned(),
+        "memory.export" => "Exported its memory".to_owned(),
         "plugins.list" => "Listed the plugins".to_owned(),
+        "plugins.inspect" => match quoted("path", arguments) {
+            Some(path) => format!("Checked the plugin folder `{path}`"),
+            None => "Checked a plugin folder".to_owned(),
+        },
+        "plugins.add" => match quoted("path", arguments) {
+            Some(path) => format!("Installed the plugin `{path}`"),
+            None => "Installed a plugin".to_owned(),
+        },
+        "plugins.remove" => match quoted("namespace", arguments) {
+            Some(namespace) => format!("Removed the plugin `{namespace}`"),
+            None => "Removed a plugin".to_owned(),
+        },
+        "plugins.restart" => match quoted("namespace", arguments) {
+            Some(namespace) => format!("Restarted the plugin `{namespace}`"),
+            None => "Restarted a plugin".to_owned(),
+        },
+        "plugins.logs" => match quoted("namespace", arguments) {
+            Some(namespace) => format!("Read the log of plugin `{namespace}`"),
+            None => "Read a plugin's log".to_owned(),
+        },
         "host.facts" => "Read the machine's facts".to_owned(),
-        "host.report" => "Reported the machine's facts".to_owned(),
-        "mesh.status" => "Read the mesh status".to_owned(),
-        "tools/list" => "Listed the machine's tools".to_owned(),
+        "host.restart" => "Restarted the device's app".to_owned(),
         _ => format!("Used `{tool}`"),
     }
 }
@@ -193,7 +226,7 @@ pub(crate) fn detail(tool: &str, arguments: &Value) -> Option<Value> {
                 out.insert("timeout_ms".to_owned(), json!(timeout));
             }
         }
-        "files.read" | "files.write" | "files.list" | "files.mkdir" | "files.delete" => {
+        "files.read" | "files.write" | "files.list" | "files.mkdir" => {
             if let Some(path) = text("path") {
                 out.insert("path".to_owned(), json!(path));
             }
@@ -217,11 +250,6 @@ pub(crate) fn detail(tool: &str, arguments: &Value) -> Option<Value> {
         "terminal.read" | "terminal.resize" | "terminal.close" => {
             if let Some(id) = text("id") {
                 out.insert("session".to_owned(), json!(id));
-            }
-        }
-        "screen.capture" | "screen.capture_display" => {
-            if let Some(display) = arguments.get("display").and_then(Value::as_u64) {
-                out.insert("display".to_owned(), json!(display));
             }
         }
         "browser.open" | "browser.navigate" => {
@@ -366,6 +394,86 @@ mod tests {
             line_sentence(&json!({ "kind": "grant", "status": 200 })),
             "Issued a grant"
         );
+    }
+
+    /// The tool names `describe` has a sentence for, read from this module's own source.
+    ///
+    /// The registry walk proves every declared tool gets a sentence (the fallback would show). This
+    /// helper tests the other direction, which a `match` cannot enumerate at run time: the block
+    /// between `describe` and `detail` holds only the template table, so a lowercase literal with a
+    /// dot or a slash there is a tool name.
+    fn sentence_names() -> Vec<&'static str> {
+        const SOURCE: &str = include_str!("activity.rs");
+        let start = SOURCE
+            .find("pub(crate) fn describe")
+            .expect("describe is in this file");
+        let rest = &SOURCE[start..];
+        let end = rest
+            .find("pub(crate) fn detail")
+            .expect("detail follows describe");
+        let table = &rest[..end];
+
+        let mut names = Vec::new();
+        let mut rest = table;
+        while let Some(open) = rest.find('"') {
+            let after = &rest[open + 1..];
+            let Some(close) = after.find('"') else { break };
+            let literal = &after[..close];
+            let namespaced = (literal.contains('.') || literal.contains('/'))
+                && literal.chars().all(|character| {
+                    character.is_ascii_lowercase()
+                        || character.is_ascii_digit()
+                        || character == '_'
+                        || character == '.'
+                        || character == '/'
+                });
+            if namespaced {
+                names.push(literal);
+            }
+            rest = &after[close + 1..];
+        }
+        names.sort_unstable();
+        names.dedup();
+        names
+    }
+
+    #[test]
+    fn every_registry_tool_has_a_sentence() {
+        let missing: Vec<&str> = summrise_core::registry::CAPABILITIES
+            .iter()
+            .flat_map(|capability| capability.tools)
+            .filter(|tool| describe(tool.name, &Value::Null) == format!("Used `{}`", tool.name))
+            .map(|tool| tool.name)
+            .collect();
+        assert!(
+            missing.is_empty(),
+            "these tools are declared by the registry but describe has no sentence for them: {missing:?}"
+        );
+    }
+
+    #[test]
+    fn every_sentence_names_a_declared_tool_or_a_marked_alias() {
+        let sentences = sentence_names();
+        let extra: Vec<&str> = sentences
+            .iter()
+            .copied()
+            .filter(|name| summrise_core::registry::tool(name).is_none())
+            .filter(|name| !ALIASES.contains(name))
+            .collect();
+        assert!(
+            extra.is_empty(),
+            "describe has sentences for tools the registry does not declare; delete them or add them to ALIASES with the release that last declared them: {extra:?}"
+        );
+        for alias in ALIASES {
+            assert!(
+                summrise_core::registry::tool(alias).is_none(),
+                "`{alias}` is an alias but the registry still declares it"
+            );
+            assert!(
+                sentences.contains(alias),
+                "`{alias}` is an alias but describe has no sentence for it"
+            );
+        }
     }
 }
 
