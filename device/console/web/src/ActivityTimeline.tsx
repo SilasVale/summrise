@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import type { AuditLine, Device } from "./api";
 import { ACTIVITY_LIMIT, capSentence, windowLoadingSentence } from "./activityMerge";
 import { auditFailed } from "./auditFilter";
@@ -280,6 +280,36 @@ function Evidence(props: { line: AuditLine; onWatch?: (deviceId: string) => void
 }
 
 /** One closed line, or one opened line with its evidence. */
+/** What the stretch ending at `index - 1` held: how many calls, over how long. */
+function stretchBefore(
+  lines: readonly { device_id?: string | null; ts_ms: number }[],
+  index: number
+): {
+  count: number;
+  spanMs: number;
+} {
+  let first = index - 1;
+  while (first > 0) {
+    const before = lines[first - 1];
+    const at = lines[first];
+    if (before.device_id !== at.device_id || Math.abs(before.ts_ms - at.ts_ms) > 60_000) break;
+    first -= 1;
+  }
+  return { count: index - first, spanMs: Math.abs(lines[index - 1].ts_ms - lines[first].ts_ms) };
+}
+
+/** A duration a person reads: 45 s, 2 m 10 s, 1 h 5 m. */
+function spanText(spanMs: number): string {
+  const total = Math.round(spanMs / 1000);
+  if (total < 60) return `${total} s`;
+  const minutes = Math.floor(total / 60);
+  const seconds = total % 60;
+  if (minutes < 60) return seconds === 0 ? `${minutes} m` : `${minutes} m ${seconds} s`;
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  return rest === 0 ? `${hours} h` : `${hours} h ${rest} m`;
+}
+
 function Row(props: {
   line: AuditLine;
   devices: Device[];
@@ -556,7 +586,19 @@ export function ActivityTimeline(props: {
                     previous !== undefined &&
                     (previous.device_id !== line.device_id ||
                       Math.abs(previous.ts_ms - line.ts_ms) > 60_000);
+                  // Where one stretch ends, say what it held. The boundary is derived from the same
+                  // rule that draws the hairline: nothing is collapsed and no row is hidden.
+                  const ended = newStretch ? stretchBefore(day.lines, index) : null;
                   return (
+                    <Fragment key={`stretch-${key}`}>
+                      {ended && (
+                        <li className="timeline-stretch" aria-label="one stretch of work ends">
+                          <span className="timeline-stretch-text">
+                            {ended.count} {ended.count === 1 ? "call" : "calls"}
+                            {ended.spanMs > 0 ? ` · ${spanText(ended.spanMs)}` : ""}
+                          </span>
+                        </li>
+                      )}
                     <Row
                       key={key}
                       line={line}
@@ -567,6 +609,7 @@ export function ActivityTimeline(props: {
                       onToggle={() => setOpenKey((current) => (current === key ? null : key))}
                       onWatch={props.onWatch}
                     />
+                    </Fragment>
                   );
                 })}
               </ol>

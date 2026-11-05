@@ -2653,3 +2653,13 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
   .evidence-side { border-left: 0; border-top: 1px solid var(--hairline); }
 }
 @media (prefers-reduced-motion: reduce) { .timeline-chev { transition: none; } }
+
+/* WHERE ONE STRETCH ENDS. The boundary is derived (a minute of quiet or a different machine); the
+   label says what the stretch held, so a day is not one undifferentiated column. */
+.timeline-stretch { display: flex; align-items: center; gap: var(--sp-2); margin: var(--sp-1) 0; }
+.timeline-stretch::before, .timeline-stretch::after {
+  content: ""; height: 1px; background: var(--hairline); flex: 1;
+}
+.timeline-stretch-text {
+  color: var(--ink-faint); font-size: var(--fs-2xs); letter-spacing: 0.02em; white-space: nowrap;
+}

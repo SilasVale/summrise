@@ -55,6 +55,24 @@ function openRow() {
   fireEvent.click(screen.getByRole("button", { expanded: false }));
 }
 
+describe("ActivityTimeline stretches", () => {
+  it("says what the stretch that just ended held", () => {
+    // Three calls inside a minute, then a gap of 61 s, then one more: the boundary is derived from the
+    // same rule that draws the hairline, and the label reports the rows above it, nothing invented.
+    // Newest first, as the page hands them over: one stretch of three calls a minute wide, then a
+    // 61 s gap, then a lone call.
+    const start = Date.UTC(2026, 10, 5, 9, 0, 0);
+    const lines = [
+      line({ ts_ms: start + 60_000, device_id: alpha, sentence: "Third", tool: "files.read" }),
+      line({ ts_ms: start + 30_000, device_id: alpha, sentence: "Second", tool: "files.read" }),
+      line({ ts_ms: start, device_id: alpha, sentence: "First", tool: "files.read" }),
+      line({ ts_ms: start - 61_000, device_id: alpha, sentence: "Older", tool: "files.read" })
+    ];
+    render(<ActivityTimeline lines={lines} devices={devices} />);
+    expect(screen.getByText("3 calls · 1 m")).toBeInTheDocument();
+  });
+});
+
 describe("ActivityTimeline", () => {
   it("opens a row's evidence when the row is clicked", () => {
     const run = line({
