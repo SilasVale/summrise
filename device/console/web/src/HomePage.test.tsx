@@ -354,6 +354,30 @@ describe("Home — the hub", () => {
     }
   });
 
+  it("counts a call whose caller was never recorded but whose token proves it", async () => {
+    // The live window has 908 lines with no caller, and 376 of them carry a token (no console line
+    // does). Counting only caller === "client" read 62 where the record proved 363.
+    const now = new Date(2026, 10, 5, 14, 45, 0).getTime();
+    const clock = vi.spyOn(Date, "now").mockReturnValue(now);
+    try {
+      draw({
+        audit: [
+          call({ ts_ms: new Date(2026, 10, 5, 14, 32).getTime(), caller: "client" }),
+          call({ ts_ms: new Date(2026, 10, 5, 14, 20).getTime(), token_id: "1".repeat(64) }),
+          call({ ts_ms: new Date(2026, 10, 5, 14, 10).getTime(), token_id: "2".repeat(64) }),
+          call({ ts_ms: new Date(2026, 10, 5, 14, 5).getTime(), caller: "console" })
+        ],
+        liveLines: []
+      });
+
+      expect(
+        await screen.findByText("Today 3 client calls · last 14:32")
+      ).toBeInTheDocument();
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
   it("keeps the Activity filters off the hub's one-machine timeline", () => {
     // The hub already shows this machine's day. An All machines chip over one machine's lines would
     // be a control that cannot tell the truth, so the timeline is drawn without the filter bar.
