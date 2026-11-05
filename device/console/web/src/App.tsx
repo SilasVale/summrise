@@ -60,6 +60,9 @@ function storeSelectedDevice(id: string | null) {
 export function App() {
   const [session, setSession] = useState<Session | null>(null);
   const [devices, setDevices] = useState<Device[]>([]);
+  // The hub rereads its machine's day on this page's clock. Each poll is one tick; the hub turns a
+  // new tick into one read of its own window, so the day below the band is never a mount-time memory.
+  const [pollTick, setPollTick] = useState(0);
   // The browser-local history sampled from the same fleet the page polls, one entry per device id.
   // It lives in localStorage; this state is the copy the pages draw.
   const [vitals, setVitals] = useState<Record<string, VitalsSample[]>>({});
@@ -356,6 +359,7 @@ export function App() {
   useEffect(() => {
     if (!session?.authenticated) return;
     const timer = window.setInterval(() => {
+      setPollTick((current) => current + 1);
       load().catch(() => {
         /* a poll that fails is retried by the next one; the sign-in state decides the rest */
       });
@@ -766,6 +770,8 @@ export function App() {
             consoleVersion={consoleVersion}
             liveLines={live.lines}
             liveState={live.state}
+            tick={pollTick}
+            liveRecoveries={live.recoveries}
             onWatchTerminal={(deviceId) => {
               choose(deviceId);
               setPage("device");

@@ -75,6 +75,31 @@ describe("the live activity stream", () => {
     expect(handlers.error).toHaveBeenCalledOnce();
   });
 
+  it("says when a snapshot arrived after the connection dropped, and only then", () => {
+    const source = new FakeSource("/events");
+    const handlers = {
+      snapshot: vi.fn(),
+      activity: vi.fn(),
+      lagged: vi.fn(),
+      error: vi.fn(),
+      recovered: vi.fn()
+    };
+    openLiveActivity(handlers, () => source);
+
+    // The first snapshot opens the stream; it is not a recovery from anything.
+    source.emit("snapshot", { lines: [line(1, "Read `a.txt`")] });
+    expect(handlers.recovered).not.toHaveBeenCalled();
+
+    source.fail();
+    source.emit("snapshot", { lines: [line(2, "Wrote `b.txt`")] });
+    // The reconnect's snapshot replaced the list; the page is told once so it can reread the gap.
+    expect(handlers.recovered).toHaveBeenCalledOnce();
+
+    // Later snapshots on the healthy connection are not new recoveries.
+    source.emit("snapshot", { lines: [line(3, "Read `c.txt`")] });
+    expect(handlers.recovered).toHaveBeenCalledOnce();
+  });
+
   it("closes the connection once, and is null where the runtime has no EventSource", () => {
     const source = new FakeSource("/events");
     const handlers = { snapshot: vi.fn(), activity: vi.fn(), lagged: vi.fn(), error: vi.fn() };

@@ -57,6 +57,12 @@ export type LiveHandlers = {
   lagged: (dropped: number) => void;
   /** The connection dropped. `EventSource` retries on its own. */
   error: () => void;
+  /**
+   * A snapshot arrived after the connection had dropped: the stream is re-describing its history,
+   * and whatever was written while it was down is not in the old list. Optional because a test or a
+   * runtime may not care; the snapshot itself is still delivered.
+   */
+  recovered?: () => void;
 };
 
 export type LiveFeed = {
@@ -97,6 +103,9 @@ export function openLiveActivity(
   if (!factory) return null;
   const source = factory(liveActivityPath());
   let closed = false;
+  // The connection failed since the last snapshot. A snapshot that follows is a reconnect, not a
+  // routine refresh: the page is told once so it can reread what the down time hid.
+  let dropped = false;
 
   const close = () => {
     if (closed) return;
@@ -108,6 +117,10 @@ export function openLiveActivity(
     const frame = parse(event.data);
     const lines = frame && Array.isArray(frame.lines) ? frame.lines : [];
     handlers.snapshot(lines.map(asLine).filter((line): line is LiveLine => line !== null));
+    if (dropped) {
+      dropped = false;
+      handlers.recovered?.();
+    }
   };
   const onActivity = (event: MessageEvent) => {
     const line = asLine(parse(event.data));
@@ -124,6 +137,7 @@ export function openLiveActivity(
   source.addEventListener("lagged", onLagged);
   source.onerror = () => {
     if (closed) return;
+    dropped = true;
     handlers.error();
   };
 

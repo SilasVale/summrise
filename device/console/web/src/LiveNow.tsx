@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
-import type { Device } from "./api";
+import type { AuditLine, Device } from "./api";
 import { age, shortId } from "./format";
-import type { LiveLine } from "./liveActivity";
 
 /** How many entries the band shows: enough to read the last few steps, not a second Activity page. */
 const SHOWN = 5;
@@ -12,14 +11,14 @@ const BUCKETS = 30;
 /** How long a quiet console says "nothing happened" instead of inventing motion. */
 const PRESENT_MS = 90_000;
 
-function deviceName(devices: Device[], id: string | undefined): string | null {
+function deviceName(devices: Device[], id: string | null | undefined): string | null {
   if (!id) return null;
   const device = devices.find((candidate) => candidate.id === id);
   return device?.name ?? shortId(id);
 }
 
 /** Calls per ten-second bucket over the last five minutes, oldest first. */
-function buckets(lines: LiveLine[], now: number): number[] {
+function buckets(lines: readonly AuditLine[], now: number): number[] {
   const span = BUCKETS * 10_000;
   const counts = new Array<number>(BUCKETS).fill(0);
   for (const line of lines) {
@@ -34,14 +33,22 @@ function buckets(lines: LiveLine[], now: number): number[] {
 /**
  * The hub's "Now" band: what the AI is doing, as it does it.
  *
- * Everything here is a fact from the console's own audit stream. The console's reads are facts in
- * that same stream, so they are excluded: the band counts the calls a client made, never the
- * console's own polling. When nothing has happened the band says so — a pulse that kept beating
- * through an idle night would be the one thing this page must not do, because the whole point is
- * knowing whether the machine is working.
+ * Everything here is a fact from the console's own audit: the machine's fetched window and the
+ * newest live lines merged, the same list the timeline below draws. Using only the fleet's live
+ * slice made the band say "Quiet" after a reconnect, when the slice was the newest forty lines of
+ * the whole fleet and held none of this machine's. The console's reads are facts in that same
+ * record, so they are excluded: the band counts the calls a client made, never the console's own
+ * polling. When nothing has happened the band says so — a pulse that kept beating through an idle
+ * night would be the one thing this page must not do, because the whole point is knowing whether
+ * the machine is working.
  */
 export function LiveNow(props: {
-  lines: LiveLine[];
+  /**
+   * The same window the hub's timeline draws: the machine's fetched lines merged with the stream's,
+   * newest first. It is wider than the fleet's newest 200 live lines, which after a reconnect is
+   * only the newest forty and could hold none of this machine's calls.
+   */
+  lines: AuditLine[];
   devices: Device[];
   state: "connecting" | "live" | "offline";
   onAll: () => void;

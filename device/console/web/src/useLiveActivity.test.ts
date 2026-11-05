@@ -110,4 +110,28 @@ describe("following the live activity", () => {
     // The stream is healthy again; the record is not, and only a reread may say otherwise.
     expect(result.current.lagged).toBe(3);
   });
+
+  it("counts a snapshot that arrived after a dropped connection, and not the first", () => {
+    const { result } = renderHook(() => useLiveActivity(true));
+    const source = FakeSource.instances[0];
+
+    act(() => {
+      source.emit("snapshot", { lines: [] });
+    });
+    // Opening the stream is not a recovery: the first snapshot is the list, not a hole refilled.
+    expect(result.current.recoveries).toBe(0);
+
+    act(() => {
+      source.onerror?.(new Event("error"));
+    });
+    act(() => {
+      source.emit("snapshot", { lines: [line(10, "Ran the tests")] });
+    });
+    expect(result.current.recoveries).toBe(1);
+
+    act(() => {
+      source.emit("snapshot", { lines: [line(11, "Read the report")] });
+    });
+    expect(result.current.recoveries).toBe(1);
+  });
 });

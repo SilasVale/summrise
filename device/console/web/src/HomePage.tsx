@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { LiveNow } from "./LiveNow";
 import type { LiveLine } from "./liveActivity";
 import { api, type AuditLine, type Device } from "./api";
@@ -148,6 +148,54 @@ function startOfToday(now = Date.now()): number {
 }
 
 /**
+ * How long a window may lag the live lines before the page says when it was read.
+ *
+ * The app's poll is five seconds and a reread needs a round trip. Under that grace the tick that
+ * would reread the window is still on its way, and a sentence that appeared and vanished on every
+ * live line would be noise, not a fact. Past it, the window has missed its reread and the page says
+ * how old it is.
+ */
+const READ_GRACE_MS = 6_000;
+
+/** "Read 2 min ago." — the one sentence under a window that is older than the live lines. */
+function readAgo(ms: number): string {
+  const seconds = Math.max(0, Math.floor(ms / 1000));
+  if (seconds < 60) return `Read ${seconds} s ago.`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `Read ${minutes} min ago.`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `Read ${hours} h ago.`;
+  return `Read ${Math.floor(hours / 24)} d ago.`;
+}
+
+/**
+ * When the fetched window is behind the live lines, say when it was read.
+ *
+ * The timeline merges the two, so a reader cannot tell the fetched part's age from the rows: the
+ * live lines are newer than the window's newest line, and the window below them may be hours old.
+ * The sentence redraws on its own second so an unanswered reread keeps counting up; it disappears
+ * as soon as the next read brings a window that includes the live line.
+ */
+function WindowRead(props: { readAt: number | null; fetchedNewest: number; liveNewest: number }) {
+  const [, setTick] = useState(0);
+  const behind =
+    props.readAt !== null &&
+    props.liveNewest > 0 &&
+    (props.fetchedNewest === 0 || props.liveNewest > props.fetchedNewest);
+  useEffect(() => {
+    if (!behind) return;
+    const timer = window.setInterval(() => setTick((current) => current + 1), 1000);
+    return () => window.clearInterval(timer);
+  }, [behind]);
+  if (props.readAt === null || !behind) return null;
+  const elapsed = Date.now() - props.readAt;
+  if (elapsed < READ_GRACE_MS) return null;
+  // It counts up every second, so it is not a live region: a status role would re-announce the
+  // same fact once a second. The note is read when the page is read.
+  return <p className="hint home-read">{readAgo(elapsed)}</p>;
+}
+
+/**
  * The hub, once a machine is chosen: is it running, what is it doing now, what did it do today.
  * One status line, one Connect action, the Now band, this machine's timeline and one counts line.
  * Identity is the header's; this page does not repeat it, and the catalogue is the Tools tab's job,
@@ -164,6 +212,10 @@ function HubHome(
     /** The live activity stream, newest first. Absent in tests and before the stream opens. */
     liveLines?: LiveLine[];
     liveState?: "connecting" | "live" | "offline";
+    /** The app's poll count: each new value is one tick, one chance to reread this machine's day. */
+    tick?: number;
+    /** How many snapshots have arrived after the stream dropped; each is one reread. */
+    liveRecoveries?: number;
     /** Open a machine's Terminal tab, where an AI's session can be watched. */
     onWatchTerminal?: (deviceId: string) => void;
   }
@@ -187,24 +239,70 @@ function HubHome(
   const [machineAudit, setMachineAudit] = useState<{
     device: string;
     lines: AuditLine[];
+    /** When the answer landed: the window is as fresh as this moment, and no fresher. */
+    readAt: number;
   } | null>(null);
   const [auditError, setAuditError] = useState(false);
+
+  // A read that answers after the page switched machines is another machine's answer, and must not
+  // replace this one's window.
+  const showing = useRef(device.id);
+  showing.current = device.id;
+  // At most one read per machine. The tick and a reconnect can arrive together; the first starts
+  // the request and the second is dropped rather than stacked on top of it. The next tick reads
+  // again, so a dropped trigger costs freshness, never correctness.
+  const reading = useRef<string | null>(null);
+  const readStarted = useRef(0);
+  const readApplied = useRef(0);
+  const readMachine = useCallback(async () => {
+    if (reading.current === device.id) return;
+    const generation = ++readStarted.current;
+    reading.current = device.id;
+    try {
+      const lines = await api.audit(ACTIVITY_LIMIT, device.id);
+      if (showing.current === device.id && generation > readApplied.current) {
+        readApplied.current = generation;
+        setMachineAudit({ device: device.id, lines, readAt: Date.now() });
+        setAuditError(false);
+      }
+    } catch {
+      // A failed read keeps the last window on screen and says it could not be read; it never
+      // counts as an answer that supersedes one that did arrive.
+      if (showing.current === device.id && generation > readApplied.current) {
+        setAuditError(true);
+      }
+    } finally {
+      if (reading.current === device.id) reading.current = null;
+    }
+  }, [device.id]);
+
+  // The first read, and a new one when the machine changes.
   useEffect(() => {
-    let current = true;
     setMachineAudit(null);
     setAuditError(false);
-    api
-      .audit(ACTIVITY_LIMIT, device.id)
-      .then((lines) => {
-        if (current) setMachineAudit({ device: device.id, lines });
-      })
-      .catch(() => {
-        if (current) setAuditError(true);
-      });
-    return () => {
-      current = false;
-    };
-  }, [device.id]);
+    void readMachine();
+  }, [readMachine]);
+
+  // The app's five-second poll is this page's clock: each tick rereads the day rather than letting
+  // the one mount-time window stand for it after a hiccup.
+  const tick = props.tick;
+  const seenTick = useRef(tick);
+  useEffect(() => {
+    if (tick === undefined || tick === seenTick.current) return;
+    seenTick.current = tick;
+    void readMachine();
+  }, [tick, readMachine]);
+
+  // A snapshot after a dropped connection replaced the live list. Whatever was written while the
+  // stream was down is a hole between this fetched window and the snapshot's oldest line; reread
+  // the window once, so the day is whole again.
+  const recoveries = props.liveRecoveries;
+  const seenRecovery = useRef(recoveries);
+  useEffect(() => {
+    if (recoveries === undefined || recoveries === seenRecovery.current) return;
+    seenRecovery.current = recoveries;
+    void readMachine();
+  }, [recoveries, readMachine]);
 
   const todayStart = startOfToday();
   const loaded = machineAudit?.device === device.id;
@@ -214,6 +312,11 @@ function HubHome(
       .filter((line) => line.ts_ms >= todayStart)
       .sort((a, b) => b.ts_ms - a.ts_ms)
   );
+  // The window's own newest line and the stream's. When the stream holds a newer line than the
+  // window does, the fetched part is behind the live part and the page says when it was read.
+  const fetchedNewest = fetched.reduce((newest, line) => Math.max(newest, line.ts_ms), 0);
+  const liveNewest = liveLines.reduce((newest, line) => Math.max(newest, line.ts_ms), 0);
+  const readAt = loaded && machineAudit ? machineAudit.readAt : null;
   // The server returns this machine's newest 1000 lines. If the oldest of them is still today then
   // today's list may continue behind that window; if it is yesterday, every today line is already
   // here. Live lines can also push the merged list past the cap.
@@ -271,7 +374,10 @@ function HubHome(
       )}
 
       <LiveNow
-        lines={liveLines}
+        // The band and the timeline are the same machine's day: feeding the band the fleet's
+        // newest 200 live lines made it say "Quiet" while the window below held this machine's
+        // calls, and after a reconnect the live list is only the newest forty.
+        lines={timeline.lines}
         devices={props.devices}
         state={props.liveState ?? "connecting"}
         onAll={props.onActivity}
@@ -297,6 +403,7 @@ function HubHome(
           onWatch={props.onWatchTerminal}
           empty={empty}
         />
+        <WindowRead readAt={readAt} fetchedNewest={fetchedNewest} liveNewest={liveNewest} />
       </section>
 
       {offline ? (
@@ -325,6 +432,10 @@ export type HomePageProps = FleetProps & {
   /** The live activity stream, newest first. Absent in tests and before the stream opens. */
   liveLines?: LiveLine[];
   liveState?: "connecting" | "live" | "offline";
+  /** The app's poll count: each new value is one tick, one chance to reread this machine's day. */
+  tick?: number;
+  /** How many snapshots have arrived after the stream dropped; each is one reread. */
+  liveRecoveries?: number;
   /** Open a machine's Terminal tab, where an AI's session can be watched. */
   onWatchTerminal?: (deviceId: string) => void;
 };

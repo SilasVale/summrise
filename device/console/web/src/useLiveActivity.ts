@@ -14,6 +14,12 @@ export type LiveFeedState = {
    * frames; zero only after `reread` has answered for every one of them.
    */
   lagged: number;
+  /**
+   * How many snapshots have arrived after the connection dropped. Each one is a reconnect: the
+   * snapshot replaces the list, and anything written while the stream was down is a hole the page
+   * must reread. The first snapshot opens the stream and does not count.
+   */
+  recoveries: number;
   /** Drop the connection and open it again (each connection opens with a fresh snapshot). */
   retry: () => void;
 };
@@ -33,6 +39,10 @@ export type LiveFeedState = {
  *
  * `reread` is optional because a runtime may have no audit route to read. Without it the count stays
  * up rather than falling back to a silence that would look like completeness.
+ *
+ * A snapshot after `error` replaces the list and is counted in `recoveries`: the lines written while
+ * the stream was down are not in it, so a page that draws a fetched window beside the stream has a
+ * hole to reread. The opening snapshot is not a recovery.
  */
 export function useLiveActivity(
   enabled: boolean,
@@ -41,6 +51,7 @@ export function useLiveActivity(
   const [lines, setLines] = useState<LiveLine[]>([]);
   const [state, setState] = useState<"connecting" | "live" | "offline">("connecting");
   const [lagged, setLagged] = useState(0);
+  const [recoveries, setRecoveries] = useState(0);
   const [attempt, setAttempt] = useState(0);
   // The connection effect must not reopen because the caller passed a new closure; the ref lets each
   // lag use the latest reader while the stream stays one connection.
@@ -101,7 +112,11 @@ export function useLiveActivity(
       },
       // A lag is a healthy connection that lost lines, not a lost connection: the state stays
       // `live`, and `lagged` is what tells the page the record has a hole.
-      error: () => setState("offline")
+      error: () => setState("offline"),
+      // A reconnect's snapshot replaces the list. A page drawing a fetched window and the stream
+      // together has a hole between them until the window is reread; `recoveries` is what says a
+      // reread is owed.
+      recovered: () => setRecoveries((current) => current + 1)
     });
     if (!feed) {
       setState("offline");
@@ -113,5 +128,5 @@ export function useLiveActivity(
     };
   }, [enabled, attempt]);
 
-  return { lines, state, lagged, retry };
+  return { lines, state, lagged, recoveries, retry };
 }

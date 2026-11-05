@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AuditLine, Device, LiveTool } from "./api";
 import { HomePage } from "./HomePage";
@@ -69,6 +69,15 @@ function liveCall(overrides: Partial<LiveLine> = {}): LiveLine {
   };
 }
 
+/** An answer the test decides when to give. */
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((give) => {
+    resolve = give;
+  });
+  return { promise, resolve };
+}
+
 function draw(overrides: Record<string, unknown> = {}) {
   const {
     audit,
@@ -87,7 +96,7 @@ function draw(overrides: Record<string, unknown> = {}) {
   const onConnect = vi.fn();
   const onTools = vi.fn();
   const onActivity = vi.fn();
-  const view = render(
+  const page = (extra: Record<string, unknown> = {}) => (
     <HomePage
       device={workshop}
       devices={[workshop]}
@@ -107,9 +116,18 @@ function draw(overrides: Record<string, unknown> = {}) {
       onActivity={onActivity}
       consoleVersion="0.3.999"
       {...props}
+      {...extra}
     />
   );
-  return { ...view, onConnect, onTools, onActivity };
+  const view = render(page());
+  return {
+    ...view,
+    /** Redraw the same page with new props: a tick, a recovery, or another snapshot. */
+    rerenderHub: (extra: Record<string, unknown>) => view.rerender(page(extra)),
+    onConnect,
+    onTools,
+    onActivity
+  };
 }
 
 beforeEach(() => {
@@ -194,6 +212,118 @@ describe("Home — the hub", () => {
     expect(within(timeline).queryByText("Built another machine")).not.toBeInTheDocument();
     // The Now band is this machine's too; another machine's line must not leak into it.
     expect(screen.queryByText(/Built another machine/)).not.toBeInTheDocument();
+  });
+
+  it("feeds the Now band from this machine's window, not the fleet's live slice", async () => {
+    const now = Date.now();
+    draw({
+      audit: [
+        call({ ts_ms: now - 10_000, caller: "client", tool: "terminal.create" }),
+        call({ ts_ms: now - 20_000, caller: "client", tool: "files.read" })
+      ],
+      // The fleet's newest 200 live lines held nothing for this machine. The machine's own window
+      // does, and the band must describe the machine the timeline is showing.
+      liveLines: [],
+      liveState: "live"
+    });
+
+    expect(await screen.findByText("Active now")).toBeInTheDocument();
+    expect(screen.getByText("2 calls in the last minute")).toBeInTheDocument();
+  });
+
+  it("rereads the machine's window on a reconnect, and the fresh window feeds the band", async () => {
+    const now = Date.now();
+    // The page loaded three hours ago: the day below is a memory with a hole after it.
+    auditApi.audit.mockResolvedValueOnce([call({ ts_ms: now - 3 * 3_600_000, caller: "client" })]);
+    const { rerenderHub } = draw({ liveState: "offline" });
+    await waitFor(() => expect(auditApi.audit).toHaveBeenCalledTimes(1));
+
+    const reread = deferred<AuditLine[]>();
+    auditApi.audit.mockReturnValueOnce(reread.promise);
+    // The snapshot and a tick land in the same moment: the recovery's reread is the request, and
+    // the tick must not stack another one on top of it.
+    rerenderHub({ liveState: "live", liveRecoveries: 1, tick: 1 });
+    await waitFor(() => expect(auditApi.audit).toHaveBeenCalledTimes(2));
+    rerenderHub({ liveState: "live", liveRecoveries: 1, tick: 2 });
+    await act(async () => {});
+    expect(auditApi.audit).toHaveBeenCalledTimes(2);
+
+    await act(async () => {
+      reread.resolve([call({ ts_ms: Date.now() - 5_000, caller: "client", tool: "runs.exec" })]);
+    });
+    expect(auditApi.audit).toHaveBeenLastCalledWith(1000, workshop.id);
+    expect(await screen.findByText("Active now")).toBeInTheDocument();
+    expect(screen.getByText("1 call in the last minute")).toBeInTheDocument();
+  });
+
+  it("rereads once per tick, never twice for the same tick or while a read is open", async () => {
+    const { rerenderHub } = draw({ liveState: "live" });
+    await waitFor(() => expect(auditApi.audit).toHaveBeenCalledTimes(1));
+
+    rerenderHub({ tick: 1 });
+    await waitFor(() => expect(auditApi.audit).toHaveBeenCalledTimes(2));
+
+    // The same tick rendered again is not a second request.
+    rerenderHub({ tick: 1 });
+    await act(async () => {});
+    expect(auditApi.audit).toHaveBeenCalledTimes(2);
+
+    // A tick that lands while the previous read is still open is a tick with no request; the next
+    // tick after the answer reads again.
+    const answer = deferred<AuditLine[]>();
+    auditApi.audit.mockReturnValueOnce(answer.promise);
+    rerenderHub({ tick: 2 });
+    await waitFor(() => expect(auditApi.audit).toHaveBeenCalledTimes(3));
+    rerenderHub({ tick: 3 });
+    await act(async () => {});
+    expect(auditApi.audit).toHaveBeenCalledTimes(3);
+
+    await act(async () => {
+      answer.resolve([call({ caller: "client" })]);
+    });
+    rerenderHub({ tick: 4 });
+    await waitFor(() => expect(auditApi.audit).toHaveBeenCalledTimes(4));
+  });
+
+  it("says when the window was read only when it is older than the live lines", async () => {
+    const midday = new Date();
+    midday.setHours(12, 0, 0, 0);
+    const now = midday.getTime();
+    const clock = vi.spyOn(Date, "now").mockReturnValue(now);
+    try {
+      const { rerenderHub } = draw({
+        audit: [call({ ts_ms: now - 3 * 3_600_000, caller: "client" })],
+        liveLines: [],
+        liveState: "live"
+      });
+      await screen.findByText("terminal.create");
+      expect(screen.queryByText(/^Read \d/)).toBeNull();
+
+      // A live line newer than the window, one second after the read: the tick's reread is still on
+      // its way, so the page does not yet call the window stale.
+      clock.mockReturnValue(now + 1_000);
+      rerenderHub({ liveLines: [liveCall({ ts_ms: now + 500, caller: "client" })] });
+      expect(screen.queryByText(/^Read \d/)).toBeNull();
+
+      // Two minutes without a successful reread: the window is older than the lines above it, and
+      // the page says when it was read instead of letting it stand for live data.
+      clock.mockReturnValue(now + 2 * 60_000);
+      rerenderHub({ liveLines: [liveCall({ ts_ms: now + 2 * 60_000 - 1_000, caller: "client" })] });
+      expect(screen.getByText("Read 2 min ago.")).toBeInTheDocument();
+
+      // The next read answers with a window that includes the live line: the sentence goes away,
+      // because the fetched part is no longer behind the stream.
+      auditApi.audit.mockResolvedValueOnce([
+        call({ ts_ms: now + 2 * 60_000 - 500, caller: "client" })
+      ]);
+      rerenderHub({
+        tick: 1,
+        liveLines: [liveCall({ ts_ms: now + 2 * 60_000 - 1_000, caller: "client" })]
+      });
+      await waitFor(() => expect(screen.queryByText("Read 2 min ago.")).toBeNull());
+    } finally {
+      clock.mockRestore();
+    }
   });
 
   it("keeps the Activity filters off the hub's one-machine timeline", () => {
