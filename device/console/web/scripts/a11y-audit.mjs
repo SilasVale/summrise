@@ -158,6 +158,13 @@ const DEVICES = [
     last_frame_ms: NOW - 12_000,
     registered_at_ms: NOW - 41 * 24 * HOUR,
     last_attempt: null,
+    // The device's own account of its last start, as the host frame carries it. The line it draws
+    // is text, not a control: the audit still finds no unnamed button and no extra tab stop.
+    update: {
+      current: '0.3.42',
+      verdict: { outcome: 'ok', detail: 'started 0.3.42' },
+      last_update: { to: '0.3.42', outcome: 'applied', at_ms: NOW - 2 * 86_400 }
+    },
     host: {
       os: { name: 'Windows 11 Pro', version: '10.0.26100', arch: 'x86_64' },
       machine: 'DESKTOP-WORKSHOP',
@@ -200,6 +207,13 @@ const DEVICES = [
     last_frame_ms: NOW - 3 * HOUR,
     registered_at_ms: NOW - 80 * 24 * HOUR,
     last_attempt: null,
+    // The incident's shape: a machine went silent, and its own last story says what happened to the
+    // update. The page shows the silence and this line side by side, never "asleep".
+    update: {
+      current: '0.3.30',
+      verdict: { outcome: 'ok', detail: 'started 0.3.30' },
+      last_update: { to: '0.3.31', outcome: 'refused', at_ms: NOW - 3 * HOUR - 60_000 }
+    },
     host: null
   }
 ];

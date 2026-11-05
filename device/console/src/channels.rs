@@ -209,6 +209,11 @@ pub(crate) struct ChannelRegistry {
     /// the per-user helper landed. Kept after a channel closes, because "last known" is what an
     /// operator needs to read a device that is down.
     hosts: Mutex<HashMap<String, serde_json::Value>>,
+    /// The last update story each device sent, as the device wrote it: the version it runs, its last
+    /// start's verdict and the updater's last answer. A separate map from `hosts` because it is a
+    /// separate section of the frame, and the console carries it through unchanged; a device that
+    /// has never sent one has no entry, which is what lets the page draw nothing new for it.
+    updates: Mutex<HashMap<String, serde_json::Value>>,
     /// How the attempt before the current channel ended, per device. It arrives ON the next connect:
     /// a device cannot report a failure over the connection that failed, so the story is one attempt
     /// behind, and the label in the page says so.
@@ -259,6 +264,7 @@ impl ChannelRegistry {
             names: Mutex::new(HashMap::new()),
             retries: Mutex::new(HashMap::new()),
             hosts: Mutex::new(HashMap::new()),
+            updates: Mutex::new(HashMap::new()),
             caps: Mutex::new(HashMap::new()),
             streams: Mutex::new(HashMap::new()),
             audit: None,
@@ -336,6 +342,23 @@ impl ChannelRegistry {
     /// The host facts the device last sent, if it has sent any.
     pub(crate) fn host(&self, device_id: &str) -> Option<serde_json::Value> {
         lock(&self.hosts).get(device_id).cloned()
+    }
+
+    /// Record the update story a device sent in its host frame.
+    ///
+    /// The section is opaque here: the console does not rename its fields, fill in a missing one or
+    /// decide what an outcome means. It holds the device's own words for the page, and the newest
+    /// frame replaces the previous story whole. A frame without the section is not stored as an
+    /// empty one — a device that sends nothing must read as "never said", not "said nothing".
+    pub(crate) fn announce_update(&self, device_id: &str, update: serde_json::Value) {
+        if update.is_object() {
+            lock(&self.updates).insert(device_id.to_owned(), update);
+        }
+    }
+
+    /// The update story the device last sent, if it has sent one.
+    pub(crate) fn update(&self, device_id: &str) -> Option<serde_json::Value> {
+        lock(&self.updates).get(device_id).cloned()
     }
 
     /// The version the device announced, if it did.
@@ -446,8 +469,13 @@ impl ChannelRegistry {
                         // frame still proves the socket is alive.
                         self.record_frame(&device_id, open.generation);
                         if let Message::Text(text) = message {
-                            if let Some(facts) = deliver(&open.pending, &self.streams, &text) {
-                                self.announce_host(&device_id, facts);
+                            if let Some(frame) = deliver(&open.pending, &self.streams, &text) {
+                                if let Some(facts) = frame.host {
+                                    self.announce_host(&device_id, facts);
+                                }
+                                if let Some(update) = frame.update {
+                                    self.announce_update(&device_id, update);
+                                }
                             }
                         }
                     }
@@ -887,6 +915,13 @@ enum DeviceBody {
     Error { error: Value },
 }
 
+/// The two sections an unsolicited status frame may carry: the machine facts and the device's own
+/// update story. Either may be absent; a frame with neither is simply not stored.
+struct Unsolicited {
+    host: Option<serde_json::Value>,
+    update: Option<serde_json::Value>,
+}
+
 /// Hand one inbound text frame to whoever is waiting for it.
 ///
 /// Two kinds arrive on this socket: answers to the console's requests (keyed by envelope id), and the
@@ -896,7 +931,7 @@ fn deliver(
     pending: &Mutex<HashMap<u64, oneshot::Sender<Answer>>>,
     streams: &Mutex<HashMap<u64, mpsc::Sender<Value>>>,
     text: &str,
-) -> Option<serde_json::Value> {
+) -> Option<Unsolicited> {
     let value: serde_json::Value = match serde_json::from_str(text) {
         Ok(value) => value,
         Err(error) => {
@@ -921,7 +956,10 @@ fn deliver(
         return None;
     }
     if value.get("id").is_none() {
-        return value.get("host").cloned();
+        return Some(Unsolicited {
+            host: value.get("host").cloned(),
+            update: value.get("update").cloned(),
+        });
     }
     let frame: DeviceFrame = match serde_json::from_value(value) {
         Ok(frame) => frame,
@@ -1112,10 +1150,42 @@ mod tests {
             r#"{"host":{"machine":"desktop-9vh92bj","sessions":[{"id":2,"state":"disconnected"}]}}"#,
         )
         .expect("a status frame comes back for storage");
-        assert_eq!(stored["machine"], serde_json::json!("desktop-9vh92bj"));
+        assert_eq!(
+            stored.host.as_ref().map(|host| &host["machine"]),
+            Some(&serde_json::json!("desktop-9vh92bj"))
+        );
+        assert!(
+            stored.update.is_none(),
+            "this frame carried no update story"
+        );
         assert!(
             pending.lock().expect("the pending set").is_empty(),
             "a status frame must not be mistaken for an answer"
+        );
+    }
+
+    /// The update section has its own slot on the stored frame. It is not folded into the host facts
+    /// and it is not composed here: a device that sends both keeps them apart on the way through.
+    #[test]
+    fn a_status_frames_update_section_comes_back_beside_its_host_facts() {
+        let pending: Pending = Arc::new(Mutex::new(HashMap::new()));
+        let streams: Mutex<HashMap<u64, mpsc::Sender<Value>>> = Mutex::new(HashMap::new());
+        let stored = deliver(
+            &pending,
+            &streams,
+            concat!(
+                r#"{"host":{"machine":"workshop"},"#,
+                r#""update":{"current":"0.3.275","verdict":{"outcome":"ok","detail":"started 0.3.275"}}}"#,
+            ),
+        )
+        .expect("a status frame comes back for storage");
+        assert_eq!(
+            stored.host.as_ref().map(|host| &host["machine"]),
+            Some(&serde_json::json!("workshop"))
+        );
+        assert_eq!(
+            stored.update.as_ref().map(|update| &update["current"]),
+            Some(&serde_json::json!("0.3.275"))
         );
     }
 

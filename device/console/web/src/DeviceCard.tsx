@@ -1,6 +1,7 @@
-import type { HostFacts } from "./api";
+import type { DeviceUpdate, HostFacts } from "./api";
 import { AttemptReason, attemptCount, attemptReason, type LastAttempt } from "./attempt";
 import { age, shortId } from "./format";
+import { startedLine } from "./updateStory";
 
 export type Device = {
   id: string;
@@ -11,6 +12,8 @@ export type Device = {
   last_frame_ms?: number | null;
   last_attempt?: LastAttempt | null;
   host?: HostFacts | null;
+  /** The device's own update story, absent when it never sent one. */
+  update?: DeviceUpdate | null;
 };
 
 type Props = {
@@ -49,6 +52,10 @@ export function DeviceCard({ device, selected, onSelect, onRename, onRemove, onD
   const count = attempt && attempt.attempts > 0 ? attemptCount(attempt.attempts) : null;
   const reason = attemptReason(attempt);
   const sentence = count ? `Reconnected after ${count}${reason ? ` — ${reason}` : ""}` : null;
+  // The device's own account of its last start, beside the console's account of its silence. The two
+  // lines are independent on purpose: the console knows frames stopped, not that the machine slept,
+  // and the device knows what it started, not when the console last heard it.
+  const started = startedLine(device.update);
   return (
     <article className={"fleet-row" + (selected ? " is-current" : "")}>
       <button type="button" className="fleet-open" aria-label={`Open ${label}`} onClick={onSelect}>
@@ -59,6 +66,11 @@ export function DeviceCard({ device, selected, onSelect, onRename, onRemove, onD
         </span>
         {device.version && <span className="fleet-build mono">v{device.version}</span>}
         <span className="fleet-chevron" aria-hidden="true">›</span>
+        {started && (
+          <span className="fleet-verdict" title={started}>
+            {started}
+          </span>
+        )}
         {count && (
           <span className="fleet-attempt" title={reason ? (sentence ?? undefined) : undefined}>
             Reconnected after {count}

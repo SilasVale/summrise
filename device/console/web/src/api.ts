@@ -41,6 +41,27 @@ export type UpdateSwap = {
  */
 export type UpdateRepair = { at_ms: number; from: "baseline" | "previous"; sha256: string };
 
+/**
+ * The device's own update story, as its host frame carries it: the version it actually runs, the
+ * verdict of its last start, and the updater's last answer. Every field is the device's; the console
+ * does not fill in a missing one, because "unknown" and "none" are different facts.
+ *
+ * It is a separate section of the frame from [`HostFacts.update`], which is the launcher's files on
+ * disk. This one comes from the state document the running app writes.
+ */
+export type DeviceUpdate = {
+  /// The version the process actually runs, from the state document's `install.version`.
+  current?: string;
+  /// The device's verdict on its last start (or on the updater's last answer): the outcome, and the
+  /// sentence the device wrote. `detail` is what the page shows; the console never composes one.
+  verdict?: { outcome: string; detail: string } | null;
+  /// The updater's last answer, present only after a swap result was folded in. A staged release is
+  /// not a result, so this is absent until one exists.
+  last_update?: { to?: string; outcome: string; at_ms: number } | null;
+  /// The version a rollback returned to, present only when the last answer was `rolled_back`.
+  rolled_back_to?: string;
+};
+
 /** What the device sent about its machine on the channel: the console shows it without a grant. */
 export type HostFacts = {
   os?: { name?: string; version?: string; arch?: string };
@@ -116,6 +137,11 @@ export type Device = {
    */
   last_outage?: { away_ms: number; back_at_ms: number } | null;
   host?: HostFacts | null;
+  /**
+   * The device's own update story from its newest host frame. Absent for a device that never sent
+   * one (an older build); the page draws no line for it rather than inventing a start.
+   */
+  update?: DeviceUpdate | null;
 };
 /**
  * One permanent token's metadata, as the console lists it: never the token itself.

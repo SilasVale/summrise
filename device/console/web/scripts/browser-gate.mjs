@@ -76,7 +76,14 @@ const DEVICE = {
   online: true,
   version: '0.3.42',
   last_seen_ms: NOW,
-  last_frame_ms: NOW - 12_000
+  last_frame_ms: NOW - 12_000,
+  // The device's own update story, so the gate photographs the verdict line beside the state line
+  // and the a11y audit measures the same row.
+  update: {
+    current: '0.3.42',
+    verdict: { outcome: 'ok', detail: 'started 0.3.42' },
+    last_update: { to: '0.3.43', outcome: 'refused', at_ms: NOW - 60_000 }
+  }
 };
 const RUN = {
   id: 'r-1',

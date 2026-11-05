@@ -1769,6 +1769,100 @@ async fn a_reopened_channel_is_offline_until_it_sends_a_frame() {
     );
 }
 
+/// **THE FRAME'S UPDATE SECTION IS THE DEVICE'S OWN ACCOUNT.** The fleet row already says whether a
+/// machine is online; this is what the machine says about its last start and the updater's last
+/// answer. The console carries the section unchanged, per device, and the newest frame is the one
+/// served — a machine that came back on the new build must not keep the refusal from before.
+#[tokio::test]
+async fn a_host_frame_carries_the_devices_own_update_story_to_the_fleet() {
+    let fixture = Fixture::new("fleet-update-story");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0x71)).await;
+    let session = fixture.authenticate().await;
+
+    let refused = json!({
+        "current": "0.3.275",
+        "verdict": { "outcome": "ok", "detail": "started 0.3.275" },
+        "last_update": { "to": "0.3.276", "outcome": "refused", "at_ms": START_MS },
+    });
+    device
+        .send(WsMessage::Text(
+            json!({ "host": { "machine": "workshop" }, "update": refused }).to_string(),
+        ))
+        .await
+        .expect("the host frame with its update section is sent");
+
+    let listed = wait_until_update(fixture.app(), &session, &device_id).await;
+    assert_eq!(
+        listed["update"], refused,
+        "the device's own section is carried unchanged: {listed}"
+    );
+
+    let applied = json!({
+        "current": "0.3.276",
+        "verdict": { "outcome": "ok", "detail": "started 0.3.276" },
+        "last_update": { "to": "0.3.276", "outcome": "applied", "at_ms": START_MS + 60_000 },
+    });
+    device
+        .send(WsMessage::Text(
+            json!({ "host": { "machine": "workshop" }, "update": applied }).to_string(),
+        ))
+        .await
+        .expect("the newer host frame is sent");
+
+    let listed = wait_until_update_value(fixture.app(), &session, &device_id, &applied).await;
+    assert_eq!(
+        listed["update"], applied,
+        "the newest frame's story is the one served: {listed}"
+    );
+}
+
+/// A device that has sent no update section (an older build) leaves the row without one. The output
+/// must not invent `current: null` or a verdict, and the page draws nothing new for it.
+#[tokio::test]
+async fn a_frame_without_an_update_section_leaves_the_fleet_row_without_one() {
+    let fixture = Fixture::new("fleet-update-absent");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, _device) = present_device(&fixture, &server, &signing_key(0x72)).await;
+    let session = fixture.authenticate().await;
+
+    let listed = fleet_row(fixture.app(), &session, &device_id).await;
+    assert!(
+        listed.get("update").is_none(),
+        "a device that sent nothing gets no section: {listed}"
+    );
+}
+
+/// Wait until a frame carrying an update section has been recorded for this device.
+async fn wait_until_update(app: Router, session: &str, device_id: &str) -> Value {
+    for _ in 0..100 {
+        let listed = fleet_row(app.clone(), session, device_id).await;
+        if listed.get("update").is_some() {
+            return listed;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    panic!("the device's update section never reached the fleet");
+}
+
+/// Wait until the row serves exactly this update section (the newest frame wins).
+async fn wait_until_update_value(
+    app: Router,
+    session: &str,
+    device_id: &str,
+    expected: &Value,
+) -> Value {
+    for _ in 0..100 {
+        let listed = fleet_row(app.clone(), session, device_id).await;
+        if listed["update"] == *expected {
+            return listed;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    panic!("the fleet never served the newer update section");
+}
+
 /// One device's row from `/fleet`, or a failure that shows the whole answer.
 async fn fleet_row(app: Router, session: &str, device_id: &str) -> Value {
     let (status, fleet) = send(app, get("/fleet", Some(session))).await;

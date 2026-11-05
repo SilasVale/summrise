@@ -337,6 +337,12 @@ main.terminal-main { display: grid; grid-template-rows: auto minmax(0, 1fr); ali
 .fleet-state { color: var(--ink-muted); font-size: var(--fs-sm); white-space: nowrap; }
 .fleet-build { color: var(--ink-faint); font-size: var(--fs-xs); white-space: nowrap; }
 .fleet-chevron { color: var(--ink-faint); font-size: var(--fs-md); line-height: 1; }
+.fleet-verdict {
+  /* THE DEVICE'S OWN LINE, under the silence rather than replacing it. One line, cut with the title
+     carrying the whole sentence: a start plus an updater's answer can be longer than the row. */
+  grid-column: 2 / -1; min-width: 0; color: var(--ink-muted); font-size: var(--fs-xs);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
 .fleet-attempt {
   grid-column: 2 / -1; min-width: 0; color: var(--ink-muted); font-size: var(--fs-xs);
   /* ONE LINE, CUT NOT WRAPPED. The reason is the device's whole sentence; the row's second line grows
@@ -423,7 +429,8 @@ button.link:hover { background: transparent; color: var(--accent); border-color:
   .fleet-state { order: 3; flex-basis: 100%; }
   .fleet-build { order: 4; }
   .fleet-chevron { display: none; }
-  .fleet-attempt { order: 5; flex-basis: 100%; }
+  .fleet-verdict { order: 5; flex-basis: 100%; }
+  .fleet-attempt { order: 6; flex-basis: 100%; }
 }
 
 /* The selected machine's identity, kept above the terminal and above the grant form: whichever of
@@ -839,6 +846,9 @@ main.terminal-main:has(.terminal-workspace-empty) { grid-template-rows: auto aut
   line-height: 1.45;
 }
 .offline-notice strong { color: var(--warn); }
+/* The device's account of its last start, under the silence rather than inside it: the console knows
+   frames stopped, not that the machine slept, and the two facts keep two sentences. */
+.started-line { margin: 0; color: var(--ink-muted); font-size: var(--fs-sm); line-height: 1.45; }
 .terminal-sessions { display: grid; gap: var(--sp-2); }
 .terminal-section-head {
   display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap;

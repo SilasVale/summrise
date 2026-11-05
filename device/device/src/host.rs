@@ -12,9 +12,17 @@
 //! The `update` block is the launcher's records — its three baseline generations, its last swap and
 //! its repairs — read for display. Nothing here verifies a signature or replays a swap: the launcher
 //! wrote these files, and the facts report what it wrote.
+//!
+//! The frame's top-level `update` section is the device's own story instead: the version this process
+//! runs, the verdict it reached at its last start, and the updater's last answer, read from
+//! `<data>/state.json`. It is separate from [`facts`]' `update` block on purpose — that one is the
+//! launcher's files, this one is the state document the running app writes — and a device whose
+//! state is unreadable omits the section rather than sending a story it does not have.
 
 use std::io::{BufRead, BufReader};
 use std::path::Path;
+
+use summrise_core::{State, UpdateOutcome, VerdictOutcome};
 
 use crate::update::{swap_result_path, SwapOutcome, SwapResult};
 
@@ -104,9 +112,83 @@ fn shell_state(install: &Path) -> serde_json::Value {
 /// The capability a device advertises when its channel can stream a terminal's output.
 pub const CAP_TERMINAL_STREAM: &str = "terminal.stream";
 
-/// The frame the device sends on its channel: the console reads `host` and stores it per device.
+/// The frame the device sends on its channel: the console reads `host` and stores it per device, and
+/// reads the top-level `update` as the device's own account of its last start.
+///
+/// The `update` key is omitted when `<data>/state.json` is missing or unreadable. A section with
+/// `null` fields would be a claim where the device has no fact, and the console is told to draw
+/// nothing new for a device that sent nothing.
 pub fn frame(data: &std::path::Path) -> String {
-    serde_json::json!({ "host": facts(data) }).to_string()
+    let mut frame = serde_json::json!({ "host": facts(data) });
+    if let Some(update) = update_story(data) {
+        frame["update"] = update;
+    }
+    frame.to_string()
+}
+
+/// The device's own update story, read from `<data>/state.json`, or `None` when it cannot be read.
+///
+/// The facts are the ones an operator cannot get from the console otherwise:
+///
+/// * `current` — the version this process actually runs, from `install.version` (the launcher's
+///   `--release-version` argv, not this build's compile-time version);
+/// * `verdict` — `lastVerdict`'s outcome and detail, the sentence the device wrote about its last
+///   start or the updater's last answer;
+/// * `last_update` — `update.to`/`outcome`/`lastResultAtMs`, present only after the app has folded a
+///   swap result in (a staged release is not a result, and `to` alone would read as one);
+/// * `rolled_back_to` — present only when that last answer was `rolled_back`, and naming the version
+///   the device is now running: the swap result names the candidate that failed, and the version
+///   that took its place is the one this process started from.
+///
+/// Nothing is inferred beyond that: a field the state does not have is absent, and a document that
+/// does not parse yields no section at all.
+pub fn update_story(data: &Path) -> Option<serde_json::Value> {
+    let document = std::fs::read_to_string(data.join(crate::store::STATE_FILE)).ok()?;
+    let state = State::parse(&document).ok()?;
+    let mut story = serde_json::Map::new();
+    let current = state.install.version;
+    story.insert("current".to_owned(), current.clone().into());
+    story.insert(
+        "verdict".to_owned(),
+        serde_json::json!({
+            "outcome": verdict_outcome(state.last_verdict.outcome),
+            "detail": state.last_verdict.detail,
+        }),
+    );
+    if let (Some(outcome), Some(at_ms)) = (state.update.outcome, state.update.last_result_at_ms) {
+        let mut last = serde_json::Map::new();
+        if let Some(to) = state.update.to {
+            last.insert("to".to_owned(), to.into());
+        }
+        last.insert("outcome".to_owned(), update_outcome(outcome).into());
+        last.insert("at_ms".to_owned(), at_ms.into());
+        story.insert("last_update".to_owned(), serde_json::Value::Object(last));
+        if outcome == UpdateOutcome::RolledBack {
+            story.insert("rolled_back_to".to_owned(), current.into());
+        }
+    }
+    Some(serde_json::Value::Object(story))
+}
+
+/// The state document's verdict outcome, in the wire words `summrise-core` writes.
+///
+/// Spelled here rather than serialized through `serde` so a new variant in the core enum is a
+/// compile error in this frame instead of a silently missing word on the wire.
+fn verdict_outcome(outcome: VerdictOutcome) -> &'static str {
+    match outcome {
+        VerdictOutcome::Ok => "ok",
+        VerdictOutcome::Repaired => "repaired",
+        VerdictOutcome::NeedsAttention => "needs_attention",
+    }
+}
+
+/// The state document's update outcome, in the wire words `summrise-core` writes.
+fn update_outcome(outcome: UpdateOutcome) -> &'static str {
+    match outcome {
+        UpdateOutcome::Applied => "applied",
+        UpdateOutcome::RolledBack => "rolled_back",
+        UpdateOutcome::Refused => "refused",
+    }
 }
 
 /// What the launcher's records say, for display.
@@ -772,6 +854,184 @@ mod tests {
         assert!(facts["sessions"].is_array(), "{facts}");
         // Without a helper in this process, the document says so rather than omitting the key.
         assert_eq!(facts["helper"]["registered"], serde_json::json!(false));
+    }
+
+    /// A state document with only the facts the update story reads, so a test names one fact and
+    /// leaves the rest of the document at values the schema accepts.
+    fn state_document(version: &str, verdict: &str, update: &str) -> String {
+        format!(
+            concat!(
+                r#"{{"schema":1,"#,
+                r#""install":{{"dir":"C:/Summrise","version":"{version}","channel":"canary"}},"#,
+                r#""baseline":{{"version":"{version}","sha256":"aa","exe":"baseline/current/summrise-device.exe"}},"#,
+                r#""service":{{"state":"running","pid":1,"startedAt":"2026-11-05T08:21:00Z"}},"#,
+                r#""lastVerdict":{verdict},"#,
+                r#""sessions":[],"#,
+                r#""update":{update}}}"#,
+            ),
+            version = version,
+            verdict = verdict,
+            update = update,
+        )
+    }
+
+    fn write_state(data: &Path, document: &str) {
+        std::fs::create_dir_all(data).expect("the data directory is creatable");
+        std::fs::write(data.join(crate::store::STATE_FILE), document)
+            .expect("the state document is writable");
+    }
+
+    /// **THE DEVICE'S OWN STORY, NOT THE CONSOLE'S GUESS.** The state document records the version
+    /// this process runs, the verdict it reached at its last start, and the updater's last answer.
+    /// The frame carries all three so an operator reading a machine that just came back can tell an
+    /// update that was refused (and left the pointer where it was) from one that was applied.
+    #[test]
+    fn the_update_story_reports_the_running_version_verdict_and_last_update() {
+        let dir = TempDir::new("update-story-refused");
+        let data = dir.join("data");
+        write_state(
+            &data,
+            &state_document(
+                "0.3.275",
+                r#"{"ts":"2026-11-05T08:21:00Z","outcome":"ok","detail":"started 0.3.275"}"#,
+                r#"{"phase":"idle","to":"0.3.276","outcome":"refused","lastResultAtMs":1762330860000}"#,
+            ),
+        );
+
+        assert_eq!(
+            update_story(&data),
+            Some(serde_json::json!({
+                "current": "0.3.275",
+                "verdict": { "outcome": "ok", "detail": "started 0.3.275" },
+                "last_update": {
+                    "to": "0.3.276",
+                    "outcome": "refused",
+                    "at_ms": 1762330860000_u64,
+                },
+            }))
+        );
+    }
+
+    /// An updater that has not answered yet leaves no `last_update`: the stage a release reached is
+    /// not a result, and `to` alone would read as one. The verdict is still the device's story.
+    #[test]
+    fn a_last_update_appears_only_after_the_updater_has_answered() {
+        let dir = TempDir::new("update-story-staged");
+        let data = dir.join("data");
+        write_state(
+            &data,
+            &state_document(
+                "0.3.275",
+                r#"{"ts":"2026-11-05T08:21:00Z","outcome":"ok","detail":"started 0.3.275"}"#,
+                r#"{"phase":"staged","to":"0.3.276","outcome":null,"lastResultAtMs":null}"#,
+            ),
+        );
+
+        let story = update_story(&data).expect("the state document is readable");
+        assert!(
+            story.get("last_update").is_none(),
+            "a staged release is not a result: {story}"
+        );
+        assert_eq!(story["current"], serde_json::json!("0.3.275"));
+        assert_eq!(
+            story["verdict"]["detail"],
+            serde_json::json!("started 0.3.275")
+        );
+    }
+
+    /// A rollback names the version the device returned to. The swap result names the candidate that
+    /// failed; after the rollback the running version is the one that took its place, so the field is
+    /// present only when the updater's last answer was `rolled_back`.
+    #[test]
+    fn a_rollback_names_the_version_the_device_is_running() {
+        let dir = TempDir::new("update-story-rolled-back");
+        let data = dir.join("data");
+        write_state(
+            &data,
+            &state_document(
+                "0.3.275",
+                r#"{"ts":"2026-11-05T08:21:00Z","outcome":"needs_attention","detail":"started 0.3.275"}"#,
+                r#"{"phase":"idle","to":"0.3.276","outcome":"rolled_back","lastResultAtMs":1762330860000}"#,
+            ),
+        );
+
+        let story = update_story(&data).expect("the state document is readable");
+        assert_eq!(story["rolled_back_to"], serde_json::json!("0.3.275"));
+        assert_eq!(
+            story["last_update"]["outcome"],
+            serde_json::json!("rolled_back")
+        );
+        assert_eq!(story["last_update"]["to"], serde_json::json!("0.3.276"));
+    }
+
+    /// A last answer that was not a rollback has no version it rolled back to: a refusal installed
+    /// nothing and an applied swap moved forward, so the key is absent rather than naming `current`.
+    #[test]
+    fn only_a_rollback_names_the_version_it_returned_to() {
+        let dir = TempDir::new("update-story-applied");
+        let data = dir.join("data");
+        write_state(
+            &data,
+            &state_document(
+                "0.3.276",
+                r#"{"ts":"2026-11-05T08:30:00Z","outcome":"ok","detail":"started 0.3.276"}"#,
+                r#"{"phase":"idle","to":"0.3.276","outcome":"applied","lastResultAtMs":1762330860000}"#,
+            ),
+        );
+
+        let story = update_story(&data).expect("the state document is readable");
+        assert_eq!(
+            story["last_update"]["outcome"],
+            serde_json::json!("applied")
+        );
+        assert!(
+            story.get("rolled_back_to").is_none(),
+            "an applied update rolled nothing back: {story}"
+        );
+    }
+
+    /// An unreadable state document is not a story. The frame omits the section whole rather than
+    /// sending `current: null` or an empty verdict for the console to render as a fact.
+    #[test]
+    fn a_frame_without_a_readable_state_omits_the_update_section() {
+        let dir = TempDir::new("update-story-absent");
+        let data = dir.join("data");
+        std::fs::create_dir_all(&data).expect("the data directory is creatable");
+
+        let frame: serde_json::Value =
+            serde_json::from_str(&frame(&data)).expect("the frame is JSON");
+        assert!(frame["host"].is_object(), "{frame}");
+        assert!(
+            frame.get("update").is_none(),
+            "a device with no state has no story: {frame}"
+        );
+    }
+
+    #[test]
+    fn the_frame_carries_the_update_story_beside_the_host_facts() {
+        let dir = TempDir::new("update-story-frame");
+        let data = dir.join("data");
+        write_state(
+            &data,
+            &state_document(
+                "0.3.275",
+                r#"{"ts":"2026-11-05T08:21:00Z","outcome":"ok","detail":"started 0.3.275"}"#,
+                r#"{"phase":"idle","to":"0.3.276","outcome":"refused","lastResultAtMs":1762330860000}"#,
+            ),
+        );
+
+        let frame: serde_json::Value =
+            serde_json::from_str(&frame(&data)).expect("the frame is JSON");
+        assert!(frame["host"].is_object(), "{frame}");
+        assert_eq!(frame["update"]["current"], serde_json::json!("0.3.275"));
+        assert_eq!(
+            frame["update"]["verdict"]["detail"],
+            serde_json::json!("started 0.3.275")
+        );
+        assert_eq!(
+            frame["update"]["last_update"]["outcome"],
+            serde_json::json!("refused")
+        );
     }
 
     #[test]

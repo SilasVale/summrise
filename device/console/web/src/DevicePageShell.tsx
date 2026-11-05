@@ -3,6 +3,7 @@ import { DEVICE_TABS, DEVICE_TAB_LABELS, type DeviceTab } from "./Rail";
 import { DevicePicker } from "./DevicePicker";
 import { OfflineNotice } from "./OfflineNotice";
 import type { Grant } from "./terminal";
+import { startedLine } from "./updateStory";
 
 /**
  * Device is ONE destination with five tabs, not five rail items. The shell owns the destination's one
@@ -28,6 +29,10 @@ export function DevicePageShell({
   children: (grant: Grant) => React.ReactNode;
 }) {
   const grant = grantFor(chosen);
+  // The device's own account of its last start, beside — never instead of — the console's account
+  // of its silence. It is shown online too: a machine that woke is exactly the one whose version the
+  // operator needs to read without a shell on it.
+  const started = chosen ? startedLine(chosen.update) : null;
   return (
     <div className="page device-page">
       <header className="page-head device-head">
@@ -61,6 +66,11 @@ export function DevicePageShell({
           detail="Nothing on this page can reach it until it reconnects; the console keeps trying on its own."
         />
       )}
+
+      {/* The device's sentence, not the console's: "started 0.3.275 (update to 0.3.276 refused)".
+          It sits beside the silence notice because the two answer different questions — was it
+          heard, and what did it start — and neither is used to explain the other. */}
+      {started && <p className="started-line">{started}</p>}
 
       {chosen && grant ? (
         children(grant)

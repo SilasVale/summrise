@@ -3915,6 +3915,7 @@ async fn rename_device(
         online: app.channels.online(&device.id),
         version: app.channels.version(&device.id),
         host: app.channels.host(&device.id),
+        update: app.channels.update(&device.id),
         name: device.name.or_else(|| app.channels.name(&device.id)),
         last_attempt: app.channels.retry(&device.id).map(|note| RetryView {
             attempts: note.attempts,
@@ -4225,6 +4226,7 @@ async fn device_views(app: &AppState) -> Vec<DeviceView> {
                 .version(&device.id)
                 .or_else(|| device.last_version.clone()),
             host: app.channels.host(&device.id),
+            update: app.channels.update(&device.id),
             last_attempt: app.channels.retry(&device.id).map(|note| RetryView {
                 attempts: note.attempts,
                 reason: note.reason,
@@ -4285,6 +4287,12 @@ struct DeviceView {
     /// including which sessions are disconnected, without minting a grant to ask.
     #[serde(skip_serializing_if = "Option::is_none")]
     host: Option<serde_json::Value>,
+    /// The device's own update story, as the last frame carried it: the version it runs, the verdict
+    /// of its last start and the updater's last answer. Opaque here — the page reads the device's
+    /// fields and words — and omitted for a device that never sent one, so "never said" is not an
+    /// empty section the page would render as a fact.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    update: Option<serde_json::Value>,
 }
 
 /// One finished outage, as a page reads it.

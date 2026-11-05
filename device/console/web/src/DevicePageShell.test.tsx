@@ -59,4 +59,35 @@ describe("DevicePageShell offline notice", () => {
     renderShell("files", { ...MACHINE, online: true });
     expect(screen.queryByRole("status")).not.toBeInTheDocument();
   });
+
+  it("shows the device's own start verdict beside the silence, not as an explanation of it", () => {
+    renderShell("files", {
+      ...MACHINE,
+      update: {
+        current: "0.3.275",
+        verdict: { outcome: "ok", detail: "started 0.3.275" },
+        last_update: { to: "0.3.276", outcome: "refused", at_ms: 1 }
+      }
+    });
+
+    expect(screen.getByRole("status")).toHaveTextContent("This machine is offline.");
+    expect(screen.getByText("started 0.3.275 (update to 0.3.276 refused)")).toBeInTheDocument();
+    // The console knows silence, not sleep: it must never claim the machine slept.
+    expect(screen.queryByText(/asleep|sleeping/i)).not.toBeInTheDocument();
+  });
+
+  it("shows the start verdict on an online machine too, because a machine that woke proves its version", () => {
+    renderShell("files", {
+      ...MACHINE,
+      online: true,
+      update: {
+        current: "0.3.276",
+        verdict: { outcome: "ok", detail: "started 0.3.276" },
+        last_update: { to: "0.3.276", outcome: "applied", at_ms: 2 }
+      }
+    });
+
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    expect(screen.getByText("started 0.3.276 (updated)")).toBeInTheDocument();
+  });
 });

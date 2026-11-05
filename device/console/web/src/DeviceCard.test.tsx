@@ -127,6 +127,47 @@ describe("DeviceCard — one row on the fleet", () => {
     expect(screen.queryByText(/never/)).not.toBeInTheDocument();
   });
 
+  it("shows the device's own verdict line only when the device sent one", () => {
+    draw({
+      online: false,
+      last_frame_ms: Date.now() - 7 * 60_000,
+      update: {
+        current: "0.3.275",
+        verdict: { outcome: "ok", detail: "started 0.3.275" },
+        last_update: { to: "0.3.276", outcome: "refused", at_ms: 1 }
+      }
+    });
+
+    // The silence and the device's account are two separate lines: the console knows silence, the
+    // device knows what it started. Neither is used to explain the other.
+    expect(screen.getByText(/offline · last seen 7m ago/)).toBeInTheDocument();
+    expect(screen.getByText("started 0.3.275 (update to 0.3.276 refused)")).toBeInTheDocument();
+  });
+
+  it("says updated when the device reports an applied update", () => {
+    const { container } = draw({
+      online: true,
+      update: {
+        current: "0.3.276",
+        verdict: { outcome: "ok", detail: "started 0.3.276" },
+        last_update: { to: "0.3.276", outcome: "applied", at_ms: 2 }
+      }
+    });
+
+    expect(screen.getByText("started 0.3.276 (updated)")).toBeInTheDocument();
+    expect(container.querySelector(".fleet-verdict")).not.toBeNull();
+  });
+
+  it("draws no verdict line for a device that sent no update section", () => {
+    const { container } = draw({ online: false, last_frame_ms: Date.now() - 7 * 60_000 });
+
+    // A silent older device shows exactly the silence line and nothing new.
+    expect(screen.getByText(/offline · last seen 7m ago/)).toBeInTheDocument();
+    expect(container.querySelector(".fleet-verdict")).toBeNull();
+    expect(screen.queryByText(/started /)).not.toBeInTheDocument();
+    expect(screen.queryByText(/asleep|sleeping/i)).not.toBeInTheDocument();
+  });
+
   it("opens the machine from the whole main row", () => {
     const onSelect = vi.fn();
     render(
