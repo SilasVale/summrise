@@ -85,6 +85,23 @@ describe("ActivityTimeline stretches", () => {
   });
 });
 
+describe("ActivityTimeline unknown machines", () => {
+  it("does not let an id the fleet lacks read like a machine", () => {
+    // The live window has one line whose device id is a hostname from an old enrollment. The line is
+    // real, so the chip exists — but it says "unknown machine", not a name that looks like a fleet.
+    const ghost = line({
+      ts_ms: Date.UTC(2026, 10, 5, 9, 5, 0),
+      device_id: "desktop-9vh92bj",
+      sentence: "Listed the plugins",
+      tool: "plugins.list"
+    });
+    render(<ActivityTimeline lines={[ghost]} devices={devices} />);
+    const group = screen.getByRole("group", { name: "Filter by machine" });
+    expect(within(group).getByText("unknown machine · desktop-9vh9")).toBeInTheDocument();
+    expect(within(group).queryByText("desktop-9vh92bj")).not.toBeInTheDocument();
+  });
+});
+
 describe("ActivityTimeline", () => {
   it("opens a row's evidence when the row is clicked", () => {
     const run = line({

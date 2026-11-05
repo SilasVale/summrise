@@ -422,20 +422,26 @@ function machineOptions(
   lines: AuditLine[],
   devices: Device[],
   active: string
-): Array<{ id: string; name: string }> {
-  const present = new Map<string, string>();
-  for (const device of devices) present.set(device.id, device.name ?? device.id);
+): Array<{ id: string; name: string; known: boolean }> {
+  const present = new Map<string, { name: string; known: boolean }>();
+  for (const device of devices) present.set(device.id, { name: device.name ?? device.id, known: true });
   for (const line of lines) {
     const id = line.device_id;
     if (!id || present.has(id)) continue;
-    present.set(id, machineName(devices, id) ?? id);
+    // A line can name an id the fleet does not list — an old enrollment, a retired machine. The
+    // line is real, so it keeps a chip; the chip must not read like a machine.
+    present.set(id, { name: `unknown machine · ${id.slice(0, 12)}`, known: false });
   }
   // The table can narrow to a machine this window has no line for — a retired device, or a window
   // that slid. The chip is how that filter stays visible (and clearable) on the timeline.
   if (active !== "" && !present.has(active)) {
-    present.set(active, machineName(devices, active) ?? active);
+    const known = devices.some((device) => device.id === active);
+    present.set(active, {
+      name: known ? machineName(devices, active) ?? active : `unknown machine · ${active.slice(0, 12)}`,
+      known
+    });
   }
-  return Array.from(present, ([id, name]) => ({ id, name }));
+  return Array.from(present, ([id, entry]) => ({ id, name: entry.name, known: entry.known }));
 }
 
 /**
@@ -549,8 +555,8 @@ export function ActivityTimeline(props: {
               <button
                 key={machine.id}
                 type="button"
-                className="chip"
-                title={machine.id}
+                className={machine.known ? "chip" : "chip is-unknown"}
+                title={machine.known ? machine.id : `not in the fleet: ${machine.id}`}
                 aria-pressed={device === machine.id}
                 onClick={() => setDevice(machine.id)}
               >
