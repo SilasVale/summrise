@@ -5958,6 +5958,156 @@ async fn a_grant_call_has_no_token_id() {
     );
 }
 
+/// A grant on the standard route is a client's call with no token record. `token_id` cannot tell a
+/// client from the console — the operator's own `/mcp` carries none either — so the caller is a
+/// separate fact, and this is the case that proves it.
+#[tokio::test]
+async fn a_grant_authenticated_call_is_still_a_client() {
+    let fixture = Fixture::new("grant-caller");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xb8)).await;
+    let session = fixture.authenticate().await;
+    let grant = fixture.create_grant(&session, &device_id, 60).await;
+    let request = json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list" });
+
+    let http = send(
+        fixture.app(),
+        post_standard(&device_id, &grant, request.clone()),
+    );
+    let device_side = async {
+        let frame = next_json(&mut device).await;
+        assert_eq!(frame["mcp"], request);
+        answer(
+            &mut device,
+            &frame,
+            json!({ "jsonrpc": "2.0", "id": 1, "result": { "tools": [] } }),
+        )
+        .await;
+    };
+    let ((status, body), ()) = tokio::join!(http, device_side);
+    assert_eq!(status, StatusCode::OK, "{body}");
+
+    let lines = audit_lines(&fixture);
+    let line = lines
+        .iter()
+        .find(|line| line["kind"] == json!("mcp"))
+        .expect("the mcp line");
+    assert!(
+        line.get("token_id").is_none(),
+        "a grant has no token record to name: {line}"
+    );
+    assert_eq!(
+        line["caller"],
+        json!("client"),
+        "the audience is the route, not the credential's token record: {line}"
+    );
+}
+
+/// The console's own page calls `/mcp` on the operator session. That call is the console's, not the
+/// AI's, and both the line and the live event say so.
+#[tokio::test]
+async fn a_console_call_names_the_console_on_its_line_and_event() {
+    let fixture = Fixture::new("caller-console");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xb9)).await;
+    let session = fixture.authenticate().await;
+
+    let mut socket = open_events(&server, &session).await;
+    let mut seen = String::new();
+    read_until(&mut socket, &mut seen, "event: snapshot").await;
+
+    let app = fixture.app();
+    let call = tokio::spawn(async move {
+        send(
+            app,
+            post_json_bearer(
+                "/mcp",
+                &session,
+                json!({
+                    "device_id": device_id,
+                    "request": {
+                        "jsonrpc": "2.0",
+                        "id": 1,
+                        "method": "tools/call",
+                        "params": { "name": "terminal.list", "arguments": {} },
+                    },
+                }),
+            ),
+        )
+        .await
+    });
+
+    let frame = next_json(&mut device).await;
+    answer(&mut device, &frame, tool_result(json!({ "content": [] }))).await;
+    let (status, _) = call.await.expect("the call finished");
+    assert_eq!(status, StatusCode::OK);
+
+    read_until(&mut socket, &mut seen, "\"caller\":\"console\"").await;
+    assert!(
+        seen.contains("\"caller\":\"console\""),
+        "the live event names the console: {seen}"
+    );
+
+    let lines = audit_lines(&fixture);
+    let line = lines
+        .iter()
+        .find(|line| line["kind"] == json!("mcp"))
+        .expect("the mcp line");
+    assert_eq!(line["caller"], json!("console"), "{line}");
+}
+
+/// An AI client's call through `/mcp/:id` is the client's, on the line and on the event.
+#[tokio::test]
+async fn a_client_call_names_the_client_on_its_line_and_event() {
+    let fixture = Fixture::new("caller-client");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xba)).await;
+    let session = fixture.authenticate().await;
+    let (status, created) = fixture
+        .create_token(&session, &device_id, "laptop-dsh", &["files.read"], false)
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{created}");
+    let plaintext = created["token"].as_str().expect("the token").to_owned();
+
+    let mut socket = open_events(&server, &session).await;
+    let mut seen = String::new();
+    read_until(&mut socket, &mut seen, "event: snapshot").await;
+
+    let request = json!({
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "tools/call",
+        "params": { "name": "files.read", "arguments": { "path": "notes.txt" } },
+    });
+    let http = send(
+        fixture.app(),
+        post_token(&device_id, &plaintext, request.clone()),
+    );
+    let device_side = async {
+        let frame = next_json(&mut device).await;
+        assert_eq!(frame["mcp"], request);
+        answer(&mut device, &frame, tool_result(json!({ "content": "hi" }))).await;
+    };
+    let ((status, body), ()) = tokio::join!(http, device_side);
+    assert_eq!(status, StatusCode::OK, "{body}");
+
+    read_until(&mut socket, &mut seen, "\"caller\":\"client\"").await;
+    assert!(
+        seen.contains("\"caller\":\"client\""),
+        "the live event names the client: {seen}"
+    );
+
+    let lines = audit_lines(&fixture);
+    let line = lines
+        .iter()
+        .find(|line| line["kind"] == json!("mcp"))
+        .expect("the mcp line");
+    assert_eq!(line["caller"], json!("client"), "{line}");
+}
+
 /// An unknown token, a revoked one and one used against another device are one 401 on the wire; the
 /// denial log keeps the difference, and none of them can rotate the audit.
 #[tokio::test]

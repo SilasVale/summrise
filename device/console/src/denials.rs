@@ -83,6 +83,7 @@ impl Denials {
                         detail: Some(detail.as_str()),
                         tool: None,
                         token_id: None,
+                        caller: None,
                     })
                     .await;
             }

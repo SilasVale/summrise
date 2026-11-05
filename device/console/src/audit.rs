@@ -1,6 +1,6 @@
 //! The operator-action index at `<data>/audit.jsonl`.
 //!
-//! One line per **authenticated** action: `{"ts_ms","kind","device_id?","status","detail?","tool?","token_id?"}`.
+//! One line per **authenticated** action: `{"ts_ms","kind","device_id?","status","detail?","tool?","token_id?","caller?"}`.
 //! `kind` is a closed set — `enroll`, `register`, `grant`, `token`, `token_revoke`, `mcp`, and
 //! `denied` for a refusal of a request whose caller proved a credential. `status` is the HTTP status
 //! the caller saw, `detail` is a short reason: the console's wire error code for a refusal, or the
@@ -8,6 +8,13 @@
 //! the arguments are the operator's data and never reach this file. `token_id` is the permanent
 //! token *record's* id when a token authenticated an MCP call — never the `srm_` secret; the grant
 //! path, the operator's own `/mcp` route and every non-token action write no field.
+//!
+//! `caller` is the **audience** of a proxied call, and it is not `token_id`: the operator session on
+//! `/mcp` and the terminal stream are the console's own reads, `/mcp/:id` and `/mcp/all` are an AI
+//! client's calls, and a grant on the standard route is a client with no token record at all. Only a
+//! call the console proxied writes the field; an operator action (a grant, a token, a sign-in) has
+//! no caller, and a line written before this field existed has none either — the page treats both
+//! as "not a client's call", never as one.
 //!
 //! A request that fails authentication never reaches this file. Those refusals are an
 //! unauthenticated caller's to generate at will, so they live in [`crate::denials`], rate-limited
@@ -36,6 +43,22 @@ pub(crate) const AUDIT_MAX_BYTES: u64 = 8 * 1024 * 1024;
 /// The current file's name under the data directory.
 const AUDIT_FILE: &str = "audit.jsonl";
 
+/// Who made a call the console proxied.
+///
+/// The route is the fact: `/mcp` is the operator's own page on the operator session, and
+/// `/terminal/:device/:session/stream` reads for that page; `/mcp/:id` and `/mcp/all` are an AI
+/// client that presented a grant or a token. It is deliberately not derived from `token_id`: a grant
+/// on the standard route is a client with no token record, and the operator's `/mcp` carries none
+/// either, so the token id alone cannot tell the two audiences apart.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum Caller {
+    /// The console itself: the operator page's `/mcp` calls, and the terminal stream's reads.
+    Console,
+    /// An AI client holding a grant or a permanent token.
+    Client,
+}
+
 /// One audit line.
 ///
 /// The absence of a body field is the design: the struct cannot carry one even by accident.
@@ -59,6 +82,9 @@ pub(crate) struct Entry<'a> {
     /// The permanent token record that authenticated this call, by id — never the secret.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) token_id: Option<&'a str>,
+    /// The audience of a proxied call. Absent on operator actions and on lines older than the field.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) caller: Option<Caller>,
 }
 
 /// The append-only audit index; the denial log reuses [`Entry`] as its line shape.

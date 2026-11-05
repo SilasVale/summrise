@@ -24,7 +24,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::Digest;
 
-use crate::audit::{self, Audit};
+use crate::audit::{self, Audit, Caller};
 use crate::auth::{
     bearer_secret, constant_time_eq, new_session_token, random_32, Session, SESSION_LIFETIME_MS,
 };
@@ -423,14 +423,27 @@ fn screen_png(reply: &Reply) -> Option<String> {
     parsed.get("data")?.as_str().map(str::to_owned)
 }
 
-/// The facts one audit line names. One shape, named at the call site: the three `Option`s are
-/// different facts, not interchangeable positionals.
+/// The facts one audit line names. One shape, named at the call site: the `Option`s are different
+/// facts, not interchangeable positionals. `caller` is present only on a line a proxied call wrote.
 struct AuditFacts<'a> {
     kind: &'static str,
     device_id: Option<&'a str>,
     status: StatusCode,
     detail: Option<&'a str>,
     tool: Option<&'a str>,
+    token_id: Option<&'a str>,
+    caller: Option<Caller>,
+}
+
+/// Who a proxied call belongs to, and the permanent token record that proved it, when one did.
+///
+/// The two facts travel together because both describe the caller and both go on every line and
+/// event the exchange writes. `token_id` is `None` for the operator's session and for a grant, so
+/// `caller` is what tells those two apart: the operator page's `/mcp` is the console's own call, a
+/// grant on `/mcp/:id` is a client's.
+#[derive(Clone, Copy)]
+struct CallIdentity<'a> {
+    caller: Caller,
     token_id: Option<&'a str>,
 }
 
@@ -448,6 +461,7 @@ struct LiveCall<'a> {
     detail: &'a str,
     ms: u64,
     evidence: Option<Value>,
+    caller: Caller,
 }
 
 /// The consent the operator gave, as the audit's fixed pair of strings for a grant or a token.
@@ -628,6 +642,7 @@ impl Inner {
                 detail: facts.detail,
                 tool: facts.tool,
                 token_id: facts.token_id,
+                caller: facts.caller,
             })
             .await;
         // A call's live event is published by the proxy, which has the call's arguments; everything
@@ -650,6 +665,9 @@ impl Inner {
             if let Some(detail) = facts.detail {
                 event["detail"] = json!(detail);
             }
+            if let Some(caller) = facts.caller {
+                event["caller"] = json!(caller);
+            }
             let sentence = crate::activity::line_sentence(&event);
             event["sentence"] = json!(sentence);
             self.audit.publish(event);
@@ -657,7 +675,7 @@ impl Inner {
     }
 
     /// Publish one proxied call to the live stream: the sentence, the tool, the device, the outcome,
-    /// why it failed, and how long the device took.
+    /// why it failed, how long the device took, and whether the console or a client made the call.
     fn publish_call(&self, call: LiveCall<'_>) {
         let mut event = json!({
             "ts_ms": (self.now)(),
@@ -667,6 +685,7 @@ impl Inner {
             "live": true,
             "ms": call.ms,
             "sentence": call.sentence,
+            "caller": call.caller,
         });
         if let Some(device_id) = call.device_id {
             event["device_id"] = json!(device_id);
@@ -701,14 +720,36 @@ impl Inner {
             detail,
             tool,
             token_id,
+            caller: None,
         })
         .await;
     }
 
     /// Audit an **authenticated** refusal as `denied` and hand the error back.
     async fn deny(&self, device_id: Option<&str>, error: ApiError) -> ApiError {
-        self.record("denied", device_id, error.status, Some(error.code))
-            .await;
+        self.deny_from(None, device_id, error).await
+    }
+
+    /// [`Inner::deny`] for a route that knows the refusal's audience.
+    ///
+    /// `None` is an operator action (a grant, a token, a sign-in) or a line older than the field; the
+    /// page treats both as "not an AI client's call", never as one.
+    async fn deny_from(
+        &self,
+        caller: Option<Caller>,
+        device_id: Option<&str>,
+        error: ApiError,
+    ) -> ApiError {
+        self.record_facts(AuditFacts {
+            kind: "denied",
+            device_id,
+            status: error.status,
+            detail: Some(error.code),
+            tool: None,
+            token_id: None,
+            caller,
+        })
+        .await;
         error
     }
 
@@ -740,6 +781,7 @@ impl Inner {
                 detail: Some(detail),
                 tool: None,
                 token_id: None,
+                caller: None,
             })
             .await;
         error
@@ -1521,7 +1563,10 @@ async fn device_tool(
         app,
         device_id,
         &RequestAuth::Token(&scope),
-        None,
+        CallIdentity {
+            caller: Caller::Console,
+            token_id: None,
+        },
         request,
         StatusCode::BAD_REQUEST,
         None,
@@ -1668,7 +1713,11 @@ async fn terminal_stream(
     };
     if let Err(error) = ensure_registered(&app, &device_id) {
         return app
-            .deny(audit_device_id(&device_id).as_deref(), error)
+            .deny_from(
+                Some(Caller::Console),
+                audit_device_id(&device_id).as_deref(),
+                error,
+            )
             .await
             .into_response();
     }
@@ -2753,14 +2802,6 @@ fn mint_aggregate_scope(
     Ok(token_scope(app, &record, device_id))
 }
 
-/// Forward one MCP exchange to a device and record the authenticated outcome.
-///
-/// The caller has already checked the device and verified the grant. `invalid_params_status` is the
-/// HTTP status a malformed `tools/call` gets: the custom route answers 400, the standard route
-/// answers 200 with a JSON-RPC error, and both are the same authorization decision. `filter` is the
-/// grant's tool list when the request is `tools/list` on the standard route; the custom route passes
-/// `None` and keeps its unfiltered answer. `token_id` is the permanent token's record id when one
-/// authenticated this exchange, and is written on every line this function records.
 /// The JSON-RPC code a device's error envelope carries, when it is one.
 fn error_code(reply: &Reply) -> Option<i64> {
     match reply {
@@ -2792,11 +2833,21 @@ fn bounded_detail(message: &str) -> String {
     message.chars().take(64).collect()
 }
 
+/// Forward one MCP exchange to a device and record the authenticated outcome.
+///
+/// The caller has already checked the device and verified the grant. `invalid_params_status` is the
+/// HTTP status a malformed `tools/call` gets: the custom route answers 400, the standard route
+/// answers 200 with a JSON-RPC error, and both are the same authorization decision. `filter` is the
+/// grant's tool list when the request is `tools/list` on the standard route; the custom route passes
+/// `None` and keeps its unfiltered answer. `identity` names whose call it is — the page's own `/mcp`
+/// or the terminal stream, against an AI client on `/mcp/:id` or `/mcp/all` — and the permanent
+/// token's record id when one authenticated the exchange. Both facts are written on every line and
+/// event this function records.
 async fn proxy_reply(
     app: &AppState,
     device_id: &str,
     auth: &RequestAuth<'_>,
-    token_id: Option<&str>,
+    identity: CallIdentity<'_>,
     request: Value,
     invalid_params_status: StatusCode,
     filter: Option<&[String]>,
@@ -2813,7 +2864,8 @@ async fn proxy_reply(
                 status: invalid_params_status,
                 detail: Some("invalid_tool_call"),
                 tool: None,
-                token_id,
+                token_id: identity.token_id,
+                caller: Some(identity.caller),
             })
             .await;
             return Err(Box::new(jsonrpc_error(
@@ -2853,7 +2905,8 @@ async fn proxy_reply(
                 status: StatusCode::FORBIDDEN,
                 detail: Some("tool_not_permitted"),
                 tool: Some(tool),
-                token_id,
+                token_id: identity.token_id,
+                caller: Some(identity.caller),
             })
             .await;
             return Err(Box::new(jsonrpc_error(
@@ -2900,6 +2953,7 @@ async fn proxy_reply(
                 detail: "device timeout",
                 ms: started.elapsed().as_millis() as u64,
                 evidence: evidence.clone(),
+                caller: identity.caller,
             });
             app.record_facts(AuditFacts {
                 kind: "denied",
@@ -2907,7 +2961,8 @@ async fn proxy_reply(
                 status: StatusCode::GATEWAY_TIMEOUT,
                 detail: Some("device timeout"),
                 tool: tool.as_deref(),
-                token_id,
+                token_id: identity.token_id,
+                caller: Some(identity.caller),
             })
             .await;
             Err(Box::new(
@@ -2925,6 +2980,7 @@ async fn proxy_reply(
                 detail: failure.detail,
                 ms: started.elapsed().as_millis() as u64,
                 evidence: evidence.clone(),
+                caller: identity.caller,
             });
             app.record_facts(AuditFacts {
                 kind: "denied",
@@ -2932,7 +2988,8 @@ async fn proxy_reply(
                 status: failure.status,
                 detail: Some(failure.detail),
                 tool: tool.as_deref(),
-                token_id,
+                token_id: identity.token_id,
+                caller: Some(identity.caller),
             })
             .await;
             Err(Box::new(failure.into_response()))
@@ -2958,6 +3015,7 @@ async fn proxy_reply(
                     detail: "destructive_without_consent",
                     ms: started.elapsed().as_millis() as u64,
                     evidence: evidence.clone(),
+                    caller: identity.caller,
                 });
                 app.record_facts(AuditFacts {
                     kind: "denied",
@@ -2965,7 +3023,8 @@ async fn proxy_reply(
                     status: StatusCode::FORBIDDEN,
                     detail: Some("destructive_without_consent"),
                     tool: tool.as_deref(),
-                    token_id,
+                    token_id: identity.token_id,
+                    caller: Some(identity.caller),
                 })
                 .await;
                 return Ok(reply);
@@ -3036,6 +3095,7 @@ async fn proxy_reply(
                 detail: &live_detail,
                 ms: started.elapsed().as_millis() as u64,
                 evidence,
+                caller: identity.caller,
             });
             app.record_facts(AuditFacts {
                 kind: "mcp",
@@ -3043,7 +3103,8 @@ async fn proxy_reply(
                 status: StatusCode::OK,
                 detail: detail.as_deref(),
                 tool: tool.as_deref(),
-                token_id,
+                token_id: identity.token_id,
+                caller: Some(identity.caller),
             })
             .await;
             Ok(reply)
@@ -3059,7 +3120,7 @@ async fn forward(
     app: &AppState,
     device_id: &str,
     auth: &RequestAuth<'_>,
-    token_id: Option<&str>,
+    identity: CallIdentity<'_>,
     request: Value,
     invalid_params_status: StatusCode,
     filter: Option<&[String]>,
@@ -3068,7 +3129,7 @@ async fn forward(
         app,
         device_id,
         auth,
-        token_id,
+        identity,
         request,
         invalid_params_status,
         filter,
@@ -3112,7 +3173,10 @@ async fn proxy_mcp(
     let audit_id = audit_device_id(&body.device_id);
 
     if let Err(error) = ensure_registered(&app, &body.device_id) {
-        return app.deny(audit_id.as_deref(), error).await.into_response();
+        return app
+            .deny_from(Some(Caller::Console), audit_id.as_deref(), error)
+            .await
+            .into_response();
     }
     // The operator's session is the credential. A legacy client may still present a grant, verified
     // exactly as before; a client that presents none gets the operator's own authority: every tool on
@@ -3120,7 +3184,10 @@ async fn proxy_mcp(
     let legacy = match &body.grant {
         Some(grant) => {
             if let Err(error) = verify_presented(&app, &body.device_id, grant) {
-                return app.deny(audit_id.as_deref(), error).await.into_response();
+                return app
+                    .deny_from(Some(Caller::Console), audit_id.as_deref(), error)
+                    .await
+                    .into_response();
             }
             Some(grant)
         }
@@ -3135,7 +3202,10 @@ async fn proxy_mcp(
         &app,
         &body.device_id,
         &auth,
-        None,
+        CallIdentity {
+            caller: Caller::Console,
+            token_id: None,
+        },
         body.request,
         StatusCode::BAD_REQUEST,
         None,
@@ -3206,12 +3276,15 @@ async fn standard_mcp(
                     .into_response()
             }
             Err(TokenRefusal::ForeignDevice) => {
-                app.record(
-                    "denied",
-                    audit_id.as_deref(),
-                    StatusCode::UNAUTHORIZED,
-                    Some("api_token_device_mismatch"),
-                )
+                app.record_facts(AuditFacts {
+                    kind: "denied",
+                    device_id: audit_id.as_deref(),
+                    status: StatusCode::UNAUTHORIZED,
+                    detail: Some("api_token_device_mismatch"),
+                    tool: None,
+                    token_id: None,
+                    caller: Some(Caller::Client),
+                })
                 .await;
                 return ApiError::unauthorized().into_response();
             }
@@ -3222,7 +3295,10 @@ async fn standard_mcp(
         BearerAuth::Token(scope) => RequestAuth::Token(scope),
     };
     if let Err(error) = ensure_registered(&app, &device_id) {
-        return app.deny(audit_id.as_deref(), error).await.into_response();
+        return app
+            .deny_from(Some(Caller::Client), audit_id.as_deref(), error)
+            .await
+            .into_response();
     }
 
     // The grant is verified, so this buffer can only be filled by a caller who proved a credential.
@@ -3289,7 +3365,10 @@ async fn standard_mcp(
                 &app,
                 &device_id,
                 &auth,
-                token_id.as_deref(),
+                CallIdentity {
+                    caller: Caller::Client,
+                    token_id: token_id.as_deref(),
+                },
                 request,
                 StatusCode::OK,
                 Some(auth.tools()),
@@ -3301,7 +3380,10 @@ async fn standard_mcp(
                 &app,
                 &device_id,
                 &auth,
-                token_id.as_deref(),
+                CallIdentity {
+                    caller: Caller::Client,
+                    token_id: token_id.as_deref(),
+                },
                 request,
                 StatusCode::OK,
                 None,
@@ -3509,7 +3591,10 @@ async fn aggregate_mcp(State(app): State<AppState>, request: axum::extract::Requ
                 &app,
                 &device_id,
                 &auth,
-                Some(&granted.token_id),
+                CallIdentity {
+                    caller: Caller::Client,
+                    token_id: Some(&granted.token_id),
+                },
                 request,
                 StatusCode::OK,
                 Some(auth.tools()),
@@ -3536,6 +3621,7 @@ async fn aggregate_mcp(State(app): State<AppState>, request: axum::extract::Requ
                         detail: Some("missing_device"),
                         tool: None,
                         token_id: Some(&record.id),
+                        caller: Some(Caller::Client),
                     })
                     .await;
                     return jsonrpc_error(
@@ -3552,7 +3638,11 @@ async fn aggregate_mcp(State(app): State<AppState>, request: axum::extract::Requ
                 DeviceResolution::Resolved(device_id) => {
                     if let Err(error) = ensure_registered(&app, &device_id) {
                         return app
-                            .deny(audit_device_id(&device_id).as_deref(), error)
+                            .deny_from(
+                                Some(Caller::Client),
+                                audit_device_id(&device_id).as_deref(),
+                                error,
+                            )
                             .await
                             .into_response();
                     }
@@ -3565,7 +3655,10 @@ async fn aggregate_mcp(State(app): State<AppState>, request: axum::extract::Requ
                         &app,
                         &device_id,
                         &auth,
-                        Some(&granted.token_id),
+                        CallIdentity {
+                            caller: Caller::Client,
+                            token_id: Some(&granted.token_id),
+                        },
                         request,
                         StatusCode::OK,
                         None,
@@ -3584,6 +3677,7 @@ async fn aggregate_mcp(State(app): State<AppState>, request: axum::extract::Requ
                         detail: Some("device_not_permitted"),
                         tool: None,
                         token_id: Some(&record.id),
+                        caller: Some(Caller::Client),
                     })
                     .await;
                     jsonrpc_error(
