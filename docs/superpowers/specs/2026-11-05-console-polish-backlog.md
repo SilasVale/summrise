@@ -38,7 +38,7 @@ host's `runs.exec`. Code-only work continues; nothing ships until a device answe
 
 Ranked by honesty first. Each item names its measurement and its gate.
 
-1. **The Now band must count the AI, not the console's own polling.** With a machine chosen and no
+1. **The Now band must count the AI, not the console's own polling.** *(Done 2026-11-05, 7de1358 + 43e6e0d + c3d6edd: the route names the caller; the band counts only `client`; the console's own rows carry a muted `console` mark; the session poll runs only when the page is in front, visible, online and empty.)* With a machine chosen and no
    session, `TerminalWorkspace.tsx:1367` calls `terminal.list` every 10 s through `/mcp` with no
    `visible` guard; each call is audited and streamed, so `LiveNow.tsx:58` reads "Active now · 6 calls
    in the last minute" for an idle machine and the window fills in under three hours. Publish the
