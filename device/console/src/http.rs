@@ -110,6 +110,9 @@ struct Inner {
     channels: ChannelRegistry,
     audit: Audit,
     denials: Denials,
+    /// The calls the proxy is still waiting on, for the live stream's running line. Memory only:
+    /// it is not the audit and nothing here is written to a file.
+    running: crate::running::Running,
     mcp_timeout: Duration,
     now: Now,
     started: Instant,
@@ -199,6 +202,7 @@ impl Console {
                 channels: ChannelRegistry::new(),
                 audit: Audit::new(&config.data, audit_max_bytes),
                 denials: Denials::new(&config.data),
+                running: crate::running::Running::new(RUNS_MAX_PROXY_WAIT),
                 mcp_timeout,
                 now: Arc::new(now),
                 started: Instant::now(),
@@ -467,6 +471,22 @@ struct LiveCall<'a> {
     token_id: Option<&'a str>,
 }
 
+/// A running call, cleared when the proxy stops waiting.
+///
+/// `Drop` is the point: an answer, a timeout, a refusal after the frame left, and a client that
+/// disconnected mid-wait all clear the announcement the same way, so no exit can leave a phantom.
+/// Publishing is a broadcast, which is safe from a destructor.
+struct RunningCall<'a> {
+    app: &'a Inner,
+    id: String,
+}
+
+impl Drop for RunningCall<'_> {
+    fn drop(&mut self) {
+        self.app.finish_call(&self.id);
+    }
+}
+
 /// The consent the operator gave, as the audit's fixed pair of strings for a grant or a token.
 fn consent_detail(allow_destructive: bool) -> &'static str {
     if allow_destructive {
@@ -711,6 +731,30 @@ impl Inner {
             event["evidence"] = evidence;
         }
         self.audit.publish(event);
+    }
+
+    /// Announce one proxied call on the live stream, before the wait for the device.
+    ///
+    /// **THIS IS NOT AN AUDIT LINE.** The frame goes to [`Audit::publish`], which only broadcasts;
+    /// nothing is appended to the file, because a call that has not finished is not a record. The
+    /// returned guard clears it however the wait ends.
+    fn start_call(&self, caller: Caller, device_id: Option<&str>, tool: &str) -> RunningCall<'_> {
+        let started = self.running.start((self.now)(), caller, device_id, tool);
+        self.audit.publish(json!({
+            "started": started.value(),
+            "caller": caller,
+        }));
+        RunningCall {
+            app: self,
+            id: started.id().to_owned(),
+        }
+    }
+
+    /// Publish a call's clear and forget it. The snapshot must stop naming the call too, or a page
+    /// that reconnects would keep a phantom from the registry's copy.
+    fn finish_call(&self, id: &str) {
+        self.running.finish(id);
+        self.audit.publish(json!({ "finished": { "id": id } }));
     }
 
     /// Write one audit line, naming the tool when the action was a `tools/call` and the permanent
@@ -2930,6 +2974,13 @@ async fn proxy_reply(
         }
     }
 
+    // **ANNOUNCE THE CALL BEFORE THE WAIT.** A run can keep the device five minutes while the proxy
+    // gives up at ninety seconds; without this frame the band reads "Quiet" for exactly the call a
+    // person most needs to see. The guard clears it on every exit.
+    let _running = tool
+        .as_deref()
+        .map(|tool| app.start_call(identity.caller, audit_id.as_deref(), tool));
+
     // A run blocks on the device for its own timeout (the device's cap is ten minutes), so both bounds
     // follow it: the channel's wait for the answer and the proxy's backstop around it. Every other
     // tool keeps `mcp_timeout`, and a device that has not answered in it is one to give up on.
@@ -4413,6 +4464,9 @@ async fn event_stream(State(app): State<AppState>, _: OperatorSession) -> Respon
     // Subscribe BEFORE reading the newest lines: a line written between the two would otherwise be in
     // neither the snapshot nor the stream.
     let live = app.audit.follow();
+    // The calls in flight are not in the file, so a page that reconnects reads them here. The same
+    // cut the page applies is applied by the registry: an entry whose clear was dropped expires.
+    let running = app.running.current((app.now)());
     let recent: Vec<Value> = app
         .audit
         .newest(40)
@@ -4427,15 +4481,27 @@ async fn event_stream(State(app): State<AppState>, _: OperatorSession) -> Respon
     // Oldest first, like the file: a page prepends each live event and gets a newest-first list.
     let recent: Vec<Value> = recent.into_iter().rev().collect();
     let snapshot = futures_util::stream::once(async move {
-        let body = json!({ "lines": recent });
+        let body = json!({ "lines": recent, "running": running });
         Ok::<Event, Infallible>(Event::default().event("snapshot").data(body.to_string()))
     });
     let live_events = futures_util::stream::unfold(live, |mut live| async move {
         match live.recv().await {
-            Ok(value) => Some((
-                Ok::<Event, Infallible>(Event::default().event("activity").data(value.to_string())),
-                live,
-            )),
+            Ok(value) => {
+                // A call's announcement and clear share the audit's broadcast, but they are not
+                // activity lines: the page listens for their own names and keeps them out of the
+                // record. Everything else is an activity line.
+                let name = if value.get("started").is_some() {
+                    "started"
+                } else if value.get("finished").is_some() {
+                    "finished"
+                } else {
+                    "activity"
+                };
+                Some((
+                    Ok::<Event, Infallible>(Event::default().event(name).data(value.to_string())),
+                    live,
+                ))
+            }
             Err(tokio::sync::broadcast::error::RecvError::Lagged(dropped)) => {
                 let body = json!({ "dropped": dropped });
                 Some((

@@ -8016,6 +8016,22 @@ async fn read_until_after(
     }
 }
 
+/// One SSE event's JSON body by name: the last one in the buffer.
+///
+/// The stream carries `event: <name>\ndata: <json>\n\n`; a test that needs the started frame's id
+/// parses the body rather than matching a field inside a buffer that also holds the snapshot.
+fn last_event(seen: &str, name: &str) -> Value {
+    let marker = format!("event: {name}\ndata: ");
+    let start = seen
+        .rfind(&marker)
+        .unwrap_or_else(|| panic!("the buffer holds a {name} event: {seen}"))
+        + marker.len();
+    let rest = &seen[start..];
+    let end = rest.find('\n').unwrap_or(rest.len());
+    serde_json::from_str(&rest[..end])
+        .unwrap_or_else(|error| panic!("the {name} event's data is JSON: {error}: {seen}"))
+}
+
 /// The newest `evidence.shot` path in an SSE buffer, without pulling a JSON parser into a test that
 /// only needs the one string.
 fn last_shot(seen: &str) -> Option<String> {
@@ -8176,6 +8192,168 @@ async fn a_proxied_call_reaches_the_stream_as_a_sentence() {
     read_until(&mut socket, &mut seen, "Read `notes.txt`").await;
     assert!(seen.contains("Read `notes.txt`"), "{seen}");
     assert!(seen.contains("\"ok\":true"), "{seen}");
+}
+
+/// A call that is still waiting is announced before its answer, and the announcement is not a line
+/// in the audit: the record holds finished calls, while the band is what says one is running.
+#[tokio::test]
+async fn a_held_call_is_announced_before_its_answer_and_never_audited() {
+    let fixture = Fixture::new("activity-started");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0x5a)).await;
+    let session = fixture.authenticate().await;
+    // The standard route is the AI client's: the started frame names `client`, not `console`.
+    let grant = fixture.create_grant(&session, &device_id, 60).await;
+
+    let mut socket = open_events(&server, &session).await;
+    let mut seen = String::new();
+    read_until(&mut socket, &mut seen, "event: snapshot").await;
+    let audited_before = audit_lines(&fixture).len();
+
+    let request = json!({
+        "jsonrpc": "2.0",
+        "id": 11,
+        "method": "tools/call",
+        "params": { "name": "files.read", "arguments": { "path": "held.txt" } },
+    });
+    let call_device = device_id.clone();
+    let call_grant = grant.clone();
+    let app = fixture.app();
+    let call =
+        tokio::spawn(
+            async move { send(app, post_standard(&call_device, &call_grant, request)).await },
+        );
+
+    let frame = next_json(&mut device).await;
+    read_until(&mut socket, &mut seen, "event: started").await;
+
+    let started = last_event(&seen, "started");
+    assert_eq!(started["caller"], json!("client"), "{started}");
+    assert_eq!(started["started"]["device_id"], json!(device_id));
+    assert_eq!(started["started"]["tool"], json!("files.read"));
+    assert_eq!(started["started"]["at_ms"], json!(fixture.now_ms()));
+    let call_id = started["started"]["id"]
+        .as_str()
+        .expect("the started frame names the call")
+        .to_owned();
+    assert!(!call_id.is_empty(), "{started}");
+    assert!(
+        !seen.contains("event: activity"),
+        "the activity frame waits for the device's answer: {seen}"
+    );
+
+    // The announcement is a live frame, not an audit line: the file has not grown while the call is
+    // held, and it never gains a `started` line.
+    assert_eq!(
+        audit_lines(&fixture).len(),
+        audited_before,
+        "the started frame must never be written to the audit"
+    );
+
+    answer(&mut device, &frame, tool_result(json!({ "content": "hi" }))).await;
+    let (status, _) = call.await.expect("the call finished");
+    assert_eq!(status, StatusCode::OK);
+
+    read_until(&mut socket, &mut seen, "event: finished").await;
+    let finished = last_event(&seen, "finished");
+    assert_eq!(finished["finished"]["id"], json!(call_id));
+    let activity_at = seen
+        .find("event: activity")
+        .unwrap_or_else(|| panic!("the answer is the activity frame: {seen}"));
+    let finished_at = seen
+        .rfind("event: finished")
+        .unwrap_or_else(|| panic!("the clear follows the answer: {seen}"));
+    assert!(
+        activity_at < finished_at,
+        "the finished frame follows the reply: {seen}"
+    );
+
+    let lines = audit_lines(&fixture);
+    assert_eq!(lines.len(), audited_before + 1, "{lines:?}");
+    let text = audit_text(&fixture);
+    for word in ["started", "finished"] {
+        assert!(
+            !text.contains(word),
+            "a {word} frame is live, never an audit line: {text}"
+        );
+    }
+}
+
+/// A `finished` frame that never arrives cannot leave a running call forever. The snapshot applies
+/// the proxy's own ninety-second cut, so a reconnect cannot resurrect the entry either.
+#[tokio::test]
+async fn a_started_entry_older_than_the_cut_is_dropped() {
+    let fixture = Fixture::new("activity-started-cut");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0x5b)).await;
+    let session = fixture.authenticate().await;
+
+    let mut socket = open_events(&server, &session).await;
+    let mut seen = String::new();
+    read_until(&mut socket, &mut seen, "event: snapshot").await;
+
+    let call_device = device_id.clone();
+    let call_session = session.clone();
+    let app = fixture.app();
+    let call = tokio::spawn(async move {
+        send(
+            app,
+            post_json_bearer(
+                "/mcp",
+                &call_session,
+                json!({
+                    "device_id": call_device,
+                    "request": {
+                        "jsonrpc": "2.0",
+                        "id": 12,
+                        "method": "tools/call",
+                        "params": { "name": "files.read", "arguments": { "path": "held.txt" } },
+                    },
+                }),
+            ),
+        )
+        .await
+    });
+
+    let frame = next_json(&mut device).await;
+    read_until(&mut socket, &mut seen, "event: started").await;
+    let call_id = last_event(&seen, "started")["started"]["id"]
+        .as_str()
+        .expect("the started frame names the call")
+        .to_owned();
+
+    // A page that reconnects while the call is fresh sees it in the snapshot: the registry is the
+    // in-flight call, not the audit file (which holds nothing until the answer).
+    let mut fresh = open_events(&server, &session).await;
+    let mut fresh_seen = String::new();
+    read_until(&mut fresh, &mut fresh_seen, "event: snapshot").await;
+    let snapshot = last_event(&fresh_seen, "snapshot");
+    assert!(
+        snapshot["running"]
+            .as_array()
+            .expect("the snapshot carries the calls still running")
+            .iter()
+            .any(|entry| entry["id"] == json!(call_id)),
+        "a fresh page is told the call is running: {snapshot}"
+    );
+
+    // Past the proxy's cut a dropped `finished` may not leave the entry running forever.
+    fixture.advance_ms(90_001);
+    let mut stale = open_events(&server, &session).await;
+    let mut stale_seen = String::new();
+    read_until(&mut stale, &mut stale_seen, "event: snapshot").await;
+    let snapshot = last_event(&stale_seen, "snapshot");
+    assert_eq!(
+        snapshot["running"],
+        json!([]),
+        "an entry older than the proxy's cut is dropped: {snapshot}"
+    );
+
+    answer(&mut device, &frame, tool_result(json!({ "content": "hi" }))).await;
+    let (status, _) = call.await.expect("the call finished");
+    assert_eq!(status, StatusCode::OK);
 }
 
 #[tokio::test]
