@@ -507,6 +507,116 @@ try {
   step('opened Connect → Tokens; one row per registry token, including another machine\'s');
   await page.screenshot({ path: path.join(OUT, '06-connect-tokens.png') });
 
+  // ITEM 5, MEASURED AT 1280. The sheet is 600 px wide on desktop, so the token row is measured
+  // against the sheet, not the viewport: the old sixth column put Revoke past its right edge.
+  await page.waitForTimeout(400);
+  const sheet1280 = await page.locator('.sheet').boundingBox();
+  const revoke1280 = await tokenRows.first().getByRole('button', { name: 'Revoke' }).boundingBox();
+  if (!sheet1280 || !revoke1280) throw new Error('the token sheet or its Revoke has no box');
+  const inside = (box, outer) =>
+    box.x >= outer.x - 0.5 && box.x + box.width <= outer.x + outer.width + 0.5;
+  console.log(
+    `browser-gate: tokens at 1280: sheet x ${Math.round(sheet1280.x)}..${Math.round(
+      sheet1280.x + sheet1280.width
+    )}, Revoke x ${Math.round(revoke1280.x)}..${Math.round(revoke1280.x + revoke1280.width)}`
+  );
+  if (!inside(revoke1280, sheet1280)) {
+    throw new Error('the first token\'s Revoke is outside the sheet at 1280');
+  }
+
+  // THE PHONE HALF. Resize the same page: the audit table must drop its sixth column, put the
+  // disclosure in the first cell, and fit the 390 px content without a sideways scroll.
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(250);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.waitForTimeout(400);
+  await page.locator('nav.rail button[title="Activity"]').click();
+  await page.getByRole('heading', { name: 'Activity' }).waitFor({ timeout: 10_000 });
+  await page.getByRole('tab', { name: 'Table' }).click();
+  const firstAuditRow = page.locator('.audit-row').first();
+  await firstAuditRow.waitFor({ timeout: 10_000 });
+  const audit390 = await page.evaluate(() => {
+    const row = document.querySelector('.audit-row');
+    const button = row?.querySelector('.audit-disclosure');
+    const scroller = row?.closest('.table-scroll');
+    const rect = (element) => {
+      const box = element.getBoundingClientRect();
+      return {
+        left: Math.round(box.left),
+        right: Math.round(box.right),
+        width: Math.round(box.width)
+      };
+    };
+    return {
+      viewport: document.documentElement.clientWidth,
+      documentScrollWidth: document.documentElement.scrollWidth,
+      firstCellHasButton: row?.cells[0]?.contains(button ?? null) ?? false,
+      disclosure: button ? rect(button) : null,
+      scroller: scroller
+        ? {
+            ...rect(scroller),
+            scrollWidth: scroller.scrollWidth,
+            clientWidth: scroller.clientWidth
+          }
+        : null
+    };
+  });
+  console.log(
+    `browser-gate: audit at 390: disclosure ${JSON.stringify(
+      audit390.disclosure
+    )}, viewport ${audit390.viewport}/${audit390.documentScrollWidth}, scroller ${
+      audit390.scroller?.scrollWidth
+    }/${audit390.scroller?.clientWidth}, first-cell ${audit390.firstCellHasButton}`
+  );
+  if (!audit390.firstCellHasButton) {
+    throw new Error('the audit disclosure is not in the row\'s first cell at 390');
+  }
+  if (
+    !audit390.disclosure ||
+    audit390.disclosure.left < 0 ||
+    audit390.disclosure.right > audit390.viewport
+  ) {
+    throw new Error('the audit disclosure is outside the viewport at 390');
+  }
+  if (
+    audit390.documentScrollWidth > audit390.viewport ||
+    !audit390.scroller ||
+    audit390.scroller.scrollWidth > audit390.scroller.clientWidth
+  ) {
+    throw new Error('the audit table still scrolls sideways at 390');
+  }
+  // The measured opener is the real one: it opens the record with no horizontal scroll.
+  const disclosure390 = firstAuditRow.locator('button.audit-disclosure');
+  if ((await disclosure390.getAttribute('aria-expanded')) === 'true') {
+    await disclosure390.click();
+    await page.waitForTimeout(150);
+  }
+  await disclosure390.click();
+  await page.locator('.audit-record-row').first().waitFor({ state: 'visible', timeout: 5_000 });
+  await page.screenshot({ path: path.join(OUT, '07-audit-390.png') });
+  step('at 390 the audit opener is in the first cell; the table fits and the record opens');
+
+  // The Connect sheet at 390: the same measured promise for the token row.
+  await page.locator('.account > summary').click();
+  await page.locator('.account').getByRole('button', { name: 'Tokens', exact: true }).click();
+  await page.getByRole('dialog', { name: 'Tokens' }).waitFor({ timeout: 10_000 });
+  const tokenRow390 = page.locator('.token-table tbody tr').first();
+  await tokenRow390.waitFor({ timeout: 10_000 });
+  await page.waitForTimeout(400);
+  const sheet390 = await page.locator('.sheet').boundingBox();
+  const revoke390 = await tokenRow390.getByRole('button', { name: 'Revoke' }).boundingBox();
+  if (!sheet390 || !revoke390) throw new Error('the phone token sheet or its Revoke has no box');
+  console.log(
+    `browser-gate: tokens at 390: sheet x ${Math.round(sheet390.x)}..${Math.round(
+      sheet390.x + sheet390.width
+    )}, Revoke x ${Math.round(revoke390.x)}..${Math.round(revoke390.x + revoke390.width)}`
+  );
+  if (!inside(revoke390, sheet390)) {
+    throw new Error('the first token\'s Revoke is outside the sheet at 390');
+  }
+  await page.screenshot({ path: path.join(OUT, '08-tokens-390.png') });
+  step('at 390 the first token\'s Revoke is inside the sheet, under the token\'s name');
+
   if (errors.length > 0) throw new Error('console errors: ' + errors.join(' ;; '));
   console.log(`browser-gate: PASS — ${steps.length} steps, ${state.writes.length} bytes written, marker echoed`);
   console.log(`browser-gate: screenshots in ${OUT}`);

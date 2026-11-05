@@ -273,7 +273,6 @@ main.terminal-main { display: grid; grid-template-rows: auto minmax(0, 1fr); ali
     width: 100%; margin-left: 0; flex-wrap: nowrap; overflow-x: auto;
     border-bottom: 1px solid var(--line); height: 40px;
   }
-  .audit-table { min-width: 44rem; }
   .device-connect { display: none; }
   .device-tabs { gap: 0; }
   .device-tab { flex: 0 0 auto; padding: var(--sp-2) var(--sp-3); text-align: center; }
@@ -556,8 +555,10 @@ button.chip-bad.chip-action:hover { background-color: var(--error-soft); }
 
 .scroll { max-height: 17rem; overflow: auto; }
 table { width: 100%; border-collapse: collapse; }
-/* The audit table keeps its columns on a phone by scrolling inside its card, not by widening the
-   page. A table that pushes the page sideways hides the rail and the status bar with it. */
+/* A table wider than its card scrolls inside the card, not the page: a table that pushes the page
+   sideways hides the rail and the status bar with it. The audit table no longer needs that scroll
+   below 640 px (its sixth column is gone and the opener is in the first cell), and the token list
+   is measured against its sheet, not the viewport. */
 .table-scroll { max-width: 100%; overflow-x: auto; }
 .table-scroll:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; border-radius: var(--radius-xs); }
 th, td { text-align: left; padding: var(--sp-1-5) var(--sp-2); border-bottom: 1px solid var(--line); }
@@ -1772,10 +1773,62 @@ span.files-name {
 .token-tools { display: grid; gap: var(--sp-0-5); white-space: nowrap; }
 .token-tools .hint { font-size: var(--fs-2xs); white-space: normal; }
 .token-expires, .token-created { white-space: nowrap; }
+.token-meta-label { display: none; }
 .token-actions { display: flex; justify-content: flex-end; gap: var(--sp-1); white-space: nowrap; }
 /* The row a record's Manage opened: a mark, not the only way to find it (the list is short and the
    sheet scrolled), so the tint has to survive both schemes without becoming the focus ring. */
 .token-table tr.is-managed td { background: var(--accent-soft); }
+/* THE SHEET IS 600 PX WIDE EVEN AT 1280, so the token list is measured by its own scroller, not by
+   the viewport. At <=639 px of that width the six columns cannot fit; the row becomes a card: name,
+   scope and tools on top, Revoke/Rotate on their own line under the name, dates last. The heading
+   row is still in the DOM for assistive technology. */
+.token-table-scroll { container: token-list / inline-size; }
+@container token-list (max-width: 639px) {
+  .token-table,
+  .token-table tbody { display: block; }
+  .token-table thead {
+    position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+    overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+  }
+  .token-table tr {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "name scope"
+      "name tools"
+      "actions actions"
+      "expires created";
+    align-items: start;
+    gap: var(--sp-1) var(--sp-3);
+    padding: var(--sp-3) 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .token-table tr:first-child { padding-top: var(--sp-1); }
+  .token-table tr:last-child { border-bottom: 0; padding-bottom: var(--sp-1); }
+  .token-table td {
+    display: block; padding: 0; border: 0; text-align: left; overflow-wrap: anywhere;
+  }
+  .token-table td:nth-child(1) { grid-area: name; }
+  .token-table td:nth-child(2) { grid-area: scope; justify-self: end; text-align: right; }
+  .token-table td:nth-child(3) { grid-area: tools; justify-self: end; text-align: right; }
+  .token-table td:nth-child(4) {
+    grid-area: expires; padding-top: var(--sp-1);
+    color: var(--ink-muted); font-size: var(--fs-sm);
+  }
+  .token-table td:nth-child(5) {
+    grid-area: created; padding-top: var(--sp-1); justify-self: end; text-align: right;
+    color: var(--ink-muted); font-size: var(--fs-sm);
+  }
+  .token-table td:nth-child(6) { grid-area: actions; padding-top: var(--sp-1); }
+  .token-table td.token-tools { display: grid; gap: var(--sp-0-5); justify-items: end; }
+  .token-table td.token-actions {
+    display: flex; justify-content: flex-start; text-align: left;
+  }
+  .token-meta-label { display: inline; margin-right: var(--sp-1); }
+  .token-id { flex-wrap: wrap; white-space: normal; }
+  .token-table tr.is-managed { background: var(--accent-soft); border-radius: var(--radius-xs); }
+  .token-table tr.is-managed td { background: transparent; }
+}
 
 @media (max-width: 639px) {
   .connect-sheet .connect-tabs button { flex: 1; text-align: center; }
@@ -1836,6 +1889,33 @@ span.files-name {
 .audit-record dt { color: var(--ink-muted); font-size: var(--fs-sm); }
 .audit-record dd { margin: 0; overflow-wrap: anywhere; }
 .audit-record dd .mini, .evidence-facts dd .mini { margin-left: var(--sp-2); }
+/* THE RECORD FITS THE PHONE. At <=639 px the chevron column is not rendered (the component puts
+   the same button in the row's first cell), and the five remaining columns share the card's width
+   instead of the table's old 44 rem minimum. Fixed columns are the promise: the row opens with no
+   sideways swipe, and the cells wrap rather than widen the page. */
+@media (max-width: 639px) {
+  .audit-table { min-width: 0; width: 100%; table-layout: fixed; }
+  .audit-table th, .audit-table td { padding: var(--sp-1-5) var(--sp-1); }
+  .audit-table th:nth-child(1), .audit-table td:nth-child(1) { width: 20%; }
+  .audit-table th:nth-child(2), .audit-table td:nth-child(2) { width: 21%; }
+  .audit-table th:nth-child(3), .audit-table td:nth-child(3) { width: 15%; }
+  .audit-table th:nth-child(4), .audit-table td:nth-child(4) { width: 30%; }
+  .audit-table th:nth-child(5), .audit-table td:nth-child(5) { width: 14%; }
+  .audit-when { white-space: normal; }
+  .audit-row td { overflow-wrap: anywhere; }
+  .audit-when .audit-disclosure { margin-right: 2px; vertical-align: middle; }
+  .audit-record-row td { padding: var(--sp-2); }
+  .audit-record { grid-template-columns: 5rem minmax(0, 1fr); gap: var(--sp-1) var(--sp-2); }
+}
+/* 360 is the narrowest phone the harness renders; the same five columns need two more points for
+   the machine name and the sentence, taken from the when and token cells (which already wrap). */
+@media (max-width: 379px) {
+  .audit-table th:nth-child(1), .audit-table td:nth-child(1) { width: 18%; }
+  .audit-table th:nth-child(2), .audit-table td:nth-child(2) { width: 23%; }
+  .audit-table th:nth-child(3), .audit-table td:nth-child(3) { width: 13%; }
+  .audit-table th:nth-child(4), .audit-table td:nth-child(4) { width: 32%; }
+  .audit-table th:nth-child(5), .audit-table td:nth-child(5) { width: 14%; }
+}
 .audit-empty { display: grid; gap: var(--sp-2); justify-items: start; padding: var(--sp-3) 0; }
 /* The one action that leaves the page with data sits at the far end of the filter row. */
 .audit-export { margin-left: auto; }

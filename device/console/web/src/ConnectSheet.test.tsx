@@ -330,6 +330,27 @@ describe("ConnectSheet's one credential list", () => {
     expect(dataRows[1]).toHaveTextContent("laptop");
   });
 
+  it("marks the token list as the container the narrow rule stacks", async () => {
+    // The sheet is 600 px wide even at 1280, so the token table is measured against its scroller,
+    // not the viewport. At <=639 px of that width the row becomes a card: name, scope and tools on
+    // top, the actions on their own line under the name. The container is the anchor the CSS
+    // queries, and the actions keep the class the rule targets.
+    mocks.tokens.mockResolvedValue([tokenMeta()]);
+    draw({ initialSection: "tokens" });
+
+    const row = (await screen.findByRole("row", { name: /laptop/ })) as HTMLTableRowElement;
+    const scroller = row.closest(".token-table-scroll");
+    expect(scroller).not.toBeNull();
+    expect(scroller).toHaveClass("table-scroll");
+    const nameCell = row.cells[0];
+    expect(nameCell.querySelector(".token-name")).not.toBeNull();
+    const actions = row.querySelector("td.token-actions");
+    expect(actions).not.toBeNull();
+    expect(actions).toBe(row.cells[row.cells.length - 1]);
+    expect(within(actions as HTMLElement).getByRole("button", { name: "Rotate" })).toBeInTheDocument();
+    expect(within(actions as HTMLElement).getByRole("button", { name: "Revoke" })).toBeInTheDocument();
+  });
+
   it("shows a token minted for another machine under that machine's name", async () => {
     mocks.tokens.mockResolvedValue([
       tokenMeta({ id: "tok-attic", name: "attic-ops", device_id: ATTIC.id })

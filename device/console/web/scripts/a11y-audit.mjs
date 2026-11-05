@@ -930,7 +930,18 @@ function collectInPage(regionSelector) {
       const candidateRow = tableRow(candidate.element);
       if (existingRow !== null && candidateRow !== null) {
         if (existingRow !== candidateRow) return false;
-        return tableCell(existing.element) !== tableCell(candidate.element);
+        if (tableCell(existing.element) !== tableCell(candidate.element)) {
+          // A table row usually draws its cells on one line, but the token list reflows a row into
+          // a grid card at a narrow sheet (name, scope/tools, actions, dates). Two cells of the
+          // same row can therefore sit on different visual lines; measure before calling them one.
+          return (
+            Math.abs(
+              candidate.top + candidate.height / 2 - (existing.top + existing.height / 2)
+            ) <= 16 ||
+            (candidate.top < existing.top + existing.height - 2 &&
+              candidate.top + candidate.height > existing.top + 2)
+          );
+        }
       }
       const existingLayout = layoutParent(existing.element);
       const candidateLayout = layoutParent(candidate.element);

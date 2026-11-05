@@ -7,6 +7,7 @@ import { downloadFile } from "./download";
 import { age, shortId } from "./format";
 import { ConsoleCaller } from "./CallerMark";
 import { tokenFact, tokenLabel } from "./tokenFact";
+import { useMediaQuery } from "./useMediaQuery";
 
 /**
  * How many lines the page asks the console for. `/audit?limit=` accepts up to 1000 (`MAX_LOG_LIMIT`
@@ -256,6 +257,10 @@ export function AuditTable({
     [devices]
   );
   const [copied, setCopied] = useState<string | null>(null);
+  // THE OPENER IS IN THE ROW, NOT AT ITS FAR END. A phone cannot see a sixth column, and the old
+  // 44 rem table made opening one record cost a sideways swipe; below 640 px the disclosure is the
+  // When cell and the chevron column is not rendered at all. The desktop table is unchanged.
+  const wide = useMediaQuery("(min-width: 640px)");
   const retired = Array.from(
     new Set(
       lines
@@ -334,6 +339,20 @@ export function AuditTable({
         tokenNames
       }))
     : empty;
+
+  const disclosure = (key: string, isOpen: boolean, line: AuditLine) => (
+    <button
+      type="button"
+      className="audit-disclosure"
+      aria-expanded={isOpen}
+      aria-label={`${isOpen ? "Hide" : "Show"} the record for ${line.tool ?? line.kind}`}
+      onClick={() => toggle(key)}
+    >
+      <span className="audit-chevron" aria-hidden="true">
+        {isOpen ? "▾" : "›"}
+      </span>
+    </button>
+  );
 
   return (
     <div>
@@ -462,15 +481,17 @@ export function AuditTable({
                 <th>Token</th>
                 <th>What happened</th>
                 <th>Status</th>
-                <th>
-                  <span className="sr-only">Record</span>
-                </th>
+                {wide && (
+                  <th>
+                    <span className="sr-only">Record</span>
+                  </th>
+                )}
               </tr>
             </thead>
             {days.map((day) => (
               <tbody key={day.key}>
                 <tr className="audit-day">
-                  <th colSpan={6}>{day.label}</th>
+                  <th colSpan={wide ? 6 : 5}>{day.label}</th>
                 </tr>
                 {day.lines.map((line) => {
                   const key = keys.get(line) ?? String(line.ts_ms);
@@ -485,6 +506,7 @@ export function AuditTable({
                     <Fragment key={key}>
                       <tr className="audit-row">
                         <td className="audit-when" title={new Date(line.ts_ms).toISOString()}>
+                          {!wide && disclosure(key, isOpen, line)}
                           {age(line.ts_ms)}
                         </td>
                         <td title={line.device_id ?? undefined}>
@@ -533,25 +555,13 @@ export function AuditTable({
                             {line.status}
                           </span>
                         </td>
-                        <td className="audit-chevron-cell">
-                          <button
-                            type="button"
-                            className="audit-disclosure"
-                            aria-expanded={isOpen}
-                            aria-label={`${isOpen ? "Hide" : "Show"} the record for ${
-                              line.tool ?? line.kind
-                            }`}
-                            onClick={() => toggle(key)}
-                          >
-                            <span className="audit-chevron" aria-hidden="true">
-                              {isOpen ? "▾" : "›"}
-                            </span>
-                          </button>
-                        </td>
+                        {wide && (
+                          <td className="audit-chevron-cell">{disclosure(key, isOpen, line)}</td>
+                        )}
                       </tr>
                       {isOpen && (
                         <tr className="audit-record-row">
-                          <td colSpan={6}>
+                          <td colSpan={wide ? 6 : 5}>
                             <dl className="audit-record">
                               <dt>Time</dt>
                               <dd title={new Date(line.ts_ms).toISOString()}>

@@ -266,6 +266,30 @@ describe("AuditTable", () => {
     expect(screen.queryByRole("columnheader", { name: /kind/i })).not.toBeInTheDocument();
   });
 
+  it("puts the row's opener in its first cell, so a phone does not swipe to open it", () => {
+    // <=639 px: the sixth column is not rendered and the disclosure moves into the When cell. The
+    // assertion is structural (the first `td`, the row's first focusable element), not a
+    // `matchMedia` reading: jsdom has no layout, and the media query is proven by the screenshots.
+    render(<AuditTable lines={lines} devices={devices} tokens={[]} />);
+
+    const row = rowOf("memory.export") as HTMLTableRowElement;
+    const firstCell = row.cells[0];
+    const disclosure = firstCell.querySelector<HTMLButtonElement>("button.audit-disclosure");
+    expect(disclosure).not.toBeNull();
+    expect(firstCell.querySelector("button")).toBe(disclosure);
+    expect(disclosure).toHaveAttribute("aria-expanded", "false");
+    expect(disclosure).toHaveAccessibleName("Show the record for memory.export");
+
+    const focusable = row.querySelectorAll<HTMLElement>(
+      'button, a[href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+    );
+    expect(focusable[0]).toBe(disclosure);
+
+    fireEvent.click(disclosure as HTMLButtonElement);
+    expect(disclosure).toHaveAttribute("aria-expanded", "true");
+    expect(recordOf("memory.export")).toBeInTheDocument();
+  });
+
   it("copies the full device id from an open line without collapsing it", async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     const original = Object.getOwnPropertyDescriptor(navigator, "clipboard");

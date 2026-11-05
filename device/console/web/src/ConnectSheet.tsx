@@ -654,7 +654,12 @@ function TokensSection({
           </p>
         )}
         {tokens !== null && tokens.length > 0 && (
-          <div className="table-scroll" role="region" aria-label="Token list" tabIndex={0}>
+          <div
+            className="table-scroll token-table-scroll"
+            role="region"
+            aria-label="Token list"
+            tabIndex={0}
+          >
             <table className="token-table">
               <thead>
                 <tr>
@@ -709,8 +714,12 @@ function TokensSection({
                           {entry.allow_destructive ? "destructive allowed" : "read-only"}
                         </span>
                       </td>
-                      <td className="token-expires">{expiry(entry)}</td>
+                      <td className="token-expires">
+                        <span className="token-meta-label" aria-hidden="true">Expires</span>
+                        {expiry(entry)}
+                      </td>
                       <td className="token-created">
+                        <span className="token-meta-label" aria-hidden="true">Created</span>
                         <time dateTime={new Date(entry.created_at_ms).toISOString()}>
                           {new Date(entry.created_at_ms).toLocaleDateString()}
                         </time>
