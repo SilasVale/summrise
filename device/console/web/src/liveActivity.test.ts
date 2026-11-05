@@ -63,13 +63,15 @@ describe("the live activity stream", () => {
     expect(handlers.activity).not.toHaveBeenCalled();
   });
 
-  it("reports lag and a dropped connection", () => {
+  it("hands the dropped-line count to the page, and reports a dropped connection", () => {
     const source = new FakeSource("/events");
     const handlers = { snapshot: vi.fn(), activity: vi.fn(), lagged: vi.fn(), error: vi.fn() };
     openLiveActivity(handlers, () => source);
-    source.emit("lagged", {});
+    source.emit("lagged", { dropped: 3 });
     source.fail();
-    expect(handlers.lagged).toHaveBeenCalledOnce();
+    // The hole is a number the page can say out loud; discarding the frame body is what let the
+    // page keep its "Following" sentence over it.
+    expect(handlers.lagged).toHaveBeenCalledWith(3);
     expect(handlers.error).toHaveBeenCalledOnce();
   });
 

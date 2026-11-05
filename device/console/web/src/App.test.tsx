@@ -238,6 +238,17 @@ async function bootAndSignIn() {
   return view;
 }
 
+/** A promise whose settlement the test decides, for asserting the state in between. */
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
 /** Select a machine from its fleet card; Home stays Home, as the hub's first screen. */
 function selectDevice(name: string) {
   const label = screen.getAllByText(name).find((node) => node.closest("article"));
@@ -979,6 +990,99 @@ describe("App", () => {
     fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
     await waitFor(() => expect(mocks.devices).toHaveBeenCalledTimes(2));
     expect(JSON.parse(localStorage.getItem(VITALS_KEY_PREFIX + workshop.id) ?? "[]")).toHaveLength(2);
+  });
+
+  it("rereads the audit after a dropped frame, and says so until the answer lands", async () => {
+    await bootAndSignIn();
+    fireEvent.click(screen.getByRole("button", { name: "Activity" }));
+    await screen.findByRole("heading", { name: "Activity", level: 1 });
+
+    const source = TestEventSource.instances[TestEventSource.instances.length - 1];
+    act(() => {
+      source.emit("snapshot", { lines: [] });
+    });
+    expect(
+      await screen.findByText("Following the console's audit as it is written.")
+    ).toBeInTheDocument();
+
+    // The reread is the audit window, not a new kind of read: same limit the page already asks for.
+    const answer = deferred<unknown[]>();
+    const readsBefore = mocks.audit.mock.calls.length;
+    mocks.audit.mockReturnValueOnce(answer.promise);
+
+    act(() => {
+      source.emit("lagged", { dropped: 3 });
+    });
+
+    // The number and the reread are one fact: the page may not say it is following a record with a
+    // known hole in it.
+    expect(
+      await screen.findByText("3 lines were dropped while this tab was behind; rereading")
+    ).toBeInTheDocument();
+    await waitFor(() => expect(mocks.audit).toHaveBeenCalledTimes(readsBefore + 1));
+    expect(mocks.audit).toHaveBeenLastCalledWith(1000);
+    expect(screen.queryByText(/Following the console's audit/)).toBeNull();
+
+    // A line arriving after the hole is the stream resuming; it is not the missing lines.
+    act(() => {
+      source.emit("activity", {
+        ts_ms: Date.now(),
+        kind: "mcp",
+        status: 200,
+        ok: true,
+        sentence: "Read `notes.txt`",
+        tool: "files.read"
+      });
+    });
+    expect(
+      screen.getByText("3 lines were dropped while this tab was behind; rereading")
+    ).toBeInTheDocument();
+    expect(mocks.audit).toHaveBeenCalledTimes(readsBefore + 1);
+
+    // The answer lands, the hole is read back, and only now is the page following again.
+    await act(async () => {
+      answer.resolve([]);
+    });
+    expect(
+      await screen.findByText("Following the console's audit as it is written.")
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/were dropped while this tab was behind/)).toBeNull();
+  });
+
+  it("keeps the newest audit read when the poll and a lag reread overlap", async () => {
+    await bootAndSignIn();
+    fireEvent.click(screen.getByRole("button", { name: "Activity" }));
+    await screen.findByRole("heading", { name: "Activity", level: 1 });
+    const source = TestEventSource.instances[TestEventSource.instances.length - 1];
+    act(() => {
+      source.emit("snapshot", { lines: [] });
+    });
+
+    // Two reads of the same growing file can be in flight: the five-second poll's and the reread a
+    // drop started. The file only gains lines, so the read that STARTED later is the fresher answer.
+    const polled = deferred<unknown[]>();
+    const reread = deferred<unknown[]>();
+    const readsBefore = mocks.audit.mock.calls.length;
+    mocks.audit.mockReturnValueOnce(polled.promise).mockReturnValueOnce(reread.promise);
+
+    fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
+    await waitFor(() => expect(mocks.audit).toHaveBeenCalledTimes(readsBefore + 1));
+    act(() => {
+      source.emit("lagged", { dropped: 1 });
+    });
+    await waitFor(() => expect(mocks.audit).toHaveBeenCalledTimes(readsBefore + 2));
+
+    await act(async () => {
+      reread.resolve([{ ...tokenCall, ts_ms: 2, sentence: "The reread's line" }]);
+    });
+    expect(await screen.findByText("The reread's line")).toBeInTheDocument();
+
+    // The poll's older answer lands after it; it must not reopen the hole the reread just filled.
+    await act(async () => {
+      polled.resolve([{ ...tokenCall, ts_ms: 1, sentence: "The poll's older line" }]);
+    });
+    await waitFor(() => expect(screen.queryByText("The poll's older line")).toBeNull());
+    expect(screen.getByText("The reread's line")).toBeInTheDocument();
   });
 
   it("counts the lines that arrived while Activity was paused", async () => {

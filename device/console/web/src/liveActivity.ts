@@ -10,6 +10,11 @@
  * Reconnecting is safe here, unlike the terminal stream: each connection opens with a fresh snapshot,
  * which replaces whatever the page had. That is why `EventSource`'s own retry is left in charge — a
  * cursor would be needed only if the stream could not re-describe its history.
+ *
+ * A page can be slower than the console's broadcast buffer without dropping the connection. The
+ * console then sends one `lagged` frame carrying the number of lines the buffer discarded, and the
+ * page has a hole it cannot recover from the stream itself: the caller must read `/audit` again.
+ * This module keeps that number; filling the hole is the caller's job.
  */
 
 /** One activity line, as `/events` sends it. */
@@ -48,8 +53,8 @@ export type LiveHandlers = {
   snapshot: (lines: LiveLine[]) => void;
   /** One line, written after the connection opened. */
   activity: (line: LiveLine) => void;
-  /** The page fell behind; the caller refetches or waits for the next snapshot. */
-  lagged: () => void;
+  /** The page fell behind: how many lines the console's buffer dropped before this event. */
+  lagged: (dropped: number) => void;
   /** The connection dropped. `EventSource` retries on its own. */
   error: () => void;
 };
@@ -108,7 +113,12 @@ export function openLiveActivity(
     const line = asLine(parse(event.data));
     if (line) handlers.activity(line);
   };
-  const onLagged = () => handlers.lagged();
+  const onLagged = (event: MessageEvent) => {
+    // A lagged frame is always a hole, even if its body cannot be counted. Saying one rather than
+    // zero keeps a malformed body from reading as "nothing was lost".
+    const dropped = droppedCount(parse(event.data));
+    handlers.lagged(dropped);
+  };
   source.addEventListener("snapshot", onSnapshot);
   source.addEventListener("activity", onActivity);
   source.addEventListener("lagged", onLagged);
@@ -145,6 +155,21 @@ function asLine(value: unknown): LiveLine | null {
       ? { evidence: frame.evidence as Record<string, unknown> }
       : {})
   };
+}
+
+/**
+ * The number of lines a `lagged` frame says the server dropped.
+ *
+ * The console always sends a positive count. A body that arrived without one still came from a lag
+ * the console announced, so the answer is one rather than zero: the page may undercount an unknown
+ * hole, but it must not report it as no hole at all.
+ */
+function droppedCount(frame: Record<string, unknown> | null): number {
+  const dropped = frame?.dropped;
+  if (typeof dropped === "number" && Number.isFinite(dropped) && dropped > 0) {
+    return Math.max(1, Math.floor(dropped));
+  }
+  return 1;
 }
 
 function parse(text: unknown): Record<string, unknown> | null {

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import logoUrl from "./logo.svg";
 import {
   api,
@@ -64,8 +64,31 @@ export function App() {
   // It lives in localStorage; this state is the copy the pages draw.
   const [vitals, setVitals] = useState<Record<string, VitalsSample[]>>({});
   const [audit, setAudit] = useState<AuditLine[]>([]);
+  /**
+   * Read the audit window again into the page.
+   *
+   * One function for both readers: the five-second poll and the stream's catch-up after a dropped
+   * frame. They ask for the same `AUDIT_WINDOW` and the same device scope, so a line the page reads
+   * back is the line the poll would have read; neither can quietly narrow the window.
+   *
+   * Both reads can overlap. The file only gains lines and both ask for its newest window, so a
+   * response from a read that started later is the fresher answer; a response from an older read
+   * that lands after it is dropped rather than allowed to reopen a hole the newer read just filled.
+   * A failed read never counts as an answer, so it cannot hide an older read that did answer.
+   */
+  const auditReadStarted = useRef(0);
+  const auditReadApplied = useRef(0);
+  const rereadAudit = useCallback(async () => {
+    const generation = ++auditReadStarted.current;
+    const lines = await api.audit(AUDIT_WINDOW);
+    if (generation > auditReadApplied.current) {
+      auditReadApplied.current = generation;
+      setAudit(lines);
+    }
+  }, []);
   // The same index, streamed: what the AI is doing now, not what it did before the last refresh.
-  const live = useLiveActivity(Boolean(session?.authenticated));
+  // `rereadAudit` is how the hook fills the hole a `lagged` frame says the stream left.
+  const live = useLiveActivity(Boolean(session?.authenticated), rereadAudit);
   // Activity follows the stream unless the operator paused it: a paused table is a snapshot of the
   // list at that moment, and the lines that arrived since are counted rather than lost.
   const [activityPaused, setActivityPaused] = useState(false);
@@ -195,9 +218,9 @@ export function App() {
   const refreshData = useCallback(async () => {
     // EACH STREAM ANSWERS FOR ITSELF. A failed /audit must not turn the fleet into "0 devices" or
     // Activity into "no calls": the last known values stay, and one banner says which read failed.
-    const [list, lines, tokenList] = await Promise.allSettled([
+    const [list, auditRead, tokenList] = await Promise.allSettled([
       api.devices(),
-      api.audit(AUDIT_WINDOW),
+      rereadAudit(),
       tokensOrEmpty()
     ]);
     if (list.status === "fulfilled") {
@@ -206,9 +229,9 @@ export function App() {
       // after a successful fleet fetch is what keeps an offline device from adding a stale point.
       setVitals(recordVitals(list.value, Date.now()));
     }
-    if (lines.status === "fulfilled") setAudit(lines.value);
+    // `rereadAudit` owns the audit state; its rejection is only one of the reads the banner names.
     if (tokenList.status === "fulfilled") setTokens(tokenList.value);
-    const failed = [list, lines, tokenList].filter(
+    const failed = [list, auditRead, tokenList].filter(
       (result): result is PromiseRejectedResult => result.status === "rejected"
     );
     if (failed.length > 0) {
@@ -216,7 +239,7 @@ export function App() {
     } else {
       setError(null);
     }
-  }, []);
+  }, [rereadAudit]);
 
   const probe = useCallback(async () => {
     // /session decides the page; /health only labels the console's build. Waiting for both meant a
@@ -688,13 +711,15 @@ export function App() {
               <div>
                 <h1>Activity</h1>
                 <p className="page-sub">
-                  {activityPaused
-                    ? "Paused — the stream is still running; Resume shows what arrived."
-                    : live.state === "live"
-                      ? "Following the console's audit as it is written."
-                      : live.state === "offline"
-                        ? "The live stream is down; this is the last read."
-                        : "Opening the live stream."}
+                  {live.lagged > 0
+                    ? `${live.lagged} lines were dropped while this tab was behind; rereading`
+                    : activityPaused
+                      ? "Paused — the stream is still running; Resume shows what arrived."
+                      : live.state === "live"
+                        ? "Following the console's audit as it is written."
+                        : live.state === "offline"
+                          ? "The live stream is down; this is the last read."
+                          : "Opening the live stream."}
                 </p>
               </div>
               <div className="page-actions">
