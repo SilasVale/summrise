@@ -389,8 +389,9 @@ export function SystemPage({
           </p>
         )}
         {device && (
+          // The id is not printed here: nothing on this page acts on it, and the two places that do
+          // (the record's Copy id, the Connect endpoint) carry it with a copy control.
           <p className="hint">
-            Device id <span className="mono">{device.id}</span> ·{" "}
             {device.version ? `build ${device.version}` : "build unknown"} ·{" "}
             {device.online ? "online" : "offline"}
           </p>
