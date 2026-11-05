@@ -1,29 +1,40 @@
 //! The Windows calls the safe crates cannot make.
 //!
 //! The device app and the launcher are `#![forbid(unsafe_code)]`. That is the right rule for the
-//! code that decides what a grant permits, but two questions a device must answer — "what is running
-//! on this machine" and "end that process" — have no safe Rust answer without a dependency this
-//! project does not want to carry. This crate is the small unsafe surface: two functions, each a
-//! short Win32 sequence, with the error mapped to `io::Error` so the caller never sees a `BOOL`.
+//! code that decides what a grant permits, but three questions a device must answer — "what is
+//! running on this machine", "end that process", and "make sure this child cannot outlive me" —
+//! have no safe Rust answer without a dependency this project does not want to carry. This crate is
+//! the small unsafe surface, with the error mapped to `io::Error` so the caller never sees a `BOOL`.
 //!
 //! Memory comes from `K32GetProcessMemoryInfo`'s working-set figure. A process this crate cannot
 //! open (a protected process, or one that exited between the snapshot and the open) reports `0`
 //! rather than failing the list: "I could not read its memory" and "it uses none" are different
 //! facts, but a list that refuses to render because one process is protected is useless.
+//!
+//! The ownership call is [`KillOnCloseJob`]: a Job Object the kernel empties when the app's last
+//! handle to it closes, including when the app is terminated without running a destructor.
 
 #![cfg(windows)]
 #![allow(unsafe_code)]
 
+use std::ffi::c_void;
 use std::io;
 use std::mem::{size_of, zeroed};
+use std::ptr;
 
 use windows_sys::Win32::Foundation::{CloseHandle, FALSE, HANDLE, INVALID_HANDLE_VALUE};
 use windows_sys::Win32::System::Diagnostics::ToolHelp::{
     CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W, TH32CS_SNAPPROCESS,
 };
+use windows_sys::Win32::System::JobObjects::{
+    AssignProcessToJobObject, CreateJobObjectW, JobObjectExtendedLimitInformation,
+    SetInformationJobObject, TerminateJobObject, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
+    JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+};
 use windows_sys::Win32::System::ProcessStatus::{K32GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS};
 use windows_sys::Win32::System::Threading::{
-    OpenProcess, TerminateProcess, PROCESS_QUERY_INFORMATION, PROCESS_TERMINATE, PROCESS_VM_READ,
+    OpenProcess, TerminateProcess, PROCESS_QUERY_INFORMATION, PROCESS_SET_QUOTA, PROCESS_TERMINATE,
+    PROCESS_VM_READ,
 };
 
 /// One running process.
@@ -88,6 +99,94 @@ pub fn terminate(pid: u32) -> io::Result<()> {
     // SAFETY: the handle is not used afterwards.
     unsafe { CloseHandle(handle) };
     result
+}
+
+/// A Job Object whose last handle closing kills every process still in it.
+///
+/// This is the ownership a child that must not outlive the app needs. A `Drop` runs on a clean exit
+/// and during unwinding, but a service stop, a launcher restart and a crash end the process without
+/// any Rust code running. The kernel closes every handle on those paths too, and
+/// `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` turns that close into a tree kill: the browser, its
+/// renderers and every helper it started, with no cleanup the app has to reach.
+pub struct KillOnCloseJob(HANDLE);
+
+impl KillOnCloseJob {
+    /// Create the job and put `pid` in it.
+    ///
+    /// The process must still be alive. A process already in a job is allowed on Windows 8 and
+    /// later (nested jobs); a refusal is returned rather than silently leaving an unowned child.
+    pub fn assign(pid: u32) -> io::Result<KillOnCloseJob> {
+        // SAFETY: no attributes and no name; the returned handle is checked before use and closed
+        // on every failure path below.
+        let job = unsafe { CreateJobObjectW(ptr::null(), ptr::null()) };
+        if job == 0 {
+            return Err(io::Error::last_os_error());
+        }
+
+        let mut limits: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = unsafe { zeroed() };
+        limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+        // SAFETY: `limits` is the struct the class names and `cb` is its exact size.
+        let set = unsafe {
+            SetInformationJobObject(
+                job,
+                JobObjectExtendedLimitInformation,
+                &limits as *const JOBOBJECT_EXTENDED_LIMIT_INFORMATION as *const c_void,
+                size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
+            )
+        };
+        if set == 0 {
+            let error = io::Error::last_os_error();
+            // SAFETY: the handle came from CreateJobObjectW and is not used afterwards.
+            unsafe { CloseHandle(job) };
+            return Err(error);
+        }
+
+        // AssignProcessToJobObject needs both rights: set the job's limits and terminate members.
+        // SAFETY: the handle is checked and closed before returning.
+        let process = unsafe { OpenProcess(PROCESS_SET_QUOTA | PROCESS_TERMINATE, FALSE, pid) };
+        if process == 0 {
+            let error = io::Error::last_os_error();
+            // SAFETY: same handle as above.
+            unsafe { CloseHandle(job) };
+            return Err(error);
+        }
+        // SAFETY: both handles are live; the job outlives the assignment.
+        let assigned = unsafe { AssignProcessToJobObject(job, process) };
+        let result = if assigned == 0 {
+            Err(io::Error::last_os_error())
+        } else {
+            Ok(())
+        };
+        // SAFETY: the process handle is not used afterwards.
+        unsafe { CloseHandle(process) };
+        match result {
+            Ok(()) => Ok(KillOnCloseJob(job)),
+            Err(error) => {
+                // SAFETY: closing the job with no member is harmless; it was created here.
+                unsafe { CloseHandle(job) };
+                Err(error)
+            }
+        }
+    }
+
+    /// End every process in the job now.
+    pub fn terminate(&self) -> io::Result<()> {
+        // SAFETY: the handle is live for as long as `self` is.
+        let accepted = unsafe { TerminateJobObject(self.0, 1) };
+        if accepted == 0 {
+            Err(io::Error::last_os_error())
+        } else {
+            Ok(())
+        }
+    }
+}
+
+impl Drop for KillOnCloseJob {
+    fn drop(&mut self) {
+        // Closing the last handle is the kill for every member still in the job.
+        // SAFETY: the handle came from CreateJobObjectW and is not used afterwards.
+        unsafe { CloseHandle(self.0) };
+    }
 }
 
 /// The executable name from a NUL-terminated UTF-16 buffer.

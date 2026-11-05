@@ -23,7 +23,7 @@ use summrise_core::{
     authorize, ApprovalState, Ctx, Decision, DenyReason, Subject, ToolCall, Transport,
 };
 
-use crate::capabilities::{self, terminal};
+use crate::capabilities::{self, browser, terminal};
 use crate::config::{Config, Release};
 use crate::helper;
 use crate::panel;
@@ -45,6 +45,7 @@ pub(crate) fn router(config: &Config, store: Store) -> Router {
         restart::none(),
         Arc::new(PluginHost::load(&config.data)),
     )
+    .0
 }
 
 /// A router whose terminal capability uses `limits`. Test-only: an in-process test shortens the
@@ -65,10 +66,16 @@ pub(crate) fn router_with_limits(
         restart::none(),
         Arc::new(PluginHost::load(&config.data)),
     )
+    .0
 }
 
 // The router's dependencies are listed once, here, in the order the features landed; a struct would
 // hide the fact that every new capability is one more argument the process owns.
+//
+// The browser registry is returned beside the router because the run loop, not a request, owns its
+// last act: `serve` closes the browser's pages and kills it after the listener stops. Keeping it
+// inside the router would make the process exit the only shutdown path, which is the leak this
+// return exists to prevent.
 #[allow(clippy::too_many_arguments)]
 fn router_with(
     config: &Config,
@@ -79,14 +86,14 @@ fn router_with(
     helper: Option<Arc<helper::Helper>>,
     restart: restart::Hook,
     plugins: Arc<PluginHost>,
-) -> Router {
+) -> (Router, Arc<browser::BrowserRegistry>) {
     // The MCP service and the panel share one terminal registry, so a session an MCP client opened
     // is the session the panel lists. `/mcp` is the same secret as `/api/state`: the gate runs before
     // the MCP service sees the request, so an unauthenticated caller cannot even start a handshake.
     // One audit for the process: the MCP service writes it, and the panel shares it so a session
     // opened from the device's own page is in the same file as a call an AI client made.
     let audit = std::sync::Arc::new(crate::mcp::Audit::new(&config.data));
-    let (mcp_service, terminal) = crate::mcp::service_with_terminal(
+    let (mcp_service, terminal, browser) = crate::mcp::service_with_terminal(
         config,
         limits,
         audit.clone(),
@@ -123,7 +130,7 @@ fn router_with(
             require_install_token,
         ));
 
-    Router::new()
+    let app = Router::new()
         // The device's own panel: the surface a person standing at this machine uses, and the only
         // place this boot's panel token is served. Both the page and its snapshot refuse a
         // non-loopback peer, so a reverse proxy in front of 127.0.0.1 cannot turn either into a
@@ -199,7 +206,9 @@ fn router_with(
         // `ProgramData`. It is the only route the helper may call, and it only says where to find it.
         .route("/helper", post(register_helper))
         .merge(mcp)
-        .with_state(state)
+        .with_state(state);
+
+    (app, browser)
 }
 
 /// The `/mcp` token gate: the same bearer check as the JSON routes, before any MCP handling.
@@ -231,7 +240,7 @@ pub async fn serve(
     // client; a standalone process has no supervisor to bring it back, so its handlers never call
     // this hook. One closure serves both the enrollment and `host.restart`.
     let restart = restart::exit_soon();
-    let app = router_with(
+    let (app, browser) = router_with(
         &config,
         store,
         terminal::Limits::default(),
@@ -253,14 +262,23 @@ pub async fn serve(
     eprintln!("summrise-device: listening on http://{address}");
     // ConnectInfo is what lets `/api/panel` tell a caller standing on this machine from one that
     // reached it through something else. Without it every request looks equally local.
-    axum::serve(
+    let served = axum::serve(
         listener,
         app.into_make_service_with_connect_info::<SocketAddr>(),
     )
     // The interactive stop: Ctrl+C lets the run loop call `PluginHost::stop_all` before the process
-    // ends. A SCM stop or a kill is outside any process's destructor; the launcher owns that path.
+    // ends. A SCM stop or a kill is outside any process's destructor; the ownership type covers the
+    // browser on that path, and the launcher owns the rest.
     .with_graceful_shutdown(shutdown_signal())
-    .await
+    .await;
+
+    // The browser belongs to the app: close its pages (a page releases its own Web Serial handle on
+    // teardown) and then kill its tree, before `main` returns and the process exits. On the abrupt
+    // paths this call never runs, and the process-group / job-object ownership is what still ends
+    // the browser.
+    browser.shutdown().await;
+
+    served
 }
 
 /// Wait for an orderly stop.
@@ -1491,6 +1509,7 @@ mod tests {
                 restart,
                 Arc::new(PluginHost::load(&self.config.data)),
             )
+            .0
         }
 
         fn saved_state(&self) -> summrise_core::State {

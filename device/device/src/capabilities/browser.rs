@@ -19,8 +19,16 @@
 //! Each launch's profile directory is fresh, which matters when a device was killed: its Chrome may
 //! still be running and still hold the old profile's lock. A launch sweeps directories a dead
 //! process left behind (by age, or by a lock that names no live process), and a graceful [`Browser`]
-//! `Drop` removes its own directory after killing the child — and on Unix its whole process group,
-//! which includes the renderers — so dropping the device does not leave a browser behind.
+//! `Drop` removes its own directory after ending the child's tree. The tree is the operating
+//! system's to end, not only this process's: on Unix the browser leads its own process group and the
+//! group is killed on drop; on Windows it is assigned to a Job Object with
+//! `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`, so a device terminated by a restart or a crash (where no
+//! destructor runs) still takes its browser with it.
+//!
+//! **The browser is shut down, not only killed.** A page may hold a Web Serial port, and a port is
+//! released by the page's own teardown; [`BrowserRegistry::shutdown`] closes every page target
+//! before it kills the browser. The device's run loop calls it after the listener stops, so a tab a
+//! tool opened and never closed releases its handle even when no client remembers it.
 //!
 //! **The client is deliberately small.** One command is one `{id, method, params}` message and one
 //! matching `{id, result}` reply; events are ignored except for the navigation commit (a main
@@ -50,7 +58,7 @@ use std::fmt;
 use std::fs;
 use std::io::{self, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -63,8 +71,10 @@ use tokio_tungstenite::tungstenite::protocol::WebSocketConfig;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::{connect_async_with_config, MaybeTlsStream, WebSocketStream};
 
+use super::owned::OwnedChild;
+
 #[cfg(unix)]
-use nix::sys::signal::{kill, killpg, Signal};
+use nix::sys::signal::kill;
 #[cfg(unix)]
 use nix::unistd::Pid;
 
@@ -105,6 +115,13 @@ pub struct CastFrame {
 
 /// How long one CDP command, one HTTP target-list read, or one CDP connect may take.
 pub const COMMAND_TIMEOUT_MS: u64 = 10_000;
+
+/// How long shutdown may spend closing pages before it kills the browser anyway.
+///
+/// Closing is what lets a page release a Web Serial handle itself, so it deserves a real moment; a
+/// wedged page must not hold the device's exit open, so the bound is short and the kill is the
+/// fallback.
+const SHUTDOWN_CLOSE_TIMEOUT_MS: u64 = 2_000;
 
 /// How long Chrome may take to answer its DevTools HTTP endpoint before an attempt fails.
 ///
@@ -841,8 +858,10 @@ struct Browser {
     /// `ws://127.0.0.1:<port>/devtools/browser/<uuid>`.
     browser_ws: String,
     /// `None` when the browser was launched by the per-user helper: this process did not start it, so
-    /// it must not kill it. The helper owns that browser and replaces it on the next launch.
-    child: Option<Child>,
+    /// it must not kill it. The helper owns that browser and replaces it on the next launch. When
+    /// this app started the browser, the type owns its whole tree (a process group on Unix, a
+    /// kill-on-close Job Object on Windows), so a device restart cannot leave it behind.
+    child: Option<OwnedChild>,
     /// This launch's private profile directory; `Drop` removes it after killing the browser.
     /// The profile directory this capability created, or empty for a helper-launched browser (the
     /// helper owns that directory, in the user's `LocalAppData`).
@@ -1263,13 +1282,40 @@ impl Browser {
             Err(BrowserError::UnknownTarget)
         }
     }
+
+    /// Close every page target the browser lists; returns how many closes Chrome accepted.
+    ///
+    /// This is shutdown's first half. A page that opened a Web Serial port releases the handle when
+    /// the page is torn down; killing the process releases it too, but only by death, and the
+    /// contract here is that the page (not the signal) lets the port go. A tab a tool opened and
+    /// never closed is included: shutdown does not depend on the caller remembering it.
+    async fn close_all_targets(&mut self) -> usize {
+        let Ok(targets) = self.targets().await else {
+            // The browser is already unanswerable; the kill below is the only remaining action.
+            return 0;
+        };
+        let mut closed = 0;
+        for target in targets.into_iter().filter(|entry| entry.kind == "page") {
+            let reply = self
+                .browser_command("Target.closeTarget", json!({ "targetId": target.id }))
+                .await;
+            if matches!(
+                reply,
+                Ok(reply) if reply.get("success").and_then(Value::as_bool) == Some(true)
+            ) {
+                closed += 1;
+            }
+        }
+        closed
+    }
 }
 
 impl Drop for Browser {
     fn drop(&mut self) {
-        if let Some(child) = self.child.as_mut() {
-            terminate(child);
-        }
+        // Dropping the owner is the tree kill: the process group on Unix, the kill-on-close job on
+        // Windows. Taking it first means the profile directory is removed after the processes that
+        // hold it are gone.
+        drop(self.child.take());
         // Best effort: on Windows a renderer that has not finished exiting can still hold a file.
         // A directory this call cannot remove is swept by a later launch. A helper-launched browser
         // has no directory here: its profile belongs to the helper and outlives this process.
@@ -1277,25 +1323,6 @@ impl Drop for Browser {
             let _ = fs::remove_dir_all(&self.profile);
         }
     }
-}
-
-/// Kill a Chrome child and reap it, signalling its whole process group on Unix.
-///
-/// `try_wait` is the ownership check: a child that already exited was reaped by a previous call,
-/// and its pid may have been recycled by the kernel, so its group is not safe to signal. The same
-/// reasoning as `terminal.close`'s session close.
-fn terminate(child: &mut Child) {
-    if matches!(child.try_wait(), Ok(Some(_))) {
-        return;
-    }
-    #[cfg(unix)]
-    {
-        if let Ok(pid) = i32::try_from(child.id()) {
-            let _ = killpg(Pid::from_raw(pid), Signal::SIGKILL);
-        }
-    }
-    let _ = child.kill();
-    let _ = child.wait();
 }
 
 /// One launch attempt: a fresh profile, a port this capability chose, and Chrome answering it.
@@ -1392,15 +1419,11 @@ async fn launch_once(
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::from(stderr_log));
-    // Chrome's renderers and helpers inherit the process group. A kill of the group is what makes
-    // "shutdown leaves no chrome child" true even when a renderer outlives the browser.
-    #[cfg(unix)]
-    {
-        use std::os::unix::process::CommandExt;
-        command.process_group(0);
-    }
 
-    let mut child = match command.spawn() {
+    // The ownership is the launched tree's: a process group on Unix, a kill-on-close job on
+    // Windows. Chrome's renderers and helpers inherit either one, which is what makes "the browser
+    // dies with the app" true even when a renderer outlives the browser process.
+    let mut child = match OwnedChild::spawn(command) {
         Ok(child) => child,
         Err(error) => {
             let _ = fs::remove_dir_all(&profile);
@@ -1434,8 +1457,8 @@ async fn launch_once(
         }),
         Err(failure) => {
             // A failed attempt is still a process and a profile this capability started; neither
-            // may outlive the error.
-            terminate(&mut child);
+            // may outlive the error. Dropping the owner kills the tree and reaps the child.
+            drop(child);
             let _ = fs::remove_dir_all(&profile);
             Err(failure)
         }
@@ -1464,7 +1487,7 @@ async fn probe_version(http: &reqwest::Client, url: &str) -> Option<Value> {
 /// Probe `GET /json/version` until Chrome names its browser endpoint, or the attempt fails.
 async fn probe_browser_ws(
     http: &reqwest::Client,
-    mut child: Option<&mut Child>,
+    mut child: Option<&mut OwnedChild>,
     port: u16,
     profile: &Path,
     timeout_ms: u64,
@@ -1630,7 +1653,7 @@ fn stderr_note(profile: &Path) -> String {
 ///
 /// A launch refusal that says only "timed out" leaves the reader guessing. This distinguishes "the
 /// process is still running" from a crash, and quotes what Chrome wrote.
-fn launch_diagnosis(child: &mut Child, profile: &Path) -> String {
+fn launch_diagnosis(child: &mut OwnedChild, profile: &Path) -> String {
     let state = match child.try_wait() {
         Ok(None) => "chrome is still running".to_owned(),
         Ok(Some(status)) => format!("chrome exited with {status}"),
@@ -1952,13 +1975,35 @@ impl BrowserRegistry {
     /// This is not an error when nothing is running: `shutdown` is the action a client takes to be
     /// sure no browser is left, and "already stopped" is that state, not a failure.
     pub async fn shutdown(&self) -> bool {
+        self.shutdown_report().await.0
+    }
+
+    /// Shutdown, and how many page targets were closed before the kill.
+    ///
+    /// The order is the commitment: every page is closed first (a page releases its own Web Serial
+    /// handle on teardown), then the browser and its tree are killed. A kill first would close no
+    /// page, which is why the count is what the test asserts.
+    async fn shutdown_report(&self) -> (bool, usize) {
         // Set before the drain: a stream that resolves its endpoint right now must not start after
         // the table has been emptied.
         self.closed.store(true, Ordering::SeqCst);
         // The streams end before the browser does: their readers hold a connection to it.
         self.stop_all_casts().await;
-        let stopped = self.browser.lock().await.take();
-        stopped.is_some()
+        let mut slot = self.browser.lock().await;
+        let closed = match slot.as_mut() {
+            Some(browser) => tokio::time::timeout(
+                Duration::from_millis(SHUTDOWN_CLOSE_TIMEOUT_MS),
+                browser.close_all_targets(),
+            )
+            .await
+            .unwrap_or(0),
+            // Nothing was launched: there is no page this device opened to close.
+            None => 0,
+        };
+        // Taking the browser drops it (killing the tree) while the lock is still held, so a call
+        // that arrives during shutdown cannot see a half-shut browser.
+        let stopped = slot.take();
+        (stopped.is_some(), closed)
     }
 
     /// The running Chrome's pid, for the tests that prove it is reaped.
@@ -2220,6 +2265,7 @@ mod tests {
     use std::path::{Path, PathBuf};
     use std::time::{Duration, Instant};
 
+    use nix::sys::signal::{killpg, Signal};
     use serde_json::json;
 
     use crate::test_support::TempDir;
@@ -2702,6 +2748,51 @@ mod tests {
             leftover_chrome(&profile).await,
             Vec::<u32>::new(),
             "dropping the registry kills the browser and its children"
+        );
+    }
+
+    /// A page a tool opened and never closed must not be left holding a port until the process is
+    /// killed. Shutdown closes every page first, then kills the browser; a kill first would have
+    /// closed none, which is what the count proves.
+    #[tokio::test]
+    async fn shutdown_closes_every_open_target_before_the_browser_dies() {
+        let _gate = launch_gate().await;
+        let Some((_dir, data, registry)) = fixture("browser-shutdown-targets") else {
+            return;
+        };
+        let profile = data.join("chrome-profile");
+
+        let first = registry
+            .open(&data_url("SUMMRISE_SHUTDOWN_FIRST"))
+            .await
+            .expect("the first page opens");
+        let second = registry
+            .open(&data_url("SUMMRISE_SHUTDOWN_SECOND"))
+            .await
+            .expect("the second page opens");
+        assert_ne!(first, second, "the two tool calls opened two pages");
+        let open_pages = page_count(&registry).await;
+        assert!(
+            open_pages >= 3,
+            "the initial page and the two opened pages are listed: {open_pages}"
+        );
+        let pid = registry.pid().expect("the browser is running");
+
+        let (stopped, closed) = registry.shutdown_report().await;
+        assert!(stopped, "a running browser was stopped");
+        assert_eq!(
+            closed, open_pages,
+            "shutdown closed every page while the browser was still alive; \
+             a kill before the closes would have closed none"
+        );
+        assert!(
+            !Path::new(&format!("/proc/{pid}")).exists(),
+            "the browser is killed after its pages are closed"
+        );
+        assert_eq!(
+            leftover_chrome(&profile).await,
+            Vec::<u32>::new(),
+            "shutdown leaves no chrome process behind"
         );
     }
 

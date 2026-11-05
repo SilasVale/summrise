@@ -242,8 +242,9 @@ impl<'a> Caller<'a> {
 /// [`terminal::Limits::default`], and an in-process test shortens the write bound. `restart` is the
 /// router's one hook: the same closure the panel's enrollment asks, so both supervised paths exit by
 /// the same code.
-/// The MCP service plus the terminal registry behind it, so the device's own panel can list the live
-/// sessions without a second registry: one machine, one set of terminals.
+/// The MCP service plus the terminal and browser registries behind it, so the device's own panel
+/// can list the live sessions without a second registry, and the run loop can shut the browser down
+/// before the process ends: one machine, one set of terminals, one browser.
 pub(crate) fn service_with_terminal(
     config: &Config,
     limits: terminal::Limits,
@@ -255,11 +256,13 @@ pub(crate) fn service_with_terminal(
 ) -> (
     StreamableHttpService<DeviceServer, LocalSessionManager>,
     Arc<terminal::PtyRegistry>,
+    Arc<browser::BrowserRegistry>,
 ) {
     let server = DeviceServer::new_with_plugins(config, limits, plugins)
         .with_restart(restart)
         .with_audit(audit);
     let terminal = Arc::clone(&server.terminal);
+    let browser = Arc::clone(&server.browser);
     // The sweeper is the device's, not a client's: it holds a weak reference, so the children are
     // closed when the service (and its registry) is dropped.
     server.terminal.spawn_sweeper();
@@ -283,6 +286,7 @@ pub(crate) fn service_with_terminal(
             StreamableHttpServerConfig::default(),
         ),
         terminal,
+        browser,
     )
 }
 

@@ -521,6 +521,18 @@ pub enum PtyError {
         /// The OS/backend report, including a refused baud or framing ioctl.
         message: String,
     },
+    /// The operating system refused the open with an access error, which means another process
+    /// holds the port and this build cannot know which one.
+    ///
+    /// The platform reports "access denied", not a holder, so the rendered sentence names the likely
+    /// holder (this machine's own headless browser, the one capability whose pages open Web Serial
+    /// ports) and the two actions that release it. `message` is kept as the evidence.
+    SerialAccess {
+        /// The port path the caller named.
+        port: String,
+        /// The OS report that was actually measured.
+        message: String,
+    },
     /// Another live session already holds the serial port this create named.
     PortBusy {
         /// The port path the caller named.
@@ -602,6 +614,13 @@ impl fmt::Display for PtyError {
             PtyError::Serial { port, message } => {
                 write!(f, "serial port {port} could not be opened: {message}")
             }
+            PtyError::SerialAccess { port, message } => write!(
+                f,
+                "serial port {port} could not be opened: {message}. Another process has the port; \
+                 quite possibly this machine's own headless browser holding a Web Serial port. \
+                 Close the browser's pages with browser.close, or restart the device app, which \
+                 now reaps the browser."
+            ),
             PtyError::PortBusy { port, holder } => write!(
                 f,
                 "serial port {port} is already open in session {holder}; close that session first"
@@ -1655,8 +1674,9 @@ impl PtyRegistry {
     /// read's poll interval.
     ///
     /// Framing is validated before the port is touched, and a value the port itself rejects comes
-    /// back as [`PtyError::Serial`] with the backend's message: this build never retries a rejected
-    /// mode with a default one, because that would corrupt every frame on a line configured wrong.
+    /// back as [`PtyError::Serial`] (or [`PtyError::SerialAccess`] when the OS's access check was
+    /// what refused it) with the backend's message: this build never retries a rejected mode with
+    /// a default one, because that would corrupt every frame on a line configured wrong.
     async fn spawn_serial(
         &self,
         target: &SerialTarget<'_>,
@@ -1915,7 +1935,9 @@ fn drain_serial(mut reader: Box<dyn SerialPort>, output: Arc<Mutex<Output>>) {
 ///
 /// `serialport` opens and configures in one call, so an open error can be a path the OS cannot
 /// open *or* a line mode the port refuses. Both are [`PtyError::Serial`] with the backend's own
-/// message, which is where the OS error lives; this build does not retry with a default mode.
+/// message, which is where the OS error lives — except an access refusal, which is
+/// [`PtyError::SerialAccess`] so its sentence can name the likely holder and the way out. This
+/// build does not retry with a default mode.
 fn open_serial(
     port: &str,
     baud: u32,
@@ -1939,14 +1961,48 @@ fn open_serial(
             Err(error) if is_exclusive_refusal(&error) && Instant::now() < deadline => {
                 thread::sleep(SERIAL_LOCK_RETRY);
             }
-            Err(error) => {
-                return Err(PtyError::Serial {
-                    port: port.to_owned(),
-                    message: error.to_string(),
-                })
-            }
+            Err(error) => return Err(serial_refusal(port, error)),
         }
     }
+}
+
+/// The typed refusal for an open the OS rejected.
+///
+/// `serialport` folds Windows' `ERROR_ACCESS_DENIED` into `NoDevice` — the same kind it reports for a
+/// path that is not there — so the kind alone cannot tell "another process holds it" from "it does
+/// not exist". The description can, and on Unix the kind is already `PermissionDenied`. An access
+/// refusal gets [`PtyError::SerialAccess`], whose sentence names the likely holder and the two
+/// actions; every other refusal stays [`PtyError::Serial`] with its own OS report. The holder is
+/// never asserted: the platform did not measure one.
+fn serial_refusal(port: &str, error: serialport::Error) -> PtyError {
+    if is_access_refusal(&error) {
+        PtyError::SerialAccess {
+            port: port.to_owned(),
+            message: error.to_string(),
+        }
+    } else {
+        PtyError::Serial {
+            port: port.to_owned(),
+            message: error.to_string(),
+        }
+    }
+}
+
+/// Whether the open failed the operating system's access check.
+///
+/// The two spellings are one condition: Windows says "Access is denied." (which `serialport` maps to
+/// `NoDevice`, not to an I/O kind), and a Unix tty says "Permission denied" with
+/// `ErrorKind::Io(PermissionDenied)`. Neither says who holds the port; that is why the rendered
+/// sentence offers the likely holder rather than naming one.
+fn is_access_refusal(error: &serialport::Error) -> bool {
+    if matches!(
+        error.kind,
+        serialport::ErrorKind::Io(io::ErrorKind::PermissionDenied)
+    ) {
+        return true;
+    }
+    let description = error.description.to_ascii_lowercase();
+    description.contains("access is denied") || description.contains("permission denied")
 }
 
 /// Whether the open was refused by the port's exclusivity rather than by the device being gone.
@@ -4036,5 +4092,146 @@ mod end_facts {
         let facts = EndFacts::default();
         assert_eq!(facts.exit_code, None);
         assert_eq!(facts.signal, None);
+    }
+}
+
+/// The sentences an operator reads when a serial port will not open.
+///
+/// The access refusal is the incident's: `chrome-headless-shell` held `COM4` and the console said
+/// only "Access is denied", naming neither the likely holder nor an action. These tests fix the
+/// words, and keep the busy and missing-port sentences their own.
+#[cfg(test)]
+mod serial_refusals {
+    use super::*;
+
+    /// The Windows access refusal, exactly as `serialport` spells it: it folds
+    /// `ERROR_ACCESS_DENIED` into `NoDevice`, so only the description tells it apart from a path
+    /// that does not exist.
+    fn access_denied() -> serialport::Error {
+        serialport::Error::new(serialport::ErrorKind::NoDevice, "Access is denied.")
+    }
+
+    fn missing() -> serialport::Error {
+        serialport::Error::new(
+            serialport::ErrorKind::NoDevice,
+            "The system cannot find the file specified.",
+        )
+    }
+
+    fn busy() -> serialport::Error {
+        serialport::Error::new(
+            serialport::ErrorKind::Io(io::ErrorKind::WouldBlock),
+            "Device or resource busy",
+        )
+    }
+
+    /// The access refusal says a process has the port, names the likely holder with the evidence,
+    /// and names both actions that release it. It never claims to have measured the holder.
+    #[test]
+    fn an_access_refusal_names_the_likely_holder_and_the_two_actions() {
+        let error = serial_refusal("COM4", access_denied());
+        match &error {
+            PtyError::SerialAccess { port, message } => {
+                assert_eq!(port, "COM4", "the refusal names the port that was tried");
+                assert!(
+                    message.contains("Access is denied"),
+                    "the OS report stays as the evidence: {message}"
+                );
+            }
+            other => panic!("an access refusal is the typed access error, not {other:?}"),
+        }
+
+        let text = error.to_string();
+        assert!(
+            text.contains("Another process has the port"),
+            "the sentence says a process has the port: {text}"
+        );
+        assert!(
+            text.contains(
+                "quite possibly this machine's own headless browser holding a Web Serial port"
+            ),
+            "the sentence names the likely holder without claiming to know it: {text}"
+        );
+        assert!(
+            text.contains("browser.close"),
+            "the sentence names closing the browser's pages: {text}"
+        );
+        assert!(
+            text.contains("restart the device app"),
+            "the sentence names restarting the device app: {text}"
+        );
+        assert!(
+            text.contains("which now reaps the browser"),
+            "the sentence says the restart ends the browser: {text}"
+        );
+    }
+
+    /// Busy and missing stay their own sentences: neither inherits the holder sentence, and they
+    /// do not become one refusal with two spellings.
+    #[test]
+    fn a_busy_port_and_a_missing_port_keep_their_own_sentences() {
+        let busy = serial_refusal("COM4", busy());
+        assert!(
+            matches!(busy, PtyError::Serial { .. }),
+            "a busy port is the serial refusal, not an access refusal: {busy:?}"
+        );
+        let busy_text = busy.to_string();
+        assert!(
+            busy_text.contains("Device or resource busy"),
+            "the busy sentence keeps the OS report: {busy_text}"
+        );
+
+        let missing = serial_refusal("COM4", missing());
+        assert!(
+            matches!(missing, PtyError::Serial { .. }),
+            "a missing port is the serial refusal, not an access refusal: {missing:?}"
+        );
+        let missing_text = missing.to_string();
+        assert!(
+            missing_text.contains("cannot find the file specified"),
+            "the missing sentence keeps the OS report: {missing_text}"
+        );
+
+        assert_ne!(
+            busy_text, missing_text,
+            "a port another program holds and a port that is not there are different sentences"
+        );
+        for text in [&busy_text, &missing_text] {
+            assert!(
+                !text.contains("headless browser"),
+                "a refusal the platform did not call an access error does not claim a holder: {text}"
+            );
+        }
+
+        // A port another live session of this device holds is a third, actionable sentence.
+        let held = PtyError::PortBusy {
+            port: "COM4".to_owned(),
+            holder: "session-3".to_owned(),
+        };
+        let held_text = held.to_string();
+        assert!(
+            held_text.contains("already open in session session-3")
+                && held_text.contains("close that session first"),
+            "the device's own holder is named with the action: {held_text}"
+        );
+        assert!(
+            !held_text.contains("headless browser"),
+            "a session this device holds is not blamed on a browser: {held_text}"
+        );
+    }
+
+    /// Linux gives the same refusal as a permission error; it must take the same sentence.
+    #[test]
+    fn a_permission_error_is_an_access_refusal_on_every_platform() {
+        let error = serialport::Error::new(
+            serialport::ErrorKind::Io(io::ErrorKind::PermissionDenied),
+            "Permission denied (os error 13)",
+        );
+        let refusal = serial_refusal("/dev/ttyUSB0", error);
+        assert!(
+            matches!(refusal, PtyError::SerialAccess { .. }),
+            "a permission error is the access refusal: {refusal:?}"
+        );
+        assert!(refusal.to_string().contains("browser.close"));
     }
 }

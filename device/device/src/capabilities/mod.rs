@@ -10,6 +10,7 @@ pub mod browser;
 pub mod files;
 pub mod memory;
 pub mod monitor;
+pub(crate) mod owned;
 pub mod plugins;
 pub mod runs;
 pub mod ssh;
