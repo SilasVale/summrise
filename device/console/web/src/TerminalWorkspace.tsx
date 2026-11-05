@@ -1652,27 +1652,16 @@ export function TerminalWorkspace({
 
       {/* THE SESSION COMES BEFORE THE SCREEN. The page used to open on a black rectangle; the card
           names the machine and the attached session, its age and the last keystroke the console saw
-          reach it. It is a block above the toolbar and the xterm, so the terminal scrolls under it. */}
-      {activeTab ? (
+          reach it. It is a block above the toolbar and the xterm, so the terminal scrolls under it.
+          With no session it is absent: the empty state lives once, next to the session list, where
+          the sentence and the action that answers it are the same block. */}
+      {activeTab && (
         <SessionCard
           machine={deviceName ?? grant.deviceId}
           tab={activeTab}
           liveLines={liveLines}
           deviceId={grant.deviceId}
         />
-      ) : (
-        <section className="card session-card session-card-empty" aria-label="Session">
-          <p>No session is open on this machine.</p>
-          <button
-            type="button"
-            className="primary"
-            disabled={offline}
-            title={offline ? "The machine is offline; a session can start when it reconnects" : undefined}
-            onClick={() => openDialog({}, null)}
-          >
-            + New session
-          </button>
-        </section>
       )}
 
       {tabs.length === 0 && (
@@ -1680,15 +1669,29 @@ export function TerminalWorkspace({
           <section className="terminal-sessions" aria-labelledby="terminal-sessions-heading">
             <div className="terminal-section-head">
               <h3 id="terminal-sessions-heading">Sessions on this device</h3>
-              <button
-                type="button"
-                className="mini"
-                disabled={listing || offline}
-                title={offline ? "The machine is offline; the list refreshes when it reconnects" : undefined}
-                onClick={() => void listSessions(true)}
-              >
-                {listing ? "Reading…" : "Refresh"}
-              </button>
+              {/* **THE EMPTY PAGE HAS ONE EMPTY STATE AND ONE ACTION.** The duplicate card above
+                  said "No session is open" 108 px before this list said it again; the action now
+                  sits with the sentence that names it. */}
+              <div className="actions">
+                <button
+                  type="button"
+                  className="primary"
+                  disabled={offline}
+                  title={offline ? "The machine is offline; a session can start when it reconnects" : undefined}
+                  onClick={() => openDialog({}, null)}
+                >
+                  + New session
+                </button>
+                <button
+                  type="button"
+                  className="mini"
+                  disabled={listing || offline}
+                  title={offline ? "The machine is offline; the list refreshes when it reconnects" : undefined}
+                  onClick={() => void listSessions(true)}
+                >
+                  {listing ? "Reading…" : "Refresh"}
+                </button>
+              </div>
             </div>
             {listError ? (
               <p className="error">{listError}</p>
@@ -1755,8 +1758,8 @@ export function TerminalWorkspace({
         </div>
       )}
 
-      {/* The toolbar belongs to a session. With none attached the card above owns the one action,
-          so the bar does not render a second New session beside it. */}
+      {/* The toolbar belongs to a session. With none attached the session list's empty state owns
+          the one action, so the bar does not render a second New session beside it. */}
       {tabs.length > 0 && (
         <div className="terminal-bar">
           {tabs.length > 0 && (
@@ -1799,8 +1802,8 @@ export function TerminalWorkspace({
           )}
           <div className="terminal-actions">
               {/* THE TOOLBAR BELONGS TO A SESSION. The bar itself only exists when one is attached,
-                  and with none the card above owns the action that creates it; seven controls over an
-                  empty box were chrome pretending to be work. */}
+                  and with none the session list owns the action that creates it; seven controls over
+                  an empty box were chrome pretending to be work. */}
               {tabs.length > 0 && (
                 <>
                   <button type="button" disabled={!activeTab} onClick={toggleFind}>Find</button>

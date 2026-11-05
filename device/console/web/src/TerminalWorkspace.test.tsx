@@ -1551,13 +1551,19 @@ describe("TerminalWorkspace session card", () => {
     expect(within(card).queryByText("not this session")).not.toBeInTheDocument();
   });
 
-  it("says no session is open and offers the page's one New session action", async () => {
+  it("says no session once and offers the page's one New session action", async () => {
     render(<TerminalWorkspace grant={GRANT} deviceName="workshop" />);
 
-    const card = await screen.findByRole("region", { name: "Session" });
-    expect(within(card).getByText("No session is open on this machine.")).toBeInTheDocument();
-    const start = screen.getAllByRole("button", { name: "+ New session" });
+    // The page used to print the empty state twice, 108 px apart: a card at the top and the session
+    // list below it. The sentence that names the action is the one next to the list.
+    expect(await screen.findByText(/No session is open on this device/)).toBeInTheDocument();
+    expect(screen.getAllByText(/No session is open/)).toHaveLength(1);
+    expect(screen.queryByText("No session is open on this machine.")).toBeNull();
+
+    // The one control that makes a session sits with that sentence, not in a second empty card.
+    const sessions = screen.getByRole("region", { name: "Sessions on this device" });
+    const start = within(sessions).getAllByRole("button", { name: "+ New session" });
     expect(start).toHaveLength(1);
-    expect(card).toContainElement(start[0]);
+    expect(screen.getAllByRole("button", { name: "+ New session" })).toHaveLength(1);
   });
 });

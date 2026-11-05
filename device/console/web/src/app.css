@@ -2292,13 +2292,6 @@ input:not([type="checkbox"]):not([type="radio"]):focus, select:focus, textarea:f
   font-family: var(--font-mono);
   font-size: var(--fs-xs);
 }
-.session-card-empty {
-  flex-direction: row;
-  align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
-}
-.session-card-empty p { margin: 0; }
 
 /* ── The phone, after this layer ─────────────────────────────────────────────────────────────── */
 @media (max-width: 639px) {
