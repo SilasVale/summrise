@@ -362,3 +362,17 @@ bug; this is the first and it alone would block every upgrade.
 **The fix:** the probe's copy must exclude the files the running app owns — `device.lock`,
 `device.pid`, `device.port`, `restarts.jsonl`'s open handle — and give the candidate its own lock and
 port file. A test must run a probe while the data dir contains a locked `device.lock` and still pass.
+
+### The last gap after 182a064 (2026-11-05)
+
+The probe now survives a locked `device.lock`, the installer calls `--install-version` on a migrated
+install, and it accepts the launcher-signed sidecar — so a staged version can be verified and the
+pointer moved. But `--install-version` is **pointer-only by design**: after it returns, the running
+service still serves the old version until its next start, and the setup does not restart it. So an
+install would still end with `current.txt` naming the new version while the old process answers
+`/api/health` — the same visible symptom as before, for a different reason.
+
+**The follow-up that closes it:** after a successful `--install-version`, the installer must restart
+the service (or call the restart-capable mode, `--apply`) and require two healthy answers from the
+new version, with the old version still on disk for the pointer rollback. Until then, an install's
+exit code still cannot be read as "the new version is running".
