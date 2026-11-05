@@ -102,6 +102,12 @@ export type Device = {
   last_seen_ms: number | null;
   registered_at_ms?: number | null;
   last_attempt?: { attempts: number; reason: string } | null;
+  /**
+   * The last absence this console saw end: how long the channel was gone and when it opened again.
+   * Omitted when the device never dropped while the console was running (and while it is still
+   * away); a page must not read a missing outage as a zero one.
+   */
+  last_outage?: { away_ms: number; back_at_ms: number } | null;
   host?: HostFacts | null;
 };
 /**
