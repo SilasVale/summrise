@@ -363,7 +363,7 @@ bug; this is the first and it alone would block every upgrade.
 `device.pid`, `device.port`, `restarts.jsonl`'s open handle — and give the candidate its own lock and
 port file. A test must run a probe while the data dir contains a locked `device.lock` and still pass.
 
-### The last gap after 182a064 (2026-11-05)
+### The last gap after 182a064 (2026-11-05) — closed
 
 The probe now survives a locked `device.lock`, the installer calls `--install-version` on a migrated
 install, and it accepts the launcher-signed sidecar — so a staged version can be verified and the
@@ -372,7 +372,16 @@ service still serves the old version until its next start, and the setup does no
 install would still end with `current.txt` naming the new version while the old process answers
 `/api/health` — the same visible symptom as before, for a different reason.
 
-**The follow-up that closes it:** after a successful `--install-version`, the installer must restart
-the service (or call the restart-capable mode, `--apply`) and require two healthy answers from the
-new version, with the old version still on disk for the pointer rollback. Until then, an install's
-exit code still cannot be read as "the new version is running".
+**Closed by `installer: after the pointer moves, the process follows and the version is proven`.**
+After a successful `--install-version`, `summrise.nsi` stops and starts `SummriseLaunch` with a
+bounded wait, then polls `http://127.0.0.1:<port>/api/health` for up to 30 s until the body reports
+`"version":"<setup version>"`. The launcher also accepts `--install-version --restart`, which
+commits `current.txt`, restarts the owner through the same seam `--migrate-layout` uses, and
+requires the restarted process to answer with the installed version. A restart or version mismatch
+is non-zero; `current.txt` keeps naming the new version, `previous.txt` keeps naming the old one, and
+the old version's directory is untouched — so the operator's rollback is one pointer write.
+
+**The contract, in one sentence:** setup exit 0 ⇒ `/api/health` reports `${VERSION}`; setup exit
+non-zero ⇒ the old version still serves (the launcher's start watch rolls `current.txt` back to
+`previous.txt` after two failed starts, and the pointers are left in place for the operator's own
+rollback).

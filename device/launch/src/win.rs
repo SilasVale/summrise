@@ -9,8 +9,10 @@
 //! **A versioned install boots from `current.txt`.** The supervisor resolves the app through the
 //! pointer at every start; two consecutive failed starts roll the pointer back to `previous.txt`.
 //! `--install-version` is the pointer transaction: verify, health-check the candidate on a scratch
-//! port with a copy of the data directory, then one atomic pointer write. `--apply` is the same plus
-//! the service restart. Nothing overwrites a version directory that already exists.
+//! port with a copy of the data directory, then one atomic pointer write. `--restart` adds the
+//! stop/start and the health gate that prove the restarted process reports the new version;
+//! `--apply` is the same plus the service restart. Nothing overwrites a version directory that
+//! already exists.
 //!
 //! **The legacy swap runs in this process.** For a pre-versioned install (no `current.txt`), the app
 //! writes `<install>/swap.request.json`; the supervisor polls it, validates the staged pair, stops
@@ -146,8 +148,8 @@ pub fn entry() -> ExitCode {
             };
             let dir = absolute(Path::new(dir));
             let sidecar = absolute(Path::new(sidecar));
-            match config_from_args(&args[3..]) {
-                Ok(config) => install_version_mode(&config, &dir, &sidecar),
+            match parse_install_version_args(&args[3..]) {
+                Ok((config, restart)) => install_version_mode(&config, &dir, &sidecar, restart),
                 Err(error) => fail(&error),
             }
         }
@@ -243,7 +245,7 @@ summrise-launch — repair, supervise and swap summrise-device.exe
                       [--console-url URL --console-token-file PATH]
                       [--mesh-broker ORIGIN [--mesh-relay ADDR] [--mesh-stun ADDR]]
   summrise-launch service [--service-name NAME]
-  summrise-launch --install-version <version-dir> <sidecar>
+  summrise-launch --install-version <version-dir> <sidecar> [--restart]
                       [--install DIR] [--data DIR] [--port N]
   summrise-launch --apply <staged> <sidecar> [--install DIR] [--data DIR] [--port N]
                       [--files-shared-root PATH]
@@ -283,10 +285,14 @@ rather than race the swap transaction.
 on a scratch port with a copy of the data directory, requires two matching /api/health answers, and
 only then writes <install>/current.txt (a temporary file renamed over it) naming the directory. The
 version that was current is recorded in previous.txt and its directory is left on disk; any failure
-leaves current.txt untouched. --apply runs the same steps and then restarts the service (or, with no
-service, leaves a manual child running from the new pointer). A pre-versioned install has no
-current.txt and keeps running the flat app from baseline/current; two failed starts of a versioned
-install's current version roll current.txt back to previous.txt.
+before the pointer write leaves current.txt untouched. --restart additionally stops and starts the
+install's owner (the SCM service, else the console child) and requires the restarted process to
+report the version current.txt names; a restart or health failure exits non-zero and leaves
+current.txt/previous.txt as the commit wrote them, so the operator can still roll back. --apply runs
+the same steps and then restarts the service (or, with no service, leaves a manual child running from
+the new pointer). A pre-versioned install has no current.txt and keeps running the flat app from
+baseline/current; two failed starts of a versioned install's current version roll current.txt back to
+previous.txt.
 
 --migrate-layout is the installer's one-time move from a flat install to versions/<name>/: it copies
 the flat app and a trusted sidecar (--sidecar when given, else baseline/current) into a version
@@ -364,6 +370,28 @@ fn parse_migrate_args(args: &[String]) -> Result<(Config, Option<PathBuf>), Stri
     }
     let config = config_from_args(&config_args)?;
     Ok((config, sidecar))
+}
+
+/// `--install-version`'s arguments: the usual install/data/port plus the optional `--restart`.
+///
+/// `--restart` is split out before [`parse_config`], which refuses flags it does not own. It is a
+/// boolean: without it `--install-version` stays the pointer-only transaction the device's updater
+/// uses, and with it the launcher also stops/starts the owner and requires the new version to
+/// answer. [`install_version_mode`] owns the two effects.
+fn parse_install_version_args(args: &[String]) -> Result<(Config, bool), String> {
+    let mut restart = false;
+    let mut config_args: Vec<String> = Vec::with_capacity(args.len());
+    for arg in args {
+        if arg == "--restart" {
+            if restart {
+                return Err("--restart was given more than once".to_string());
+            }
+            restart = true;
+        } else {
+            config_args.push(arg.clone());
+        }
+    }
+    Ok((config_from_args(&config_args)?, restart))
 }
 
 /// Parse `--install-service`'s arguments: the installer's normal flags, `--seed-sidecar <path>`, and
@@ -1839,10 +1867,20 @@ fn start_after_apply(config: &Config, service: &Option<Service>) -> Result<(), S
     }
 }
 
-/// `--install-version <version-dir> <sidecar>`: verify the pair, prove the candidate, move the
-/// pointer. It does not restart anything: the running service keeps serving the old version until
-/// its owner restarts it (that is `--apply`).
-fn install_version_mode(config: &Config, dir: &Path, sidecar_path: &Path) -> ExitCode {
+/// `--install-version <version-dir> <sidecar> [--restart]`: verify the pair, prove the candidate,
+/// move the pointer, and — with `--restart` — make the running process follow it.
+///
+/// Without `--restart` this is pointer-only: the running service keeps serving the old version
+/// until its owner restarts it. With `--restart` the launcher also restarts the owner and requires
+/// the restarted process to report the installed version (the same effects `--apply` uses). A
+/// failure exits non-zero and leaves `current.txt`/`previous.txt` where the commit put them, so the
+/// operator can still roll back with one pointer write.
+fn install_version_mode(
+    config: &Config,
+    dir: &Path,
+    sidecar_path: &Path,
+    restart: bool,
+) -> ExitCode {
     let Some(name) = dir.file_name().and_then(OsStr::to_str) else {
         return fail(&format!(
             "--install-version needs a directory with a plain name: {}",
@@ -1854,7 +1892,23 @@ fn install_version_mode(config: &Config, dir: &Path, sidecar_path: &Path) -> Exi
         Ok(pair) => pair,
         Err(error) => return fail(&error),
     };
-    match summrise_launch::install_version(config, name, &pair, &CandidateProbe::default()) {
+    let probe = CandidateProbe::default();
+    let installed = if restart {
+        let service = match open_installed_service(
+            ServiceAccess::QUERY_STATUS | ServiceAccess::STOP | ServiceAccess::START,
+        ) {
+            Ok(service) => service,
+            Err(error) => return exit_for(Err(error)),
+        };
+        let host = InstalledOwner {
+            service,
+            child: RefCell::new(None),
+        };
+        summrise_launch::install_version_and_restart(config, name, &pair, &probe, &host)
+    } else {
+        summrise_launch::install_version(config, name, &pair, &probe)
+    };
+    match installed {
         Ok(installed) => {
             eprintln!(
                 "launch: version {} is current{}",

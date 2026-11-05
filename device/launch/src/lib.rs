@@ -2589,6 +2589,61 @@ pub fn install_version(
     commit_version(&config.install, &version)
 }
 
+/// The whole switch when the process must follow the pointer: install, restart the owner, and
+/// require the restarted process to report the version that was just made current.
+///
+/// [`install_version`] is pointer-only by design: it proves the candidate on a scratch port and
+/// moves `current.txt`, but the process already serving keeps the version it booted. An install
+/// that stops there leaves `current.txt` naming `name` while `/api/health` still names the old
+/// version. This function adds the missing half through [`MigrationHost`] — the seam
+/// `--migrate-layout` already uses for "restart, then require two matching health answers" — so
+/// the Windows half supplies only the SCM/child effects.
+///
+/// The order is the contract:
+///
+/// 1. stage and probe the candidate; no pointer, no restart on failure;
+/// 2. commit `current.txt` (and `previous.txt`), so the restart boots the new version;
+/// 3. restart the owner and require the restarted process to answer `/api/health` with
+///    `name`'s sidecar version.
+///
+/// A failure in steps 2 or 3 is an error, but the pointers are deliberately left where step 2 put
+/// them: `current.txt` names `name`, `previous.txt` names the version it replaced, and that
+/// version's directory is untouched. The operator can therefore roll back with one pointer write,
+/// and the old version is still on disk to boot.
+pub fn install_version_and_restart(
+    config: &Config,
+    name: &str,
+    pair: &StagedPair,
+    probe: &dyn VersionProbe,
+    host: &dyn MigrationHost,
+) -> Result<InstalledVersion, String> {
+    let installed = install_version(config, name, pair, probe)?;
+    let version = installed.version.sidecar.version.clone();
+    let rollback = match installed.previous.as_deref() {
+        Some(previous) => format!(
+            "{} still names {previous} for a rollback",
+            previous_pointer(&config.install).display()
+        ),
+        None => "there was no previous version to roll back to".to_string(),
+    };
+    let pid = host.restart(config).map_err(|error| {
+        format!(
+            "version {version} is current in {}, but the owner could not be restarted: {error}; \
+             {rollback}",
+            current_pointer(&config.install).display()
+        )
+    })?;
+    host.require_healthy(config, &version, pid)
+        .map_err(|error| {
+            format!(
+                "version {version} is current in {}, but the restarted process did not report it: \
+             {error}; {rollback}",
+                current_pointer(&config.install).display()
+            )
+        })?;
+    Ok(installed)
+}
+
 // ─────────────────────────────────────────────────────────────────────────────────────────────────
 // The candidate probe: a copy of the data directory, a scratch port, two health answers
 // ─────────────────────────────────────────────────────────────────────────────────────────────────
@@ -6565,6 +6620,138 @@ mod tests {
         assert_eq!(
             fs::read(version_exe(&install, "0.3.274")).expect("the running exe"),
             b"the running build"
+        );
+    }
+
+    /// The OS effects of "install, then hand the process over": counts the restart, records what
+    /// `current.txt` named when the restart was requested, and returns the health verdict the
+    /// restarted process gave.
+    struct RestartingOwner {
+        install: PathBuf,
+        health: Result<(), String>,
+        restarts: std::cell::Cell<u32>,
+        health_checks: std::cell::Cell<u32>,
+        pointer_at_restart: RefCell<Option<(Pointer, Pointer)>>,
+    }
+
+    impl RestartingOwner {
+        fn new(install: &Path, health: Result<(), String>) -> RestartingOwner {
+            RestartingOwner {
+                install: install.to_path_buf(),
+                health,
+                restarts: std::cell::Cell::new(0),
+                health_checks: std::cell::Cell::new(0),
+                pointer_at_restart: RefCell::new(None),
+            }
+        }
+    }
+
+    impl MigrationHost for RestartingOwner {
+        fn restart(&self, _config: &Config) -> Result<u32, String> {
+            self.restarts.set(self.restarts.get() + 1);
+            *self.pointer_at_restart.borrow_mut() = Some((
+                read_current_pointer(&self.install),
+                read_previous_pointer(&self.install),
+            ));
+            Ok(4_242)
+        }
+
+        fn require_healthy(&self, _config: &Config, version: &str, pid: u32) -> Result<(), String> {
+            self.health_checks.set(self.health_checks.get() + 1);
+            assert_eq!(
+                pid, 4_242,
+                "health is asked about the process the restart started"
+            );
+            assert_eq!(
+                version, "0.3.274",
+                "health is asked about the version installed"
+            );
+            self.health.clone()
+        }
+    }
+
+    #[test]
+    fn the_restart_after_an_install_boots_the_version_the_pointer_names() {
+        let tmp = TempDir::new("install-version-restart");
+        let install = install_dir(&tmp, "install");
+        write_version(&install, "0.3.271", b"the running build");
+        write_current_pointer(&install, "0.3.271").expect("write the pointer");
+        let (_exe, _sidecar, pair) = stage_candidate(&tmp, "0.3.274", b"the proven build");
+        let owner = RestartingOwner::new(&install, Ok(()));
+
+        let installed = install_version_and_restart(
+            &config_for(&install),
+            "0.3.274",
+            &pair,
+            &Probe(Ok(())),
+            &owner,
+        )
+        .expect("a proven candidate the restarted process reports is installed");
+
+        assert_eq!(installed.previous.as_deref(), Some("0.3.271"));
+        assert_eq!(
+            owner.restarts.get(),
+            1,
+            "the owner is restarted exactly once"
+        );
+        assert_eq!(
+            owner.health_checks.get(),
+            1,
+            "the restarted process is required to answer"
+        );
+        let (current, previous) = owner
+            .pointer_at_restart
+            .borrow()
+            .clone()
+            .expect("the restart happened");
+        assert_eq!(
+            current,
+            Pointer::Version("0.3.274".to_string()),
+            "the pointer moves before the restart, so the restart boots the new version"
+        );
+        assert_eq!(previous, Pointer::Version("0.3.271".to_string()));
+    }
+
+    #[test]
+    fn a_restart_that_reports_the_old_version_is_a_failure_and_the_commit_is_left_for_rollback() {
+        let tmp = TempDir::new("install-version-restart-old");
+        let install = install_dir(&tmp, "install");
+        write_version(&install, "0.3.271", b"the running build");
+        write_current_pointer(&install, "0.3.271").expect("write the pointer");
+        let (_exe, _sidecar, pair) = stage_candidate(&tmp, "0.3.274", b"the proven build");
+        let owner = RestartingOwner::new(
+            &install,
+            Err("the restarted app reports 0.3.271, not 0.3.274".to_string()),
+        );
+
+        let error = install_version_and_restart(
+            &config_for(&install),
+            "0.3.274",
+            &pair,
+            &Probe(Ok(())),
+            &owner,
+        )
+        .expect_err("a service that still reports the old version is not a successful install");
+
+        assert!(error.contains("0.3.271"), "{error}");
+        assert_eq!(
+            read_current_pointer(&install),
+            Pointer::Version("0.3.274".to_string()),
+            "the commit is left where it was: the operator's rollback is one pointer write"
+        );
+        assert_eq!(
+            read_previous_pointer(&install),
+            Pointer::Version("0.3.271".to_string()),
+            "previous.txt still names the version that was running"
+        );
+        assert!(
+            version_exe(&install, "0.3.271").is_file(),
+            "the old version stays on disk for that rollback"
+        );
+        assert_eq!(
+            owner.restarts.get(),
+            1,
+            "the failed restart is not repeated behind the operator's back"
         );
     }
 

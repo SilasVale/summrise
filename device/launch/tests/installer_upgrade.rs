@@ -176,10 +176,12 @@ fn the_setup_calls_the_upgrade_on_a_migrated_install_and_migration_only_once() {
     let migrate = NSI
         .find("nsExec::ExecToStack '\"$INSTDIR\\summrise-launch.exe\" --migrate-layout")
         .expect("the installer has a migration call");
-    let otherwise = upgrade
-        + NSI[upgrade..]
-            .find("${Else}")
-            .expect("migration is the else branch of the pointer check");
+    // The outer `${Else}` is the one that opens the no-current.txt branch. The upgrade branch has
+    // its own nested `${If}`/`${Else}` pair (the restart after a successful pointer move), so an
+    // unqualified search would stop at the inner one.
+    let otherwise = NSI
+        .find("\n  ${Else}\n    ; THE ONE-TIME MOVE")
+        .expect("the migration is the else branch of the pointer check");
 
     assert!(guard < upgrade, "the upgrade is inside the pointer guard");
     assert!(
@@ -218,6 +220,85 @@ fn the_setup_calls_the_upgrade_on_a_migrated_install_and_migration_only_once() {
     assert!(
         !NSI.contains("Delete \"$INSTDIR\\current.txt\""),
         "the installer never removes the pointer; the launcher owns it"
+    );
+}
+
+#[test]
+fn the_setup_restarts_the_service_and_requires_the_new_version_after_the_pointer_moves() {
+    let upgrade = NSI
+        .find("nsExec::ExecToStack '\"$INSTDIR\\summrise-launch.exe\" --install-version")
+        .expect("the installer has an upgrade call");
+    let otherwise = NSI
+        .find("\n  ${Else}\n    ; THE ONE-TIME MOVE")
+        .expect("the migration is the else branch of the pointer check");
+    let branch = &NSI[upgrade..otherwise];
+
+    // The launcher's call must return 0 before the installer touches the service: a failed pointer
+    // move is reported and the running process is left alone.
+    let failed = branch
+        .find("${If} $0 != \"0\"")
+        .expect("the installer checks the launcher's exit");
+    let succeeded = branch
+        .find("${Else}")
+        .expect("the restart is the success branch of that check");
+    assert!(failed < succeeded, "the success branch follows the check");
+
+    let stop = branch
+        .find("sc.exe stop ${SERVICE}")
+        .expect("the setup stops the service after the pointer moves");
+    let start = branch
+        .find("sc.exe start ${SERVICE}")
+        .expect("the setup starts the service again");
+    let health = branch
+        .find("http://127.0.0.1:${PORT}/api/health")
+        .expect("the setup polls the health endpoint");
+    let version = branch
+        .find(r#""$\"version$\":$\"${VERSION}$\"""#)
+        .expect("the poll requires the reported version to equal ${VERSION}");
+    assert!(
+        succeeded < stop,
+        "the restart is requested only after --install-version returned 0"
+    );
+    assert!(stop < start, "the service is started after it is stopped");
+    assert!(
+        start < health,
+        "health is polled after the restarted process exists"
+    );
+    assert!(
+        health < version,
+        "the health answer is matched against the setup's version"
+    );
+    assert!(
+        branch.contains("${If} $2 >= 30") && branch.contains("Sleep 1000"),
+        "the version poll is bounded (30 x 1 s)"
+    );
+
+    // A mismatch is reported, not repaired: the pointer and previous.txt stay where the launcher
+    // left them, so the operator can still roll back with one write and the old version stays on
+    // disk.
+    let failure = branch
+        .find("upgrade: ${VERSION} did not answer /api/health")
+        .expect("a version that never answers is logged");
+    assert!(
+        version < failure,
+        "the failure comes after the poll saw a non-matching answer"
+    );
+    assert!(
+        branch[failure..].contains("SetErrorLevel 1"),
+        "a version mismatch makes the setup exit non-zero"
+    );
+    assert!(
+        branch[failure..].contains("$4"),
+        "the last health answer is logged with the failure"
+    );
+    assert!(
+        branch[failure..].contains("previous.txt"),
+        "the failure names the rollback target the operator still has"
+    );
+    assert!(
+        !branch.contains("Delete \"$INSTDIR\\current.txt\"")
+            && !branch.contains("Delete \"$INSTDIR\\previous.txt\""),
+        "the installer never removes a pointer; the launcher and the operator own them"
     );
 }
 

@@ -13,6 +13,9 @@ Unicode true
 !include "LogicLib.nsh"
 ; `/CONSOLE=` and `/CODE=` are read out of the command line: the optional auto-enrolment below.
 !include "FileFunc.nsh"
+; `StrStr` is how the upgrade proves the restarted app's `/api/health` reports its version.
+!include "StrFunc.nsh"
+${Using:StrFunc} StrStr
 
 !ifndef VERSION
   !error "VERSION is required (-DVERSION=0.1.1)"
@@ -314,10 +317,11 @@ Section "Summrise runtime" SecRuntime
   ; once `current.txt` exists it answers "already on the versioned layout" and changes nothing, so
   ; every upgrade after the first migration used to stage files that nothing pointed at. On a
   ; migrated install the setup is now an upgrade: it stages its own pair as
-  ; `versions\<version>\` and asks the launcher to prove it and move the pointer
-  ; (`--install-version`). The launcher probes the candidate on a scratch port and writes
-  ; `current.txt` only after two matching health answers; on failure the pointer is untouched, and
-  ; this installer reports the launcher's exit and message and exits non-zero.
+  ; `versions\<version>\`, asks the launcher to prove it and move the pointer (`--install-version`),
+  ; then restarts the service and requires `/api/health` to report the version the pointer names.
+  ; The launcher probes the candidate on a scratch port and writes `current.txt` only after two
+  ; matching health answers; on a failed pointer move the pointer is untouched, and this installer
+  ; reports the launcher's exit and message and exits non-zero.
   ${If} ${FileExists} "$INSTDIR\current.txt"
     FileWrite $6 "upgrade: $INSTDIR\current.txt exists; staging versions\${VERSION}$\r$\n"
     ; A version directory is immutable once named. Copy only what is missing: an existing binary is
@@ -345,6 +349,75 @@ Section "Summrise runtime" SecRuntime
       SetErrorLevel 1
       ${IfNot} ${Silent}
         MessageBox MB_ICONSTOP "Version ${VERSION} was installed, but the launcher could not make it current (exit $0).$\r$\n$\r$\nThe device is still running the version current.txt named before this setup.$\r$\n$\r$\n$1"
+      ${EndIf}
+    ${Else}
+      ; **THE POINTER MOVED; THE PROCESS DID NOT.** `--install-version` is pointer-only: the
+      ; service that is already running keeps serving the version it booted. Restart it so it boots
+      ; what `current.txt` now names, then require `/api/health` to report `${VERSION}` — the
+      ; setup's exit code is only success if the new process is the one answering. Anything less
+      ; would recreate the exact symptom this upgrade exists to remove: current.txt naming one
+      ; version while another answers.
+      FileWrite $6 "upgrade: restarting ${SERVICE} to boot ${VERSION}$\r$\n"
+      nsExec::ExecToStack 'sc.exe stop ${SERVICE}'
+      Pop $0
+      Pop $1
+      FileWrite $6 "upgrade: sc stop: exit $0$\r$\n$1$\r$\n"
+      ; `sc stop` returns when the control is accepted, not when the process is gone. Bounded wait.
+      StrCpy $2 0
+      StrCpy $3 "0"
+      ${Do}
+        IntOp $2 $2 + 1
+        nsExec::ExecToStack 'cmd /c sc.exe query ${SERVICE} | findstr /I "STOPPED"'
+        Pop $0
+        Pop $1
+        ${If} $0 == "0"
+          StrCpy $3 "1"
+          ${ExitDo}
+        ${EndIf}
+        ${If} $2 >= 30
+          ${ExitDo}
+        ${EndIf}
+        Sleep 1000
+      ${Loop}
+      FileWrite $6 "upgrade: service stopped after $2 attempt(s)$\r$\n"
+      nsExec::ExecToStack 'sc.exe start ${SERVICE}'
+      Pop $0
+      Pop $1
+      FileWrite $6 "upgrade: sc start: exit $0$\r$\n$1$\r$\n"
+      ; 1056 ("already running") is not a failure here; the health poll is the real verdict, so
+      ; nothing branches on the start exit code.
+      StrCpy $2 0
+      StrCpy $3 "0"
+      StrCpy $4 ""
+      ${Do}
+        IntOp $2 $2 + 1
+        nsExec::ExecToStack 'curl.exe -sf -m 2 http://127.0.0.1:${PORT}/api/health'
+        Pop $0
+        Pop $1
+        ${If} $0 == "0"
+          StrCpy $4 "$1"
+          ${StrStr} $5 "$1" "$\"version$\":$\"${VERSION}$\""
+          ${If} $5 != ""
+            StrCpy $3 "1"
+            ${ExitDo}
+          ${EndIf}
+        ${EndIf}
+        ${If} $2 >= 30
+          ${ExitDo}
+        ${EndIf}
+        Sleep 1000
+      ${Loop}
+      ${If} $3 != "1"
+        ; The pointer, the version directory it names and `previous.txt` are all still there, so the
+        ; operator can roll back with one pointer write; the old version was never removed. Report,
+        ; never repair behind the operator's back, and never call this install a success.
+        FileWrite $6 "upgrade: ${VERSION} did not answer /api/health after 30s; last answer: $4$\r$\n"
+        SetErrorLevel 1
+        ${IfNot} ${Silent}
+          MessageBox MB_ICONSTOP "Version ${VERSION} was made current, but the restarted service does not report it on /api/health.$\r$\n$\r$\nLast answer:$\r$\n$4$\r$\n$\r$\n$INSTDIR\current.txt names ${VERSION} and previous.txt still names the version that was running, so the pointer can be rolled back."
+        ${EndIf}
+      ${Else}
+        FileWrite $6 "upgrade: /api/health reports ${VERSION}$\r$\n"
       ${EndIf}
     ${EndIf}
   ${Else}
