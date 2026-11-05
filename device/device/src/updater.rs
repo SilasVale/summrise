@@ -326,33 +326,46 @@ fn map_http_error(error: reqwest::Error) -> UpdateError {
     UpdateError::Http(error)
 }
 
-/// The install root a [`check_update`] call stages beside: the directory the running app lives in.
+/// The install root a [`check_update`] call stages in: the directory the running app's install owns.
 ///
-/// This is the same rule the hidden `--stage` mode uses when `--install` is absent: an installed
-/// app always lives at `<install>/summrise-device.exe`.
+/// This is the same rule the hidden `--stage` mode uses when `--install` is absent. A flat install
+/// starts the app from `<install>/summrise-device.exe`, so the executable's directory is the root.
+/// A versioned install starts it from `<install>/versions/<name>/summrise-device.exe`, one level
+/// below the root the pointer belongs to; the pointer's presence is what proves the parent is the
+/// install and not just a directory that happens to be called `versions`.
 pub(crate) fn install_root() -> Result<PathBuf, UpdateError> {
-    std::env::current_exe()
-        .map_err(UpdateError::Io)?
+    let exe = std::env::current_exe().map_err(UpdateError::Io)?;
+    let dir = exe.parent().ok_or_else(|| {
+        UpdateError::Io(io::Error::other(
+            "the running executable has no parent directory",
+        ))
+    })?;
+    Ok(install_root_of(dir))
+}
+
+/// [`install_root`] for one executable's directory, without reading this process's own path.
+fn install_root_of(dir: &Path) -> PathBuf {
+    let versioned = dir
         .parent()
+        .filter(|versions| versions.file_name().is_some_and(|name| name == "versions"))
+        .and_then(Path::parent)
+        .filter(|install| install.join(crate::update::CURRENT_POINTER).is_file());
+    versioned
         .map(Path::to_path_buf)
-        .ok_or_else(|| {
-            UpdateError::Io(io::Error::other(
-                "the running executable has no parent directory",
-            ))
-        })
+        .unwrap_or_else(|| dir.to_path_buf())
 }
 
 /// What one completed check decided.
 ///
 /// "Nothing to do" is an answer, not an error: the document verified, and it names the release this
 /// device already runs. The caller reports `up_to_date <version>` and exits 0 without asking the
-/// supervisor for a swap, so re-running a check is a safe no-op.
+/// launcher to install anything, so re-running a check is a safe no-op.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum CheckOutcome {
     /// The document names the installed version. Nothing was fetched beyond the document and
     /// nothing on disk changed.
     UpToDate,
-    /// The artifact is staged and the canonical pair is ready for the supervisor.
+    /// The artifact is staged where the install's layout boots from, and the handoff is next.
     Staged(StagedRelease),
 }
 
@@ -2214,5 +2227,46 @@ mod tests {
         assert!(http_url("http://mirror.example.test/release.json#f", true).is_err());
         assert!(http_url("ftp://mirror.example.test/release.json", true).is_err());
         assert!(http_url("mirror.example.test/release.json", true).is_err());
+    }
+
+    #[test]
+    fn a_versioned_install_root_is_the_directory_that_holds_the_pointer() {
+        let dir = TempDir::new("install-root-versioned");
+        let install = dir.join("install");
+        let version = install.join("versions").join("2.0.3");
+        fs::create_dir_all(&version).expect("the version directory is creatable");
+        fs::write(install.join("current.txt"), "2.0.3\n").expect("the pointer is writable");
+
+        assert_eq!(
+            install_root_of(&version),
+            install,
+            "the app lives in versions/<name>/; its install root is where current.txt lives"
+        );
+    }
+
+    #[test]
+    fn a_flat_install_root_is_the_executable_directory() {
+        let dir = TempDir::new("install-root-flat");
+        let install = dir.join("install");
+        fs::create_dir_all(&install).expect("the install directory is creatable");
+
+        assert_eq!(
+            install_root_of(&install),
+            install,
+            "without a pointer the flat directory is the install"
+        );
+    }
+
+    #[test]
+    fn a_versions_directory_without_a_pointer_is_not_an_install_root() {
+        let dir = TempDir::new("install-root-no-pointer");
+        let version = dir.join("install").join("versions").join("2.0.3");
+        fs::create_dir_all(&version).expect("the nested directory is creatable");
+
+        assert_eq!(
+            install_root_of(&version),
+            version,
+            "the name of a parent is not proof; the pointer is"
+        );
     }
 }

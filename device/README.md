@@ -11,8 +11,8 @@ Six workspace members, six owners:
 |---|---|---|
 | `core` | every decision that is a value (state schema, `authorize`, session transitions, grants, the registry) | nothing — no I/O |
 | `release` | the signed release document and its channels; **the one update decision** (`select`); the offline `summrise-release sign` tool | nothing at runtime |
-| `launch` | the app binary and its baseline; the SCM service; the swap; the repair log | `<install>/summrise-device.exe`, `<install>/baseline/{current,previous,pending}/*`, `<install>/swap.result.json`, `<install>/repair.log`, `<data>/token`, `<data>/console.json` (console **and** mesh facts), `<data>/launcher.pid`, `<data>/app.pid` |
-| `device` | the running app: sessions, HTTP/MCP, console and mesh channels, update staging | `<data>/state.json`, `<data>/device.lock`, `<data>/device.pid`, `<data>/identity.key`, `<data>/console-token.json`, `<data>/console.json` (the console half; mesh fields are preserved), `<install>/summrise-device.new.exe`, `<install>/summrise-device.new.json`, `<install>/swap.request.json`, `<data>/events.jsonl`, `<data>/memory.jsonl`, `<data>/runs.jsonl`, `<data>/known_hosts.json`, `<data>/monitors.json`, `<data>/workspace/` |
+| `launch` | the app binary and its baseline; the SCM service; the swap; the repair log | `<install>/summrise-device.exe`, `<install>/baseline/{current,previous,pending}/*`, `<install>/versions/<version>/*`, `<install>/current.txt`, `<install>/previous.txt`, `<install>/swap.result.json`, `<install>/repair.log`, `<data>/token`, `<data>/console.json` (console **and** mesh facts), `<data>/launcher.pid`, `<data>/app.pid` |
+| `device` | the running app: sessions, HTTP/MCP, console and mesh channels, update staging | `<data>/state.json`, `<data>/device.lock`, `<data>/device.pid`, `<data>/identity.key`, `<data>/console-token.json`, `<data>/console.json` (the console half; mesh fields are preserved), `<install>/summrise-device.new.exe`, `<install>/summrise-device.new.json`, `<install>/versions/<version>/*` (the versioned stage), `<install>/swap.request.json`, `<data>/events.jsonl`, `<data>/memory.jsonl`, `<data>/runs.jsonl`, `<data>/known_hosts.json`, `<data>/monitors.json`, `<data>/workspace/` |
 | `console` | the operator's control plane: the embedded operator page, auth, device registry, grant signing, the device channel, the `/mcp` proxy and `/mcp/all` aggregate, the audit index | `<data>/devices.json`, `<data>/codes.json`, `<data>/audit.jsonl`, `<data>/denials.jsonl` |
 | `mesh` | the broker/relay library and its two binaries | nothing under the device's install or data directory |
 
@@ -245,18 +245,27 @@ lands in its audit index like every other tool.
 
 ## Updates
 
-The stager writes files; the app writes the document; the launcher swaps. `--stage` and
-`--check-update` verify the release, write the canonical staged pair and `<install>/swap.request.json`
-— and **never write `state.json`**, so they can run while the service serves (and even against a
+The stager writes files; the app writes the document; the launcher installs. `--stage` and
+`--check-update` verify the release and write it to the layout the install uses — the flat staged pair
+and `<install>/swap.request.json` without `<install>/current.txt`, or
+`<install>/versions/<version>/` (the exe plus its signed `summrise-device.json`) with it, where the
+stager then runs the launcher's `--apply` so the new version is serving when the command returns. Both
+modes **never write `state.json`**, so they can run while the service serves (and even against a
 read-only document). `--check-update` **reads** it for the installed version and the rollback memory;
 it refuses (exit 2) when there is no state document to read rather than treating the memory as empty
 (a document that exists but cannot be parsed is a failed attempt, exit 1). `--stage` reads it only when `--data` is given: a digest in `rolled_back` is refused (exit 4)
 unless `--force-reinstall <sha256>` names exactly that digest, and the override is appended to
 `<data>/events.jsonl` before staging. Without `--data`, `--stage` cannot see the memory and stages —
-the guard is opt-in by naming the state document, and the mode's help says so. The serving app reads the request at start and every second
+the guard is opt-in by naming the state document, and the mode's help says so.
+
+On a pre-versioned install the serving app reads the request at start and every second
 (`SWAP_POLL_INTERVAL`; the supervisor consumes the request on its own two-second poll) and records
 `update.phase = "staged"` / `update.to`. A request naming a version the document already records is
-not recorded again, so a lingering request cannot flip a finished update back to `staged`.
+not recorded again, so a lingering request cannot flip a finished update back to `staged`. On a
+versioned install the scheduled check stages into `versions/<version>/`, runs the launcher's
+`--install-version`, and exits under its supervisor so the new pointer is started; a directory that
+already holds different bytes is never overwritten, and a failed health probe leaves `current.txt`
+where it was and keeps the staged directory for inspection.
 
 The same poll folds `<install>/swap.result.json` into `update.outcome` / `update.lastResultAtMs` and
 `lastVerdict` (`updated to X`, `rolled back from X`, `repaired from baseline`, or `refused: …`).

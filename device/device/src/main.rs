@@ -7,10 +7,11 @@
 //! the operator's remote MCP path (design §5.2); when `--mesh-broker` is configured it joins the
 //! mesh, publishes where it can be reached and serves the same MCP surface to a peer (the same
 //! section's target). Without those flags the device is local-only, as before.
-//! The hidden `--stage` mode runs the stager, asks the supervisor to swap, and waits for its answer,
-//! for the Windows lifecycle test and for a human reproducing a refusal without an HTTP client. The
+//! The hidden `--stage` mode runs the stager and hands the release to the launcher — the supervisor's
+//! `swap.request.json` on a pre-versioned install, the launcher's `--apply` under `current.txt` — for
+//! the Windows lifecycle test and for a human reproducing a refusal without an HTTP client. The
 //! hidden `--check-update <url>` mode fetches a signed release document, verifies and stages it, and
-//! then asks the supervisor for the same swap. The `--enroll <console-url> <code>` mode registers
+//! makes the same handoff. The `--enroll <console-url> <code>` mode registers
 //! this device with the operator's console before a supervised install: it writes the registration
 //! token and merges the console link the service reads at start.
 
@@ -179,6 +180,56 @@ fn up_to_date_line(version: &str) -> String {
     format!("up_to_date {version}")
 }
 
+/// Hand a staged release to whichever install owns this layout.
+///
+/// A legacy install asks the supervisor through `swap.request.json` and waits for its answer. A
+/// versioned install runs the launcher (`--apply`, because these are operator-facing modes: the new
+/// version must be running when they return). The launcher's refusal is returned with its own
+/// sentence; the staged version directory is left on disk for inspection.
+fn install_staged(
+    install: &Path,
+    staged: &StagedRelease,
+    data: Option<&Path>,
+) -> Result<SwapResult, String> {
+    // A legacy install keeps its old sentences: the request write is the step that can fail, and
+    // the caller's message says so. A versioned install is the launcher's transaction.
+    let versioned = matches!(&staged.staged, update::Staged::Version { .. });
+    if !versioned {
+        let requested_at_ms = update::request_swap(install, staged)
+            .map_err(|error| format!("cannot request the swap: {error}"))?;
+        return update::await_swap_result(install, requested_at_ms, SWAP_RESULT_TIMEOUT)
+            .map_err(|error| format!("the swap was not answered: {error}"));
+    }
+
+    let options = update::HandoffOptions::restart()
+        .with_data(data.map(Path::to_path_buf))
+        .with_port(data.and_then(recorded_port));
+    match update::hand_off(install, staged, &options)
+        .map_err(|error| format!("cannot install the version: {error}"))?
+    {
+        update::Handoff::Installed { .. } => Ok(SwapResult {
+            outcome: SwapOutcome::Applied,
+            version: Some(staged.version.clone()),
+            sha256: Some(staged.sha256.clone()),
+            at_ms: update::now_ms(),
+            reason: None,
+        }),
+        update::Handoff::Swap { requested_at_ms } => {
+            update::await_swap_result(install, requested_at_ms, SWAP_RESULT_TIMEOUT)
+                .map_err(|error| format!("the swap was not answered: {error}"))
+        }
+    }
+}
+
+/// The port the running app recorded in `<data>/device.port`, when there is one.
+fn recorded_port(data: &Path) -> Option<u16> {
+    fs::read_to_string(data.join("device.port"))
+        .ok()?
+        .trim()
+        .parse()
+        .ok()
+}
+
 /// Print a completed check: the `up_to_date` line, or the supervisor's answer unchanged.
 fn report_check_update(outcome: &CheckUpdateOutcome) {
     match outcome {
@@ -207,7 +258,7 @@ struct StageInvocation {
     artifact: PathBuf,
     /// The signed manifest that says what the artifact is.
     manifest: PathBuf,
-    /// The install root whose canonical pair is the only destination (fix design F3).
+    /// The install root whose layout decides the staged destination (fix design F3).
     install: PathBuf,
     /// The data directory holding `state.json` and its rollback memory, when the operator named it.
     data: Option<PathBuf>,
@@ -218,11 +269,12 @@ struct StageInvocation {
 /// The hidden `--stage <artifact> <manifest.json> [--install <install>] [--data <data>]
 /// [--force-reinstall <sha256>]` mode.
 ///
-/// This is not a second update path: the artifact is verified, written only to the canonical staged
-/// pair under `<install>`, and then the supervisor is asked to swap. The install is not a destination
-/// — the two file names are fixed — so a caller cannot make the app overwrite the app binary or a
-/// baseline sidecar (fix design F3). The key is the same compile-time seam the service uses, so the
-/// lifecycle test exercises the real verifier rather than a test-only one.
+/// This is not a second update path: the artifact is verified, written to the destination the
+/// install's layout names — the flat staged pair, or `<install>/versions/<version>/` when
+/// `current.txt` makes it versioned — and then handed to the launcher. The install is not an output
+/// path — every destination is derived from it — so a caller cannot make the app overwrite the app
+/// binary or a baseline sidecar (fix design F3). The key is the same compile-time seam the service
+/// uses, so the lifecycle test exercises the real verifier rather than a test-only one.
 ///
 /// **The rollback guard needs `--data`.** `state.json` is the only place the device remembers an
 /// artifact it rolled back; when `--data` names the directory that holds it, this mode refuses a
@@ -231,9 +283,10 @@ struct StageInvocation {
 /// artifact — the guard is opt-in by naming the state document, and the caller that omits it is
 /// saying it does not have one.
 ///
-/// **This mode never writes the state document.** The serving app is its only writer; the durable
-/// facts this mode leaves are the staged pair and `<install>/swap.request.json`. The app reads the
-/// request at its next start or poll and records `update.phase = staged` itself.
+/// **This mode never writes the state document.** The serving app is its only writer; on a
+/// pre-versioned install the durable facts are the staged pair and `<install>/swap.request.json`,
+/// which the app folds into `update.phase = staged` at its next start or poll. On a versioned install
+/// the launcher's `--apply` owns the pointer write and the restart.
 fn stage_from_args(args: &[OsString]) -> Result<SwapResult, StageModeError> {
     stage_from_args_with_key(args, update::release_pubkey())
 }
@@ -246,19 +299,17 @@ fn stage_from_args_with_key(
 ) -> Result<SwapResult, StageModeError> {
     let invocation = parse_stage_args(args)?;
     let staged = stage_with_key(&invocation, pubkey)?;
-    let requested_at_ms = update::request_swap(&invocation.install, &staged)
-        .map_err(|error| StageModeError::Failed(format!("cannot request the swap: {error}")))?;
-
-    update::await_swap_result(&invocation.install, requested_at_ms, SWAP_RESULT_TIMEOUT)
-        .map_err(|error| StageModeError::Failed(format!("the swap was not answered: {error}")))
+    install_staged(&invocation.install, &staged, invocation.data.as_deref())
+        .map_err(StageModeError::Failed)
 }
 
 /// Parse the stage command line.
 ///
-/// `<install>` comes from `--install`, then `SUMMRISE_INSTALL`, then the directory this binary lives
-/// in — an installed app always lives at `<install>/summrise-device.exe`. There is deliberately no
-/// argument that names either output file. `--data` is accepted and ignored: this mode leaves no
-/// state document for a data directory to matter to.
+/// `<install>` comes from `--install`, then `SUMMRISE_INSTALL`, then the install root this binary
+/// belongs to: a flat install's own directory, or — under `versions/<name>/` — the directory that
+/// holds `current.txt` (`updater::install_root` makes that decision for both hidden modes). There is
+/// deliberately no argument that names either output file. `--data` is the rollback guard's input and
+/// the handoff's launcher data directory.
 fn parse_stage_args(args: &[OsString]) -> Result<StageInvocation, StageModeError> {
     let mut artifact = None;
     let mut manifest = None;
@@ -305,11 +356,7 @@ fn parse_stage_args(args: &[OsString]) -> Result<StageInvocation, StageModeError
     };
     let install = install
         .or_else(|| std::env::var_os("SUMMRISE_INSTALL").map(PathBuf::from))
-        .or_else(|| {
-            std::env::current_exe()
-                .ok()
-                .and_then(|exe| exe.parent().map(Path::to_path_buf))
-        })
+        .or_else(|| updater::install_root().ok())
         .ok_or(StageModeError::Usage)?;
 
     Ok(StageInvocation {
@@ -352,8 +399,9 @@ fn stage_with_key(
     })?;
 
     // The digest guard sits before the stager so a remembered artifact is refused without being
-    // written to the canonical pair. The bytes and the signed manifest must agree first: a manifest
-    // naming a different digest is the stager's `Sha` refusal, not evidence about this artifact.
+    // written to the layout's destination. The bytes and the signed manifest must agree first: a
+    // manifest naming a different digest is the stager's `Sha` refusal, not evidence about this
+    // artifact.
     let digest = summrise_release::sha256_hex(&bytes);
     let mut forced_override = None;
     if digest.eq_ignore_ascii_case(&manifest.sha256) {
@@ -770,10 +818,11 @@ fn installed_release(
     }
 }
 
-/// The hidden `--check-update` mode: fetch, verify, stage, then ask the supervisor and wait.
+/// The hidden `--check-update` mode: fetch, verify, stage, then hand the release to the launcher.
 ///
-/// `--install` names the directory whose canonical staged pair is the destination (and whose
-/// `swap.request.json` the supervisor polls); without it, the app's own directory is used.
+/// `--install` names the install root the layout derives its destination from (and whose
+/// `swap.request.json` the supervisor polls on a pre-versioned install); without it, the root is
+/// derived from this executable (`updater::install_root`).
 async fn check_update_from_args(
     args: &[OsString],
 ) -> Result<CheckUpdateOutcome, CheckUpdateModeError> {
@@ -892,16 +941,13 @@ async fn check_update_from_args_with_key(
     }
 
     // The stage is not recorded here: the serving app is the state document's only writer, and this
-    // mode may run while it serves. The durable fact left behind is `swap.request.json`, which the
-    // app folds into `update.phase = staged` at its next start or poll; the supervisor's result is
-    // folded in the same way when the swap finishes. A refusal is therefore visible in the state the
-    // console reads, without this process ever opening the document for writing.
-    let requested_at_ms = update::request_swap(&install, &staged).map_err(|error| {
-        CheckUpdateModeError::Failed(format!("cannot request the swap: {error}"))
-    })?;
-    let swap = update::await_swap_result(&install, requested_at_ms, SWAP_RESULT_TIMEOUT).map_err(
-        |error| CheckUpdateModeError::Failed(format!("the swap was not answered: {error}")),
-    )?;
+    // mode may run while it serves. A legacy install leaves `swap.request.json` for the supervisor
+    // and folds its answer in later; a versioned install leaves the outcome to the launcher, which
+    // moves the pointer and (with `--apply`) restarts the service. A refusal is visible in the state
+    // the console reads, without this process ever opening the document for writing.
+    let data = explicit_data_dir(&invocation);
+    let swap =
+        install_staged(&install, &staged, data.as_deref()).map_err(CheckUpdateModeError::Failed)?;
     Ok(CheckUpdateOutcome::Swap(swap))
 }
 
@@ -994,6 +1040,8 @@ async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
             config.data.clone(),
             source,
             update_config,
+            config.supervised,
+            config.port,
         );
     }
     // The helper is optional. Without its token the logged-in user's shell can never register, and

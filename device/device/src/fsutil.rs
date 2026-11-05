@@ -32,6 +32,40 @@ pub(crate) fn create_new_sibling_private(path: &Path) -> io::Result<(PathBuf, Fi
     create_new_sibling_with(path, true)
 }
 
+/// Create a brand-new directory at a random sibling of `path`, returning its path.
+///
+/// A version directory is built under a temporary name and renamed into place once both of its
+/// files are written; the same unpredictable middle and the same `AlreadyExists` retry keep a
+/// planted directory from being the one built into.
+pub(crate) fn create_new_dir(path: &Path) -> io::Result<PathBuf> {
+    let name = path
+        .file_name()
+        .ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("{} has no file name", path.display()),
+            )
+        })?
+        .to_string_lossy()
+        .into_owned();
+    for _ in 0..16 {
+        let nonce = RandomState::new().build_hasher().finish();
+        let temporary = path.with_file_name(format!(".{name}.{nonce:016x}.tmp"));
+        match fs::create_dir(&temporary) {
+            Ok(()) => return Ok(temporary),
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(error),
+        }
+    }
+    Err(io::Error::new(
+        io::ErrorKind::AlreadyExists,
+        format!(
+            "cannot create a temporary directory beside {} after 16 attempts",
+            path.display()
+        ),
+    ))
+}
+
 fn create_new_sibling_with(path: &Path, private: bool) -> io::Result<(PathBuf, File)> {
     let name = path
         .file_name()

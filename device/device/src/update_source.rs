@@ -210,12 +210,18 @@ pub(crate) fn take_request(data: &Path) -> bool {
 /// The returned handle is dropped by the caller; the task lives as long as the runtime. A failed
 /// check is one log line and the next interval — an unreachable mirror must not stop the device
 /// from serving, and an update refused by policy must not be retried inside one interval.
+///
+/// `supervised` is the launcher's mark on this process (`Config::supervised`): only a supervised app
+/// may exit after a versioned install, because only then does something start the new pointer.
+/// `port` is the service's port, which the launcher health-checks after a restart.
 pub fn spawn(
     store: Store,
     install: PathBuf,
     data: PathBuf,
     source: UpdateSource,
     cfg: UpdateConfig,
+    supervised: bool,
+    port: u16,
 ) -> JoinHandle<()> {
     tokio::spawn(async move {
         let seed = device_seed(&data);
@@ -235,7 +241,7 @@ pub fn spawn(
             }
         }
         loop {
-            match check_once(&store, &install, &source, &cfg).await {
+            match check_once(&store, &install, &data, &source, &cfg, supervised, port).await {
                 Ok(()) => {}
                 Err(error) => eprintln!("summrise-device: scheduled update check: {error}"),
             }
@@ -259,11 +265,15 @@ pub fn spawn(
 }
 
 /// One scheduled check: the same call the operator's one-shot makes, with the state's memory.
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn check_once(
     store: &Store,
     install: &Path,
+    data: &Path,
     source: &UpdateSource,
     cfg: &UpdateConfig,
+    supervised: bool,
+    port: u16,
 ) -> Result<(), UpdateError> {
     // The state carries both facts the decision needs — the version this device runs and the
     // artifacts it rolled back. A state that cannot be read skips this round and says so: staging
@@ -294,31 +304,57 @@ pub(crate) async fn check_once(
         &pubkey,
     )
     .await?;
-    // **A STAGED RELEASE IS NOT AN UPDATE UNTIL THE SUPERVISOR IS ASKED.** The stager writes the
-    // candidate pair; the supervisor swaps when `swap.request.json` names it. The one-shot CLI has
-    // always written that request and waited for the answer; this scheduler did not, so a device
-    // that checked on a schedule downloaded and verified every release and then sat on it — which
-    // is exactly what the canary showed (2026-10-22: document fetched, verified, nothing applied).
-    // The request is written here, and the app's own watcher folds the supervisor's answer into
-    // `state.json` after the restart the swap causes.
+    // **A STAGED RELEASE IS NOT AN UPDATE UNTIL IT IS HANDED OFF.** A legacy install's handoff is
+    // the `swap.request.json` the supervisor polls; a versioned install's is the launcher's
+    // `--install-version`, followed by this process exiting so the supervisor starts the pointer.
+    // The one-shot CLI has always made its handoff; this scheduler did not, so a device that checked
+    // on a schedule downloaded and verified every release and then sat on it — which is exactly what
+    // the canary showed (2026-10-22: document fetched, verified, nothing applied).
     if let updater::CheckOutcome::Staged(staged) = outcome {
-        request_swap_after_staging(install, &staged);
+        hand_off_after_staging(install, data, &staged, supervised, port);
     }
     Ok(())
 }
 
-/// Ask the supervisor to swap in a release the stager has just written.
+/// Hand a release the stager has just written to whatever installs it on this layout.
 ///
-/// Extracted so the step that was missing can be tested without a release server: the stager and
-/// the supervisor each have their own tests, and this is the sentence that connects them.
-pub(crate) fn request_swap_after_staging(install: &Path, staged: &crate::update::StagedRelease) {
-    match crate::update::request_swap(install, staged) {
-        Ok(_) => eprintln!(
+/// Extracted so the step that was missing can be tested without a release server: the stager and the
+/// supervisor each have their own tests, and this is the sentence that connects them.
+///
+/// A supervised app asks for the pointer move and then exits after a short delay (the same hook the
+/// panel's restart uses), because the supervisor — not this process — starts the new version. An app
+/// with no supervisor cannot restart itself; it says so instead of pretending the update is running.
+pub(crate) fn hand_off_after_staging(
+    install: &Path,
+    data: &Path,
+    staged: &crate::update::StagedRelease,
+    supervised: bool,
+    port: u16,
+) {
+    let options = crate::update::HandoffOptions::pointer()
+        .with_data(Some(data.to_path_buf()))
+        .with_port(Some(port));
+    match crate::update::hand_off(install, staged, &options) {
+        Ok(crate::update::Handoff::Swap { .. }) => eprintln!(
             "summrise-device: staged {} and asked the supervisor for the swap",
             staged.version
         ),
+        Ok(crate::update::Handoff::Installed { .. }) => {
+            eprintln!(
+                "summrise-device: staged {} and installed it; {}",
+                staged.version,
+                if supervised {
+                    "restarting from the new pointer"
+                } else {
+                    "a restart is required to run it"
+                }
+            );
+            if supervised {
+                crate::restart::exit_soon()();
+            }
+        }
         Err(error) => eprintln!(
-            "summrise-device: staged {} but cannot ask for the swap: {error}",
+            "summrise-device: staged {} but cannot install it: {error}",
             staged.version
         ),
     }
@@ -421,13 +457,10 @@ mod tests {
     }
 
     #[test]
-    fn a_staged_release_asks_the_supervisor_for_the_swap() {
+    fn a_staged_legacy_release_asks_the_supervisor_for_the_swap() {
         let dir = tempdir();
-        let staged = crate::update::StagedRelease {
-            version: "2.0.1".to_owned(),
-            sha256: "ab".repeat(32),
-        };
-        request_swap_after_staging(&dir, &staged);
+        let staged = crate::update::StagedRelease::pair(&dir, "2.0.1", "ab".repeat(32));
+        hand_off_after_staging(&dir, &dir, &staged, false, 18_080);
         let request = std::fs::read(dir.join("swap.request.json"))
             .expect("the supervisor is asked; a staged release alone is not an update");
         let parsed: serde_json::Value =
