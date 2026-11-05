@@ -538,8 +538,9 @@ try {
   }
   await page.screenshot({ path: path.join(OUT, '04-activity-run.png') });
 
-  // ONE TAB FOR WHAT THE MACHINE CAN DO. The catalogue, the plugin list and the run form are the
-  // same answer, so the gate checks all three render on the same page before it moves on.
+  // ONE TAB FOR WHAT THE MACHINE CAN DO. The run form, the catalogue and the plugin list are the
+  // same answer, so the gate checks all three render on the same page before it moves on — and that
+  // the form, the most-used write, is drawn before the 46-deep catalogue a person would scroll past.
   await page.getByRole('button', { name: 'Tools' }).click();
   await page.getByRole('heading', { name: 'Tools', exact: true }).waitFor({ timeout: 10_000 });
   await page.locator('.tool-row').first().waitFor({ timeout: 10_000 });
@@ -555,7 +556,21 @@ try {
   if ((await runSection.locator('#runs-command').count()) === 0) {
     throw new Error('the exec form is not under Tools');
   }
-  step('opened Device → Tools; the catalogue, the plugin list and the exec form are one answer');
+  const runFirst = await page.evaluate(() => {
+    const form = document.querySelector('section[aria-labelledby="tools-run"]');
+    const catalogue = document.querySelector('section[aria-labelledby="tools-on-this-machine"]');
+    return (
+      form !== null &&
+      catalogue !== null &&
+      (form.compareDocumentPosition(catalogue) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0
+    );
+  });
+  if (!runFirst) {
+    throw new Error('the Tools tab draws the catalogue before the exec form');
+  }
+  step(
+    'opened Device → Tools; the run form precedes the catalogue, the plugin list and the exec form are one answer'
+  );
   await page.screenshot({ path: path.join(OUT, '05-tools.png') });
 
   // THE CREDENTIAL LIST IS THE WHOLE REGISTRY. `GET /tokens` is the only list route; a row for

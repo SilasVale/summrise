@@ -1014,7 +1014,7 @@ const PAGES = [
     tab: 'Tools',
     heading: 'Tools',
     state:
-      'the machine\'s one answer: the live tool catalogue, the plugin list and the exec form under it'
+      'the machine\'s one answer: the exec form first, then the live tool catalogue and the plugin list'
   },
   {
     id: 'activity',
@@ -1331,9 +1331,9 @@ async function capturePage(page, state, meta, pass) {
   console.log(`  ${pass.key.padEnd(6)} ${file}`);
 
   if (meta.id === 'tools') {
-    // ONE TAB, TWO SECTIONS. The gallery's `tools` capture is the top of the catalogue; these are
-    // the states the page offers inside it: one tool's sheet, the no-match search, the plugin half
-    // on the same page, and the two plugin states a machine can be in.
+    // ONE TAB, THREE SECTIONS. The gallery's `tools` capture is the top of the page (the exec form);
+    // these are the states the page offers below it: one tool's sheet, the no-match search, the
+    // plugin half on the same page, and the two plugin states a machine can be in.
     await page.locator('.tool-row').first().click();
     const dialog = page.getByRole('dialog');
     await dialog.waitFor({ state: 'visible', timeout: 5_000 });

@@ -850,7 +850,7 @@ describe("App", () => {
     }
   });
 
-  it("answers what the machine can do on one Tools tab: the catalogue, the plugins, the run form", async () => {
+  it("answers what the machine can do on one Tools tab: the run form, the catalogue, the plugins", async () => {
     mocks.liveTools.mockResolvedValue({ tools: [filesTool, pluginTool] });
     pluginMocks.list.mockResolvedValue([helloPlugin]);
     await bootAndSignIn();
@@ -860,11 +860,11 @@ describe("App", () => {
     fireEvent.click(screen.getByRole("button", { name: "Tools" }));
 
     expect(await screen.findByRole("heading", { name: "Tools", level: 1 })).toBeInTheDocument();
-    // ONE ANSWER IN THREE SECTIONS: the catalogue, the plugins it makes possible, and the exec form
-    // that used to lead the Runs page.
+    // ONE ANSWER IN THREE SECTIONS: the exec form that used to lead the Runs page comes first, then
+    // the catalogue and the plugins it makes possible.
     expect(
       screen.getAllByRole("heading", { level: 2 }).map((heading) => heading.textContent)
-    ).toEqual(["Tools on this machine", "Plugins", "Run a command on this machine"]);
+    ).toEqual(["Run a command on this machine", "Tools on this machine", "Plugins"]);
     expect(await screen.findByRole("button", { name: /files\.read/ })).toBeInTheDocument();
     expect(await screen.findByText("Hello")).toBeInTheDocument();
     expect(screen.getByLabelText("Command")).toBeInTheDocument();

@@ -110,24 +110,52 @@ beforeEach(() => {
 });
 
 describe("ToolsTab", () => {
-  it("answers with the catalogue first, the plugins second and the run form third, one h2 each", async () => {
+  it("answers with the run form first, the catalogue second and the plugins third, one h2 each", async () => {
     renderTools();
 
     expect(
       screen.getAllByRole("heading", { level: 2 }).map((heading) => heading.textContent)
-    ).toEqual(["Tools on this machine", "Plugins", "Run a command on this machine"]);
+    ).toEqual(["Run a command on this machine", "Tools on this machine", "Plugins"]);
     expect(screen.getByRole("button", { name: /files\.read/ })).toBeInTheDocument();
     expect(await screen.findByText("Hello")).toBeInTheDocument();
 
-    // The exec form is a section of this page, not a second page: its fields live under the h2.
-    const heading = screen.getByRole("heading", {
-      name: "Run a command on this machine",
-      level: 2
-    });
-    const section = heading.closest("section") as HTMLElement | null;
-    expect(section).not.toBeNull();
-    expect(within(section as HTMLElement).getByLabelText("Command")).toBeInTheDocument();
-    expect(within(section as HTMLElement).getByRole("button", { name: "Run" })).toBeInTheDocument();
+    // The exec form is a section of this page, not a second page: its fields live under the h2, and
+    // the section comes before the catalogue a person would otherwise scroll past.
+    const run = screen
+      .getByRole("heading", { name: "Run a command on this machine", level: 2 })
+      .closest("section") as HTMLElement;
+    const catalogue = screen
+      .getByRole("heading", { name: "Tools on this machine", level: 2 })
+      .closest("section") as HTMLElement;
+    expect(within(run).getByLabelText("Command")).toBeInTheDocument();
+    expect(within(run).getByRole("button", { name: "Run" })).toBeInTheDocument();
+    expect(
+      run.compareDocumentPosition(catalogue) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+  });
+
+  it("tabs through the form before it reaches the catalogue", async () => {
+    renderTools();
+    await screen.findByRole("button", { name: /files\.read/ });
+
+    const order = tabOrder(document.body);
+    const run = screen
+      .getByRole("heading", { name: "Run a command on this machine", level: 2 })
+      .closest("section") as HTMLElement;
+    const catalogue = screen
+      .getByRole("heading", { name: "Tools on this machine", level: 2 })
+      .closest("section") as HTMLElement;
+
+    // No positive tabindex anywhere: the keyboard order the page promises is the DOM order.
+    expect(order.every((element) => element.tabIndex <= 0)).toBe(true);
+    const lastFormControl = Math.max(
+      ...order.map((element, index) => (run.contains(element) ? index : -1))
+    );
+    const firstCatalogueControl = order.findIndex((element) => catalogue.contains(element));
+    expect(lastFormControl).toBeGreaterThanOrEqual(0);
+    expect(firstCatalogueControl).toBeGreaterThan(lastFormControl);
+    // The catalogue's own search is still the first control a tab reaches after the form.
+    expect(order[firstCatalogueControl]).toBe(within(catalogue).getByLabelText("Search tools"));
   });
 
   it("opens a tool's sheet inside the catalogue section", () => {
@@ -135,6 +163,24 @@ describe("ToolsTab", () => {
     expect(screen.getByRole("dialog", { name: "files.read" })).toBeInTheDocument();
   });
 });
+
+/**
+ * The focusable controls in DOM order — which is the tab order when nothing has a positive
+ * tabindex. jsdom does not implement Tab, so the order is read from the document the way a browser
+ * would build it, and the no-positive-tabindex assertion above is what makes it the keyboard order.
+ */
+function tabOrder(root: HTMLElement): HTMLElement[] {
+  return Array.from(
+    root.querySelectorAll<HTMLElement>(
+      "a[href], button, input, select, textarea, summary, [tabindex]"
+    )
+  ).filter(
+    (element) =>
+      !element.hasAttribute("disabled") &&
+      !element.hasAttribute("hidden") &&
+      element.getAttribute("aria-hidden") !== "true"
+  );
+}
 
 describe("the run form under Tools", () => {
   it("calls runs.exec with the form's line and opens the finished run's record", async () => {
