@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import type { AuditLine, Device } from "./api";
+import { age as elapsed } from "./age";
 import { age, shortId } from "./format";
+import { runningAt, type StartedCall } from "./liveActivity";
 
 /** How many entries the band shows: enough to read the last few steps, not a second Activity page. */
 const SHOWN = 5;
@@ -49,6 +51,12 @@ export function LiveNow(props: {
    * only the newest forty and could hold none of this machine's calls.
    */
   lines: AuditLine[];
+  /**
+   * The calls the proxy announced and has not cleared. A started frame is not an audit line, so
+   * these are the only proof that a call is running before the device answers; only a client's
+   * calls are shown, because the band counts the AI and not the console's own reads.
+   */
+  running?: StartedCall[];
   devices: Device[];
   state: "connecting" | "live" | "offline";
   onAll: () => void;
@@ -68,8 +76,13 @@ export function LiveNow(props: {
   // counting them made an idle machine read "Active now · 6 calls in the last minute". A line with
   // no caller (an old console's, or a snapshot) is not a client's call either, so it is not one here.
   const calls = props.lines.filter((line) => line.caller === "client");
+  // A started entry is the proxy's own announcement and is bounded by its own cut: the page applies
+  // the same bound so a `finished` frame lost on the way cannot leave the line running forever.
+  const running = runningAt(props.running ?? [], now).filter(
+    (call) => call.caller === "client"
+  );
   const newest = calls[0]?.ts_ms ?? 0;
-  const present = newest > 0 && now - newest < PRESENT_MS;
+  const present = running.length > 0 || (newest > 0 && now - newest < PRESENT_MS);
   const lastMinute = calls.filter((line) => now - line.ts_ms < 60_000).length;
   const shown = calls.slice(0, SHOWN);
   const counts = buckets(calls, now);
@@ -129,13 +142,20 @@ export function LiveNow(props: {
         })}
       </svg>
 
-      {shown.length === 0 ? (
-        <p className="hint live-empty">
-          {props.state === "live"
-            ? "No client calls yet. When an AI client calls this console, its work appears here; the console's own reads are not counted."
-            : "The activity stream is not open, so nothing can appear here yet."}
-        </p>
-      ) : (
+      {running.length > 0 && (
+        <ul className="live-list live-running" aria-label="Running now">
+          {running.map((call) => (
+            <li key={call.id} className="live-entry live-running-entry">
+              <span className="live-entry-dot live-running-dot" aria-hidden="true" />
+              <span className="live-sentence">
+                running {call.tool} · {elapsed(now - call.at_ms)}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {shown.length > 0 ? (
         <ol className="live-list">
           {shown.map((line) => {
             const machine = deviceName(props.devices, line.device_id);
@@ -168,7 +188,13 @@ export function LiveNow(props: {
             );
           })}
         </ol>
-      )}
+      ) : running.length === 0 ? (
+        <p className="hint live-empty">
+          {props.state === "live"
+            ? "No client calls yet. When an AI client calls this console, its work appears here; the console's own reads are not counted."
+            : "The activity stream is not open, so nothing can appear here yet."}
+        </p>
+      ) : null}
     </section>
   );
 }

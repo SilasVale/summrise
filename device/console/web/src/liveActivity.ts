@@ -54,13 +54,54 @@ export type LiveLine = {
   evidence?: Record<string, unknown>;
 };
 
+/**
+ * One call the console has announced and not yet cleared: a `started` frame.
+ *
+ * It is deliberately not a [`LiveLine`]: it has no sentence, no status and no place in the record.
+ * The proxy publishes it before the wait and clears it when the wait ends, so a page can say a call
+ * is running while the audit still has nothing about it.
+ */
+export type StartedCall = {
+  /** The proxy's id for this call; a `finished` frame clears exactly this one. */
+  id: string;
+  /** The tool the call named. */
+  tool: string;
+  /** The console's clock when the call began. */
+  at_ms: number;
+  /** The machine the call names, when it names one. */
+  device_id?: string;
+  /** Who made the call, so the band can count the AI and not the console's own reads. */
+  caller?: "console" | "client";
+};
+
+/**
+ * The proxy's own cut on one call: the longest a `started` entry may stand without a `finished`.
+ *
+ * The proxy stops waiting at ninety seconds for a run and sooner for everything else. A page that
+ * never hears the clear must not keep "running" forever, so it applies the same bound itself; the
+ * console's snapshot applies it too, which is what keeps a reconnect from resurrecting the entry.
+ */
+export const RUNNING_CUT_MS = 90_000;
+
+/** The started calls that have not outlived the proxy's cut at `now`. */
+export function runningAt(calls: readonly StartedCall[], now: number): StartedCall[] {
+  return calls.filter((call) => now - call.at_ms <= RUNNING_CUT_MS);
+}
+
 export type LiveHandlers = {
-  /** The newest lines, oldest first, replacing whatever the page had. */
-  snapshot: (lines: LiveLine[]) => void;
+  /**
+   * The newest lines, oldest first, replacing whatever the page had, and the calls still running.
+   * A reconnect's snapshot is the registry's whole list, so it also replaces the running list.
+   */
+  snapshot: (lines: LiveLine[], running?: StartedCall[]) => void;
   /** One line, written after the connection opened. */
   activity: (line: LiveLine) => void;
   /** The page fell behind: how many lines the console's buffer dropped before this event. */
   lagged: (dropped: number) => void;
+  /** One call began: the proxy announced it before the device answered. */
+  started?: (call: StartedCall) => void;
+  /** One call's reply arrived (or its proxy stopped waiting); clear the line by id. */
+  finished?: (id: string) => void;
   /** The connection dropped. `EventSource` retries on its own. */
   error: () => void;
   /**
@@ -122,7 +163,16 @@ export function openLiveActivity(
   const onSnapshot = (event: MessageEvent) => {
     const frame = parse(event.data);
     const lines = frame && Array.isArray(frame.lines) ? frame.lines : [];
-    handlers.snapshot(lines.map(asLine).filter((line): line is LiveLine => line !== null));
+    const running =
+      frame && Array.isArray(frame.running)
+        ? frame.running
+            .map((entry) => asStarted(entry, undefined))
+            .filter((call): call is StartedCall => call !== null)
+        : [];
+    handlers.snapshot(
+      lines.map(asLine).filter((line): line is LiveLine => line !== null),
+      running
+    );
     if (dropped) {
       dropped = false;
       handlers.recovered?.();
@@ -138,9 +188,21 @@ export function openLiveActivity(
     const dropped = droppedCount(parse(event.data));
     handlers.lagged(dropped);
   };
+  const onStarted = (event: MessageEvent) => {
+    const frame = parse(event.data);
+    const call = frame ? asStarted(frame.started, frame.caller) : null;
+    if (call) handlers.started?.(call);
+  };
+  const onFinished = (event: MessageEvent) => {
+    const frame = parse(event.data);
+    const id = finishedId(frame);
+    if (id !== null) handlers.finished?.(id);
+  };
   source.addEventListener("snapshot", onSnapshot);
   source.addEventListener("activity", onActivity);
   source.addEventListener("lagged", onLagged);
+  source.addEventListener("started", onStarted);
+  source.addEventListener("finished", onFinished);
   source.onerror = () => {
     if (closed) return;
     dropped = true;
@@ -178,6 +240,43 @@ function asLine(value: unknown): LiveLine | null {
       ? { evidence: frame.evidence as Record<string, unknown> }
       : {})
   };
+}
+
+/**
+ * One started call, or `null` when the payload does not carry the facts the band needs.
+ *
+ * The `started` object of a live frame and an entry in a snapshot's `running` array are the same
+ * facts; the caller is top-level on the frame and inner on the snapshot entry, so the caller is a
+ * parameter rather than assumed.
+ */
+function asStarted(value: unknown, caller: unknown): StartedCall | null {
+  if (!value || typeof value !== "object") return null;
+  const frame = value as Record<string, unknown>;
+  const id = typeof frame.id === "string" && frame.id !== "" ? frame.id : null;
+  const tool = typeof frame.tool === "string" && frame.tool !== "" ? frame.tool : null;
+  const at = typeof frame.at_ms === "number" && Number.isFinite(frame.at_ms) ? frame.at_ms : null;
+  if (id === null || tool === null || at === null) return null;
+  const audience =
+    caller === "console" || caller === "client"
+      ? caller
+      : frame.caller === "console" || frame.caller === "client"
+        ? frame.caller
+        : undefined;
+  return {
+    id,
+    tool,
+    at_ms: at,
+    ...(typeof frame.device_id === "string" ? { device_id: frame.device_id } : {}),
+    ...(audience ? { caller: audience } : {})
+  };
+}
+
+/** The id a `finished` frame clears, or `null` when it names none. */
+function finishedId(frame: Record<string, unknown> | null): string | null {
+  const finished = frame?.finished;
+  if (!finished || typeof finished !== "object") return null;
+  const id = (finished as Record<string, unknown>).id;
+  return typeof id === "string" && id !== "" ? id : null;
 }
 
 /**

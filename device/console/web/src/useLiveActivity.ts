@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { openLiveActivity, type LiveLine } from "./liveActivity";
+import { openLiveActivity, runningAt, type LiveLine, type StartedCall } from "./liveActivity";
 
 /** How many lines the page keeps: the hub reads five, Activity filters a few hundred. */
 export const LIVE_LIMIT = 200;
@@ -7,6 +7,11 @@ export const LIVE_LIMIT = 200;
 export type LiveFeedState = {
   /** Newest first. */
   lines: LiveLine[];
+  /**
+   * Calls the proxy has announced and not cleared, oldest first. Not a line and not in the audit:
+   * the band draws it above the last steps and drops it at the proxy's cut.
+   */
+  running: StartedCall[];
   /** `live` once a snapshot has arrived; `offline` when the connection is down. */
   state: "connecting" | "live" | "offline";
   /**
@@ -49,6 +54,7 @@ export function useLiveActivity(
   reread?: () => Promise<unknown>
 ): LiveFeedState {
   const [lines, setLines] = useState<LiveLine[]>([]);
+  const [running, setRunning] = useState<StartedCall[]>([]);
   const [state, setState] = useState<"connecting" | "live" | "offline">("connecting");
   const [lagged, setLagged] = useState(0);
   const [recoveries, setRecoveries] = useState(0);
@@ -97,14 +103,31 @@ export function useLiveActivity(
     };
 
     const feed = openLiveActivity({
-      // The snapshot is oldest first; the page draws newest first.
-      snapshot: (list) => {
+      // The snapshot is oldest first; the page draws newest first. A reconnect's running list is
+      // the console's registry, so it replaces this page's copy rather than adding to it.
+      snapshot: (list, inFlight) => {
         setLines(list.slice(-LIVE_LIMIT).reverse());
+        setRunning(inFlight ?? []);
         setState("live");
       },
       activity: (line) => {
         setLines((current) => [line, ...current].slice(0, LIVE_LIMIT));
+        // A busy page prunes here as well as in the band: a clear that was dropped costs the entry
+        // its place the next time anything arrives, not only when the line above is drawn.
+        setRunning((current) => runningAt(current, Date.now()));
         setState("live");
+      },
+      started: (call) => {
+        setRunning((current) =>
+          runningAt(
+            [call, ...current.filter((entry) => entry.id !== call.id)],
+            Date.now()
+          )
+        );
+        setState("live");
+      },
+      finished: (id) => {
+        setRunning((current) => current.filter((entry) => entry.id !== id));
       },
       lagged: (dropped) => {
         setLagged((current) => current + dropped);
@@ -128,5 +151,5 @@ export function useLiveActivity(
     };
   }, [enabled, attempt]);
 
-  return { lines, state, lagged, recoveries, retry };
+  return { lines, running, state, lagged, recoveries, retry };
 }

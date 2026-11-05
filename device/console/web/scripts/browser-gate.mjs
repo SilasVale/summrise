@@ -181,6 +181,16 @@ const state = {
 /** The one route that is a stream: the page subscribes to it and the device's bytes arrive on it. */
 const streamRoute = /^\/terminal\/[^/]+\/[^/]+\/stream$/;
 
+/** The open `/events` responses: a leg below pushes one started and one finished frame. */
+const eventStreams = new Set();
+
+/** Write one SSE frame to every page watching the activity stream. */
+function pushEvent(name, data) {
+  for (const stream of eventStreams) {
+    stream.write(`event: ${name}\ndata: ${JSON.stringify(data)}\n\n`);
+  }
+}
+
 const json = (body, status = 200) => ({ status, body });
 const bodyOf = (request) => {
   try {
@@ -340,10 +350,14 @@ const server = http.createServer((request, response) => {
     });
     // Oldest first, as the console serves a snapshot.
     response.write(
-      `event: snapshot\ndata: ${JSON.stringify({ lines: [AUDIT_LINE, CONSOLE_LINE] })}\n\n`
+      `event: snapshot\ndata: ${JSON.stringify({ lines: [AUDIT_LINE, CONSOLE_LINE], running: [] })}\n\n`
     );
+    eventStreams.add(response);
     const timer = setInterval(() => response.write(': ping\n\n'), 25_000);
-    request.on('close', () => clearInterval(timer));
+    request.on('close', () => {
+      eventStreams.delete(response);
+      clearInterval(timer);
+    });
     return;
   }
   response.writeHead(404, { 'content-type': 'text/plain' });
@@ -422,6 +436,25 @@ try {
   // And the row is still in the record, marked so a reader can tell it from the AI's calls.
   await page.locator('.timeline-caller').first().waitFor({ state: 'visible', timeout: 10_000 });
   step('the Now band stays Quiet, and the console\'s own row is marked in the timeline');
+
+  // A CALL IN FLIGHT IS NOT AN AUDIT ROW. The proxy announces it before the device answers; the
+  // band must name it while the timeline still has nothing, and the finished frame must clear it.
+  pushEvent('started', {
+    started: {
+      device_id: DEVICE.id,
+      tool: 'runs.exec',
+      id: 'gate-call-in-flight',
+      at_ms: NOW - 72_000
+    },
+    caller: 'client'
+  });
+  await page.getByText(/running runs\.exec · \d+m \d+s/).waitFor({ timeout: 10_000 });
+  step('the Now band names the call that is running before any audit row exists');
+  pushEvent('finished', { finished: { id: 'gate-call-in-flight' } });
+  await page
+    .locator('.live-running-entry')
+    .waitFor({ state: 'detached', timeout: 10_000 });
+  step('the finished frame clears the running line');
 
   await page.getByRole('button', { name: 'Device' }).click();
   await page.getByRole('heading', { name: 'Terminal', exact: true }).waitFor({ timeout: 10_000 });

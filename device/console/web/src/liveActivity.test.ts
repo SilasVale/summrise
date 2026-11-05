@@ -34,10 +34,13 @@ describe("the live activity stream", () => {
     const feed = openLiveActivity(handlers, () => source);
     expect(feed).not.toBeNull();
     source.emit("snapshot", { lines: [line(1, "Read `a.txt`"), line(2, "Issued a grant")] });
-    expect(handlers.snapshot).toHaveBeenCalledWith([
-      { ts_ms: 1, kind: "mcp", status: 200, ok: true, sentence: "Read `a.txt`" },
-      { ts_ms: 2, kind: "mcp", status: 200, ok: true, sentence: "Issued a grant" }
-    ]);
+    expect(handlers.snapshot).toHaveBeenCalledWith(
+      [
+        { ts_ms: 1, kind: "mcp", status: 200, ok: true, sentence: "Read `a.txt`" },
+        { ts_ms: 2, kind: "mcp", status: 200, ok: true, sentence: "Issued a grant" }
+      ],
+      []
+    );
   });
 
   it("keeps a snapshot row's token through the merge", () => {
@@ -134,5 +137,56 @@ describe("the live activity stream", () => {
     feed.close();
     expect(source.closed).toBe(true);
     expect(openLiveActivity(handlers, null)).toBeNull();
+  });
+  it("hands a started frame to the page with its caller, and a finished frame its id", () => {
+    const source = new FakeSource("/events");
+    const handlers = {
+      snapshot: vi.fn(),
+      activity: vi.fn(),
+      lagged: vi.fn(),
+      error: vi.fn(),
+      started: vi.fn(),
+      finished: vi.fn()
+    };
+    openLiveActivity(handlers, () => source);
+
+    // The frame the proxy publishes before the device answers: the shape is the announcement, and
+    // the caller is top-level because the band filters on it.
+    source.emit("started", {
+      started: {
+        device_id: "abc",
+        tool: "runs.exec",
+        id: "call-7",
+        at_ms: 1_000
+      },
+      caller: "client"
+    });
+    expect(handlers.started).toHaveBeenCalledWith({
+      device_id: "abc",
+      tool: "runs.exec",
+      id: "call-7",
+      at_ms: 1_000,
+      caller: "client"
+    });
+
+    source.emit("finished", { finished: { id: "call-7" } });
+    expect(handlers.finished).toHaveBeenCalledWith("call-7");
+  });
+
+  it("replaces the running list with each snapshot's in-flight calls", () => {
+    const source = new FakeSource("/events");
+    const handlers = { snapshot: vi.fn(), activity: vi.fn(), lagged: vi.fn(), error: vi.fn() };
+    openLiveActivity(handlers, () => source);
+
+    // A reconnect must not forget a call that is still running, and must not keep one it missed the
+    // clear for: the registry's snapshot is the whole list, not an increment.
+    source.emit("snapshot", {
+      lines: [],
+      running: [{ id: "call-8", tool: "files.read", at_ms: 2_000, caller: "console" }]
+    });
+    expect(handlers.snapshot).toHaveBeenCalledWith(
+      [],
+      [{ id: "call-8", tool: "files.read", at_ms: 2_000, caller: "console" }]
+    );
   });
 });

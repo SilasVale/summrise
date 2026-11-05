@@ -772,6 +772,7 @@ export function App() {
             onActivity={() => setPage("activity")}
             consoleVersion={consoleVersion}
             liveLines={live.lines}
+            liveRunning={live.running}
             liveState={live.state}
             tick={pollTick}
             liveRecoveries={live.recoveries}

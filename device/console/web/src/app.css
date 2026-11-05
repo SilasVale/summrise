@@ -2555,6 +2555,11 @@ main::-webkit-scrollbar-track, .sheet-body::-webkit-scrollbar-track, .scroll::-w
 .live-machine { color: var(--ink-muted); }
 .live-ms, .live-age { color: var(--ink-faint); font-size: var(--fs-2xs); white-space: nowrap; font-variant-numeric: tabular-nums; }
 .live-empty { margin: 8px 0 0; }
+/* A call the proxy has announced and not cleared. It is not an audit row: the dot pulses because
+   the call is still going, and the line sits above the finished steps rather than among them. */
+.live-running { margin-top: 6px; }
+.live-running-entry .live-running-dot { background: var(--warn); animation: live-pulse 1.8s ease-out infinite; }
+.live-running-entry .live-sentence { color: var(--ink); font-variant-numeric: tabular-nums; }
 
 @keyframes live-in {
   from { opacity: 0; transform: translateY(-4px); }
@@ -2568,6 +2573,7 @@ main::-webkit-scrollbar-track, .sheet-body::-webkit-scrollbar-track, .scroll::-w
 @media (prefers-reduced-motion: reduce) {
   .live-entry { animation: none; }
   .live-state.is-active .live-dot { animation: none; }
+  .live-running-entry .live-running-dot { animation: none; }
 }
 
 /* The band's one action: a terminal call is something the operator can go and watch. */

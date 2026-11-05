@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { LiveNow } from "./LiveNow";
-import type { LiveLine } from "./liveActivity";
+import type { LiveLine, StartedCall } from "./liveActivity";
 import { api, type AuditLine, type Device } from "./api";
 import { DeviceCard } from "./DeviceCard";
 import { copyText } from "./copy";
@@ -269,6 +269,8 @@ function HubHome(
     consoleVersion?: string | null;
     /** The live activity stream, newest first. Absent in tests and before the stream opens. */
     liveLines?: LiveLine[];
+    /** The calls the proxy has announced and not cleared, for this machine or another. */
+    liveRunning?: StartedCall[];
     liveState?: "connecting" | "live" | "offline";
     /** The app's poll count: each new value is one tick, one chance to reread this machine's day. */
     tick?: number;
@@ -290,6 +292,11 @@ function HubHome(
   // both the Now band and the timeline drop every other machine's. The timeline is today's; older
   // days belong to Activity, behind the All activity link.
   const liveLines = (props.liveLines ?? []).filter((line) => line.device_id === device.id);
+  // The band is this machine's, like the timeline: another machine's in-flight call must not name
+  // itself on this page. The caller filter lives in the band (it counts the AI, not the console).
+  const liveRunning = (props.liveRunning ?? []).filter(
+    (call) => call.device_id === device.id
+  );
   // THE HUB READS ITS OWN MACHINE. Filtering the fleet window here let another machine's newer
   // traffic push this machine's day out, and then the empty sentence below claimed there had been
   // no calls at all. `/audit?device=` applies the filter during the server's scan, so the window is
@@ -439,6 +446,7 @@ function HubHome(
         // newest 200 live lines made it say "Quiet" while the window below held this machine's
         // calls, and after a reconnect the live list is only the newest forty.
         lines={timeline.lines}
+        running={liveRunning}
         devices={props.devices}
         state={props.liveState ?? "connecting"}
         onAll={props.onActivity}
@@ -496,6 +504,8 @@ export type HomePageProps = FleetProps & {
   consoleVersion?: string | null;
   /** The live activity stream, newest first. Absent in tests and before the stream opens. */
   liveLines?: LiveLine[];
+  /** The calls the proxy has announced and not cleared, for any machine. */
+  liveRunning?: StartedCall[];
   liveState?: "connecting" | "live" | "offline";
   /** The app's poll count: each new value is one tick, one chance to reread this machine's day. */
   tick?: number;

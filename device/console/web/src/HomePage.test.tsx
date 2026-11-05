@@ -231,6 +231,34 @@ describe("Home — the hub", () => {
     expect(screen.getByText("2 calls in the last minute")).toBeInTheDocument();
   });
 
+  it("shows this machine's running client call in the band, and no other machine's", async () => {
+    const now = Date.now();
+    draw({
+      audit: [],
+      liveRunning: [
+        {
+          id: "call-mine",
+          tool: "runs.exec",
+          at_ms: now - 72_000,
+          device_id: workshop.id,
+          caller: "client"
+        },
+        {
+          id: "call-other",
+          tool: "files.read",
+          at_ms: now,
+          device_id: "dev-other",
+          caller: "client"
+        }
+      ]
+    });
+
+    // The band is this machine's, like its timeline: another machine's in-flight call must not name
+    // itself here, and the line is the tool plus how long it has run.
+    expect(await screen.findByText(/running runs\.exec · /)).toBeInTheDocument();
+    expect(screen.queryByText(/running files\.read/)).not.toBeInTheDocument();
+  });
+
   it("rereads the machine's window on a reconnect, and the fresh window feeds the band", async () => {
     const now = Date.now();
     // The page loaded three hours ago: the day below is a memory with a hole after it.

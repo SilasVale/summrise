@@ -134,4 +134,59 @@ describe("following the live activity", () => {
     });
     expect(result.current.recoveries).toBe(1);
   });
+
+  it("keeps a started call until its finished frame arrives", () => {
+    const { result } = renderHook(() => useLiveActivity(true));
+    const source = FakeSource.instances[0];
+    const first = Date.now();
+
+    act(() => {
+      source.emit("started", {
+        started: { id: "call-1", tool: "runs.exec", at_ms: first },
+        caller: "client"
+      });
+    });
+    expect(result.current.running).toEqual([
+      { id: "call-1", tool: "runs.exec", at_ms: first, caller: "client" }
+    ]);
+
+    // The clear is by id: two calls can be running at once, and one finishing must not hide the
+    // other. The same id is what the server's snapshot names.
+    act(() => {
+      source.emit("started", {
+        started: { id: "call-2", tool: "files.read", at_ms: first + 1 },
+        caller: "console"
+      });
+    });
+    expect(result.current.running).toHaveLength(2);
+
+    act(() => {
+      source.emit("finished", { finished: { id: "call-1" } });
+    });
+    expect(result.current.running).toEqual([
+      { id: "call-2", tool: "files.read", at_ms: first + 1, caller: "console" }
+    ]);
+  });
+
+  it("replaces the running list with a snapshot's in-flight calls", () => {
+    const { result } = renderHook(() => useLiveActivity(true));
+    const source = FakeSource.instances[0];
+
+    act(() => {
+      source.emit("snapshot", {
+        lines: [],
+        running: [{ id: "call-9", tool: "runs.exec", at_ms: Date.now(), caller: "client" }]
+      });
+    });
+    expect(result.current.running).toEqual([
+      { id: "call-9", tool: "runs.exec", at_ms: expect.any(Number), caller: "client" }
+    ]);
+
+    // A reconnect's snapshot is the whole registry: a call cleared while the stream was down is not
+    // kept from the previous list.
+    act(() => {
+      source.emit("snapshot", { lines: [], running: [] });
+    });
+    expect(result.current.running).toEqual([]);
+  });
 });
