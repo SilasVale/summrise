@@ -95,6 +95,11 @@ All six console-only; the last is the deletion. Ranked by how often the friction
 6. **Delete the device id from the Machine tab.** *(Done 2026-11-05: the 64 hex is gone; build and online stay; the record's Copy id and the Connect endpoint keep it.)* (`SystemPage.tsx:391-397`) prints 64 hex that nothing
    there acts on; the record's Copy id and the Connect endpoint keep it. **S.**
 
+7. **A device id the fleet does not know must say so.** One audit line carries `desktop-9vh92bj`
+   as its device id (an old enrollment), so the timeline grows a machine chip that is not in the
+   fleet. The chip is true — the line is real — but it reads like a machine. Label an unknown id
+   "unknown machine · <short id>" and give it no online dot. *(Measured on the live 1000-line window:
+   865 + 93 + 41 known, 1 unknown.)* **S.**
 ## P1 — the console stops feeling like a configuration tool
 
 5. **Activity filters become chips.** Machine chips and a search field; the time-range select, the
