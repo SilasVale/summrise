@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import type { AuditLine, Device } from "./api";
+import type { AuditLine, Device, TokenMeta } from "./api";
 import { ActivityTimeline } from "./ActivityTimeline";
 
 // The timeline is the proof, not the summary: a row that opens must show the call as it was sent and
@@ -42,6 +42,18 @@ const fromBeta = line({
   tool: "runs.exec",
   detail: "exit 0"
 });
+
+const tokenA = "a".repeat(64);
+const tokens: TokenMeta[] = [
+  {
+    id: tokenA,
+    name: "laptop-dsh",
+    device_id: alpha,
+    tools: ["files.read"],
+    allow_destructive: false,
+    created_at_ms: 1
+  }
+];
 
 /** The evidence panel, which exists only while the row that carries it is open. */
 function evidencePanel(): HTMLElement {
@@ -186,6 +198,51 @@ describe("ActivityTimeline", () => {
     expect(within(panel).getByText("1")).toBeInTheDocument();
     expect(within(panel).getByText("Timed out")).toBeInTheDocument();
     expect(within(panel).getByText("no")).toBeInTheDocument();
+  });
+
+  it("names the token behind a call in the evidence panel", () => {
+    const attributed = line({
+      tool: "files.read",
+      sentence: "Read notes.txt",
+      caller: "client",
+      token_id: tokenA,
+      evidence: { path: "notes.txt" }
+    });
+    render(<ActivityTimeline lines={[attributed]} devices={[]} tokens={tokens} />);
+
+    openRow();
+
+    const panel = evidencePanel();
+    expect(within(panel).getByText("Token").nextElementSibling).toHaveTextContent("laptop-dsh");
+  });
+
+  it("says signed grant for a client's call with no token record", () => {
+    const signed = line({
+      tool: "files.read",
+      sentence: "Read notes.txt",
+      caller: "client",
+      evidence: { path: "notes.txt" }
+    });
+    render(<ActivityTimeline lines={[signed]} devices={[]} tokens={[]} />);
+
+    openRow();
+
+    expect(evidencePanel().textContent).toContain("signed grant");
+    expect(evidencePanel().textContent).not.toContain("operator session");
+  });
+
+  it("says operator session only for the console's own call", () => {
+    const consoleRead = line({
+      tool: "terminal.list",
+      sentence: "Listed the terminal sessions",
+      caller: "console",
+      evidence: {}
+    });
+    render(<ActivityTimeline lines={[consoleRead]} devices={[]} tokens={[]} />);
+
+    openRow();
+
+    expect(evidencePanel().textContent).toContain("operator session");
   });
 
   it("fails a device refusal that came back as HTTP 200 and shows its detail", () => {    // A device's JSON-RPC error is HTTP 200, so the status alone says nothing. The live event's

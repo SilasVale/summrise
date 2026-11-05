@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { mergeActivity } from "./activityMerge";
 import { liveActivityPath, openLiveActivity, type EventSourceLike } from "./liveActivity";
 
 class FakeSource implements EventSourceLike {
@@ -37,6 +38,31 @@ describe("the live activity stream", () => {
       { ts_ms: 1, kind: "mcp", status: 200, ok: true, sentence: "Read `a.txt`" },
       { ts_ms: 2, kind: "mcp", status: 200, ok: true, sentence: "Issued a grant" }
     ]);
+  });
+
+  it("keeps a snapshot row's token through the merge", () => {
+    // The snapshot is the newest 40 lines, and the merge shows the live copy of a line the fetched
+    // window also holds. If the snapshot dropped the token, the newest rows would say "—" while the
+    // `/audit` copy behind them names it.
+    const source = new FakeSource("/events");
+    const handlers = { snapshot: vi.fn(), activity: vi.fn(), lagged: vi.fn(), error: vi.fn() };
+    openLiveActivity(handlers, () => source);
+    const token = "a".repeat(64);
+    source.emit("snapshot", {
+      lines: [
+        {
+          ...line(5, "Read notes.txt"),
+          tool: "files.read",
+          token_id: token,
+          caller: "client"
+        }
+      ]
+    });
+    const snapshot = handlers.snapshot.mock.calls[0][0];
+    expect(snapshot[0].token_id).toBe(token);
+    const merged = mergeActivity([], snapshot);
+    expect(merged[0].token_id).toBe(token);
+    expect(merged[0].caller).toBe("client");
   });
 
   it("hands one new line to activity", () => {

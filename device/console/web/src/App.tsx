@@ -838,6 +838,7 @@ export function App() {
                 <ActivityTimeline
                   lines={shownActivity}
                   devices={devices}
+                  tokens={tokens}
                   capped={shownCapped}
                   cappedMachine={shownWindowName}
                   loading={auditReadingOther}

@@ -74,6 +74,13 @@ function toggleRow(text: string): HTMLElement {
   return button;
 }
 
+/** The record `<tr>` that follows a row once its disclosure was opened. */
+function recordOf(text: string): HTMLElement {
+  const record = rowOf(text).nextElementSibling;
+  expect(record).toHaveClass("audit-record-row");
+  return record as HTMLElement;
+}
+
 it("says so when the window it was given was cut", () => {
   // The table cannot know more than the lines it was handed; when the fetch came back full, "All
   // time" is a window, and saying nothing would present it as the whole history.
@@ -470,6 +477,53 @@ describe("AuditTable", () => {
     expect(within(screen.getByRole("table")).getByText(shortA)).toBeInTheDocument();
     expect(screen.getByText("—")).toBeInTheDocument();
     expect(screen.queryByText(/srm_/)).not.toBeInTheDocument();
+  });
+
+  it("names the token in the record, by the operator's name or its short id", () => {
+    const unknown = "c".repeat(64);
+    render(
+      <AuditTable
+        lines={[
+          { ts_ms: 1, kind: "mcp", device_id: alpha, tool: "tools/list", detail: null, status: 200, token_id: tokenA, caller: "client" },
+          { ts_ms: 2, kind: "mcp", device_id: alpha, tool: "files.read", detail: null, status: 200, token_id: unknown, caller: "client" }
+        ]}
+        devices={devices}
+        tokens={tokens}
+      />
+    );
+
+    toggleRow("tools/list");
+    const named = recordOf("tools/list");
+    expect(within(named).getByText("Token").nextElementSibling).toHaveTextContent("laptop-dsh");
+
+    toggleRow("files.read");
+    const unknownRecord = recordOf("files.read");
+    expect(within(unknownRecord).getByText("Token").nextElementSibling).toHaveTextContent(
+      "c".repeat(12) + "…"
+    );
+    expect(within(named).getByText("Token").nextElementSibling).not.toHaveTextContent(/srm_/);
+  });
+
+  it("says signed grant for a client with no token, and operator session only for the console", () => {
+    render(
+      <AuditTable
+        lines={[
+          { ts_ms: 1, kind: "mcp", device_id: alpha, tool: "terminal.list", detail: null, status: 200, caller: "console" },
+          { ts_ms: 2, kind: "mcp", device_id: alpha, tool: "files.read", detail: null, status: 200, caller: "client" },
+          { ts_ms: 3, kind: "token", device_id: alpha, tool: null, detail: "minted", status: 201 }
+        ]}
+        devices={devices}
+        tokens={[]}
+      />
+    );
+
+    toggleRow("terminal.list");
+    toggleRow("files.read");
+    const consoleRecord = within(recordOf("terminal.list")).getByText("Token").nextElementSibling;
+    const clientRecord = within(recordOf("files.read")).getByText("Token").nextElementSibling;
+    expect(consoleRecord).toHaveTextContent("operator session");
+    expect(clientRecord).toHaveTextContent("signed grant");
+    expect(clientRecord).not.toHaveTextContent("operator session");
   });
 
   it("keeps two otherwise identical lines apart when only their token differs", () => {

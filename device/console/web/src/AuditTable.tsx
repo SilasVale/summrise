@@ -6,6 +6,7 @@ import { auditCsv, auditCsvName } from "./audit-export";
 import { downloadFile } from "./download";
 import { age, shortId } from "./format";
 import { ConsoleCaller } from "./CallerMark";
+import { tokenFact, tokenLabel } from "./tokenFact";
 
 /**
  * How many lines the page asks the console for. `/audit?limit=` accepts up to 1000 (`MAX_LOG_LIMIT`
@@ -27,19 +28,6 @@ const SINCE_MS: Record<Exclude<AuditSince, "all">, number> = {
 
 /** The table's scope: the machine in the header, or the whole fleet. */
 export type AuditScope = "machine" | "all";
-
-/**
- * What to call one token in a cell or an option.
- *
- * The name is the operator's, and it is the thing they recognise; the id is what the console recorded
- * and what the filter compares. So a name the list knows wins, and an id it does not (a revoked token,
- * one created in another tab, or the whole list when `GET /tokens` failed) falls back to its short
- * form, which still tells two tokens apart.
- */
-function tokenLabel(id: string, names: ReadonlyMap<string, string>): string {
-  const name = names.get(id);
-  return name != null && name !== "" ? name : shortId(id);
-}
 
 /** How the table's time window reads in a sentence. */
 const SINCE_LABEL: Record<Exclude<AuditSince, "all">, string> = {
@@ -577,9 +565,7 @@ export function AuditTable({
                                 )}
                               </dd>
                               <dt>Token</dt>
-                              <dd>
-                                {line.token_id ? tokenLabel(line.token_id, tokenNames) : "operator session"}
-                              </dd>
+                              <dd>{tokenFact(line, tokenNames)}</dd>
                               <dt>Tool</dt>
                               <dd className="mono">{line.tool ?? "—"}</dd>
                               <dt>Detail</dt>

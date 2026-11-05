@@ -29,6 +29,12 @@ export type LiveLine = {
   status: number;
   /** Who made the call: the console's own read, or an AI client's. Absent on an older line. */
   caller?: "console" | "client";
+  /**
+   * The permanent token record that authenticated a client's call, by id. The audit line already
+   * carries it; the live event carries it too, because the newest rows win the merge and a line that
+   * dropped it would read "—" where the record names the token.
+   */
+  token_id?: string;
   /** The tool a `tools/call` named. */
   tool?: string;
   /** Why, for a refusal. */
@@ -163,6 +169,9 @@ function asLine(value: unknown): LiveLine | null {
     ...(typeof frame.live === "boolean" ? { live: frame.live } : {}),
     ...(frame.caller === "console" || frame.caller === "client"
       ? { caller: frame.caller }
+      : {}),
+    ...(typeof frame.token_id === "string" && frame.token_id !== ""
+      ? { token_id: frame.token_id }
       : {}),
     ...(typeof frame.ms === "number" ? { ms: frame.ms } : {}),
     ...(frame.evidence && typeof frame.evidence === "object"

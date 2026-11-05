@@ -1,9 +1,10 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
-import type { AuditLine, Device } from "./api";
+import type { AuditLine, Device, TokenMeta } from "./api";
 import { ACTIVITY_LIMIT, capSentence, windowLoadingSentence } from "./activityMerge";
 import { auditFailed } from "./auditFilter";
 import { ageAt, shortId } from "./format";
 import { ConsoleCaller } from "./CallerMark";
+import { tokenFact } from "./tokenFact";
 
 /**
  * The activity as a record: what happened, when, on which machine.
@@ -168,7 +169,11 @@ function CapturedFrame(props: { src: string; capturedAt: number }) {
 }
 
 /** The evidence panel for one row. */
-function Evidence(props: { line: AuditLine; onWatch?: (deviceId: string) => void }) {
+function Evidence(props: {
+  line: AuditLine;
+  tokenNames: ReadonlyMap<string, string>;
+  onWatch?: (deviceId: string) => void;
+}) {
   const line = props.line;
   const evidence = line.evidence;
   const command = evidence ? commandLine(evidence) : null;
@@ -241,6 +246,10 @@ function Evidence(props: { line: AuditLine; onWatch?: (deviceId: string) => void
               </dd>
             </div>
           )}
+          <div>
+            <dt>Token</dt>
+            <dd>{tokenFact(line, props.tokenNames)}</dd>
+          </div>
           {detail && (
             <div>
               <dt>Detail</dt>
@@ -313,6 +322,7 @@ function spanText(spanMs: number): string {
 function Row(props: {
   line: AuditLine;
   devices: Device[];
+  tokenNames: ReadonlyMap<string, string>;
   open: boolean;
   stretch: boolean;
   nowMs: number;
@@ -375,7 +385,9 @@ function Row(props: {
       ) : (
         <div className="timeline-line is-static">{contents}</div>
       )}
-      {props.open && <Evidence line={line} onWatch={props.onWatch} />}
+      {props.open && (
+        <Evidence line={line} tokenNames={props.tokenNames} onWatch={props.onWatch} />
+      )}
     </li>
   );
 }
@@ -418,6 +430,8 @@ function machineOptions(
 export function ActivityTimeline(props: {
   lines: AuditLine[];
   devices: Device[];
+  /** The operator's token registry, so a row can name a token instead of showing its id. */
+  tokens?: TokenMeta[];
   onWatch?: (deviceId: string) => void;
   empty?: string;
   /**
@@ -475,6 +489,10 @@ export function ActivityTimeline(props: {
 
   const at = props.nowMs ?? now;
   const needle = query.trim().toLowerCase();
+  const tokenNames = useMemo(
+    () => new Map((props.tokens ?? []).map((entry) => [entry.id, entry.name])),
+    [props.tokens]
+  );
   const machines = useMemo(
     () => machineOptions(props.lines, props.devices, device),
     [props.lines, props.devices, device]
@@ -606,6 +624,7 @@ export function ActivityTimeline(props: {
                       key={key}
                       line={line}
                       devices={props.devices}
+                      tokenNames={tokenNames}
                       open={openKey === key}
                       stretch={newStretch}
                       nowMs={at}
