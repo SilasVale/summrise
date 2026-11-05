@@ -36,16 +36,17 @@ use summrise_launch::{
     app_arguments, app_exe, app_pid_file, commit_pending, commit_version, current_pointer,
     discard_pending, ensure_baseline, failure_code, generation_dir, install_pending_over_app,
     install_token, launcher_pid_file, link_to_persist, migrate_layout, now_ms, parse_config,
-    parse_service_args, prepare_version, read_current_pointer, read_swap_request, resolve_baseline,
-    restore_current_app, restore_from_previous_at_startup, same_image, service_launch_arguments,
-    sha256_bytes, split_console_args, stage_pending, staged_exe, staged_sidecar, swap_request,
-    swap_result, token_action, token_text, validate_staged_update, validate_version_name,
-    verify_or_restore_at_startup, wait_healthy, write_console_link, write_swap_result, Action,
-    AppLocation, Baseline, BaselineChoice, BaselineInstall, Config, ConsoleLink, Generation,
-    Migration, MigrationHost, Pointer, RestartBudget, Restore, Sidecar, StagedPair, StartWatch,
-    SwapRequestState, SwapResult, TokenAction, Version, VersionProbe, APP_EXE, CURRENT_DIR,
-    LAUNCHER_EXE, LAUNCHER_PUBKEY_HEX, MAX_RESTARTS, PENDING_DIR, RELEASE_PUBKEY_HEX,
-    STABLE_AFTER_MS, SWAP_REQUEST_TIMEOUT_MS, TOKEN_BYTES,
+    parse_service_args, prepare_version, probe_candidate, read_current_pointer, read_swap_request,
+    resolve_baseline, restore_current_app, restore_from_previous_at_startup, same_image,
+    service_launch_arguments, sha256_bytes, split_console_args, stage_pending, staged_exe,
+    staged_sidecar, swap_request, swap_result, token_action, token_text, validate_install_version,
+    validate_staged_update, validate_version_name, verify_or_restore_at_startup, wait_healthy,
+    write_console_link, write_swap_result, Action, AppLocation, Baseline, BaselineChoice,
+    BaselineInstall, Config, ConsoleLink, Generation, Migration, MigrationHost, Pointer,
+    RestartBudget, Restore, Sidecar, StagedPair, StartWatch, SwapRequestState, SwapResult,
+    TokenAction, Version, VersionProbe, APP_EXE, CURRENT_DIR, LAUNCHER_EXE, LAUNCHER_PUBKEY_HEX,
+    MAX_RESTARTS, PENDING_DIR, RELEASE_PUBKEY_HEX, STABLE_AFTER_MS, SWAP_REQUEST_TIMEOUT_MS,
+    TOKEN_BYTES,
 };
 use windows_service::service::{
     Service, ServiceAccess, ServiceAction, ServiceActionType, ServiceControl, ServiceControlAccept,
@@ -1761,7 +1762,7 @@ pub fn apply(config: &Config, staged: &Path, sidecar_path: &Path) -> ExitCode {
             "the sidecar's version {name:?} cannot name a version directory: {error}"
         ));
     }
-    let prepared = match prepare_version(config, &name, &pair, &CandidateProbe) {
+    let prepared = match prepare_version(config, &name, &pair, &CandidateProbe::default()) {
         Ok(version) => version,
         Err(error) => {
             // `current.txt` never moved and the live child was never stopped.
@@ -1849,11 +1850,11 @@ fn install_version_mode(config: &Config, dir: &Path, sidecar_path: &Path) -> Exi
         ));
     };
     let exe = dir.join(APP_EXE);
-    let pair = match validate_staged_update(&exe, sidecar_path) {
+    let pair = match validate_install_version(&exe, sidecar_path) {
         Ok(pair) => pair,
         Err(error) => return fail(&error),
     };
-    match summrise_launch::install_version(config, name, &pair, &CandidateProbe) {
+    match summrise_launch::install_version(config, name, &pair, &CandidateProbe::default()) {
         Ok(installed) => {
             eprintln!(
                 "launch: version {} is current{}",
@@ -1964,126 +1965,37 @@ impl MigrationHost for InstalledOwner {
 // The candidate's health check (2026-11-05 design, step 3)
 // ─────────────────────────────────────────────────────────────────────────────────────────────────
 
-/// How long a candidate gets to answer `/api/health` twice on its scratch port.
-const CANDIDATE_HEALTH_TIMEOUT: Duration = Duration::from_secs(30);
-
 /// The version probe `--install-version` and `--apply` use.
-struct CandidateProbe;
+///
+/// The probe itself (copy, scratch port, two health answers) lives in the launcher core so it can be
+/// tested on Linux; this host supplies the one effect the core cannot: starting and stopping the
+/// real candidate process.
+#[derive(Default)]
+struct CandidateProbe {
+    child: RefCell<Option<Child>>,
+}
+
+impl summrise_launch::CandidateHost for CandidateProbe {
+    fn start(&self, config: &Config, version: &Version) -> Result<u32, String> {
+        let child = spawn_app(config, &version.exe, &version.sidecar, false)
+            .map_err(|error| format!("cannot start version {}: {error}", version.name))?;
+        let pid = child.id();
+        *self.child.borrow_mut() = Some(child);
+        Ok(pid)
+    }
+
+    fn stop(&self, _config: &Config, _pid: u32) {
+        if let Some(mut child) = self.child.borrow_mut().take() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+    }
+}
 
 impl VersionProbe for CandidateProbe {
     fn probe(&self, config: &Config, version: &Version) -> Result<(), String> {
-        probe_candidate(config, version)
+        probe_candidate(config, version, self)
     }
-}
-
-/// Start `version` on a scratch port with a copy of the data directory, require two matching health
-/// answers, and kill it. The live child keeps serving the old version for the whole check.
-fn probe_candidate(config: &Config, version: &Version) -> Result<(), String> {
-    let scratch = scratch_dir(&version.name);
-    let scratch_data = scratch.join("data");
-    let port = free_loopback_port()?;
-    let result = (|| -> Result<(), String> {
-        copy_data_dir(&config.data, &scratch_data)?;
-        let scratch_config = Config {
-            install: config.install.clone(),
-            data: scratch_data,
-            port,
-        };
-        let mut child = spawn_app(&scratch_config, &version.exe, &version.sidecar, false)
-            .map_err(|error| format!("cannot start version {}: {error}", version.name))?;
-        let pid = child.id();
-        let healthy = wait_healthy(
-            port,
-            &version.sidecar.version,
-            pid,
-            CANDIDATE_HEALTH_TIMEOUT,
-            || false,
-        );
-        let _ = child.kill();
-        let _ = child.wait();
-        if healthy {
-            Ok(())
-        } else {
-            Err(format!(
-                "version {} (pid {pid}) did not answer /api/health twice within {} s on scratch port {port}",
-                version.name,
-                CANDIDATE_HEALTH_TIMEOUT.as_secs()
-            ))
-        }
-    })();
-    if let Err(error) = fs::remove_dir_all(&scratch) {
-        if error.kind() != io::ErrorKind::NotFound {
-            eprintln!(
-                "launch: warning: cannot remove the probe directory {}: {error}",
-                scratch.display()
-            );
-        }
-    }
-    result
-}
-
-/// A fresh probe directory under the OS temp: outside the install, so a probe can never touch a
-/// version directory or the live data.
-fn scratch_dir(version: &str) -> PathBuf {
-    static NEXT: AtomicU32 = AtomicU32::new(0);
-    let nonce = NEXT.fetch_add(1, Ordering::Relaxed);
-    std::env::temp_dir().join(format!(
-        "summrise-candidate-{}-{}-{nonce}-{version}",
-        std::process::id(),
-        now_ms()
-    ))
-}
-
-/// Copy the live data directory for the probe.
-///
-/// The candidate must not write the real `<data>`: state, the install token and the rollback memory
-/// all live there. Entries that are neither a regular file nor a directory (a symlink, a device) are
-/// skipped rather than followed.
-fn copy_data_dir(from: &Path, to: &Path) -> Result<(), String> {
-    fs::create_dir_all(to).map_err(|error| {
-        format!(
-            "cannot create the probe data directory {}: {error}",
-            to.display()
-        )
-    })?;
-    let entries = match fs::read_dir(from) {
-        Ok(entries) => entries,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
-        Err(error) => {
-            return Err(format!(
-                "cannot read the data directory {}: {error}",
-                from.display()
-            ));
-        }
-    };
-    for entry in entries {
-        let entry = entry.map_err(|error| {
-            format!("cannot read the data directory {}: {error}", from.display())
-        })?;
-        let target = to.join(entry.file_name());
-        let file_type = entry
-            .file_type()
-            .map_err(|error| format!("cannot inspect {}: {error}", entry.path().display()))?;
-        if file_type.is_dir() {
-            copy_data_dir(&entry.path(), &target)?;
-        } else if file_type.is_file() {
-            fs::copy(entry.path(), &target)
-                .map_err(|error| format!("cannot copy {}: {error}", entry.path().display()))?;
-        }
-    }
-    Ok(())
-}
-
-/// Reserve a loopback port for the candidate: bind port 0, read what the kernel chose, release it.
-fn free_loopback_port() -> Result<u16, String> {
-    let listener = std::net::TcpListener::bind(("127.0.0.1", 0))
-        .map_err(|error| format!("cannot reserve a scratch port: {error}"))?;
-    let port = listener
-        .local_addr()
-        .map_err(|error| format!("cannot read the scratch port: {error}"))?
-        .port();
-    drop(listener);
-    Ok(port)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────────────────────────

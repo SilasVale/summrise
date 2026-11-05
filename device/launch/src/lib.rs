@@ -38,6 +38,7 @@ use std::fs::{self, File};
 use std::io::{self, Read, Write};
 use std::net::{SocketAddr, TcpStream};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use ed25519_dalek::{Signature, VerifyingKey};
@@ -102,6 +103,9 @@ pub const SWAP_REQUEST_TIMEOUT_MS: u64 = 10 * 60 * 1_000;
 
 /// How many matching health answers in a row prove a newly started build.
 pub const HEALTH_CONSECUTIVE_PROBES: u8 = 2;
+
+/// How long a candidate gets to answer `/api/health` twice on its scratch port.
+pub const CANDIDATE_HEALTH_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// What a start-up verification found (or did).
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -2586,6 +2590,182 @@ pub fn install_version(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────────────────────────
+// The candidate probe: a copy of the data directory, a scratch port, two health answers
+// ─────────────────────────────────────────────────────────────────────────────────────────────────
+
+/// The files under `<data>` that the **running app owns**, which a candidate probe must not copy.
+///
+/// The probe gives a candidate a private copy of the data directory so it can start on a scratch
+/// port without touching the live tree. Four entries must stay behind, because they describe or
+/// belong to the process that is still serving — copying them either cannot work or would make the
+/// candidate believe it inherited the live app's identity:
+///
+/// - `device.lock` — `device/device/src/lock.rs` (`LOCK_FILE`). The serving app opens it and holds
+///   an **exclusive OS lock** (`LockFileEx` on Windows) for its whole lifetime. On Windows that lock
+///   is mandatory: a read of the file fails with "another program has locked a part of the file"
+///   (os error 33), which is exactly how every upgrade was refused before 2026-11-05. The candidate
+///   must create its own lock instead.
+/// - `device.pid` — `device/device/src/lock.rs` (`PID_FILE`). It names the process holding the lock.
+///   A copy would claim the live app's pid for a candidate that is a different process, so a refusal
+///   or a diagnostic would name the wrong one. The candidate writes its own when it takes its lock.
+/// - `device.port` — `device/device/src/main.rs` writes it after binding. It is the one source the
+/// - `device.port` — `device/device/src/main.rs` writes it after binding. It is the discovery file
+///   the tray and browser helper read to find the **live** app's port; the candidate binds a scratch
+///   port and writes its own, so a copy would be a stale fact about another process (and the
+///   candidate overwrites it anyway). The candidate writes its own.
+/// - `restarts.jsonl` — `device/device/src/restarts.rs` (`FILE`). It is the serving app's boot
+///   journal, rewritten at every boot. Copying it would give the candidate boot records from another
+///   process (with the live app's pids and versions); the candidate starts with its own journal.
+///
+/// Only entries at the root of `<data>` are skipped: the same names deeper in the tree belong to a
+/// plugin or a workspace, not to the app. The list is the one place these four names are spelled;
+/// the probe copy and its tests both read it.
+pub const RUNNING_APP_FILES: [&str; 4] =
+    ["device.lock", "device.pid", "device.port", "restarts.jsonl"];
+
+/// Whether `name` is a data-directory entry owned by the running app ([`RUNNING_APP_FILES`]).
+pub fn is_running_app_file(name: &std::ffi::OsStr) -> bool {
+    RUNNING_APP_FILES
+        .iter()
+        .any(|owned| name == std::ffi::OsStr::new(owned))
+}
+
+/// The OS effects a candidate probe needs, so the probe itself stays testable on Linux.
+///
+/// The shipped implementation starts the real candidate and keeps its `Child`; a test supplies a
+/// peer that serves two health answers. The probe owns the scratch directory and the port; the host
+/// only starts and stops the process.
+pub trait CandidateHost {
+    /// Start `version` against `config` — a scratch data directory and a scratch port — and return
+    /// its pid.
+    fn start(&self, config: &Config, version: &Version) -> Result<u32, String>;
+
+    /// Stop the candidate [`CandidateHost::start`] returned. Called on success and on failure.
+    fn stop(&self, config: &Config, pid: u32);
+}
+
+/// Start `version` on a scratch port with a copy of the data directory, require two matching health
+/// answers, and kill it. The live child keeps serving the old version for the whole check.
+///
+/// The copy excludes [`RUNNING_APP_FILES`] so the probe works while the serving app holds its lock.
+/// A missing live data directory is an empty probe directory (a fresh install has none).
+pub fn probe_candidate(
+    config: &Config,
+    version: &Version,
+    host: &dyn CandidateHost,
+) -> Result<(), String> {
+    let scratch = scratch_dir(&version.name);
+    let scratch_data = scratch.join("data");
+    let port = free_loopback_port()?;
+    let result = (|| -> Result<(), String> {
+        copy_probe_data(&config.data, &scratch_data)?;
+        let scratch_config = Config {
+            install: config.install.clone(),
+            data: scratch_data,
+            port,
+        };
+        let pid = host.start(&scratch_config, version)?;
+        let healthy = wait_healthy(
+            port,
+            &version.sidecar.version,
+            pid,
+            CANDIDATE_HEALTH_TIMEOUT,
+            || false,
+        );
+        host.stop(&scratch_config, pid);
+        if healthy {
+            Ok(())
+        } else {
+            Err(format!(
+                "version {} (pid {pid}) did not answer /api/health twice within {} s on scratch port {port}",
+                version.name,
+                CANDIDATE_HEALTH_TIMEOUT.as_secs()
+            ))
+        }
+    })();
+    if let Err(error) = fs::remove_dir_all(&scratch) {
+        if error.kind() != io::ErrorKind::NotFound {
+            eprintln!(
+                "launch: warning: cannot remove the probe directory {}: {error}",
+                scratch.display()
+            );
+        }
+    }
+    result
+}
+
+/// A fresh probe directory under the OS temp: outside the install, so a probe can never touch a
+/// version directory or the live data.
+fn scratch_dir(version: &str) -> PathBuf {
+    static NEXT: AtomicU32 = AtomicU32::new(0);
+    let nonce = NEXT.fetch_add(1, Ordering::Relaxed);
+    std::env::temp_dir().join(format!(
+        "summrise-candidate-{}-{}-{nonce}-{version}",
+        std::process::id(),
+        now_ms()
+    ))
+}
+
+/// Copy the live data directory for the probe, minus [`RUNNING_APP_FILES`].
+///
+/// The candidate must not write the real `<data>`: state, the install token and the rollback memory
+/// all live there. Entries that are neither a regular file nor a directory (a symlink, a device) are
+/// skipped rather than followed.
+pub fn copy_probe_data(from: &Path, to: &Path) -> Result<(), String> {
+    copy_data_dir(from, to, true)
+}
+
+fn copy_data_dir(from: &Path, to: &Path, at_root: bool) -> Result<(), String> {
+    fs::create_dir_all(to).map_err(|error| {
+        format!(
+            "cannot create the probe data directory {}: {error}",
+            to.display()
+        )
+    })?;
+    let entries = match fs::read_dir(from) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => {
+            return Err(format!(
+                "cannot read the data directory {}: {error}",
+                from.display()
+            ));
+        }
+    };
+    for entry in entries {
+        let entry = entry.map_err(|error| {
+            format!("cannot read the data directory {}: {error}", from.display())
+        })?;
+        if at_root && is_running_app_file(&entry.file_name()) {
+            continue;
+        }
+        let target = to.join(entry.file_name());
+        let file_type = entry
+            .file_type()
+            .map_err(|error| format!("cannot inspect {}: {error}", entry.path().display()))?;
+        if file_type.is_dir() {
+            copy_data_dir(&entry.path(), &target, false)?;
+        } else if file_type.is_file() {
+            fs::copy(entry.path(), &target)
+                .map_err(|error| format!("cannot copy {}: {error}", entry.path().display()))?;
+        }
+    }
+    Ok(())
+}
+
+/// Reserve a loopback port for the candidate: bind port 0, read what the kernel chose, release it.
+fn free_loopback_port() -> Result<u16, String> {
+    let listener = std::net::TcpListener::bind(("127.0.0.1", 0))
+        .map_err(|error| format!("cannot reserve a scratch port: {error}"))?;
+    let port = listener
+        .local_addr()
+        .map_err(|error| format!("cannot read the scratch port: {error}"))?
+        .port();
+    drop(listener);
+    Ok(port)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────────
 // The one-time migration from a flat install (2026-11-05 design)
 // ─────────────────────────────────────────────────────────────────────────────────────────────────
 
@@ -3299,6 +3479,48 @@ pub fn validate_staged_update(
     validate_staged_pair(staged_exe, staged_sidecar, RELEASE_PUBKEY_HEX)
 }
 
+/// The keys that may sign a version directory handed to `--install-version`.
+///
+/// Two producers stage a version directory, and they are signed by different compile-time keys:
+///
+/// - the **device's updater** stages `versions/<release>/` from a release document and signs with
+///   the release key ([`validate_staged_update`]);
+/// - the **installer** stages `versions/<setup version>/` from the pair the setup ships, whose
+///   sidecar is the first-generation sidecar signed with the launcher key.
+///
+/// Both keys are embedded in this binary at build time and neither can be supplied at runtime, so
+/// accepting either here does not make the signature optional. What makes a candidate current is
+/// still the probe, not the signature alone. `--apply` stays release-key-only: it is the updater's
+/// path and never runs from a setup.
+pub const INSTALL_VERSION_PUBKEYS: [&str; 2] = [RELEASE_PUBKEY_HEX, LAUNCHER_PUBKEY_HEX];
+
+/// Verify an `--install-version` pair with either key that stages a version directory.
+pub fn validate_install_version(
+    staged_exe: &Path,
+    staged_sidecar: &Path,
+) -> Result<StagedPair, String> {
+    validate_install_version_with(staged_exe, staged_sidecar, &INSTALL_VERSION_PUBKEYS)
+}
+
+/// [`validate_install_version`] with an explicit key list, for the two-key tests.
+///
+/// Every key is tried; the reported reason names each refusal, so a pair signed by the wrong key
+/// says so instead of hiding behind the first attempt's error.
+pub fn validate_install_version_with(
+    staged_exe: &Path,
+    staged_sidecar: &Path,
+    pubkeys_hex: &[&str],
+) -> Result<StagedPair, String> {
+    let mut reasons = Vec::with_capacity(pubkeys_hex.len());
+    for key in pubkeys_hex {
+        match validate_staged_pair(staged_exe, staged_sidecar, key) {
+            Ok(pair) => return Ok(pair),
+            Err(reason) => reasons.push(reason),
+        }
+    }
+    Err(reasons.join("; "))
+}
+
 /// Verify a staged binary and sidecar against an explicit key.
 ///
 /// Production callers use [`validate_staged_update`] (the release key); this form exists for the
@@ -3579,6 +3801,7 @@ mod tests {
     }
     use ed25519_dalek::{Signer, SigningKey};
     use serde_json::json;
+    use std::cell::RefCell;
     use std::fs;
     use std::net::TcpListener;
 
@@ -6343,6 +6566,232 @@ mod tests {
             fs::read(version_exe(&install, "0.3.274")).expect("the running exe"),
             b"the running build"
         );
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────────────────────────
+    // The candidate probe and the files the running app owns (2026-11-05)
+    // ─────────────────────────────────────────────────────────────────────────────────────────────
+
+    fn entry_names(dir: &Path) -> Vec<String> {
+        let mut names: Vec<String> = fs::read_dir(dir)
+            .expect("the directory is readable")
+            .map(|entry| {
+                entry
+                    .expect("a directory entry")
+                    .file_name()
+                    .to_string_lossy()
+                    .into_owned()
+            })
+            .collect();
+        names.sort();
+        names
+    }
+
+    /// A candidate host that behaves like the real app for the one thing the probe needs: it writes
+    /// its own lock/pid/port into the probe directory and answers `/api/health` twice.
+    struct RecordingCandidate {
+        pid: u32,
+        seen_at_start: RefCell<Option<Vec<String>>>,
+        seen_at_stop: RefCell<Option<Vec<String>>>,
+        server: RefCell<Option<std::thread::JoinHandle<()>>>,
+    }
+
+    impl RecordingCandidate {
+        fn new(pid: u32) -> RecordingCandidate {
+            RecordingCandidate {
+                pid,
+                seen_at_start: RefCell::new(None),
+                seen_at_stop: RefCell::new(None),
+                server: RefCell::new(None),
+            }
+        }
+    }
+
+    impl CandidateHost for RecordingCandidate {
+        fn start(&self, config: &Config, version: &Version) -> Result<u32, String> {
+            *self.seen_at_start.borrow_mut() = Some(entry_names(&config.data));
+            // The real candidate creates these itself; the probe directory must be empty of the
+            // live app's copies so there is nothing stale to inherit.
+            fs::write(config.data.join("device.lock"), "the candidate's own lock")
+                .map_err(|error| format!("the fake candidate cannot take its lock: {error}"))?;
+            fs::write(config.data.join("device.pid"), self.pid.to_string())
+                .map_err(|error| format!("the fake candidate cannot record its pid: {error}"))?;
+            fs::write(config.data.join("device.port"), config.port.to_string())
+                .map_err(|error| format!("the fake candidate cannot record its port: {error}"))?;
+            let listener = TcpListener::bind(("127.0.0.1", config.port))
+                .map_err(|error| format!("the fake candidate cannot bind: {error}"))?;
+            let version = version.sidecar.version.clone();
+            let pid = self.pid;
+            *self.server.borrow_mut() = Some(std::thread::spawn(move || {
+                for _ in 0..HEALTH_CONSECUTIVE_PROBES {
+                    let Ok((mut stream, _)) = listener.accept() else {
+                        return;
+                    };
+                    let mut request = [0u8; 1024];
+                    let _ = stream.read(&mut request);
+                    let _ = stream.write_all(health_response(&version, pid).as_bytes());
+                }
+            }));
+            Ok(pid)
+        }
+
+        fn stop(&self, config: &Config, _pid: u32) {
+            *self.seen_at_stop.borrow_mut() = Some(entry_names(&config.data));
+            if let Some(server) = self.server.borrow_mut().take() {
+                let _ = server.join();
+            }
+        }
+    }
+
+    #[test]
+    fn the_probe_copy_skips_exactly_the_running_apps_files() {
+        let tmp = TempDir::new("probe-copy");
+        let live = tmp.path().join("data");
+        fs::create_dir_all(live.join("workspace")).expect("the live data directory");
+        for owned in RUNNING_APP_FILES {
+            fs::write(live.join(owned), owned).expect("the running app's file");
+        }
+        fs::write(live.join("state.json"), b"{}").expect("the state document");
+        fs::write(live.join("token"), b"the install token").expect("the token");
+        fs::write(
+            live.join("workspace").join("device.lock"),
+            b"a plugin's file",
+        )
+        .expect("a nested file with an owned name");
+
+        let probe = tmp.path().join("probe");
+        copy_probe_data(&live, &probe).expect("a live data directory copies");
+
+        assert_eq!(
+            entry_names(&probe),
+            vec![
+                "state.json".to_string(),
+                "token".to_string(),
+                "workspace".to_string()
+            ],
+            "only the app-owned entries are left behind"
+        );
+        for owned in RUNNING_APP_FILES {
+            assert!(
+                !probe.join(owned).exists(),
+                "{owned} was copied out of the live data directory"
+            );
+        }
+        assert!(
+            probe.join("workspace").join("device.lock").is_file(),
+            "an owned name deeper in the tree belongs to a workspace, not to the app"
+        );
+        // The list is the one source of truth; these are the four names it must carry, read from
+        // device/device/src/lock.rs, main.rs and restarts.rs.
+        assert_eq!(
+            RUNNING_APP_FILES,
+            ["device.lock", "device.pid", "device.port", "restarts.jsonl"],
+            "the excluded set is exactly the files the running app owns"
+        );
+    }
+
+    #[test]
+    fn a_probe_succeeds_while_the_live_data_directory_is_locked() {
+        let tmp = TempDir::new("probe-locked");
+        let live = tmp.path().join("data");
+        fs::create_dir_all(&live).expect("the live data directory");
+        fs::write(live.join("state.json"), b"{}").expect("the state document");
+        fs::write(live.join("token"), b"the install token").expect("the token");
+        fs::write(live.join("restarts.jsonl"), b"{\"pid\":1}\n").expect("the boot journal");
+        fs::write(live.join("device.pid"), "1\n").expect("the live pid");
+        fs::write(live.join("device.port"), "7737\n").expect("the live port");
+        let live_lock = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(live.join("device.lock"))
+            .expect("the live lock file");
+        live_lock.lock().expect("the live app holds its lock");
+
+        let install = install_dir(&tmp, "install");
+        let bytes = b"the candidate build";
+        let version = Version {
+            name: "0.3.276".to_string(),
+            dir: version_dir(&install, "0.3.276"),
+            exe: version_exe(&install, "0.3.276"),
+            sidecar_path: version_sidecar(&install, "0.3.276"),
+            sidecar: sidecar_for("0.3.276", bytes, &signing_key()),
+        };
+        let config = Config {
+            install: install.clone(),
+            data: live.clone(),
+            port: 7_737,
+        };
+        let host = RecordingCandidate::new(4_321);
+
+        probe_candidate(&config, &version, &host)
+            .expect("a locked live device.lock must not stop the candidate probe");
+
+        let seen = host
+            .seen_at_start
+            .borrow()
+            .clone()
+            .expect("the candidate was started");
+        for owned in RUNNING_APP_FILES {
+            assert!(
+                !seen.iter().any(|name| name == owned),
+                "the candidate inherited the live {owned}: {seen:?}"
+            );
+        }
+        assert!(
+            seen.iter().any(|name| name == "state.json"),
+            "the candidate still gets the data it needs to serve: {seen:?}"
+        );
+        let stopped = host
+            .seen_at_stop
+            .borrow()
+            .clone()
+            .expect("the candidate was stopped");
+        for own in ["device.lock", "device.pid", "device.port"] {
+            assert!(
+                stopped.iter().any(|name| name == own),
+                "the candidate created its own {own}: {stopped:?}"
+            );
+        }
+        assert!(
+            !stopped.iter().any(|name| name == "restarts.jsonl"),
+            "the candidate did not inherit the live boot journal: {stopped:?}"
+        );
+        let second = fs::File::open(live.join("device.lock")).expect("the live lock file opens");
+        assert!(
+            second.try_lock().is_err(),
+            "the live lock is still held exclusively while the probe runs"
+        );
+    }
+
+    #[test]
+    fn the_upgrade_mode_accepts_the_installers_launcher_signed_pair() {
+        let tmp = TempDir::new("installer-signed-version");
+        let staged = tmp.path().join("versions").join("0.3.276");
+        fs::create_dir_all(&staged).expect("the staged version directory");
+        let bytes = b"the installer's app";
+        let exe = staged.join(APP_EXE);
+        fs::write(&exe, bytes).expect("the staged app");
+        let sidecar_path = staged.join(VERSION_SIDECAR);
+        save_sidecar(
+            &sidecar_path,
+            &sidecar_for("0.3.276", bytes, &signing_key()),
+        )
+        .expect("the installer's sidecar");
+        let pubkey = test_pubkey_hex();
+
+        let pair = validate_install_version_with(&exe, &sidecar_path, &[&pubkey])
+            .expect("the launcher key that signs the installer's pair is accepted");
+        assert_eq!(pair.sidecar.version, "0.3.276");
+
+        // A pair signed by a key this build does not carry is still refused by name.
+        let other = SigningKey::from_bytes(&[9u8; 32]);
+        save_sidecar(&sidecar_path, &sidecar_for("0.3.276", bytes, &other))
+            .expect("a foreign sidecar");
+        let error = validate_install_version_with(&exe, &sidecar_path, &[&pubkey])
+            .expect_err("a foreign signature is refused");
+        assert!(error.contains("signature"), "{error}");
     }
 
     #[test]

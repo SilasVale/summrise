@@ -310,17 +310,57 @@ Section "Summrise runtime" SecRuntime
     Abort
   ${EndIf}
   FileWrite $6 "health: ok on port ${PORT}$\r$\n"
-  ; THE ONE-TIME MOVE to versions\<name>\ + current.txt, after the flat install has answered health.
-  ; The launcher owns the transaction and its fallback: a migration that cannot serve removes
-  ; current.txt again and restarts the flat layout, so a failure here is reported, never fatal.
-  nsExec::ExecToStack '"$INSTDIR\summrise-launch.exe" --migrate-layout --install "$INSTDIR" --data "${DATA_DIR}" --port ${PORT}'
-  Pop $0
-  Pop $1
-  FileWrite $6 "migrate-layout: exit $0$\r$\n$1$\r$\n"
-  ${If} $0 != "0"
-    FileWrite $6 "migrate-layout failed; the flat layout remains in charge$\r$\n"
-    ${IfNot} ${Silent}
-      MessageBox MB_ICONEXCLAMATION "The device was installed, but the one-time migration to the versioned layout failed (exit $0).$\r$\n$\r$\nIt is still running the flat layout.$\r$\n$\r$\n$1"
+  ; **AN UPGRADE IS NOT A MIGRATION.** `--migrate-layout` is the one-time move from the flat layout:
+  ; once `current.txt` exists it answers "already on the versioned layout" and changes nothing, so
+  ; every upgrade after the first migration used to stage files that nothing pointed at. On a
+  ; migrated install the setup is now an upgrade: it stages its own pair as
+  ; `versions\<version>\` and asks the launcher to prove it and move the pointer
+  ; (`--install-version`). The launcher probes the candidate on a scratch port and writes
+  ; `current.txt` only after two matching health answers; on failure the pointer is untouched, and
+  ; this installer reports the launcher's exit and message and exits non-zero.
+  ${If} ${FileExists} "$INSTDIR\current.txt"
+    FileWrite $6 "upgrade: $INSTDIR\current.txt exists; staging versions\${VERSION}$\r$\n"
+    ; A version directory is immutable once named. Copy only what is missing: an existing binary is
+    ; never overwritten (the launcher refuses different bytes), and a half-written directory left by
+    ; a crash can still be completed.
+    CreateDirectory "$INSTDIR\versions\${VERSION}"
+    ${IfNot} ${FileExists} "$INSTDIR\versions\${VERSION}\summrise-device.exe"
+      SetOutPath "$INSTDIR\versions\${VERSION}"
+      File /oname=summrise-device.exe "${SOURCE}\summrise-device.exe"
+      SetOutPath "$INSTDIR"
+    ${EndIf}
+    ${IfNot} ${FileExists} "$INSTDIR\versions\${VERSION}\summrise-device.json"
+      SetOutPath "$INSTDIR\versions\${VERSION}"
+      File /oname=summrise-device.json "${SOURCE}\summrise-device.sidecar.json"
+      SetOutPath "$INSTDIR"
+    ${EndIf}
+    nsExec::ExecToStack '"$INSTDIR\summrise-launch.exe" --install-version "$INSTDIR\versions\${VERSION}" "$INSTDIR\versions\${VERSION}\summrise-device.json" --install "$INSTDIR" --data "${DATA_DIR}" --port ${PORT}'
+    Pop $0
+    Pop $1
+    FileWrite $6 "install-version ${VERSION}: exit $0$\r$\n$1$\r$\n"
+    ${If} $0 != "0"
+      ; The launcher guarantees the pointer: it is written only after the candidate proved it can
+      ; serve, so a failure here leaves `current.txt` exactly as it was. Report, do not repair.
+      FileWrite $6 "install-version failed; $INSTDIR\current.txt is untouched and still names the running version$\r$\n"
+      SetErrorLevel 1
+      ${IfNot} ${Silent}
+        MessageBox MB_ICONSTOP "Version ${VERSION} was installed, but the launcher could not make it current (exit $0).$\r$\n$\r$\nThe device is still running the version current.txt named before this setup.$\r$\n$\r$\n$1"
+      ${EndIf}
+    ${EndIf}
+  ${Else}
+    ; THE ONE-TIME MOVE to versions\<name>\ + current.txt, after the flat install has answered
+    ; health. The launcher owns the transaction and its fallback: a migration that cannot serve
+    ; removes current.txt again and restarts the flat layout, so a failure here is reported, never
+    ; fatal.
+    nsExec::ExecToStack '"$INSTDIR\summrise-launch.exe" --migrate-layout --install "$INSTDIR" --data "${DATA_DIR}" --port ${PORT}'
+    Pop $0
+    Pop $1
+    FileWrite $6 "migrate-layout: exit $0$\r$\n$1$\r$\n"
+    ${If} $0 != "0"
+      FileWrite $6 "migrate-layout failed; the flat layout remains in charge$\r$\n"
+      ${IfNot} ${Silent}
+        MessageBox MB_ICONEXCLAMATION "The device was installed, but the one-time migration to the versioned layout failed (exit $0).$\r$\n$\r$\nIt is still running the flat layout.$\r$\n$\r$\n$1"
+      ${EndIf}
     ${EndIf}
   ${EndIf}
   ; `onInit` killed the tray so the image could be replaced. The login Run entry only covers the next
