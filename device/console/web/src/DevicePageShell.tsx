@@ -4,7 +4,7 @@ import { DEVICE_TABS, DEVICE_TAB_LABELS, type DeviceTab } from "./Rail";
 import { DevicePicker } from "./DevicePicker";
 import { OfflineNotice } from "./OfflineNotice";
 import type { Grant } from "./terminal";
-import { startedLine } from "./updateStory";
+import { processStartMs, startedLine } from "./updateStory";
 
 /**
  * Device is ONE destination with five tabs, not five rail items. The shell owns the destination's one
@@ -31,9 +31,16 @@ export function DevicePageShell({
 }) {
   const grant = grantFor(chosen);
   // The device's own account of its last start, beside — never instead of — the console's account
-  // of its silence. It is shown online too: a machine that woke is exactly the one whose version the
+  // of its silence. The header chip already carries the running version, so the line draws only a
+  // fact the chip cannot: an update that belongs to this start, or the device's own current
+  // sentence. It is shown online too: a machine that woke is exactly the one whose update the
   // operator needs to read without a shell on it.
-  const started = chosen ? startedLine(chosen.update) : null;
+  const started = chosen
+    ? startedLine(chosen.update, {
+        startedAtMs: processStartMs(chosen),
+        shownVersion: chosen.version
+      })
+    : null;
   return (
     <div className="page device-page">
       <header className="page-head device-head">

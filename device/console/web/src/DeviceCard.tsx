@@ -1,7 +1,7 @@
 import type { DeviceUpdate, HostFacts } from "./api";
 import type { LastAttempt } from "./attempt";
 import { lastHeardMs, seenAgo, shortId } from "./format";
-import { startedLine } from "./updateStory";
+import { startedLine, processStartMs } from "./updateStory";
 
 export type Device = {
   id: string;
@@ -62,8 +62,13 @@ export function DeviceCard({ device, selected, onSelect, onRename, onRemove, onD
   // the attempt as a record and dates the moment the console last heard the machine.
   // The device's own account of its last start, beside the console's account of its silence. The two
   // lines are independent on purpose: the console knows frames stopped, not that the machine slept,
-  // and the device knows what it started, not when the console last heard it.
-  const started = startedLine(device.update);
+  // and the device knows what it started, not when the console last heard it. The version is the
+  // row's chip above, so the device's line never repeats it — it draws only an update that belongs
+  // to this start (aged) or the device's own current sentence.
+  const started = startedLine(device.update, {
+    startedAtMs: processStartMs(device),
+    shownVersion: device.version
+  });
   return (
     <article className={"fleet-row" + (selected ? " is-current" : "")}>
       <button type="button" className="fleet-open" aria-label={`Open ${label}`} onClick={onSelect}>

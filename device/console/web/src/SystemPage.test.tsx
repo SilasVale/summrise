@@ -65,6 +65,27 @@ describe("SystemPage", () => {
     expect(screen.getByText(/repeats every few seconds/)).toBeInTheDocument();
   });
 
+  it("leaves the running version to the header chip, once per surface", async () => {
+    // The measured Machine tab carried `build 0.3.277 · online` under a header that already said
+    // `Running · v0.3.277`: a third copy on a page that needs one. This line states reachability.
+    device((name) => {
+      if (name !== "system.process_list") {
+        throw new Error(`the test did not expect a ${name} call`);
+      }
+      return JSON.stringify([]);
+    });
+    render(
+      <SystemPage
+        grant={GRANT}
+        device={{ id: "device-1", name: "workshop", online: true, version: "0.3.1", last_frame_ms: 1 }}
+      />
+    );
+
+    expect(await screen.findByText("online")).toBeInTheDocument();
+    expect(screen.queryByText(/build/)).toBeNull();
+    expect(screen.queryByText(/0\.3\.1/)).toBeNull();
+  });
+
   it("lists the device's processes and sends the filter the box asked for", async () => {
     device((name, args) => {
       if (name !== "system.process_list") {

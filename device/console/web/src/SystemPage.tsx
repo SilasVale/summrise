@@ -390,11 +390,10 @@ export function SystemPage({
         )}
         {device && (
           // The id is not printed here: nothing on this page acts on it, and the two places that do
-          // (the record's Copy id, the Connect endpoint) carry it with a copy control.
-          <p className="hint">
-            {device.version ? `build ${device.version}` : "build unknown"} ·{" "}
-            {device.online ? "online" : "offline"}
-          </p>
+          // (the record's Copy id, the Connect endpoint) carry it with a copy control. Nor is the
+          // build: the header chip already says `Running · vX` once per surface, and a third copy
+          // here was the measured duplication. This line answers reachability only.
+          <p className="hint">{device.online ? "online" : "offline"}</p>
         )}
       </section>
 

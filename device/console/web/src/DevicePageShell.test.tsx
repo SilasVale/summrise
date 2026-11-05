@@ -12,7 +12,12 @@ const MACHINE: Device = {
   // The channel opened three hours ago; the last FRAME was seven minutes ago. The notice must say
   // the frame's moment, not the socket's.
   last_seen_ms: Date.now() - 3 * 3600_000,
-  last_frame_ms: Date.now() - 7 * 60_000
+  last_frame_ms: Date.now() - 7 * 60_000,
+  host: {
+    // The newest boot is when the running process started. It is the only moment that can prove
+    // an updater's answer belongs to this process.
+    restarts: [{ at_ms: Date.now() - 25 * 3_600_000, version: "0.3.42", pid: 42 }]
+  }
 };
 
 function renderShell(tab: DeviceTab, device: Device = MACHINE) {
@@ -72,34 +77,66 @@ describe("DevicePageShell offline notice", () => {
     expect(screen.queryByRole("status")).not.toBeInTheDocument();
   });
 
-  it("shows the device's own start verdict beside the silence, not as an explanation of it", () => {
+  it("does not repeat the running version the header already shows", () => {
+    renderShell("files", {
+      ...MACHINE,
+      update: {
+        current: "0.3.42",
+        verdict: { outcome: "ok", detail: "started 0.3.42" },
+        last_update: { to: "0.3.41", outcome: "applied", at_ms: Date.now() - 26 * 3_600_000 }
+      }
+    });
+
+    // The header chip is the surface's one version; an updater's answer from before this start is
+    // not this start's story.
+    expect(screen.getByRole("status")).toHaveTextContent("This machine is offline.");
+    expect(screen.queryByText(/0\.3\.42/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/updated/)).not.toBeInTheDocument();
+  });
+
+  it("ages the update beside the silence when the answer belongs to this start", () => {
+    renderShell("files", {
+      ...MACHINE,
+      update: {
+        current: "0.3.42",
+        verdict: { outcome: "ok", detail: "started 0.3.42" },
+        last_update: { to: "0.3.42", outcome: "applied", at_ms: Date.now() - 12 * 60_000 }
+      }
+    });
+
+    // The console knows silence, not sleep: it must never claim the machine slept. The new fact
+    // beside it is the age of the answer this process folded in.
+    expect(screen.getByText("updated 12m ago")).toBeInTheDocument();
+    expect(screen.queryByText(/asleep|sleeping/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/started /)).not.toBeInTheDocument();
+    expect(screen.queryByText(/0\.3\.42/)).not.toBeInTheDocument();
+  });
+
+  it("keeps a start that names a version the header does not show", () => {
     renderShell("files", {
       ...MACHINE,
       update: {
         current: "0.3.275",
-        verdict: { outcome: "ok", detail: "started 0.3.275" },
-        last_update: { to: "0.3.276", outcome: "refused", at_ms: 1 }
+        verdict: { outcome: "ok", detail: "started 0.3.275" }
       }
     });
 
-    expect(screen.getByRole("status")).toHaveTextContent("This machine is offline.");
-    expect(screen.getByText("started 0.3.275 (update to 0.3.276 refused)")).toBeInTheDocument();
-    // The console knows silence, not sleep: it must never claim the machine slept.
-    expect(screen.queryByText(/asleep|sleeping/i)).not.toBeInTheDocument();
+    // The header says 0.3.42; the device says it started 0.3.275. That is a contradiction the
+    // operator needs, not a duplicate of the chip.
+    expect(screen.getByText("started 0.3.275")).toBeInTheDocument();
   });
 
-  it("shows the start verdict on an online machine too, because a machine that woke proves its version", () => {
+  it("shows a refusal the device is making now, on an online machine too", () => {
     renderShell("files", {
       ...MACHINE,
       online: true,
       update: {
-        current: "0.3.276",
-        verdict: { outcome: "ok", detail: "started 0.3.276" },
-        last_update: { to: "0.3.276", outcome: "applied", at_ms: 2 }
+        current: "0.3.42",
+        verdict: { outcome: "needs_attention", detail: "refused: nothing was installed" }
       }
     });
 
     expect(screen.queryByRole("status")).not.toBeInTheDocument();
-    expect(screen.getByText("started 0.3.276 (updated)")).toBeInTheDocument();
+    expect(screen.getByText("refused: nothing was installed")).toBeInTheDocument();
   });
 });

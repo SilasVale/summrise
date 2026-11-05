@@ -72,6 +72,18 @@ export type HostFacts = {
   disks?: { name: string; total_bytes: number; free_bytes: number }[];
   sessions?: { id: number; user?: string | null; state: string }[];
   helper?: { registered?: boolean; pid?: number | null; session?: number | null };
+  /**
+   * This app's own boot journal, newest first and bounded by the device (ten). The newest entry is
+   * the moment the running process started, which is what an updater's answer must follow to belong
+   * to this process. Absent on a device that predates the journal, so a page cannot invent a start.
+   */
+  restarts?: {
+    at_ms: number;
+    version?: string;
+    sha256?: string;
+    channel?: string;
+    pid?: number;
+  }[];
   /// The launcher's three baseline generations: `current` is the pair it trusts, `pending` is a pair
   /// staged and not yet proven, `previous` is the pair a failed update returns to. Each generation is
   /// `null` when its sidecar is missing or unreadable, so a device with no baselines reports three

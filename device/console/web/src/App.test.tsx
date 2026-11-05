@@ -956,6 +956,22 @@ describe("App", () => {
     }
   });
 
+  it("shows the machine's version once per surface: the header chip, and not the page again", async () => {
+    await bootAndSignIn();
+    selectDevice("workshop");
+    fireEvent.click(screen.getByRole("button", { name: "Device" }));
+    await screen.findByRole("heading", { name: "Terminal", level: 1 });
+
+    // The header is the one copy. The shell and the Machine tab draw no second one.
+    const header = screen.getByLabelText("Machine: workshop");
+    expect(header.textContent?.match(/0\.3\.42/g)).toHaveLength(1);
+    for (const tab of ["Files", "Screen", "Runs", "Tools", "Machine"]) {
+      fireEvent.click(screen.getByRole("button", { name: tab }));
+      expect(screen.getByLabelText("Machine: workshop").textContent?.match(/0\.3\.42/g)).toHaveLength(1);
+      expect(within(screen.getByRole("main")).queryByText(/0\.3\.42/)).toBeNull();
+    }
+  });
+
   it("answers what the machine can do on one Tools tab: the run form, the catalogue, the plugins", async () => {
     mocks.liveTools.mockResolvedValue({ tools: [filesTool, pluginTool] });
     pluginMocks.list.mockResolvedValue([helloPlugin]);

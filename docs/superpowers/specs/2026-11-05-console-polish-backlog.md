@@ -528,6 +528,20 @@ draws no update line — correctly: it said nothing.
    from the line, while the running version is printed twice on the row and three times on the
    Machine tab. **Fix:** draw the version once and, when `last_update.to` is not `update.current`,
    print the update's own target and age (“last update to 0.3.273, 15 h ago”) or nothing. **S.**
+   *(Done 2026-11-05: the line now states only the fact the chips cannot. The newest entry in the
+   host frame's `restarts` journal is when the running process started; an updater's answer with
+   `at_ms` before that moment is history — the start it produced proves the update took — so the
+   row draws no update sentence for the measured 9VH92BJ/CPH4KB2 shapes at all. An answer inside
+   the current start is drawn as `updated 12m ago` (applied), `update to 0.3.276 refused`, or the
+   rollback sentence, never as `(updated)` attached to the start. The version is no longer
+   repeated: the fleet row's own chip and the header's `Running · v…` each keep one copy, a start
+   sentence whose only content is that version draws no line, and a start naming a version the
+   surface does not show is kept as the contradiction it is. The Machine tab's line is now
+   `online`/`offline` with no `build X`. Measured: the gate's online row read `update to 0.3.43
+   refused` with its version exactly once; the Machine tab carried no `build `; `npx vitest run`
+   631 passed across 51 files (11 new); typecheck and build clean; `./scripts/build-web.sh
+   --check` clean with dist committed; browser gate PASS 23 steps; `a11y-audit` 0 findings across
+   16 page states.)*
 
 6. **The cap sentence's 1000 is the fetch's, not the list's.** The sentence landed in c704084; its
    number is the fetched window's, not the drawn list's. DESKTOP-14RJCR8's hub at 09:57 says

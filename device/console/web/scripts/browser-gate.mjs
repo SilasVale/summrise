@@ -90,9 +90,13 @@ const DEVICE = {
     verdict: { outcome: 'ok', detail: 'started 0.3.42' },
     last_update: { to: '0.3.43', outcome: 'refused', at_ms: NOW - 60_000 }
   },
-  // The platform the run form chooses its example from. Only `os` is here: the form needs the OS
-  // fact and nothing else, and a disk or memory fact would change the menu's line for no reason.
-  host: { os: { name: 'Windows', version: '10.0.26100', arch: 'x86_64' } }
+  // The platform the run form chooses its example from. Only `os` and the boot journal are here:
+  // the form needs the OS fact, and the journal's newest entry is the moment this process started,
+  // which is what makes the refused answer at NOW - 60 s belong to it (ITEM 5).
+  host: {
+    os: { name: 'Windows', version: '10.0.26100', arch: 'x86_64' },
+    restarts: [{ at_ms: NOW - 60 * 60_000, version: '0.3.42', channel: 'stable', pid: 4200 }]
+  }
 };
 // THE OFFLINE ROW'S AGE. The measured DESKTOP-14RJCR8 case: no frame since the console restarted,
 // the registry's last channel open is older than the close, and the pair in `last_outage` belongs to
@@ -498,6 +502,21 @@ try {
     throw new Error('a fleet row drew an undated reconnect sentence');
   }
   step('the online row carries a last attempt and draws no reconnect sentence');
+  // **ITEM 5: THE VERSION ONCE, AND THE UPDATE AS THE NEW FACT.** The chip is the row's one
+  // version. The refused answer is one minute old and the journal says the process started an hour
+  // ago, so it belongs to this start and is drawn as the updater's own sentence — not as
+  // "started 0.3.42 (updated)", which repeated the chip and dated nothing.
+  const onlineRow = page.getByRole('button', { name: /^Open gate-workshop/ });
+  const onlineRowText = (await onlineRow.textContent()) ?? '';
+  const versionCopies = (onlineRowText.match(/0\.3\.42/g) ?? []).length;
+  if (versionCopies !== 1) {
+    throw new Error(`the online row carried ${versionCopies} copies of its version: "${onlineRowText}"`);
+  }
+  const verdict = (await onlineRow.locator('.fleet-verdict').textContent())?.trim();
+  if (verdict !== 'update to 0.3.43 refused') {
+    throw new Error(`the online row's update line read "${verdict}"`);
+  }
+  step(`the online row states "${verdict}" and the version once`);
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.waitForTimeout(200);
 
@@ -792,6 +811,17 @@ try {
   );
   step(`the run form's example is "${runExample}", a program this Windows machine has`);
   await page.screenshot({ path: path.join(OUT, '05-tools.png') });
+
+  // **ITEM 5: THE MACHINE TAB DOES NOT RE-STATE THE BUILD.** The header says `Running · v0.3.42`
+  // once; the measured `build 0.3.42 · online` here was a third copy. The line keeps reachability
+  // and drops the build.
+  await page.getByRole('button', { name: 'Machine', exact: true }).click();
+  await page.getByRole('heading', { name: 'Machine', exact: true }).waitFor({ timeout: 10_000 });
+  const machinePageText = await page.locator('.system-page').innerText();
+  if (machinePageText.includes('build ')) {
+    throw new Error('the Machine tab repeated the build the header already shows');
+  }
+  step('the Machine tab states reachability without a second build line');
 
   // THE CREDENTIAL LIST IS THE WHOLE REGISTRY. `GET /tokens` is the only list route; a row for
   // another machine is still a real token and hidden rows made an occupied registry read "none".

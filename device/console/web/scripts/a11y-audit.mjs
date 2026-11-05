@@ -174,6 +174,11 @@ const DEVICES = [
       disks: [{ name: 'C:', total_bytes: 1024 * GIB, free_bytes: 312 * GIB }],
       sessions: [{ id: 2, user: 'operator', state: 'active' }],
       helper: { registered: true, pid: 4812, session: 2 },
+      // This app's own boot journal: its newest entry is when the running process started, so the
+      // applied answer two days ago (above) belongs to this start and the row reads "updated 2d ago".
+      restarts: [
+        { at_ms: NOW - 3 * 86_400_000, version: '0.3.42', channel: 'stable', pid: 4210 }
+      ],
       update: null
     }
   },
@@ -208,7 +213,8 @@ const DEVICES = [
     registered_at_ms: NOW - 80 * 24 * HOUR,
     last_attempt: null,
     // The incident's shape: a machine went silent, and its own last story says what happened to the
-    // update. The page shows the silence and this line side by side, never "asleep".
+    // update. It sent no host facts, so there is no boot journal to prove the refusal belongs to
+    // this start; the page shows the silence and draws no undated update sentence beside it.
     update: {
       current: '0.3.30',
       verdict: { outcome: 'ok', detail: 'started 0.3.30' },

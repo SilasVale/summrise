@@ -14,6 +14,9 @@ const device: Device = {
   host: {
     os: { name: "Windows", version: "11" },
     uptime_s: 90_061,
+    // This app's own boot journal: its newest entry is when the RUNNING process started, which is
+    // the moment an updater's answer must be after to belong to this process.
+    restarts: [{ at_ms: Date.now() - 25 * 3_600_000, version: "0.3.42", channel: "stable", pid: 42 }],
     memory: { total_bytes: 8 * GIB, available_bytes: 2 * GIB },
     disks: [{ name: "/", total_bytes: 100 * GIB, free_bytes: 10 * GIB }]
   }
@@ -40,6 +43,9 @@ describe("DeviceCard — one row on the fleet", () => {
     expect(screen.getByText("online", { exact: false })).toBeInTheDocument();
     expect(screen.getByText(/seen 15s ago/)).toBeInTheDocument();
     expect(screen.getByText("v0.3.42")).toBeInTheDocument();
+    // The version appears once on the row: the chip is the surface's one copy, and nothing in the
+    // device's story repeats it.
+    expect(container.textContent?.match(/0\.3\.42/g)).toHaveLength(1);
     expect(screen.getByRole("button", { name: "Open workshop" })).toBeInTheDocument();
 
     // The row is the target; there is no second per-row Connect action competing with the screen's
@@ -78,7 +84,7 @@ describe("DeviceCard — one row on the fleet", () => {
     expect(container.querySelector(".fleet-attempt")).toBeNull();
     expect(screen.queryByText(/Reconnected after/)).not.toBeInTheDocument();
     expect(screen.queryByText(/the console accepted the channel/)).not.toBeInTheDocument();
-    // What the row does say: the state with its age, the build, and the device's own start.
+    // What the row does say: the state with its age and the build.
     expect(screen.getByText(/online · seen 15s ago/)).toBeInTheDocument();
     expect(screen.getByText("v0.3.42")).toBeInTheDocument();
   });
@@ -169,35 +175,54 @@ describe("DeviceCard — one row on the fleet", () => {
     expect(screen.queryByText(/never/)).not.toBeInTheDocument();
   });
 
-  it("shows the device's own verdict line only when the device sent one", () => {
-    draw({
+  it("draws no update line when the updater's answer predates this start", () => {
+    // The measured 9VH92BJ row: an applied answer to 0.3.273 at 19:11, and a process that started
+    // at 09:41 running 0.3.277. "(updated)" was attached to a start it predates.
+    const { container } = draw({
       online: false,
       last_frame_ms: Date.now() - 7 * 60_000,
       update: {
-        current: "0.3.275",
-        verdict: { outcome: "ok", detail: "started 0.3.275" },
-        last_update: { to: "0.3.276", outcome: "refused", at_ms: 1 }
+        current: "0.3.42",
+        verdict: { outcome: "ok", detail: "started 0.3.42" },
+        last_update: { to: "0.3.41", outcome: "applied", at_ms: Date.now() - 26 * 3_600_000 }
       }
     });
 
-    // The silence and the device's account are two separate lines: the console knows silence, the
-    // device knows what it started. Neither is used to explain the other.
+    // The silence is the console's account; the device's story has nothing new to add, and the
+    // running version is already the row's chip.
     expect(screen.getByText(/offline · last seen 7m ago/)).toBeInTheDocument();
-    expect(screen.getByText("started 0.3.275 (update to 0.3.276 refused)")).toBeInTheDocument();
+    expect(container.querySelector(".fleet-verdict")).toBeNull();
+    expect(screen.queryByText(/started /)).not.toBeInTheDocument();
+    expect(screen.queryByText(/updated/)).not.toBeInTheDocument();
   });
 
-  it("says updated when the device reports an applied update", () => {
+  it("states the update's age, not the running version, when it belongs to this start", () => {
     const { container } = draw({
       online: true,
       update: {
-        current: "0.3.276",
-        verdict: { outcome: "ok", detail: "started 0.3.276" },
-        last_update: { to: "0.3.276", outcome: "applied", at_ms: 2 }
+        current: "0.3.42",
+        verdict: { outcome: "ok", detail: "started 0.3.42" },
+        last_update: { to: "0.3.42", outcome: "applied", at_ms: Date.now() - 12 * 60_000 }
       }
     });
 
-    expect(screen.getByText("started 0.3.276 (updated)")).toBeInTheDocument();
+    expect(screen.getByText("updated 12m ago")).toBeInTheDocument();
     expect(container.querySelector(".fleet-verdict")).not.toBeNull();
+    // The chip still carries the version; the line states only the new fact.
+    expect(container.textContent?.match(/0\.3\.42/g)).toHaveLength(1);
+  });
+
+  it("shows a refusal the device is making now, without a start to attach it to", () => {
+    draw({
+      online: true,
+      update: {
+        current: "0.3.42",
+        verdict: { outcome: "needs_attention", detail: "refused: nothing was installed" }
+      }
+    });
+
+    expect(screen.getByText("refused: nothing was installed")).toBeInTheDocument();
+    expect(screen.queryByText(/started /)).not.toBeInTheDocument();
   });
 
   it("draws no verdict line for a device that sent no update section", () => {
