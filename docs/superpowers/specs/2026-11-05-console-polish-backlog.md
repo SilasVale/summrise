@@ -172,14 +172,14 @@ is a new feature with a real holding mechanism — not a page to restore.
 - **Decision events.** The console sees actions; the AI's reasoning is the client's to publish.
 - **The cube.** A renderer for a page that does not exist yet; revisit after P0.
 
-## P0 — the third list (audited 2026-11-05, live 0.3.273-ux43)
+## P0 — the third list (audited 2026-11-05, live 0.3.273-ux43; items done as noted)
 
 Measured on `https://console.saisi.online` with Playwright at 1440×960 and 390×844, 05:00–05:20
 UTC. `/health` read `{"devices":3,"online":3,...,"version":"0.3.273-ux43"}` and `/session`
 answered through the proxy. Every number below is from the page or its own `/audit?limit=1000`
 read; nothing here is a suspicion, and the two lists above are not re-opened.
 
-1. **The day count drops the calls its own token proves.** Of the 1000-line window, 30 rows say
+1. **The day count drops the calls its own token proves.** *(Done 2026-11-05, 327ea3a, live ux44: a line is a client call when the caller says so, or when the caller is absent and it carries a token — 14RJCR8 reads 363, not 62.)* Of the 1000-line window, 30 rows say
    `caller: "console"`, 62 say `"client"`, and **908 say nothing**; **376 rows carry a `token_id`**
    and **0 of the 30 console rows do**. Of the 908, 314 carry a token (client calls) and 594 carry
    neither (unattributed). Today `DESKTOP-14RJCR8`'s window has **940 rows and 363 client calls**
@@ -190,7 +190,7 @@ read; nothing here is a suspicion, and the two lists above are not re-opened.
    "unattributed", used by the day line, the row mark and the Activity filter; no new server field.
    **M.**
 
-2. **The machine's day is 51,620 px and its capability line is at the bottom.** On
+2. **The machine's day is 51,620 px and its capability line is at the bottom.** *(Done 2026-11-05, 9f17e51: capability line under the Now band; newest 60 rows with a real "Show the rest of today (N more)"; 51,127 px -> 3,731 at 1440, 51,135 -> 3,739 at 390.)* On
    `DESKTOP-14RJCR8` at 1440 the hub draws **935 rows** (one day) in a **51,620 px** `main`, and
    "46 tools · 11 capabilities · 0 plugins" sits at **51,599** — 56 screens down; at 390 it is 936
    rows, 51,684 px, the counts line at 51,669. Even the quiet `DESKTOP-9VH92BJ` spends 4,433 px on
@@ -204,7 +204,7 @@ read; nothing here is a suspicion, and the two lists above are not re-opened.
    the 1000 lines. **Cost:** two clicks and three screens for the most-used write; Runs, the
    history, has no run control. **Fix:** put the form at the top of Tools, above the catalogue. **S.**
 
-4. **The cap sentence disappears at exactly 1000.** `/audit?limit=1000` returns **1000** lines; the
+4. **The cap sentence disappears at exactly 1000.** *(Done 2026-11-05, c704084: "Showing the newest 1000 lines — the window's limit." in both views, from the fetched length; absent at 999.)* `/audit?limit=1000` returns **1000** lines; the
    page draws **997** (the merge drops 3 duplicates), sets `capped` false, and neither view says
    "Showing the newest 1000 lines; older ones are not on this page." The oldest row is 16:18
    yesterday. **Cost:** a 997-row slice reads as the whole record; the lines behind the server's cap
@@ -239,11 +239,11 @@ read; nothing here is a suspicion, and the two lists above are not re-opened.
 
 ### Cuts
 
-- **C6. The Terminal page says "no session" twice.** "No session is open on this machine." at
+- **C6. The Terminal page says "no session" twice.** *(Done 2026-11-05, 7fcbf21: the top empty card is gone; the sentence next to the session list stays.)* "No session is open on this machine." at
   y=228 and "No session is open on this device. New session opens a shell; it appears here once it
   is running." at y=336, 108 px apart; the second carries the action, the first is the page's
   duplicate. Delete the first. **S.**
-- **C7. The hub's subtitle duplicates the account menu's console version.** "Running · console
+- **C7. The hub's subtitle duplicates the account menu's console version.** *(Done 2026-11-05, bdc0775: the subtitle says Running/Offline; Account keeps the console build.)* "Running · console
   v0.3.273-ux43" is the page's one subtitle; the Account menu prints "Console 0.3.273-ux43". At 390
   the header chip drops the device's "v0.3.274", so the one build on the page is the console's,
   which the menu already has. Delete the version from the subtitle; keep the menu's. **S.**
