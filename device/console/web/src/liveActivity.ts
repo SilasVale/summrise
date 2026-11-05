@@ -22,6 +22,8 @@ export type LiveLine = {
   device_id?: string;
   /** The HTTP status the caller saw. */
   status: number;
+  /** Who made the call: the console's own read, or an AI client's. Absent on an older line. */
+  caller?: "console" | "client";
   /** The tool a `tools/call` named. */
   tool?: string;
   /** Why, for a refusal. */
@@ -135,6 +137,9 @@ function asLine(value: unknown): LiveLine | null {
     ...(typeof frame.detail === "string" ? { detail: frame.detail } : {}),
     ...(typeof frame.ok === "boolean" ? { ok: frame.ok } : {}),
     ...(typeof frame.live === "boolean" ? { live: frame.live } : {}),
+    ...(frame.caller === "console" || frame.caller === "client"
+      ? { caller: frame.caller }
+      : {}),
     ...(typeof frame.ms === "number" ? { ms: frame.ms } : {}),
     ...(frame.evidence && typeof frame.evidence === "object"
       ? { evidence: frame.evidence as Record<string, unknown> }

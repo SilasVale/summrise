@@ -34,9 +34,11 @@ function buckets(lines: LiveLine[], now: number): number[] {
 /**
  * The hub's "Now" band: what the AI is doing, as it does it.
  *
- * Everything here is a fact from the console's own audit stream. When nothing has happened the band
- * says so — a pulse that kept beating through an idle night would be the one thing this page must
- * not do, because the whole point is knowing whether the machine is working.
+ * Everything here is a fact from the console's own audit stream. The console's reads are facts in
+ * that same stream, so they are excluded: the band counts the calls a client made, never the
+ * console's own polling. When nothing has happened the band says so — a pulse that kept beating
+ * through an idle night would be the one thing this page must not do, because the whole point is
+ * knowing whether the machine is working.
  */
 export function LiveNow(props: {
   lines: LiveLine[];
@@ -54,11 +56,16 @@ export function LiveNow(props: {
     return () => window.clearInterval(timer);
   }, []);
 
-  const newest = props.lines[0]?.ts_ms ?? 0;
+  // **THE BAND COUNTS THE AI, NOT THE CONSOLE'S OWN POLLING.** The terminal page's ten-second
+  // `terminal.list` and the terminal stream's parked `terminal.read` are lines in the same audit, and
+  // counting them made an idle machine read "Active now · 6 calls in the last minute". A line with
+  // no caller (an old console's, or a snapshot) is not a client's call either, so it is not one here.
+  const calls = props.lines.filter((line) => line.caller === "client");
+  const newest = calls[0]?.ts_ms ?? 0;
   const present = newest > 0 && now - newest < PRESENT_MS;
-  const lastMinute = props.lines.filter((line) => now - line.ts_ms < 60_000).length;
-  const shown = props.lines.slice(0, SHOWN);
-  const counts = buckets(props.lines, now);
+  const lastMinute = calls.filter((line) => now - line.ts_ms < 60_000).length;
+  const shown = calls.slice(0, SHOWN);
+  const counts = buckets(calls, now);
   const peak = Math.max(1, ...counts);
 
   const status =
@@ -97,7 +104,7 @@ export function LiveNow(props: {
         viewBox={`0 0 ${BUCKETS * 4} 32`}
         preserveAspectRatio="none"
         role="img"
-        aria-label={`Calls per ten seconds over the last five minutes; the busiest bucket had ${peak === 1 && counts.every((count) => count === 0) ? 0 : peak}.`}
+        aria-label={`Client calls per ten seconds over the last five minutes; the busiest bucket had ${peak === 1 && counts.every((count) => count === 0) ? 0 : peak}.`}
       >
         {counts.map((count, index) => {
           const height = count === 0 ? 2 : Math.max(3, Math.round((count / peak) * 30));
@@ -118,7 +125,7 @@ export function LiveNow(props: {
       {shown.length === 0 ? (
         <p className="hint live-empty">
           {props.state === "live"
-            ? "No calls yet. When an AI client calls this console, its work appears here."
+            ? "No client calls yet. When an AI client calls this console, its work appears here; the console's own reads are not counted."
             : "The activity stream is not open, so nothing can appear here yet."}
         </p>
       ) : (

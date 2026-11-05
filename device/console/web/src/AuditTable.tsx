@@ -5,6 +5,7 @@ import { auditFailed, filterAudit, type AuditFilter } from "./auditFilter";
 import { auditCsv, auditCsvName } from "./audit-export";
 import { downloadFile } from "./download";
 import { age, shortId } from "./format";
+import { ConsoleCaller } from "./CallerMark";
 
 /**
  * How many lines the page asks the console for. `/audit?limit=` accepts up to 1000 (`MAX_LOG_LIMIT`
@@ -478,7 +479,15 @@ export function AuditTable({
                         <td className="audit-when" title={new Date(line.ts_ms).toISOString()}>
                           {age(line.ts_ms)}
                         </td>
-                        <td title={line.device_id ?? undefined}>{deviceName}</td>
+                        <td title={line.device_id ?? undefined}>
+                          {deviceName}
+                          {line.caller === "console" && (
+                            <>
+                              {" "}
+                              <ConsoleCaller className="audit-caller" />
+                            </>
+                          )}
+                        </td>
                         <td>
                           {line.token_id ? (
                             <span title={line.token_id}>{tokenLabel(line.token_id, tokenNames)}</span>

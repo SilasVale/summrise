@@ -533,4 +533,33 @@ describe("AuditTable", () => {
     expect(auditRows()).toHaveLength(4);
     expect((select as HTMLSelectElement).value).toBe("");
   });
+
+  it("says which rows the console read for itself", () => {
+    // Both rows are in the record; only one of them is the AI's work. The muted word beside the
+    // machine is the whole difference, so a reader never has to guess who made a call.
+    const consoleRead = line({
+      ts_ms: Date.UTC(2026, 9, 26, 8, 0, 30),
+      kind: "mcp",
+      device_id: alpha,
+      tool: "terminal.list",
+      detail: null,
+      status: 200,
+      caller: "console"
+    });
+    const clientCall = line({
+      ts_ms: Date.UTC(2026, 9, 26, 8, 0, 20),
+      kind: "mcp",
+      device_id: alpha,
+      tool: "files.read",
+      detail: null,
+      status: 200,
+      caller: "client"
+    });
+    render(<AuditTable lines={[consoleRead, clientCall]} devices={devices} tokens={[]} />);
+
+    const consoleRow = auditRows().find((row) => row.textContent?.includes("terminal.list"));
+    const clientRow = auditRows().find((row) => row.textContent?.includes("files.read"));
+    expect(consoleRow?.querySelector(".audit-caller")).toHaveTextContent("console");
+    expect(clientRow?.querySelector(".audit-caller")).toBeNull();
+  });
 });

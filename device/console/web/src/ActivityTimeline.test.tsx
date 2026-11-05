@@ -416,6 +416,33 @@ describe("ActivityTimeline", () => {
     expect(screen.getByRole("heading", { name: "Today" })).toBeInTheDocument();
   });
 
+  it("marks the console's own reads, and not a client's call", () => {
+    // The console polls `terminal.list` and parks `terminal.read` on its own behalf. Those rows stay
+    // in the record — they are calls that happened — but a reader must be able to tell them from the
+    // AI's work without opening the evidence.
+    const consoleLine = line({
+      ts_ms: Date.UTC(2026, 10, 5, 9, 2, 0),
+      device_id: alpha,
+      sentence: "Listed the terminal sessions",
+      tool: "terminal.list",
+      caller: "console"
+    });
+    const clientLine = line({
+      ts_ms: Date.UTC(2026, 10, 5, 9, 1, 0),
+      device_id: alpha,
+      sentence: "Read notes.txt",
+      tool: "files.read",
+      caller: "client"
+    });
+    render(<ActivityTimeline lines={[consoleLine, clientLine]} devices={devices} />);
+
+    const rows = Array.from(document.querySelectorAll<HTMLElement>(".timeline-row"));
+    const consoleRow = rows.find((row) => row.textContent?.includes("Listed the terminal sessions"));
+    const clientRow = rows.find((row) => row.textContent?.includes("Read notes.txt"));
+    expect(consoleRow?.querySelector(".timeline-caller")).toHaveTextContent("console");
+    expect(clientRow?.querySelector(".timeline-caller")).toBeNull();
+  });
+
   it("says the window was capped only when it was", () => {
     const { rerender } = render(<ActivityTimeline lines={[fromAlpha]} devices={[]} />);
     expect(screen.queryByText(/showing the newest 1000/i)).toBeNull();

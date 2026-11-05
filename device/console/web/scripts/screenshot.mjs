@@ -449,12 +449,19 @@ const KIND_SENTENCES = {
 };
 
 /** One audit line, newest first in the list below. `kind` is the console's closed set. */
-function auditLine(agoMs, kind, { device, status = 200, tool = null, detail = null, token = null } = {}) {
+function auditLine(
+  agoMs,
+  kind,
+  { device, status = 200, tool = null, detail = null, token = null, caller = null } = {}
+) {
   const line = { ts_ms: NOW - agoMs, kind, status };
   if (device) line.device_id = device;
   if (tool) line.tool = tool;
   if (detail) line.detail = detail;
   if (token) line.token_id = token;
+  // WHO MADE THE CALL. The fixture's proxied rows are a client's; the console's own terminal reads
+  // say so explicitly, and the timeline marks them with its quiet word.
+  if (kind === 'mcp' || caller) line.caller = caller ?? 'client';
   line.sentence =
     (tool && LINE_SENTENCES[tool]) ?? KIND_SENTENCES[kind] ?? (tool ? `Used \`${tool}\`` : 'Listed the tools');
   return line;
@@ -468,6 +475,9 @@ const AUDIT = [
     token: TOKEN.workshop
   }),
   auditLine(2 * MINUTE, 'mcp', { device: DEVICE.workshop, tool: 'terminal.write' }),
+  // The console's own read: the terminal page's ten-second `terminal.list`. It is in the record and
+  // in the timeline, marked "console", and the Now band does not count it as the AI's work.
+  auditLine(4 * MINUTE, 'mcp', { device: DEVICE.workshop, tool: 'terminal.list', caller: 'console' }),
   auditLine(5 * MINUTE, 'mcp', { device: DEVICE.attic, tool: 'files.list', token: TOKEN.fleet }),
   auditLine(8 * MINUTE, 'mcp', { device: DEVICE.attic, tool: 'runs.exec', token: TOKEN.attic }),
   auditLine(13 * MINUTE, 'mcp', {

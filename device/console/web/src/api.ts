@@ -166,6 +166,13 @@ export type AuditLine = {
   ok?: boolean;
   /** Whether this line arrived on the live stream rather than being read back from the audit file. */
   live?: boolean;
+  /**
+   * Who made a call the console proxied: `console` for the operator page's own `/mcp` calls and the
+   * terminal stream's reads, `client` for an AI client on `/mcp/:id` or `/mcp/all`. Absent on an
+   * operator action (a grant, a token, a sign-in) and on every line written before the field —
+   * neither is a client's call.
+   */
+  caller?: "console" | "client";
   /** The evidence for this call, when the live stream carried it. */
   evidence?: Record<string, unknown>;
 };

@@ -3,6 +3,7 @@ import type { AuditLine, Device } from "./api";
 import { capSentence } from "./activityMerge";
 import { auditFailed } from "./auditFilter";
 import { ageAt, shortId } from "./format";
+import { ConsoleCaller } from "./CallerMark";
 
 /**
  * The activity as a record: what happened, when, on which machine.
@@ -305,6 +306,9 @@ function Row(props: {
         <span className="timeline-sentence">{line.sentence ?? line.tool ?? line.kind}</span>
         <span className="timeline-facts">
           {machine && <span className="timeline-machine">{machine}</span>}
+          {/* The console's own calls stay in the record; the quiet word is how a reader tells them
+              from the AI's without opening the evidence. */}
+          {line.caller === "console" && <ConsoleCaller className="timeline-caller" />}
           {typeof line.ms === "number" && line.ms > 0 && (
             <span className="timeline-ms">{line.ms} ms</span>
           )}

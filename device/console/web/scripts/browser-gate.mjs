@@ -102,14 +102,28 @@ const PLUGIN = {
   path: 'C:\\dev\\plugins\\hello',
   last_error: null
 };
+// THE RECORD'S TWO AUDIENCES. The run is an AI client's call, five minutes old; the console's own
+// `terminal.list` read is twenty seconds old. The Now band must stay Quiet with only the latter
+// recent, and both rows stay in the table with the console's marked.
 const AUDIT_LINE = {
-  ts_ms: NOW - 30_000,
+  ts_ms: NOW - 5 * 60_000,
   kind: 'mcp',
   device_id: DEVICE.id,
   token_id: null,
   tool: 'runs.exec',
   detail: 'run r-1 exited 0 in 42 ms',
-  status: 200
+  status: 200,
+  caller: 'client'
+};
+const CONSOLE_LINE = {
+  ts_ms: NOW - 20_000,
+  kind: 'mcp',
+  device_id: DEVICE.id,
+  token_id: null,
+  tool: 'terminal.list',
+  detail: null,
+  status: 200,
+  caller: 'console'
 };
 // The whole registry, not the selected machine's slice: one token for this machine, one for a
 // machine the gate never selects, and one aggregate. The Tokens leg counts the rows against this.
@@ -216,7 +230,8 @@ function apiReply(request, url) {
   }
   if (method === 'GET' && /^\/fleet\/[^/]+\/connections$/.test(pathname)) return json([]);
   if (method === 'GET' && pathname === '/tokens') return json(TOKENS);
-  if (method === 'GET' && pathname === '/audit') return json([AUDIT_LINE]);
+  // Newest first, as the console serves it: the console's own read is the newer row.
+  if (method === 'GET' && pathname === '/audit') return json([CONSOLE_LINE, AUDIT_LINE]);
   if (method === 'GET' && pathname === '/denials') return json([]);
   if (method === 'GET' && pathname === '/tools') return json(TOOL_NAMES.map((name) => ({ name })));
 
@@ -316,7 +331,10 @@ const server = http.createServer((request, response) => {
       'cache-control': 'no-store',
       'x-accel-buffering': 'no'
     });
-    response.write(`event: snapshot\ndata: ${JSON.stringify({ lines: [AUDIT_LINE] })}\n\n`);
+    // Oldest first, as the console serves a snapshot.
+    response.write(
+      `event: snapshot\ndata: ${JSON.stringify({ lines: [AUDIT_LINE, CONSOLE_LINE] })}\n\n`
+    );
     const timer = setInterval(() => response.write(': ping\n\n'), 25_000);
     request.on('close', () => clearInterval(timer));
     return;
@@ -377,6 +395,27 @@ try {
   await page.getByRole('heading', { name: 'Home' }).waitFor({ timeout: 10_000 });
   step('opened gate-workshop; Home states the hub');
 
+  // THE NOW BAND COUNTS THE AI, NOT THE CONSOLE'S OWN READS. The activity stream above serves one
+  // `terminal.list` the console made twenty seconds ago and one client call five minutes ago; a
+  // console read under ninety seconds must not make an idle machine read "Active now".
+  try {
+    await page.waitForFunction(
+      () => document.querySelector('.live-state')?.textContent?.trim() === 'Quiet',
+      null,
+      { timeout: 10_000 }
+    );
+  } catch {
+    const shown = (await page.locator('.live-state').first().textContent().catch(() => ''))?.trim();
+    throw new Error(`the Now band read "${shown}" with only the console's own read recent`);
+  }
+  const rate = (await page.locator('.live-rate').first().textContent())?.trim();
+  if (!rate || !rate.includes('no calls in the last minute')) {
+    throw new Error(`the Now rate counted the console's own read: "${rate}"`);
+  }
+  // And the row is still in the record, marked so a reader can tell it from the AI's calls.
+  await page.locator('.timeline-caller').first().waitFor({ state: 'visible', timeout: 10_000 });
+  step('the Now band stays Quiet, and the console\'s own row is marked in the timeline');
+
   await page.getByRole('button', { name: 'Device' }).click();
   await page.getByRole('heading', { name: 'Terminal', exact: true }).waitFor({ timeout: 10_000 });
   step('opened Device → Terminal with a session-scoped grant');
@@ -403,9 +442,9 @@ try {
   await page.getByRole('heading', { name: 'Activity' }).waitFor({ timeout: 10_000 });
   // Activity opens on the timeline; the audit rows are the table view.
   await page.getByRole('tab', { name: 'Table' }).click();
-  const auditRow = page.locator('.audit-row').first();
+  const auditRow = page.locator('.audit-row').filter({ hasText: 'runs.exec' }).first();
   await auditRow.waitFor({ timeout: 10_000 });
-  step('opened Activity and its Table view; the audit window carries the run');
+  step('opened Activity and its Table view; the run\'s row is the one opened, not the console\'s');
   // The record is disclosed by its own button, so a keyboard reaches it too.
   await auditRow.getByRole('button', { name: /Show the record for/ }).click();
   await page.getByRole('button', { name: 'Open in Runs' }).click();

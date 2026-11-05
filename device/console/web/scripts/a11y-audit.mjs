@@ -270,11 +270,20 @@ function auditLine(agoMs, overrides) {
     status: 200,
     device_id: DEVICE.workshop,
     sentence: 'Used a tool',
+    // A proxied row is a client's call unless it says otherwise; the operator actions below name
+    // no caller at all.
+    caller: 'client',
     ...overrides
   };
 }
 
 const AUDIT = [
+  // The console's own read: in the record and in the timeline, marked with its quiet word.
+  auditLine(30_000, {
+    tool: 'terminal.list',
+    sentence: 'Listed the terminal sessions',
+    caller: 'console'
+  }),
   auditLine(40_000, {
     tool: 'runs.exec',
     detail: 'run r-1 exited 0 in 42 ms',
@@ -310,7 +319,8 @@ const AUDIT = [
     kind: 'grant',
     tool: null,
     detail: 'allow_destructive=false',
-    sentence: 'Issued a grant'
+    sentence: 'Issued a grant',
+    caller: null
   })
 ];
 

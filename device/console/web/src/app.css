@@ -2570,6 +2570,13 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
 }
 .timeline-outcome.is-bad { color: var(--error); }
 .timeline-outcome.is-warn { color: var(--warn); }
+/* The console's own reads are rows like any other; this quiet word is what tells them from the AI's
+   calls. It never takes a status colour: it says who looked, not how the call went. */
+.timeline-caller, .audit-caller {
+  display: inline-block; padding: 0 var(--sp-1); border: 1px solid var(--hairline);
+  border-radius: var(--radius-pill); color: var(--ink-faint);
+  font-size: var(--fs-2xs); font-weight: var(--fw-semi); line-height: 1.5;
+}
 .timeline-chev {
   align-self: center; color: var(--ink-faint); font-size: var(--fs-xs);
   transition: transform 140ms var(--ease);
