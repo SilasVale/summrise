@@ -77,7 +77,7 @@ All six console-only; the last is the deletion. Ranked by how often the friction
    line from the lines already on the page, "last 23:42 yesterday" when there are none, and the
    timeline's outcome word "failed". Gate: a fixture with 2 ok + 1 failed today plus a 20 h-old line.
    **S.**
-2. **Name the token on the newest rows.** A live event carries no `token_id` (`http.rs:455-467,
+2. **Name the token on the newest rows.** *(Done 2026-11-05, b554e00 + 587dca3 + 3dadcfe, live in ux42: a live event carries `token_id`; a row names its token or "signed grant"/"operator session", and Manage opens the Tokens sheet on that row.)* A live event carries no `token_id` (`http.rs:455-467,
    679-710`) and the client drops it from the snapshot (`liveActivity.ts:148-172`), so the newest rows
    read "—" and the record says "operator session" (`AuditTable.tsx:579-581`); the evidence has no
    Token fact. Carry `identity.token_id` through the event and `LiveLine`, show "Token <name>", and a
