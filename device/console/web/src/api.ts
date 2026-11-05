@@ -100,6 +100,12 @@ export type Device = {
   online: boolean;
   version: string | null;
   last_seen_ms: number | null;
+  /**
+   * When the console last saw a frame from this device, in Unix milliseconds. `online` is this
+   * moment inside the presence window, not the existence of a socket. Absent when the console has
+   * seen no frame since it started: a page must not read that as "just now" or as zero.
+   */
+  last_frame_ms?: number | null;
   registered_at_ms?: number | null;
   last_attempt?: { attempts: number; reason: string } | null;
   /**

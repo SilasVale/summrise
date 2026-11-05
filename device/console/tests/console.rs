@@ -1568,8 +1568,7 @@ async fn health_reports_status_device_count_and_uptime_without_auth() {
 async fn health_counts_a_connected_device_as_online() {
     let fixture = Fixture::new("health-online");
     let server = TestServer::start(&fixture.console).await;
-    let (_device_id, _token, _device) =
-        connected_device(&fixture, &server, &signing_key(0x7b)).await;
+    let (_device_id, _token, _device) = present_device(&fixture, &server, &signing_key(0x7b)).await;
 
     let (status, body) = send(fixture.app(), get("/health", None)).await;
     assert_eq!(status, StatusCode::OK);
@@ -1589,8 +1588,7 @@ async fn health_counts_a_connected_device_as_online() {
 async fn health_stops_counting_a_device_whose_channel_closed() {
     let fixture = Fixture::new("health-offline");
     let server = TestServer::start(&fixture.console).await;
-    let (_device_id, _token, device) =
-        connected_device(&fixture, &server, &signing_key(0x7a)).await;
+    let (_device_id, _token, device) = present_device(&fixture, &server, &signing_key(0x7a)).await;
 
     let (_, body) = send(fixture.app(), get("/health", None)).await;
     assert_eq!(body["online"], json!(1), "the channel is open: {body}");
@@ -1613,6 +1611,162 @@ async fn health_stops_counting_a_device_whose_channel_closed() {
         last = body;
     }
     panic!("the dropped channel still counts as online: {last}");
+}
+
+/// **A SOCKET IS NOT PRESENCE.** The live finding (2026-11-05): DESKTOP-14RJCR8 was offline on the
+/// tailnet for 7+ minutes (`tailscale status` said "offline, last seen 7m ago") while `/fleet`
+/// served `"online": true`, because the console asked whether a channel existed instead of whether
+/// the device had said anything on it. A half-open socket to a sleeping machine kept claiming it was
+/// there. This is the same shape with the clock under our hand: a channel that opened and sent no
+/// frame is offline, and the console omits a moment it never observed.
+#[tokio::test]
+async fn a_channel_that_has_sent_no_frame_is_not_online() {
+    let fixture = Fixture::new("presence-no-frame");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, token) = fixture.register(&signing_key(0x61)).await;
+    let session = fixture.authenticate().await;
+    let mut device = open_channel(&server, &device_id, &token)
+        .await
+        .expect("the device channel");
+
+    // The upgrade callback registers the channel asynchronously. Wait for its join boundary rather
+    // than guessing with a sleep: once the line is on disk, the socket exists and only a frame is
+    // missing.
+    wait_until_joined(&fixture, 1).await;
+    let listed = fleet_row(fixture.app(), &session, &device_id).await;
+    assert_eq!(
+        listed["online"],
+        json!(false),
+        "an open socket with no frame is not presence: {listed}"
+    );
+    assert!(
+        listed.get("last_frame_ms").is_none(),
+        "the console has never seen a frame, so it has no moment to serve: {listed}"
+    );
+
+    device
+        .send(WsMessage::Text(
+            json!({ "host": { "machine": "workshop" } }).to_string(),
+        ))
+        .await
+        .expect("the host frame is sent");
+
+    let listed = wait_until_online(fixture.app(), &session, &device_id).await;
+    assert_eq!(
+        listed["last_frame_ms"],
+        json!(START_MS),
+        "the frame is the moment the console saw: {listed}"
+    );
+}
+
+/// **SILENCE IS OFFLINE, AND THE MOMENT IS NOT ROUNDED AWAY.** A device that reported and then
+/// stopped (the sleeping machine behind a half-open TCP connection) keeps its place in the channel
+/// map. The row says offline after the presence window, keeps the exact moment it was last heard,
+/// and does not explain silence as a reconnect: `last_attempt` describes a real reconnect and this
+/// channel never had one.
+#[tokio::test]
+async fn a_silent_channel_is_offline_and_keeps_the_moment_it_was_last_heard() {
+    let fixture = Fixture::new("presence-silent");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        present_device(&fixture, &server, &signing_key(0x62)).await;
+    let session = fixture.authenticate().await;
+
+    let heard = fleet_row(fixture.app(), &session, &device_id).await;
+    assert_eq!(heard["online"], json!(true), "{heard}");
+    let heard_at = heard["last_frame_ms"]
+        .as_u64()
+        .unwrap_or_else(|| panic!("a frame was seen, so the moment is served: {heard}"));
+
+    // Seven minutes is the measured live silence; this test uses 200 s because it is past the
+    // window and on the injected clock, so the numbers are deterministic.
+    fixture.advance_ms(200_000);
+    let listed = fleet_row(fixture.app(), &session, &device_id).await;
+    assert_eq!(
+        listed["online"],
+        json!(false),
+        "a channel silent past the window is offline: {listed}"
+    );
+    assert_eq!(
+        listed["last_frame_ms"],
+        json!(heard_at),
+        "the moment is unchanged, not moved to now: {listed}"
+    );
+    assert!(
+        listed.get("last_attempt").is_none(),
+        "silence is not a reconnect, so the attempt line has nothing to say: {listed}"
+    );
+    assert!(
+        listed.get("last_outage").is_none(),
+        "a silent channel has not closed, so there is no outage: {listed}"
+    );
+
+    let (_, health) = send(fixture.app(), get("/health", None)).await;
+    assert_eq!(health["online"], json!(0), "{health}");
+
+    // A frame on the SAME socket brings it back without a reconnect.
+    device
+        .send(WsMessage::Text(
+            json!({ "host": { "machine": "workshop" } }).to_string(),
+        ))
+        .await
+        .expect("the host frame is sent");
+    let listed = wait_until_online(fixture.app(), &session, &device_id).await;
+    assert_eq!(
+        listed["last_frame_ms"],
+        json!(START_MS + 200_000),
+        "the new frame moves the moment forward: {listed}"
+    );
+}
+
+/// **A REOPENED CHANNEL HAS AN EMPTY PRESENCE CLOCK.** The old socket's frames are not evidence for
+/// the new one: a device can open a channel and go silent before its first report. The console still
+/// remembers when it last heard the device, because that moment happened and is not a claim about
+/// the new socket; `online` alone is decided by frames on the channel that is live now.
+#[tokio::test]
+async fn a_reopened_channel_is_offline_until_it_sends_a_frame() {
+    let fixture = Fixture::new("presence-reopened");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, token, device) = present_device(&fixture, &server, &signing_key(0x63)).await;
+    let session = fixture.authenticate().await;
+    let heard = fleet_row(fixture.app(), &session, &device_id).await;
+    let heard_at = heard["last_frame_ms"]
+        .as_u64()
+        .unwrap_or_else(|| panic!("a frame was seen, so the moment is served: {heard}"));
+
+    drop(device);
+    wait_until_offline(fixture.app(), &session, &device_id).await;
+
+    let mut again = open_channel(&server, &device_id, &token)
+        .await
+        .expect("the device reconnects");
+    wait_until_joined(&fixture, 2).await;
+
+    let listed = fleet_row(fixture.app(), &session, &device_id).await;
+    assert_eq!(
+        listed["online"],
+        json!(false),
+        "the replacement socket has proved nothing yet: {listed}"
+    );
+    assert_eq!(
+        listed["last_frame_ms"],
+        json!(heard_at),
+        "the last frame the console saw is a fact about the past, not about the new socket: {listed}"
+    );
+
+    fixture.advance_ms(1_000);
+    again
+        .send(WsMessage::Text(
+            json!({ "host": { "machine": "workshop" } }).to_string(),
+        ))
+        .await
+        .expect("the host frame is sent");
+    let listed = wait_until_online(fixture.app(), &session, &device_id).await;
+    assert_eq!(
+        listed["last_frame_ms"],
+        json!(START_MS + 1_000),
+        "a frame on the new channel is what makes it online: {listed}"
+    );
 }
 
 /// One device's row from `/fleet`, or a failure that shows the whole answer.
@@ -1640,6 +1794,37 @@ async fn wait_until_offline(app: Router, session: &str, device_id: &str) -> Valu
     panic!("the dropped channel still counts as online");
 }
 
+/// Wait until a frame has been recorded and the row says online.
+async fn wait_until_online(app: Router, session: &str, device_id: &str) -> Value {
+    for _ in 0..100 {
+        let listed = fleet_row(app.clone(), session, device_id).await;
+        if listed["online"] == json!(true) {
+            return listed;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    panic!("the channel never carried a frame");
+}
+
+/// Wait until `joins` `device.joined` boundary lines are on disk.
+///
+/// The upgrade callback registers a socket in a spawned task, so a test that needs "the socket
+/// exists but no frame has arrived" must wait for an observable boundary rather than a sleep. The
+/// line is written by `open`, before the socket is served.
+async fn wait_until_joined(fixture: &Fixture, joins: usize) {
+    for _ in 0..100 {
+        let seen = audit_lines(fixture)
+            .iter()
+            .filter(|line| line["tool"] == json!("device.joined"))
+            .count();
+        if seen >= joins {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    panic!("the channel never wrote its device.joined line");
+}
+
 /// Wait until the reconnect's `device.joined` line is on disk and the row reads it back.
 async fn wait_until_outage(app: Router, session: &str, device_id: &str) -> Value {
     for _ in 0..100 {
@@ -1664,7 +1849,7 @@ async fn wait_until_outage(app: Router, session: &str, device_id: &str) -> Value
 async fn a_reconnect_records_how_long_the_device_was_away() {
     let fixture = Fixture::new("outage-record");
     let server = TestServer::start(&fixture.console).await;
-    let (device_id, token, device) = connected_device(&fixture, &server, &signing_key(0x78)).await;
+    let (device_id, token, device) = present_device(&fixture, &server, &signing_key(0x78)).await;
     let session = fixture.authenticate().await;
 
     let listed = fleet_row(fixture.app(), &session, &device_id).await;
@@ -1728,7 +1913,7 @@ async fn a_reconnect_records_how_long_the_device_was_away() {
 async fn an_absence_outlives_a_console_restart() {
     let fixture = Fixture::new("outage-audit-restart");
     let server = TestServer::start(&fixture.console).await;
-    let (device_id, token, device) = connected_device(&fixture, &server, &signing_key(0x79)).await;
+    let (device_id, token, device) = present_device(&fixture, &server, &signing_key(0x79)).await;
     let session = fixture.authenticate().await;
 
     drop(device);
@@ -2964,6 +3149,10 @@ fn audit_text(fixture: &Fixture) -> String {
 }
 
 /// Open a registered device's channel and wait until the upgrade callback has registered it.
+///
+/// **IT SENDS NO FRAME.** Since `online` means "a frame arrived recently", a socket alone is offline;
+/// tests about answers and replacements want exactly that one variable. Use [`present_device`] when
+/// the scenario depends on presence.
 async fn connected_device(
     fixture: &Fixture,
     server: &TestServer,
@@ -2975,6 +3164,28 @@ async fn connected_device(
         .expect("the device channel");
     // The upgrade callback registers the channel in a spawned task; give it one turn.
     tokio::task::yield_now().await;
+    (device_id, token, device)
+}
+
+/// Open a registered device's channel, send the host frame a real device sends on connect, and wait
+/// until the console calls it online.
+///
+/// The wait reads `/fleet` as an operator, so this helper creates a session; the auth line it writes
+/// is why a test that counts the audit's every line keeps using [`connected_device`] instead.
+async fn present_device(
+    fixture: &Fixture,
+    server: &TestServer,
+    key: &SigningKey,
+) -> (String, String, DeviceSocket) {
+    let (device_id, token, mut device) = connected_device(fixture, server, key).await;
+    device
+        .send(WsMessage::Text(
+            json!({ "host": { "machine": "workshop", "caps": [] } }).to_string(),
+        ))
+        .await
+        .expect("the first host frame is sent");
+    let session = fixture.authenticate().await;
+    wait_until_online(fixture.app(), &session, &device_id).await;
     (device_id, token, device)
 }
 
@@ -5185,7 +5396,7 @@ async fn an_aggregate_token_lists_tools_with_a_required_device() {
     let fixture = Fixture::new("aggregate-list");
     let server = TestServer::start(&fixture.console).await;
     let (device_id, _device_token, mut device) =
-        connected_device(&fixture, &server, &signing_key(0xa7)).await;
+        present_device(&fixture, &server, &signing_key(0xa7)).await;
     let session = fixture.authenticate().await;
     let (_id, token) = aggregate_token_for(&fixture, &session, &[device_id], &["files.read"]).await;
 
@@ -6878,7 +7089,7 @@ async fn the_live_catalogue_reads_the_devices_own_tools_list() {
     let fixture = Fixture::new("live-catalogue");
     let server = TestServer::start(&fixture.console).await;
     let (device_id, _token, mut device) =
-        connected_device(&fixture, &server, &signing_key(0xb6)).await;
+        present_device(&fixture, &server, &signing_key(0xb6)).await;
     let session = fixture.authenticate().await;
 
     let app = fixture.app();
@@ -6959,7 +7170,7 @@ async fn the_live_catalogue_serves_an_empty_device_list_as_200() {
     let fixture = Fixture::new("live-catalogue-empty");
     let server = TestServer::start(&fixture.console).await;
     let (device_id, _token, mut device) =
-        connected_device(&fixture, &server, &signing_key(0xb7)).await;
+        present_device(&fixture, &server, &signing_key(0xb7)).await;
     let session = fixture.authenticate().await;
 
     let app = fixture.app();
@@ -7009,8 +7220,7 @@ async fn the_live_catalogue_is_503_when_the_device_is_offline() {
 async fn the_live_catalogue_is_504_when_the_device_does_not_answer() {
     let fixture = Fixture::with_timeout("live-catalogue-timeout", Duration::from_millis(50));
     let server = TestServer::start(&fixture.console).await;
-    let (device_id, _token, _device) =
-        connected_device(&fixture, &server, &signing_key(0xb9)).await;
+    let (device_id, _token, _device) = present_device(&fixture, &server, &signing_key(0xb9)).await;
     let session = fixture.authenticate().await;
 
     let (status, body) = send(
@@ -7035,7 +7245,7 @@ async fn the_live_catalogue_is_500_when_the_device_answers_malformed() {
     let fixture = Fixture::new("live-catalogue-malformed");
     let server = TestServer::start(&fixture.console).await;
     let (device_id, _token, mut device) =
-        connected_device(&fixture, &server, &signing_key(0xba)).await;
+        present_device(&fixture, &server, &signing_key(0xba)).await;
     let session = fixture.authenticate().await;
 
     let app = fixture.app();
@@ -7062,7 +7272,7 @@ async fn a_token_can_scope_a_plugin_tool_the_device_advertises() {
     let fixture = Fixture::new("plugin-token-online");
     let server = TestServer::start(&fixture.console).await;
     let (device_id, _device_token, mut device) =
-        connected_device(&fixture, &server, &signing_key(0xd0)).await;
+        present_device(&fixture, &server, &signing_key(0xd0)).await;
     let session = fixture.authenticate().await;
 
     let app = fixture.app();
@@ -7174,7 +7384,7 @@ async fn a_plugin_tool_the_device_does_not_advertise_is_refused() {
     let fixture = Fixture::new("plugin-token-unknown");
     let server = TestServer::start(&fixture.console).await;
     let (device_id, _token, mut device) =
-        connected_device(&fixture, &server, &signing_key(0xd2)).await;
+        present_device(&fixture, &server, &signing_key(0xd2)).await;
     let session = fixture.authenticate().await;
 
     let app = fixture.app();

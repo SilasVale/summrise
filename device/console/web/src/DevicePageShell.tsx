@@ -57,7 +57,7 @@ export function DevicePageShell({
           own notice; rendering this one there too would stack two copies of the same sentence. */}
       {chosen && !chosen.online && tab !== "terminal" && (
         <OfflineNotice
-          lastSeenMs={chosen.last_seen_ms}
+          lastSeenMs={chosen.last_frame_ms}
           detail="Nothing on this page can reach it until it reconnects; the console keeps trying on its own."
         />
       )}

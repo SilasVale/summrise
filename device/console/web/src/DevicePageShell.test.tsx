@@ -9,7 +9,10 @@ const MACHINE: Device = {
   name: "workshop",
   online: false,
   version: "0.3.42",
-  last_seen_ms: Date.now() - 60_000
+  // The channel opened three hours ago; the last FRAME was seven minutes ago. The notice must say
+  // the frame's moment, not the socket's.
+  last_seen_ms: Date.now() - 3 * 3600_000,
+  last_frame_ms: Date.now() - 7 * 60_000
 };
 
 function renderShell(tab: DeviceTab, device: Device = MACHINE) {
@@ -32,6 +35,11 @@ describe("DevicePageShell offline notice", () => {
     renderShell("files");
     expect(screen.getByRole("status")).toHaveTextContent("This machine is offline.");
     expect(screen.getByRole("status")).toHaveTextContent(/nothing on this page can reach it/i);
+  });
+
+  it("says when the machine was last heard, from its last frame", () => {
+    renderShell("files");
+    expect(screen.getByRole("status")).toHaveTextContent(/last seen 7m ago/i);
   });
 
   it("carries the one notice on Tools too, above both of its sections", () => {

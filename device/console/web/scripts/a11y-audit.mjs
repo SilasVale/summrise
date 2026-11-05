@@ -155,6 +155,7 @@ const DEVICES = [
     online: true,
     version: '0.3.42',
     last_seen_ms: NOW - 12_000,
+    last_frame_ms: NOW - 12_000,
     registered_at_ms: NOW - 41 * 24 * HOUR,
     last_attempt: null,
     host: {
@@ -175,6 +176,7 @@ const DEVICES = [
     online: true,
     version: '0.3.42',
     last_seen_ms: NOW - 38_000,
+    last_frame_ms: NOW - 38_000,
     registered_at_ms: NOW - 12 * 24 * HOUR,
     last_attempt: null,
     host: {
@@ -195,6 +197,7 @@ const DEVICES = [
     online: false,
     version: '0.3.30',
     last_seen_ms: NOW - 3 * HOUR,
+    last_frame_ms: NOW - 3 * HOUR,
     registered_at_ms: NOW - 80 * 24 * HOUR,
     last_attempt: null,
     host: null

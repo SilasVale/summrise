@@ -38,7 +38,10 @@ pub struct Device {
     pub name: Option<String>,
     /// When the device first registered, in Unix milliseconds.
     pub registered_at_ms: u64,
-    /// When the console last heard from the device, in Unix milliseconds.
+    /// When the console last accepted this device's channel, in Unix milliseconds.
+    ///
+    /// A channel opening is not a frame. Presence (`/fleet`'s `online`) and the moment the page
+    /// calls "seen" come from the live channel's last frame, not from this persisted connect time.
     pub last_seen_ms: u64,
     /// The last version the device announced on its channel, remembered across console restarts.
     ///

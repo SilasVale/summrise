@@ -7,7 +7,8 @@ export type Device = {
   name: string | null;
   online: boolean;
   version: string | null;
-  last_seen_ms: number | null;
+  /** When the console last saw a frame, or absent when it has seen none since it started. */
+  last_frame_ms?: number | null;
   last_attempt?: LastAttempt | null;
   host?: HostFacts | null;
 };
@@ -28,9 +29,22 @@ type Props = {
  */
 export function DeviceCard({ device, selected, onSelect, onRename, onRemove, onDiagnostics }: Props) {
   const label = device.name ?? shortId(device.id);
+  // **THE AGE IS THE LAST FRAME.** `online` is that same moment inside the console's presence
+  // window, so the row states one fact instead of two: a socket that exists but has gone silent is
+  // offline, and the age says when the console last heard it rather than when it last connected.
+  const heard = device.last_frame_ms ?? null;
+  const state =
+    heard === null
+      ? device.online
+        ? "online"
+        : "offline"
+      : `${device.online ? "online" : "offline"} · ${
+          device.online ? "seen" : "last seen"
+        } ${age(heard)}`;
   // The count and the device's own reason on one muted line. The reason is the diagnosis: a proxy's
   // 502 and a channel the console dropped are different faults, and the row must not read them as
-  // the same healthy reconnect. A device that has not reconnected says nothing.
+  // the same healthy reconnect. A device that has not reconnected says nothing — and a silent
+  // channel is not a reconnect, so an open-then-quiet device gets no attempt line at all.
   const attempt = device.online ? device.last_attempt : null;
   const count = attempt && attempt.attempts > 0 ? attemptCount(attempt.attempts) : null;
   const reason = attemptReason(attempt);
@@ -41,8 +55,7 @@ export function DeviceCard({ device, selected, onSelect, onRename, onRemove, onD
         <span className={"dot " + (device.online ? "dot-ok" : "dot-off")} aria-hidden="true" />
         <span className="fleet-name">{label}</span>
         <span className={"fleet-state" + (device.online ? " ok" : "")}>
-          {device.online ? "online" : "offline"} ·{" "}
-          {device.online ? `seen ${age(device.last_seen_ms)}` : `last seen ${age(device.last_seen_ms)}`}
+          {state}
         </span>
         {device.version && <span className="fleet-build mono">v{device.version}</span>}
         <span className="fleet-chevron" aria-hidden="true">›</span>

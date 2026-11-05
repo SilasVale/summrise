@@ -75,7 +75,8 @@ const DEVICE = {
   name: 'gate-workshop',
   online: true,
   version: '0.3.42',
-  last_seen_ms: NOW
+  last_seen_ms: NOW,
+  last_frame_ms: NOW - 12_000
 };
 const RUN = {
   id: 'r-1',

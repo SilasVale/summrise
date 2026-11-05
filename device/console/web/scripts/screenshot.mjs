@@ -248,6 +248,7 @@ const DEVICES = [
     online: true,
     version: '0.3.42',
     last_seen_ms: NOW - 12_000,
+    last_frame_ms: NOW - 12_000,
     registered_at_ms: NOW - 41 * DAY,
     last_attempt: { attempts: 2, reason: 'connection reset by peer' },
     host: {
@@ -286,6 +287,7 @@ const DEVICES = [
     online: true,
     version: '0.3.42',
     last_seen_ms: NOW - 38_000,
+    last_frame_ms: NOW - 38_000,
     registered_at_ms: NOW - 12 * DAY,
     last_attempt: null,
     host: {
@@ -312,6 +314,7 @@ const DEVICES = [
     online: false,
     version: '0.3.30',
     last_seen_ms: NOW - 3 * HOUR - 21 * MINUTE,
+    last_frame_ms: NOW - 3 * HOUR - 21 * MINUTE,
     registered_at_ms: NOW - 80 * DAY,
     last_attempt: { attempts: 5, reason: 'timed out waiting for the channel hello' },
     host: {
@@ -343,6 +346,7 @@ const DEVICES = [
     online: true,
     version: '0.3.42',
     last_seen_ms: NOW - 8_000,
+    last_frame_ms: NOW - 8_000,
     registered_at_ms: NOW - 60 * DAY,
     host: {
       os: { name: 'Windows 11 Pro', version: '10.0.26100', arch: 'x86_64' },
@@ -359,6 +363,7 @@ const DEVICES = [
     online: true,
     version: '0.3.18',
     last_seen_ms: NOW - 26_000,
+    last_frame_ms: NOW - 26_000,
     registered_at_ms: NOW - 120 * DAY,
     host: {
       os: { name: 'Windows 11 Pro', version: '10.0.22631', arch: 'x86_64' },

@@ -111,6 +111,19 @@ All six console-only; the last is the deletion. Ranked by how often the friction
    write `device.left` / `device.joined` lines to the audit on channel close/open, and derive the
    absence from the audit so a console restart cannot erase it. **S/M.**
 
+2. **A socket is not presence.** *(Done 2026-11-05: `online` is a frame within `PRESENCE_WINDOW` =
+   150 s = 2.5 × the device's 60 s report; `/fleet` serves `last_frame_ms` only when a frame was seen;
+   a silent channel reads offline and its row shows no reconnect line; a reopened channel starts with
+   no frame.)* DESKTOP-14RJCR8 was offline on the tailnet for 7+ minutes (`tailscale status`:
+   `offline, last seen 7m ago`) while `/fleet` still served `"online": true`. The console asked
+   whether a channel socket existed, so a half-open TCP connection to a sleeping machine kept
+   answering yes. The device already sends a host frame every 60 s, so presence is that frame's
+   recency: 150 s is two and a half reports — one missed report is not an outage, and a sleeping
+   machine stops claiming presence after 02:30. A channel silent past the window serves
+   `online: false` with the exact `last_frame_ms`, or omits the key when the console has never seen a
+   frame; the page's "seen 7m ago" reads the same moment, and the row does not explain silence as
+   "reconnected after N attempts", which requires a real reconnect. **S.**
+
 ## P1 — the console stops feeling like a configuration tool
 
 5. **Activity filters become chips.** Machine chips and a search field; the time-range select, the

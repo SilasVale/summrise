@@ -9,7 +9,8 @@ const device: Device = {
   name: "workshop",
   online: true,
   version: "0.3.42",
-  last_seen_ms: Date.now() - 15_000,
+  // The row's age is the last FRAME: `last_frame_ms` is the one moment it reads.
+  last_frame_ms: Date.now() - 15_000,
   host: {
     os: { name: "Windows", version: "11" },
     uptime_s: 90_061,
@@ -93,10 +94,37 @@ describe("DeviceCard — one row on the fleet", () => {
     expect(container.querySelector(".fleet-attempt")).toBeNull();
   });
 
-  it("says offline in words, with when it was last seen", () => {
-    draw({ online: false, last_seen_ms: Date.now() - 3 * 3600_000, version: null, host: null });
+  it("says offline in words, with when it was last heard", () => {
+    draw({
+      online: false,
+      last_frame_ms: Date.now() - 3 * 3600_000,
+      version: null,
+      host: null
+    });
 
     expect(screen.getByText(/offline · last seen 3h ago/)).toBeInTheDocument();
+  });
+
+  it("calls a silent channel offline without inventing a reconnect", () => {
+    // The live finding: the socket is still open, the frames stopped seven minutes ago. The row says
+    // offline because presence is a frame, and the attempt line is silent because nothing reconnected.
+    const { container } = draw({
+      online: false,
+      last_frame_ms: Date.now() - 7 * 60_000,
+      last_attempt: { attempts: 3, reason: "the console accepted the channel and then dropped it" }
+    });
+
+    expect(screen.getByText(/offline · last seen 7m ago/)).toBeInTheDocument();
+    expect(container.querySelector(".fleet-attempt")).toBeNull();
+    expect(screen.queryByText(/Reconnected after/)).not.toBeInTheDocument();
+  });
+
+  it("does not say when a device the console never heard was last seen", () => {
+    draw({ online: false, last_frame_ms: null, version: null });
+
+    expect(screen.getByText("offline")).toBeInTheDocument();
+    expect(screen.queryByText(/last seen/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/never/)).not.toBeInTheDocument();
   });
 
   it("opens the machine from the whole main row", () => {

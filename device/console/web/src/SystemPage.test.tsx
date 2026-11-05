@@ -55,7 +55,7 @@ describe("SystemPage", () => {
     render(
       <SystemPage
         grant={GRANT}
-        device={{ id: "device-1", name: "workshop", online: true, version: "0.3.1", last_seen_ms: 1 }}
+        device={{ id: "device-1", name: "workshop", online: true, version: "0.3.1", last_frame_ms: 1 }}
       />
     );
 

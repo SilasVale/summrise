@@ -3921,6 +3921,7 @@ async fn rename_device(
             reason: note.reason,
         }),
         last_outage: outage_view(outages.get(&device.id).copied()),
+        last_frame_ms: app.channels.last_frame(&device.id),
         id: device.id,
         public_key: device.public_key,
         registered_at_ms: device.registered_at_ms,
@@ -4229,6 +4230,7 @@ async fn device_views(app: &AppState) -> Vec<DeviceView> {
                 reason: note.reason,
             }),
             last_outage: outage_view(outages.get(&device.id).copied()),
+            last_frame_ms: app.channels.last_frame(&device.id),
             // A name given at registration wins; the machine's own name is a fallback for the
             // devices that never gave one, which is all of them so far.
             name: device.name.or_else(|| app.channels.name(&device.id)),
@@ -4259,7 +4261,13 @@ struct DeviceView {
     name: Option<String>,
     registered_at_ms: u64,
     last_seen_ms: u64,
-    /// Whether a channel is open right now.
+    /// When the console last saw any frame from this device, in Unix milliseconds. `online` is this
+    /// moment inside the presence window; a channel that exists but has been silent past it is
+    /// offline. Omitted when the console has seen no frame since it started: a device it never heard
+    /// has no moment to serve, and a zero or a socket's open time would be an invented one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    last_frame_ms: Option<u64>,
+    /// Whether a frame arrived on a live channel inside the presence window.
     online: bool,
     /// The version the device announced on its channel, when it announced one.
     #[serde(skip_serializing_if = "Option::is_none")]

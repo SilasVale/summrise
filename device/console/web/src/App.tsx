@@ -555,7 +555,7 @@ export function App() {
     const lines = [
       "Summrise device diagnostics (from the console)",
       `device: ${device.name ?? "(unnamed)"} (${device.id})`,
-      `online: ${device.online ? "yes" : "no"}  version: ${device.version ?? "unknown"}  last seen: ${device.last_seen_ms ? new Date(device.last_seen_ms).toISOString() : "never"}`,
+      `online: ${device.online ? "yes" : "no"}  version: ${device.version ?? "unknown"}  last seen: ${device.last_frame_ms != null ? new Date(device.last_frame_ms).toISOString() : "never"}`,
       device.last_attempt && device.last_attempt.attempts > 0
         ? `console link: ${retrySentence(device.last_attempt.attempts, device.last_attempt.reason)}`
         : "console link: no failure reported since it last connected",
@@ -1025,7 +1025,7 @@ export function App() {
                 grant={grant}
                 visible={page === "device" && tab === "terminal"}
                 deviceOnline={chosen.online}
-                lastSeenMs={chosen.last_seen_ms}
+                lastSeenMs={chosen.last_frame_ms}
                 deviceName={chosen.name ?? shortId(chosen.id)}
                 liveLines={live.lines}
                 onGrantRefused={() => setGrantStale(true)}

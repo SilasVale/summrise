@@ -76,6 +76,22 @@ pub(crate) struct TokenScope {
     pub(crate) expires_at_ms: Option<u64>,
 }
 
+/// How often a connected device reports on its channel.
+///
+/// The device's side is `device/device/src/console.rs`: it sends one host frame every 60 s, and the
+/// first tick fires as the socket opens. The console keeps its own copy of that promise instead of
+/// reading a value across the wire, so a device build cannot shorten the window it is judged by.
+pub(crate) const DEVICE_REPORT_INTERVAL: Duration = Duration::from_secs(60);
+
+/// How recently a frame must have arrived for a channel to count as online.
+///
+/// 150 s is **2.5 × the device's 60 s report**: two missed reports fit inside it, so one slow report
+/// is not an outage, while a machine that has gone to sleep behind a half-open TCP connection stops
+/// claiming presence after two and a half minutes. This is the whole of `online`: a socket that
+/// exists but has been silent past this window is offline.
+pub(crate) const PRESENCE_WINDOW: Duration =
+    Duration::from_secs(DEVICE_REPORT_INTERVAL.as_secs() * 5 / 2);
+
 /// How long a request waits for a channel to exist before it is refused as retryable.
 pub(crate) const RECONNECT_WAIT: Duration = Duration::from_secs(2);
 
@@ -144,6 +160,11 @@ struct Live {
     generation: u64,
     outbound: mpsc::Sender<Outbound>,
     pending: Pending,
+    /// When a frame last arrived on THIS socket, or `None` until one does.
+    ///
+    /// The clock belongs to the channel, not the device: a replacement starts empty, because the
+    /// old socket's last frame is not evidence that the new one is alive.
+    last_frame_ms: Option<u64>,
 }
 
 /// The requests waiting for an answer, keyed by the envelope id.
@@ -170,6 +191,12 @@ pub(crate) struct ChannelRegistry {
     next_request: AtomicU64,
     next_generation: AtomicU64,
     live: Mutex<HashMap<String, Live>>,
+    /// The moment the console last saw any frame from each device, since it started.
+    ///
+    /// This outlives a channel: closing the socket must not erase when the device was last heard.
+    /// It is a record, not a presence claim — [`online`](Self::online) asks the live channel, so a
+    /// reopened channel that has sent nothing still reads offline even while this moment is recent.
+    last_frames: Mutex<HashMap<String, u64>>,
     /// Requests in flight per device, including the wait for a channel.
     in_flight: Mutex<HashMap<String, usize>>,
     /// The deepest the outbound queues have ever been, for the operator's health route.
@@ -225,6 +252,7 @@ impl ChannelRegistry {
             next_request: AtomicU64::new(0),
             next_generation: AtomicU64::new(0),
             live: Mutex::new(HashMap::new()),
+            last_frames: Mutex::new(HashMap::new()),
             in_flight: Mutex::new(HashMap::new()),
             peak_queued: AtomicUsize::new(0),
             versions: Mutex::new(HashMap::new()),
@@ -327,9 +355,49 @@ impl ChannelRegistry {
             .is_some_and(|caps| caps.iter().any(|name| name == cap))
     }
 
-    /// Whether a channel is open right now.
+    /// Whether a frame arrived on the live channel within [`PRESENCE_WINDOW`].
+    ///
+    /// **A SOCKET IS A CONNECTION, NOT PRESENCE.** The console used to answer this by asking whether
+    /// a channel existed, so a half-open TCP connection to a sleeping machine kept claiming it was
+    /// there (measured on DESKTOP-14RJCR8, offline on the tailnet for 7+ minutes while `/fleet`
+    /// served `"online": true`). The device reports every [`DEVICE_REPORT_INTERVAL`], so a channel
+    /// that has sent nothing for 2.5 reports is offline even though its socket still exists.
     pub(crate) fn online(&self, device_id: &str) -> bool {
-        lock(&self.live).contains_key(device_id)
+        let now = (self.now)();
+        let window_ms = PRESENCE_WINDOW.as_millis() as u64;
+        lock(&self.live).get(device_id).is_some_and(|channel| {
+            channel
+                .last_frame_ms
+                .is_some_and(|at| now.saturating_sub(at) <= window_ms)
+        })
+    }
+
+    /// When the console last saw a frame from this device, or `None` when it has seen none since it
+    /// started.
+    ///
+    /// This is the moment `/fleet` serves as `last_frame_ms`, and the page's "seen 7m ago" reads it.
+    /// A device the console never heard has no moment, so the key is omitted rather than defaulted
+    /// to zero or to the time the socket opened.
+    pub(crate) fn last_frame(&self, device_id: &str) -> Option<u64> {
+        lock(&self.last_frames).get(device_id).copied()
+    }
+
+    /// Note that a frame arrived on the channel `generation` opened.
+    ///
+    /// Any frame counts — a host report, an answer, a ping — because presence is transport-level:
+    /// the device spoke, whatever it said. The generation is the guard: a replaced socket can still
+    /// deliver a frame while it closes, and that frame must not prove the replacement alive.
+    fn record_frame(&self, device_id: &str, generation: u64) {
+        let at = (self.now)();
+        let mut live = lock(&self.live);
+        let Some(channel) = live.get_mut(device_id) else {
+            return;
+        };
+        if channel.generation != generation {
+            return;
+        }
+        channel.last_frame_ms = Some(at);
+        lock(&self.last_frames).insert(device_id.to_owned(), at);
     }
 
     /// Serve one upgraded socket until it closes or is replaced.
@@ -372,13 +440,18 @@ impl ChannelRegistry {
                     None => break,
                 },
                 incoming = socket.recv() => match incoming {
-                    Some(Ok(Message::Text(text))) => {
-                        if let Some(facts) = deliver(&open.pending, &self.streams, &text) {
-                            self.announce_host(&device_id, facts);
+                    Some(Ok(message)) => {
+                        // Every inbound frame is evidence the device is there: the host report, an
+                        // answer, a ping. Record it before the content is parsed, so a malformed
+                        // frame still proves the socket is alive.
+                        self.record_frame(&device_id, open.generation);
+                        if let Message::Text(text) = message {
+                            if let Some(facts) = deliver(&open.pending, &self.streams, &text) {
+                                self.announce_host(&device_id, facts);
+                            }
                         }
                     }
                     Some(Err(_)) | None => break,
-                    _ => {}
                 },
             }
         }
@@ -585,6 +658,9 @@ impl ChannelRegistry {
         }
         lock(&self.versions).remove(device_id);
         lock(&self.names).remove(device_id);
+        // A removed device's last-seen moment belonged to a registration that no longer exists; a
+        // later registration under the same key must not inherit it.
+        lock(&self.last_frames).remove(device_id);
     }
 
     /// Wait for a live channel and claim a waiter slot on it, or `None` when the bound expires.
@@ -645,6 +721,7 @@ impl ChannelRegistry {
                     generation,
                     outbound,
                     pending: pending.clone(),
+                    last_frame_ms: None,
                 },
             )
         };
@@ -901,6 +978,101 @@ mod tests {
         "ab".repeat(32)
     }
 
+    /// A registry whose clock the test moves by hand, so presence is a number rather than a sleep.
+    fn registry_with_clock(start_ms: u64) -> (ChannelRegistry, Arc<AtomicU64>) {
+        let clock = Arc::new(AtomicU64::new(start_ms));
+        let reader = clock.clone();
+        let mut registry = ChannelRegistry::new();
+        registry.now = Arc::new(move || reader.load(Ordering::Relaxed));
+        (registry, clock)
+    }
+
+    /// The unit-level truth the fleet row reads: a socket alone is not an observation.
+    #[tokio::test]
+    async fn a_socket_alone_is_not_presence() {
+        let (registry, _clock) = registry_with_clock(1_000_000);
+        let id = device_id();
+        let _open = registry.open(&id).await;
+
+        assert!(!registry.online(&id), "an open channel is not a frame");
+        assert_eq!(
+            registry.last_frame(&id),
+            None,
+            "the console has seen nothing, so it has no moment to serve"
+        );
+    }
+
+    /// A frame ten seconds ago is inside the window, and the moment it arrived is what `/fleet`
+    /// would serve.
+    #[tokio::test]
+    async fn a_frame_ten_seconds_ago_is_online() {
+        let (registry, clock) = registry_with_clock(1_000_000);
+        let id = device_id();
+        let open = registry.open(&id).await;
+        registry.record_frame(&id, open.generation);
+
+        clock.fetch_add(10_000, Ordering::Relaxed);
+        assert!(
+            registry.online(&id),
+            "10 s is inside the {PRESENCE_WINDOW:?} window"
+        );
+        assert_eq!(registry.last_frame(&id), Some(1_000_000));
+    }
+
+    /// Past the window the channel is offline, and the moment is left where it was rather than
+    /// moved to now: the console saw the frame then, not later.
+    #[tokio::test]
+    async fn a_channel_silent_for_two_hundred_seconds_is_offline_with_the_same_moment() {
+        let (registry, clock) = registry_with_clock(1_000_000);
+        let id = device_id();
+        let open = registry.open(&id).await;
+        registry.record_frame(&id, open.generation);
+
+        clock.fetch_add(200_000, Ordering::Relaxed);
+        assert!(!registry.online(&id), "200 s is past the window");
+        assert_eq!(
+            registry.last_frame(&id),
+            Some(1_000_000),
+            "the last moment is unchanged"
+        );
+    }
+
+    /// A replacement starts with an empty presence clock: the old socket's frame is not evidence
+    /// that the new one is alive. The console's last-seen moment survives the close, because it
+    /// happened.
+    #[tokio::test]
+    async fn a_reopened_channel_has_no_presence_until_a_frame() {
+        let (registry, _clock) = registry_with_clock(1_000_000);
+        let id = device_id();
+        let first = registry.open(&id).await;
+        registry.record_frame(&id, first.generation);
+        assert!(registry.online(&id));
+
+        let second = registry.open(&id).await;
+        assert!(
+            !registry.online(&id),
+            "the new channel has received no frame yet"
+        );
+        assert_eq!(
+            registry.last_frame(&id),
+            Some(1_000_000),
+            "the moment the console saw is a fact about the past"
+        );
+        // A frame from the replaced socket must not count for the replacement either.
+        registry.record_frame(&id, first.generation);
+        assert!(!registry.online(&id), "a stale generation is not presence");
+
+        registry.record_frame(&id, second.generation);
+        assert!(registry.online(&id), "the new channel's own frame is");
+    }
+
+    /// The window is derived from the device's report cadence rather than chosen independently.
+    #[test]
+    fn the_presence_window_is_two_and_a_half_host_reports() {
+        assert_eq!(PRESENCE_WINDOW, DEVICE_REPORT_INTERVAL * 5 / 2);
+        assert_eq!(PRESENCE_WINDOW, Duration::from_secs(150));
+    }
+
     /// What the operator's device list reads: a channel that is open now, and what the device said
     /// about itself on the way in.
     #[tokio::test]
@@ -918,8 +1090,16 @@ mod tests {
             Some("desktop-9vh92bj")
         );
 
-        let _open = registry.open(&device_id()).await;
-        assert!(registry.online(&device_id()), "the channel is open");
+        let open = registry.open(&device_id()).await;
+        assert!(
+            !registry.online(&device_id()),
+            "a channel that has sent no frame is not presence"
+        );
+        registry.record_frame(&device_id(), open.generation);
+        assert!(
+            registry.online(&device_id()),
+            "the frame is what makes it online"
+        );
     }
 
     #[test]
