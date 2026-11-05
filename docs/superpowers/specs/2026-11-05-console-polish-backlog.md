@@ -103,7 +103,7 @@ All six console-only; the last is the deletion. Ranked by how often the friction
 
 ## P0 — the fourth list (opened 2026-11-05, from the live fleet)
 
-1. **An absence the console did not witness is forgotten.** DESKTOP-CPH4KB2 was away ~5 h
+1. **An absence the console did not witness is forgotten.** *(Done 2026-11-05, 8449fc8: `device.joined`/`device.left` lines in the audit; `/fleet` derives the absence from the newest 2,000 lines, so the CPH case now serves away_ms 10,298,000 instead of null; omitted when no pair exists.)* DESKTOP-CPH4KB2 was away ~5 h
    (last frame 03:58:22, back 06:50) and `/fleet` serves `last_outage: None`, because the record is
    memory-only and the console restarted at 06:47 — the close was never seen by the new process, so
    the open had nothing to subtract. The machine's own `last_attempt` says `7 attempts — the console
