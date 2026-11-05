@@ -193,8 +193,8 @@ function todayLine(lines: readonly AuditLine[], now = Date.now()): string {
       (latest, line) => (latest === null || line.ts_ms > latest.ts_ms ? line : latest),
       null
     );
-    if (newest === null) return "Today none";
-    return `Today none · last ${shortClock(newest.ts_ms)}${dayWord(newest.ts_ms, now)}`;
+    if (newest === null) return "Today no client calls";
+    return `Today no client calls · last ${shortClock(newest.ts_ms)}${dayWord(newest.ts_ms, now)}`;
   }
   const newest = today.reduce((latest, line) => Math.max(latest, line.ts_ms), 0);
   const failed = today.filter(auditFailed).length;

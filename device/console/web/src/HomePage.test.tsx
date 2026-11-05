@@ -383,7 +383,7 @@ describe("Home — the hub", () => {
       });
 
       expect(
-        await screen.findByText("Today none · last 12:00 yesterday")
+        await screen.findByText("Today no client calls · last 12:00 yesterday")
       ).toBeInTheDocument();
     } finally {
       clock.mockRestore();
@@ -393,7 +393,7 @@ describe("Home — the hub", () => {
   it("says today is none when the window holds no lines at all", async () => {
     draw({ audit: [], liveLines: [] });
 
-    expect(await screen.findByText("Today none")).toBeInTheDocument();
+    expect(await screen.findByText("Today no client calls")).toBeInTheDocument();
   });
 
   it("does not count the console's own calls in the day's line", async () => {
