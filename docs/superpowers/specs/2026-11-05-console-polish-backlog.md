@@ -171,3 +171,79 @@ is a new feature with a real holding mechanism — not a page to restore.
   navigation.
 - **Decision events.** The console sees actions; the AI's reasoning is the client's to publish.
 - **The cube.** A renderer for a page that does not exist yet; revisit after P0.
+
+## P0 — the third list (audited 2026-11-05, live 0.3.273-ux43)
+
+Measured on `https://console.saisi.online` with Playwright at 1440×960 and 390×844, 05:00–05:20
+UTC. `/health` read `{"devices":3,"online":3,...,"version":"0.3.273-ux43"}` and `/session`
+answered through the proxy. Every number below is from the page or its own `/audit?limit=1000`
+read; nothing here is a suspicion, and the two lists above are not re-opened.
+
+1. **The day count drops the calls its own token proves.** Of the 1000-line window, 30 rows say
+   `caller: "console"`, 62 say `"client"`, and **908 say nothing**; **376 rows carry a `token_id`**
+   and **0 of the 30 console rows do**. Of the 908, 314 carry a token (client calls) and 594 carry
+   neither (unattributed). Today `DESKTOP-14RJCR8`'s window has **940 rows and 363 client calls**
+   (62 marked plus 301 token-only), but its hub reads **"Today 62 client calls · last 04:43"** —
+   **5.9× low; 301 calls (82.9%) missing**. **Cost:** the one number the operator reads in the
+   morning is wrong on the machine that worked, and 594 rows cannot be read as the AI's or the
+   console's. **Fix:** a `token_id` is the client proof, absence of both caller and token is
+   "unattributed", used by the day line, the row mark and the Activity filter; no new server field.
+   **M.**
+
+2. **The machine's day is 51,620 px and its capability line is at the bottom.** On
+   `DESKTOP-14RJCR8` at 1440 the hub draws **935 rows** (one day) in a **51,620 px** `main`, and
+   "46 tools · 11 capabilities · 0 plugins" sits at **51,599** — 56 screens down; at 390 it is 936
+   rows, 51,684 px, the counts line at 51,669. Even the quiet `DESKTOP-9VH92BJ` spends 4,433 px on
+   64 console rows at 390. **Cost:** the answer to "what can this machine do now" costs a 50k px
+   scroll; the day cannot be scanned. **Fix:** move the counts line into the header and cap the
+   hub's timeline (newest ~100, "All activity" for the rest). **M.**
+
+3. **The run form is 2,940 px below the Tools tab.** Tools is **3,848 px** tall in a 908 px
+   viewport; "Run a command on this machine" starts at **3,773** and the only path is past the
+   46-tool catalogue (at 390: 4,070 px, 739 px viewport, 3,331 px of scroll). `runs.exec` is 139 of
+   the 1000 lines. **Cost:** two clicks and three screens for the most-used write; Runs, the
+   history, has no run control. **Fix:** put the form at the top of Tools, above the catalogue. **S.**
+
+4. **The cap sentence disappears at exactly 1000.** `/audit?limit=1000` returns **1000** lines; the
+   page draws **997** (the merge drops 3 duplicates), sets `capped` false, and neither view says
+   "Showing the newest 1000 lines; older ones are not on this page." The oldest row is 16:18
+   yesterday. **Cost:** a 997-row slice reads as the whole record; the lines behind the server's cap
+   are silently gone. **Fix:** set `capped` from the fetched window's length (`>= ACTIVITY_LIMIT`),
+   not from the merged list. **S.**
+
+5. **The biggest stretch is 470 rows and its summary arrives after them.** Activity draws **997
+   rows** and **64** stretch labels (05:12); **28 say "1 call"** and one says "2 calls · 0 s". The
+   largest is **"470 calls · 51 m 30 s"**: 470 rows, 25,850 px, 46% of the 56,143 px timeline, and
+   **360 of the 470 are "Read a terminal's output"**; the label is drawn after the 470 rows.
+   **Cost:** the only summary of half the page cannot be used to skip the work it describes, and 28
+   labels mark a single row. **Fix:** draw the summary at the top of the stretch, name the dominant
+   tool, and fold a stretch above 50 rows from its label. **M.**
+
+6. **The fleet row counts the attempts and hides the reason.** Two of the three rows read
+   **"Reconnected after 3 attempts"** (`DESKTOP-9VH92BJ`) and **"Reconnected after 4 attempts"**
+   (`DESKTOP-CPH4KB2`); the fleet read's `last_attempt.reason` is **"HTTP error: 502 Bad Gateway"**
+   and **"the console accepted the channel and then dropped it"**, and neither string is on the
+   page. **Cost:** a proxy 502 and a channel drop read as the same healthy reconnect; the operator
+   cannot tell whether to look at the edge or the machine. **Fix:** append the reason to the muted
+   line when the fleet carries one. **S.**
+
+7. **Activity has no day count and no way to narrow to the AI.** It draws **997 rows (980 today)** —
+   363 client-proven, 30 console-marked, 587 unattributed, and 12 failed (the 12 are in the
+   unattributed set; the 62 marked client calls are all 200) — and its header says only
+   "Following the console's audit as it is written." The only client filter is Table → Token
+   (`dsh-aggregate`): two clicks and a select; the timeline's four machine chips cannot separate the
+   AI from the console. The newest row on the page is a console read (its own `plugins.list`).
+   **Cost:** the page's stated job — what the AI did — takes a view switch and a guess. **Fix:** one
+   "Today 363 client calls · 12 failed · 30 console reads · 587 unattributed" line and a Client
+   calls chip using the same rule as 1. **S/M.**
+
+### Cuts
+
+- **C6. The Terminal page says "no session" twice.** "No session is open on this machine." at
+  y=228 and "No session is open on this device. New session opens a shell; it appears here once it
+  is running." at y=336, 108 px apart; the second carries the action, the first is the page's
+  duplicate. Delete the first. **S.**
+- **C7. The hub's subtitle duplicates the account menu's console version.** "Running · console
+  v0.3.273-ux43" is the page's one subtitle; the Account menu prints "Console 0.3.273-ux43". At 390
+  the header chip drops the device's "v0.3.274", so the one build on the page is the console's,
+  which the menu already has. Delete the version from the subtitle; keep the menu's. **S.**
