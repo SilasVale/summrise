@@ -84,6 +84,29 @@ const FAULT_LABELS: Record<FaultKind, string> = {
 const EMPTY_LIST_POLL_MS = 10_000;
 
 /**
+ * Whether the empty session list may be polled right now.
+ *
+ * The poll is a call the console makes on its own behalf — it is audited and streamed like any other
+ * — so it runs only when all four facts hold: the Terminal page is the one in front (the workspace
+ * stays mounted on every other page), the document itself is not hidden (a background tab is a poll
+ * with no reader), the machine is reachable, and the list is empty (a session's own tab probe is what
+ * notices one closing). Named as a value so the rule can be tested without a rendered page.
+ */
+export function shouldPollSessions(state: {
+  visible: boolean;
+  documentVisible: boolean;
+  offline: boolean;
+  sessions: number;
+}): boolean {
+  return state.visible && state.documentVisible && !state.offline && state.sessions === 0;
+}
+
+/** Whether the document is in front; a document that cannot answer is treated as visible. */
+function documentIsVisible(): boolean {
+  return typeof document === "undefined" || document.visibilityState !== "hidden";
+}
+
+/**
  * One `terminal.read` answer.
  *
  * `alive` and the two end facts are absent on an older device. That is not a dead tab: only an
@@ -476,6 +499,8 @@ export function TerminalWorkspace({
   // The device's session list is read on mount now, not behind an "Attach" click. These are the two
   // states that read has: a request in flight, and the sentence when it failed.
   const [listing, setListing] = useState(true);
+  /** Whether the document itself is in front: a hidden tab's poll cannot be seen, so it stops. */
+  const [documentShown, setDocumentShown] = useState(documentIsVisible);
   const [toolsOpen, setToolsOpen] = useState(false);
   const toolsRef = useRef<HTMLDetailsElement>(null);
   const [listError, setListError] = useState<string | null>(null);
@@ -1345,41 +1370,56 @@ export function TerminalWorkspace({
   // THE SESSIONS ARE THE EMPTY STATE, so they are read without asking. "Attach to a session" was a
   // button that fetched the list into a page that already showed nothing else — the operator had to
   // press a control to learn what existed. The list refreshes on a device change, when the machine
-  // comes back, and on demand.
+  // comes back, when the page comes in front, and on demand.
   //
   // A MACHINE THE FLEET SAYS IS DOWN IS NOT ASKED. The call cannot reach it, and its failure used to
   // print "Could not read this device's sessions" under a banner that had just said the same thing
   // in better words. The fleet polls, so `offline` becoming false is the read's cue.
+  //
+  // A PAGE OR A TAB NOBODY IS LOOKING AT IS NOT ASKED EITHER. The workspace stays mounted behind
+  // every other page so its tabs survive a rail click; this call would still be audited and streamed
+  // as the console's own read. Reading on the way in is what keeps the mounted page current.
   useEffect(() => {
-    if (offline) {
+    if (!visible || !documentIsVisible() || offline) {
       setListing(false);
       return;
     }
     void listSessions();
-  }, [grant.deviceId, offline, listSessions]);
+  }, [grant.deviceId, visible, offline, listSessions]);
 
   // A LIST THAT WAS EMPTY WHEN THE PAGE LOADED stays empty without this: a tab left open while a
   // shell starts elsewhere has no device event to hear, and the page that says "no session is open"
   // while one is running is the bug this whole surface exists to avoid. The interval stops as soon
-  // as something is listed; from then on the tab probe is what notices a session closing. Coming
-  // back to the tab reads once more, because that is the moment the answer matters.
+  // as something is listed; from then on the tab probe is what notices a session closing.
   useEffect(() => {
-    if (offline || available.length > 0) {
+    if (
+      !shouldPollSessions({
+        visible,
+        documentVisible: documentShown,
+        offline,
+        sessions: available.length
+      })
+    ) {
       return;
     }
     const timer = window.setInterval(() => void listSessions(), EMPTY_LIST_POLL_MS);
     return () => window.clearInterval(timer);
-  }, [available.length, offline, listSessions]);
+  }, [visible, documentShown, available.length, offline, listSessions]);
 
+  // COMING BACK TO THE TAB IS WHEN THE ANSWER MATTERS, so one read happens there, and the interval
+  // above is what resumes behind it. A page that is not the visible one is not this listener's
+  // business: its own wake read covers the moment it comes in front.
   useEffect(() => {
-    const onVisible = () => {
-      if (document.visibilityState === "visible") {
+    const onVisibility = () => {
+      const shown = documentIsVisible();
+      setDocumentShown(shown);
+      if (shown && visible && !offline) {
         void listSessions();
       }
     };
-    document.addEventListener("visibilitychange", onVisible);
-    return () => document.removeEventListener("visibilitychange", onVisible);
-  }, [listSessions]);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => document.removeEventListener("visibilitychange", onVisibility);
+  }, [visible, offline, listSessions]);
 
   const attachTo = (session: string, kind: string, startedAtMs?: number) => {
     detached.current.delete(session);

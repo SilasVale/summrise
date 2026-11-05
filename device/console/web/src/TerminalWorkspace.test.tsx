@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
-import { TerminalWorkspace } from "./TerminalWorkspace";
+import { shouldPollSessions, TerminalWorkspace } from "./TerminalWorkspace";
 import { api } from "./api";
 import type { LiveLine } from "./liveActivity";
 import { callTool, ToolError, type Grant } from "./terminal";
@@ -283,6 +283,68 @@ describe("TerminalWorkspace tab names", () => {
     document.dispatchEvent(new Event("visibilitychange"));
 
     await waitFor(() => expect(lists()).toBeGreaterThan(before));
+  });
+
+  it("does not ask for the session list while the page is not the one in front", async () => {
+    vi.useFakeTimers();
+    try {
+      render(<TerminalWorkspace grant={GRANT} visible={false} />);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(30_000);
+      });
+
+      // A URL fragment, the Activity page, another machine: the workspace stays mounted with its
+      // tabs intact, and a poll from a page nobody is looking at is a console read with no reader.
+      expect(
+        callToolMock.mock.calls.filter(([, name]) => name === "terminal.list")
+      ).toHaveLength(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("stops the poll while the document is hidden and resumes when it returns", async () => {
+    const visibility = Object.getOwnPropertyDescriptor(document, "visibilityState");
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      get: () => "hidden"
+    });
+    vi.useFakeTimers();
+    try {
+      render(<TerminalWorkspace grant={GRANT} />);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(30_000);
+      });
+      const lists = () =>
+        callToolMock.mock.calls.filter(([, name]) => name === "terminal.list").length;
+      expect(lists()).toBe(0);
+
+      Object.defineProperty(document, "visibilityState", {
+        configurable: true,
+        get: () => "visible"
+      });
+      act(() => {
+        document.dispatchEvent(new Event("visibilitychange"));
+      });
+      // The return is when the answer matters: the read is immediate, and the ten-second cadence
+      // resumes behind it.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(10_000);
+      });
+      expect(lists()).toBeGreaterThan(1);
+    } finally {
+      vi.useRealTimers();
+      restoreGlobal(document, "visibilityState", visibility);
+    }
+  });
+
+  it("polls only an empty list, on a visible page, in a visible document", () => {
+    const idle = { visible: true, documentVisible: true, offline: false, sessions: 0 };
+    expect(shouldPollSessions(idle)).toBe(true);
+    expect(shouldPollSessions({ ...idle, visible: false })).toBe(false);
+    expect(shouldPollSessions({ ...idle, documentVisible: false })).toBe(false);
+    expect(shouldPollSessions({ ...idle, offline: true })).toBe(false);
+    expect(shouldPollSessions({ ...idle, sessions: 1 })).toBe(false);
   });
 
   it("finds a session that started while the page was open", async () => {
