@@ -282,6 +282,32 @@ describe("ActivityTimeline", () => {
     expect(within(evidencePanel()).getByText("jsonrpc error -32002")).toBeInTheDocument();
   });
 
+  it("says a tool-level 424 is failed and keeps the reason", () => {
+    // A tool that answers isError is a failed call, and the console records it as 424. The row must
+    // say "failed" and keep the device's reason in the evidence, because that is the same fact the
+    // audit line and the run form name.
+    const refused = line({
+      tool: "runs.exec",
+      sentence: "Could not run the command",
+      status: 424,
+      ok: false,
+      detail: "runs.exec: program not found",
+      caller: "client"
+    });
+    render(<ActivityTimeline lines={[refused]} devices={[]} />);
+
+    const row = document.querySelector<HTMLElement>(".timeline-row");
+    expect(row).not.toBeNull();
+    expect(within(row as HTMLElement).getByText("failed")).toBeInTheDocument();
+    expect(within(row as HTMLElement).queryByText("424")).toBeNull();
+
+    openRow();
+
+    const panel = evidencePanel();
+    expect(within(panel).getByText("424")).toBeInTheDocument();
+    expect(within(panel).getByText("runs.exec: program not found")).toBeInTheDocument();
+  });
+
   it("keeps a successful row's presentation without an outcome word", () => {
     const succeeded = line({
       tool: "files.read",

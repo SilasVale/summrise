@@ -1292,6 +1292,18 @@ impl DeviceServer {
                         ToolError::Internal(format!("{name}: the run task failed: {error}"))
                     })?
                     .map_err(|error| refused(name, error))?;
+                // **A RUN THAT DID NOT START, OR DID NOT EXIT ZERO, IS A FAILURE — EVEN WHEN THE
+                // TOOL RETURNED A VALUE.** `runs.exec` completes normally for a command that ran
+                // and exited 2, and for one the timeout killed; the process's own exit facts are
+                // the difference, and an MCP client that only reads the result cannot see them.
+                // The run still happened (its history row is already written), but the tool call is
+                // the failure the console records and the "failed" word is drawn from.
+                if result.exit_code != Some(0) {
+                    return Err(ToolError::Refused(format!(
+                        "{name}: {}",
+                        run_failure_sentence(&result)
+                    )));
+                }
                 Ok(json!(result).to_string())
             }
             Handler::RunsList => {
@@ -2521,6 +2533,21 @@ fn reject_serial_framing(arguments: &PtyCreateArgs, name: &str) -> Result<(), To
 /// A capability error as the tool-level refusal the client sees.
 fn refused(tool: &str, error: impl std::fmt::Display) -> ToolError {
     ToolError::Refused(format!("{tool}: {error}"))
+}
+
+/// Why a run that returned a value is still a failure, in the console's own words.
+///
+/// The same sentence the console derives from an older device's `exit_code`, so the reason a
+/// person reads is the same whether the device marked the result `isError` or the console had to
+/// read the exit facts itself.
+fn run_failure_sentence(run: &runs::ExecResult) -> String {
+    if run.timed_out {
+        return format!("run {} timed out after {} ms", run.id, run.duration_ms);
+    }
+    match run.exit_code {
+        Some(code) => format!("run {} exited {code} in {} ms", run.id, run.duration_ms),
+        None => format!("run {} ended without an exit code", run.id),
+    }
 }
 
 /// The arguments `files.read` and `files.list` take.
@@ -4276,6 +4303,59 @@ mod tests {
         assert!(
             text_of(&outside).contains("the working directory"),
             "the refusal names the working directory: {outside}"
+        );
+    }
+
+    /// **A RUN THAT EXITED NON-ZERO IS A FAILURE**, even though `runs.exec` returned a value: an
+    /// MCP client that only reads the result has no other fact to go on, and the console must not
+    /// draw the run green. The run itself still happened, so its history row exists.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_run_that_exits_non_zero_is_a_tool_level_failure() {
+        let device = start("mcp-runs-exit").await;
+        let mut client = Client::authorized(&device);
+        client.initialize().await;
+
+        let failed = client
+            .call(
+                "runs.exec",
+                json!({ "command": "sh", "args": ["-c", "exit 2"] }),
+            )
+            .await;
+        assert_eq!(failed["result"]["isError"], true, "{failed}");
+        let text = text_of(&failed);
+        assert!(
+            text.contains("exited 2"),
+            "the reason names the exit status: {text}"
+        );
+        assert!(
+            text.starts_with("runs.exec:"),
+            "the refusal names the tool: {text}"
+        );
+
+        let listed = client.call("runs.list", json!({ "limit": 5 })).await;
+        let rows: Value = serde_json::from_str(text_of(&listed)).expect("list is JSON");
+        let rows = rows.as_array().expect("the history is an array");
+        assert_eq!(rows.len(), 1, "the run happened before it failed: {rows:?}");
+        assert_eq!(rows[0]["exit_code"], json!(2));
+    }
+
+    /// A program that does not exist never starts, and the refusal says so in the same words on
+    /// every platform instead of leaking the operating system's message.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_run_whose_program_is_missing_is_a_tool_level_failure() {
+        let device = start("mcp-runs-missing").await;
+        let mut client = Client::authorized(&device);
+        client.initialize().await;
+
+        let missing = client
+            .call("runs.exec", json!({ "command": "audit5-no-such-program" }))
+            .await;
+        assert_eq!(missing["result"]["isError"], true, "{missing}");
+        assert!(
+            text_of(&missing).contains("program not found"),
+            "the reason names the missing program: {missing}"
         );
     }
 

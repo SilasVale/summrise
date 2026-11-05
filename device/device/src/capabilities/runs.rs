@@ -250,6 +250,12 @@ pub enum RunsError {
     },
     /// The working directory did not resolve to a directory inside the files root.
     Cwd(files::FilesError),
+    /// `command` named a program that does not exist, so the run never started.
+    ///
+    /// It is named apart from [`RunsError::Io`] because every platform reports this one differently
+    /// ("No such file or directory", "The system cannot find the file specified"): the reason a
+    /// caller reads must be the device's, not the operating system's.
+    ProgramNotFound,
     /// The command could not be spawned or the history could not be read or written.
     Io(io::Error),
     /// `runs.get` named an id no history row carries.
@@ -288,6 +294,7 @@ impl fmt::Display for RunsError {
                 "an environment name must be non-empty and contain no '=' or NUL; a value contains no NUL"
             ),
             RunsError::Cwd(error) => write!(f, "the working directory: {error}"),
+            RunsError::ProgramNotFound => write!(f, "program not found"),
             RunsError::Io(error) => write!(f, "{error}"),
             RunsError::UnknownRun => write!(f, "no run has that id"),
             RunsError::LimitTooLarge { limit, max } => {
@@ -373,7 +380,15 @@ impl Runs {
         configure_process_group(&mut command);
 
         let started = Instant::now();
-        let mut child = command.spawn().map_err(RunsError::Io)?;
+        let mut child = command.spawn().map_err(|error| {
+            // A missing program is the one spawn failure every platform spells its own way; name it
+            // once, here, so the tool's refusal says the same thing on Windows and Unix.
+            if error.kind() == io::ErrorKind::NotFound {
+                RunsError::ProgramNotFound
+            } else {
+                RunsError::Io(error)
+            }
+        })?;
         let pid = child.id();
 
         // Both pipes are drained on their own threads from the first byte: capping what is *kept*

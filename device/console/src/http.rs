@@ -874,17 +874,91 @@ fn reply_detail(reply: &Reply) -> Option<String> {
     }
 }
 
+/// The first text item of a tool result, when it carries one.
+///
+/// MCP's tool result is `{content, isError}`; a run puts its JSON body in the first text item, and
+/// every tool-level refusal puts its sentence there.
+fn tool_text(reply: &Reply) -> Option<&str> {
+    let Reply::Result(result) = reply else {
+        return None;
+    };
+    result.get("content")?.get(0)?.get("text")?.as_str()
+}
+
+/// The run body a `runs.exec` answer carries, when its text is a run's JSON.
+fn run_body(reply: &Reply) -> Option<Value> {
+    serde_json::from_str(tool_text(reply)?).ok()
+}
+
+/// Whether a `runs.exec` answer's own facts say the run failed.
+///
+/// **ONLY A ZERO EXIT STATUS IS SUCCESS.** A device that predates the `isError` rule answers a
+/// failed run as an ordinary value, and the console still has to record it as a failure: the
+/// record's whole job is to answer which calls failed. A null exit code is not success either —
+/// the timeout killed the process group (`timed_out`), or a signal ended it.
+fn run_failed(reply: &Reply) -> bool {
+    let Some(run) = run_body(reply) else {
+        return false;
+    };
+    if run
+        .get("timed_out")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+    {
+        return true;
+    }
+    match run.get("exit_code") {
+        Some(exit_code) => exit_code.as_i64() != Some(0),
+        None => false,
+    }
+}
+
+/// The status the audit gives a tool that answered with a failure.
+///
+/// MCP carries a tool-level failure inside a successful exchange: the result has `isError: true`
+/// and the reason in its text, and it is still HTTP 200 because a non-2xx would look like a
+/// transport failure to an MCP client. **424 Failed Dependency** is this console's word for "the
+/// call reached the tool and the tool refused": not a transport answer (5xx), and not a green row.
+const TOOL_REFUSED_STATUS: StatusCode = StatusCode::FAILED_DEPENDENCY;
+
+/// Why a `tools/call` result is a failure, when it is: MCP's `isError`, or a run's exit facts.
+///
+/// The reason is bounded exactly like the device messages other details keep — the audit never
+/// carries a payload body, and a tool's error text is the tool's content.
+fn tool_failure(reply: &Reply, tool: Option<&str>) -> Option<String> {
+    let Reply::Result(result) = reply else {
+        return None;
+    };
+    let marked = result
+        .get("isError")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let failed_run = tool == Some("runs.exec") && run_failed(reply);
+    if !marked && !failed_run {
+        return None;
+    }
+    // A run's own metadata is the better reason when its body parses; otherwise the device's text
+    // is already the sentence a client would show.
+    let reason = if tool == Some("runs.exec") {
+        run_detail(reply)
+    } else {
+        None
+    }
+    .or_else(|| tool_text(reply).map(bounded_detail))
+    .unwrap_or_else(|| "the tool refused".to_owned());
+    Some(bounded_detail(&reason))
+}
+
 /// The outcome of a `runs.exec`, as the audit keeps it: the run id, its exit and how long it took.
 ///
 /// The output is deliberately not copied here: the device's history never stored it, and the audit
 /// is a record of calls, not a second run log. This is the metadata an operator can use to find the
 /// run in the Runs page; `runs.get` is still where the record lives.
 fn run_detail(reply: &Reply) -> Option<String> {
-    let Reply::Result(result) = reply else {
+    let Reply::Result(_) = reply else {
         return reply_detail(reply);
     };
-    let text = result.get("content")?.get(0)?.get("text")?.as_str()?;
-    let run: Value = serde_json::from_str(text).ok()?;
+    let run = run_body(reply)?;
     let id = run.get("id")?.as_str()?;
     let elapsed = run.get("duration_ms").and_then(Value::as_u64);
     if run
@@ -3110,14 +3184,36 @@ async fn proxy_reply(
             } else {
                 reply_detail(&reply)
             };
-            let (ok, live_detail) = match &reply {
-                Reply::Result(_) => (true, detail.clone().unwrap_or_default()),
+            // **A TOOL THAT ANSWERED IS NOT NECESSARILY A SUCCESS.** MCP puts the failure in the
+            // result (`isError: true` with its reason), and a run says so with its exit code. Both
+            // become a non-200 audit line; the status stays 200 for a genuine success and for a
+            // JSON-RPC error envelope (which is an answer the caller reads, not a transport failure).
+            let tool_failure = tool_failure(&reply, tool.as_deref());
+            let (ok, status, audit_detail, live_detail) = match &reply {
+                Reply::Result(_) => match tool_failure {
+                    Some(reason) => (false, TOOL_REFUSED_STATUS, Some(reason.clone()), reason),
+                    None => (
+                        true,
+                        StatusCode::OK,
+                        detail.clone(),
+                        detail.clone().unwrap_or_default(),
+                    ),
+                },
                 Reply::Error(_) => (
                     false,
+                    StatusCode::OK,
+                    detail.clone(),
                     error_message(&reply)
                         .map(bounded_detail)
                         .unwrap_or_else(|| detail.clone().unwrap_or_default()),
                 ),
+            };
+            // The row's words match the form's for the one failure a person causes by typing a
+            // command: "Could not run the command", with the device's reason one click away.
+            let publish_sentence = if tool.as_deref() == Some("runs.exec") && !ok {
+                "Could not run the command".to_owned()
+            } else {
+                publish_sentence
             };
             if tool.as_deref() == Some("runs.exec") {
                 // The evidence object is the page's, not the audit's: a run with no arguments still
@@ -3159,7 +3255,7 @@ async fn proxy_reply(
                 device_id: audit_id.as_deref(),
                 tool: tool.as_deref(),
                 sentence: &publish_sentence,
-                status: StatusCode::OK,
+                status,
                 ok,
                 detail: &live_detail,
                 ms: started.elapsed().as_millis() as u64,
@@ -3170,8 +3266,8 @@ async fn proxy_reply(
             app.record_facts(AuditFacts {
                 kind: "mcp",
                 device_id: audit_id.as_deref(),
-                status: StatusCode::OK,
-                detail: detail.as_deref(),
+                status,
+                detail: audit_detail.as_deref(),
                 tool: tool.as_deref(),
                 token_id: identity.token_id,
                 caller: Some(identity.caller),
@@ -4850,6 +4946,73 @@ mod tests {
             Some("jsonrpc error -32603")
         );
         assert_eq!(run_detail(&result("not json")), None);
+    }
+
+    #[test]
+    fn a_tool_result_that_failed_is_read_from_iserror_or_the_run_exit() {
+        let tool = |text: &str, is_error: bool| {
+            Reply::Result(json!({
+                "content": [{ "type": "text", "text": text }],
+                "isError": is_error,
+            }))
+        };
+        // MCP's own marker: the device says the tool refused, and its text is the reason.
+        assert_eq!(
+            tool_failure(
+                &tool("runs.exec: program not found", true),
+                Some("runs.exec")
+            )
+            .as_deref(),
+            Some("runs.exec: program not found")
+        );
+        assert_eq!(
+            tool_failure(&tool("files: no such file", true), Some("files.read")).as_deref(),
+            Some("files: no such file")
+        );
+        // A run's exit code is the fact an older device still answers with.
+        assert_eq!(
+            tool_failure(
+                &tool(
+                    r#"{"id":"r-2","exit_code":2,"timed_out":false,"duration_ms":7}"#,
+                    false
+                ),
+                Some("runs.exec")
+            )
+            .as_deref(),
+            Some("run r-2 exited 2 in 7 ms")
+        );
+        assert_eq!(
+            tool_failure(
+                &tool(
+                    r#"{"id":"r-3","exit_code":null,"timed_out":true,"duration_ms":10}"#,
+                    false
+                ),
+                Some("runs.exec")
+            )
+            .as_deref(),
+            Some("run r-3 timed out after 10 ms")
+        );
+        // Zero is the only success, and a result that is not a tool failure stays detail-less.
+        assert_eq!(
+            tool_failure(
+                &tool(r#"{"id":"r-1","exit_code":0,"timed_out":false}"#, false),
+                Some("runs.exec")
+            ),
+            None
+        );
+        assert_eq!(
+            tool_failure(&tool(r#"{"content":"hi"}"#, false), Some("files.read")),
+            None
+        );
+        // A reason is bounded like every other detail: the audit never carries a body.
+        let long = "x".repeat(200);
+        assert_eq!(
+            tool_failure(&tool(&long, true), Some("files.read"))
+                .expect("a failure")
+                .chars()
+                .count(),
+            64
+        );
     }
 
     #[test]

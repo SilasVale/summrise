@@ -3441,6 +3441,297 @@ async fn a_device_json_rpc_error_is_audited_by_code_not_by_body() {
     }
 }
 
+/// **A TOOL-LEVEL FAILURE IS NOT A GREEN ROW.** MCP carries it inside a successful exchange —
+/// `isError: true` in a 200 result, with the reason in the text — so the old "a result is ok" rule
+/// recorded a program that never started as a success. The audit must name the call as failed and
+/// keep the device's reason, bounded like every other detail.
+#[tokio::test]
+async fn a_run_that_cannot_start_is_a_failed_audit_line_with_its_reason() {
+    let fixture = Fixture::new("audit-run-missing-program");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0x5a)).await;
+    let session = fixture.authenticate().await;
+
+    let app = fixture.app();
+    let request_session = session.clone();
+    let call = tokio::spawn(async move {
+        send(
+            app,
+            post_json_bearer(
+                "/mcp",
+                &request_session,
+                json!({
+                    "device_id": device_id,
+                    "request": {
+                        "jsonrpc": "2.0",
+                        "id": 9,
+                        "method": "tools/call",
+                        "params": {
+                            "name": "runs.exec",
+                            "arguments": { "command": "audit5-no-such-program" },
+                        },
+                    },
+                }),
+            ),
+        )
+        .await
+    });
+
+    let frame = next_json(&mut device).await;
+    assert_eq!(
+        frame["mcp"]["params"]["name"],
+        json!("runs.exec"),
+        "{frame}"
+    );
+    let reason = "runs.exec: program not found";
+    answer(
+        &mut device,
+        &frame,
+        json!({
+            "content": [{ "type": "text", "text": reason }],
+            "isError": true,
+        }),
+    )
+    .await;
+
+    let (status, body) = call.await.expect("the call finishes");
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "a tool refusal is still an MCP result: {body}"
+    );
+    assert_eq!(body["isError"], json!(true), "{body}");
+    assert_eq!(body["content"][0]["text"], json!(reason), "{body}");
+
+    let lines = audit_lines(&fixture);
+    let mcp = lines.last().expect("the mcp line");
+    assert_eq!(mcp["kind"], json!("mcp"));
+    assert_eq!(mcp["tool"], json!("runs.exec"));
+    assert_eq!(mcp["status"], json!(424), "not a green row: {mcp}");
+    assert_eq!(
+        mcp["detail"],
+        json!(reason),
+        "the audit keeps the device's own reason: {mcp}"
+    );
+    assert_eq!(
+        body["content"][0]["text"], mcp["detail"],
+        "the form shows the reason the audit keeps: the same text, prefixed by the same sentence"
+    );
+}
+
+/// A device older than the `isError` rule answers a failed run as an ordinary value; the console
+/// reads the exit code itself, so the record is right before the fleet upgrades.
+#[tokio::test]
+async fn a_run_that_exits_non_zero_is_a_failed_audit_line_even_without_iserror() {
+    let fixture = Fixture::new("audit-run-exit-2");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0x5b)).await;
+    let session = fixture.authenticate().await;
+
+    let app = fixture.app();
+    let request_session = session.clone();
+    let call = tokio::spawn(async move {
+        send(
+            app,
+            post_json_bearer(
+                "/mcp",
+                &request_session,
+                json!({
+                    "device_id": device_id,
+                    "request": {
+                        "jsonrpc": "2.0",
+                        "id": 10,
+                        "method": "tools/call",
+                        "params": {
+                            "name": "runs.exec",
+                            "arguments": { "command": "false" },
+                        },
+                    },
+                }),
+            ),
+        )
+        .await
+    });
+
+    let frame = next_json(&mut device).await;
+    let run = json!({
+        "id": "run-2",
+        "exit_code": 2,
+        "timed_out": false,
+        "duration_ms": 7,
+        "stdout": "",
+        "stderr": "",
+        "truncated": false,
+        "history_recorded": true,
+    });
+    answer(
+        &mut device,
+        &frame,
+        json!({
+            "content": [{ "type": "text", "text": run.to_string() }],
+            "isError": false,
+        }),
+    )
+    .await;
+
+    let (status, body) = call.await.expect("the call finishes");
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(
+        body["isError"],
+        json!(false),
+        "the old device did not mark it: {body}"
+    );
+
+    let lines = audit_lines(&fixture);
+    let mcp = lines.last().expect("the mcp line");
+    assert_eq!(mcp["tool"], json!("runs.exec"));
+    assert_eq!(mcp["status"], json!(424), "exit 2 is not a success: {mcp}");
+    assert_eq!(
+        mcp["detail"],
+        json!("run run-2 exited 2 in 7 ms"),
+        "the reason names the exit status: {mcp}"
+    );
+}
+
+/// A run that exits zero is the one success a run can report: 200, its own sentence, and its exit
+/// fact as the detail.
+#[tokio::test]
+async fn a_run_that_exits_zero_stays_a_successful_line() {
+    let fixture = Fixture::new("audit-run-exit-0");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0x5c)).await;
+    let session = fixture.authenticate().await;
+
+    let app = fixture.app();
+    let request_session = session.clone();
+    let call = tokio::spawn(async move {
+        send(
+            app,
+            post_json_bearer(
+                "/mcp",
+                &request_session,
+                json!({
+                    "device_id": device_id,
+                    "request": {
+                        "jsonrpc": "2.0",
+                        "id": 11,
+                        "method": "tools/call",
+                        "params": {
+                            "name": "runs.exec",
+                            "arguments": { "command": "true" },
+                        },
+                    },
+                }),
+            ),
+        )
+        .await
+    });
+
+    let frame = next_json(&mut device).await;
+    let run = json!({
+        "id": "run-0",
+        "exit_code": 0,
+        "timed_out": false,
+        "duration_ms": 3,
+        "stdout": "",
+        "stderr": "",
+        "truncated": false,
+        "history_recorded": true,
+    });
+    answer(
+        &mut device,
+        &frame,
+        json!({
+            "content": [{ "type": "text", "text": run.to_string() }],
+            "isError": false,
+        }),
+    )
+    .await;
+
+    let (status, body) = call.await.expect("the call finishes");
+    assert_eq!(status, StatusCode::OK, "{body}");
+
+    let lines = audit_lines(&fixture);
+    let mcp = lines.last().expect("the mcp line");
+    assert_eq!(mcp["status"], json!(200), "a zero exit is a success: {mcp}");
+    assert_eq!(mcp["detail"], json!("run run-0 exited 0 in 3 ms"));
+}
+
+/// The live row says the same thing the audit file will: the failure sentence, the failed flag and
+/// the reason. The form prefixes the same reason with the same sentence.
+#[tokio::test]
+async fn a_failed_run_reaches_the_stream_as_a_failure_with_its_reason() {
+    let fixture = Fixture::new("activity-run-failure");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0x5d)).await;
+    let session = fixture.authenticate().await;
+
+    let mut socket = open_events(&server, &session).await;
+    let mut seen = String::new();
+    read_until(&mut socket, &mut seen, "event: snapshot").await;
+
+    let app = fixture.app();
+    let request_session = session.clone();
+    let call = tokio::spawn(async move {
+        send(
+            app,
+            post_json_bearer(
+                "/mcp",
+                &request_session,
+                json!({
+                    "device_id": device_id,
+                    "request": {
+                        "jsonrpc": "2.0",
+                        "id": 12,
+                        "method": "tools/call",
+                        "params": {
+                            "name": "runs.exec",
+                            "arguments": { "command": "audit5-no-such-program" },
+                        },
+                    },
+                }),
+            ),
+        )
+        .await
+    });
+
+    let frame = next_json(&mut device).await;
+    let reason = "runs.exec: program not found";
+    answer(
+        &mut device,
+        &frame,
+        json!({
+            "content": [{ "type": "text", "text": reason }],
+            "isError": true,
+        }),
+    )
+    .await;
+    let (status, _) = call.await.expect("the call finishes");
+    assert_eq!(status, StatusCode::OK);
+
+    read_until(&mut socket, &mut seen, "Could not run the command").await;
+    assert!(
+        seen.contains("\"sentence\":\"Could not run the command\""),
+        "the row says the same thing the form does: {seen}"
+    );
+    assert!(
+        seen.contains("\"ok\":false"),
+        "a tool refusal is a failure: {seen}"
+    );
+    assert!(
+        seen.contains("\"status\":424"),
+        "the live row carries the audit's status: {seen}"
+    );
+    assert!(
+        seen.contains(&format!("\"detail\":\"{reason}\"")),
+        "the reason reaches the page: {seen}"
+    );
+}
+
 #[tokio::test]
 async fn a_bad_operator_token_is_a_denial_line_not_an_audit_line() {
     let fixture = Fixture::new("denial-bad-operator-token");

@@ -303,6 +303,23 @@ describe("the run form under Tools", () => {
     ).toBeInTheDocument();
   });
 
+  it("names the same reason the audit keeps when the run cannot start", async () => {
+    // The measured failure: the program does not exist, the device answers `isError: true` with
+    // "runs.exec: program not found", and the console now records that same sentence as the audit
+    // line's detail. The form must show it, not a success card.
+    const reason = "runs.exec: program not found";
+    mocked.mockRejectedValue(new ToolError(reason, 200, null, true));
+
+    renderTools();
+    fireEvent.change(screen.getByLabelText("Command"), { target: { value: "echo audit5-live" } });
+    fireEvent.click(screen.getByRole("button", { name: "Run" }));
+
+    expect(
+      await screen.findByText("Could not run the command: " + reason)
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Result")).not.toBeInTheDocument();
+  });
+
   it("warns that a disconnected run may have executed", async () => {
     mocked.mockRejectedValue(new ToolError("device disconnected", 502));
 

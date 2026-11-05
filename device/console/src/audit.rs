@@ -3,9 +3,12 @@
 //! One line per **authenticated** action: `{"ts_ms","kind","device_id?","status","detail?","tool?","token_id?","caller?"}`.
 //! `kind` is a closed set — `enroll`, `register`, `grant`, `token`, `token_revoke`, `auth`, `mcp`,
 //! `device` for a channel's own boundary, and `denied` for a refusal of a request whose caller
-//! proved a credential. `status` is the HTTP status the caller saw (200 for a channel boundary,
-//! which has no HTTP exchange), `detail` is a short reason: the console's wire error code for a
-//! refusal, or the device's JSON-RPC error code when it answered with one. `tool` is the JSON-RPC
+//! proved a credential. `status` is the console's outcome code: the HTTP status a refusal produced,
+//! `200` for an answer that crossed as a success (a channel boundary, a JSON-RPC error envelope),
+//! and `424` for a tool that answered with its own failure (`isError`, or a run that exited
+//! non-zero) — the record's verdict, not always the code the caller's HTTP exchange carried.
+//! `detail` is a short reason: the console's wire error code for a refusal, or the device's
+//! JSON-RPC error code when it answered with one, or a bounded tool reason. `tool` is the JSON-RPC
 //! tool name for a `tools/call`, and only the name — except on a `device` line, where it names the
 //! boundary (`device.joined` / `device.left`): the arguments are the operator's data and never reach
 //! this file. `token_id` is the permanent token *record's* id when a token authenticated an MCP call
@@ -90,9 +93,10 @@ pub(crate) struct Entry<'a> {
     /// The device the action names, in canonical lowercase hex, when it names one.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) device_id: Option<&'a str>,
-    /// The HTTP status the caller saw; `200` on a channel boundary, which has no caller.
+    /// The console's outcome code: the status a refusal produced, `200` for an answer, or `424`
+    /// for a tool-level failure that MCP carried inside a 200 result.
     pub(crate) status: u16,
-    /// Why, for a refusal or a device error: a short code, never a body.
+    /// Why, for a refusal, a device error or a tool-level failure: a short reason, never a body.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) detail: Option<&'a str>,
     /// The tool a `tools/call` named, or the boundary a `device` line names (`device.left` /
