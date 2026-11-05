@@ -1615,8 +1615,35 @@ async fn health_stops_counting_a_device_whose_channel_closed() {
     panic!("the dropped channel still counts as online: {last}");
 }
 
+/// One device's row from `/fleet`, or a failure that shows the whole answer.
+async fn fleet_row(app: Router, session: &str, device_id: &str) -> Value {
+    let (status, fleet) = send(app, get("/fleet", Some(session))).await;
+    assert_eq!(status, StatusCode::OK, "the fleet read: {fleet}");
+    fleet
+        .as_array()
+        .expect("the fleet is a list")
+        .iter()
+        .find(|entry| entry["id"] == json!(device_id))
+        .cloned()
+        .unwrap_or_else(|| panic!("the device {device_id} is listed: {fleet}"))
+}
+
+/// Wait until the console has processed the dropped socket and the row says offline.
+async fn wait_until_offline(app: Router, session: &str, device_id: &str) -> Value {
+    for _ in 0..100 {
+        let listed = fleet_row(app.clone(), session, device_id).await;
+        if listed["online"] == json!(false) {
+            return listed;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    panic!("the dropped channel still counts as online");
+}
+
 /// **THE OUTAGE THAT IS OVER IS STILL A FACT.** A fleet row says `online` again the moment a device
-/// comes back; this is what lets it also say how long the device was gone.
+/// comes back; the pair of moments the console observed is what lets a menu line say "back 2h ago
+/// after 41m" without opening the machine. The names are the duration and the return, because those
+/// are the two a reader compares.
 #[tokio::test]
 async fn a_reconnect_records_how_long_the_device_was_away() {
     let fixture = Fixture::new("outage-record");
@@ -1624,39 +1651,91 @@ async fn a_reconnect_records_how_long_the_device_was_away() {
     let (device_id, token, device) = connected_device(&fixture, &server, &signing_key(0x78)).await;
     let session = fixture.authenticate().await;
 
-    let (_, fleet) = send(fixture.app(), get("/fleet", Some(&session))).await;
-    let listed = fleet
-        .as_array()
-        .expect("the fleet is a list")
-        .iter()
-        .find(|entry| entry["id"] == json!(device_id))
-        .expect("the device is listed");
+    let listed = fleet_row(fixture.app(), &session, &device_id).await;
     assert!(
-        listed["last_outage"].is_null(),
-        "a device that has never gone away has no outage: {listed}"
+        listed.get("last_outage").is_none(),
+        "a device that has never gone away omits the key, rather than inventing a zero: {listed}"
     );
 
+    let dropped_at = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("a clock after the epoch")
+        .as_millis() as u64;
     drop(device);
-    tokio::time::sleep(std::time::Duration::from_millis(80)).await;
+    // The outage starts when the console notices the close, not when the socket was dropped: wait
+    // for the offline row, then measure the gap it stayed away.
+    wait_until_offline(fixture.app(), &session, &device_id).await;
+    let gone_at = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("a clock after the epoch")
+        .as_millis() as u64;
+    tokio::time::sleep(Duration::from_millis(80)).await;
+
     let _again = open_channel(&server, &device_id, &token)
         .await
         .expect("the device reconnects");
+    tokio::task::yield_now().await;
 
-    let (_, fleet) = send(fixture.app(), get("/fleet", Some(&session))).await;
-    let listed = fleet
-        .as_array()
-        .expect("the fleet is a list")
-        .iter()
-        .find(|entry| entry["id"] == json!(device_id))
-        .expect("the device is still listed");
-    let outage = &listed["last_outage"];
+    let listed = fleet_row(fixture.app(), &session, &device_id).await;
+    let outage = listed
+        .get("last_outage")
+        .unwrap_or_else(|| panic!("the reconnect leaves an outage: {listed}"));
+    let away_ms = outage["away_ms"].as_u64().unwrap_or(0);
+    let back_at_ms = outage["back_at_ms"].as_u64().unwrap_or(0);
+    let read_at = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("a clock after the epoch")
+        .as_millis() as u64;
     assert!(
-        outage["duration_ms"].as_u64().unwrap_or(0) >= 80,
-        "the gap it was away is recorded: {listed}"
+        away_ms >= 80,
+        "the gap it was away is recorded, and it is the measured one: {listed}"
     );
     assert!(
-        outage["started_ms"].as_u64().unwrap_or(0) > 0,
-        "and when it began: {listed}"
+        back_at_ms >= gone_at && back_at_ms <= read_at,
+        "it came back between {gone_at} and {read_at}: {listed}"
+    );
+    let started_ms = back_at_ms.saturating_sub(away_ms);
+    assert!(
+        started_ms >= dropped_at && started_ms <= gone_at,
+        "the outage began when the close was seen, between {dropped_at} and {gone_at}: {listed}"
+    );
+}
+
+/// **THE OUTAGE IS MEMORY, NOT HISTORY.** A restart is a new console: it must not read the previous
+/// process's outage back and claim a machine came back when this process never saw it go.
+#[tokio::test]
+async fn an_outage_is_forgotten_by_a_restart() {
+    let fixture = Fixture::new("outage-memory");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, token, device) = connected_device(&fixture, &server, &signing_key(0x79)).await;
+    let session = fixture.authenticate().await;
+
+    drop(device);
+    wait_until_offline(fixture.app(), &session, &device_id).await;
+    let _again = open_channel(&server, &device_id, &token)
+        .await
+        .expect("the device reconnects");
+    tokio::task::yield_now().await;
+
+    let listed = fleet_row(fixture.app(), &session, &device_id).await;
+    assert!(
+        listed.get("last_outage").is_some(),
+        "the live console recorded the outage before the restart: {listed}"
+    );
+
+    let on_disk = fs::read_to_string(fixture.config.data.join("devices.json"))
+        .expect("the device registry is readable");
+    assert!(
+        !on_disk.contains("last_outage") && !on_disk.contains("away_ms"),
+        "the outage is not written to the device registry: {on_disk}"
+    );
+
+    let restarted = fixture.restart();
+    let session = authenticate_on(&restarted).await;
+    let listed = fleet_row(restarted.router(), &session, &device_id).await;
+    assert!(
+        listed.get("last_outage").is_none(),
+        "a console that has seen no drop invents no outage: {listed}"
     );
 }
 

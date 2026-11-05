@@ -28,7 +28,7 @@ use crate::audit::{self, Audit, Caller};
 use crate::auth::{
     bearer_secret, constant_time_eq, new_session_token, random_32, Session, SESSION_LIFETIME_MS,
 };
-use crate::channels::{ChannelRegistry, Reply, RequestAuth, RequestError};
+use crate::channels::{ChannelRegistry, Outage, Reply, RequestAuth, RequestError};
 use crate::codes::{ConsumeError, EnrollmentCodes, IssueError};
 use crate::config::{load_grant_key, load_operator_token, Config, StartupError};
 use crate::connections;
@@ -3906,7 +3906,6 @@ async fn rename_device(
     // device audit. `session` is what proves the caller is the operator.
     let _ = session;
 
-    let outage = app.channels.last_outage(&device.id);
     Ok(Json(DeviceView {
         online: app.channels.online(&device.id),
         version: app.channels.version(&device.id),
@@ -3916,12 +3915,7 @@ async fn rename_device(
             attempts: note.attempts,
             reason: note.reason,
         }),
-        last_outage: outage
-            .and_then(|outage| outage.duration_ms)
-            .map(|duration_ms| OutageView {
-                started_ms: outage.map(|outage| outage.started_ms).unwrap_or(0),
-                duration_ms,
-            }),
+        last_outage: outage_view(app.channels.last_outage(&device.id)),
         id: device.id,
         public_key: device.public_key,
         registered_at_ms: device.registered_at_ms,
@@ -4225,18 +4219,7 @@ fn device_views(app: &AppState) -> Vec<DeviceView> {
                 attempts: note.attempts,
                 reason: note.reason,
             }),
-            last_outage: app
-                .channels
-                .last_outage(&device.id)
-                .and_then(|outage| outage.duration_ms)
-                .map(|duration_ms| OutageView {
-                    started_ms: app
-                        .channels
-                        .last_outage(&device.id)
-                        .map(|outage| outage.started_ms)
-                        .unwrap_or(0),
-                    duration_ms,
-                }),
+            last_outage: outage_view(app.channels.last_outage(&device.id)),
             // A name given at registration wins; the machine's own name is a fallback for the
             // devices that never gave one, which is all of them so far.
             name: device.name.or_else(|| app.channels.name(&device.id)),
@@ -4287,10 +4270,25 @@ struct DeviceView {
 }
 
 /// One finished outage, as a page reads it.
+///
+/// Only a finished outage is a view: a device that is away right now has no `back_at_ms`, and a
+/// console that never saw it drop has neither fact. The two names are the two a menu line compares:
+/// how long it was gone, and when it came back.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
 pub(crate) struct OutageView {
-    pub(crate) started_ms: u64,
-    pub(crate) duration_ms: u64,
+    pub(crate) away_ms: u64,
+    pub(crate) back_at_ms: u64,
+}
+
+/// The fleet's view of a registry outage: `None` until the device has reconnected, so the page never
+/// renders a duration that is still running (or a zero standing in for "never dropped").
+fn outage_view(outage: Option<Outage>) -> Option<OutageView> {
+    outage.and_then(|outage| {
+        outage.duration_ms.map(|away_ms| OutageView {
+            away_ms,
+            back_at_ms: outage.started_ms.saturating_add(away_ms),
+        })
+    })
 }
 
 /// How a transport failure is answered, and whether the operator may retry.
