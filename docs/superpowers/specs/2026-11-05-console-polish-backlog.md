@@ -198,7 +198,7 @@ read; nothing here is a suspicion, and the two lists above are not re-opened.
    scroll; the day cannot be scanned. **Fix:** move the counts line into the header and cap the
    hub's timeline (newest ~100, "All activity" for the rest). **M.**
 
-3. **The run form is 2,940 px below the Tools tab.** Tools is **3,848 px** tall in a 908 px
+3. **The run form is 2,940 px below the Tools tab.** *(Done 2026-11-05, 2dfb35f: the form precedes the catalogue — y 3,912 -> 115 at 1440, 4,093 -> 149 at 390; the catalogue keeps its order and search.)* Tools is **3,848 px** tall in a 908 px
    viewport; "Run a command on this machine" starts at **3,773** and the only path is past the
    46-tool catalogue (at 390: 4,070 px, 739 px viewport, 3,331 px of scroll). `runs.exec` is 139 of
    the 1000 lines. **Cost:** two clicks and three screens for the most-used write; Runs, the
@@ -219,7 +219,7 @@ read; nothing here is a suspicion, and the two lists above are not re-opened.
    labels mark a single row. **Fix:** draw the summary at the top of the stretch, name the dominant
    tool, and fold a stretch above 50 rows from its label. **M.**
 
-6. **The fleet row counts the attempts and hides the reason.** Two of the three rows read
+6. **The fleet row counts the attempts and hides the reason.** *(Done 2026-11-05, a8e67d7: "Reconnected after 3 attempts — HTTP error: 502 Bad Gateway", the device's words verbatim, one line with the full text in the title; absent when there is no reason.)* Two of the three rows read
    **"Reconnected after 3 attempts"** (`DESKTOP-9VH92BJ`) and **"Reconnected after 4 attempts"**
    (`DESKTOP-CPH4KB2`); the fleet read's `last_attempt.reason` is **"HTTP error: 502 Bad Gateway"**
    and **"the console accepted the channel and then dropped it"**, and neither string is on the
