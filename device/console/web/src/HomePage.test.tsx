@@ -738,6 +738,41 @@ describe("Home — the hub", () => {
     ).toBeInTheDocument();
   });
 
+  it("names the fetched window, the rows it draws and what the merge withheld", async () => {
+    // The measured DESKTOP-14RJCR8 hub: 1000 fetched, 6 channel boundaries and 17 repeated keys,
+    // so 977 rows are in the day list behind the 60-row fold (60 + 917 more).
+    const start = new Date();
+    start.setHours(0, 0, 0, 0);
+    const base = start.getTime() + 3_600_000;
+    const calls = Array.from({ length: 977 }, (_, index) =>
+      call({
+        ts_ms: base - index * 1000,
+        caller: "client",
+        tool: `tool.${index}`,
+        sentence: `Call ${index}`
+      })
+    );
+    const boundaries = Array.from({ length: 6 }, (_, index) =>
+      call({
+        ts_ms: base - (977 + index) * 1000,
+        caller: "console",
+        tool: index % 2 === 0 ? "device.left" : "device.joined",
+        sentence: "The console's channel boundary"
+      })
+    );
+    const repeats = calls.slice(0, 17).map((line) => ({ ...line }));
+    draw({ audit: [...calls, ...boundaries, ...repeats] });
+
+    expect(
+      await screen.findByText(
+        "Showing the newest 977 lines of 1000 fetched (6 channel events, 17 repeats not drawn); older ones are not on this page."
+      )
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Show the rest of today (917 more)" })
+    ).toBeInTheDocument();
+  });
+
   it("does not say the window was cut for a list shorter than the cap", async () => {
     draw();
 

@@ -120,6 +120,26 @@ it("says the window's limit when the request came back full", () => {
   ).toBeInTheDocument();
 });
 
+it("counts the rows the table draws, which include the channel boundaries the timeline hides", () => {
+  // The table is the audit: it draws the `device.left`/`device.joined` lines the timeline drops, so
+  // its sentence names the 983 merged rows, not the timeline's 949, and only the repeats withheld.
+  render(
+    <AuditTable
+      lines={lines}
+      devices={devices}
+      tokens={[]}
+      atLimit
+      windowCounts={{ fetched: 1000, drawn: 983, boundaries: 0, repeats: 17 }}
+    />
+  );
+
+  expect(
+    screen.getByText(
+      "Showing the newest 983 lines of 1000 fetched (17 repeats not drawn)."
+    )
+  ).toBeInTheDocument();
+});
+
 it("reads the new window in one line instead of drawing the old window's rows", () => {
   render(
     <AuditTable

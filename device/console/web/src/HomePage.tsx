@@ -9,7 +9,7 @@ import { shortId } from "./format";
 import { listPlugins } from "./pluginApi";
 import { useLiveTools } from "./useLiveTools";
 import { ActivityTimeline } from "./ActivityTimeline";
-import { ACTIVITY_LIMIT, capActivity, mergeActivity } from "./activityMerge";
+import { ACTIVITY_LIMIT, capActivity, mergeActivityReport } from "./activityMerge";
 import { isChannelBoundary, isClientCall, isConsoleRead } from "./activitySummary";
 import { auditFailed } from "./auditFilter";
 
@@ -395,11 +395,25 @@ function HubHome(
   const loaded = machineAudit?.device === device.id;
   const fetched = loaded && machineAudit ? machineAudit.lines : [];
   // The merged window keeps the older lines the timeline hides: the summary line below needs one of
-  // them to say when the machine last worked. The timeline itself is still today's only.
-  const windowLines = mergeActivity(fetched, liveLines).sort((a, b) => b.ts_ms - a.ts_ms);
+  // them to say when the machine last worked. The timeline itself is still today's only. The report
+  // also carries the repeats the merge dropped, which the cap sentence names.
+  const mergedWindow = mergeActivityReport(fetched, liveLines);
+  const windowLines = mergedWindow.lines.sort((a, b) => b.ts_ms - a.ts_ms);
   // A channel boundary is in the audit to prove an absence, not to be drawn as the machine's work.
+  const windowBoundaries = windowLines.filter(isChannelBoundary).length;
   const activityLines = windowLines.filter((line) => !isChannelBoundary(line));
   const today = capActivity(activityLines.filter((line) => line.ts_ms >= todayStart));
+  // **THE CAP SENTENCE COUNTS THIS MACHINE'S OWN WINDOW.** `fetched` is what the two reads returned
+  // (the audit's newest 1000 plus the live stream); `drawn` is the day list the fold and the console
+  // chip present; `boundaries` and `repeats` are what neither read draws. The measured hub had 1000
+  // fetched, 6 boundaries and 17 repeats, so 977 rows stood behind "Show the rest of today (917
+  // more)".
+  const windowCounts = {
+    fetched: fetched.length + liveLines.length,
+    drawn: today.lines.length,
+    boundaries: windowBoundaries,
+    repeats: mergedWindow.repeats
+  };
   // **THE DAY COUNT IS CLIENT-ONLY; THE LIST NOW AGREES WITH IT.** The measured hub drew 60 rows,
   // 56 of them the console polling itself, above a line that counted four client calls. The default
   // list is the rule that line uses (a caller, or a token with no caller); the console's own reads
@@ -545,6 +559,7 @@ function HubHome(
           lines={dayRows}
           devices={props.devices}
           capped={ownWindowCut}
+          windowCounts={windowCounts}
           // The hub's timeline is already this machine's day: a machine chip here could only say
           // "All machines" over one machine's lines, which would be a lie.
           showFilters={false}

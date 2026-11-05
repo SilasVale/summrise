@@ -804,6 +804,40 @@ describe("ActivityTimeline", () => {
     ).toBeInTheDocument();
   });
 
+  it("names what was drawn and what the merge withheld from the fetched window", () => {
+    // The measured Activity 1440 window: 1000 fetched, 34 channel boundaries, 17 repeated keys.
+    // The sentence names the 949 rows a reader gets, not the fetch's 1000.
+    const counts = { fetched: 1000, drawn: 949, boundaries: 34, repeats: 17 };
+    render(
+      <ActivityTimeline lines={[fromAlpha]} devices={[]} atLimit windowCounts={counts} />
+    );
+
+    expect(
+      screen.getByText(
+        "Showing the newest 949 lines of 1000 fetched (34 channel events, 17 repeats not drawn)."
+      )
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/the window's limit/)).toBeNull();
+  });
+
+  it("names the machine and the cut beside the withheld counts", () => {
+    render(
+      <ActivityTimeline
+        lines={[fromAlpha]}
+        devices={devices}
+        capped
+        cappedMachine="Alpha"
+        windowCounts={{ fetched: 1000, drawn: 949, boundaries: 34, repeats: 17 }}
+      />
+    );
+
+    expect(
+      screen.getByText(
+        "Showing the newest 949 lines of 1000 fetched from Alpha (34 channel events, 17 repeats not drawn); older ones are not on this page."
+      )
+    ).toBeInTheDocument();
+  });
+
   it("reads the new window in one line instead of drawing the old window's rows", () => {
     render(
       <ActivityTimeline

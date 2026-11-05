@@ -96,3 +96,82 @@ describe("merging the fetched window with the live stream", () => {
     expect(window.atLimit).toBe(true);
   });
 });
+
+describe("what the cap sentence counts", () => {
+  /** The measured Activity window: 1000 fetched, 34 channel boundaries and 17 repeated keys. */
+  function measuredWindow() {
+    const lines = [];
+    for (let index = 0; index < 34; index++) lines.push(audit(10_000 - index, "device.left"));
+    for (let index = 0; index < 949; index++) lines.push(audit(9_000 - index, `tool.${index}`));
+    // The same line written twice: same instant, tool and status, so the merge draws it once.
+    for (let index = 0; index < 17; index++) lines.push({ ...lines[34 + index] });
+    return lines;
+  }
+
+  it("reports how many lines were fetched and how many the merge withheld", () => {
+    const window = mergeActivityWindow(measuredWindow(), []);
+
+    expect(window.lines).toHaveLength(983);
+    expect(window.fetched).toBe(1000);
+    expect(window.boundaries).toBe(34);
+    expect(window.repeats).toBe(17);
+    expect(window.lines.filter((line) => line.tool !== "device.left")).toHaveLength(949);
+  });
+
+  it("names the drawn count, the fetched count and both kinds of withheld row", () => {
+    // The measured sentence: 1000 fetched - 34 boundaries - 17 repeats = 949 drawn.
+    expect(
+      capSentence(1000, null, "at-limit", {
+        fetched: 1000,
+        drawn: 949,
+        boundaries: 34,
+        repeats: 17
+      })
+    ).toBe(
+      "Showing the newest 949 lines of 1000 fetched (34 channel events, 17 repeats not drawn)."
+    );
+  });
+
+  it("names the machine and the cut when both are true", () => {
+    // The measured hub: 1000 fetched, 6 boundaries and 17 repeats = 977 drawn from one machine.
+    expect(
+      capSentence(
+        1000,
+        "workshop",
+        "capped",
+        { fetched: 1000, drawn: 977, boundaries: 6, repeats: 17 }
+      )
+    ).toBe(
+      "Showing the newest 977 lines of 1000 fetched from workshop (6 channel events, 17 repeats not drawn); older ones are not on this page."
+    );
+  });
+
+  it("counts one withheld row without inventing the other kind", () => {
+    expect(
+      capSentence(1000, null, "at-limit", {
+        fetched: 1000,
+        drawn: 999,
+        boundaries: 1,
+        repeats: 0
+      })
+    ).toBe("Showing the newest 999 lines of 1000 fetched (1 channel event not drawn).");
+    expect(
+      capSentence(1000, null, "at-limit", {
+        fetched: 1000,
+        drawn: 999,
+        boundaries: 0,
+        repeats: 1
+      })
+    ).toBe("Showing the newest 999 lines of 1000 fetched (1 repeat not drawn).");
+  });
+
+  it("keeps the simple sentence when nothing was withheld", () => {
+    const nothing = { fetched: 1000, drawn: 1000, boundaries: 0, repeats: 0 };
+    expect(capSentence(1000, null, "at-limit", nothing)).toBe(
+      "Showing the newest 1000 lines — the window's limit."
+    );
+    expect(capSentence(1000, null, "capped", nothing)).toBe(
+      "Showing the newest 1000 lines; older ones are not on this page."
+    );
+  });
+});

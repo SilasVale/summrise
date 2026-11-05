@@ -554,6 +554,19 @@ draws no update line — correctly: it said nothing.
    hidden by rules the sentence does not name; the cap sentence is the only place a cut is
    explained. **Fix:** say what was read and what is drawn (“1000 read · 977 shown; 23 channel facts
    and repeated lines are not drawn”), from the same list the fold counts. **S.**
+   *(Done 2026-11-05: the sentence is built from the counts the merge already makes.
+   `mergeActivityReport` returns the repeated keys it dropped, `mergeActivityWindow` adds the two
+   reads' length and the channel boundaries in the window it holds, and `capSentence` names the
+   drawn/fetched pair and only the kinds that were withheld: **“Showing the newest 949 lines of 1000
+   fetched (34 channel events, 17 repeats not drawn).”** With nothing withheld it keeps the simple
+   form. The timeline and the hub use the timeline's counts (boundaries dropped); the audit Table is
+   the audit and draws the boundaries, so it reads **“Showing the newest 983 lines of 1000 fetched (17
+   repeats not drawn).”** A paused page freezes the counts with its rows: the measured fixture held
+   949 of 1000 while a live line arrived, then read 950 of 1001 on Resume. Measured on the measured
+   fixtures: Activity 949/34/17; the hub 977/6/17 above “Show the rest of today (917 more)”.
+   `npx vitest run` 642 passed across 51 files (11 new); typecheck and build clean;
+   `./scripts/build-web.sh --check` clean with dist committed; browser gate PASS 23 steps;
+   `a11y-audit` 0 findings across 16 page states.)*
 
 ### Cuts
 

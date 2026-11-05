@@ -1,24 +1,43 @@
 import type { AuditLine } from "./api";
 import type { LiveLine } from "./liveActivity";
+import { isChannelBoundary } from "./activitySummary";
+
+/** The merged window, and how many lines one read (or the other) had already carried. */
+export type MergedActivity = {
+  lines: AuditLine[];
+  /** Lines dropped because the same line — instant, tool, status — was already in the list. */
+  repeats: number;
+};
 
 /**
- * One list out of two reads of the same file.
+ * One list out of two reads of the same file, and how many repeats it dropped.
  *
  * The activity page fetches `/audit` (a window of the index) and also follows `/events` (the newest
  * lines, live). The live lines are the newest of the same lines, so they come first and the fetched
  * window fills in behind them; a line seen through both is shown once, keyed by the facts that make
- * it the same line — its time, the tool it named and the status it returned.
+ * it the same line — its time, the tool it named and the status it returned. `repeats` is the
+ * count of lines the merge did not carry, which the cap sentence names rather than leaving the
+ * difference between fetched and drawn unexplained.
  */
-export function mergeActivity(audit: AuditLine[], live: LiveLine[]): AuditLine[] {
+export function mergeActivityReport(audit: AuditLine[], live: LiveLine[]): MergedActivity {
   const seen = new Set<string>();
   const merged: AuditLine[] = [];
+  let repeats = 0;
   for (const line of [...live, ...audit]) {
     const key = `${line.ts_ms}-${line.tool ?? ""}-${line.status}`;
-    if (seen.has(key)) continue;
+    if (seen.has(key)) {
+      repeats += 1;
+      continue;
+    }
     seen.add(key);
     merged.push(line);
   }
-  return merged;
+  return { lines: merged, repeats };
+}
+
+/** The merged window alone; callers that need the withheld count use [`mergeActivityReport`]. */
+export function mergeActivity(audit: AuditLine[], live: LiveLine[]): AuditLine[] {
+  return mergeActivityReport(audit, live).lines;
 }
 
 /**
@@ -40,6 +59,37 @@ export type ActivityWindow = {
    * a full window. It says no more than that: the server cannot prove an older line exists.
    */
   atLimit: boolean;
+  /**
+   * Lines both reads returned, before the merge dropped repeats. The cap sentence says "of N
+   * fetched" from this, not from the list's length: the differences are the rows it names.
+   */
+  fetched: number;
+  /**
+   * Channel boundaries (`device.left`/`device.joined`) in the window this page holds. The timeline
+   * and the hub never draw them, so they are part of what the sentence says was withheld; the
+   * audit table draws them and passes its own count instead.
+   */
+  boundaries: number;
+  /** Lines the merge dropped because an equal line was already in the list. */
+  repeats: number;
+};
+
+/** What one surface of the page withheld from a fetched window, for the cap sentence. */
+export type WindowCounts = {
+  /** Lines the reads returned, before repeats were dropped. */
+  fetched: number;
+  /** How many of the merged window this surface draws. */
+  drawn: number;
+  /** Channel boundaries the merge held and this surface does not draw. */
+  boundaries: number;
+  /** Lines the merge dropped because an earlier line had the same identity. */
+  repeats: number;
+};
+
+/** The rows a cap left, and whether it cut any: all `capActivity` can know from the list. */
+export type CappedActivity = {
+  lines: AuditLine[];
+  capped: boolean;
 };
 
 /**
@@ -49,18 +99,48 @@ export type ActivityWindow = {
  * "of today" would be a claim the row list cannot keep. When the window is one machine's, the cut
  * sentence names it: the cut is that machine's lines, not the fleet's.
  *
- * `at-limit` is the other fact: the request filled and nothing was dropped, so the sentence names
- * the window's size and claims nothing about what lies behind it. It names no machine because no
- * cut happened; the machine is the page's scope, not this sentence's subject.
+ * `counts` makes the sentence name what the reader can see and what was withheld: the list's length
+ * is not the fetch's when the merge dropped repeated keys or a view dropped channel boundaries. The
+ * three figures come from the same merge the list does. With nothing withheld the sentence keeps
+ * its simpler form, because "1000 of 1000 fetched" would be noise.
+ *
+ * `at-limit` is the other fact: the request filled and nothing else was dropped, so the sentence
+ * names the window's size and claims nothing about what lies behind it. It names no machine because
+ * no cut happened; the machine is the page's scope, not this sentence's subject.
  */
 export function capSentence(
   limit = ACTIVITY_LIMIT,
   machine: string | null = null,
-  fact: "capped" | "at-limit" = "capped"
+  fact: "capped" | "at-limit" = "capped",
+  counts: WindowCounts | null = null
 ): string {
+  const withheld = withheldClause(counts);
+  if (counts !== null && withheld !== null) {
+    const from = machine === null ? "" : ` from ${machine}`;
+    const tail = fact === "capped" ? "; older ones are not on this page." : ".";
+    return `Showing the newest ${counts.drawn} lines of ${counts.fetched} fetched${from} (${withheld})${tail}`;
+  }
   if (fact === "at-limit") return `Showing the newest ${limit} lines — the window's limit.`;
   const from = machine === null ? "" : ` from ${machine}`;
   return `Showing the newest ${limit} lines${from}; older ones are not on this page.`;
+}
+
+/**
+ * The parenthetical's content: how many channel events and repeated lines were not drawn.
+ *
+ * Only the kinds that exist are named — a window with no boundary must not claim one — and "not
+ * drawn" is stated once at the end because it applies to both counts.
+ */
+function withheldClause(counts: WindowCounts | null): string | null {
+  if (counts === null) return null;
+  const parts: string[] = [];
+  if (counts.boundaries > 0) {
+    parts.push(`${counts.boundaries} channel ${counts.boundaries === 1 ? "event" : "events"}`);
+  }
+  if (counts.repeats > 0) {
+    parts.push(`${counts.repeats} ${counts.repeats === 1 ? "repeat" : "repeats"}`);
+  }
+  return parts.length === 0 ? null : `${parts.join(", ")} not drawn`;
 }
 
 /**
@@ -77,11 +157,11 @@ export function windowLoadingSentence(machine: string | null = null): string {
 }
 
 /** The newest `limit` lines, and whether anything older was dropped to get there. */
-export function capActivity(lines: AuditLine[], limit = ACTIVITY_LIMIT): ActivityWindow {
+export function capActivity(lines: AuditLine[], limit = ACTIVITY_LIMIT): CappedActivity {
   // `atLimit` is the fetch's fact, not the merged list's: this function only knows the list.
-  if (lines.length <= limit) return { lines, capped: false, atLimit: false };
+  if (lines.length <= limit) return { lines, capped: false };
   // Both sources arrive newest first and the merge keeps that order, so the tail is the older end.
-  return { lines: lines.slice(0, limit), capped: true, atLimit: false };
+  return { lines: lines.slice(0, limit), capped: true };
 }
 
 /**
@@ -90,14 +170,20 @@ export function capActivity(lines: AuditLine[], limit = ACTIVITY_LIMIT): Activit
  * The merge can shrink a full window (a line seen through both the file and the live stream is
  * drawn once), so `atLimit` is read from the fetched answer's length. A list that was both full
  * and cut at the merge keeps both facts; the views draw the cut sentence, which is the stronger.
+ * The counts are taken after the cut: the sentence describes the window the page holds.
  */
 export function mergeActivityWindow(
   audit: AuditLine[],
   live: LiveLine[],
   limit = ACTIVITY_LIMIT
 ): ActivityWindow {
+  const merged = mergeActivityReport(audit, live);
+  const cut = capActivity(merged.lines, limit);
   return {
-    ...capActivity(mergeActivity(audit, live), limit),
-    atLimit: audit.length >= limit
+    ...cut,
+    atLimit: audit.length >= limit,
+    fetched: audit.length + live.length,
+    boundaries: cut.lines.filter(isChannelBoundary).length,
+    repeats: merged.repeats
   };
 }

@@ -1,4 +1,8 @@
-import { capSentence, windowLoadingSentence } from "./activityMerge";
+import {
+  capSentence,
+  windowLoadingSentence,
+  type WindowCounts
+} from "./activityMerge";
 import { Fragment, useMemo, useState } from "react";
 import type { AuditLine, Device, TokenMeta } from "./api";
 import { auditFailed, filterAudit, type AuditFilter } from "./auditFilter";
@@ -168,6 +172,7 @@ export function AuditTable({
   capped = false,
   cappedMachine = null,
   atLimit = false,
+  windowCounts = null,
   loading = false,
   loadingMachine = null
 }: {
@@ -181,6 +186,12 @@ export function AuditTable({
    * about the lines behind it, which the server cannot prove exist.
    */
   atLimit?: boolean;
+  /**
+   * What this table withheld from the fetched window. Unlike the timeline, the table is the audit
+   * and draws the channel boundaries too, so the page hands it `boundaries: 0` and the merged list's
+   * length as the drawn count; only repeated keys are withheld here.
+   */
+  windowCounts?: WindowCounts | null;
   /** True while a changed scope's window is being read; the table says so instead of the old rows. */
   loading?: boolean;
   /** The machine whose window is being read, or `null` for the fleet's. */
@@ -484,7 +495,8 @@ export function AuditTable({
               {capSentence(
                 AUDIT_WINDOW,
                 cappedMachine,
-                capped ? "capped" : "at-limit"
+                capped ? "capped" : "at-limit",
+                windowCounts ?? null
               )}
             </p>
           )}

@@ -15,7 +15,7 @@ import { retrySentence } from "./logic";
 import { recordVitals, type VitalsSample } from "./vitals";
 import { AUDIT_WINDOW, AuditTable, type AuditScope, type AuditSince } from "./AuditTable";
 import type { AuditFilter } from "./auditFilter";
-import { mergeActivityWindow } from "./activityMerge";
+import { mergeActivityWindow, type WindowCounts } from "./activityMerge";
 import { activityCountLine } from "./activitySummary";
 import { ActivityTimeline } from "./ActivityTimeline";
 import { DEVICE_TAB_LABELS, PAGE_LABELS, Rail, type DeviceTab, type Page } from "./Rail";
@@ -135,6 +135,9 @@ export function App() {
   // Whether the window frozen behind the pause filled the server's limit. A paused page keeps
   // saying what its window is, not what the live window has since become.
   const [frozenAtLimit, setFrozenAtLimit] = useState(false);
+  // The window's counts at the freeze, so a paused page keeps the numbers the sentence had, not the
+  // numbers the sliding window would give the same list. `null` while following.
+  const [frozenCounts, setFrozenCounts] = useState<WindowCounts | null>(null);
   // The frozen list's window. The cap sentence and the loading decision describe what is on screen,
   // and a pause keeps the rows it froze even if a scope change fetches another window behind it.
   const [frozenDevice, setFrozenDevice] = useState<string | null>(null);
@@ -149,6 +152,26 @@ export function App() {
   // The window's limit is the fetch's fact, so a paused page keeps the one it froze with.
   const shownAtLimit =
     activityPaused && frozenActivity ? frozenAtLimit : activityWindow.atLimit;
+  // **THE SENTENCE COUNTS WHAT THE LIST DID.** The timeline drops channel boundaries; the table is
+  // the audit and draws them. Both withheld repeated keys. The counts come from the same merge the
+  // rows do, so the fetched figure cannot disagree with the drawn one.
+  const activityCounts: WindowCounts = {
+    fetched: activityWindow.fetched,
+    drawn: activityWindow.lines.length - activityWindow.boundaries,
+    boundaries: activityWindow.boundaries,
+    repeats: activityWindow.repeats
+  };
+  const tableCounts: WindowCounts = {
+    fetched: activityWindow.fetched,
+    drawn: activityWindow.lines.length,
+    boundaries: 0,
+    repeats: activityWindow.repeats
+  };
+  const shownCounts = activityPaused && frozenCounts ? frozenCounts : activityCounts;
+  const shownTableCounts =
+    activityPaused && frozenCounts && frozenActivity
+      ? { ...frozenCounts, drawn: frozenActivity.length, boundaries: 0 }
+      : tableCounts;
   const freshActivity =
     activityPaused && pausedAt !== null
       ? activityLines.filter((line) => line.ts_ms > pausedAt).length
@@ -159,6 +182,7 @@ export function App() {
       setFrozenActivity(null);
       setFrozenCapped(false);
       setFrozenAtLimit(false);
+      setFrozenCounts(null);
       setFrozenDevice(null);
       setPausedAt(null);
     } else {
@@ -166,6 +190,7 @@ export function App() {
       setFrozenActivity(activityLines);
       setFrozenCapped(activityWindow.capped);
       setFrozenAtLimit(activityWindow.atLimit);
+      setFrozenCounts(activityCounts);
       setFrozenDevice(auditDevice);
       setActivityPaused(true);
     }
@@ -880,6 +905,7 @@ export function App() {
                   capped={shownCapped}
                   atLimit={shownAtLimit}
                   cappedMachine={shownWindowName}
+                  windowCounts={shownCounts}
                   loading={auditReadingOther}
                   loadingMachine={auditReadingName}
                   query={activityFilter.tool}
@@ -912,6 +938,7 @@ export function App() {
                   capped={shownCapped}
                   atLimit={shownAtLimit}
                   cappedMachine={shownWindowName}
+                  windowCounts={shownTableCounts}
                   loading={auditReadingOther}
                   loadingMachine={auditReadingName}
                   devices={devices}

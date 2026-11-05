@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
 import { HttpError } from "./api";
+import type { AuditLine } from "./api";
 import { VITALS_KEY_PREFIX, type VitalsSample } from "./vitals";
 import { resetLiveToolsCache } from "./useLiveTools";
 
@@ -115,6 +116,37 @@ const tokenCall = {
   status: 200,
   token_id: tokenId
 };
+
+/**
+ * The measured Activity window: 1000 fetched lines, 34 channel boundaries and 17 repeated keys.
+ * The merge drops the 17 repeats, so the table draws 983; the timeline also drops the 34 channel
+ * facts, so it draws 949. Those are the numbers item 6 measured and the sentence must name.
+ */
+function measuredActivityWindow(): AuditLine[] {
+  const base = Date.now();
+  const lines: AuditLine[] = [];
+  for (let index = 0; index < 34; index++) {
+    lines.push({
+      ...tokenCall,
+      ts_ms: base - index * 1000,
+      tool: "device.left",
+      caller: "console",
+      token_id: null
+    });
+  }
+  for (let index = 0; index < 949; index++) {
+    lines.push({
+      ...tokenCall,
+      ts_ms: base - (34 + index) * 1000,
+      tool: `window.${index}`,
+      caller: "client",
+      sentence: `Call ${index}`
+    });
+  }
+  // The same line written twice: same instant, tool and status, so the merge draws it once.
+  for (let index = 0; index < 17; index++) lines.push({ ...lines[34 + index] });
+  return lines;
+}
 
 /** One built-in and the plugin tool that makes the plugin section supported. */
 const filesTool = {
@@ -690,6 +722,72 @@ describe("App", () => {
       ).toBeNull()
     );
   });
+
+  it("names what Activity drew from the fetched window, and what each view withheld", async () => {
+    // 1000 fetched: 34 channel boundaries and 17 repeated keys. The timeline drops both and draws
+    // 949; the table is the audit and draws the boundaries too, so it holds 983.
+    mocks.audit.mockResolvedValue(measuredActivityWindow());
+    await bootAndSignIn();
+    fireEvent.click(screen.getByRole("button", { name: "Activity" }));
+
+    expect(
+      await screen.findByText(
+        "Showing the newest 949 lines of 1000 fetched (34 channel events, 17 repeats not drawn)."
+      )
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("tab", { name: "Table" }));
+    expect(
+      screen.getByText(
+        "Showing the newest 983 lines of 1000 fetched (17 repeats not drawn)."
+      )
+    ).toBeInTheDocument();
+  });
+
+  it("keeps a paused page's window numbers frozen until it resumes", async () => {
+    mocks.audit.mockResolvedValue(measuredActivityWindow());
+    await bootAndSignIn();
+    fireEvent.click(screen.getByRole("button", { name: "Activity" }));
+    expect(
+      await screen.findByText(
+        "Showing the newest 949 lines of 1000 fetched (34 channel events, 17 repeats not drawn)."
+      )
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Pause" }));
+    const source = TestEventSource.instances[TestEventSource.instances.length - 1];
+    expect(source).toBeDefined();
+    act(() => {
+      source.emit("activity", {
+        ts_ms: Date.now() + 5_000,
+        kind: "mcp",
+        status: 200,
+        ok: true,
+        sentence: "Read `notes.txt` after the pause",
+        tool: "files.read",
+        device_id: workshop.id,
+        caller: "client"
+      });
+    });
+    await screen.findByRole("button", { name: /^Resume/ });
+
+    // The frozen list is still the window it froze: four numbers, not the live one's five.
+    expect(
+      screen.getByText(
+        "Showing the newest 949 lines of 1000 fetched (34 channel events, 17 repeats not drawn)."
+      )
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/950 lines of 1001 fetched/)).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: /^Resume/ }));
+    // The live line joins the merge: 1001 fetched, 34 boundaries, 17 repeats, 950 drawn.
+    expect(
+      await screen.findByText(
+        "Showing the newest 950 lines of 1001 fetched (34 channel events, 17 repeats not drawn)."
+      )
+    ).toBeInTheDocument();
+    // Two full windows (949 rows, then 950) in jsdom: the default five seconds cannot hold both.
+  }, 15_000);
 
   it("reads a chip's own window instead of filtering another machine's, and says it is reading", async () => {
     const atticLine = {

@@ -1,6 +1,11 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
 import type { AuditLine, Device, TokenMeta } from "./api";
-import { ACTIVITY_LIMIT, capSentence, windowLoadingSentence } from "./activityMerge";
+import {
+  ACTIVITY_LIMIT,
+  capSentence,
+  windowLoadingSentence,
+  type WindowCounts
+} from "./activityMerge";
 import { isChannelBoundary, isClientCall } from "./activitySummary";
 import { auditFailed } from "./auditFilter";
 import { ageAt, shortId } from "./format";
@@ -536,6 +541,12 @@ export function ActivityTimeline(props: {
    */
   atLimit?: boolean;
   /**
+   * What this view withheld from the fetched window: the drawn count, the fetch's count, and the
+   * channel boundaries and repeated keys the merge did not draw. The cap sentence names them; a
+   * view that has none of the facts keeps its simpler sentence.
+   */
+  windowCounts?: WindowCounts | null;
+  /**
    * True while a changed scope's window is being read. The rows still in hand belong to the previous
    * window, so the list shows one reading line instead of drawing another window's rows.
    */
@@ -685,7 +696,8 @@ export function ActivityTimeline(props: {
           {capSentence(
             ACTIVITY_LIMIT,
             props.cappedMachine ?? null,
-            props.capped ? "capped" : "at-limit"
+            props.capped ? "capped" : "at-limit",
+            props.windowCounts ?? null
           )}
         </p>
       )}
