@@ -1007,6 +1007,18 @@ try {
   );
   await page.locator('nav.rail button[title="Activity"]').click();
   await page.getByRole('heading', { name: 'Activity' }).waitFor({ timeout: 10_000 });
+  // **A PAUSED PAGE RESUMES; IT DOES NOT REFRESH (C10).** The measured button reissued the poll's
+  // read (`/fleet`, `/audit?limit=1000&device=…`, `/tokens`), and a page paused at 955 rows stayed
+  // 955 after the click. The poll and Resume own the two jobs.
+  const activityActions = await page.locator('.page-actions button').allTextContents();
+  if (activityActions.some((text) => text.trim() === 'Refresh')) {
+    throw new Error(`Activity still offers Refresh: ${JSON.stringify(activityActions)}`);
+  }
+  await page.getByRole('button', { name: 'Pause' }).click();
+  const resume390 = page.getByRole('button', { name: /^Resume/ });
+  await resume390.waitFor({ timeout: 5_000 });
+  await resume390.click();
+  step('Activity offers no Refresh: Pause/Resume is the paused page\'s one way back');
   await page.getByRole('tab', { name: 'Table' }).click();
   const firstAuditRow = page.locator('.audit-row').first();
   await firstAuditRow.waitFor({ timeout: 10_000 });

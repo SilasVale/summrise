@@ -838,6 +838,7 @@ describe("App", () => {
     }));
     mocks.audit.mockResolvedValue(full);
     await bootAndSignIn();
+    selectDevice("workshop");
     fireEvent.click(screen.getByRole("button", { name: "Activity" }));
 
     expect(
@@ -848,9 +849,14 @@ describe("App", () => {
       screen.getByText("Showing the newest 1000 lines — the window's limit.")
     ).toBeInTheDocument();
 
-    // One line fewer is not the limit: the same page must not keep claiming it.
+    // One line fewer is not the limit: the same page must not keep claiming it. The scope change
+    // is the page's next read — there is no manual control repeating the poll (C10).
     mocks.audit.mockResolvedValue(full.slice(0, 999));
-    fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
+    fireEvent.click(
+      within(screen.getByRole("group", { name: "Audit scope" })).getByRole("button", {
+        name: "All machines"
+      })
+    );
     await waitFor(() =>
       expect(
         screen.queryByText("Showing the newest 1000 lines — the window's limit.")
@@ -972,7 +978,7 @@ describe("App", () => {
     expect(screen.queryByText("Reading attic's window…")).toBeNull();
   });
 
-  it("reads the machine's window on the page's read and after a dropped frame", async () => {
+  it("reads the machine's window for the page and after a dropped frame", async () => {
     mocks.audit.mockResolvedValue([
       { ...tokenCall, ts_ms: Date.now(), sentence: "A call on the chosen machine" }
     ]);
@@ -980,16 +986,15 @@ describe("App", () => {
     selectDevice("workshop");
     fireEvent.click(screen.getByRole("button", { name: "Activity" }));
     await screen.findByRole("heading", { name: "Activity", level: 1 });
+
+    // Selecting the machine is the page's own read: the same reader the five-second poll and the
+    // stream's catch-up use, with the scope's device. No control reissues it (C10).
+    await waitFor(() => expect(mocks.audit).toHaveBeenLastCalledWith(1000, workshop.id));
+
     const source = TestEventSource.instances[TestEventSource.instances.length - 1];
     act(() => {
       source.emit("snapshot", { lines: [] });
     });
-
-    // Refresh and the five-second tick are the same `load`; both read the scope's window.
-    const beforeRefresh = mocks.audit.mock.calls.length;
-    fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
-    await waitFor(() => expect(mocks.audit).toHaveBeenCalledTimes(beforeRefresh + 1));
-    expect(mocks.audit).toHaveBeenLastCalledWith(1000, workshop.id);
 
     // The lag reread goes through the same decision: the hole is in this machine's window.
     const beforeLag = mocks.audit.mock.calls.length;
@@ -1490,8 +1495,7 @@ describe("App", () => {
     expect(within(screen.getByRole("table")).getByText(shortTokenId)).toBeInTheDocument();
   });
 
-  it("samples host facts into the browser-local history, per device", async () => {
-    const gib = 1024 ** 3;
+  it("samples host facts into the browser-local history, per device", async () => {    const gib = 1024 ** 3;
     mocks.devices.mockResolvedValue([
       {
         ...workshop,
@@ -1525,13 +1529,12 @@ describe("App", () => {
     expect(stored[1].ts_ms).toBeGreaterThan(prior[0].ts_ms);
     expect(localStorage.getItem(VITALS_KEY_PREFIX + attic.id)).toBeNull();
 
-    // A second refresh inside the 30 s window moves the fleet, not the history: there is no new
-    // interval, and the stored timestamp is the only cadence. Activity's Refresh is the page's read.
-    fireEvent.click(screen.getByRole("button", { name: "Activity" }));
-    fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
-    await waitFor(() => expect(mocks.devices).toHaveBeenCalledTimes(2));
+    // A second poll inside the 30 s window moves the fleet, not the history: the stored timestamp
+    // is the only cadence. The five-second poll is the page's only read now (C10) — Activity has
+    // no manual control that repeats it — so this waits for the page's own clock.
+    await waitFor(() => expect(mocks.devices).toHaveBeenCalledTimes(2), { timeout: 6_000 });
     expect(JSON.parse(localStorage.getItem(VITALS_KEY_PREFIX + workshop.id) ?? "[]")).toHaveLength(2);
-  });
+  }, 10_000);
 
   it("rereads the audit after a dropped frame, and says so until the answer lands", async () => {
     await bootAndSignIn();
@@ -1590,23 +1593,30 @@ describe("App", () => {
     expect(screen.queryByText(/were dropped while this tab was behind/)).toBeNull();
   });
 
-  it("keeps the newest audit read when the poll and a lag reread overlap", async () => {
+  it("keeps the newest audit read when a scope read and a lag reread overlap", async () => {
     await bootAndSignIn();
+    selectDevice("workshop");
     fireEvent.click(screen.getByRole("button", { name: "Activity" }));
     await screen.findByRole("heading", { name: "Activity", level: 1 });
+    // The table owns the machine scope control; a change of scope is a read.
+    fireEvent.click(screen.getByRole("tab", { name: "Table" }));
     const source = TestEventSource.instances[TestEventSource.instances.length - 1];
     act(() => {
       source.emit("snapshot", { lines: [] });
     });
 
-    // Two reads of the same growing file can be in flight: the five-second poll's and the reread a
+    // Two reads of the same growing file can be in flight: the scope change's read and the reread a
     // drop started. The file only gains lines, so the read that STARTED later is the fresher answer.
-    const polled = deferred<unknown[]>();
+    const scoped = deferred<unknown[]>();
     const reread = deferred<unknown[]>();
     const readsBefore = mocks.audit.mock.calls.length;
-    mocks.audit.mockReturnValueOnce(polled.promise).mockReturnValueOnce(reread.promise);
+    mocks.audit.mockReturnValueOnce(scoped.promise).mockReturnValueOnce(reread.promise);
 
-    fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
+    fireEvent.click(
+      within(screen.getByRole("group", { name: "Audit scope" })).getByRole("button", {
+        name: "All machines"
+      })
+    );
     await waitFor(() => expect(mocks.audit).toHaveBeenCalledTimes(readsBefore + 1));
     act(() => {
       source.emit("lagged", { dropped: 1 });
@@ -1618,11 +1628,11 @@ describe("App", () => {
     });
     expect(await screen.findByText("The reread's line")).toBeInTheDocument();
 
-    // The poll's older answer lands after it; it must not reopen the hole the reread just filled.
+    // The scope read's older answer lands after it; it must not reopen the hole the reread filled.
     await act(async () => {
-      polled.resolve([{ ...tokenCall, ts_ms: 1, sentence: "The poll's older line" }]);
+      scoped.resolve([{ ...tokenCall, ts_ms: 1, sentence: "The scope's older line" }]);
     });
-    await waitFor(() => expect(screen.queryByText("The poll's older line")).toBeNull());
+    await waitFor(() => expect(screen.queryByText("The scope's older line")).toBeNull());
     expect(screen.getByText("The reread's line")).toBeInTheDocument();
   });
 
@@ -1659,6 +1669,23 @@ describe("App", () => {
     expect(await screen.findByText("Read `notes.txt`")).toBeInTheDocument();
   });
 
+  it("offers no manual read on Activity: the poll fetches, and Resume shows what arrived", async () => {
+    mocks.audit.mockResolvedValue([{ ...tokenCall, ts_ms: Date.now() }]);
+    await bootAndSignIn();
+    fireEvent.click(screen.getByRole("button", { name: "Activity" }));
+    await screen.findByRole("heading", { name: "Activity", level: 1 });
+
+    // C10: the measured button reissued `/fleet`, `/audit?limit=1000&device=…` and `/tokens`, and a
+    // paused page's click left its frozen list unchanged. The poll and Resume own both jobs.
+    expect(screen.queryByRole("button", { name: /refresh/i })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Pause" }));
+    const reads = mocks.audit.mock.calls.length;
+    fireEvent.click(screen.getByRole("button", { name: /^Resume/ }));
+    // Resume reveals the window the poll already fetched; it is not another reader.
+    expect(mocks.audit).toHaveBeenCalledTimes(reads);
+  });
+
   it("counts a line the fetched window slid in, not the list's length", async () => {
     // The window that fills the list is `/audit`, and it slides: one old line leaves while one new
     // line arrives, so the list's length does not move even though a call is new.
@@ -1677,8 +1704,11 @@ describe("App", () => {
         status: 200
       }
     ]);
-    fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
 
-    expect(await screen.findByRole("button", { name: "Resume (1 new)" })).toBeInTheDocument();
-  });
+    // The five-second poll is the page's only read now (C10): while paused it keeps fetching, and
+    // Resume is how the operator sees what arrived.
+    expect(
+      await screen.findByRole("button", { name: "Resume (1 new)" }, { timeout: 6_000 })
+    ).toBeInTheDocument();
+  }, 10_000);
 });

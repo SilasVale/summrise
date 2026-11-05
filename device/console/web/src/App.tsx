@@ -106,7 +106,7 @@ export function App() {
       setAuditDevice(device);
     }
   }, []);
-  // The same index, streamed: what the AI is doing now, not what it did before the last refresh.
+  // The same index, streamed: what the AI is doing now, not what it did before the last read.
   // `rereadAudit` is how the hook fills the hole a `lagged` frame says the stream left.
   const live = useLiveActivity(Boolean(session?.authenticated), rereadAudit);
   // Activity follows the stream unless the operator paused it: a paused table is a snapshot of the
@@ -409,7 +409,8 @@ export function App() {
   }, [probe]);
 
   // A signed-in session polls; a signed-out one does not. The device list is the thing an operator
-  // watches, and a list that is a minute stale is the reason they refresh and lose their selection.
+  // watches, and this poll is the page's only read: a manual button would repeat it and still could
+  // not show its answer under a pause (C10).
   useEffect(() => {
     if (!session?.authenticated) return;
     const timer = window.setInterval(() => {
@@ -868,7 +869,6 @@ export function App() {
                 <button type="button" onClick={pauseActivity}>
                   {activityPaused ? (freshActivity > 0 ? `Resume (${freshActivity} new)` : "Resume") : "Pause"}
                 </button>
-                <button type="button" onClick={() => void load()}>Refresh</button>
               </div>
             </header>
             <section className="panel">
