@@ -211,7 +211,7 @@ read; nothing here is a suspicion, and the two lists above are not re-opened.
    are silently gone. **Fix:** set `capped` from the fetched window's length (`>= ACTIVITY_LIMIT`),
    not from the merged list. **S.**
 
-5. **The biggest stretch is 470 rows and its summary arrives after them.** Activity draws **997
+5. **The biggest stretch is 470 rows and its summary arrives after them.** *(Done 2026-11-05, 7a2cb68: a stretch longer than 10 rows states itself above the rows; a one-call stretch has no label — 666 labels -> 333 in the 1000-row harness, 333 are single-call noise.)* Activity draws **997
    rows** and **64** stretch labels (05:12); **28 say "1 call"** and one says "2 calls · 0 s". The
    largest is **"470 calls · 51 m 30 s"**: 470 rows, 25,850 px, 46% of the 56,143 px timeline, and
    **360 of the 470 are "Read a terminal's output"**; the label is drawn after the 470 rows.
@@ -227,7 +227,7 @@ read; nothing here is a suspicion, and the two lists above are not re-opened.
    cannot tell whether to look at the edge or the machine. **Fix:** append the reason to the muted
    line when the fleet carries one. **S.**
 
-7. **Activity has no day count and no way to narrow to the AI.** It draws **997 rows (980 today)** —
+7. **Activity has no day count and no way to narrow to the AI.** *(Done 2026-11-05, c33296d: "Today 363 client calls · 12 failed · 587 unattributed" under the heading, and a "Clients only · N" chip; console rows have their own bucket and are never folded into unattributed.)* It draws **997 rows (980 today)** —
    363 client-proven, 30 console-marked, 587 unattributed, and 12 failed (the 12 are in the
    unattributed set; the 62 marked client calls are all 200) — and its header says only
    "Following the console's audit as it is written." The only client filter is Table → Token
