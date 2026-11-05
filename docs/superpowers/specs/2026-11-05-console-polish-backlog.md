@@ -70,7 +70,7 @@ Ranked by honesty first. Each item names its measurement and its gate.
 
 All six console-only; the last is the deletion. Ranked by how often the friction happens.
 
-1. **Make the morning's failures countable.** The hub cuts "today" at the browser's midnight, so an
+1. **Make the morning's failures countable.** *(Done 2026-11-05, c51aad9: one "Today N client calls · M failed · last HH:MM" line from the window already in hand, "Today none · last … yesterday" otherwise; failed rows read `failed`, including 200 with `ok:false`.)* The hub cuts "today" at the browser's midnight, so an
    08:00 page says "No calls from X today" after a night that ended at 23:50 (`HomePage.tsx:307-314,
    329-334`); a failed call reads with its HTTP **200** in the timeline (`ActivityTimeline.tsx:345-349`),
    and "what failed overnight" costs four controls. One "Today 24 client calls · 2 failed · last 14:32"
@@ -92,7 +92,7 @@ All six console-only; the last is the deletion. Ranked by how often the friction
 5. **Put the last column on screen at 390.** The audit table is 44 rem wide with its only opener in the
    sixth column, and the token sheet's Revoke/Rotate are clipped in the 600 px sheet even at 1280;
    move the disclosure to the first cell at ≤639 and stack each token's actions under its name. **S.**
-6. **Delete the device id from the Machine tab.** (`SystemPage.tsx:391-397`) prints 64 hex that nothing
+6. **Delete the device id from the Machine tab.** *(Done 2026-11-05: the 64 hex is gone; build and online stay; the record's Copy id and the Connect endpoint keep it.)* (`SystemPage.tsx:391-397`) prints 64 hex that nothing
    there acts on; the record's Copy id and the Connect endpoint keep it. **S.**
 
 ## P1 — the console stops feeling like a configuration tool
