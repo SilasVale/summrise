@@ -289,3 +289,15 @@ device's own scheduled check to stage it, the launcher to probe it on a scratch 
 flip, and `current.txt` to follow — with the old directory left behind for the rollback. Until that
 run is watched, "zero-human update" is structurally true and experimentally unverified; this note is
 here so nobody upgrades the claim without the run.
+
+### The rehearsal, as far as it got (2026-11-05 08:21 UTC)
+
+0.3.276 was published (installer served, channel pointer 0.3.276 read back from
+`release-canary.json`). `SummriseRepair` was triggered on DESKTOP-14RJCR8; within the same minute the
+machine left the tailnet (`tailscale status`: "offline, last seen 3m ago"; `tailscale ping` timed
+out), so it is asleep or off the network, not a dead service — a dead service leaves the peer online.
+**Unknown until it wakes:** whether the pointer flipped to 0.3.276 (the rehearsal passed) or stayed
+at 0.3.275 (the probe refused). Both outcomes are safe by design: a refused candidate leaves the
+pointer untouched. When the machine is back, read `C:\SummriseInstall\current.txt`, the `versions\`
+directories, and `state.json`'s `update`/`lastVerdict`; that is the evidence, not the version in the
+fleet alone.
