@@ -124,6 +124,27 @@ All six console-only; the last is the deletion. Ranked by how often the friction
    frame; the page's "seen 7m ago" reads the same moment, and the row does not explain silence as
    "reconnected after N attempts", which requires a real reconnect. **S.**
 
+3. **A machine that slept must not look like a failed update, and a machine that woke must prove
+   its version.** *(Done 2026-11-05, 4eed9a5: the 60 s frame carries a top-level `update` section
+   beside `host` — `current`, `verdict {outcome, detail}`, `last_update {to, outcome, at_ms}` and
+   `rolled_back_to` — read from `state.json` and omitted whole when it cannot be read; `/fleet`
+   serves it per device, newest frame wins; the fleet row and every machine tab draw the device's
+   own sentence, `started 0.3.275 (update to 0.3.276 refused)` or `started 0.3.276 (updated)`, as a
+   quiet line beside the silence. A silent device that sent no section still shows only
+   `offline · last seen 7m ago`; no page claims the machine slept.)* DESKTOP-14RJCR8's update check
+   was triggered at 08:21 and the machine left the tailnet inside the same minute (`tailscale ping`
+   timed out), so the console could only say "offline": a machine that stopped reporting and one an
+   update broke looked the same, and after it woke nobody could read whether the pointer moved
+   without a shell on it. The device already wrote `lastVerdict`, `update {phase, to, outcome,
+   lastResultAtMs}` and `baseline` into `state.json`; the fix puts those facts on the frame the
+   console already receives and lets the row repeat the device's own words instead of inferring a
+   cause. Measured: 6 new device host tests, 2 console integration tests (a frame's section reaches
+   `/fleet`; the newest frame wins; an absent section leaves the row without one), 1 channels unit
+   test, 7 sentence tests, 3 fleet-row tests and 2 machine-page tests; `cargo test -p
+   summrise-device -p summrise-console` 943 passed / 0 failed / 3 ignored; `npx vitest run` 598
+   passed; typecheck and build clean; `build-web.sh --check` clean (the page is committed); browser
+   gate PASS 17 steps; `a11y-audit` 0 findings across 16 page states. **S/M.**
+
 ## P1 — the console stops feeling like a configuration tool
 
 5. **Activity filters become chips.** Machine chips and a search field; the time-range select, the
