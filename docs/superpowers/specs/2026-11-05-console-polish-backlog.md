@@ -46,7 +46,7 @@ Ranked by honesty first. Each item names its measurement and its gate.
    event and the line; count only `client`; mark the console's own rows; stop the poll when hidden.
    Gate: a `console` line never sets "Active now"; the browser gate serves one `terminal.list` and
    expects "Quiet". **M.**
-2. **When the stream lags, say what was lost and reread it.** `/events` sends `{"dropped":N}`; the
+2. **When the stream lags, say what was lost and reread it.** *(Done 2026-11-05, b441f8e: the dropped count is parsed, summed, and only cleared by a completed reread; the page says "N lines were dropped while this tab was behind; rereading" and returns to Following after.)* `/events` sends `{"dropped":N}`; the
    client discards it, so the page says "Following…" over a hole. Parse it, refetch `/audit`, say
    "N lines were dropped while this tab was behind; rereading" until the answer lands. **S.**
 3. **A machine's scope must read that machine's window.** Activity fetches the fleet's 1000 and
