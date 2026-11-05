@@ -49,7 +49,7 @@ Ranked by honesty first. Each item names its measurement and its gate.
 2. **When the stream lags, say what was lost and reread it.** *(Done 2026-11-05, b441f8e: the dropped count is parsed, summed, and only cleared by a completed reread; the page says "N lines were dropped while this tab was behind; rereading" and returns to Following after.)* `/events` sends `{"dropped":N}`; the
    client discards it, so the page says "Following…" over a hole. Parse it, refetch `/audit`, say
    "N lines were dropped while this tab was behind; rereading" until the answer lands. **S.**
-3. **A machine's scope must read that machine's window.** Activity fetches the fleet's 1000 and
+3. **A machine's scope must read that machine's window.** *(Done 2026-11-05, 3dfaaeb: one window device derived from the scope; a switch is exactly one `/audit?device=` request; the cap sentence names the machine; chips list every machine and refetch rather than filter the wrong window.)* Activity fetches the fleet's 1000 and
    filters in the page; `GET /audit?device=` exists. Fetch the machine's own window when a chip is
    selected, and let the cap sentence name whose window was cut. **S.**
 4. **The hub's day must be reread, not remembered.** The machine window is fetched once per device;
