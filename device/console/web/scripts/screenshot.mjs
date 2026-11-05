@@ -1478,8 +1478,13 @@ async function capturePage(page, state, meta, pass) {
     await connect.waitFor({ state: 'hidden', timeout: 5_000 }).catch(() => undefined);
 
     await chooseMachine(page, state, 'studio');
+    // The offline device's fixture carries `last_attempt` with a reason, so the hub's sentence names
+    // the count and the reason now; the wait follows the new sentence and its titled reason.
     await page
-      .getByText("studio is not connected. The console keeps trying; open the machine's panel if it stays offline.")
+      .getByText(/studio is not connected after 5 attempts/)
+      .waitFor({ state: 'visible', timeout: 5_000 });
+    await page
+      .getByTitle('timed out waiting for the channel hello')
       .waitFor({ state: 'visible', timeout: 5_000 });
     const offlineFile = `home-offline${pass.suffix}.png`;
     await page.screenshot({ path: path.join(OUT, offlineFile), animations: 'disabled', fullPage: false });

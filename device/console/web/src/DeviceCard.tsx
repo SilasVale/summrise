@@ -1,4 +1,5 @@
 import type { HostFacts } from "./api";
+import { AttemptReason, attemptCount, attemptReason, type LastAttempt } from "./attempt";
 import { age, shortId } from "./format";
 
 export type Device = {
@@ -7,7 +8,7 @@ export type Device = {
   online: boolean;
   version: string | null;
   last_seen_ms: number | null;
-  last_attempt?: { attempts: number; reason: string } | null;
+  last_attempt?: LastAttempt | null;
   host?: HostFacts | null;
 };
 
@@ -27,10 +28,13 @@ type Props = {
  */
 export function DeviceCard({ device, selected, onSelect, onRename, onRemove, onDiagnostics }: Props) {
   const label = device.name ?? shortId(device.id);
-  const attempt =
-    device.online && device.last_attempt && device.last_attempt.attempts > 0
-      ? `Reconnected after ${device.last_attempt.attempts} attempt${device.last_attempt.attempts === 1 ? "" : "s"}`
-      : null;
+  // The count and the device's own reason on one muted line. The reason is the diagnosis: a proxy's
+  // 502 and a channel the console dropped are different faults, and the row must not read them as
+  // the same healthy reconnect. A device that has not reconnected says nothing.
+  const attempt = device.online ? device.last_attempt : null;
+  const count = attempt && attempt.attempts > 0 ? attemptCount(attempt.attempts) : null;
+  const reason = attemptReason(attempt);
+  const sentence = count ? `Reconnected after ${count}${reason ? ` — ${reason}` : ""}` : null;
   return (
     <article className={"fleet-row" + (selected ? " is-current" : "")}>
       <button type="button" className="fleet-open" aria-label={`Open ${label}`} onClick={onSelect}>
@@ -42,7 +46,17 @@ export function DeviceCard({ device, selected, onSelect, onRename, onRemove, onD
         </span>
         {device.version && <span className="fleet-build mono">v{device.version}</span>}
         <span className="fleet-chevron" aria-hidden="true">›</span>
-        {attempt && <span className="fleet-attempt">{attempt}</span>}
+        {count && (
+          <span className="fleet-attempt" title={reason ? (sentence ?? undefined) : undefined}>
+            Reconnected after {count}
+            {reason && (
+              <>
+                {" — "}
+                <AttemptReason reason={reason} />
+              </>
+            )}
+          </span>
+        )}
       </button>
       <details className="row-menu">
         <summary aria-label={`More about ${label}`} title={`More about ${label}`}>⋯</summary>

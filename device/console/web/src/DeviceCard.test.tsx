@@ -62,11 +62,35 @@ describe("DeviceCard — one row on the fleet", () => {
     expect(container.querySelector(".card-details-body")).toBeNull();
   });
 
-  it("reports a reconnection as attempts, never the transport's failure sentence", () => {
-    draw({ last_attempt: { attempts: 2, reason: "connection reset by peer" } });
+  it("says the attempt count and the reason the device gave, in its own words", () => {
+    const { container } = draw({
+      last_attempt: { attempts: 2, reason: "HTTP error: 502 Bad Gateway" }
+    });
 
-    expect(screen.getByText("Reconnected after 2 attempts")).toBeInTheDocument();
-    expect(screen.queryByText(/connection reset by peer/)).not.toBeInTheDocument();
+    // One line, the count first and the device's sentence after it, not paraphrased.
+    const line = container.querySelector(".fleet-attempt");
+    expect(line).not.toBeNull();
+    expect(line).toHaveTextContent("Reconnected after 2 attempts — HTTP error: 502 Bad Gateway");
+    // Cut to one line at a narrow width; the title is the whole sentence, reason included.
+    expect(line).toHaveAttribute(
+      "title",
+      "Reconnected after 2 attempts — HTTP error: 502 Bad Gateway"
+    );
+    expect(screen.getByTitle("HTTP error: 502 Bad Gateway")).toBeInTheDocument();
+  });
+
+  it("keeps the count alone when the fleet carried no reason", () => {
+    draw({ last_attempt: { attempts: 2, reason: "" } });
+
+    const line = screen.getByText("Reconnected after 2 attempts");
+    expect(line).not.toHaveAttribute("title");
+    expect(line.querySelector(".attempt-reason")).toBeNull();
+    expect(line).not.toHaveTextContent("—");
+  });
+
+  it("draws no attempt line at all when there is no attempt to report", () => {
+    const { container } = draw({ last_attempt: null });
+    expect(container.querySelector(".fleet-attempt")).toBeNull();
   });
 
   it("says offline in words, with when it was last seen", () => {

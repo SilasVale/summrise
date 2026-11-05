@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { LiveNow } from "./LiveNow";
 import type { LiveLine, StartedCall } from "./liveActivity";
 import { api, type AuditLine, type Device } from "./api";
+import { AttemptReason, attemptCount, attemptReason } from "./attempt";
 import { DeviceCard } from "./DeviceCard";
 import { copyText } from "./copy";
 import { shortId } from "./format";
@@ -441,8 +442,22 @@ function HubHome(
   // twice. The subtitle says what the machine is; the chip and the menu own the versions.
   const statusLine = offline ? "Offline" : "Running";
   const capabilities = new Set(live.tools.map((tool) => tool.capability)).size;
-  const notice = offline
-    ? `${name} is not connected. The console keeps trying; open the machine's panel if it stays offline.`
+  // THE FAILURE SENTENCE SAYS WHY. "Not connected" alone leaves the operator choosing between the
+  // edge and the machine; the attempt count and the device's own reason are that choice. The reason
+  // is cut to one line and titled, because a phone-width banner has room for the count but not for a
+  // 51-character channel sentence. A device that gave no reason keeps the sentence it had.
+  const failedReason = attemptReason(device.last_attempt);
+  const failedAttempts = device.last_attempt?.attempts ?? 0;
+  const notice: ReactNode = offline
+    ? failedReason !== ""
+      ? (
+          <>
+            {name} is not connected after {attemptCount(failedAttempts)} —{" "}
+            <AttemptReason reason={failedReason} />. The console keeps trying; open the machine's
+            panel if it stays offline.
+          </>
+        )
+      : `${name} is not connected. The console keeps trying; open the machine's panel if it stays offline.`
     : live.error
       ? "The machine is running. The console could not read its tool list, so these counts may be stale."
       : null;

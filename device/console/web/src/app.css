@@ -337,7 +337,21 @@ main.terminal-main { display: grid; grid-template-rows: auto minmax(0, 1fr); ali
 .fleet-state { color: var(--ink-muted); font-size: var(--fs-sm); white-space: nowrap; }
 .fleet-build { color: var(--ink-faint); font-size: var(--fs-xs); white-space: nowrap; }
 .fleet-chevron { color: var(--ink-faint); font-size: var(--fs-md); line-height: 1; }
-.fleet-attempt { grid-column: 2 / -1; color: var(--ink-muted); font-size: var(--fs-xs); }
+.fleet-attempt {
+  grid-column: 2 / -1; min-width: 0; color: var(--ink-muted); font-size: var(--fs-xs);
+  /* ONE LINE, CUT NOT WRAPPED. The reason is the device's whole sentence; the row's second line grows
+     by a sentence, not by a paragraph, and the title carries the text an ellipsis hides. */
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.attempt-reason {
+  /* The reason inside a sentence: inline, one line, titled — never paraphrased and never a second
+     line of its own at 390. */
+  display: inline-block; max-width: 100%; vertical-align: bottom;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+/* On the fleet row the whole line is the one truncating box (prefix and reason together), so the
+   reason inside it is not a second, narrower cap. */
+.fleet-attempt .attempt-reason { display: inline; max-width: none; overflow: visible; }
 .row-menu { position: relative; display: flex; align-items: center; padding-right: var(--sp-2); }
 .row-menu > summary {
   list-style: none; width: 32px; height: 32px; display: grid; place-items: center;
@@ -365,7 +379,8 @@ main.terminal-main { display: grid; grid-template-rows: auto minmax(0, 1fr); ali
   padding: var(--sp-3); border: 1px solid var(--line-strong); border-radius: var(--radius-sm);
   background: var(--panel-2); font-size: var(--fs-sm);
 }
-.notice span { flex: 1; min-width: 12rem; }
+/* The direct child is the sentence the notice states; a reason inside it is not a second flex item. */
+.notice > span { flex: 1; min-width: 12rem; }
 .home-timeline { display: grid; gap: var(--sp-3); min-width: 0; }
 /* The hub's one count of the day: a sentence above the rows it counts. It is not a second list
    header and not a control, so it takes the muted summary type and no rule of its own. */

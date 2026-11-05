@@ -524,6 +524,50 @@ describe("Home — the hub", () => {
     expect(screen.queryByText(/0 tools/)).not.toBeInTheDocument();
   });
 
+  it("says the count and the reason when the console's last attempt failed", () => {
+    live.value = {
+      tools: [],
+      stale: false,
+      error: "this machine is not connected; connect it, then try again",
+      offline: true,
+      loading: false,
+      retry: vi.fn()
+    };
+    draw({
+      device: {
+        ...workshop,
+        online: false,
+        last_attempt: { attempts: 5, reason: "timed out waiting for the channel hello" }
+      }
+    });
+
+    // The count is the fleet's own, and the reason is the device's sentence exactly as it arrived.
+    const sentence = screen.getByText(/is not connected after 5 attempts/);
+    expect(sentence).toHaveTextContent("timed out waiting for the channel hello");
+    expect(screen.getByTitle("timed out waiting for the channel hello")).toBeInTheDocument();
+  });
+
+  it("leaves the offline sentence alone when the fleet carried no reason", () => {
+    live.value = {
+      tools: [],
+      stale: false,
+      error: "this machine is not connected; connect it, then try again",
+      offline: true,
+      loading: false,
+      retry: vi.fn()
+    };
+    draw({
+      device: { ...workshop, online: false, last_attempt: { attempts: 5, reason: "" } }
+    });
+
+    expect(
+      screen.getByText(
+        "workshop is not connected. The console keeps trying; open the machine's panel if it stays offline."
+      )
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/after 5 attempts/)).not.toBeInTheDocument();
+  });
+
   it("labels a stale catalogue and retries it", async () => {
     const retry = vi.fn();
     live.value = {
