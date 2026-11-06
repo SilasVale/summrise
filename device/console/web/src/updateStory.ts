@@ -1,43 +1,56 @@
 import type { DeviceUpdate } from "./api";
-import { seenAgo } from "./format";
+import { exactMoment, seenAgo } from "./format";
 
 /**
- * THE DEVICE'S OWN ACCOUNT OF ITS LAST START, OR THE ONE UPDATE FACT THAT IS NEW.
+ * THE DEVICE'S OWN ACCOUNT OF ITS LAST START, AND THE ONE UPDATE FACT THAT IS NEW.
  *
  * The console cannot tell a machine that slept from one an update broke: it knows only that frames
- * stopped. So it says the silence (`offline · last seen 7m ago`) and, beside it, repeats only what
- * the device said that the surface does not already show. This module builds that second line from
- * the section the device sent — the verdict's `detail`, and the updater's last answer — and adds
- * only the age and the one word the operator uses for an applied release ("updated").
+ * stopped. So it says the silence (`offline · last seen 7m ago`) and, beside it, the device's own
+ * account of when the running process began. This module builds that line from the section the
+ * device sent — the verdict's `detail`, the updater's last answer — and the newest entry in the
+ * host frame's `restarts` journal, which is when this process started. It adds only the age and the
+ * one word the operator uses for an applied release ("updated").
  *
- * THE VERSION HAS ONE HOME PER SURFACE. The fleet row's chip and the header's chip already carry
- * the running version, so the line never repeats it: a start sentence whose only content is that
- * version draws no line at all. What remains is the fact the chips cannot state:
+ * THE START IS THE FACT THE CHIPS CANNOT STATE. The fleet row's chip and the header's chip carry
+ * the running version; they cannot say when it began. So a start sentence is drawn with its age
+ * even when its version repeats the chip:
  *
- *   updated 12m ago                              the answer arrived inside this start
+ *   started 0.3.286 · 24m ago                    a machine that restarted without changing version
+ *   started 0.3.277 · 2h ago (updated 12m ago)   an answer that arrived inside this start
  *   update to 0.3.276 refused                    the updater's refusal, inside this start
  *   update to 0.3.276 rolled back to 0.3.275     the updater's rollback, inside this start
  *   refused: nothing was installed               the device's own current sentence
  *
+ * Without a journal moment the console cannot age the start, and a repeated version has nothing
+ * new to say, so it draws no line rather than invent a time. A start naming a version the surface
+ * does not show is the contradiction the operator needs, and it is kept as written.
+ *
  * NO SENTENCE ATTACHES AN UPDATE TO A START IT PREDATES. `last_update.at_ms` belongs to a process
  * (the one that folded the answer in); the newest entry in the host frame's `restarts` journal is
  * when the running process started. An answer before that moment is history — the running version
- * proves it took — so the line says nothing about it. Without either moment the console cannot prove
+ * proves it took — so the start line says nothing about it. The Machine tab still shows the answer,
+ * labelled as before this start (`UpdateStoryLine`). Without either moment the console cannot prove
  * the answer belongs to this start, and says nothing about the update rather than guess.
  */
 export type StartStoryContext = {
   /** When the running process started, from the host frame's newest restart entry. */
   startedAtMs?: number | null;
-  /** The version the surface shows beside this line, so the line does not repeat it. */
+  /** The version the surface shows beside this line, so the line does not repeat it for nothing. */
   shownVersion?: string | null;
   /** The clock the age is read against; the components leave it to `Date.now()`. */
   nowMs?: number;
 };
 
-export function startedLine(
+/** The sentence a surface draws, and the exact instant its `title` should carry when it is a start. */
+export type StartStory = {
+  text: string;
+  title: string | null;
+};
+
+export function startedStory(
   update: DeviceUpdate | null | undefined,
   context: StartStoryContext = {}
-): string | null {
+): StartStory | null {
   const detail = update?.verdict?.detail?.trim();
   if (!detail) return null;
   const last = update?.last_update ?? null;
@@ -50,20 +63,42 @@ export function startedLine(
     const updatedTo = /^updated to\s+(\S+)/.exec(detail)?.[1] ?? null;
     if (updatedTo !== null && updatedTo === context.shownVersion) {
       return last && insideStart(last.at_ms, context)
-        ? `updated ${seenAgo(last.at_ms, context.nowMs)}`
+        ? { text: `updated ${seenAgo(last.at_ms, context.nowMs)}`, title: null }
         : null;
     }
-    return detail;
+    return { text: detail, title: null };
   }
 
-  // A start sentence's version is a repeat when the surface shows the same one. A start naming a
-  // version the surface does not show is the contradiction the operator needs, so it stays.
+  // A start sentence is drawn even when its version is the one the chip shows: the chip states what
+  // runs, never when it started. The journal's moment is the fact that dates it, and the title
+  // carries the exact instant behind the age.
   const startVersion = detail.slice("started ".length).trim();
-  const base =
-    startVersion !== "" && startVersion !== (context.shownVersion ?? null) ? detail : null;
+  const startedAt = startMoment(context.startedAtMs);
   const clause = updateClause(last, update?.rolled_back_to, context);
-  if (!clause) return base;
-  return base ? `${base} (${clause})` : clause;
+  let base: string | null;
+  if (startedAt !== null) {
+    const label = startVersion === "" ? "started" : `started ${startVersion}`;
+    base = `${label} · ${seenAgo(startedAt, context.nowMs)}`;
+  } else {
+    // No journal: never borrow another moment for this start. A differing version is still the
+    // device's sentence; a repeat of the chip has nothing new to say.
+    base =
+      startVersion !== "" && startVersion !== (context.shownVersion ?? null) ? detail : null;
+  }
+  const text = base ? (clause ? `${base} (${clause})` : base) : clause;
+  if (!text) return null;
+  return { text, title: startedAt !== null ? exactMoment(startedAt) : null };
+}
+
+/**
+ * The sentence alone, for callers that only draw text. It is exactly `startedStory(...).text`, so
+ * there is one source of truth for the line and its title.
+ */
+export function startedLine(
+  update: DeviceUpdate | null | undefined,
+  context: StartStoryContext = {}
+): string | null {
+  return startedStory(update, context)?.text ?? null;
 }
 
 /**
@@ -76,15 +111,18 @@ export function startedLine(
 export function processStartMs(device: {
   host?: { restarts?: { at_ms?: number }[] | null } | null;
 }): number | null {
-  const at = device.host?.restarts?.[0]?.at_ms;
+  return startMoment(device.host?.restarts?.[0]?.at_ms);
+}
+
+function startMoment(at: number | null | undefined): number | null {
   return typeof at === "number" && Number.isFinite(at) && at > 0 ? at : null;
 }
 
 function insideStart(atMs: number, context: StartStoryContext): boolean {
-  const startedAt = context.startedAtMs;
+  const startedAt = startMoment(context.startedAtMs);
   // Both moments must exist. A missing start is not "probably after": rule (c) forbids borrowing
   // one start's moment for another start's answer.
-  return typeof startedAt === "number" && Number.isFinite(startedAt) && atMs >= startedAt;
+  return startedAt !== null && atMs >= startedAt;
 }
 
 /**

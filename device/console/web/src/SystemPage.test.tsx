@@ -134,6 +134,75 @@ describe("SystemPage", () => {
     expect(check).toHaveAttribute("title", exactMoment(checkAt));
   });
 
+  it("labels an applied outcome older than this start as history", async () => {
+    // The measured 9VH Machine tab: the process started 0.3.286 at 06:16, the only update fact was
+    // an apply to 0.3.273 two days earlier. The old apply is still shown — it is the device's own
+    // record — but it is labelled as before this start rather than as the machine's last outcome.
+    device(() => JSON.stringify([]));
+    const startedAt = new Date(2026, 10, 7, 6, 16, 8).getTime();
+    const appliedAt = new Date(2026, 10, 5, 3, 11, 0).getTime();
+    const checkAt = new Date(2026, 10, 7, 6, 30, 32).getTime();
+    const { container } = render(
+      <SystemPage
+        grant={GRANT}
+        device={{
+          id: "device-1",
+          name: "workshop",
+          online: true,
+          version: "0.3.286",
+          last_frame_ms: 1,
+          update: {
+            current: "0.3.286",
+            verdict: { outcome: "ok", detail: "started 0.3.286" },
+            last_update: { to: "0.3.273", outcome: "applied", at_ms: appliedAt },
+            last_check: { at_ms: checkAt, trigger: "channel" }
+          },
+          host: { restarts: [{ at_ms: startedAt, version: "0.3.286" }] }
+        }}
+      />
+    );
+
+    await screen.findByText("online");
+    const line = container.querySelector(".system-update");
+    expect(line).not.toBeNull();
+    expect(line).toHaveTextContent("running v0.3.286");
+    expect(line).toHaveTextContent(
+      "last recorded outcome before this start: applied to 0.3.273 on " +
+        `${isoDate(appliedAt)} ${clockTime(appliedAt)}`
+    );
+    // The old apply is not printed as the last outcome this process produced.
+    expect(line).not.toHaveTextContent("last outcome applied");
+  });
+
+  it("keeps an applied outcome current when it followed this start", async () => {
+    device(() => JSON.stringify([]));
+    const startedAt = new Date(2026, 10, 5, 2, 0, 0).getTime();
+    const appliedAt = new Date(2026, 10, 5, 3, 11, 0).getTime();
+    const { container } = render(
+      <SystemPage
+        grant={GRANT}
+        device={{
+          id: "device-1",
+          name: "workshop",
+          online: true,
+          version: "0.3.286",
+          last_frame_ms: 1,
+          update: {
+            current: "0.3.286",
+            verdict: { outcome: "ok", detail: "started 0.3.286" },
+            last_update: { to: "0.3.273", outcome: "applied", at_ms: appliedAt }
+          },
+          host: { restarts: [{ at_ms: startedAt, version: "0.3.286" }] }
+        }}
+      />
+    );
+
+    await screen.findByText("online");
+    const line = container.querySelector(".system-update");
+    expect(line).toHaveTextContent("last outcome applied to 0.3.273");
+    expect(line).not.toHaveTextContent("before this start");
+  });
+
   it("says which update facts the device did not report instead of guessing them", async () => {
     device(() => JSON.stringify([]));
     const { container } = render(

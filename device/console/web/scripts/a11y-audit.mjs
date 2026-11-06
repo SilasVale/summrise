@@ -176,8 +176,10 @@ const DEVICES = [
       disks: [{ name: 'C:', total_bytes: 1024 * GIB, free_bytes: 312 * GIB }],
       sessions: [{ id: 2, user: 'operator', state: 'active' }],
       helper: { registered: true, pid: 4812, session: 2 },
-      // This app's own boot journal: its newest entry is when the running process started, so the
-      // applied answer two days ago (above) belongs to this start and the row reads "updated 2d ago".
+      // This app's own boot journal: its newest entry is when the running process started. The
+      // applied answer two days ago (above) belongs to this start, so the row draws the start with
+      // its age and the answer's age beside it; the studio machine has no journal and draws no
+      // start rather than borrow a time.
       restarts: [
         { at_ms: NOW - 3 * 86_400_000, version: '0.3.42', channel: 'stable', pid: 4210 }
       ],

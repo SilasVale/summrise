@@ -1,8 +1,10 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { DeviceCard, type Device } from "./DeviceCard";
+import { exactMoment } from "./format";
 
 const GIB = 1024 ** 3;
+const BOOT_AT = Date.now() - 25 * 3_600_000;
 
 const device: Device = {
   id: "dev-1",
@@ -16,7 +18,7 @@ const device: Device = {
     uptime_s: 90_061,
     // This app's own boot journal: its newest entry is when the RUNNING process started, which is
     // the moment an updater's answer must be after to belong to this process.
-    restarts: [{ at_ms: Date.now() - 25 * 3_600_000, version: "0.3.42", channel: "stable", pid: 42 }],
+    restarts: [{ at_ms: BOOT_AT, version: "0.3.42", channel: "stable", pid: 42 }],
     memory: { total_bytes: 8 * GIB, available_bytes: 2 * GIB },
     disks: [{ name: "/", total_bytes: 100 * GIB, free_bytes: 10 * GIB }]
   }
@@ -191,9 +193,11 @@ describe("DeviceCard — one row on the fleet", () => {
     expect(screen.queryByText(/never/)).not.toBeInTheDocument();
   });
 
-  it("draws no update line when the updater's answer predates this start", () => {
+  it("draws the last start, not an update that predates it", () => {
     // The measured 9VH92BJ row: an applied answer to 0.3.273 at 19:11, and a process that started
-    // at 09:41 running 0.3.277. "(updated)" was attached to a start it predates.
+    // at 09:41 running 0.3.277. The old answer is history; the start is the fact that places the
+    // boot against the console's silence, and the row states it even though the version repeats
+    // the chip.
     const { container } = draw({
       online: false,
       last_frame_ms: Date.now() - 7 * 60_000,
@@ -204,15 +208,14 @@ describe("DeviceCard — one row on the fleet", () => {
       }
     });
 
-    // The silence is the console's account; the device's story has nothing new to add, and the
-    // running version is already the row's chip.
     expect(screen.getByText(/offline · last seen 7m ago/)).toBeInTheDocument();
-    expect(container.querySelector(".fleet-verdict")).toBeNull();
-    expect(screen.queryByText(/started /)).not.toBeInTheDocument();
+    const verdict = container.querySelector(".fleet-verdict");
+    expect(verdict).toHaveTextContent("started 0.3.42 · 1d 1h ago");
+    expect(verdict).toHaveAttribute("title", exactMoment(BOOT_AT));
     expect(screen.queryByText(/updated/)).not.toBeInTheDocument();
   });
 
-  it("states the update's age, not the running version, when it belongs to this start", () => {
+  it("states the update's age beside the start when it belongs to this start", () => {
     const { container } = draw({
       online: true,
       update: {
@@ -222,10 +225,12 @@ describe("DeviceCard — one row on the fleet", () => {
       }
     });
 
-    expect(screen.getByText("updated 12m ago")).toBeInTheDocument();
-    expect(container.querySelector(".fleet-verdict")).not.toBeNull();
-    // The chip still carries the version; the line states only the new fact.
-    expect(container.textContent?.match(/0\.3\.42/g)).toHaveLength(1);
+    const verdict = container.querySelector(".fleet-verdict");
+    expect(verdict).toHaveTextContent("started 0.3.42 · 1d 1h ago (updated 12m ago)");
+    expect(verdict).toHaveAttribute("title", exactMoment(BOOT_AT));
+    // The version appears twice: the chip's v0.3.42 and the device's own start sentence. The
+    // update clause does not repeat it.
+    expect(container.textContent?.match(/0\.3\.42/g)).toHaveLength(2);
   });
 
   it("shows a refusal the device is making now, without a start to attach it to", () => {

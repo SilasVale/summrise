@@ -919,14 +919,16 @@ try {
     throw new Error('a fleet row drew an undated reconnect sentence');
   }
   step('the online row carries a last attempt and draws no reconnect sentence');
-  // **ITEM 5: THE VERSION ONCE, AND THE UPDATE AS THE NEW FACT.** The chip is the row's one
-  // version. The refused answer is one minute old and the journal says the process started an hour
-  // ago, so it belongs to this start and is drawn as the updater's own sentence — not as
-  // "started 0.3.42 (updated)", which repeated the chip and dated nothing.
+  // **THE START IS THE ROW'S NEW FACT, EVEN WHEN ITS VERSION REPEATS THE CHIP.** The journal says
+  // the process started an hour ago; the verdict is "started 0.3.42", the same version the chip
+  // carries. The row must draw the start with its age (and the refusal that belongs to it), not
+  // drop it as a duplicate — the moment is what the chip cannot state. The exact instant is in the
+  // line's title. The chip remains the build's one copy; the device's own sentence repeats the
+  // version because that is the device's sentence.
   const onlineRow = page.getByRole('button', { name: /^Open DESKTOP-9VH92BJ/ });
   const onlineRowText = (await onlineRow.textContent()) ?? '';
   const versionCopies = (onlineRowText.match(/0\.3\.42/g) ?? []).length;
-  if (versionCopies !== 1) {
+  if (versionCopies !== 2) {
     throw new Error(`the online row carried ${versionCopies} copies of its version: "${onlineRowText}"`);
   }
   // **THE INSTALLER IS THE FLEET'S OTHER VERSION.** Every gate machine runs 0.3.42 and the staged
@@ -938,10 +940,15 @@ try {
   }
   step(`the online row's build states "${build}"`);
   const verdict = (await onlineRow.locator('.fleet-verdict').textContent())?.trim();
-  if (verdict !== 'update to 0.3.43 refused') {
-    throw new Error(`the online row's update line read "${verdict}"`);
+  if (verdict !== 'started 0.3.42 · 1h ago (update to 0.3.43 refused)') {
+    throw new Error(`the online row's start line read "${verdict}"`);
   }
-  step(`the online row states "${verdict}" and the version once`);
+  const startInstant = new Date(NOW - 60 * 60_000).toISOString();
+  const startTitle = (await onlineRow.locator('.fleet-verdict').getAttribute('title')) ?? '';
+  if (!startTitle.includes(`(${startInstant})`)) {
+    throw new Error(`the row's start title "${startTitle}" does not carry the exact instant`);
+  }
+  step(`the online row states "${verdict}" with the start's exact instant in its title`);
   // **THE FLEET COMPARES THE WORK, NOT ONLY THE PRESENCE.** Every row states the day the console's
   // newest audit window counted: `283 calls · 38 failed`, the failed half gone at zero, and nothing
   // for a machine the window never names. The counts are on the state's muted line, so a row with no
@@ -1747,6 +1754,18 @@ try {
     }
   }
   step(`the Machine tab's update line states "${updateLine}"`);
+  // **THE START IS ON THE MACHINE TAB, WITHOUT OPENING THE DEVICE'S OWN PANEL.** The same journal
+  // entry the fleet row reads dates this line, which repeats the header's version because that is
+  // what the device said it started; the exact instant is in the title.
+  const machineStart = (await page.locator('.started-line').innerText()).trim();
+  if (machineStart !== 'started 0.3.42 · 1h ago (update to 0.3.43 refused)') {
+    throw new Error(`the Machine tab's start line read "${machineStart}"`);
+  }
+  const machineStartTitle = (await page.locator('.started-line').getAttribute('title')) ?? '';
+  if (!machineStartTitle.includes(`(${new Date(NOW - 60 * 60_000).toISOString()})`)) {
+    throw new Error(`the Machine start title "${machineStartTitle}" does not carry the exact instant`);
+  }
+  step(`the Machine tab states "${machineStart}" with its exact instant in the title`);
   step('the Machine tab states reachability without a second build line');
 
   // **THE MACHINE KEEPS ITS CONNECT DOOR.** The button the audit measured at 1440 (59×28 at the

@@ -4,7 +4,7 @@ import { DEVICE_TABS, DEVICE_TAB_LABELS, type DeviceTab } from "./Rail";
 import { DevicePicker } from "./DevicePicker";
 import { OfflineNotice } from "./OfflineNotice";
 import type { Grant } from "./terminal";
-import { processStartMs, startedLine } from "./updateStory";
+import { processStartMs, startedStory } from "./updateStory";
 
 /**
  * Device is ONE destination with five tabs, not five rail items. The shell owns the destination's one
@@ -31,12 +31,11 @@ export function DevicePageShell({
 }) {
   const grant = grantFor(chosen);
   // The device's own account of its last start, beside — never instead of — the console's account
-  // of its silence. The header chip already carries the running version, so the line draws only a
-  // fact the chip cannot: an update that belongs to this start, or the device's own current
-  // sentence. It is shown online too: a machine that woke is exactly the one whose update the
-  // operator needs to read without a shell on it.
+  // of its silence. It is shown online too: a machine that woke is exactly the one whose start the
+  // operator needs to place without a shell on it. The start keeps being drawn when its version
+  // repeats the header's chip: the chip states what runs, and only the journal says when it began.
   const started = chosen
-    ? startedLine(chosen.update, {
+    ? startedStory(chosen.update, {
         startedAtMs: processStartMs(chosen),
         shownVersion: chosen.version
       })
@@ -83,10 +82,15 @@ export function DevicePageShell({
         />
       )}
 
-      {/* The device's sentence, not the console's: "started 0.3.275 (update to 0.3.276 refused)".
-          It sits beside the silence notice because the two answer different questions — was it
-          heard, and what did it start — and neither is used to explain the other. */}
-      {started && <p className="started-line">{started}</p>}
+      {/* The device's sentence, not the console's: "started 0.3.275 · 2h ago (update to 0.3.276
+          refused)". It sits beside the silence notice because the two answer different questions —
+          was it heard, and what did it start — and neither is used to explain the other. Its title,
+          when it is a start, is the exact instant the device reported. */}
+      {started && (
+        <p className="started-line" title={started.title ?? undefined}>
+          {started.text}
+        </p>
+      )}
 
       {chosen && grant ? (
         children(grant)

@@ -1,7 +1,7 @@
 import type { DeviceUpdate, HostFacts } from "./api";
 import type { LastAttempt } from "./attempt";
 import { callsLine, lastHeardMs, seenAgo, shortId } from "./format";
-import { startedLine, processStartMs } from "./updateStory";
+import { startedStory, processStartMs } from "./updateStory";
 import { versionBelow } from "./versions";
 
 export type Device = {
@@ -92,10 +92,11 @@ export function DeviceCard({
   // the attempt as a record and dates the moment the console last heard the machine.
   // The device's own account of its last start, beside the console's account of its silence. The two
   // lines are independent on purpose: the console knows frames stopped, not that the machine slept,
-  // and the device knows what it started, not when the console last heard it. The version is the
-  // row's chip above, so the device's line never repeats it — it draws only an update that belongs
-  // to this start (aged) or the device's own current sentence.
-  const started = startedLine(device.update, {
+  // and the device knows what it started and when, not when the console last heard it. The start is
+  // drawn even when its version repeats the row's chip: the chip states what runs, never when it
+  // began, and that moment is what places the boot against the silence. An update that belongs to
+  // this start is aged beside it; an answer from before the start is left as history elsewhere.
+  const started = startedStory(device.update, {
     startedAtMs: processStartMs(device),
     shownVersion: device.version
   });
@@ -135,8 +136,8 @@ export function DeviceCard({
         )}
         <span className="fleet-chevron" aria-hidden="true">›</span>
         {started && (
-          <span className="fleet-verdict" title={started}>
-            {started}
+          <span className="fleet-verdict" title={started.title ?? started.text}>
+            {started.text}
           </span>
         )}
       </button>

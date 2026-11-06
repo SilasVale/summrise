@@ -2,7 +2,10 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { Device } from "./api";
 import { DevicePageShell } from "./DevicePageShell";
+import { exactMoment } from "./format";
 import type { DeviceTab } from "./Rail";
+
+const BOOT_AT = Date.now() - 25 * 3_600_000;
 
 const MACHINE: Device = {
   id: "d1",
@@ -16,7 +19,7 @@ const MACHINE: Device = {
   host: {
     // The newest boot is when the running process started. It is the only moment that can prove
     // an updater's answer belongs to this process.
-    restarts: [{ at_ms: Date.now() - 25 * 3_600_000, version: "0.3.42", pid: 42 }]
+    restarts: [{ at_ms: BOOT_AT, version: "0.3.42", pid: 42 }]
   }
 };
 
@@ -88,8 +91,8 @@ describe("DevicePageShell offline notice", () => {
     expect(screen.queryByRole("status")).not.toBeInTheDocument();
   });
 
-  it("does not repeat the running version the header already shows", () => {
-    renderShell("files", {
+  it("draws the start even when it repeats the header's version, on the Machine tab too", () => {
+    renderShell("machine", {
       ...MACHINE,
       update: {
         current: "0.3.42",
@@ -98,14 +101,14 @@ describe("DevicePageShell offline notice", () => {
       }
     });
 
-    // The header chip is the surface's one version; an updater's answer from before this start is
-    // not this start's story.
-    expect(screen.getByRole("status")).toHaveTextContent("This machine is offline.");
-    expect(screen.queryByText(/0\.3\.42/)).not.toBeInTheDocument();
+    // The header chip says what runs; this line says when it started, which no chip can. It is
+    // drawn on every tab, including Machine, without opening the device's own panel.
+    const line = screen.getByText("started 0.3.42 · 1d 1h ago");
+    expect(line).toHaveAttribute("title", exactMoment(BOOT_AT));
     expect(screen.queryByText(/updated/)).not.toBeInTheDocument();
   });
 
-  it("ages the update beside the silence when the answer belongs to this start", () => {
+  it("ages the update beside the start when the answer belongs to this start", () => {
     renderShell("files", {
       ...MACHINE,
       update: {
@@ -115,12 +118,11 @@ describe("DevicePageShell offline notice", () => {
       }
     });
 
-    // The console knows silence, not sleep: it must never claim the machine slept. The new fact
-    // beside it is the age of the answer this process folded in.
-    expect(screen.getByText("updated 12m ago")).toBeInTheDocument();
+    // The console knows silence, not sleep: it must never claim the machine slept. The new facts
+    // beside it are when this process started and the age of the answer it folded in.
+    const line = screen.getByText("started 0.3.42 · 1d 1h ago (updated 12m ago)");
+    expect(line).toHaveAttribute("title", exactMoment(BOOT_AT));
     expect(screen.queryByText(/asleep|sleeping/i)).not.toBeInTheDocument();
-    expect(screen.queryByText(/started /)).not.toBeInTheDocument();
-    expect(screen.queryByText(/0\.3\.42/)).not.toBeInTheDocument();
   });
 
   it("keeps a start that names a version the header does not show", () => {
@@ -134,7 +136,10 @@ describe("DevicePageShell offline notice", () => {
 
     // The header says 0.3.42; the device says it started 0.3.275. That is a contradiction the
     // operator needs, not a duplicate of the chip.
-    expect(screen.getByText("started 0.3.275")).toBeInTheDocument();
+    expect(screen.getByText("started 0.3.275 · 1d 1h ago")).toHaveAttribute(
+      "title",
+      exactMoment(BOOT_AT)
+    );
   });
 
   it("shows a refusal the device is making now, on an online machine too", () => {

@@ -5,6 +5,7 @@ import { HostFactsBlock } from "./HostFacts";
 import { Modal } from "./Modal";
 import { useRequestGate } from "./requests";
 import { callTool, ToolError, type Grant } from "./terminal";
+import { processStartMs } from "./updateStory";
 import type { VitalsSample } from "./vitals";
 
 /**
@@ -114,6 +115,15 @@ function UpdateStoryLine({ device }: { device?: Device | null }) {
   const channelLine = channel ? `channel ${channel}` : "channel not reported";
   const check = update.last_check ? moment(update.last_check.at_ms) : null;
   const last = update.last_update ? moment(update.last_update.at_ms) : null;
+  // **AN ANSWER FROM BEFORE THIS START IS HISTORY, NOT THE LAST OUTCOME.** The newest journal entry
+  // is when the running process began; an updater answer older than it belongs to an earlier process.
+  // It stays on the line — it is the device's own record — but labelled as before this start, so the
+  // 9VH's two-day-old apply cannot read as what the machine just did.
+  const startedAtMs = device ? processStartMs(device) : null;
+  const beforeStart =
+    startedAtMs !== null &&
+    update.last_update != null &&
+    update.last_update.at_ms < startedAtMs;
   return (
     <p className="hint system-update">
       {version}
@@ -135,7 +145,8 @@ function UpdateStoryLine({ device }: { device?: Device | null }) {
       {update.last_update ? (
         last ? (
           <>
-            last outcome {update.last_update.outcome}
+            {beforeStart ? "last recorded outcome before this start: " : "last outcome "}
+            {update.last_update.outcome}
             {update.last_update.to ? ` to ${update.last_update.to}` : ""} on{" "}
             <time title={last.title}>{last.text}</time>
           </>
