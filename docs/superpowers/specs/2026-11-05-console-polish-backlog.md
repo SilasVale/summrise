@@ -203,7 +203,7 @@ printed an enrollment command the machine could not run, and the person looking 
 not find it. The console's own Tokens sheet holds five tokens with different, fixed device scopes;
 nothing on the fleet says so.
 
-1. **The enrollment command names a binary the installer never puts on PATH.** The Add-a-machine
+1. **The enrollment command names a binary the installer never puts on PATH.** *(Done 2026-11-06, e763259, live 0.3.273-ux67: the enrollment block now says to open the elevated Command Prompt in the folder chosen on the installer's directory page (the default is `C:\Program Files\Summrise`), run this command, then restart the `SummriseLaunch` service; the command itself is unchanged because the console cannot know a new machine's root. The installer's PATH entry remains item 3. jsdom 718 tests, typecheck 0, gate PASS 36 steps, a11y 0, `build-web --check` clean; live at 1440 and 390 the sentence read verbatim, the panel's Tokens control stayed, and the page did not scroll sideways; screenshots /tmp/live-enroll-sentence-1440.png and /tmp/live-enroll-sentence-390.png.)* The Add-a-machine
    panel prints `summrise-device.exe --enroll …` (`App.tsx:863-864`, hardcoded); `summrise.nsi`
    writes no PATH entry (the only `PATH` mention is a comment); the live operator installed to
    `E:\Program Files\Summrise` and the command runs in an ordinary elevated prompt, whose cwd is
