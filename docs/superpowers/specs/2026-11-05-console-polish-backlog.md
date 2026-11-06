@@ -407,7 +407,7 @@ every number is a live DOM measurement and the screenshots are `/tmp/audit-20-*.
    **Fix:** at ≤639 card each run: command full width and wrapping, then exit, duration, started,
    output sizes; hide the header. **S.**
 
-4. **At 390 the token card squeezes the token's name to 26 px.** The card grid puts the name in
+4. **At 390 the token card squeezes the token's name to 26 px.** *(Done 2026-11-06, b2a1836, live 0.3.273-ux78: at ≤639 the card is one column — the name full width on one line (live 349×20, was 26×176 over 9 lines), the scope sentence under it, the Rotate/Revoke row and the dates kept, document 390/390 and the list 349/349 (no sideways); above 640 the desktop card is untouched. 743 tests, gate PASS 44 steps (the audit's fleet-token shape; the 390 name box > 200 px), a11y 0/3, `build-web --check`. Screenshot /tmp/live-ux78-tokens390.png.)* The card grid puts the name in
    `minmax(0, 1fr)` beside an `auto` scope; a three-machine scope is 337 px, the name cell 0 px and
    `.token-name strong` 26 × 176 px. `zss-harness-20261106-fleet` reads `zs / har / nes / s- / 202 /
    611 / 06- / flee / t` and the row is 414 px tall; at 1440 the same row is one line. **Cost:** on
