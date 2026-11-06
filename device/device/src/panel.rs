@@ -13,6 +13,12 @@ use crate::console::RetryNote;
 /// glance, not a log export, so it reads a bounded tail and says when older lines exist.
 pub(crate) const TIMELINE_LINES: usize = 200;
 
+/// The newest Timeline rows the page draws. Drawn whole, the bounded record is 3,500 px at 1440 and
+/// 6,200 px at 390, which put Build, Updates and Connect thousands of pixels below it. The rest is
+/// one server-rendered `<details>`: the browser opens it without a script and every row stays on the
+/// page.
+pub(crate) const TIMELINE_VISIBLE_ROWS: usize = 20;
+
 /// The page's whole style, copied from the HTML page this replaces: the panel and the console are
 /// two surfaces of one product, so the move into Rust must not restyle either.
 ///
@@ -88,6 +94,14 @@ const COMPONENTS: &str = r##"  * { box-sizing: border-box; }
   .timeline-status.failed { color: var(--error); }
   .timeline-caller { font-size: var(--fs-sm); color: var(--ink-faint); }
   .timeline-error { grid-column: 1 / -1; font-size: var(--fs-sm); color: var(--error); }
+
+  /* **THE RECORD FOLDS AFTER THE NEWEST ROWS.** The card holds the machine's newest 200 audit lines;
+     drawn whole it buried Build, Updates and Connect. The disclosure is the browser's own, so the
+     rest opens without a script, and the seam says what is behind it. */
+  details.timeline-rest { padding-top: var(--sp-3); border-top: 1px solid var(--line); }
+  details.timeline-rest summary { cursor: pointer; font-size: var(--fs-base); font-weight: 600; color: var(--ink); }
+  details.timeline-rest[open] summary { margin-bottom: var(--sp-3); }
+  .timeline-rest-body > * + * { margin-top: var(--sp-3); }
 
   /* The enroll form: the same fields and vocabulary as the console's "New enrollment code", because the
      person pastes the code from there into here. Field and button rules only; the tokens above are
@@ -444,10 +458,12 @@ fn render(facts: &PanelFacts, outcome: Option<&EnrollOutcome>) -> Markup {
         .and_then(serde_json::Value::as_u64)
         .and_then(local_moment);
     let event_rows = event_rows(&facts.events);
-    let timeline = facts
-        .audit
-        .as_deref()
-        .map(|audit| timeline_days(audit, facts.rendered_at_ms));
+    let timeline = facts.audit.as_deref().map(|audit| {
+        fold_timeline(
+            timeline_days(audit, facts.rendered_at_ms),
+            TIMELINE_VISIBLE_ROWS,
+        )
+    });
     let config = local_config(facts);
 
     html! {
@@ -543,6 +559,100 @@ fn render(facts: &PanelFacts, outcome: Option<&EnrollOutcome>) -> Markup {
                     ))
 
                     (summrise_ui::card(
+                        "Build",
+                        Markup::default(),
+                        Markup::default(),
+                        html! {
+                        dl id="build" {
+                            dt { "Version" }
+                            dd { (facts.version) }
+                            dt { "Channel" }
+                            dd { (facts.channel) }
+                            dt { "Binary sha256" }
+                            dd class="mono" title=(digest) { (digest_short) }
+                            dt { "Process" }
+                            dd { "pid " (facts.pid) }
+                        }
+                        }
+                    ))
+
+
+                    (summrise_ui::card(
+                        "Updates",
+                        Markup::default(),
+                        Markup::default(),
+                        html! {
+                        dl id="updates" {
+                            dt { "Phase" }
+                            dd { (update_phase) }
+                            dt { "Last target" }
+                            dd { (update_target) }
+                            dt { "Last outcome" }
+                            dd { (update_outcome) }
+                            dt { "Last result" }
+                            dd {
+                                @if let Some((local, exact)) = &update_last {
+                                    time datetime=(exact) title=(exact) { (local) }
+                                } @else {
+                                    "never"
+                                }
+                            }
+                            dt { "Last check" }
+                            dd {
+                                @if let Some((local, exact)) = &update_last_check {
+                                    time datetime=(exact) title=(exact) { (local) }
+                                } @else {
+                                    "not recorded"
+                                }
+                            }
+                        }
+                        form method="post" action="/api/panel/update" {
+                            input type="hidden" name="panel_token" value=(facts.panel_token);
+                            button id="update-now" type="submit" { "Check for updates now" }
+                        }
+                        p class="hint" {
+                            "The device checks its configured update source on its own. A release is applied only after the signature, digest, channel and revocation checks pass."
+                        }
+                        }
+                    ))
+
+
+                    (summrise_ui::card(
+                        "Connect a client",
+                        Markup::default(),
+                        Markup::default(),
+                        html! {
+                        p class="hint" {
+                            "For an MCP client on this machine. The token is never printed; read it from the protected file."
+                        }
+                        dl id="local" {
+                            dt { "MCP endpoint" }
+                            dd id="local-endpoint" class="mono" { (facts.mcp_endpoint) }
+                            dt { "Install token" }
+                            dd id="local-token-file" class="mono" { (facts.token_file) }
+                            dt { "Read it" }
+                            dd id="local-token-command" class="mono" { (facts.token_command) }
+                        }
+                        details class="secondary" {
+                            summary { "Client configuration" }
+                        pre class="config" id="local-config" { (config) }
+                        button
+                            id="copy-local"
+                            type="button"
+                            data-copy="local-config"
+                            data-status="local-copy-status"
+                            data-label="Copy local MCP config"
+                            data-copied="Config copied. Paste it into your MCP client and add the token."
+                            data-refused="The clipboard refused; select the config and copy it."
+                        {
+                            "Copy local MCP config"
+                        }
+                        p class="hint" id="local-copy-status" role="status" {}
+                        }
+                        }
+                    ))
+
+                    (summrise_ui::card(
                         "Timeline",
                         Markup::default(),
                         Markup::default(),
@@ -550,8 +660,10 @@ fn render(facts: &PanelFacts, outcome: Option<&EnrollOutcome>) -> Markup {
                         // **THE RECORD OF WHAT THIS MACHINE DID, NOT A RAW TABLE.** Every line here
                         // is the device's own audit: one row per call, grouped by the local day and
                         // newest first. A call the bound cut says so; an audit that holds nothing
-                        // says that instead of drawing an empty table.
-                        @if let Some(days) = &timeline {
+                        // says that instead of drawing an empty table. The newest rows are drawn and
+                        // the rest is one disclosure, so the record cannot put the machine's own
+                        // facts behind a 200-line wall.
+                        @if let Some(fold) = &timeline {
                             p class="hint" {
                                 "The calls this machine recorded, newest first, in this machine's local time."
                             }
@@ -560,35 +672,23 @@ fn render(facts: &PanelFacts, outcome: Option<&EnrollOutcome>) -> Markup {
                                     "The newest " (TIMELINE_LINES) " lines; older lines are not shown."
                                 }
                             }
-                            @if days.is_empty() {
+                            @if fold.visible.is_empty() && fold.rest.is_empty() {
                                 p class="none" id="timeline-empty" {
                                     "No call has been recorded on this device."
                                 }
                             } @else {
-                                @for day in days {
-                                    section class="timeline-day" {
-                                        h2 class="timeline-day-label" { (day.label) }
-                                        ol class="timeline-rows" {
-                                            @for row in &day.rows {
-                                                li class="timeline-row" {
-                                                    time
-                                                        class="timeline-time"
-                                                        datetime=(crate::store::format_utc(row.at_ms / 1_000))
-                                                        title=(crate::store::format_utc(row.at_ms / 1_000))
-                                                    { (row.time) }
-                                                    span class="timeline-tool" { (row.tool) }
-                                                    @if row.failed {
-                                                        span class="timeline-status failed" { (row.status) }
-                                                    } @else {
-                                                        span class="timeline-status" { (row.status) }
-                                                    }
-                                                    @if !row.caller.is_empty() {
-                                                        span class="timeline-caller" { (row.caller) }
-                                                    }
-                                                    @if let Some(error) = &row.error {
-                                                        span class="timeline-error" { (error) }
-                                                    }
-                                                }
+                                @for day in &fold.visible {
+                                    (timeline_day(day))
+                                }
+                                @if fold.rest_rows > 0 {
+                                    details class="timeline-rest" {
+                                        summary {
+                                            "Show the other " (fold.rest_rows) " "
+                                            @if fold.rest_rows == 1 { "call" } @else { "calls" }
+                                        }
+                                        div class="timeline-rest-body" {
+                                            @for day in &fold.rest {
+                                                (timeline_day(day))
                                             }
                                         }
                                     }
@@ -644,101 +744,6 @@ fn render(facts: &PanelFacts, outcome: Option<&EnrollOutcome>) -> Markup {
                                     }
                                 }
                             }
-                        }
-                        }
-                    ))
-
-
-                    (summrise_ui::card(
-                        "Connect a client",
-                        Markup::default(),
-                        Markup::default(),
-                        html! {
-                        p class="hint" {
-                            "For an MCP client on this machine. The token is never printed; read it from the protected file."
-                        }
-                        dl id="local" {
-                            dt { "MCP endpoint" }
-                            dd id="local-endpoint" class="mono" { (facts.mcp_endpoint) }
-                            dt { "Install token" }
-                            dd id="local-token-file" class="mono" { (facts.token_file) }
-                            dt { "Read it" }
-                            dd id="local-token-command" class="mono" { (facts.token_command) }
-                        }
-                        details class="secondary" {
-                            summary { "Client configuration" }
-                        pre class="config" id="local-config" { (config) }
-                        button
-                            id="copy-local"
-                            type="button"
-                            data-copy="local-config"
-                            data-status="local-copy-status"
-                            data-label="Copy local MCP config"
-                            data-copied="Config copied. Paste it into your MCP client and add the token."
-                            data-refused="The clipboard refused; select the config and copy it."
-                        {
-                            "Copy local MCP config"
-                        }
-                        p class="hint" id="local-copy-status" role="status" {}
-                        }
-                        }
-                    ))
-
-
-                    (summrise_ui::card(
-                        "Build",
-                        Markup::default(),
-                        Markup::default(),
-                        html! {
-                        dl id="build" {
-                            dt { "Version" }
-                            dd { (facts.version) }
-                            dt { "Channel" }
-                            dd { (facts.channel) }
-                            dt { "Binary sha256" }
-                            dd class="mono" title=(digest) { (digest_short) }
-                            dt { "Process" }
-                            dd { "pid " (facts.pid) }
-                        }
-                        }
-                    ))
-
-
-                    (summrise_ui::card(
-                        "Updates",
-                        Markup::default(),
-                        Markup::default(),
-                        html! {
-                        dl id="updates" {
-                            dt { "Phase" }
-                            dd { (update_phase) }
-                            dt { "Last target" }
-                            dd { (update_target) }
-                            dt { "Last outcome" }
-                            dd { (update_outcome) }
-                            dt { "Last result" }
-                            dd {
-                                @if let Some((local, exact)) = &update_last {
-                                    time datetime=(exact) title=(exact) { (local) }
-                                } @else {
-                                    "never"
-                                }
-                            }
-                            dt { "Last check" }
-                            dd {
-                                @if let Some((local, exact)) = &update_last_check {
-                                    time datetime=(exact) title=(exact) { (local) }
-                                } @else {
-                                    "not recorded"
-                                }
-                            }
-                        }
-                        form method="post" action="/api/panel/update" {
-                            input type="hidden" name="panel_token" value=(facts.panel_token);
-                            button id="update-now" type="submit" { "Check for updates now" }
-                        }
-                        p class="hint" {
-                            "The device checks its configured update source on its own. A release is applied only after the signature, digest, channel and revocation checks pass."
                         }
                         }
                     ))
@@ -1109,6 +1114,84 @@ pub(crate) fn timeline_days(audit: &[serde_json::Value], now_ms: u64) -> Vec<Tim
             }
         })
         .collect()
+}
+
+/// Where the Timeline stops and folds: the newest rows stay drawn, the rest goes behind one
+/// disclosure. A day the fold cuts keeps its label on both sides, and the folded side says
+/// `(continued)` so two headings cannot read as two different days.
+#[derive(Debug)]
+pub(crate) struct TimelineFold {
+    /// The day groups above the fold, newest first.
+    pub(crate) visible: Vec<TimelineDay>,
+    /// The day groups behind it; every row here is older than every visible row.
+    pub(crate) rest: Vec<TimelineDay>,
+    /// How many calls are behind the fold, for the summary's count.
+    pub(crate) rest_rows: usize,
+}
+
+fn fold_timeline(days: Vec<TimelineDay>, visible_rows: usize) -> TimelineFold {
+    let mut visible = Vec::new();
+    let mut rest = Vec::new();
+    let mut rest_rows = 0;
+    let mut budget = visible_rows;
+    for mut day in days {
+        if budget == 0 {
+            rest_rows += day.rows.len();
+            rest.push(day);
+            continue;
+        }
+        if day.rows.len() <= budget {
+            budget -= day.rows.len();
+            visible.push(day);
+            continue;
+        }
+        let folded = day.rows.split_off(budget);
+        budget = 0;
+        rest_rows += folded.len();
+        let label = format!("{} (continued)", day.label);
+        visible.push(day);
+        rest.push(TimelineDay {
+            label,
+            rows: folded,
+        });
+    }
+    TimelineFold {
+        visible,
+        rest,
+        rest_rows,
+    }
+}
+
+/// One local day of the Timeline, drawn the same way on either side of the fold.
+fn timeline_day(day: &TimelineDay) -> Markup {
+    html! {
+        section class="timeline-day" {
+            h2 class="timeline-day-label" { (day.label) }
+            ol class="timeline-rows" {
+                @for row in &day.rows {
+                    li class="timeline-row" {
+                        time
+                            class="timeline-time"
+                            datetime=(crate::store::format_utc(row.at_ms / 1_000))
+                            title=(crate::store::format_utc(row.at_ms / 1_000))
+                        { (row.time) }
+                        span class="timeline-tool" { (row.tool) }
+                        @if row.failed {
+                            span class="timeline-status failed" { (row.status) }
+                        } @else {
+                            span class="timeline-status" { (row.status) }
+                        }
+                        @if !row.caller.is_empty() {
+                            span class="timeline-caller" { (row.caller) }
+                        }
+                        @if let Some(error) = &row.error {
+                            span class="timeline-error" { (error) }
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 fn timeline_row(
@@ -1541,8 +1624,9 @@ mod tests {
         std::fs::write(dir.join("panel-fresh.html"), page(&fresh).into_string())
             .expect("the first-run panel is written");
         // The bounded record: more than two hundred audit lines, a failed call every seventeenth, so
-        // the "older lines are not shown" sentence and the failed tone can be looked at too. The
-        // page's facts carry the last two hundred lines and the last ten events, as the route does.
+        // the "older lines are not shown" sentence, the failed tone and the fold (the newest twenty
+        // rows drawn, the rest behind the disclosure) can be looked at too. The page's facts carry
+        // the last two hundred lines and the last ten events, as the route does.
         let mut bounded = facts();
         let mut lines = vec![json!({
             "id": 0,
@@ -1793,6 +1877,17 @@ mod tests {
         })
     }
 
+    /// `count` calls on one local day, newest first, one `begin`/`end` pair each.
+    fn calls_on_one_day(count: usize, noon: u64) -> Vec<serde_json::Value> {
+        let mut audit = Vec::with_capacity(count * 2);
+        for index in 0..count as u64 {
+            let at = noon + index * 60_000;
+            audit.push(begin(index + 1, at, &format!("tool-{index:02}"), "console"));
+            audit.push(end(index + 1, at + 1_000, true, None, "console"));
+        }
+        audit
+    }
+
     #[test]
     fn the_timeline_groups_calls_by_local_day_and_newest_first() {
         let today = local_noon(2026, 11, 6);
@@ -1912,6 +2007,164 @@ mod tests {
             !html.contains("No call has been recorded on this device."),
             "an unreadable audit is not an empty one"
         );
+    }
+
+    /// **THE RECORD DOES NOT BURY THE MACHINE.** Drawn whole, a 200-line record is 3,500 px at 1440
+    /// and 6,200 px at 390: Build, Updates and Connect sat behind it and the operator scrolled
+    /// 4–8k px to read the build sha or the last check. The newest rows stay drawn and the rest is
+    /// one server-rendered disclosure, so the fold opens without a script and no row is dropped.
+    #[test]
+    fn the_timeline_folds_after_the_newest_rows_and_keeps_every_row() {
+        let noon = local_noon(2026, 11, 6);
+        let mut facts = facts();
+        facts.audit = Some(calls_on_one_day(30, noon));
+        facts.rendered_at_ms = noon + 3_600_000;
+        let html = page(&facts).into_string();
+
+        assert_eq!(
+            html.matches(r#"<li class="timeline-row">"#).count(),
+            30,
+            "every call is drawn exactly once: {html}"
+        );
+        let fold = html
+            .find(r#"<details class="timeline-rest">"#)
+            .expect("30 rows fold after 20");
+        let visible = &html[..fold];
+        let folded = &html[fold..];
+        let details_end = folded.find("</details>").expect("the fold closes") + "</details>".len();
+        let details = &folded[..details_end];
+
+        assert_eq!(
+            visible.matches(r#"<li class="timeline-row">"#).count(),
+            TIMELINE_VISIBLE_ROWS,
+            "the newest 20 rows stay out of the fold"
+        );
+        assert_eq!(
+            details.matches(r#"<li class="timeline-row">"#).count(),
+            10,
+            "the other 10 are behind it"
+        );
+        assert!(
+            details.starts_with(
+                r#"<details class="timeline-rest"><summary>Show the other 10 calls</summary>"#
+            ),
+            "the summary says what the fold holds: {details}"
+        );
+        assert!(
+            !details.contains("<script"),
+            "the fold is server-rendered and opens without a script: {details}"
+        );
+        assert!(visible.contains(r#"<h2 class="timeline-day-label">Today</h2>"#));
+        assert!(
+            details.contains(r#"<h2 class="timeline-day-label">Today (continued)</h2>"#),
+            "a day the fold cuts keeps its name: {details}"
+        );
+
+        // The record keeps its newest-first order across the seam: tool-29..tool-10 are above the
+        // fold and tool-09..tool-00 below it.
+        let position = |index: usize| {
+            html.find(&format!(">tool-{index:02}<"))
+                .unwrap_or_else(|| panic!("tool-{index:02} is missing"))
+        };
+        assert!(position(29) < position(10), "the newest 20 are drawn first");
+        assert!(position(10) < fold, "the 20th row is the last one drawn");
+        assert!(fold < position(9), "the fold opens with the 21st");
+        for index in 1..30 {
+            assert!(
+                position(index) < position(index - 1),
+                "the rows stay newest first across the fold"
+            );
+        }
+    }
+
+    /// The fold is a disclosure only when it has something to disclose: at the visible cap the
+    /// Timeline is drawn whole, and one row behind it is "1 call", not "1 calls".
+    #[test]
+    fn the_timeline_folds_only_past_the_visible_rows() {
+        let noon = local_noon(2026, 11, 6);
+        let mut at_cap = facts();
+        at_cap.audit = Some(calls_on_one_day(TIMELINE_VISIBLE_ROWS, noon));
+        at_cap.rendered_at_ms = noon + 3_600_000;
+        let html = page(&at_cap).into_string();
+        assert!(
+            !html.contains(r#"<details class="timeline-rest">"#),
+            "the visible rows are drawn whole, with no empty fold: {html}"
+        );
+        assert_eq!(
+            html.matches(r#"<li class="timeline-row">"#).count(),
+            TIMELINE_VISIBLE_ROWS
+        );
+
+        let mut over = facts();
+        over.audit = Some(calls_on_one_day(TIMELINE_VISIBLE_ROWS + 1, noon));
+        over.rendered_at_ms = noon + 3_600_000;
+        let html = page(&over).into_string();
+        assert!(
+            html.contains("<summary>Show the other 1 call</summary>"),
+            "the summary counts in the reader's words: {html}"
+        );
+
+        // A day behind the fold that the fold did not cut keeps its own name: "(continued)" marks a
+        // split day, not every day behind the disclosure.
+        let mut two_days = facts();
+        let mut audit = calls_on_one_day(TIMELINE_VISIBLE_ROWS, noon);
+        audit.extend(calls_on_one_day(2, noon - 86_400_000));
+        two_days.audit = Some(audit);
+        two_days.rendered_at_ms = noon + 3_600_000;
+        let html = page(&two_days).into_string();
+        let details = &html[html
+            .find(r#"<details class="timeline-rest">"#)
+            .expect("the fold is after the visible rows")..];
+        let details = &details[..details.find("</details>").expect("the fold closes")];
+        assert!(
+            details.contains(r#"<h2 class="timeline-day-label">Yesterday</h2>"#),
+            "an uncut day behind the fold keeps its own name: {details}"
+        );
+        assert!(
+            !details.contains("Yesterday (continued)"),
+            "only a day the fold split is marked: {details}"
+        );
+    }
+
+    /// **THE FACTS COME BEFORE THE RECORD.** The Timeline is the longest card; Build, Updates and
+    /// Connect were under up to 200 rows of it (the audit measured Build at y 4,636 at 1440 and
+    /// 7,625 at 390). The page now reads: the machine, its facts, then its record.
+    #[test]
+    fn the_build_updates_and_connect_facts_are_above_the_timeline() {
+        let html = page(&facts()).into_string();
+        let titles: Vec<&str> = html
+            .split("<h2>")
+            .skip(1)
+            .filter_map(|rest| rest.split("</h2>").next())
+            .collect();
+        assert_eq!(
+            titles,
+            [
+                "Running",
+                "Console",
+                "Build",
+                "Updates",
+                "Connect a client",
+                "Timeline",
+                "Terminal",
+                "State",
+                "Recent events",
+            ],
+            "the panel's reading order: the machine, its facts, its record, its tools"
+        );
+        let first_row = html
+            .find(r#"<li class="timeline-row">"#)
+            .expect("the fixture records two calls");
+        for fact in [
+            "<h2>Build</h2>",
+            "<h2>Updates</h2>",
+            "<h2>Connect a client</h2>",
+        ] {
+            assert!(
+                html.find(fact).expect(fact) < first_row,
+                "{fact} is above the Timeline's first row"
+            );
+        }
     }
 
     #[test]

@@ -3042,7 +3042,12 @@ mod tests {
         let start = html
             .find("id=\"terminal-sessions\"")
             .expect("the sessions list");
-        let end = start + html[start..].find("Build").expect("the build section");
+        // The card's own close, not a later card's title: the page's card order is the panel's to
+        // decide, and the session list only has to be inside the Terminal card.
+        let end = start
+            + html[start..]
+                .find("</section>")
+                .expect("the terminal card closes");
         let sessions = &html[start..end];
         assert!(
             sessions.contains(&id) && sessions.contains("pty"),
