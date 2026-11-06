@@ -434,7 +434,7 @@ the setup failure first, then honesty, then the phone, then recovery.
    whose recorded `device_ids` include the machine at `/mcp/<id>`; make the 401 name the door the
    token opens. **M.**
 
-2. **The offline machine's token form counts the console's 46-tool fallback as the machine's.** With
+2. **The offline machine's token form counts the console's 46-tool fallback as the machine's.** *(Done 2026-11-06, fe74135, live 0.3.273-ux80: with 14R offline the form reads `46 tools (console registry; the machine is offline) · 15 can change the machine`, covers `DESKTOP-14RJCR8 (offline, last seen 1d 10h ago)`, and draws `The machine is offline. This form counts the static fallback; the console refuses a plugin tool it cannot verify.` above the presets; a known last live list is labelled as that. The online 9VH form is unchanged (`46 tools · 15 can change the machine`, plain coverage, no note). 754 tests, gate PASS 46 steps, a11y 0/3, `build-web --check`. Screenshots /tmp/live-ux80-14r-tokens.png, /tmp/live-ux80-9vh-tokens.png.)* With
    14R offline, `/fleet/14R/tools` is 503 and `/tools` is 46, but the form says `This token will
    cover DESKTOP-14RJCR8.` and `46 tools · 15 can change the machine`; the static-fallback sentence
    appears only under `Choose tools…`, and the coverage sentence omits the offline state the fleet
