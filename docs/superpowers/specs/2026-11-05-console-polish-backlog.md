@@ -465,7 +465,7 @@ the setup failure first, then honesty, then the phone, then recovery.
    announced as in progress; the operator waits or retries against an offline machine. **Fix:** use
    `loading` for `Reading…`, and the offline state for `No tool list from this machine`. **S.**
 
-6. **At 390 the Device page hides its Connect button.** `.device-connect` is `display:none` at ≤639
+6. **At 390 the Device page hides its Connect button.** *(Done 2026-11-06, d29c45b, live 0.3.273-ux84: at ≤639 `.device-connect` is a visible 59×28 on the title row (right 374, document 390/390), named "Connect a client", and a click opens this machine's Connect sheet with its `/mcp/<id>` endpoint; at 1440 it is unchanged (59×28 at right 1358). 772 tests, gate PASS 50 steps (a 1440 measurement and a 390 visible/click leg), a11y 0/3, `build-web --check`. Screenshots /tmp/live-ux84-connect-390.png, /tmp/live-ux84-connect-1440.png.)* `.device-connect` is `display:none` at ≤639
    (the button exists but `offsetParent === null`); the only doors are the header's unlabeled account
    icon or Home. At 1440 the button is a visible 59×28 at x 1299. **Cost:** on a phone the machine
    page loses its one per-machine endpoint/credential action. **Fix:** keep a compact Connect control
