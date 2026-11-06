@@ -264,6 +264,8 @@ export function AuditTable({
   useEffect(() => {
     if (rangeKey === lastRangeKey.current) return;
     lastRangeKey.current = rangeKey;
+    // A refusal answered for the range the operator left; the page no longer draws those rows.
+    setExportNotice(null);
     if (range === null) {
       setTimeMode("window");
       return;
@@ -314,7 +316,9 @@ export function AuditTable({
   const fleetNames = useMemo(() => Array.from(deviceNames.values()), [deviceNames]);
   const [copied, setCopied] = useState<string | null>(null);
   // The export route's refusal (a range the scan bound cannot prove) is a sentence, not a file.
-  const [exportNotice, setExportNotice] = useState<string | null>(null);
+  // It remembers the range it answered for: a refusal arriving after the operator chose another
+  // range belongs to rows the page no longer shows.
+  const [exportNotice, setExportNotice] = useState<{ text: string; rangeKey: string } | null>(null);
   // THE OPENER IS IN THE ROW, NOT AT ITS FAR END. A phone cannot see a sixth column, and the old
   // 44 rem table made opening one record cost a sideways swipe; below 640 px the disclosure is the
   // When cell and the chevron column is not rendered at all. The desktop table is unchanged.
@@ -339,6 +343,7 @@ export function AuditTable({
     // The range is a filter too: clearing must put the newest window back, which is a prop change
     // the page answers by drawing the window it already holds.
     lastRangeKey.current = "";
+    setExportNotice(null);
     setTimeMode("window");
     setRange(null);
     setOpen(new Set());
@@ -355,6 +360,8 @@ export function AuditTable({
   /** Apply one range (or the newest window) and remember how the control should name it. */
   const applyRange = (next: AuditRange | null, mode: TimeMode) => {
     lastRangeKey.current = next === null ? "" : `${next.from}:${next.to}`;
+    // The control moved: any refusal still on screen answered for the range it just left.
+    setExportNotice(null);
     setTimeMode(mode);
     setRange(next);
   };
@@ -402,24 +409,30 @@ export function AuditTable({
    * bounds to ask for, so the lines in hand are written here, in the same chronological JSON Lines.
    */
   const exportFile = async () => {
-    setExportNotice(null);
     if (range === null) {
       if (lines.length === 0) return;
       downloadFile(auditJsonlName(lines), auditJsonl(lines), "application/x-ndjson");
+      setExportNotice(null);
       return;
     }
+    // The refusal names the range it answered for, even if it lands after the operator left it.
+    const askedRange = rangeKey;
     try {
       const answer = await api.auditExport(
         range,
         applied.device === "" ? undefined : applied.device
       );
       downloadFile(answer.filename, answer.body, "application/x-ndjson");
+      // A later answer that succeeds supersedes the refusal the operator retried.
+      setExportNotice(null);
     } catch (error) {
-      setExportNotice(
-        error instanceof HttpError
-          ? `The console refused this export: ${error.message}`
-          : "The console could not answer the export."
-      );
+      setExportNotice({
+        text:
+          error instanceof HttpError
+            ? `The console refused this export: ${error.message}`
+            : "The console could not answer the export.",
+        rangeKey: askedRange
+      });
     }
   };
 
@@ -637,10 +650,15 @@ export function AuditTable({
         </button>
       </div>
 
-      {exportNotice !== null && (
-        <p className="hint audit-export-note" role="alert">
-          {exportNotice}
-        </p>
+      {exportNotice !== null && exportNotice.rangeKey === rangeKey && (
+        // **A REFUSAL IS AN ALERT, NOT A HINT.** It says the operator's request failed, so it wears
+        // the console's error surface and offers Dismiss, inline above the table it explains.
+        <div className="alert-inline" role="alert">
+          <span>{exportNotice.text}</span>
+          <button type="button" onClick={() => setExportNotice(null)}>
+            Dismiss
+          </button>
+        </div>
       )}
 
       {/* **A RANGE'S SENTENCE IS THE FETCH'S, NOT THE FILTERS'.** It stays above the empty state

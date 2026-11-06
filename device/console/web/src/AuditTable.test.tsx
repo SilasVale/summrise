@@ -17,8 +17,25 @@ function exportAnswer(body: string, headers: Record<string, string>, status = 20
   } as Response;
 }
 
+/** The sentence a range too large to export gets back from the console's 413 answer. */
+const refusalMessage =
+  "the range needs more than the 50,000-line scan bound; ask for a narrower range";
+
+/** The console's refusal of a range the scan bound cannot prove, as `api.auditExport` reads one. */
+function refusedExport(message: string): Response {
+  return exportAnswer(JSON.stringify({ error: "range_too_large", message }), {
+    "content-type": "application/json"
+  }, 413);
+}
+
 const alpha = "device-a-0123456789ab";
 const beta = "device-b-0123456789ab";
+
+/** One drawn range, used by the export refusal cases. */
+const drawnRange = {
+  from: new Date(2026, 10, 5, 9, 0, 0, 0).getTime(),
+  to: new Date(2026, 10, 5, 17, 0, 0, 0).getTime()
+};
 
 function line(overrides: Partial<AuditLine> = {}): AuditLine {
   return {
@@ -320,13 +337,7 @@ describe("AuditTable", () => {
       from: new Date(2026, 10, 5, 9, 0, 0, 0).getTime(),
       to: new Date(2026, 10, 5, 17, 0, 0, 0).getTime()
     };
-    const message =
-      "the range needs more than the 50,000-line scan bound; ask for a narrower range";
-    const fetchMock = vi.fn().mockResolvedValue(
-      exportAnswer(JSON.stringify({ error: "range_too_large", message }), {
-        "content-type": "application/json"
-      }, 413)
-    );
+    const fetchMock = vi.fn().mockResolvedValue(refusedExport(refusalMessage));
     vi.stubGlobal("fetch", fetchMock);
 
     render(<AuditTable lines={lines} devices={devices} tokens={[]} range={range} />);
@@ -336,6 +347,135 @@ describe("AuditTable", () => {
 
     expect(await screen.findByRole("alert")).toHaveTextContent("50,000-line scan bound");
     expect(downloadFile).not.toHaveBeenCalled();
+  });
+
+  it("draws an export's refusal as an inline alert with a Dismiss control", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(refusedExport(refusalMessage)));
+
+    render(<AuditTable lines={lines} devices={devices} tokens={[]} range={drawnRange} />);
+    fireEvent.click(
+      screen.getByRole("button", { name: /^Export JSONL: the drawn range/ })
+    );
+
+    const alert = await screen.findByRole("alert");
+    // The route's sentence is verbatim; only the surface it lands on changed.
+    expect(alert).toHaveTextContent(`The console refused this export: ${refusalMessage}`);
+    expect(alert).toHaveClass("alert-inline");
+    expect(alert).not.toHaveClass("hint");
+    expect(within(alert).getByRole("button", { name: "Dismiss" })).toBeInTheDocument();
+  });
+
+  it("forgets an export's refusal as soon as the range changes", async () => {
+    const onRange = vi.fn();
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(refusedExport(refusalMessage)));
+    const { rerender } = render(
+      <AuditTable
+        lines={lines}
+        devices={devices}
+        tokens={[]}
+        range={drawnRange}
+        onRange={onRange}
+      />
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: /^Export JSONL: the drawn range/ })
+    );
+    expect(await screen.findByRole("alert")).toHaveTextContent("50,000-line scan bound");
+
+    fireEvent.change(screen.getByLabelText("Time"), { target: { value: "hour" } });
+
+    // The parent has not answered with the new range's rows yet. The old sentence describes a range
+    // the operator has already left, so it goes with the control's change, not with the answer.
+    expect(onRange).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("alert")).toBeNull();
+    rerender(
+      <AuditTable
+        lines={lines}
+        devices={devices}
+        tokens={[]}
+        range={onRange.mock.calls[0][0]}
+        onRange={onRange}
+      />
+    );
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("dismisses an export's refusal", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(refusedExport(refusalMessage)));
+
+    render(<AuditTable lines={lines} devices={devices} tokens={[]} range={drawnRange} />);
+    fireEvent.click(
+      screen.getByRole("button", { name: /^Export JSONL: the drawn range/ })
+    );
+
+    const alert = await screen.findByRole("alert");
+    fireEvent.click(within(alert).getByRole("button", { name: "Dismiss" }));
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("forgets an export's refusal when a later export succeeds", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(refusedExport(refusalMessage))
+      .mockResolvedValueOnce(
+        exportAnswer('{"ts_ms":1,"kind":"mcp"}\n', {
+          "content-type": "application/x-ndjson",
+          "content-disposition": 'attachment; filename="summrise-audit.ndjson"'
+        })
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<AuditTable lines={lines} devices={devices} tokens={[]} range={drawnRange} />);
+    const button = screen.getByRole("button", {
+      name: /^Export JSONL: the drawn range/
+    });
+    fireEvent.click(button);
+    expect(await screen.findByRole("alert")).toHaveTextContent("50,000-line scan bound");
+
+    fireEvent.click(button);
+
+    await waitFor(() => expect(downloadFile).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
+  });
+
+  it("does not draw a refusal that lands after the range it answered for is gone", async () => {
+    let refuse!: (answer: Response) => void;
+    const answer = new Promise<Response>((resolve) => {
+      refuse = resolve;
+    });
+    const fetchMock = vi.fn().mockReturnValue(answer);
+    vi.stubGlobal("fetch", fetchMock);
+    const onRange = vi.fn();
+    const { rerender } = render(
+      <AuditTable
+        lines={lines}
+        devices={devices}
+        tokens={[]}
+        range={drawnRange}
+        onRange={onRange}
+      />
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: /^Export JSONL: the drawn range/ })
+    );
+    fireEvent.change(screen.getByLabelText("Time"), { target: { value: "hour" } });
+    rerender(
+      <AuditTable
+        lines={lines}
+        devices={devices}
+        tokens={[]}
+        range={onRange.mock.calls[0][0]}
+        onRange={onRange}
+      />
+    );
+
+    refuse(refusedExport(refusalMessage));
+
+    // The request belonged to the old range. Let its refusal arrive and the catch run; the alert
+    // must still not describe a range the page no longer shows.
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 
   it("asks the console for a preset instead of filtering the window it holds", () => {

@@ -528,15 +528,25 @@ a.btn {
 a.btn:hover { background: var(--panel-3); border-color: var(--line-strong); }
 a.btn.primary { background: var(--accent-solid); border-color: var(--accent-solid); color: var(--accent-fg); }
 a.btn.primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
-.alert-banner {
-  position: fixed; top: var(--sp-3); left: 50%; transform: translateX(-50%);
-  z-index: 60; display: flex; align-items: center; gap: var(--sp-3);
-  max-width: min(46rem, calc(100vw - 2rem));
+/* The console's error surface, two placements: `.alert-banner` is pinned over the page for a
+   failure that belongs to nothing on it; `.alert-inline` sits in the flow where a control's own
+   refusal belongs. Both carry the same tokens; only the placement differs. */
+.alert-banner,
+.alert-inline {
+  display: flex; align-items: center; gap: var(--sp-3);
   padding: var(--sp-2-5) var(--sp-3); border: 1px solid var(--error); border-radius: var(--radius-sm2);
-  background: var(--error-soft); color: var(--error); box-shadow: var(--shadow-lg);
+  background: var(--error-soft); color: var(--error);
   font-size: var(--fs-sm);
 }
-.alert-banner span { min-width: 0; overflow-wrap: anywhere; }
+.alert-banner {
+  position: fixed; top: var(--sp-3); left: 50%; transform: translateX(-50%);
+  z-index: 60;
+  max-width: min(46rem, calc(100vw - 2rem));
+  box-shadow: var(--shadow-lg);
+}
+.alert-inline { margin: 0 0 var(--sp-3); }
+.alert-banner span,
+.alert-inline span { min-width: 0; overflow-wrap: anywhere; }
 .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(19rem, 1fr)); gap: var(--sp-3); }
 
 .card {
