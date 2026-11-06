@@ -202,21 +202,19 @@ const RUN = {
   stdout_bytes: 6,
   stderr_bytes: 0
 };
-// **THE LONG COMMAND IS THE AUDIT'S SHAPE.** At 390 the measured history broke
-// `powershell.exe -NoProfile …` every few characters in an 80 px Command column. The phone card must
-// give this row the card's width and wrap it on word boundaries; the desktop table truncates it to
-// `shortCommand`'s 110 characters exactly as before.
+// **THE LONG COMMAND IS THE AUDIT'S SHAPE.** The measured record was a 4,590-character
+// `powershell.exe -NoProfile -EncodedCommand …` line: 1,190 px of a 1,551 px card at 1440 and
+// 1,866 px of 2,299 px at 390, with Exit/Duration/Started starting at y 1,393/2,114. The history
+// truncates it to `shortCommand`'s 110 characters; the record now paints the same short form with
+// the facts above it, and the full line is behind `Show full command`.
+const LONG_PAYLOAD = 'JABF' + 'A'.repeat(4_544);
+const LONG_LINE = 'powershell.exe -NoProfile -EncodedCommand ' + LONG_PAYLOAD;
+// `shortCommand`'s shape: the first 109 characters and one ellipsis.
+const LONG_SHORT = LONG_LINE.slice(0, 109) + '…';
 const LONG_RUN = {
   id: 'r-2',
   command: 'powershell.exe',
-  args: [
-    '-NoProfile',
-    '-ExecutionPolicy',
-    'Bypass',
-    '-Command',
-    'Get-ChildItem -Path C:\\Users\\operator\\source -Recurse | ' +
-      'Where-Object { $_.Length -gt 1MB } | Select-Object FullName, Length'
-  ],
+  args: ['-NoProfile', '-EncodedCommand', LONG_PAYLOAD],
   cwd: 'C:\\Users\\operator',
   exit_code: 1,
   timed_out: false,
@@ -225,6 +223,12 @@ const LONG_RUN = {
   stdout_bytes: 2048,
   stderr_bytes: 12
 };
+if (LONG_LINE.length !== 4_590) {
+  throw new Error(`the gate's long fixture is ${LONG_LINE.length} characters, not the audit's 4,590`);
+}
+if (LONG_SHORT.length !== 110) {
+  throw new Error(`the gate's short fixture is ${LONG_SHORT.length} characters, not 110`);
+}
 // The machine's one Tools answer needs a plugin row beside the catalogue; without `plugins.list` the
 // page would show the older-build sentence, which is a different thing to photograph.
 const PLUGIN = {
@@ -715,7 +719,10 @@ function apiReply(request, url) {
       });
     }
     if (name === 'runs.get') {
-      return json({ result: { content: [{ type: 'text', text: JSON.stringify(RUN) }] } });
+      // The record the id names. The audit's long row is a record of its own, so the gate can open
+      // it and measure what the record paints, not the short row the Activity link opened.
+      const record = args.id === LONG_RUN.id ? LONG_RUN : RUN;
+      return json({ result: { content: [{ type: 'text', text: JSON.stringify(record) }] } });
     }
     if (name === 'terminal.close') {
       return json({ result: { content: [{ type: 'text', text: '{}' }] } });
@@ -1472,6 +1479,150 @@ try {
       `${runs390.rows.map((card) => `${card.commandWidth}×${card.commandHeight}`).join(', ')} px ` +
       `with ${runs390.rows[0].labels.length} labelled facts each, header hidden, no sideways scroll`
   );
+
+  // **THE RECORD PAINTS A SHORT COMMAND, NOT 4,590 CHARACTERS OF BASE64.** Audit 36 F3 measured the
+  // full `-EncodedCommand` line at 1,190 px of a 1,551 px card at 1440 and 1,866 px of 2,299 px at
+  // 390, with Exit/Duration/Started beginning at y 1,393/2,114 — the facts were below the first
+  // screen at both widths. The record must put the facts first, paint the short form with the count
+  // it hides, and keep the exact full line behind one `Show full command` toggle.
+  const recordMetrics = () =>
+    page.evaluate(() => {
+      const card = document.querySelector('.runs-detail');
+      const command = document.querySelector('#runs-detail-command-text');
+      const facts = card?.querySelector('dl.facts');
+      const fact = (label) => {
+        const dt = [...(facts?.querySelectorAll('dt') ?? [])].find(
+          (node) => node.textContent === label
+        );
+        const dd = dt?.nextElementSibling;
+        const box = dd?.getBoundingClientRect();
+        return box
+          ? {
+              text: (dd?.textContent ?? '').trim(),
+              top: Math.round(box.top),
+              bottom: Math.round(box.bottom)
+            }
+          : null;
+      };
+      const cardBox = card?.getBoundingClientRect();
+      const commandBox = command?.getBoundingClientRect();
+      const toggle = document.querySelector('.runs-detail-command-more button');
+      return {
+        viewport: { width: window.innerWidth, height: window.innerHeight },
+        card: cardBox
+          ? { top: Math.round(cardBox.top), height: Math.round(cardBox.height) }
+          : null,
+        command: commandBox
+          ? {
+              top: Math.round(commandBox.top),
+              height: Math.round(commandBox.height),
+              text: command?.textContent ?? ''
+            }
+          : null,
+        facts: { exit: fact('Exit'), duration: fact('Duration'), started: fact('Started') },
+        toggle: toggle?.textContent ?? null,
+        expanded: toggle?.getAttribute('aria-expanded') ?? null
+      };
+    });
+  const factsAboveCommand = () =>
+    page.evaluate(() => {
+      const facts = document.querySelector('.runs-detail dl.facts');
+      const command = document.querySelector('#runs-detail-command-text');
+      return Boolean(
+        facts &&
+          command &&
+          facts.compareDocumentPosition(command) & Node.DOCUMENT_POSITION_FOLLOWING
+      );
+    });
+  const checkRecord = (where, record) => {
+    if (!record.card || !record.command) {
+      throw new Error(`${where}: the record or its command did not draw`);
+    }
+    if (record.command.text !== LONG_SHORT) {
+      throw new Error(
+        `${where}: the record paints ${JSON.stringify(record.command.text.slice(0, 60))}… ` +
+          `(${record.command.text.length} chars), not the short command`
+      );
+    }
+    if (record.toggle !== 'Show full command' || record.expanded !== 'false') {
+      throw new Error(
+        `${where}: the command toggle is ${JSON.stringify({ toggle: record.toggle, expanded: record.expanded })}`
+      );
+    }
+    if (record.command.height > 120) {
+      throw new Error(`${where}: the short command is ${record.command.height} px tall`);
+    }
+    for (const [name, fact] of Object.entries(record.facts)) {
+      if (!fact) throw new Error(`${where}: the ${name} fact did not draw`);
+      if (fact.top < 0 || fact.bottom > record.viewport.height) {
+        throw new Error(
+          `${where}: ${name} is at y ${fact.top}..${fact.bottom} in a ${record.viewport.height} px viewport`
+        );
+      }
+      if (fact.bottom > record.command.top) {
+        throw new Error(`${where}: ${name} is y ${fact.bottom}, below the command at ${record.command.top}`);
+      }
+    }
+    if (!record.facts.exit.text.startsWith('exit ')) {
+      throw new Error(`${where}: the exit fact is ${JSON.stringify(record.facts.exit.text)}`);
+    }
+  };
+  const expandRecord = async (where) => {
+    await page.getByRole('button', { name: 'Show full command' }).click();
+    await page.waitForTimeout(150);
+    const expanded = await recordMetrics();
+    if (expanded.command?.text !== LONG_LINE) {
+      throw new Error(
+        `${where}: Show full command painted ${expanded.command?.text.length} chars, not ${LONG_LINE.length}`
+      );
+    }
+    if (expanded.toggle !== 'Hide full command' || expanded.expanded !== 'true') {
+      throw new Error(
+        `${where}: the expanded toggle is ${JSON.stringify({
+          toggle: expanded.toggle,
+          expanded: expanded.expanded
+        })}`
+      );
+    }
+    if (!(await factsAboveCommand())) {
+      throw new Error(`${where}: the full command is not after the facts in the DOM`);
+    }
+    await page.getByRole('button', { name: 'Hide full command' }).click();
+    await page.waitForTimeout(100);
+  };
+
+  const longOpener = page
+    .locator('.runs-row')
+    .filter({ hasText: 'powershell.exe' })
+    .getByRole('button');
+  await longOpener.click();
+  await page.getByRole('button', { name: 'Show full command' }).waitFor({ timeout: 10_000 });
+  await page.evaluate(() => document.querySelector('.runs-detail')?.scrollIntoView({ block: 'start' }));
+  await page.waitForTimeout(300);
+  const record390 = await recordMetrics();
+  checkRecord('390', record390);
+  await page.screenshot({ path: path.join(OUT, '04c-runs-record-390.png') });
+  await expandRecord('390');
+
+  await page.setViewportSize({ width: 1440, height: 960 });
+  await page.waitForTimeout(400);
+  await page.evaluate(() => document.querySelector('.runs-detail')?.scrollIntoView({ block: 'start' }));
+  await page.waitForTimeout(250);
+  const record1440 = await recordMetrics();
+  checkRecord('1440', record1440);
+  await page.screenshot({ path: path.join(OUT, '04d-runs-record-1440.png') });
+  await expandRecord('1440');
+  step(
+    `the long record paints a ${record390.command.height}/${record1440.command.height} px short ` +
+      `command with Exit/Duration/Started above it at y ` +
+      `${record1440.facts.exit.top}/${record1440.facts.duration.top}/${record1440.facts.started.top} ` +
+      `(1440) and ${record390.facts.exit.top}/${record390.facts.duration.top}/${record390.facts.started.top} ` +
+      `(390), all on the first screen; the full 4,590 characters are behind Show full command`
+  );
+  console.log(
+    `browser-gate: long record at 1440: ${JSON.stringify(record1440)}; at 390: ${JSON.stringify(record390)}`
+  );
+
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.waitForTimeout(300);
 

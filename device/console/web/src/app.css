@@ -1330,6 +1330,15 @@ button.chip-tag:hover {
   border-radius: var(--radius-xs);
   white-space: pre-wrap;
 }
+/* The short command's note and its one toggle sit on a line of their own; the note is the record's
+   own count, not a paragraph, so it keeps the row's width and loses the hint's 66ch cap. */
+.runs-detail-command-more {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--sp-1) var(--sp-2);
+}
+.runs-detail-command-more .hint { margin: 0; max-width: none; }
 .runs-history td { vertical-align: top; }
 .runs-row-active td { background: var(--accent-soft); }
 button.runs-open {

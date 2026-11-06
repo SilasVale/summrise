@@ -50,6 +50,10 @@ export function RunsPage({
   const [detailId, setDetailId] = useState<string | null>(null);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [copied, setCopied] = useState<"command" | null>(null);
+  // The record opens on its short command. A 4,590-character `-EncodedCommand` used to be painted
+  // whole and push Exit/Duration/Started more than a screen below the card; the full line is one
+  // press away, and a different record always starts short again.
+  const [fullCommand, setFullCommand] = useState(false);
   const detailRef = useRef<HTMLElement | null>(null);
 
   // A failed first read has nothing to keep showing; a failed refresh must leave the previous rows
@@ -107,6 +111,7 @@ export function RunsPage({
     setDetail(null);
     setDetailId(null);
     setDetailError(null);
+    setFullCommand(false);
     // A MACHINE THE FLEET SAYS IS DOWN IS NOT ASKED — the read cannot reach it, and the page would
     // sit on "Reading the device's run history…" until the console's dial timed out.
     if (offline) {
@@ -144,6 +149,7 @@ export function RunsPage({
       ) as RunRecord;
       if (detailGate.stale(ticket)) return;
       setDetail(record);
+      setFullCommand(false);
     } catch (cause) {
       if (detailGate.stale(ticket)) return;
       setDetail(null);
@@ -170,6 +176,19 @@ export function RunsPage({
   const copyCommand = async (text: string) => {
     if (await copyText(text)) setCopied("command");
   };
+
+  // **THE RECORD SHOWS THE COMMAND'S START, NOT ALL OF IT.** The history row has always done this;
+  // the record painted the full line, and a 4,590-character encoded command made the command block
+  // 1,190 px of a 1,551 px card at 1440 (1,866 px of 2,299 px at 390) and pushed the facts off the
+  // screen. The short form states exactly how much is hidden, the full line stays in `Copy command`,
+  // and `Show full command` draws it again. The facts are above the command, so exit/duration/
+  // started are readable without scrolling past any command at either width.
+  const detailLine = detail ? commandLine(detail) : "";
+  const detailShort = shortCommand(detailLine);
+  const oneLine = detailLine.replace(/\s+/g, " ").trim();
+  const commandShortened = detail !== null && oneLine.length > detailShort.length;
+  const shownCommand = commandShortened ? detailShort : detailLine;
+  const hiddenCharacters = commandShortened ? detailLine.length - (detailShort.length - 1) : 0;
 
   return (
     <div className="runs-page">
@@ -201,21 +220,20 @@ export function RunsPage({
               >
                 {copied === "command" ? "Copied" : "Copy command"}
               </button>
-              <button type="button" className="mini" onClick={() => setDetail(null)}>
+              <button
+                type="button"
+                className="mini"
+                onClick={() => {
+                  setDetail(null);
+                  setFullCommand(false);
+                }}
+              >
                 Close
               </button>
             </div>
           </header>
-          <div className="runs-detail-command">
-            <h3>Command</h3>
-            <p className="mono">{commandLine(detail)}</p>
-          </div>
-          <p className="hint">
-            This is the record the history kept. The device stores each stream's size, not its
-            bytes, so a past run has no stdout or stderr to fetch: output is shown only for a run
-            that has just finished under Tools → Run a command, and every earlier run's output is
-            gone.
-          </p>
+          {/* THE FACTS COME FIRST. The record exists to answer exit/duration/started, and the
+              command can be arbitrarily long; the facts must not sit below it. */}
           <dl className="facts">
             <div>
               <dt>Exit</dt>
@@ -242,6 +260,36 @@ export function RunsPage({
               <dd>{bytes(detail.stderr_bytes)}</dd>
             </div>
           </dl>
+          <div className="runs-detail-command">
+            <h3>Command</h3>
+            <p className="mono" id="runs-detail-command-text">
+              {commandShortened && fullCommand ? detailLine : shownCommand}
+            </p>
+            {commandShortened && (
+              <div className="runs-detail-command-more">
+                <button
+                  type="button"
+                  className="mini"
+                  aria-expanded={fullCommand}
+                  aria-controls="runs-detail-command-text"
+                  onClick={() => setFullCommand((shown) => !shown)}
+                >
+                  {fullCommand ? "Hide full command" : "Show full command"}
+                </button>
+                <span className="hint">
+                  {fullCommand
+                    ? `The full command is ${grouped(detailLine.length)} characters.`
+                    : `${grouped(hiddenCharacters)} of ${grouped(detailLine.length)} characters hidden.`}
+                </span>
+              </div>
+            )}
+          </div>
+          <p className="hint">
+            This is the record the history kept. The device stores each stream's size, not its
+            bytes, so a past run has no stdout or stderr to fetch: output is shown only for a run
+            that has just finished under Tools → Run a command, and every earlier run's output is
+            gone.
+          </p>
         </section>
       )}
 
@@ -304,6 +352,10 @@ export function RunsPage({
       )}
     </div>
   );
+}
+
+function grouped(count: number): string {
+  return String(count).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 }
 
 function historyNoteFor(rows: RunRecord[]): string {

@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { RunsPage } from "./RunsPage";
 import { copyText } from "./copy";
+import { commandLine, shortCommand } from "./runFormat";
 import { callTool, type Grant } from "./terminal";
 
 vi.mock("./copy", () => ({ copyText: vi.fn().mockResolvedValue(true) }));
@@ -59,6 +60,22 @@ const CARGO: RunRecord = {
 const EMPTY_NOTE =
   "No runs yet on this machine. Run one from Tools → Run a command; this page asks for the newest " +
   "20 runs, and the machine keeps more history than that.";
+
+// THE AUDIT'S SHAPE: the measured record's `powershell.exe -NoProfile -EncodedCommand …` line is
+// 4,590 characters. `commandLine` joins the three words and the payload to exactly that length.
+const LONG_PAYLOAD = "JABF" + "A".repeat(4_544);
+const LONG_RUN: RunRecord = {
+  ...HELLO,
+  id: "run-long",
+  command: "powershell.exe",
+  args: ["-NoProfile", "-EncodedCommand", LONG_PAYLOAD],
+  cwd: "C:\\Users\\operator",
+  exit_code: 1,
+  duration_ms: 61_000,
+  started_at_ms: Date.now() - 3 * 60 * 60_000,
+  stdout_bytes: 2048,
+  stderr_bytes: 12
+};
 
 /// The calls made to one tool, as `[grant, name, args]` triples, in the order the page made them.
 const called = (name: string) => mocked.mock.calls.filter((call) => call[1] === name);
@@ -303,5 +320,76 @@ describe("RunsPage", () => {
     expect(screen.queryByText("run-2")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "echo hello" })).toBeInTheDocument();
     expect(called("runs.get")).toHaveLength(1);
+  });
+
+  it("opens a long run on its short command, with the facts above the full line behind a toggle", async () => {
+    mocked.mockImplementation(async (_grant, name) => {
+      if (name === "runs.list") return JSON.stringify([LONG_RUN]);
+      if (name === "runs.get") return JSON.stringify(LONG_RUN);
+      throw new Error(`the test did not expect ${name}`);
+    });
+
+    render(<RunsPage grant={GRANT} />);
+    fireEvent.click(await screen.findByRole("button", { name: /^powershell\.exe/ }));
+
+    const heading = await screen.findByRole("heading", { name: "Command" });
+    const detail = heading.closest("section") as HTMLElement;
+    expect(detail).not.toBeNull();
+    const facts = detail.querySelector("dl.facts") as HTMLElement;
+    const command = detail.querySelector("#runs-detail-command-text") as HTMLElement;
+    const line = commandLine(LONG_RUN);
+    const short = shortCommand(line);
+
+    // THE RECORD IS 1,190 PX OF BASE64 NO LONGER: it paints the short form and states the count.
+    expect(line).toHaveLength(4_590);
+    expect(short).toHaveLength(110);
+    expect(short.endsWith("…")).toBe(true);
+    expect(within(detail).getByText(short)).toBeInTheDocument();
+    expect(within(detail).queryByText(line)).not.toBeInTheDocument();
+    expect(within(detail).getByText("4,481 of 4,590 characters hidden.")).toBeInTheDocument();
+
+    // THE FACTS ARE ABOVE THE COMMAND, and the command is above its own full line: exit/duration/
+    // started cannot be pushed off the screen by the 4,590 characters below them.
+    expect(facts).not.toBeNull();
+    expect(command).not.toBeNull();
+    expect(facts.compareDocumentPosition(heading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(
+      facts.compareDocumentPosition(command) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+    expect(within(facts).getByText("exit 1")).toBeInTheDocument();
+    expect(within(facts).getByText("1m 01s")).toBeInTheDocument();
+    expect(within(facts).getByText("Started")).toBeInTheDocument();
+
+    const toggle = within(detail).getByRole("button", { name: "Show full command" });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    fireEvent.click(toggle);
+
+    // THE FULL LINE IS REACHABLE ON REQUEST, unchanged, and still after the facts.
+    const full = await within(detail).findByText(line);
+    expect(full.tagName).toBe("P");
+    expect(within(detail).getByRole("button", { name: "Hide full command" })).toHaveAttribute(
+      "aria-expanded",
+      "true"
+    );
+    expect(facts.compareDocumentPosition(full) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("keeps a short command whole: no toggle and no hidden count", async () => {
+    mocked.mockImplementation(async (_grant, name) => {
+      if (name === "runs.list") return JSON.stringify([HELLO]);
+      if (name === "runs.get") return JSON.stringify(HELLO);
+      throw new Error(`the test did not expect ${name}`);
+    });
+
+    render(<RunsPage grant={GRANT} />);
+    fireEvent.click(await screen.findByRole("button", { name: "echo hello" }));
+
+    const heading = await screen.findByRole("heading", { name: "Command" });
+    const detail = heading.closest("section") as HTMLElement;
+    expect(detail.querySelector("#runs-detail-command-text")).toHaveTextContent("echo hello");
+    expect(
+      within(detail).queryByRole("button", { name: "Show full command" })
+    ).not.toBeInTheDocument();
+    expect(within(detail).queryByText(/characters hidden/)).not.toBeInTheDocument();
   });
 });
