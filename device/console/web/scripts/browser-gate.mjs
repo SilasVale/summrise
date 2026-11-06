@@ -26,8 +26,10 @@ const TOKEN = 'browser-gate-operator-token';
 const MARKER = 'gate-marker-7f3a';
 
 // The second pty's stream stands in for a device whose ring no longer holds the page's cursor: it
-// refuses the first connection with the device's too-old sentence and answers the page's reconnect
-// at the retained start it named. The bytes it sends are the output the refused tab never drew.
+// refuses the first connection with the device's too-old sentence. The page must then PAGE the
+// retained output with `terminal.read`'s `limit` (answered by the MCP stub below), draw the page,
+// and only then subscribe again at the cursor that page reached. The stream at that reached cursor
+// carries nothing: the retained bytes came from the limited read, not from the subscribe frame.
 const RETAINED_SESSION = 'gate-pty-2';
 const RETAINED_FROM = 1024;
 const RETAINED_TEXT = 'gate-retained-after-drop\r\n';
@@ -372,9 +374,11 @@ const state = {
   streamEchoed: false,
   /** How many times the retained-start stream refused a cursor as older than its ring. */
   oldCursorRefusals: 0,
-  /** The `from` the page reconnected with, and whether the retained bytes were sent on it. */
+  /** How many limited reads the page made, and the first cursor one asked for. */
+  limitedReads: 0,
+  limitedFrom: null,
+  /** The `from` the page resumed the stream at. */
   retainedFrom: null,
-  retainedSent: false,
   /** How many `/audit?from=&to=` requests the page made, and the last one's moments and count. */
   rangeRequests: 0,
   lastRange: null,
@@ -609,6 +613,29 @@ function apiReply(request, url) {
       return json({ result: { content: [{ type: 'text', text: '{}' }] } });
     }
     if (name === 'terminal.read') {
+      // **THE PAGED CATCH-UP.** The second pty's ring no longer holds the page's cursor, so its
+      // recovery must page the retained output through `terminal.read` with `limit`, draw it, and
+      // subscribe again only at the cursor the page reached. One short page is the ring's end.
+      if (args.id === RETAINED_SESSION && typeof args.limit === 'number') {
+        state.limitedReads += 1;
+        const cursor = Number(args.cursor);
+        if (state.limitedFrom === null) state.limitedFrom = cursor;
+        if (cursor === RETAINED_FROM) {
+          return json({
+            result: {
+              content: [
+                {
+                  type: 'text',
+                  text: JSON.stringify({ data: RETAINED_TEXT, cursor: RETAINED_END })
+                }
+              ]
+            }
+          });
+        }
+        return json({
+          result: { content: [{ type: 'text', text: JSON.stringify({ data: '', cursor }) }] }
+        });
+      }
       // THE ECHO. The marker the page typed is what comes back on the next read; this is not a
       // shell and the script says so in its PASS line.
       if (state.echoed && state.cursor === 0) {
@@ -665,9 +692,9 @@ const server = http.createServer((request, response) => {
       'x-accel-buffering': 'no'
     });
     response.write(': stream open\n\n');
-    // **A CURSOR TOO OLD IS REFUSED HERE, AND ONLY HERE.** The page must move to the start the
-    // sentence names and open a NEW connection at it; a page that only moves its map never draws
-    // the retained bytes below.
+    // **A CURSOR TOO OLD IS REFUSED HERE, AND ONLY HERE.** The page must page the retained bytes
+    // through the MCP read above and open a NEW connection at the cursor that page reached; a page
+    // that only moves its map never draws the retained bytes below.
     if (session === RETAINED_SESSION) {
       if (from < RETAINED_FROM) {
         state.oldCursorRefusals += 1;
@@ -678,15 +705,10 @@ const server = http.createServer((request, response) => {
           })}\n\n`
         );
       } else {
-        // The first connection at the retained start is the page's recovery; a later reconnect
-        // (after bytes arrived) resumes at a newer cursor and must not rewrite this fact.
+        // The retained bytes arrived on the limited read. This connection is the page's resume at
+        // the cursor that page reached, so it carries no output of its own; a later reconnect after
+        // real output would move the fact, but the gate sends none.
         if (state.retainedFrom === null) state.retainedFrom = from;
-        if (!state.retainedSent) {
-          state.retainedSent = true;
-          response.write(
-            `event: output\ndata: ${JSON.stringify({ data: RETAINED_TEXT, cursor: RETAINED_END })}\n\n`
-          );
-        }
       }
     }
     const timer = setInterval(() => {
@@ -1065,11 +1087,10 @@ try {
   step('typed a marker; it reached terminal.write and returned down the open stream');
   await page.screenshot({ path: path.join(OUT, '03-terminal-marker.png') });
 
-  // **A CURSOR TOO OLD RECOVERS IN A REAL BROWSER.** The gate's stream for the second pty refuses
-  // its first connection and answers only a reconnect at the retained start it named. The page must
-  // open that connection by itself, draw the bytes the gate sends, and clear the sentence the
-  // refusal set; a page that only moves its cursor map waits here forever, and one that reopens on
-  // the refused cursor is refused again. The bytes come from the gate's stream, not from the page.
+  // **A CURSOR TOO OLD PAGES IN A REAL BROWSER.** The gate's stream for the second pty refuses its
+  // first connection, and its MCP stub answers the page's limited reads with the retained output.
+  // The page must draw that page, then open the stream at the cursor the page reached — not at the
+  // refused cursor, and not at the retained start with a whole-ring subscribe frame.
   await page.getByRole('button', { name: '+ New session' }).click();
   await page
     .getByRole('dialog', { name: 'New terminal session' })
@@ -1087,15 +1108,26 @@ try {
   if (state.oldCursorRefusals < 1) {
     throw new Error('the stream never refused a cursor as older than the retained output');
   }
-  if (state.retainedFrom !== RETAINED_FROM) {
+  if (state.limitedReads < 1) {
+    throw new Error('the page never paged the retained output with terminal.read limit');
+  }
+  if (state.limitedFrom !== RETAINED_FROM) {
+    throw new Error(`the page paged from ${state.limitedFrom}, not the retained start ${RETAINED_FROM}`);
+  }
+  if (state.limitedReads !== 1) {
     throw new Error(
-      `the page reconnected from ${state.retainedFrom}, not the retained start ${RETAINED_FROM}`
+      `the page made ${state.limitedReads} limited reads; one short page is the ring's end`
+    );
+  }
+  if (state.retainedFrom !== RETAINED_END) {
+    throw new Error(
+      `the page resumed the stream at ${state.retainedFrom}, not the reached cursor ${RETAINED_END}`
     );
   }
   if (await page.locator('.terminal-fault').count()) {
     throw new Error('the too-old refusal left its sentence on the tab after the retained bytes arrived');
   }
-  step('a cursor too old reconnected at the retained start, drew its bytes and cleared the fault');
+  step('a cursor too old paged the ring, drew it and resumed the stream at the reached cursor');
   await page.screenshot({ path: path.join(OUT, '04-terminal-retained.png') });
 
   await page.getByRole('button', { name: 'Activity' }).click();
@@ -1889,7 +1921,8 @@ try {
   if (errors.length > 0) throw new Error('console errors: ' + errors.join(' ;; '));
   console.log(
     `browser-gate: PASS — ${steps.length} steps, ${state.writes.length} bytes written, marker echoed, ` +
-      `too-old cursor refused ${state.oldCursorRefusals}x and recovered from ${state.retainedFrom}`
+      `too-old cursor refused ${state.oldCursorRefusals}x, paged ${state.limitedReads} limited read(s) ` +
+      `from ${state.limitedFrom}, stream resumed at ${state.retainedFrom}`
   );
   console.log(`browser-gate: screenshots in ${OUT}`);
   process.exitCode = 0;

@@ -749,7 +749,8 @@ describe("TerminalWorkspace stream recovery", () => {
    * renderer is returned too, so a test can re-render the page under a rebuilt grant.
    */
   async function openStreamTab(
-    read: (args: Record<string, unknown>) => string = () => JSON.stringify({ data: "", cursor: 0 })
+    read: (args: Record<string, unknown>) => string | Promise<string> = () =>
+      JSON.stringify({ data: "", cursor: 0 })
   ) {
     callToolMock.mockImplementation(async (_grant, name, args) => {
       if (name === "terminal.list") return JSON.stringify([{ id: "t1", kind: "pty" }]);
@@ -820,10 +821,86 @@ describe("TerminalWorkspace stream recovery", () => {
     await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
   });
 
-  it("stops chasing a ring that keeps outrunning it and reads the newest tail", async () => {
+  it("pages the retained ring with limit and opens the stream at the reached cursor", async () => {
+    const page1 = "a".repeat(65_536);
+    const page2 = "b".repeat(65_536);
+    const page3 = "c".repeat(100);
+    const start = 1024;
+    const second = start + page1.length;
+    const third = second + page2.length;
+    const reached = third + page3.length;
     const readCursors: number[] = [];
+    const { source } = await openStreamTab((args) => {
+      const cursor = Number(args.cursor);
+      readCursors.push(cursor);
+      if (cursor === start) return JSON.stringify({ data: page1, cursor: second });
+      if (cursor === second) return JSON.stringify({ data: page2, cursor: third });
+      if (cursor === third) return JSON.stringify({ data: page3, cursor: reached });
+      throw new Error(`the test did not expect a read at ${cursor}`);
+    });
+
+    await act(async () => {
+      source.emit("fault", { sentence: tooOld(0, start), status: 200 });
+    });
+
+    // The recovery is a sequence of bounded reads, not one subscribe frame carrying the ring.
+    expect(readCursors).toEqual([start, second, third]);
+    const pages = callToolMock.mock.calls.filter(([, name]) => name === "terminal.read");
+    expect(pages[0][2]).toEqual({ id: "t1", cursor: start, limit: 65_536 });
+    expect(pages[0][3]).toEqual({ poll: true });
+
+    // A short page is the ring's end, so the stream opens at the byte the last page reached.
+    const reopened = await nextLiveSource(source);
+    expect(reopened.from()).toBe(reached);
+
+    await waitFor(() =>
+      expect(mockedXterm.instances[0].write.mock.calls.length).toBeGreaterThanOrEqual(3)
+    );
+    const written = mockedXterm.instances[0].write.mock.calls.map(([text]) => text);
+    expect(written.slice(0, 3)).toEqual([page1, page2, page3]);
+    // The pages answered the too-old sentence; nothing is left to say.
+    await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
+  });
+
+  it("disables the limit when an older device refuses it and reconnects at the retained start", async () => {
+    const limited: number[] = [];
+    const { source } = await openStreamTab((args) => {
+      if (args.limit !== undefined) {
+        limited.push(Number(args.cursor));
+        throw new ToolError(
+          "terminal.read: unknown field `limit`, expected one of `id`, `cursor`, `wait_ms`",
+          200,
+          null,
+          true
+        );
+      }
+      return JSON.stringify({ data: "", cursor: Number(args.cursor) });
+    });
+
+    act(() => {
+      source.emit("fault", { sentence: tooOld(0, 4096), status: 200 });
+    });
+    const second = await nextLiveSource(source);
+    expect(second.from()).toBe(4096);
+    expect(limited).toEqual([4096]);
+
+    // The field is not sent again: a second refusal takes the same pre-paging path.
+    act(() => {
+      second.emit("fault", { sentence: tooOld(4096, 8192), status: 200 });
+    });
+    const third = await nextLiveSource(second);
+    expect(third.from()).toBe(8192);
+    expect(limited).toEqual([4096]);
+  });
+
+  it("stops chasing a ring that keeps outrunning it and reads the newest tail", async () => {
+    const tailCursors: number[] = [];
+    const limitedCursors: number[] = [];
     const text = "newest retained\n";
-    const end = 1_400_000;
+    const start = 4096;
+    const jumps = 17; // The page cap: the ring moves faster than the pages catch it.
+    const reached = start + jumps * 65_536;
+    const end = reached + 50_000;
     const tailFrom = end - 4096;
     const { source } = await openStreamTab((args) => {
       const cursor = Number(args.cursor);
@@ -836,45 +913,93 @@ describe("TerminalWorkspace stream recovery", () => {
           true
         );
       }
-      readCursors.push(cursor);
+      if (args.limit !== undefined) {
+        limitedCursors.push(cursor);
+        // Every page is refused with a newer retained start: the flood is outrunning the reader.
+        throw new ToolError(tooOld(cursor, cursor + 65_536), 200, null, true);
+      }
+      tailCursors.push(cursor);
       return JSON.stringify({ data: text, cursor: tailFrom + text.length });
     });
 
     act(() => {
-      source.emit("fault", { sentence: tooOld(0, 4096), status: 200 });
-    });
-    const second = await nextLiveSource(source);
-    act(() => {
-      second.emit("fault", { sentence: tooOld(4096, 8192), status: 200 });
-    });
-    const third = await nextLiveSource(second);
-    expect(third.from()).toBe(8192);
-
-    act(() => {
-      third.emit("fault", { sentence: tooOld(8192, 12288), status: 200 });
+      source.emit("fault", { sentence: tooOld(0, start), status: 200 });
     });
 
-    // The third refusal is not chased at its named start: the feed reads the newest tail from just
-    // below the session's end, states the whole drop from this tab's cursor, and reopens the stream
-    // from where that read finished.
-    expect(await screen.findByRole("alert")).toHaveTextContent(`${tailFrom} bytes were dropped`);
-    await waitFor(() => expect(readCursors).toContain(tailFrom));
-    expect(readCursors).not.toContain(12288);
+    // The cap is a cut, not an end: the feed reads the newest tail from just below the session's
+    // end, names the bytes between where paging stopped and that tail, and reopens the stream
+    // from where that read finished. The tab keeps its Try again, not a dead sentence.
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      `${tailFrom - reached} bytes were dropped`
+    );
+    expect(tailCursors).toContain(tailFrom);
+    expect(limitedCursors).toHaveLength(jumps);
     expect(mockedXterm.instances[0].write).toHaveBeenCalledWith(text);
-    const reopened = await nextLiveSource(third);
+    const reopened = await nextLiveSource(source);
     expect(reopened.from()).toBe(tailFrom + text.length);
-    // Bytes that are gone are a fact about the scrollback; the output that follows does not erase
-    // the sentence that says how much is missing.
-    expect(screen.getByRole("alert")).toHaveTextContent(`${tailFrom} bytes were dropped`);
+    expect(screen.getByRole("alert")).toHaveTextContent(/newest retained output/);
+    expect(screen.getByRole("button", { name: "Try again" })).toBeInTheDocument();
+  });
+
+  it("names the gap when the catch-up guard expires before a page answers", async () => {
+    const tailText = "tail after guard\n";
+    const end = 600_000;
+    const tailFrom = end - 4096;
+    const { source } = await openStreamTab((args) => {
+      if (args.limit !== undefined) {
+        // The page never answers; only the catch-up's 12 s guard ends the wait.
+        return new Promise<string>(() => {});
+      }
+      if (Number(args.cursor) === Number.MAX_SAFE_INTEGER) {
+        throw new ToolError(
+          `terminal.read: the cursor ${Number(args.cursor)} is past the session's end (${end})`,
+          200,
+          null,
+          true
+        );
+      }
+      return JSON.stringify({ data: tailText, cursor: tailFrom + tailText.length });
+    });
+
+    vi.useFakeTimers();
+    try {
+      act(() => {
+        source.emit("fault", { sentence: tooOld(0, 4096), status: 200 });
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(12_000);
+      });
+
+      // The page was abandoned, the newest tail was drawn instead, and the gap between where
+      // paging stopped and that tail is named. The tab is still the operator's to retry.
+      expect(screen.getByRole("alert")).toHaveTextContent(
+        `${tailFrom - 4096} bytes were dropped`
+      );
+      expect(mockedXterm.instances[0].write).toHaveBeenCalledWith(tailText);
+      const reopened = TestTerminalSource.instances.filter((entry) => !entry.closed).pop();
+      expect(reopened?.from()).toBe(tailFrom + tailText.length);
+      expect(screen.getByRole("button", { name: "Try again" })).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("reads the newest tail when a recovery stream stays silent", async () => {
     const readCursors: number[] = [];
+    const limited: number[] = [];
     const text = "tail after silence\n";
     const end = 500_000;
     const tailFrom = end - 4096;
     const { source } = await openStreamTab((args) => {
       const cursor = Number(args.cursor);
+      if (args.limit !== undefined) {
+        limited.push(cursor);
+        // An older device refuses the field, so the pre-paging reconnect is the recovery.
+        throw new ToolError(
+          "terminal.read: the arguments do not match the tool's input schema.",
+          400
+        );
+      }
       if (cursor === Number.MAX_SAFE_INTEGER) {
         throw new ToolError(
           `terminal.read: the cursor ${cursor} is past the session's end (${end})`,
@@ -892,12 +1017,14 @@ describe("TerminalWorkspace stream recovery", () => {
       act(() => {
         source.emit("fault", { sentence: tooOld(0, 4096), status: 200 });
       });
-      // The recovery connection opens at the start the refusal named, and says nothing.
+      // The older device refused `limit`, so the feed reconnects at the start the refusal named;
+      // this connection says nothing.
       await act(async () => {
         await vi.advanceTimersByTimeAsync(400);
       });
       const silent = TestTerminalSource.instances.filter((entry) => !entry.closed).pop();
       expect(silent?.from()).toBe(4096);
+      expect(limited).toEqual([4096]);
 
       // The catch-up guard gives it its bound, then the tab reads the newest tail instead of
       // waiting forever for a megabyte the device is not delivering at the moving start.

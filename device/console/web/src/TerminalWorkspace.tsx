@@ -10,7 +10,13 @@ import { createOutputPump, type OutputPump } from "./terminalOutput";
 import { renameTab, tabLabel, titleFromInput, type Tab } from "./terminalTabs";
 import { age } from "./age";
 import type { LiveLine } from "./liveActivity";
-import { earliestCursor, endCursor, readTranscript, transcriptFile } from "./terminalTranscript";
+import {
+  earliestCursor,
+  endCursor,
+  RETAINED_BYTES,
+  readTranscript,
+  transcriptFile
+} from "./terminalTranscript";
 import {
   clampFontSize,
   fontStorage,
@@ -111,14 +117,35 @@ const RETAINED_CURSOR_MOVES = 2;
 const RETAINED_READ_TAIL = 4 * 1024;
 
 /**
- * How long a recovery connection may stay silent before the tab stops waiting for the catch-up.
+ * How much of the retained ring one catch-up page asks for.
+ *
+ * A recovery used to reopen the stream at the earliest cursor and let the subscribe frame carry the
+ * whole ring — up to 1 MiB twice (`data` + `data_base64`), the frame whose 30 s bound produced the
+ * measured 504. `terminal.read` now takes a byte `limit`, so the catch-up is drawn a page at a time:
+ * every answer is bounded, every page reaches the xterm as it lands, and the subscribe that follows
+ * asks for the little that arrived meanwhile.
+ */
+const RETAINED_PAGE_BYTES = 64 * 1024;
+
+/**
+ * How many pages one catch-up draws before it stops and names the gap it leaves.
+ *
+ * The device retains 1 MiB, which is sixteen pages; the extra read is what sees the end of a ring
+ * that is exactly full (a short or empty page). A catch-up that needs more than that is not
+ * converging, and the tab continues from the newest retained output instead.
+ */
+const RETAINED_PAGES = Math.ceil(RETAINED_BYTES / RETAINED_PAGE_BYTES) + 1;
+
+/**
+ * How long a recovery may run before the tab stops waiting for the catch-up.
  *
  * Reconnecting at the start of the ring asks the device for everything it still retains. Measured
  * live on DESKTOP-84T3LIN's serial session-3 (0.3.273-ux70): 100 KiB of catch-up took 8 s and a full
  * megabyte produced nothing in 45 s while the ring's start kept moving, so a tab that waits forever
- * stays a fault with an empty pane. A quiet shell's first frame is immediate, so a recovery stream
- * silent for this long is not about to paint the pane; the tail read is a screenful in about a
- * second. The initial connection is not guarded: a live but quiet session may rightly send nothing.
+ * stays a fault with an empty pane. The paging catch-up is bounded by this too: a page that has not
+ * answered by then is abandoned, the newest retained output is read instead, and the tab names what
+ * it left behind. The initial connection is not guarded: a live but quiet session may rightly send
+ * nothing.
  */
 const RETAINED_CATCHUP_MS = 12_000;
 
@@ -143,6 +170,21 @@ export function shouldPollSessions(state: {
 /** Whether the document is in front; a document that cannot answer is treated as visible. */
 function documentIsVisible(): boolean {
   return typeof document === "undefined" || document.visibilityState !== "hidden";
+}
+
+/**
+ * Whether a refused `terminal.read` is a device from before one of its optional fields.
+ *
+ * The field is named outright by some devices and rejected as an unknown argument or against an
+ * older input schema by others; both mean the same thing, and both earn the one retry that drops
+ * the field for the rest of the grant.
+ */
+function refusesField(cause: unknown, field: "wait_ms" | "limit"): boolean {
+  return (
+    cause instanceof ToolError &&
+    (cause.message.includes(field) ||
+      /unknown field|unknown argument|additional propert|input schema/i.test(cause.message))
+  );
 }
 
 /**
@@ -578,6 +620,9 @@ export function TerminalWorkspace({
   const retryAsks = useRef(new Set<string>());
   // A device older than terminal.read's wait_ms refuses the field; fall back once and remember it.
   const waitReads = useRef(true);
+  // A device older than terminal.read's limit refuses the field; the recovery falls back once and
+  // this grant never sends it again.
+  const limitReads = useRef(true);
   const findInput = useRef<HTMLInputElement | null>(null);
   /** The tab the search bar last belonged to, so a switch can clear what it drew there. */
   const searchedTab = useRef<string | null>(null);
@@ -675,14 +720,24 @@ export function TerminalWorkspace({
    *
    * `poll` is true for the feed's own tick: the console is redrawing the screen it already shows,
    * so the read is not the record. A person's Retry passes false and is recorded. `cursorAt` is for
-   * a recovery read that is not at the tab's cursor: the newest-tail read a degraded tab makes.
+   * a recovery read that is not at the tab's cursor: the newest-tail read a degraded tab makes, or
+   * one page of the catch-up. `limit` asks for one page of the retained ring and is sent without
+   * `wait_ms`, because a page that reaches the end must answer at once instead of parking there.
    */
   const readOnce = useCallback(
-    async (tab: Tab, poll: boolean, cursorAt?: number): Promise<ReadAnswer> => {
+    async (
+      tab: Tab,
+      poll: boolean,
+      cursorAt?: number,
+      limit?: number
+    ): Promise<ReadAnswer> => {
       const cursor = cursorAt ?? cursors.current.get(tab.key) ?? 0;
-      const args = waitReads.current
-        ? { id: tab.session, cursor, wait_ms: 15_000 }
-        : { id: tab.session, cursor };
+      const args =
+        limit !== undefined
+          ? { id: tab.session, cursor, limit }
+          : waitReads.current
+            ? { id: tab.session, cursor, wait_ms: 15_000 }
+            : { id: tab.session, cursor };
       try {
         return JSON.parse(
           await callTool(grantRef.current, "terminal.read", args, { poll })
@@ -690,11 +745,7 @@ export function TerminalWorkspace({
       } catch (cause) {
         // A device from before this field rejects the whole call. Retry once without it, then keep
         // the old 250 ms poll for the rest of this grant; the read itself is unchanged.
-        if (
-          waitReads.current &&
-          cause instanceof ToolError &&
-          /wait_ms|unknown field|unknown argument|additional propert|input schema/i.test(cause.message)
-        ) {
+        if (limit === undefined && waitReads.current && refusesField(cause, "wait_ms")) {
           waitReads.current = false;
           return JSON.parse(
             await callTool(
@@ -1135,16 +1186,20 @@ export function TerminalWorkspace({
       let timer: number | null = null;
       let retry: number | null = null;
       let attempt = 0;
-      // A cursor-too-old refusal is a recoverable event, not a dead tab: the feed moves to the
-      // earliest byte the device still retains and reopens there. `lostFrom` is the cursor the chase
-      // started at, so the swallowed bytes can be counted; `moves` bounds the chase so a ring that
-      // keeps outrunning the reader degrades instead of reopening on one offset forever.
+      // A cursor-too-old refusal is a recoverable event, not a dead tab: the feed pages the bytes
+      // the device still retains and opens the stream at the cursor those pages reached. `lostFrom`
+      // is the cursor the recovery started at, so the bytes a cut leaves behind can be counted;
+      // `moves` bounds the older device's stream chase so a ring that keeps outrunning the reader
+      // degrades instead of reopening on one offset forever.
       let moves = 0;
       let lostFrom: number | null = null;
       // A recovery connection is racing a ring that may be moving; if it stays silent for too long
       // the tab reads the newest tail instead of waiting for a catch-up that may never land.
       let recovering = false;
       let catchUp: number | null = null;
+      // The guard on one page read: a page that does not answer by the catch-up's deadline is
+      // abandoned rather than allowed to hold the tab forever.
+      let pageGuard: number | null = null;
 
       const clearCatchUp = () => {
         if (catchUp !== null) window.clearTimeout(catchUp);
@@ -1177,53 +1232,167 @@ export function TerminalWorkspace({
       };
 
       /**
-       * Recover a cursor the device refused as older than its ring, or say it is another fault.
+       * Show a read sentence unless the tab already states bytes it can never get back.
        *
-       * The refusal names where the retained output starts, so reopening the stream at that byte is
-       * the whole recovery: the frames that follow are the retained output the tab never drew. Each
-       * refusal must name a strictly newer start; a refusal after RETAINED_CURSOR_MOVES moves means
-       * the ring is outrunning this reader. The feed then stops chasing, reads the newest retained
-       * output from just below the session's end, reports the bytes that are gone, and reopens the
-       * stream from where that read finished.
+       * A loss sentence is a fact about the scrollback, not a fault a later recovery's progress
+       * repairs: it stays until Try again, exactly as fresh output does not erase it.
        */
-      const recoverTooOld = (sentence: string): boolean => {
-        const earliest = earliestCursor(sentence);
-        if (earliest === null) return false;
-        const held = cursors.current.get(tab.key) ?? 0;
-        if (earliest <= held) {
-          // The device named no newer start than the cursor it refused. Reopening there would ask
-          // for the byte it just refused, so stop chasing and show the newest output instead.
-          if (lostFrom === null) lostFrom = held;
-          void degradeToRetained(sentence, earliest);
-          return true;
-        }
-        if (lostFrom === null) lostFrom = held;
-        cursors.current.set(tab.key, earliest);
-        if (moves >= RETAINED_CURSOR_MOVES) {
-          void degradeToRetained(sentence, earliest);
-          return true;
-        }
-        moves += 1;
-        setFault(tab.key, {
-          kind: "read",
-          sentence: `Reading this session failed: ${sentence}. The tab continues from the earliest output the device retains.`
-        });
-        if (retry !== null) window.clearTimeout(retry);
-        recovering = true;
-        retry = window.setTimeout(connect, moves === 1 ? 400 : 1_500);
-        return true;
+      const showRead = (sentence: string) => {
+        if (faultRef.current.get(tab.key)?.loss) return;
+        setFault(tab.key, { kind: "read", sentence });
       };
 
       /**
-       * Stop chasing a ring that keeps outrunning this tab, and read the newest output instead.
+       * The older device's recovery: reopen the stream at the start the refusal named.
+       *
+       * A device that refuses `limit` has no paging read, so this is the path that shipped before
+       * it: the cursor moves to `at`, the stream reopens there, and a connection that stays silent
+       * for the catch-up's bound reads the newest tail instead. `moves` bounds the chase so a ring
+       * that keeps outrunning the reader degrades instead of reopening on one offset forever.
+       */
+      const reconnectAtEarliest = (sentence: string, at: number) => {
+        if (moves >= RETAINED_CURSOR_MOVES) {
+          void degradeToRetained(sentence, lostFrom ?? at, at);
+          return;
+        }
+        moves += 1;
+        showRead(
+          `Reading this session failed: ${sentence}. The tab continues from the earliest output the device retains.`
+        );
+        if (retry !== null) window.clearTimeout(retry);
+        recovering = true;
+        retry = window.setTimeout(connect, moves === 1 ? 400 : 1_500);
+      };
+
+      /**
+       * Draw the retained ring a page at a time, then open the stream at the reached cursor.
+       *
+       * Every page is a polling `terminal.read` with `limit`, so each answer is bounded and each
+       * page reaches the xterm as it lands. A short page is the ring's end, and the subscribe that
+       * follows asks only for what arrived meanwhile. The page cap or the catch-up's guard stops a
+       * catch-up that is not converging; the tab then reads the newest retained output and names
+       * the bytes between where paging stopped and that tail.
+       *
+       * A device that does not know `limit` refuses the first page. That field is then dropped for
+       * the rest of the grant and the older device's reconnect path takes over; the refusal is not
+       * retried as a whole-ring read.
+       */
+      const pageCatchUp = async (sentence: string, earliest: number) => {
+        showRead(
+          `Reading this session failed: ${sentence}. The tab continues from the earliest output the device retains.`
+        );
+        const deadline = Date.now() + RETAINED_CATCHUP_MS;
+        let cursor = earliest;
+        let pages = 0;
+        cursors.current.set(tab.key, cursor);
+
+        /** One page, or null when the catch-up's guard expires while the page is in flight. */
+        const readPage = (at: number): Promise<ReadAnswer | null> => {
+          const remaining = deadline - Date.now();
+          if (remaining <= 0) return Promise.resolve(null);
+          return new Promise((resolve, reject) => {
+            const guard = window.setTimeout(() => {
+              if (pageGuard === guard) pageGuard = null;
+              resolve(null);
+            }, remaining);
+            pageGuard = guard;
+            readOnce(tab, true, at, RETAINED_PAGE_BYTES).then(
+              (answer) => {
+                // A page abandoned by the guard may still answer later; it must not clear the
+                // guard that belongs to the page now in flight.
+                if (pageGuard === guard) {
+                  window.clearTimeout(guard);
+                  pageGuard = null;
+                }
+                resolve(answer);
+              },
+              (cause) => {
+                if (pageGuard === guard) {
+                  window.clearTimeout(guard);
+                  pageGuard = null;
+                }
+                reject(cause);
+              }
+            );
+          });
+        };
+
+        while (!stopped) {
+          if (pages >= RETAINED_PAGES) {
+            // The cap is a cut, not an end: the tab continues from the newest retained output and
+            // says how much of the ring was left between here and that tail.
+            await degradeToRetained(sentence, cursor, cursor);
+            return;
+          }
+          let read: ReadAnswer | null;
+          try {
+            read = await readPage(cursor);
+          } catch (cause) {
+            if (stopped) return;
+            const newer = earliestCursor(message(cause));
+            if (newer !== null) {
+              if (newer > cursor) {
+                // The ring moved while this page was in flight; continue at the start it named.
+                cursor = newer;
+                cursors.current.set(tab.key, cursor);
+                pages += 1;
+                continue;
+              }
+              await degradeToRetained(sentence, cursor, cursor);
+              return;
+            }
+            if (limitReads.current && refusesField(cause, "limit")) {
+              // An older device does not know the field. Drop it for this grant and take the
+              // recovery path that shipped before paging; do not send `limit` again.
+              limitReads.current = false;
+              reconnectAtEarliest(sentence, cursor);
+              return;
+            }
+            fail(tab, "read", cause);
+            startPolling();
+            return;
+          }
+          if (stopped) return;
+          if (read === null) {
+            // The guard expired while the page was in flight; that page is abandoned, not drawn.
+            await degradeToRetained(sentence, cursor, cursor);
+            return;
+          }
+          const data = read.data ?? "";
+          const before = cursor;
+          const at = typeof read.cursor === "number" ? read.cursor : before + data.length;
+          if (data && at > before && instance) {
+            pumpFor(tab, instance).push(data);
+            // A page is a working read: the too-old sentence has been answered by the device. A
+            // sentence about bytes the device no longer has is a fact fresh pages do not repair.
+            const fault = faultRef.current.get(tab.key);
+            if (fault && !fault.loss) clearFault(tab.key);
+          }
+          cursor = Math.max(before, at);
+          cursors.current.set(tab.key, cursor);
+          pages += 1;
+          if (data.length < RETAINED_PAGE_BYTES || at <= before) {
+            // A short page is the ring's end. The stream that follows is up to date, so its own
+            // subscribe read is small; a device that did not advance is treated the same way so
+            // the tab cannot page the same offset forever.
+            recovering = false;
+            connect();
+            return;
+          }
+        }
+      };
+
+      /**
+       * Stop a recovery that cannot finish, and read the newest output instead.
        *
        * `terminal.read` past the end is the one question whose answer names the current end, so the
        * tail is read from `end - RETAINED_READ_TAIL`: the start of the ring may move again before
        * that read lands, but a cursor a whole margin below the end is safe. Its bytes are drawn,
-       * the drop from the tab's old cursor is stated once (the sentence stays until Try again), and
-       * the stream reopens from the read's cursor to carry what comes next.
+       * the drop from `lostFrom` is stated once (the sentence stays until Try again), and the
+       * stream reopens from the read's cursor to carry what comes next. `reached` is where the
+       * recovery is now: the tail read never starts before it, so paging does not replay bytes.
        */
-      const degradeToRetained = async (sentence: string, earliest: number) => {
+      const degradeToRetained = async (sentence: string, lossFrom: number, reached: number) => {
         // The connection this opens is not a catch-up at the moving start, so it must not be
         // timed out into another degrade: it resumes at the end of the newest tail.
         recovering = false;
@@ -1238,7 +1407,8 @@ export function TerminalWorkspace({
           if (end === null) {
             throw new ToolError("the device did not name where the session ends", 200, null, true);
           }
-          const from = Math.max(0, end - RETAINED_READ_TAIL);
+          const tailFrom = Math.max(0, end - RETAINED_READ_TAIL);
+          const from = Math.max(0, Math.min(end, Math.max(reached, tailFrom)));
           const read = await readOnce(tab, true, from);
           // The tab may have closed while the tail read was in flight; its instance is gone with
           // it, so there is nothing to draw and no cursor left to continue.
@@ -1246,7 +1416,7 @@ export function TerminalWorkspace({
           const at = typeof read.cursor === "number" ? read.cursor : from;
           cursors.current.set(tab.key, at);
           if (read.data && instance) pumpFor(tab, instance).push(read.data);
-          nameTheLoss(sentence, Math.max(0, from - (lostFrom ?? earliest)));
+          nameTheLoss(sentence, Math.max(0, tailFrom - lossFrom));
           connect();
         } catch (cause) {
           // The tail could not be read either: let the polling loop ask at whatever cursor the
@@ -1254,6 +1424,35 @@ export function TerminalWorkspace({
           fail(tab, "read", cause);
           startPolling();
         }
+      };
+
+      /**
+       * Recover a cursor the device refused as older than its ring, or say it is another fault.
+       *
+       * The refusal names where the retained output starts. The feed pages from there while the
+       * device knows `limit`; an older device reopens the stream there and lets the catch-up guard
+       * take over. Either way the tab continues from a cursor the device named, never the byte it
+       * refused.
+       */
+      const recoverTooOld = (sentence: string): boolean => {
+        const earliest = earliestCursor(sentence);
+        if (earliest === null) return false;
+        const held = cursors.current.get(tab.key) ?? 0;
+        if (earliest <= held) {
+          // The device named no newer start than the cursor it refused. Reopening there would ask
+          // for the byte it just refused, so stop chasing and show the newest output instead.
+          if (lostFrom === null) lostFrom = held;
+          void degradeToRetained(sentence, lostFrom, held);
+          return true;
+        }
+        if (lostFrom === null) lostFrom = held;
+        cursors.current.set(tab.key, earliest);
+        if (!limitReads.current) {
+          reconnectAtEarliest(sentence, earliest);
+          return true;
+        }
+        void pageCatchUp(sentence, earliest);
+        return true;
       };
 
       const connect = () => {
@@ -1274,6 +1473,7 @@ export function TerminalWorkspace({
             stream = null;
             void degradeToRetained(
               `the stream from byte ${from} sent nothing within ${RETAINED_CATCHUP_MS / 1_000} seconds`,
+              lostFrom ?? from,
               from
             );
           }, RETAINED_CATCHUP_MS);
@@ -1338,6 +1538,7 @@ export function TerminalWorkspace({
       return () => {
         stopped = true;
         clearCatchUp();
+        if (pageGuard !== null) window.clearTimeout(pageGuard);
         if (timer !== null) window.clearInterval(timer);
         if (retry !== null) window.clearTimeout(retry);
         stream?.close();
