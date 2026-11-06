@@ -195,6 +195,35 @@ workstream owns; each one ships with the same gates as a feature.
 - **C5. Fleet tokens as a second minting place.** *(Done via P1-7: one list with a scope column and one mint form; `FleetTokens.tsx` deleted. Closed 2026-11-04.)* One credential list with a scope column replaces
   two pages.
 
+
+## P0 — the ninth list (opened 2026-11-06, from the operator's first client and the token confusion)
+
+Measured on 2026-11-06, after the first real install and the first outside MCP client: the console
+printed an enrollment command the machine could not run, and the person looking for the token could
+not find it. The console's own Tokens sheet holds five tokens with different, fixed device scopes;
+nothing on the fleet says so.
+
+1. **The enrollment command names a binary the installer never puts on PATH.** The Add-a-machine
+   panel prints `summrise-device.exe --enroll …` (`App.tsx:863-864`, hardcoded); `summrise.nsi`
+   writes no PATH entry (the only `PATH` mention is a comment); the live operator installed to
+   `E:\Program Files\Summrise` and the command runs in an ordinary elevated prompt, whose cwd is
+   not that folder. **Cost:** the first command the product prints fails with "not recognized",
+   after the person has already downloaded the installer and minted the code. **Fix:** the installer
+   owns the root, so it adds `$INSTDIR` to the machine PATH (and the uninstaller removes it), or the
+   panel's sentence names the install folder; decide once, in the installer. **M.** (installer +
+   one console sentence.)
+2. **A credential has no door from the fleet, and its fixed scope is unstated.** Tokens live only
+   under Account → Tokens; the live fleet, the Add-a-machine panel and the Connect sheet have no
+   Tokens link (`onTokens` is wired only for the Connect sheet). The operator's colleague measured
+   "console.saisi.online 根本没有看到 token" on 2026-11-06, while the console actually held five
+   tokens with different device scopes — one of them missing the machine being asked about. The
+   mint form never says the device scope is fixed at creation and Rotate keeps it. **Cost:** a
+   person cannot find where a token comes from, and the multi-token model reads as one token with
+   missing machines. **Fix:** a Tokens door from the fleet header and the Add-a-machine panel; the
+   sheet and the mint form state "the device scope is fixed at creation; Rotate keeps it; to cover
+   different machines, mint a new token", and the mint form names the machines it will cover.
+   **M.**
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
@@ -869,7 +898,7 @@ URL in use was the build box's tailnet mirror
 
 ### P1
 
-5. **The export's refusal reads as a hint and outlives its range.** `exportNotice` is a muted
+5. **The export's refusal reads as a hint and outlives its range.** *(Done 2026-11-06, c10e37f + c170bda, live 0.3.273-ux65: the refusal is an inline `.alert-inline` with `role=alert` and Dismiss, carrying the range key it answered for; it clears on a range change, on Clear, on Dismiss and on a later success. jsdom 711 tests (+5), typecheck 0, `build-web --check` clean, a11y 0 findings, browser gate PASS 35 steps — the 413 is drawn and cleared in a real browser (screenshot /tmp/console-browser-gate/07f-export-refusal-390.png). A real 413 on the live console could not be produced: the audit holds fewer lines than the route's 50,000-line scan bound; the live ux65 serves the same bundle the gate exercised. Live Activity screenshot /tmp/live-activity-ux65-1440.png.)* `exportNotice` is a muted
    `.hint` paragraph with `role=alert`, and it stays after the Time control changes, so it can
    describe a range the page no longer shows. **Fix:** clear it when the range changes and draw it on
    the console's alert surface. **S.** *(From the seventh list's item 3 review: behaviour correct,
