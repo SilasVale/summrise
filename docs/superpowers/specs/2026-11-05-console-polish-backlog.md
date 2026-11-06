@@ -496,7 +496,7 @@ Measured on the live console at 1440×960 and 390×844, Asia/Shanghai, selected 
 device panel at 127.0.0.1:18090. Ranked by the setup failure and the data loss first, then the
 record, then the panel, then the smaller corrections.
 
-1. **"Add a machine" in the machine menu mints a code the page never shows.** The menu item calls
+1. **"Add a machine" in the machine menu mints a code the page never shows.** *(Done 2026-11-06, f43bb88, live 0.3.273-ux88: `addMachine` clears the selected machine (`choose(null)`) before minting, so the machine chip's Add a machine lands on the fleet (header `All machines`) with the server's code in the enrollment panel, Copy and the command; one press is exactly one `POST /enroll`, a live code in hand is shown again, and an in-flight mint is blocked. 785 tests (+2), gate PASS 50 steps, a11y 0/3, `build-web --check`. Live: the chip → Add a machine → 64-hex code `b6e70129a4…` + Copy + command, one POST /enroll; screenshot /tmp/live-ux88-addmachine.png.)* The menu item calls
    `POST /enroll` (200, 64-hex code, 15-minute expiry) and leaves the selected machine's hub on
    screen; the code appears only after `All machines` is chosen. **Cost:** the setup action looks
    dead; repeated presses mint more one-time codes; the operator cannot copy the command. **Fix:**
