@@ -472,7 +472,7 @@ the setup failure first, then honesty, then the phone, then recovery.
    at ≤639. **S.**
 
 7. **Screen → Browser shows the raw `chrome exited with exit code: 1002` error with no recovery
-   sentence.** The primary line includes `http://127.0.0.1:62544/json/version` and `no stderr
+   sentence.** *(Done 2026-11-06, d466224, live 0.3.273-ux85: a launch-failed `browser.list` reads `The device's browser did not come up.` (or `The device's browser page endpoint did not answer.` for the timeout shape) with one hint, `Stop the browser, then choose Refresh pages to start it again.`; the raw answer (exit code, loopback port, stderr note) sits in a closed `<details>` named `The device's answer`, not the primary line. Live 9VH: the failure shows the sentence and the hint, and the raw text is not in the page text; unmapped refusals keep their own sentence. 774 tests (+2), gate PASS 50 steps, a11y 0/3, `build-web --check`. Screenshot /tmp/live-ux85-browser.png.)* The primary line includes `http://127.0.0.1:62544/json/version` and `no stderr
    output`; only `Refresh pages` and `Stop browser` are enabled, and neither is explained. **Cost:**
    the operator sees an internal failure and can only repeat the same call. **Fix:** map it to a
    sentence with a Stop/Retry/Restart action; keep the raw text behind evidence. **S.**
