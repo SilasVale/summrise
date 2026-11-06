@@ -36,7 +36,10 @@ cp target/x86_64-pc-windows-gnu/release/summrise-console.exe "$STAGE/summrise-co
 ( pgrep -f "http.server 8099 --bind 100.85.163.159" >/dev/null ) || ( cd "$STAGE" && setsid python3 -m http.server 8099 --bind 100.85.163.159 >/tmp/console-deploy-http.log 2>&1 & )
 sleep 1
 
-host() { python3 /tmp/host_call.py "$HOST_DEVICE" "$1" "$2"; }
+# THE HELPER PRINTS THE TOOL'S ANSWER BY DEFAULT; this script parses the JSON-RPC envelope, so it
+# must ask for the raw body. Without `--raw` every digest read was a KeyError and no deploy could pass
+# the hash compare (measured 2026-11-06 on 0.3.273-ux63, twice).
+host() { python3 /tmp/host_call.py --raw "$HOST_DEVICE" "$1" "$2"; }
 
 host runs.exec "{\"command\":\"curl.exe\",\"args\":[\"-fsS\",\"--retry\",\"2\",\"-o\",\"C:\\\\SummriseConsole\\\\summrise-console.exe.new\",\"$URL/summrise-console-$VERSION.exe\"],\"timeout_ms\":120000}" >/dev/null
 REMOTE=$(host runs.exec '{"command":"powershell.exe","args":["-NoProfile","-Command","(Get-FileHash C:\\SummriseConsole\\summrise-console.exe.new -Algorithm SHA256).Hash.ToLower()"]}' | python3 -c 'import json,sys; print(json.load(sys.stdin)["result"]["content"][0]["text"].strip())')
@@ -53,9 +56,19 @@ function Say(\$m) { Add-Content -Path \$log -Value ((Get-Date -Format o) + ' ' +
 Start-Sleep -Seconds 3
 Say ('begin sha=$SHA')
 schtasks /end /tn SummriseConsole | Out-Null
-Start-Sleep -Seconds 2
+# THE END RETURNS WHEN THE CONTROL IS ACCEPTED, NOT WHEN THE PROCESS IS GONE. Moving the new binary
+# over one still mapped fails with "Cannot create a file when that file already exists" (measured
+# 2026-11-06); wait for the image to leave, and stop it if it is still there after 10 s.
+for (\$i = 0; \$i -lt 20; \$i++) {
+  if (-not (Get-Process summrise-console -ErrorAction SilentlyContinue)) { break }
+  Start-Sleep -Milliseconds 500
+}
+\$p = Get-Process summrise-console -ErrorAction SilentlyContinue
+if (\$p) { Say ('process ' + \$p.Id + ' did not stop; stopping it'); Stop-Process -Id \$p.Id -Force; Start-Sleep -Seconds 2 }
 Copy-Item -Path \$live -Destination (Join-Path \$dir 'summrise-console.exe.bak-live') -Force
+Remove-Item -Path \$live -Force -ErrorAction SilentlyContinue
 Move-Item -Path \$new -Destination \$live -Force
+if (-not (Test-Path \$live)) { Copy-Item -Path (Join-Path \$dir 'summrise-console.exe.bak-live') -Destination \$live -Force; Say 'move failed; the live image was restored from bak-live' }
 schtasks /run /tn SummriseConsole | Out-Null
 Start-Sleep -Seconds 8
 try { \$h = Invoke-RestMethod -Uri 'http://127.0.0.1:7736/health' -TimeoutSec 5; Say ('health ' + (\$h | ConvertTo-Json -Compress)) } catch { Say ('health failed ' + \$_.Exception.Message) }
