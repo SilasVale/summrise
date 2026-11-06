@@ -38,7 +38,7 @@ use crate::devices::{self, Device, DeviceRegistry, RegisterError};
 use crate::grants::{self, GrantEnvelope, GrantError, VerifyError};
 use crate::hex;
 use crate::mcp::DeviceRef;
-use crate::tokens::{Token, TokenError, TokenMeta, Tokens};
+use crate::tokens::{Token, TokenError, TokenKind, TokenMeta, Tokens};
 
 /// How far a device's clock may be from the console's when it registers: five minutes.
 const REGISTRATION_SKEW_MS: u64 = 5 * 60 * 1000;
@@ -3132,23 +3132,63 @@ fn operator_scope(device_id: &str) -> crate::channels::TokenScope {
 /// Why a presented API token did not become a grant.
 enum TokenRefusal {
     /// The credential itself does not resolve: unknown, revoked, expired, or not mintable. The
-    /// caller is not authenticated, so this is a denial-log line, never the operator's audit.
+    /// caller is not authenticated, so this is a denial-log line, never the operator's audit. No
+    /// door is named: an unauthenticated caller does not get the token's scope.
     Unauthenticated(&'static str),
-    /// A live token for another device. The caller *is* authenticated, so the operator's audit gets
-    /// the refusal — a credential used against the wrong machine is exactly what an audit is for.
-    ForeignDevice,
+    /// A live token presented at the other kind of endpoint. Carries the endpoint the token opens
+    /// (e.g. `/mcp/all` or `/mcp/4c718d6e44c8…`), so the 401 can name the door instead of saying
+    /// only "unauthorized".
+    WrongDoor(String),
+    /// A live device token for another machine. The caller *is* authenticated, so the operator's
+    /// audit gets the refusal — a credential used against the wrong machine is what an audit is for.
+    /// Carries the endpoint the token does open.
+    ForeignDevice(String),
+}
+
+/// A device id as the page writes it: the first twelve characters and an ellipsis when cut.
+///
+/// The 401 names the endpoint a presented token opens; a 64-hex id in a sentence is unreadable, and
+/// this is the same short form the token list's Scope cell prints.
+fn short_device_id(device_id: &str) -> String {
+    let mut chars = device_id.chars();
+    let short: String = chars.by_ref().take(12).collect();
+    if chars.next().is_some() {
+        format!("{short}…")
+    } else {
+        short
+    }
+}
+
+/// The endpoint a token opens, as a 401 names it.
+fn token_door(record: &Token) -> String {
+    match record.kind() {
+        TokenKind::Fleet => "/mcp/all".to_owned(),
+        TokenKind::Device => format!("/mcp/{}", short_device_id(&record.device_id)),
+    }
 }
 
 /// The one wire answer for an aggregate token that failed lookup or minting: 401, with the denial
-/// detail the refusal names. A wrong, foreign or revoked credential is not distinguished on the wire.
+/// detail the refusal names. A wrong, foreign or revoked credential is not distinguished on the
+/// wire; a live token of the other kind is, because the caller already proved that credential and
+/// needs to know the door it opens.
 async fn refuse_token(app: &AppState, refusal: TokenRefusal) -> Response {
-    let detail = match refusal {
-        TokenRefusal::Unauthenticated(detail) => detail,
-        TokenRefusal::ForeignDevice => "foreign_api_token",
+    let (detail, message) = match refusal {
+        TokenRefusal::Unauthenticated(detail) => (detail, None),
+        TokenRefusal::WrongDoor(door) => (
+            "not_an_aggregate_token",
+            Some(format!(
+                "this token is for {door}; /mcp/all takes a fleet token"
+            )),
+        ),
+        // The aggregate route reaches this only for a token whose list no longer contains the
+        // requested device. That is not a wrong door, so it keeps the bare refusal.
+        TokenRefusal::ForeignDevice(_) => ("foreign_api_token", None),
     };
-    app.refuse_as(None, ApiError::unauthorized(), detail)
-        .await
-        .into_response()
+    let mut error = ApiError::unauthorized();
+    if let Some(message) = message {
+        error = error.saying(message);
+    }
+    app.refuse_as(None, error, detail).await.into_response()
 }
 
 /// The scope one token request is answered with, and the record that authenticated it.
@@ -3198,17 +3238,22 @@ fn token_scope(app: &AppState, record: &Token, device_id: &str) -> MintedScope {
     }
 }
 
-/// A device token on `/mcp/:id`: one device only, never an aggregate record.
+/// A device token on `/mcp/:id`: one device only, never a fleet record.
 fn mint_token_scope(
     app: &AppState,
     device_id: &str,
     token: &str,
 ) -> Result<MintedScope, TokenRefusal> {
     let record = live_token(app, token)?;
-    if record.device_ids.is_some() || record.device_id != device_id {
-        return Err(TokenRefusal::ForeignDevice);
+    match record.kind() {
+        // The token authenticated; it is simply the wrong kind for this URL. Naming its own door
+        // makes the first failing call say where the credential belongs.
+        TokenKind::Fleet => Err(TokenRefusal::WrongDoor(token_door(&record))),
+        TokenKind::Device if record.device_id != device_id => {
+            Err(TokenRefusal::ForeignDevice(token_door(&record)))
+        }
+        TokenKind::Device => Ok(token_scope(app, &record, device_id)),
     }
-    Ok(token_scope(app, &record, device_id))
 }
 
 /// An aggregate token on `/mcp/all`: the path is not a device, so the requested device is checked
@@ -3220,10 +3265,10 @@ fn mint_aggregate_scope(
 ) -> Result<MintedScope, TokenRefusal> {
     let record = live_token(app, token)?;
     let Some(allowed) = record.device_ids.as_ref() else {
-        return Err(TokenRefusal::Unauthenticated("not_an_aggregate_token"));
+        return Err(TokenRefusal::WrongDoor(token_door(&record)));
     };
     if !allowed.iter().any(|id| id == device_id) {
-        return Err(TokenRefusal::ForeignDevice);
+        return Err(TokenRefusal::ForeignDevice(token_door(&record)));
     }
     Ok(token_scope(app, &record, device_id))
 }
@@ -3765,7 +3810,26 @@ async fn standard_mcp(
                     .await
                     .into_response()
             }
-            Err(TokenRefusal::ForeignDevice) => {
+            // A live token of the other kind is authenticated, so its refusal may name the door it
+            // opens. The audit keeps the difference from a plain wrong-device attempt.
+            Err(TokenRefusal::WrongDoor(door)) => {
+                app.record_facts(AuditFacts {
+                    kind: "denied",
+                    device_id: audit_id.as_deref(),
+                    status: StatusCode::UNAUTHORIZED,
+                    detail: Some("api_token_wrong_endpoint"),
+                    tool: None,
+                    token_id: None,
+                    caller: Some(Caller::Client),
+                })
+                .await;
+                return ApiError::unauthorized()
+                    .saying(format!(
+                        "this token is for {door}; a device endpoint takes a device token"
+                    ))
+                    .into_response();
+            }
+            Err(TokenRefusal::ForeignDevice(door)) => {
                 app.record_facts(AuditFacts {
                     kind: "denied",
                     device_id: audit_id.as_deref(),
@@ -3776,7 +3840,11 @@ async fn standard_mcp(
                     caller: Some(Caller::Client),
                 })
                 .await;
-                return ApiError::unauthorized().into_response();
+                return ApiError::unauthorized()
+                    .saying(format!(
+                        "this token is for {door}; it is not accepted at another machine's endpoint"
+                    ))
+                    .into_response();
             }
         },
     };
@@ -4004,10 +4072,7 @@ async fn aggregate_mcp(State(app): State<AppState>, request: axum::extract::Requ
         Err(refusal) => return refuse_token(&app, refusal).await,
     };
     let Some(allowed) = record.device_ids.clone() else {
-        return app
-            .refuse_as(None, ApiError::unauthorized(), "not_an_aggregate_token")
-            .await
-            .into_response();
+        return refuse_token(&app, TokenRefusal::WrongDoor(token_door(&record))).await;
     };
 
     // The token is authenticated, so this buffer can only be filled by a caller who proved one.

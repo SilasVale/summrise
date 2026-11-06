@@ -137,6 +137,14 @@ export function ConnectSheet({
   const live = useLiveTools(device?.id ?? null);
   const registry = useToolCatalogue();
   const endpoint = device ? `${location.origin}/mcp/${device.id}` : `${location.origin}/mcp/all`;
+  // The token kind this sheet's URL takes. The URL above is one door; a token of the other kind is
+  // refused there, so the copy says which credential belongs here and where the other one is used.
+  const doorSentence = device
+    ? `This endpoint, ${endpoint}, takes a device token minted for ` +
+      `${device.name || shortId(device.id)}. A fleet token is accepted only at ` +
+      `${location.origin}/mcp/all.`
+    : `This endpoint, ${endpoint}, takes a fleet token. A device token is accepted only at its ` +
+      "own machine's URL, whose path is /mcp/<device id>.";
   const title = initialSection === "tokens" ? "Tokens" : "Connect a client";
   const offline = device?.online === false;
 
@@ -203,6 +211,7 @@ export function ConnectSheet({
               A bearer token is the credential the client sends with every request. It names the
               tools it may call, and revoking it stops the next call.
             </p>
+            <p className="hint">{doorSentence}</p>
             {!device && (
               <p className="hint">
                 This endpoint spans the fleet: every tool takes a required <code>device</code>{" "}
@@ -242,6 +251,7 @@ export function ConnectSheet({
               The token is created in Tokens and shown once; paste it where <code>&lt;token&gt;</code>{" "}
               is.
             </p>
+            <p className="hint">{doorSentence}</p>
             {copiedClient === client ? (
               <p className="plugin-valid" role="status">
                 Copied. It is not shown again.
@@ -529,6 +539,12 @@ function TokensSection({
           all machines is accepted there; every tool takes a required <code>device</code> argument.
         </p>
       )}
+      {device && scope === "fleet" && (
+        <p className="hint">
+          This token is a fleet token: use it at <code className="mono">{location.origin}/mcp/all</code>.
+          It is refused at this machine's URL, <code className="mono">{endpoint}</code>.
+        </p>
+      )}
 
       {created ? (
         <div className="created-token">
@@ -760,6 +776,9 @@ function TokensSection({
                       </td>
                       <td>
                         <span className="chip" title={scope.title}>
+                          {scope.door}
+                        </span>
+                        <span className="hint token-scope-reach" title={scope.title}>
                           {scope.label}
                         </span>
                       </td>

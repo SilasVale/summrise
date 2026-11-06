@@ -27,6 +27,15 @@ describe("tokenScope", () => {
   it("calls a token with one device_id a device token", () => {
     expect(tokenScope(token())).toBe("device");
   });
+
+  it("uses the kind the console wrote, even before the scope shape is read", () => {
+    expect(tokenScope(token({ kind: "fleet", device_id: "device-1" }))).toBe("fleet");
+    expect(tokenScope(token({ kind: "device", device_id: "" }))).toBe("device");
+  });
+
+  it("says unknown rather than guessing a door neither fact proves", () => {
+    expect(tokenScope(token({ device_id: "" }))).toBe("unknown");
+  });
 });
 
 describe("scopeLabel", () => {
@@ -72,6 +81,23 @@ describe("scopeLabel", () => {
     const words = scopeLabel(fleet, MACHINES, null);
 
     expect(words.label).toBe("retired-devi…");
+  });
+
+  it("prints the door before the reach: device · /mcp/<short> or fleet · /mcp/all", () => {
+    expect(scopeLabel(token(), MACHINES, "device-1").door).toBe("device · /mcp/device-1");
+    const fleet = token({ device_id: "", device_ids: ["device-1", "device-2"] });
+    expect(scopeLabel(fleet, MACHINES).door).toBe("fleet · /mcp/all");
+  });
+
+  it("uses the written kind's door even when the scope shape is absent", () => {
+    expect(scopeLabel(token({ kind: "fleet", device_id: "" })).door).toBe("fleet · /mcp/all");
+  });
+
+  it("says unknown, never a door, when neither the kind nor the scope proves one", () => {
+    const words = scopeLabel(token({ device_id: "" }), MACHINES);
+
+    expect(words.door).toBe("unknown · endpoint not recorded");
+    expect(words.label).toBe("scope not recorded");
   });
 });
 

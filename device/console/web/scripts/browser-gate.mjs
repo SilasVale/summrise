@@ -346,6 +346,7 @@ const TOKENS = [
   {
     id: 'gate-token-on-gate-device',
     name: 'gate-laptop',
+    kind: 'device',
     device_id: DEVICE.id,
     tools: ['files.read', 'terminal.read'],
     allow_destructive: false,
@@ -358,6 +359,7 @@ const TOKENS = [
   {
     id: 'gate-token-elsewhere',
     name: 'attic-ops',
+    kind: 'device',
     device_id: 'gate-device-attic-0123456789',
     tools: ['runs.list'],
     allow_destructive: false,
@@ -368,6 +370,7 @@ const TOKENS = [
   {
     id: 'gate-token-fleet',
     name: 'zss-harness-20261106-fleet',
+    kind: 'fleet',
     device_id: '',
     device_ids: [DEVICE.id, QUIET_DEVICE.id, BIG_DEVICE.id],
     tools: ['files.read', 'runs.exec'],
@@ -1717,6 +1720,18 @@ try {
   const fleetScopeText = await fleetScopeRow.innerText();
   if (!fleetScopeText.includes(DEVICE.name)) {
     throw new Error(`the fleet token's scope read ${JSON.stringify(fleetScopeText)}`);
+  }
+  // **THE SCOPE CELL NAMES THE DOOR, NOT ONLY THE MACHINES.** A token whose scope names a machine
+  // is still refused at that machine's URL when it is a fleet token; the cell must say which door
+  // the credential opens, in the same words the 401 uses.
+  if (!fleetScopeText.includes('fleet · /mcp/all')) {
+    throw new Error(`the fleet token's scope did not name its door: ${JSON.stringify(fleetScopeText)}`);
+  }
+  const deviceScopeText = await tokensDoor
+    .getByRole('row', { name: /gate-laptop/ })
+    .innerText();
+  if (!deviceScopeText.includes('device · /mcp/')) {
+    throw new Error(`the device token's scope did not name its door: ${JSON.stringify(deviceScopeText)}`);
   }
   // **AT 390 THE NAME IS THE CARD'S WIDTH, NOT A 26 PX SLIVER.** The measured phone put the
   // three-machine scope (337 px) in the card's `auto` column beside the name and squeezed the name

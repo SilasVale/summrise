@@ -269,6 +269,9 @@ export type Installer =
       sha256: string;
     };
 
+/** Which MCP endpoint a token opens: `/mcp/<device_id>`, or the fleet's `/mcp/all`. */
+export type TokenKind = "device" | "fleet";
+
 /**
  * One permanent token's metadata, as the console lists it: never the token itself.
  *
@@ -278,6 +281,12 @@ export type Installer =
 export type TokenMeta = {
   id: string;
   name: string;
+  /**
+   * The door this token opens. The console writes it on every record. It is optional here because
+   * a payload from before the field existed has only the scope shape; `tokenScope` reads that fact
+   * and says `unknown` when neither is there, never guessing a door.
+   */
+  kind?: TokenKind;
   /** Empty on an aggregate token; use `device_ids` for its scope. */
   device_id: string;
   /** The devices an aggregate token may reach; absent on a device token. */

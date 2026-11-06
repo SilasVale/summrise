@@ -1846,6 +1846,10 @@ span.files-name {
 .token-id code { font-family: var(--font-mono); font-size: var(--fs-2xs); color: var(--ink-faint); }
 .token-tools { display: grid; gap: var(--sp-0-5); white-space: nowrap; }
 .token-tools .hint { font-size: var(--fs-2xs); white-space: normal; }
+/* The Scope cell is two facts: the door the token opens (the chip) and the machines it reaches.
+   The reach is a line under the chip rather than a second column, so the cell cannot widen the
+   sheet on a phone. */
+.token-scope-reach { display: block; margin-top: var(--sp-0-5); font-size: var(--fs-2xs); }
 .token-expires, .token-created { white-space: nowrap; }
 .token-meta-label { display: none; }
 .token-actions { display: flex; justify-content: flex-end; gap: var(--sp-1); white-space: nowrap; }

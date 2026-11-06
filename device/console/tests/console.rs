@@ -6863,11 +6863,17 @@ async fn an_aggregate_token_is_created_and_listed_without_a_secret() {
         .create_aggregate_token(&session, "all", &[a.clone(), b.clone()], &["files.read"])
         .await;
     assert_eq!(status, StatusCode::CREATED, "{created}");
+    assert_eq!(
+        created["kind"],
+        json!("fleet"),
+        "the metadata names the fleet door"
+    );
     assert_eq!(created["device_ids"], json!([a.clone(), b.clone()]));
     assert_eq!(created["device_id"], json!(""));
     assert!(created["token"].as_str().unwrap().starts_with("srm_"));
 
     let (_, list) = send(fixture.app(), get("/tokens", Some(&session))).await;
+    assert_eq!(list[0]["kind"], json!("fleet"));
     assert_eq!(list[0]["device_ids"], json!([a, b]));
     assert!(list[0].get("token").is_none());
 }
@@ -7299,12 +7305,36 @@ async fn a_device_token_is_refused_on_the_aggregate_route() {
         .await;
     let token = created["token"].as_str().expect("the secret").to_owned();
 
-    let (status, _) = send(
+    let (status, body) = send(
         fixture.app(),
         aggregate_request(&token, json!({"jsonrpc": "2.0", "id": 4, "method": "ping"})),
     )
     .await;
-    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    assert_eq!(status, StatusCode::UNAUTHORIZED, "{body}");
+    assert_eq!(body["error"], json!("unauthorized"));
+    let door = format!("/mcp/{}…", &device_id[..12]);
+    let message = body["message"]
+        .as_str()
+        .expect("a live token's refusal names the door it opens");
+    assert!(
+        message.contains(&door),
+        "the 401 named {message:?}, not the device door {door:?}"
+    );
+    assert!(
+        message.contains("/mcp/all takes a fleet token"),
+        "the 401 did not name the fleet door that accepts a fleet token: {message:?}"
+    );
+
+    let (status, body) = send(
+        fixture.app(),
+        post_token(&device_id, &token, ping_request()),
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "the same token still opens its own door: {body}"
+    );
 }
 
 #[tokio::test]
@@ -7320,7 +7350,7 @@ async fn an_aggregate_token_is_refused_on_a_device_route() {
     )
     .await;
 
-    let (status, _) = send(
+    let (status, body) = send(
         fixture.app(),
         post_token(
             &device_id,
@@ -7329,7 +7359,26 @@ async fn an_aggregate_token_is_refused_on_a_device_route() {
         ),
     )
     .await;
-    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    assert_eq!(status, StatusCode::UNAUTHORIZED, "{body}");
+    assert_eq!(body["error"], json!("unauthorized"));
+    let message = body["message"]
+        .as_str()
+        .expect("a live token's refusal names the door it opens");
+    assert!(
+        message.contains("this token is for /mcp/all"),
+        "the 401 did not name the fleet door the token opens: {message:?}"
+    );
+    assert!(
+        message.contains("device endpoint takes a device token"),
+        "the 401 did not say what this endpoint takes: {message:?}"
+    );
+
+    let (status, body) = send(fixture.app(), aggregate_request(&token, ping_request())).await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "the same token still opens the fleet door: {body}"
+    );
 }
 
 #[tokio::test]
@@ -7412,6 +7461,11 @@ async fn a_created_token_is_shown_once_and_only_its_hash_is_stored() {
         "the body is 64 lowercase hex: {plaintext}"
     );
     assert_eq!(created["name"], json!("laptop-dsh"), "the name is trimmed");
+    assert_eq!(
+        created["kind"],
+        json!("device"),
+        "the metadata names the door the token opens"
+    );
     assert_eq!(created["device_id"], json!(device_id));
     assert_eq!(created["tools"], json!(["files.read", "memory.search"]));
     assert_eq!(created["allow_destructive"], json!(false));
@@ -7424,6 +7478,7 @@ async fn a_created_token_is_shown_once_and_only_its_hash_is_stored() {
     assert_eq!(list.len(), 1);
     assert_eq!(list[0]["id"], json!(id));
     assert_eq!(list[0]["name"], json!("laptop-dsh"));
+    assert_eq!(list[0]["kind"], json!("device"));
     assert_eq!(list[0]["device_id"], json!(device_id));
     assert_eq!(list[0]["tools"], json!(["files.read", "memory.search"]));
     assert!(
@@ -7443,6 +7498,10 @@ async fn a_created_token_is_shown_once_and_only_its_hash_is_stored() {
     assert!(
         on_disk.contains(&hash),
         "the file keeps the hash: {on_disk}"
+    );
+    assert!(
+        on_disk.contains("\"kind\":\"device\""),
+        "the file writes the door it opens: {on_disk}"
     );
     assert!(
         !on_disk.contains(&plaintext),
@@ -8220,8 +8279,10 @@ async fn a_console_call_publishes_no_token_on_the_live_event() {
     );
 }
 
-/// An unknown token, a revoked one and one used against another device are one 401 on the wire; the
-/// denial log keeps the difference, and none of them can rotate the audit.
+/// An unknown token, a revoked one and one used against another device are all 401; the live
+/// mismatch names the door it opens (the caller proved that credential), while an unknown or
+/// withdrawn one stays bare. The denial log keeps the difference, and none of them can rotate the
+/// audit.
 #[tokio::test]
 async fn an_unknown_revoked_or_mismatched_token_is_unauthorized() {
     let fixture = Fixture::new("token-unauthorized");
@@ -8237,7 +8298,15 @@ async fn an_unknown_revoked_or_mismatched_token_is_unauthorized() {
 
     let (status, body) = send(fixture.app(), post_token(&device_b, &token, ping_request())).await;
     assert_eq!(status, StatusCode::UNAUTHORIZED, "{body}");
-    assert_eq!(body, json!({ "error": "unauthorized" }));
+    assert_eq!(body["error"], json!("unauthorized"));
+    let door = format!("/mcp/{}…", &device_a[..12]);
+    let message = body["message"]
+        .as_str()
+        .expect("the live token's refusal names the door it opens");
+    assert!(
+        message.contains(&door),
+        "the 401 named {message:?}, not the token's own door {door:?}"
+    );
     let (_, list) = send(fixture.app(), get("/tokens", Some(&session))).await;
     assert!(
         list[0].get("last_used_ms").is_none(),
@@ -8967,7 +9036,8 @@ async fn a_token_can_scope_a_plugin_tool_the_device_advertises() {
     let (_, list) = send(fixture.app(), get("/tokens", Some(&session))).await;
     assert_eq!(list[0]["tools"], json!(["files.read", "hello.greet"]));
 
-    // The stored shape did not change: the plugin name is a string in the existing `tools` list.
+    // The plugin name is a string in the existing `tools` list; the only field a plugin token adds
+    // to the record is the door every token now carries.
     let text = fs::read_to_string(fixture.config.data.join("tokens.json"))
         .expect("the token file is written");
     let stored: Value = serde_json::from_str(&text).expect("the token file is JSON");
@@ -8986,6 +9056,7 @@ async fn a_token_can_scope_a_plugin_tool_the_device_advertises() {
             "device_id",
             "hash",
             "id",
+            "kind",
             "name",
             "tools"
         ],

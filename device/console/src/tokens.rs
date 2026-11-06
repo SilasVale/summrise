@@ -3,18 +3,20 @@
 //!
 //! A token is `srm_` plus 32 bytes of OS randomness, in lowercase hex. It is shown **once**, in the
 //! create or rotate response, and only its SHA-256 is persisted, so the file (or a copy of it) never
-//! holds a usable credential. A client presents the token as its bearer on `/mcp/:id`; the console finds the
-//! record by hash, refuses a token that names another device, and signs a sixty-second grant with
-//! the token's tools and destructive consent. The device protocol and its offline verification are
-//! unchanged, because the device only ever sees a grant.
+//! holds a usable credential. A client presents the token as its bearer at the door its kind opens:
+//! `/mcp/:id` for a device token, `/mcp/all` for a fleet token. The console finds the record by
+//! hash, refuses a token at the other door, and signs a sixty-second grant with the token's tools
+//! and destructive consent. The device protocol and its offline verification are unchanged, because
+//! the device only ever sees a grant.
 //!
 //! A token is a bearer whose lifetime the operator chooses at creation: absent by default, in
 //! which case revocation is the only withdrawal and it removes the record. A token given a lifetime
 //! stops authenticating calls at that instant, as a revoked one does. Rotation is the other way
 //! out: one atomic replacement whose new id and secret keep the old scope and lifetime policy, so
 //! the previous bearer stops working at the same instant the next one starts.
-//! The scope is fixed at creation — one device, a non-empty set of registry tools, and the operator's
-//! destructive consent — so a token can never name a tool or a device the operator did not.
+//! The scope is fixed at creation — one device or an explicit list of devices, a non-empty set of
+//! registry tools, and the operator's destructive consent — so a token can never name a tool or a
+//! device the operator did not.
 //!
 //! The record also keeps when it last authenticated a call. The in-memory fact moves on every
 //! successful exchange, the file at most once a minute ([`LAST_USED_SAVE_MS`]), so a reload may lag
@@ -59,6 +61,21 @@ pub(crate) const TOKEN_HEX_CHARS: usize = 64;
 /// The full length of a token: the prefix plus its 32 bytes.
 pub(crate) const TOKEN_LEN: usize = TOKEN_PREFIX.len() + TOKEN_HEX_CHARS;
 
+/// Which MCP door a token opens.
+///
+/// A device token is the bearer at `/mcp/<device_id>`; a fleet token (the aggregate) is the bearer
+/// at `/mcp/all`. The record's scope already proves which it is — a fleet token names its devices in
+/// `device_ids`, a device token names one in `device_id` — but the page and the 401 must not have to
+/// re-derive the door from that shape, so the kind is written down and carried in the metadata.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TokenKind {
+    /// One machine, at `/mcp/<device_id>`.
+    Device,
+    /// A recorded list of machines, at `/mcp/all`.
+    Fleet,
+}
+
 /// How often a token's last use is allowed to rewrite the file.
 ///
 /// Every successful exchange updates the in-memory fact; the file is written only when the value it
@@ -76,6 +93,10 @@ pub struct Token {
     pub id: String,
     /// The operator's label for the token.
     pub name: String,
+    /// The endpoint this token opens. A file written before the field existed has no value; the
+    /// loader fills it from the scope shape, which is the only fact that can prove it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<TokenKind>,
     /// The one device the token may reach; empty on an aggregate token.
     pub device_id: String,
     /// The devices an aggregate token may reach; absent on a device token.
@@ -102,11 +123,25 @@ pub struct Token {
 }
 
 impl Token {
+    /// The door this record opens.
+    ///
+    /// A loaded record has been normalized by [`index`], so the fallback is only for a record this
+    /// build did not load. It still reads the scope shape, never a guess: a list of devices is the
+    /// fleet door, the single device is the machine door.
+    pub(crate) fn kind(&self) -> TokenKind {
+        self.kind.unwrap_or(if self.device_ids.is_some() {
+            TokenKind::Fleet
+        } else {
+            TokenKind::Device
+        })
+    }
+
     /// The public facts, without the hash: what a list may carry.
     fn meta(&self) -> TokenMeta {
         TokenMeta {
             id: self.id.clone(),
             name: self.name.clone(),
+            kind: self.kind(),
             device_id: self.device_id.clone(),
             device_ids: self.device_ids.clone(),
             tools: self.tools.clone(),
@@ -123,6 +158,8 @@ impl Token {
 pub struct TokenMeta {
     pub id: String,
     pub name: String,
+    /// The door this token opens: `/mcp/all` for a fleet token, `/mcp/<device_id>` for a device.
+    pub kind: TokenKind,
     pub device_id: String,
     /// The devices an aggregate token may reach; absent on a device token.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -173,9 +210,15 @@ struct Scope {
 /// time, no last use. The plaintext is returned once and never stored.
 fn issue(scope: Scope, expires_at_ms: Option<u64>, now_ms: u64) -> (Token, String) {
     let plaintext = format!("{TOKEN_PREFIX}{}", hex::encode(&random_32()));
+    let kind = if scope.device_ids.is_some() {
+        TokenKind::Fleet
+    } else {
+        TokenKind::Device
+    };
     let token = Token {
         id: hex::encode(&random_32()),
         name: scope.name,
+        kind: Some(kind),
         device_id: scope.device_id,
         device_ids: scope.device_ids,
         tools: scope.tools,
@@ -514,10 +557,11 @@ impl Tokens {
 /// The records as a map by id and how many were dropped for naming unknown tools, or why the file
 /// cannot be trusted.
 ///
-/// The checks are the file's own invariants: an id and hash the console could have written, a device
-/// and tools this build knows, and no duplicate id or hash (two records with one hash would make
-/// revocation name an arbitrary one of them). A tool that left the registry is not a corrupt file:
-/// that record cannot be used, so it is dropped, not the whole list.
+/// The checks are the file's own invariants: an id and hash the console could have written, a kind
+/// that agrees with the scope shape, a device and tools this build knows, and no duplicate id or
+/// hash (two records with one hash would make revocation name an arbitrary one of them). A tool that
+/// left the registry is not a corrupt file: that record cannot be used, so it is dropped, not the
+/// whole list.
 fn index(list: Vec<Token>) -> Result<(BTreeMap<String, Token>, usize), String> {
     let mut tokens = BTreeMap::new();
     let mut hashes = BTreeSet::new();
@@ -552,6 +596,22 @@ fn index(list: Vec<Token>) -> Result<(BTreeMap<String, Token>, usize), String> {
                     );
                 }
             }
+        }
+        // The scope shape is the fact that proves the door: a list of devices is the fleet token,
+        // the single device is the machine token. A record written before the field existed gets
+        // that inference, never a guess; a record whose written kind contradicts it is not served
+        // at either door, because serving it at the derived one would make the file's own label lie.
+        let inferred = if token.device_ids.is_some() {
+            TokenKind::Fleet
+        } else {
+            TokenKind::Device
+        };
+        match token.kind {
+            Some(kind) if kind != inferred => {
+                return Err("an entry's kind does not match its device scope".to_owned());
+            }
+            Some(_) => {}
+            None => token.kind = Some(inferred),
         }
         if token.name.trim().is_empty() || token.name.chars().count() > MAX_NAME_CHARS {
             return Err("an entry has an empty or overlong name".to_owned());
@@ -1846,6 +1906,148 @@ mod tests {
             .expect("the record reloads");
         assert_eq!(record.device_ids, Some(vec![device_id(), other_device()]));
         assert_eq!(record.device_id, "");
+        std::fs::remove_dir_all(&data).ok();
+    }
+
+    /// The metadata names the door, and the file writes it down: a list that had to re-derive the
+    /// kind from the scope shape would be the same inference the 401 is not allowed to guess.
+    #[test]
+    fn a_token_records_the_door_it_opens() {
+        let data = tempdir("kind");
+        let mut tokens = Tokens::load(&data).expect("an empty store loads");
+        let (device, _) = tokens
+            .create(
+                draft("machine", &device_id(), &["files.read"]),
+                |_| true,
+                1_000,
+            )
+            .expect("a device token is mintable");
+        let (fleet, _) = tokens
+            .create(aggregate(&[&device_id()]), |_| true, 2_000)
+            .expect("a fleet token is mintable");
+
+        assert_eq!(device.kind, TokenKind::Device);
+        assert_eq!(fleet.kind, TokenKind::Fleet);
+        let text = std::fs::read_to_string(data.join(TOKENS_FILE)).expect("the file is readable");
+        assert!(
+            text.contains("\"kind\":\"device\""),
+            "the device door is written: {text}"
+        );
+        assert!(
+            text.contains("\"kind\":\"fleet\""),
+            "the fleet door is written: {text}"
+        );
+
+        let reloaded = Tokens::load(&data).expect("the store reloads");
+        let listed = reloaded.list();
+        let machine = listed
+            .iter()
+            .find(|entry| entry.id == device.id)
+            .expect("the device token reloads");
+        let all = listed
+            .iter()
+            .find(|entry| entry.id == fleet.id)
+            .expect("the fleet token reloads");
+        assert_eq!(machine.kind, TokenKind::Device);
+        assert_eq!(all.kind, TokenKind::Fleet);
+        std::fs::remove_dir_all(&data).ok();
+    }
+
+    /// A file this build wrote before the field existed loads: its scope shape is the only fact
+    /// that can prove the door, and the list reads it rather than labelling the token unknown.
+    #[test]
+    fn an_old_file_without_a_kind_is_read_by_its_scope() {
+        let data = tempdir("kind-old-file");
+        let path = data.join(TOKENS_FILE);
+        let old = serde_json::json!([{
+            "id": "aa".repeat(32),
+            "name": "one-machine",
+            "device_id": device_id(),
+            "tools": ["files.read"],
+            "allow_destructive": false,
+            "created_at_ms": 1_000,
+            "hash": "11".repeat(32),
+        }, {
+            "id": "bb".repeat(32),
+            "name": "the-fleet",
+            "device_id": "",
+            "device_ids": [device_id(), other_device()],
+            "tools": ["files.read"],
+            "allow_destructive": false,
+            "created_at_ms": 2_000,
+            "hash": "22".repeat(32),
+        }]);
+        std::fs::write(&path, old.to_string()).expect("the fixture is written");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))
+                .expect("the fixture is private");
+        }
+
+        let tokens = Tokens::load(&data).expect("an old file still loads");
+        let listed = tokens.list();
+        let machine = listed
+            .iter()
+            .find(|entry| entry.name == "one-machine")
+            .expect("the device token is served");
+        let fleet = listed
+            .iter()
+            .find(|entry| entry.name == "the-fleet")
+            .expect("the fleet token is served");
+        assert_eq!(
+            machine.kind,
+            TokenKind::Device,
+            "one device is the machine door"
+        );
+        assert_eq!(
+            fleet.kind,
+            TokenKind::Fleet,
+            "a device list is the fleet door"
+        );
+        assert!(
+            path.exists(),
+            "a file from before the field is not quarantined"
+        );
+        std::fs::remove_dir_all(&data).ok();
+    }
+
+    /// A written kind that contradicts the scope cannot be served: one of the two doors would then
+    /// be a lie. The file is quarantined, and the console starts with no tokens, as with any record
+    /// shape this build cannot trust.
+    #[test]
+    fn a_kind_that_contradicts_the_scope_quarantines_the_file() {
+        let data = tempdir("kind-mismatch");
+        let path = data.join(TOKENS_FILE);
+        let bad = serde_json::json!([{
+            "id": "aa".repeat(32),
+            "name": "lying",
+            "kind": "fleet",
+            "device_id": device_id(),
+            "tools": ["files.read"],
+            "allow_destructive": false,
+            "created_at_ms": 1_000,
+            "hash": "11".repeat(32),
+        }]);
+        std::fs::write(&path, bad.to_string()).expect("the fixture is written");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))
+                .expect("the fixture is private");
+        }
+
+        let tokens = Tokens::load(&data).expect("the console still starts");
+
+        assert!(
+            tokens.list().is_empty(),
+            "no token is served at either door"
+        );
+        assert!(!path.exists(), "the file is out of the way");
+        assert!(
+            data.join("tokens.json.bad").exists(),
+            "the bytes are kept as evidence"
+        );
         std::fs::remove_dir_all(&data).ok();
     }
 }

@@ -287,6 +287,48 @@ describe("ConnectSheet", () => {
     expect(screen.getByRole("button", { name: "this machine" })).toBeDisabled();
   });
 
+  it("names the token kind the sheet's endpoint takes, and the other door's URL", () => {
+    draw();
+
+    const endpointCopy = screen.getByText(/takes a device token minted for workshop/);
+    expect(endpointCopy).toHaveTextContent(
+      "This endpoint, http://localhost:3000/mcp/dev-workshop, takes a device token minted for " +
+        "workshop."
+    );
+    expect(endpointCopy).toHaveTextContent(
+      "A fleet token is accepted only at http://localhost:3000/mcp/all."
+    );
+
+    fireEvent.click(screen.getByRole("tab", { name: "Clients" }));
+    expect(
+      screen.getByText(/takes a device token minted for workshop/)
+    ).toBeInTheDocument();
+  });
+
+  it("names /mcp/all as the fleet sheet's door and says where a device token goes", () => {
+    draw({ device: null });
+
+    expect(screen.getByText(/takes a fleet token/)).toHaveTextContent(
+      "This endpoint, http://localhost:3000/mcp/all, takes a fleet token."
+    );
+    expect(screen.getByText(/takes a fleet token/)).toHaveTextContent(
+      "A device token is accepted only at its own machine's URL, whose path is /mcp/<device id>."
+    );
+
+    fireEvent.click(screen.getByRole("tab", { name: "Clients" }));
+    expect(screen.getByText(/takes a fleet token/)).toBeInTheDocument();
+  });
+
+  it("says a fleet token minted on a machine sheet is used at /mcp/all", () => {
+    draw({ initialSection: "tokens", devices: [WORKSHOP, ATTIC] });
+
+    fireEvent.click(within(tokenForm()).getByRole("button", { name: "all machines" }));
+
+    expect(screen.getByText(/This token is a fleet token/)).toHaveTextContent(
+      "It is refused at this machine's URL, http://localhost:3000/mcp/dev-workshop."
+    );
+  });
+
   it("counts the fleet form's destructive tools from the served catalogue", () => {
     draw({ device: null, devices: [WORKSHOP, ATTIC], initialSection: "tokens" });
 
@@ -353,7 +395,9 @@ describe("ConnectSheet's one credential list", () => {
 
     const deviceRow = await screen.findByRole("row", { name: /laptop/ });
     const fleetRow = screen.getByRole("row", { name: /dsh-fleet/ });
+    expect(deviceRow).toHaveTextContent("device · /mcp/dev-workshop");
     expect(deviceRow).toHaveTextContent("this machine");
+    expect(fleetRow).toHaveTextContent("fleet · /mcp/all");
     expect(fleetRow).toHaveTextContent("workshop, dev-attic");
     expect(fleetRow).not.toHaveTextContent("all machines");
     const scopeChip = within(fleetRow).getByText(/workshop, dev-attic/);
