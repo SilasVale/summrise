@@ -11,7 +11,7 @@ const host = {
   memory: { total_bytes: 8 * GIB, available_bytes: 4 * GIB },
   disks: [{ name: "/", total_bytes: 100 * GIB, free_bytes: 25 * GIB }],
   sessions: [{ id: 2, user: "operator", state: "active" }],
-  helper: { registered: true, session: 2 },
+  helper: { registered: true, pid: 4812, session: 2 },
   update: {
     current: { version: "0.3.218" },
     previous: { version: "0.3.217" },
@@ -39,6 +39,8 @@ describe("HostFactsBlock — the Machine page's subject", () => {
     expect(screen.getByText("operator@2 active")).toBeInTheDocument();
     expect(screen.getByText(/current 0\.3\.218 · previous 0\.3\.217/)).toBeInTheDocument();
     expect(screen.getByText("session 2")).toBeInTheDocument();
+    expect(screen.queryByText(/not registered/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/not running/i)).not.toBeInTheDocument();
     expect(screen.getByText("Memory available 50.0%")).toBeInTheDocument();
     expect(screen.getByText("Tightest disk / 25.0% free")).toBeInTheDocument();
     expect(container.querySelector("svg")).toHaveAttribute("aria-hidden", "true");
@@ -61,6 +63,47 @@ describe("HostFactsBlock — the Machine page's subject", () => {
     expect(screen.queryByText("Memory")).not.toBeInTheDocument();
     expect(screen.queryByText(/free of/)).not.toBeInTheDocument();
     expect(screen.queryByText("Helper")).toBeInTheDocument();
-    expect(screen.getByText("not running")).toBeInTheDocument();
+    // No helper fact at all is "not reported": the row claims neither a registration nor a process
+    // state the console never read.
+    expect(screen.getByText("not reported")).toBeInTheDocument();
+    expect(screen.queryByText(/not running/i)).not.toBeInTheDocument();
+  });
+
+  it("says no helper registered this boot instead of claiming a process state", () => {
+    // The fleet's fact for a machine whose per-user helper never registered: registered is false
+    // and both identifying fields are null.
+    render(
+      <HostFactsBlock
+        host={{ helper: { registered: false, pid: null, session: null } }}
+        vitals={[]}
+      />
+    );
+
+    expect(screen.getByText("Helper")).toBeInTheDocument();
+    expect(screen.getByText("not registered this boot")).toBeInTheDocument();
+    expect(screen.queryByText(/not running/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/session/)).not.toBeInTheDocument();
+  });
+
+  it("shows the pid and session only when the fleet reported them", () => {
+    // A helper process that exists (the device reported its pid and Windows session) but has not
+    // registered a port: the row says the registration fact and names what is known beside it.
+    render(
+      <HostFactsBlock
+        host={{ helper: { registered: false, pid: 4812, session: 2 } }}
+        vitals={[]}
+      />
+    );
+
+    expect(
+      screen.getByText("not registered this boot · pid 4812 · session 2")
+    ).toBeInTheDocument();
+  });
+
+  it("keeps the registered helper's session line", () => {
+    render(<HostFactsBlock host={host} vitals={[]} />);
+
+    expect(screen.getByText("session 2")).toBeInTheDocument();
+    expect(screen.queryByText(/not registered/)).not.toBeInTheDocument();
   });
 });

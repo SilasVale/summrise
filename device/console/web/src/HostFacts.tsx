@@ -105,13 +105,37 @@ export function HostFactsBlock({
             Helper
           </dt>
           <dd className={host.helper?.registered ? undefined : "muted"}>
-            {host.helper?.registered ? `session ${host.helper.session ?? "?"}` : "not running"}
+            {helperSentence(host.helper)}
           </dd>
         </div>
       </dl>
       <VitalsChart samples={vitals} collecting={collecting} />
     </>
   );
+}
+
+/**
+ * The helper row's value, in the fleet's own fact.
+ *
+ * The fleet reports whether a per-user helper registered this boot, not whether its process is
+ * running: a helper process can exist without ever registering a port, and an old device reports no
+ * helper fact at all. So `registered: false` says `not registered this boot` — the Screen page's
+ * "has not registered" — and never `not running`, a process state the console did not read. A
+ * device too old to report the flag is `registration not reported`, and a device with no helper
+ * fact is `not reported`. The registered row is unchanged (`session N`), and the pid/session are
+ * appended only when the device actually reported them: the fleet's unregistered fact carries
+ * neither, so no row prints `pid null` or invents a `?` for it.
+ */
+function helperSentence(helper: HostFacts["helper"]): string {
+  if (!helper) return "not reported";
+  if (helper.registered === true) return `session ${helper.session ?? "?"}`;
+  const state =
+    helper.registered === false ? "not registered this boot" : "registration not reported";
+  const reported = [
+    helper.pid != null ? `pid ${helper.pid}` : null,
+    helper.session != null ? `session ${helper.session}` : null
+  ].filter((part): part is string => part !== null);
+  return reported.length > 0 ? `${state} · ${reported.join(" · ")}` : state;
 }
 
 function sessionSentence(session: { id: number; user?: string | null; state: string }): string {
