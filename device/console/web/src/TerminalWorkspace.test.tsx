@@ -1945,6 +1945,71 @@ describe("TerminalWorkspace session card", () => {
     expect(within(card).queryByText("not this session")).not.toBeInTheDocument();
   });
 
+  /** One input line for the attached session, as `/events` would carry it. */
+  function inputLine(input: string, tsMs: number): LiveLine {
+    return liveLine({
+      ts_ms: tsMs,
+      device_id: GRANT.deviceId,
+      evidence: { session: "session-7", input }
+    });
+  }
+
+  /** Attach one listed pty and return its card, fed the given live lines. */
+  async function cardFor(lines: LiveLine[]): Promise<HTMLElement> {
+    callToolMock.mockImplementation(async (_grant, name) => {
+      if (name === "terminal.list") {
+        return JSON.stringify([
+          { id: "session-7", kind: "pty", started_at_ms: Date.now() - 60_000 }
+        ]);
+      }
+      if (name === "terminal.read") return JSON.stringify({ data: "", cursor: 0 });
+      if (name === "terminal.resize") return JSON.stringify({ rows: 24, cols: 80 });
+      throw new Error(`the test did not expect a ${name} call`);
+    });
+    render(<TerminalWorkspace grant={GRANT} deviceName="workshop" liveLines={lines} />);
+    // The card is on screen before the list answers; wait for the attach, then read its facts.
+    await screen.findByRole("tab", { name: /pty · / });
+    return screen.getByRole("region", { name: "Session" });
+  }
+
+  it("does not call xterm's focus-in report a keystroke", async () => {
+    const card = await cardFor([inputLine("\x1b[I", Date.now() - 2_000)]);
+    expect(within(card).getByText(/no keystroke recorded/i)).toBeInTheDocument();
+  });
+
+  it("ignores a write made only of escape and control characters", async () => {
+    const card = await cardFor([inputLine("\x1b[O\r\x07", Date.now() - 2_000)]);
+    expect(within(card).getByText(/no keystroke recorded/i)).toBeInTheDocument();
+  });
+
+  it("records a printable keystroke", async () => {
+    const card = await cardFor([inputLine("a", Date.now() - 2_000)]);
+    expect(within(card).getByText("a")).toBeInTheDocument();
+    expect(within(card).queryByText(/no keystroke recorded/i)).not.toBeInTheDocument();
+  });
+
+  it("records a keystroke with a space between its characters", async () => {
+    const card = await cardFor([inputLine("a b", Date.now() - 2_000)]);
+    expect(within(card).getByText("a b")).toBeInTheDocument();
+  });
+
+  it("records a space, which is a keystroke too", async () => {
+    const card = await cardFor([inputLine(" ", Date.now() - 2_000)]);
+    const shown = card.querySelector(".session-card-input");
+    expect(shown).not.toBeNull();
+    expect(shown!.textContent).toBe(" ");
+    expect(within(card).queryByText(/no keystroke recorded/i)).not.toBeInTheDocument();
+  });
+
+  it("keeps the last real keystroke when a newer focus report follows it", async () => {
+    const now = Date.now();
+    const card = await cardFor([
+      inputLine("\x1b[I", now - 1_000),
+      inputLine("npm test", now - 5_000)
+    ]);
+    expect(within(card).getByText("npm test")).toBeInTheDocument();
+  });
+
   it("says no session once and offers the page's one New session action", async () => {
     render(<TerminalWorkspace grant={GRANT} deviceName="workshop" />);
 

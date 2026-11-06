@@ -456,13 +456,42 @@ function isAbsolutePath(text: string): boolean {
 }
 
 /**
+ * One ANSI escape sequence, as much of the grammar a terminal sends as input: CSI
+ * (`ESC [ parameters final`, where the focus reports `ESC[I`/`ESC[O` live), SS3 (`ESC O final`),
+ * OSC and the other string controls (closed by BEL or ST), and any other escape.
+ *
+ * Matched whole on purpose: a sequence's final byte is printable (`I`, `O`, `A` …), so a test for
+ * "does this write contain a printable character" must remove the sequence first or the sequence's
+ * own letter reads as a typed key.
+ */
+const ANSI_ESCAPE =
+  /\x1b\[[0-?]*[ -/]*[@-~]|\x1bO[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)?|\x1b[PX^_][^\x1b]*(?:\x1b\\)?|\x1b[ -/]*[@-~]?/g;
+
+/**
+ * What a person typed in one `terminal.write`, or null when the write carried no keystroke.
+ *
+ * xterm sends the terminal's focus reports through `onData` (`ESC[I` on focus, `ESC[O` on blur), and
+ * cursor and function keys are escape sequences too. The session receives them — that is the
+ * terminal's job — but they are not text a person typed, so the card must not present one as input.
+ * A space is a keystroke (the space bar) and survives; a write whose remainder is only control
+ * characters (Enter, Tab, Backspace, a stray BEL) has nothing to show.
+ */
+function typedText(input: string): string | null {
+  const text = input.replace(ANSI_ESCAPE, "");
+  return /[^\x00-\x1f\x7f-\x9f]/.test(text) ? text : null;
+}
+
+/**
  * The last keystroke the console saw reach a session, from the live activity.
  *
  * A session's evidence is carried by every call about it (`terminal.read`, `resize`, `close`), so
  * the newest line with this session is usually a read, not a write. The card wants what a person
  * typed, which only `terminal.write` records as `evidence.input`; a matching line without one is
- * not a keystroke and must not hide the last real one. Newest wins by `ts_ms`, so a feed handed over
- * in any order gives the same answer, and no line means null — the card never invents an input.
+ * not a keystroke and must not hide the last real one. A write that is only escape or control bytes
+ * is not a keystroke either — xterm's focus reports (`ESC[I`/`ESC[O`) arrive this way through
+ * `onData` — and the terminal still receives them; only the card's fact ignores them. Newest wins
+ * by `ts_ms`, so a feed handed over in any order gives the same answer, and no line means null —
+ * the card never invents an input.
  */
 function lastTypedInput(
   lines: readonly LiveLine[],
@@ -475,8 +504,10 @@ function lastTypedInput(
     const evidence = line.evidence;
     if (!evidence || evidence.session !== session) continue;
     const input = evidence.input;
-    if (typeof input !== "string" || input.trim() === "") continue;
-    if (!newest || line.ts_ms > newest.tsMs) newest = { input, tsMs: line.ts_ms };
+    if (typeof input !== "string") continue;
+    const typed = typedText(input);
+    if (typed === null) continue;
+    if (!newest || line.ts_ms > newest.tsMs) newest = { input: typed, tsMs: line.ts_ms };
   }
   return newest;
 }
