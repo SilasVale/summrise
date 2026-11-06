@@ -933,6 +933,7 @@ export function App() {
             onRemove={setRemoving}
             onDiagnostics={(device) => void copyDiagnostics(device)}
             onAddMachine={addMachine}
+            onTokens={() => setConnect({ section: "tokens", device: chosen })}
             onDismissCode={() => setCode(null)}
             onNotice={setNotice}
             onConnect={() => setConnect({ section: "endpoint", device: chosen })}

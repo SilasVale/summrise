@@ -222,6 +222,7 @@ function draw(overrides: Record<string, unknown> = {}) {
       onRemove={vi.fn()}
       onDiagnostics={vi.fn()}
       onAddMachine={vi.fn()}
+      onTokens={vi.fn()}
       onDismissCode={vi.fn()}
       onNotice={vi.fn()}
       onConnect={onConnect}
@@ -1033,6 +1034,7 @@ const installerFacts = {
  * state the gate signs in to and the item is about.
  */
 function drawFleet(extra: Record<string, unknown> = {}) {
+  const onTokens = vi.fn();
   const fleetProps = {
     device: null,
     devices: [],
@@ -1045,6 +1047,7 @@ function drawFleet(extra: Record<string, unknown> = {}) {
     onRemove: vi.fn(),
     onDiagnostics: vi.fn(),
     onAddMachine: vi.fn(),
+    onTokens,
     onDismissCode: vi.fn(),
     onNotice: vi.fn(),
     onConnect: vi.fn(),
@@ -1057,6 +1060,7 @@ function drawFleet(extra: Record<string, unknown> = {}) {
   const view = render(page(extra));
   return {
     ...view,
+    onTokens,
     rerenderFleet: (overrides: Record<string, unknown>) =>
       view.rerender(page({ ...extra, ...overrides }))
   };
@@ -1147,5 +1151,46 @@ describe("Home — the fleet's installer", () => {
     expect(
       screen.getAllByRole("heading", { name: "Install the device runtime" })
     ).toHaveLength(1);
+  });
+});
+
+/**
+ * The credential's door. Tokens used to live only under Account → Tokens, so a person adding a
+ * machine never met the thing a client needs; the fleet header and the Add-a-machine panel each
+ * open the same Connect sheet on its Tokens section. There is no second token surface to test.
+ */
+describe("Home — the fleet's Tokens door", () => {
+  beforeEach(() => {
+    installerApi.installer.mockResolvedValue(installerFacts);
+  });
+
+  it("opens the Connect sheet's Tokens section from the fleet header", async () => {
+    const { onTokens } = drawFleet({ devices: [workshop] });
+
+    const door = screen.getByRole("button", { name: "Tokens" });
+    // The accent belongs to Add a machine; the credential is the secondary control beside it.
+    expect(door).not.toHaveClass("primary");
+    fireEvent.click(door);
+    expect(onTokens).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the door in the fleet's zero state", () => {
+    drawFleet();
+
+    expect(screen.getByRole("heading", { name: "Machines", level: 1 })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Tokens" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Add a machine" })).toBeInTheDocument();
+  });
+
+  it("puts a Tokens control in the Add-a-machine panel", () => {
+    const { onTokens } = drawFleet({
+      code: { code: "code-1", expires_at_ms: Date.now() + 15 * 60_000 },
+      enrollCommand:
+        "summrise-device.exe --enroll https://console.test code-1 --data C:\\ProgramData\\Summrise"
+    });
+
+    const panel = screen.getByRole("region", { name: "Enrollment command" });
+    fireEvent.click(within(panel).getByRole("button", { name: "Tokens" }));
+    expect(onTokens).toHaveBeenCalledTimes(1);
   });
 });

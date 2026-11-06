@@ -39,6 +39,11 @@ type FleetProps = {
   onRemove: (device: Device) => void;
   onDiagnostics: (device: Device) => void;
   onAddMachine: () => void;
+  /**
+   * The fleet's credential door: open the existing Connect sheet on its Tokens section. The header
+   * and the Add-a-machine panel both use it, so a person adding a machine meets the token there.
+   */
+  onTokens: () => void;
   onDismissCode: () => void;
   onNotice: (sentence: string) => void;
 };
@@ -118,6 +123,9 @@ function FleetHome(props: FleetProps) {
           </p>
         </div>
         <div className="page-actions">
+          <button type="button" onClick={props.onTokens}>
+            Tokens
+          </button>
           <button type="button" className="primary" disabled={props.busy} onClick={props.onAddMachine}>
             Add a machine
           </button>
@@ -143,6 +151,9 @@ function FleetHome(props: FleetProps) {
               }
             >
               Copy command
+            </button>
+            <button type="button" onClick={props.onTokens}>
+              Tokens
             </button>
             <button type="button" onClick={props.onDismissCode}>
               Dismiss

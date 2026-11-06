@@ -1271,6 +1271,30 @@ try {
     `at 390 the four rows carry their counts below the name ` +
       `(${heights390}); no sideways scroll`
   );
+  // **THE CREDENTIAL HAS A DOOR FROM THE FLEET.** Tokens used to live only under Account → Tokens,
+  // so the person adding a machine never met the thing a client needs. The fleet header's secondary
+  // control must open the console's one credential sheet on its Tokens section, and the sheet must
+  // state the fixed scope before a mint — measured at the phone width the operator's colleague used.
+  await page.getByRole('button', { name: 'Tokens', exact: true }).click();
+  const tokensDoor = page.getByRole('dialog', { name: 'Tokens' });
+  await tokensDoor.waitFor({ timeout: 10_000 });
+  const tokensDoorTab = tokensDoor.getByRole('tab', { name: 'Tokens', exact: true });
+  if ((await tokensDoorTab.getAttribute('aria-selected')) !== 'true') {
+    throw new Error("the fleet's Tokens door opened the sheet on another section");
+  }
+  const fixedScope = tokensDoor.getByText(
+    "A token's device scope is fixed when it is minted. Rotate keeps it; to cover different " +
+      'machines, mint a new token.'
+  );
+  await fixedScope.waitFor({ state: 'visible', timeout: 5_000 });
+  // The sheet's entrance is 180 ms; the screenshot is the evidence, so let it settle.
+  await page.waitForTimeout(250);
+  await page.screenshot({ path: path.join(OUT, '06b-fleet-tokens-390.png') });
+  step(
+    'from the fleet at 390 the Tokens door opens the sheet on Tokens and states the fixed device scope'
+  );
+  await page.keyboard.press('Escape');
+  await tokensDoor.waitFor({ state: 'detached', timeout: 5_000 });
   await page.locator('nav.rail button[title="Activity"]').click();
   await page.getByRole('heading', { name: 'Activity' }).waitFor({ timeout: 10_000 });
   // **A PAUSED PAGE RESUMES; IT DOES NOT REFRESH (C10).** The measured button reissued the poll's

@@ -486,6 +486,11 @@ function TokensSection({
         hash; the value is shown once, here.
       </p>
 
+      <p className="hint">
+        A token's device scope is fixed when it is minted. Rotate keeps it; to cover different
+        machines, mint a new token.
+      </p>
+
       {!device && (
         <p className="hint">
           The endpoint <code className="mono">{endpoint}</code> spans the fleet. A token minted for
@@ -559,6 +564,18 @@ function TokensSection({
               </button>
             ))}
           </div>
+          {scope === "device" && device && (
+            <p className="hint">
+              This token will cover {device.name || shortId(device.id)}.
+            </p>
+          )}
+          {scope === "fleet" && devices.length > 0 && (
+            <p className="hint">
+              This token will cover the {devices.length} machine
+              {devices.length === 1 ? "" : "s"} enrolled now:{" "}
+              {devices.map((entry) => entry.name || shortId(entry.id)).join(", ")}.
+            </p>
+          )}
           {scope === "fleet" && devices.length === 0 && (
             <p className="hint">Enroll a machine before minting a token that spans the fleet.</p>
           )}
@@ -768,8 +785,8 @@ function TokensSection({
             refused on its next request, and the old value cannot be recovered.
           </p>
           <p className="hint">
-            The new token keeps this one's name, scope, tools and destructive consent. Its value is
-            shown once, right after — the console keeps only its hash.
+            The new token keeps this one's name, its fixed device scope, tools and destructive
+            consent. Its value is shown once, right after — the console keeps only its hash.
           </p>
           {rotateError && <p className="error">{rotateError}</p>}
           <div className="modal-actions">

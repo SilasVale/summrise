@@ -237,6 +237,7 @@ describe("ConnectSheet", () => {
     const dialog = await screen.findByRole("dialog", { name: 'Rotate "laptop"?' });
     expect(within(dialog).getByText(/stops working/)).toBeInTheDocument();
     expect(within(dialog).getByText(/shown once/)).toBeInTheDocument();
+    expect(within(dialog).getByText(/its fixed device scope/)).toBeInTheDocument();
     fireEvent.click(within(dialog).getByRole("button", { name: "Rotate token" }));
 
     await waitFor(() => expect(mocks.rotateToken).toHaveBeenCalledWith("tok-1"));
@@ -487,5 +488,33 @@ describe("ConnectSheet's one credential list", () => {
         expect.objectContaining({ device_ids: [WORKSHOP.id, ATTIC.id] })
       )
     );
+  });
+
+  it("states the fixed device scope and says a different scope needs a new token", () => {
+    draw({ initialSection: "tokens" });
+
+    expect(
+      screen.getByText(
+        "A token's device scope is fixed when it is minted. Rotate keeps it; to cover different machines, mint a new token."
+      )
+    ).toBeInTheDocument();
+  });
+
+  it("names the machine the mint form will cover", () => {
+    draw({ initialSection: "tokens" });
+
+    expect(
+      within(tokenForm()).getByText("This token will cover workshop.")
+    ).toBeInTheDocument();
+  });
+
+  it("names every machine a fleet mint will cover, as the form opens on the fleet", () => {
+    draw({ initialSection: "tokens", device: null, devices: [WORKSHOP, ATTIC] });
+
+    expect(
+      within(tokenForm()).getByText(
+        "This token will cover the 2 machines enrolled now: workshop, attic."
+      )
+    ).toBeInTheDocument();
   });
 });

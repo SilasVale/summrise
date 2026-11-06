@@ -1433,7 +1433,9 @@ describe("App", () => {
     await bootAndSignIn();
 
     openAccount();
-    fireEvent.click(screen.getByRole("button", { name: "Tokens" }));
+    // The fleet header carries its own Tokens door now, so the account menu's is named by its menu.
+    const accountMenu = screen.getByLabelText("Account menu").closest("details") as HTMLElement;
+    fireEvent.click(within(accountMenu).getByRole("button", { name: "Tokens" }));
 
     const dialog = await screen.findByRole("dialog", { name: "Tokens" });
     // The account menu opens the fleet scope: no machine is chosen, so the form can mint only a
