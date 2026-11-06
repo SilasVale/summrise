@@ -341,6 +341,12 @@ console's terminal tab is the surface that finds this; the device's read is the 
    its wait expires instead of holding the call (and the device) open. **Fix:** the read's wait is
    capped by the requested wait (and a default bound), the empty ring returns empty, and the tool
    handler never waits beyond it. **M.** (device; the pty/read wait path, a release.)
+   *(Second measurement 2026-11-06 on 9VH 0.3.283, after the device restart: the fresh quiet pty
+   session-1's `terminal.read` with `wait_ms` 1000 hung 45 s (0 bytes) and with `wait_ms` 0 hung 20 s;
+   `terminal.list` answered (session-1 listed) and `runs.exec` answered in 297 ms. c3162d6 fixed the
+   follow's socket queue but not this: the read's own task never answers while the registry and the
+   tool writer serve other calls. Next: the read path itself — the output lock's poison recovery, the
+   in-flight permit, or the local device link's dispatch — with a device thread dump and its log.)*
 
 ## How a round goes
 
