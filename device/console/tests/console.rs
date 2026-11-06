@@ -9876,6 +9876,205 @@ async fn a_stream_follows_a_device_that_advertises_it() {
     assert!(body.contains("pushed-chunk"), "{body}");
 }
 
+/// The subscription's ack for an up-to-date cursor is an empty, still-alive read. It is not the
+/// stream's end: the output the device pushes next must arrive on the same connection.
+#[tokio::test]
+async fn a_stream_does_not_end_on_an_empty_ack() {
+    let fixture = Fixture::new("terminal-stream-empty-ack");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0x3c)).await;
+    device
+        .send(WsMessage::Text(
+            json!({ "host": { "machine": "workshop", "caps": ["terminal.stream"] } }).to_string(),
+        ))
+        .await
+        .expect("the host frame is sent");
+    tokio::task::yield_now().await;
+
+    let session = fixture.authenticate().await;
+    let path = format!("/terminal/{device_id}/session-1/stream?from=4");
+    let auth = bearer(&session);
+    let stream = raw_get(&server, &path, &auth, "after-the-empty-ack");
+    let device_side = async {
+        let frame = next_json(&mut device).await;
+        let sub = frame["id"].clone();
+        answer(
+            &mut device,
+            &frame,
+            tool_result(json!({ "data": "", "cursor": 4, "alive": true })),
+        )
+        .await;
+        device
+            .send(WsMessage::Text(
+                json!({
+                    "term": {
+                        "sub": sub,
+                        "data": "after-the-empty-ack",
+                        "cursor": 22,
+                        "alive": true,
+                    }
+                })
+                .to_string(),
+            ))
+            .await
+            .expect("the pushed frame is sent");
+        // The client leaves after reading; the console's unsubscribe is the next thing it hears.
+        let _ = tokio::time::timeout(Duration::from_secs(2), next_json(&mut device)).await;
+    };
+    let (body, ()) = tokio::join!(stream, device_side);
+
+    assert!(
+        body.contains("event: output"),
+        "an empty ack must not end the stream: {body}"
+    );
+    assert!(body.contains("after-the-empty-ack"), "{body}");
+}
+
+/// An empty read that is still alive can also be pushed between two chunks: it is skipped, and the
+/// second chunk still arrives.
+#[tokio::test]
+async fn a_stream_skips_an_empty_alive_frame_between_outputs() {
+    let fixture = Fixture::new("terminal-stream-empty-middle");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0x3d)).await;
+    device
+        .send(WsMessage::Text(
+            json!({ "host": { "machine": "workshop", "caps": ["terminal.stream"] } }).to_string(),
+        ))
+        .await
+        .expect("the host frame is sent");
+    tokio::task::yield_now().await;
+
+    let session = fixture.authenticate().await;
+    let path = format!("/terminal/{device_id}/session-1/stream?from=0");
+    let auth = bearer(&session);
+    let stream = raw_get(&server, &path, &auth, "second-chunk");
+    let device_side = async {
+        let frame = next_json(&mut device).await;
+        let sub = frame["id"].clone();
+        answer(
+            &mut device,
+            &frame,
+            tool_result(json!({ "data": "first-chunk", "cursor": 11, "alive": true })),
+        )
+        .await;
+        for term in [
+            json!({ "sub": sub.clone(), "data": "", "cursor": 11, "alive": true }),
+            json!({ "sub": sub, "data": "second-chunk", "cursor": 23, "alive": true }),
+        ] {
+            device
+                .send(WsMessage::Text(json!({ "term": term }).to_string()))
+                .await
+                .expect("the pushed frame is sent");
+        }
+        let _ = tokio::time::timeout(Duration::from_secs(2), next_json(&mut device)).await;
+    };
+    let (body, ()) = tokio::join!(stream, device_side);
+
+    assert!(body.contains("first-chunk"), "{body}");
+    assert!(
+        body.contains("second-chunk"),
+        "an empty alive frame must be skipped, not end the stream: {body}"
+    );
+}
+
+/// A pushed `alive:false` frame is the session's end, with the device's exit facts.
+#[tokio::test]
+async fn a_pushed_end_frame_yields_end() {
+    let fixture = Fixture::new("terminal-stream-pushed-end");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0x3e)).await;
+    device
+        .send(WsMessage::Text(
+            json!({ "host": { "machine": "workshop", "caps": ["terminal.stream"] } }).to_string(),
+        ))
+        .await
+        .expect("the host frame is sent");
+    tokio::task::yield_now().await;
+
+    let session = fixture.authenticate().await;
+    let path = format!("/terminal/{device_id}/session-1/stream?from=0");
+    let auth = bearer(&session);
+    let stream = raw_get(&server, &path, &auth, "event: end");
+    let device_side = async {
+        let frame = next_json(&mut device).await;
+        let sub = frame["id"].clone();
+        answer(
+            &mut device,
+            &frame,
+            tool_result(json!({ "data": "", "cursor": 7, "alive": true })),
+        )
+        .await;
+        device
+            .send(WsMessage::Text(
+                json!({
+                    "term": {
+                        "sub": sub,
+                        "alive": false,
+                        "cursor": 7,
+                        "exit_code": 9,
+                    }
+                })
+                .to_string(),
+            ))
+            .await
+            .expect("the pushed end is sent");
+        let _ = tokio::time::timeout(Duration::from_secs(2), next_json(&mut device)).await;
+    };
+    let (body, ()) = tokio::join!(stream, device_side);
+
+    assert!(body.contains("event: end"), "{body}");
+    assert!(body.contains("\"exit_code\":9"), "{body}");
+}
+
+/// A follow failure is a pushed `error` frame; the stream carries it as `fault`.
+#[tokio::test]
+async fn a_pushed_fault_frame_yields_fault() {
+    let fixture = Fixture::new("terminal-stream-pushed-fault");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0x3f)).await;
+    device
+        .send(WsMessage::Text(
+            json!({ "host": { "machine": "workshop", "caps": ["terminal.stream"] } }).to_string(),
+        ))
+        .await
+        .expect("the host frame is sent");
+    tokio::task::yield_now().await;
+
+    let session = fixture.authenticate().await;
+    let path = format!("/terminal/{device_id}/session-1/stream?from=0");
+    let auth = bearer(&session);
+    let stream = raw_get(&server, &path, &auth, "the follow failed");
+    let device_side = async {
+        let frame = next_json(&mut device).await;
+        let sub = frame["id"].clone();
+        answer(
+            &mut device,
+            &frame,
+            tool_result(json!({ "data": "", "cursor": 7, "alive": true })),
+        )
+        .await;
+        device
+            .send(WsMessage::Text(
+                json!({
+                    "term": { "sub": sub, "error": "the follow failed" }
+                })
+                .to_string(),
+            ))
+            .await
+            .expect("the pushed fault is sent");
+        let _ = tokio::time::timeout(Duration::from_secs(2), next_json(&mut device)).await;
+    };
+    let (body, ()) = tokio::join!(stream, device_side);
+
+    assert!(body.contains("event: fault"), "{body}");
+    assert!(body.contains("the follow failed"), "{body}");
+}
+
 /// Without the capability the console keeps the parked-read pump: the page cannot tell the
 /// difference, and an old device never sees a frame it cannot parse.
 #[tokio::test]

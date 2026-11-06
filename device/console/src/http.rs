@@ -2246,7 +2246,7 @@ struct TerminalSubscription {
     sub: u64,
     /// The pushed frames, in order.
     stream: tokio::sync::mpsc::Receiver<Value>,
-    /// The ack's read, emitted as the stream's first event.
+    /// The ack's read, consumed as the stream's first frame.
     first: Option<Value>,
     done: bool,
     /// Released when the stream is dropped, after the subscription is stopped.
@@ -2274,7 +2274,7 @@ fn subscription_stream(
         Reply::Result(result) => result_answer(result),
         // A refused subscribe is the same sentence a refused read showed; there is no stream to
         // serve, so the connection carries the fault and ends.
-        Reply::Error(error) => Some(json!({ "sentence": reply_error_sentence(error) })),
+        Reply::Error(error) => Some(json!({ "error": reply_error_sentence(error) })),
     };
     let state = TerminalSubscription {
         app,
@@ -2286,43 +2286,28 @@ fn subscription_stream(
         _slot: slot,
     };
     let events = futures_util::stream::unfold(state, |mut state| async move {
-        if state.done {
-            return None;
-        }
-        if let Some(first) = state.first.take() {
-            let event = if first.get("sentence").is_some() {
-                state.done = true;
-                let payload = json!({
-                    "sentence": first
-                        .get("sentence")
-                        .and_then(Value::as_str)
-                        .unwrap_or("the device refused the subscription"),
-                    "status": 502,
-                });
-                Event::default().event("fault").data(payload.to_string())
-            } else {
-                match read_event(&first) {
-                    Some(event) => event,
-                    None => return None,
-                }
-            };
-            return Some((Ok::<Event, Infallible>(event), state));
-        }
-        match state.stream.recv().await {
-            Some(frame) => {
-                if let Some(sentence) = frame.get("error").and_then(Value::as_str) {
-                    state.done = true;
-                    let payload = json!({ "sentence": sentence, "status": 502 });
-                    return Some((
-                        Ok::<Event, Infallible>(
-                            Event::default().event("fault").data(payload.to_string()),
-                        ),
-                        state,
-                    ));
-                }
-                read_event(&frame).map(|event| (Ok::<Event, Infallible>(event), state))
+        loop {
+            if state.done {
+                return None;
             }
-            None => None,
+            // The ack is the read the device already answered; every later frame is pushed. A quiet
+            // follow pushes nothing, so a receive that finds no frame is the one true end.
+            let frame = match state.first.take() {
+                Some(frame) => frame,
+                None => match state.stream.recv().await {
+                    Some(frame) => frame,
+                    None => return None,
+                },
+            };
+            match frame_step(&frame) {
+                FrameStep::Send(event) => return Some((Ok::<Event, Infallible>(event), state)),
+                FrameStep::Last(event) => {
+                    state.done = true;
+                    return Some((Ok::<Event, Infallible>(event), state));
+                }
+                // An empty read that is still alive is not an end: wait for the next frame.
+                FrameStep::Skip => {}
+            }
         }
     });
     let mut response = Sse::new(events)
@@ -2334,8 +2319,34 @@ fn subscription_stream(
     response
 }
 
-/// One read-shaped answer (`{data, cursor, alive, exit_code, signal}`) as an SSE event.
-fn read_event(answer: &Value) -> Option<Event> {
+/// What one frame from a subscribed device contributes to the stream.
+enum FrameStep {
+    /// Send this event and keep following.
+    Send(Event),
+    /// Send this event and end the stream: an `end` or a `fault`.
+    Last(Event),
+    /// An empty read that is still alive: no event; wait for the next frame.
+    Skip,
+}
+
+/// One frame from the device as the stream's next step.
+///
+/// A pushed `error` is the follow's fault; every other frame is the read-shaped answer the ack and
+/// the pushes share.
+fn frame_step(frame: &Value) -> FrameStep {
+    if let Some(sentence) = frame.get("error").and_then(Value::as_str) {
+        let payload = json!({ "sentence": sentence, "status": 502 });
+        return FrameStep::Last(Event::default().event("fault").data(payload.to_string()));
+    }
+    read_event(frame)
+}
+
+/// One read-shaped answer (`{data, cursor, alive, exit_code, signal}`) as the stream's next step.
+///
+/// **An empty read that is still alive is not an end.** The subscription's ack for an up-to-date
+/// cursor is exactly that frame — and the device sends no frame at all for a quiet follow — so it
+/// is [`FrameStep::Skip`]; only `alive: false` ends the session.
+fn read_event(answer: &Value) -> FrameStep {
     let cursor = answer.get("cursor").and_then(Value::as_u64);
     let data = answer
         .get("data")
@@ -2343,7 +2354,7 @@ fn read_event(answer: &Value) -> Option<Event> {
         .unwrap_or_default();
     if !data.is_empty() {
         let payload = json!({ "data": data, "cursor": cursor });
-        return Some(Event::default().event("output").data(payload.to_string()));
+        return FrameStep::Send(Event::default().event("output").data(payload.to_string()));
     }
     if answer.get("alive").and_then(Value::as_bool) == Some(false) {
         let payload = json!({
@@ -2351,10 +2362,9 @@ fn read_event(answer: &Value) -> Option<Event> {
             "exit_code": answer.get("exit_code").cloned().unwrap_or(Value::Null),
             "signal": answer.get("signal").cloned().unwrap_or(Value::Null),
         });
-        return Some(Event::default().event("end").data(payload.to_string()));
+        return FrameStep::Last(Event::default().event("end").data(payload.to_string()));
     }
-    // An empty read that is still alive carries no event; the caller asks again.
-    None
+    FrameStep::Skip
 }
 
 /// The read answer inside one MCP tool result.
