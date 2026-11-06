@@ -249,7 +249,7 @@ one only by date, not by scope.
    visible cause, and the operator mints another token to guess. **Fix:** the scope cell names the
    machines from the token's `device_ids` and the fleet's names (single device: its name; fleet:
    names with "and N more" when long), keeping the count for the totals. **M.**
-2. **The all-machines mint form lists a dead machine as if it were live.** The coverage sentence
+2. **The all-machines mint form lists a dead machine as if it were live.** *(Done 2026-11-06, be7cda1, live 0.3.273-ux69: the coverage sentence marks each machine from `/fleet` with the fleet row's own evidence — `(online)` or `(offline, last seen 1d 1h ago)` — and a never-heard machine reads `(offline)` in the console's existing wording; the token still covers every enrolled machine (the test asserts an offline id stays in `device_ids`). vitest 721 passed/53 files, typecheck 0, gate PASS 37 steps, a11y 0 findings/3 allowed tab stops, `build-web --check` clean. Live read: "DESKTOP-9VH92BJ (online), DESKTOP-14RJCR8 (offline, last seen 1d 1h ago), DESKTOP-CPH4KB2 (online), DESKTOP-84T3LIN (online)"; screenshots /tmp/live-coverage-states-1440.png and -390.png; no sideways scroll at 390.)* The coverage sentence
    read "This token will cover the 4 machines enrolled now: DESKTOP-9VH92BJ, DESKTOP-14RJCR8,
    DESKTOP-CPH4KB2, DESKTOP-84T3LIN" while 14RJCR8 had not answered for 23 hours; minting "all
    machines" silently adds a machine that cannot answer to every future scope. **Fix:** the
