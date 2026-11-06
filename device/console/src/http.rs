@@ -3007,35 +3007,55 @@ fn jsonrpc_error(
         .into_response()
 }
 
-/// How long `runs.exec` may take, above the general `/mcp` bound.
+/// How long a call that legitimately parks on the device may take, above the general `/mcp` bound.
 ///
-/// The device runs the command, and the console's own 30-second bound would turn every run longer than
-/// that into a 504 while the command kept running and its history row was still written. The wait
-/// follows the run's requested timeout (60 seconds when absent, the device's 1 ms..10 min range) plus a
-/// grace for the frame, so a client sees the answer it asked to wait for. Every other tool answers in
-/// milliseconds, and `None` leaves the general bound in charge.
-fn run_wait(request: &Value) -> Option<Duration> {
+/// Two tools park by design. `runs.exec` runs the command, and the console's own 30-second bound
+/// would turn every run longer than that into a 504 while the command kept running and its history
+/// row was still written. `terminal.read` waits `wait_ms` for output, and the device's own cap on
+/// that wait is 30 seconds — exactly the console's general bound, so a legal long poll would race
+/// the device's deadline and be cut by the console instead of returning its wait. In both cases the
+/// bound follows the argument the client sent, plus a grace for the frame and the answer, so a
+/// client sees the answer it asked to wait for. Every other tool answers in milliseconds, and
+/// `None` leaves the general bound in charge.
+fn call_wait(request: &Value) -> Option<Duration> {
     let name = request
         .get("params")
         .and_then(|params| params.get("name"))
         .and_then(|name| name.as_str())?;
-    if name != "runs.exec" {
-        return None;
-    }
-    let requested = request
+    let arguments = request
         .get("params")
-        .and_then(|params| params.get("arguments"))
-        .and_then(|arguments| arguments.get("timeout_ms"))
-        .and_then(|timeout| timeout.as_u64())
-        .unwrap_or(60_000);
-    let clamped = requested.clamp(1, RUNS_MAX_TIMEOUT_MS);
-    // **THE CONSOLE MUST ANSWER BEFORE THE PROXY IN FRONT OF IT GIVES UP.** The operator's console is
-    // reached through Cloudflare Access, whose origin timeout is about a hundred seconds: a run that
-    // is proxied for ten minutes is cut there and the operator sees Cloudflare's HTML error instead of
-    // this console's answer (measured 2026-10-28: two `browser.eval`/`runs.exec` calls, CF 504 pages
-    // with ray ids). Ninety seconds leaves room for the frame's round trip and the answer's write; a
-    // run that needs longer keeps running on the device and is collected through `runs.list`.
-    Some((Duration::from_millis(clamped) + RUNS_WAIT_GRACE).min(RUNS_MAX_PROXY_WAIT))
+        .and_then(|params| params.get("arguments"));
+    match name {
+        "runs.exec" => {
+            let requested = arguments
+                .and_then(|arguments| arguments.get("timeout_ms"))
+                .and_then(|timeout| timeout.as_u64())
+                .unwrap_or(60_000);
+            let clamped = requested.clamp(1, RUNS_MAX_TIMEOUT_MS);
+            // **THE CONSOLE MUST ANSWER BEFORE THE PROXY IN FRONT OF IT GIVES UP.** The operator's
+            // console is reached through Cloudflare Access, whose origin timeout is about a hundred
+            // seconds: a run that is proxied for ten minutes is cut there and the operator sees
+            // Cloudflare's HTML error instead of this console's answer (measured 2026-10-28: two
+            // `browser.eval`/`runs.exec` calls, CF 504 pages with ray ids). Ninety seconds leaves
+            // room for the frame's round trip and the answer's write; a run that needs longer keeps
+            // running on the device and is collected through `runs.list`.
+            Some((Duration::from_millis(clamped) + RUNS_WAIT_GRACE).min(RUNS_MAX_PROXY_WAIT))
+        }
+        "terminal.read" => {
+            // **THE DEVICE CAPS THE WAIT, SO THE CONSOLE MUST MIRROR THE CAP.** A `wait_ms` larger
+            // than the device honours would otherwise make the console wait longer than any answer
+            // can take; clamping keeps the console's bound tied to the wait that can actually
+            // happen. Zero (or an absent/other-typed field) is not a long poll and keeps the
+            // general bound.
+            let requested = arguments
+                .and_then(|arguments| arguments.get("wait_ms"))
+                .and_then(|wait| wait.as_u64())
+                .unwrap_or(0);
+            let wait = requested.min(TERMINAL_MAX_WAIT_MS);
+            (wait > 0).then(|| Duration::from_millis(wait) + TERMINAL_WAIT_GRACE)
+        }
+        _ => None,
+    }
 }
 
 /// The device's own cap on `runs.exec`, mirrored so the wait cannot exceed it.
@@ -3047,8 +3067,17 @@ const RUNS_MAX_PROXY_WAIT: Duration = Duration::from_secs(90);
 /// The round-trip grace added to a run's wait: the channel gets this much longer than the run itself.
 const RUNS_WAIT_GRACE: Duration = Duration::from_secs(5);
 
-/// The proxy's backstop around a run: the channel's bound plus room for the frame's round trip.
-const RUNS_BACKSTOP_GRACE: Duration = Duration::from_secs(10);
+/// The device's own cap on `terminal.read`'s `wait_ms`, mirrored so the bound cannot exceed the
+/// wait the device will ever honour (device/device/src/mcp.rs clamps `wait_ms` to 30 s).
+const TERMINAL_MAX_WAIT_MS: u64 = 30_000;
+
+/// The round-trip grace added to a read's wait: the ring copy and the answer's return must fit
+/// inside the channel's bound as well as the proxy's.
+const TERMINAL_WAIT_GRACE: Duration = Duration::from_secs(10);
+
+/// The proxy's backstop around a call that parks: the channel's bound plus room for the frame's
+/// round trip and the answer's write.
+const WAIT_BACKSTOP_GRACE: Duration = Duration::from_secs(10);
 
 /// Verify a presented grant: its signature, the device it names and its expiry.
 ///
@@ -3328,15 +3357,16 @@ async fn proxy_reply(
         _ => None,
     };
 
-    // A run blocks on the device for its own timeout (the device's cap is ten minutes), so both bounds
-    // follow it: the channel's wait for the answer and the proxy's backstop around it. Every other
-    // tool keeps `mcp_timeout`, and a device that has not answered in it is one to give up on.
-    let answer = match run_wait(&request) {
-        // A run blocks on the device for its own timeout, so the channel waits that long and the
-        // proxy's backstop sits a little above it.
+    // **A CALL THAT PARKS IS WAITED FOR.** A run blocks on the device for its own timeout (the
+    // device's cap is ten minutes) and a read long-polls for its `wait_ms` (capped at thirty
+    // seconds), so both bounds follow the argument the client sent: the channel's wait for the
+    // answer and the proxy's backstop around it. Without this the console's own thirty-second bound
+    // would cut a legal read at exactly the wait the device was allowed to spend. Every other tool
+    // keeps `mcp_timeout`, and a device that has not answered in it is one to give up on.
+    let answer = match call_wait(&request) {
         Some(wait) => {
             tokio::time::timeout(
-                wait + RUNS_BACKSTOP_GRACE,
+                wait + WAIT_BACKSTOP_GRACE,
                 app.channels.request_within(device_id, request, auth, wait),
             )
             .await
@@ -5387,9 +5417,10 @@ mod tests {
         );
     }
 
-    /// A `runs.exec` wait follows the run; everything else leaves the general bound in charge.
+    /// A parked call's wait follows the argument the client sent; everything else leaves the
+    /// general bound in charge.
     #[test]
-    fn a_run_waits_for_its_own_timeout_and_other_tools_do_not() {
+    fn a_parked_call_waits_for_its_own_bound_and_other_tools_do_not() {
         let call = |name: &str, arguments: Value| {
             json!({
                 "jsonrpc": "2.0",
@@ -5401,12 +5432,12 @@ mod tests {
 
         // Absent timeout_ms: the device's default 60 s plus the grace.
         assert_eq!(
-            run_wait(&call("runs.exec", json!({"command": "ver"}))),
+            call_wait(&call("runs.exec", json!({"command": "ver"}))),
             Some(Duration::from_secs(65))
         );
         // A requested timeout is honoured, so a 45 s run is not cut at 30 s.
         assert_eq!(
-            run_wait(&call(
+            call_wait(&call(
                 "runs.exec",
                 json!({"command": "ver", "timeout_ms": 45_000})
             )),
@@ -5415,7 +5446,7 @@ mod tests {
         // A ten-minute run is NOT waited for end to end: the proxy in front of the console gives up
         // at about a hundred seconds, so the console answers first and the run is collected later.
         assert_eq!(
-            run_wait(&call(
+            call_wait(&call(
                 "runs.exec",
                 json!({"command": "ver", "timeout_ms": 86_400_000})
             )),
@@ -5425,14 +5456,58 @@ mod tests {
             RUNS_MAX_PROXY_WAIT < Duration::from_secs(100),
             "the bound must sit under the proxy's ceiling"
         );
-        // Anything that is not a run, or is malformed, leaves the general bound alone.
-        assert_eq!(run_wait(&call("memory.list", json!({}))), None);
+        // **A READ'S WAIT IS THE DEVICE'S WAIT.** A 1.5 s long poll is not cut at the console's
+        // general 30 s bound, and a 30 s one (the device's cap) gets the grace that keeps the
+        // console from racing the device's own deadline.
         assert_eq!(
-            run_wait(&json!({"method": "initialize", "params": {}})),
+            call_wait(&call(
+                "terminal.read",
+                json!({"id": "session-1", "wait_ms": 1_500})
+            )),
+            Some(Duration::from_millis(11_500))
+        );
+        assert_eq!(
+            call_wait(&call(
+                "terminal.read",
+                json!({"id": "session-1", "wait_ms": 30_000})
+            )),
+            Some(Duration::from_secs(40))
+        );
+        // The device clamps a larger wait to 30 s, so the console's bound must not grow past it.
+        assert_eq!(
+            call_wait(&call(
+                "terminal.read",
+                json!({"id": "session-1", "wait_ms": 86_400_000})
+            )),
+            Some(Duration::from_secs(40))
+        );
+        // No wait (or a malformed one) is not a long poll: the general bound stays in charge.
+        assert_eq!(
+            call_wait(&call("terminal.read", json!({"id": "session-1"}))),
             None
         );
         assert_eq!(
-            run_wait(&json!({"method": "tools/call", "params": {"name": "runs.exec"}})),
+            call_wait(&call(
+                "terminal.read",
+                json!({"id": "session-1", "wait_ms": 0})
+            )),
+            None
+        );
+        assert_eq!(
+            call_wait(&call(
+                "terminal.read",
+                json!({"id": "session-1", "wait_ms": "1000"})
+            )),
+            None
+        );
+        // Anything that is not a run or a read, or is malformed, leaves the general bound alone.
+        assert_eq!(call_wait(&call("memory.list", json!({}))), None);
+        assert_eq!(
+            call_wait(&json!({"method": "initialize", "params": {}})),
+            None
+        );
+        assert_eq!(
+            call_wait(&json!({"method": "tools/call", "params": {"name": "runs.exec"}})),
             Some(Duration::from_secs(65))
         );
     }

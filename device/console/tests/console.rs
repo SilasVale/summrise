@@ -7048,6 +7048,76 @@ async fn an_aggregate_call_reaches_the_named_device_and_audits_it() {
     );
 }
 
+/// **A READ'S WAIT IS THE CLIENT'S WAIT.** A `terminal.read` long poll with a legal `wait_ms` must
+/// not be cut by the console's general `/mcp` bound: the device spends its own wait and the client
+/// sees that answer. The fixture's general bound is 300 ms, well under the 1.5 s wait this call
+/// asks for, so the general bound is what would answer if the read were not given its own.
+#[tokio::test]
+async fn a_read_long_poll_waits_past_the_general_bound_for_its_wait_ms() {
+    let fixture = Fixture::with_timeout("aggregate-read-wait", Duration::from_millis(300));
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _device_token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xb2)).await;
+    let session = fixture.authenticate().await;
+    let (_id, token) = aggregate_token_for(
+        &fixture,
+        &session,
+        std::slice::from_ref(&device_id),
+        &["terminal.read"],
+    )
+    .await;
+
+    let started = std::time::Instant::now();
+    let http = send(
+        fixture.app(),
+        aggregate_request(
+            &token,
+            json!({
+                "jsonrpc": "2.0", "id": 12, "method": "tools/call",
+                "params": {
+                    "name": "terminal.read",
+                    "arguments": {
+                        "device": device_id,
+                        "id": "session-1",
+                        "cursor": 4,
+                        "wait_ms": 1_500,
+                    },
+                },
+            }),
+        ),
+    );
+    let device_side = async {
+        let frame = next_json(&mut device).await;
+        assert_eq!(frame["mcp"]["params"]["name"], json!("terminal.read"));
+        assert_eq!(frame["mcp"]["params"]["arguments"]["wait_ms"], json!(1_500));
+        // The device spends part of its legal wait, then answers.
+        tokio::time::sleep(Duration::from_millis(700)).await;
+        answer(
+            &mut device,
+            &frame,
+            json!({
+                "jsonrpc": "2.0", "id": 12,
+                "result": tool_result(json!({
+                    "data": "answered-after-its-wait", "cursor": 9, "alive": true
+                })),
+            }),
+        )
+        .await;
+    };
+    let ((status, body), ()) = tokio::join!(http, device_side);
+
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let text = body["result"]["content"][0]["text"]
+        .as_str()
+        .unwrap_or_else(|| panic!("the device's read text: {body}"));
+    assert!(text.contains("answered-after-its-wait"), "{text}");
+    assert!(
+        started.elapsed() >= Duration::from_millis(600),
+        "the console answered before the device's wait ended: {:?}",
+        started.elapsed()
+    );
+}
+
 #[tokio::test]
 async fn an_aggregate_call_resolves_a_unique_name_and_strips_it() {
     let fixture = Fixture::new("aggregate-name");
@@ -9874,6 +9944,119 @@ async fn a_stream_follows_a_device_that_advertises_it() {
     assert!(body.contains("event: output"), "{body}");
     assert!(body.contains("hello-ack"), "{body}");
     assert!(body.contains("pushed-chunk"), "{body}");
+}
+
+/// **A TOOL ANSWER IS NOT QUEUED BEHIND A LIVE STREAM.** With a terminal subscription open and
+/// pushing, a read through `/mcp/all` is written and answered on the same device channel; the
+/// console's pending map routes it by its own envelope id, so the client sees the read's answer
+/// while the stream's bytes are still crossing the connection.
+#[tokio::test]
+async fn a_read_answer_resolves_while_a_terminal_stream_is_open() {
+    let fixture = Fixture::new("terminal-stream-and-read");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0x3d)).await;
+    device
+        .send(WsMessage::Text(
+            json!({ "host": { "machine": "workshop", "caps": ["terminal.stream"] } }).to_string(),
+        ))
+        .await
+        .expect("the host frame is sent");
+    tokio::task::yield_now().await;
+
+    let session = fixture.authenticate().await;
+    let (_id, token) = aggregate_token_for(
+        &fixture,
+        &session,
+        std::slice::from_ref(&device_id),
+        &["terminal.read"],
+    )
+    .await;
+    let path = format!("/terminal/{device_id}/session-1/stream?from=4");
+    let auth = bearer(&session);
+    let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
+
+    let stream = raw_get(&server, &path, &auth, "stream-still-open");
+    let device_side = async {
+        // The stream's subscribe is the first frame; its ack is an empty, still-alive read.
+        let subscribe = next_json(&mut device).await;
+        assert_eq!(subscribe["subscribe"]["session_id"], json!("session-1"));
+        let sub = subscribe["id"].clone();
+        answer(
+            &mut device,
+            &subscribe,
+            tool_result(json!({ "data": "", "cursor": 4, "alive": true })),
+        )
+        .await;
+        device
+            .send(WsMessage::Text(
+                json!({
+                    "term": { "sub": sub, "data": "stream-open", "cursor": 9, "alive": true }
+                })
+                .to_string(),
+            ))
+            .await
+            .expect("the pushed frame is sent");
+        // The read is a second request on the same channel; the stream stays open across it.
+        let _ = ready_tx.send(());
+        let read = next_json(&mut device).await;
+        assert_eq!(read["mcp"]["params"]["name"], json!("terminal.read"));
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        answer(
+            &mut device,
+            &read,
+            json!({
+                "jsonrpc": "2.0", "id": 13,
+                "result": tool_result(json!({
+                    "data": "answered-while-streaming", "cursor": 9, "alive": true
+                })),
+            }),
+        )
+        .await;
+        // The final marker exists only if the subscription survived the interleaved tool exchange.
+        device
+            .send(WsMessage::Text(
+                json!({
+                    "term": { "sub": sub, "data": "stream-still-open", "cursor": 10, "alive": true }
+                })
+                .to_string(),
+            ))
+            .await
+            .expect("the final pushed frame is sent");
+    };
+    let http = async {
+        ready_rx
+            .await
+            .expect("the stream is subscribed before the read is sent");
+        send(
+            fixture.app(),
+            aggregate_request(
+                &token,
+                json!({
+                    "jsonrpc": "2.0", "id": 13, "method": "tools/call",
+                    "params": {
+                        "name": "terminal.read",
+                        "arguments": {
+                            "device": device_id,
+                            "id": "session-1",
+                            "cursor": 4,
+                            "wait_ms": 1_000,
+                        },
+                    },
+                }),
+            ),
+        )
+        .await
+    };
+    let (stream_body, (), (status, body)) = tokio::join!(stream, device_side, http);
+
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let text = body["result"]["content"][0]["text"]
+        .as_str()
+        .expect("the device's read text");
+    assert!(text.contains("answered-while-streaming"), "{text}");
+    assert!(stream_body.contains("stream-open"), "{stream_body}");
+    assert!(stream_body.contains("stream-still-open"), "{stream_body}");
 }
 
 /// The subscription's ack for an up-to-date cursor is an empty, still-alive read. It is not the
