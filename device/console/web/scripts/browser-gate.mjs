@@ -190,6 +190,29 @@ const RUN = {
   stdout_bytes: 6,
   stderr_bytes: 0
 };
+// **THE LONG COMMAND IS THE AUDIT'S SHAPE.** At 390 the measured history broke
+// `powershell.exe -NoProfile …` every few characters in an 80 px Command column. The phone card must
+// give this row the card's width and wrap it on word boundaries; the desktop table truncates it to
+// `shortCommand`'s 110 characters exactly as before.
+const LONG_RUN = {
+  id: 'r-2',
+  command: 'powershell.exe',
+  args: [
+    '-NoProfile',
+    '-ExecutionPolicy',
+    'Bypass',
+    '-Command',
+    'Get-ChildItem -Path C:\\Users\\operator\\source -Recurse | ' +
+      'Where-Object { $_.Length -gt 1MB } | Select-Object FullName, Length'
+  ],
+  cwd: 'C:\\Users\\operator',
+  exit_code: 1,
+  timed_out: false,
+  duration_ms: 61_000,
+  started_at_ms: NOW - 3 * 60 * 60_000,
+  stdout_bytes: 2048,
+  stderr_bytes: 12
+};
 // The machine's one Tools answer needs a plugin row beside the catalogue; without `plugins.list` the
 // page would show the older-build sentence, which is a different thing to photograph.
 const PLUGIN = {
@@ -658,7 +681,9 @@ function apiReply(request, url) {
       return json({ result: { content: [{ type: 'text', text: JSON.stringify([PLUGIN]) }] } });
     }
     if (name === 'runs.list') {
-      return json({ result: { content: [{ type: 'text', text: JSON.stringify([RUN]) }] } });
+      return json({
+        result: { content: [{ type: 'text', text: JSON.stringify([LONG_RUN, RUN]) }] }
+      });
     }
     if (name === 'runs.get') {
       return json({ result: { content: [{ type: 'text', text: JSON.stringify(RUN) }] } });
@@ -1227,7 +1252,188 @@ try {
   if ((await page.locator('.runs-form, #runs-command').count()) > 0) {
     throw new Error('the Runs page still carries the exec form; it belongs under Tools');
   }
+
+  // **THE DESKTOP HISTORY IS THE TABLE IT WAS.** The phone card below must be a media query, not a
+  // second markup path: at 1440 the header is drawn and the first command column is the wide one the
+  // audit measured (679 px), with a 57 px row. This is measured before the phone resize so a rule
+  // that leaked upward cannot pass.
+  await page.setViewportSize({ width: 1440, height: 960 });
+  await page.waitForTimeout(300);
+  const runs1440 = await page.evaluate(() => {
+    const head = document.querySelector('.runs-history thead');
+    const row = document.querySelector('.runs-row');
+    const button = row?.querySelector('button.runs-open');
+    const headBox = head?.getBoundingClientRect();
+    const buttonBox = button?.getBoundingClientRect();
+    const rowBox = row?.getBoundingClientRect();
+    return {
+      viewport: document.documentElement.clientWidth,
+      rows: document.querySelectorAll('.runs-row').length,
+      headerDisplay: head ? getComputedStyle(head).display : null,
+      headerWidth: Math.round(headBox?.width ?? 0),
+      headerHeight: Math.round(headBox?.height ?? 0),
+      commandWidth: Math.round(buttonBox?.width ?? 0),
+      commandHeight: Math.round(buttonBox?.height ?? 0),
+      rowHeight: Math.round(rowBox?.height ?? 0),
+      documentScrollWidth: document.documentElement.scrollWidth
+    };
+  });
+  console.log(`browser-gate: runs at 1440: ${JSON.stringify(runs1440)}`);
+  if (runs1440.rows !== 2) {
+    throw new Error(`the 1440 history drew ${runs1440.rows} rows, not the fixture's 2`);
+  }
+  if (runs1440.headerDisplay === 'none' || runs1440.headerWidth === 0) {
+    throw new Error('the 1440 history lost its table header');
+  }
+  if (runs1440.commandWidth < 300) {
+    throw new Error(`the 1440 command column is ${runs1440.commandWidth} px, not the wide table cell`);
+  }
+  if (runs1440.rowHeight > 90) {
+    throw new Error(`the 1440 history row is ${runs1440.rowHeight} px tall`);
+  }
+  if (runs1440.documentScrollWidth > runs1440.viewport) {
+    throw new Error(
+      `the 1440 Runs page scrolls sideways: ${runs1440.documentScrollWidth} > ${runs1440.viewport}`
+    );
+  }
+  step(
+    `at 1440 the Runs history keeps its table: header ${runs1440.headerWidth} px, command ` +
+      `${runs1440.commandWidth} px, row ${runs1440.rowHeight} px`
+  );
   await page.screenshot({ path: path.join(OUT, '04-activity-run.png') });
+
+  // **AT 390 THE HISTORY IS A CARD LIST, NOT A 320 PX TABLE.** The audited phone drew the command in
+  // an 80 px column and broke `powershell.exe -NoProfile …` every few characters, with a 52 px
+  // header cell and a 5,660 px column for 20 runs. The card must put the command full width and
+  // wrapping, then exit, duration, started and the output sizes as labelled lines, with the header
+  // gone and no sideways scroll — while the row's one control stays its command button.
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.waitForTimeout(400);
+  const runs390 = await page.evaluate(() => {
+    const scroller = document.querySelector('.runs-history');
+    const head = document.querySelector('.runs-history thead');
+    const headStyle = head ? getComputedStyle(head) : null;
+    const headBox = head?.getBoundingClientRect();
+    const rows = [...document.querySelectorAll('.runs-row')].map((row) => {
+      const button = row.querySelector('button.runs-open');
+      const box = button?.getBoundingClientRect();
+      const rowBox = row.getBoundingClientRect();
+      return {
+        command: button?.textContent?.trim() ?? '',
+        commandWidth: Math.round(box?.width ?? 0),
+        commandHeight: Math.round(box?.height ?? 0),
+        commandRight: Math.round(box?.right ?? 0),
+        commandBottom: Math.round(box?.bottom ?? 0),
+        commandScrollWidth: button?.scrollWidth ?? 0,
+        commandClientWidth: button?.clientWidth ?? 0,
+        rowWidth: Math.round(rowBox.width),
+        labels: [...row.querySelectorAll('.runs-fact-label')].map((label) => ({
+          text: label.textContent?.trim() ?? '',
+          visible:
+            getComputedStyle(label).display !== 'none' && label.getClientRects().length > 0
+        })),
+        factTops: [...row.querySelectorAll('td.runs-fact')].map((cell) =>
+          Math.round(cell.getBoundingClientRect().top)
+        )
+      };
+    });
+    return {
+      viewport: document.documentElement.clientWidth,
+      documentScrollWidth: document.documentElement.scrollWidth,
+      scrollerScrollWidth: scroller?.scrollWidth ?? 0,
+      scrollerClientWidth: scroller?.clientWidth ?? 0,
+      headerDisplay: headStyle?.display ?? null,
+      headerWidth: Math.round(headBox?.width ?? 0),
+      headerHeight: Math.round(headBox?.height ?? 0),
+      focusables: document.querySelectorAll(
+        '.runs-history button, .runs-history a[href], .runs-history input, .runs-history select, ' +
+          '.runs-history textarea, .runs-history [tabindex]:not([tabindex="-1"])'
+      ).length,
+      rows
+    };
+  });
+  console.log(`browser-gate: runs at 390: ${JSON.stringify(runs390)}`);
+  if (runs390.rows.length !== 2) {
+    throw new Error(`the 390 history drew ${runs390.rows.length} cards, not the fixture's 2`);
+  }
+  if (runs390.headerDisplay !== 'none' || runs390.headerWidth > 1 || runs390.headerHeight > 1) {
+    throw new Error(
+      `the 390 history still draws its header: display ${runs390.headerDisplay}, ` +
+        `${runs390.headerWidth}×${runs390.headerHeight}`
+    );
+  }
+  for (const card of runs390.rows) {
+    if (card.commandWidth <= 200) {
+      throw new Error(
+        `the 390 command is only ${card.commandWidth} px wide: ${JSON.stringify(card.command)}`
+      );
+    }
+    if (card.commandRight > runs390.viewport) {
+      throw new Error(`the 390 command is outside the viewport at ${card.commandRight} px`);
+    }
+    if (card.commandWidth < card.rowWidth - 40) {
+      throw new Error(
+        `the 390 command is ${card.commandWidth} px in a ${card.rowWidth} px card, not full width`
+      );
+    }
+    if (card.commandScrollWidth > card.commandClientWidth + 1) {
+      throw new Error(
+        `the 390 command is ${card.commandScrollWidth} px in a ${card.commandClientWidth} px box; ` +
+          `it is cut instead of wrapped`
+      );
+    }
+    if (card.labels.map((label) => label.text).join('|') !== 'Exit|Duration|Started|stdout / stderr') {
+      throw new Error(
+        `the 390 card's fact labels are ${JSON.stringify(card.labels.map((label) => label.text))}`
+      );
+    }
+    if (card.labels.some((label) => !label.visible)) {
+      throw new Error(`a 390 fact label is not visible: ${JSON.stringify(card.labels)}`);
+    }
+    if (card.factTops.length !== 4 || card.factTops.some((top) => top < card.commandBottom)) {
+      throw new Error(
+        `the 390 card does not put its facts below the command: ${JSON.stringify({
+          commandBottom: card.commandBottom,
+          factTops: card.factTops
+        })}`
+      );
+    }
+  }
+  // The long fixture command is the audit's shape: it must wrap onto more than one line, not be
+  // clipped or broken by the card.
+  const longCard = runs390.rows[0];
+  if (longCard.commandHeight < 30) {
+    throw new Error(`the 390 long command is ${longCard.commandHeight} px tall; it did not wrap`);
+  }
+  if (runs390.documentScrollWidth > runs390.viewport) {
+    throw new Error(
+      `the 390 Runs page scrolls sideways: ${runs390.documentScrollWidth} > ${runs390.viewport}`
+    );
+  }
+  if (runs390.scrollerScrollWidth > runs390.scrollerClientWidth) {
+    throw new Error(
+      `the 390 history scrolls sideways: ${runs390.scrollerScrollWidth} > ${runs390.scrollerClientWidth}`
+    );
+  }
+  // ONE TAB STOP PER ROW, THE COMMAND: the labels are text, not controls, and the card adds no
+  // second way to open a record.
+  if (runs390.focusables !== runs390.rows.length) {
+    throw new Error(
+      `the 390 history has ${runs390.focusables} focusable elements for ${runs390.rows.length} rows`
+    );
+  }
+  // The screenshot is the evidence; scroll the cards into the frame (the measured record above is
+  // open and taller than the phone).
+  await page.locator('.runs-history').scrollIntoViewIfNeeded();
+  await page.waitForTimeout(200);
+  await page.screenshot({ path: path.join(OUT, '04b-runs-390.png') });
+  step(
+    `at 390 the Runs history is ${runs390.rows.length} cards: commands ` +
+      `${runs390.rows.map((card) => `${card.commandWidth}×${card.commandHeight}`).join(', ')} px ` +
+      `with ${runs390.rows[0].labels.length} labelled facts each, header hidden, no sideways scroll`
+  );
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.waitForTimeout(300);
 
   // ONE TAB FOR WHAT THE MACHINE CAN DO. The run form, the catalogue and the plugin list are the
   // same answer, so the gate checks all three render on the same page before it moves on — and that

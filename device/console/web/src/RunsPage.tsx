@@ -50,6 +50,7 @@ export function RunsPage({
   const [detailId, setDetailId] = useState<string | null>(null);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [copied, setCopied] = useState<"command" | null>(null);
+  const detailRef = useRef<HTMLElement | null>(null);
 
   // A failed first read has nothing to keep showing; a failed refresh must leave the previous rows
   // where they are, so the two cases are told apart by whether a list ever arrived.
@@ -155,6 +156,17 @@ export function RunsPage({
 
   showRef.current = show;
 
+  // **THE RECORD IS ABOVE THE LIST, AND ON A PHONE THE LIST IS THE PAGE.** Tapping a card halfway
+  // down a 20-run history used to open the record above the viewport: the card kept its tint and
+  // the reader saw nothing happen. Whenever a record arrives it is brought into view; on the
+  // desktop page the whole record is already visible and `nearest` does not move it. `scrollIntoView`
+  // is absent in jsdom and in a runtime that cannot scroll, so the call is optional like the token
+  // list's.
+  useEffect(() => {
+    if (!detail) return;
+    detailRef.current?.scrollIntoView?.({ block: "nearest", behavior: "smooth" });
+  }, [detail]);
+
   const copyCommand = async (text: string) => {
     if (await copyText(text)) setCopied("command");
   };
@@ -178,7 +190,7 @@ export function RunsPage({
       {detailError && <p className="error">{detailError}</p>}
 
       {detail && (
-        <section className="card runs-detail">
+        <section className="card runs-detail" ref={detailRef}>
           <header>
             <strong className="mono">{detail.id}</strong>
             <div className="actions">
@@ -251,7 +263,7 @@ export function RunsPage({
                   key={row.id}
                   className={"runs-row" + (detail?.id === row.id ? " runs-row-active" : "")}
                 >
-                  <td>
+                  <td className="runs-command-cell">
                     <button
                       type="button"
                       className="runs-open"
@@ -263,13 +275,26 @@ export function RunsPage({
                       {shortCommand(commandLine(row))}
                     </button>
                   </td>
-                  <td>
+                  {/* THE PHONE CARD'S LABELS. The table head is hidden at <=639 px, so every fact
+                      states what it is beside it; on the desktop these spans are `display: none`
+                      and the header above is the only label, exactly as before. */}
+                  <td className="runs-fact">
+                    <span className="runs-fact-label">Exit</span>
                     <span className={exitChip(row)}>{exitSentence(row)}</span>
                   </td>
-                  <td>{spellDuration(row.duration_ms)}</td>
-                  <td>{age(Date.now() - row.started_at_ms)} ago</td>
-                  <td className="mono">
-                    {bytes(row.stdout_bytes)} / {bytes(row.stderr_bytes)}
+                  <td className="runs-fact">
+                    <span className="runs-fact-label">Duration</span>
+                    <span>{spellDuration(row.duration_ms)}</span>
+                  </td>
+                  <td className="runs-fact">
+                    <span className="runs-fact-label">Started</span>
+                    <span>{age(Date.now() - row.started_at_ms)} ago</span>
+                  </td>
+                  <td className="runs-fact">
+                    <span className="runs-fact-label">stdout / stderr</span>
+                    <span className="mono">
+                      {bytes(row.stdout_bytes)} / {bytes(row.stderr_bytes)}
+                    </span>
                   </td>
                 </tr>
               ))}

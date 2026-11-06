@@ -2538,6 +2538,73 @@ main::-webkit-scrollbar-track, .sheet-body::-webkit-scrollbar-track, .scroll::-w
 .runs-history-head button { margin-left: auto; }
 .runs-form > button.primary { align-self: flex-start; margin-top: 19px; }
 
+/* THE PHONE'S RUN HISTORY IS A CARD LIST, NOT A 320 PX TABLE. The measured 390 page put the
+   command in an 80 px cell and broke `powershell.exe -NoProfile …` every few characters, with the
+   header wrapping in 52 px. Below 640 px each run is its own card: the command takes the card's
+   width and wraps, then exit, duration, started and the output sizes are labelled lines, and the
+   table head is gone (the labels are the a11y, not a second tab stop). The desktop table is
+   untouched: every rule here lives inside the media query. */
+.runs-fact-label { display: none; }
+@media (max-width: 639px) {
+  .runs-history {
+    max-height: none;
+    overflow: visible;
+    background: transparent;
+    border: 0;
+    border-radius: 0;
+  }
+  .runs-history table { display: block; }
+  .runs-history tbody { display: grid; gap: var(--sp-2); }
+  .runs-history thead { display: none; }
+  .runs-history tr {
+    display: grid;
+    gap: var(--sp-1);
+    padding: var(--sp-3);
+    background: var(--panel-2);
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius-sm2);
+  }
+  .runs-history td {
+    display: grid;
+    grid-template-columns: 6.5rem minmax(0, 1fr);
+    align-items: baseline;
+    gap: var(--sp-2);
+    min-width: 0;
+    padding: 0;
+    border: 0;
+  }
+  .runs-history td.runs-command-cell {
+    display: block;
+    padding-bottom: var(--sp-2);
+    border-bottom: 1px solid var(--hairline);
+  }
+  .runs-history button.runs-open {
+    display: block;
+    width: 100%;
+    padding: 0;
+    font-size: var(--fs-sm);
+    line-height: 1.45;
+  }
+  .runs-fact-label {
+    display: block;
+    color: var(--ink-muted);
+    font-family: var(--font);
+    font-size: var(--fs-xs);
+    font-weight: var(--fw-regular);
+    line-height: 1.45;
+  }
+  /* A fact's value wraps inside its column instead of widening the card, and a chip is as wide as
+     its word: a grid item would otherwise stretch the exit pill across the whole value column. */
+  .runs-history td > :last-child { min-width: 0; overflow-wrap: anywhere; }
+  .runs-history td .chip { justify-self: start; white-space: normal; }
+  /* The open row's tint is the card's, not each cell's: the cells are the card's lines now. */
+  .runs-row-active td { background: transparent; }
+  .runs-history tr.runs-row-active {
+    background: var(--accent-soft);
+    border-color: color-mix(in srgb, var(--accent) 24%, var(--hairline));
+  }
+}
+
 /* ── Plugins: one grouped list ──────────────────────────────────────────────────────────────────
    A plugin is a row in a list, like a machine or a file: name and state on the first line, its
    facts on the second, its path on the third, and the failure (when there is one) last. */

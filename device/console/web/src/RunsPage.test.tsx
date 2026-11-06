@@ -128,6 +128,37 @@ describe("RunsPage", () => {
     expect(called("runs.list")[1]).toEqual([GRANT, "runs.list", { limit: 20 }]);
   });
 
+  it("labels every history fact, so the phone card carries the head it hides", async () => {
+    mocked.mockResolvedValue(JSON.stringify([HELLO, CARGO]));
+
+    render(<RunsPage grant={GRANT} />);
+
+    await screen.findByText("echo hello");
+    const rows = screen.getAllByRole("row").slice(1);
+    expect(rows).toHaveLength(2);
+    for (const [index, row] of rows.entries()) {
+      const cells = within(row).getAllByRole("cell");
+      expect(cells).toHaveLength(5);
+      // THE COMMAND IS THE CARD'S FIRST LINE and the row's one control. The phone card is a media
+      // query, so the same DOM is claimed here: five cells, the command first, then four facts.
+      const command = within(cells[0]).getByRole("button");
+      expect(command).toHaveClass("runs-open");
+      expect(cells[1].querySelector(".runs-fact-label")).toHaveTextContent("Exit");
+      expect(cells[1].lastElementChild).toHaveTextContent(index === 0 ? "exit 0" : "exit 1");
+      expect(cells[2].querySelector(".runs-fact-label")).toHaveTextContent("Duration");
+      expect(cells[3].querySelector(".runs-fact-label")).toHaveTextContent("Started");
+      expect(cells[4].querySelector(".runs-fact-label")).toHaveTextContent("stdout / stderr");
+      expect(cells[4].lastElementChild).toHaveTextContent(
+        index === 0 ? "6 B / 0 B" : "2.0 KB / 12 B"
+      );
+      // ONE TAB STOP PER ROW, THE COMMAND: the labels are text, and the card adds no control.
+      const focusable = row.querySelectorAll<HTMLElement>(
+        'button, a[href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+      );
+      expect(Array.from(focusable)).toEqual([command]);
+    }
+  });
+
   it("shortens a long command in the history and keeps the full line in its title", async () => {
     const long = {
       ...HELLO,
@@ -199,6 +230,33 @@ describe("RunsPage", () => {
     );
     expect(await screen.findByText("echo hello")).toBeInTheDocument();
     expect(consumed).toHaveBeenCalled();
+  });
+
+  it("brings the record it opens into view, so a phone's read starts at the record", async () => {
+    mocked.mockImplementation(async (_grant, name) => {
+      if (name === "runs.list") return JSON.stringify([HELLO]);
+      if (name === "runs.get") return JSON.stringify(HELLO);
+      throw new Error(`the test did not expect a ${name} call`);
+    });
+    const scrollIntoView = vi.fn();
+    const original = HTMLElement.prototype.scrollIntoView;
+    HTMLElement.prototype.scrollIntoView = scrollIntoView;
+
+    try {
+      render(<RunsPage grant={GRANT} />);
+      fireEvent.click(await screen.findByRole("button", { name: "echo hello" }));
+
+      // The record is drawn above the history; once the phone's history is the page, the record it
+      // asked for must be the thing on screen. jsdom has no layout, so the call is the assertion.
+      await waitFor(() => expect(scrollIntoView).toHaveBeenCalled());
+      const section = document.querySelector(".runs-detail");
+      expect(section).not.toBeNull();
+      expect(scrollIntoView.mock.contexts[0]).toBe(section);
+      expect(scrollIntoView).toHaveBeenCalledWith({ block: "nearest", behavior: "smooth" });
+    } finally {
+      if (original) HTMLElement.prototype.scrollIntoView = original;
+      else delete (HTMLElement.prototype as { scrollIntoView?: unknown }).scrollIntoView;
+    }
   });
 
   it("opens a history row with runs.get and Close returns to the table", async () => {
