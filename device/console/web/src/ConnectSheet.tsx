@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, type Created, type Device, type LiveTool, type TokenMeta } from "./api";
 import { groupByCapability } from "./capabilities";
 import { copyText } from "./copy";
-import { exactMoment, isoDate, lastHeardMs, message, seenAgo, shortId } from "./format";
+import { clockTime, exactMoment, isoDate, lastHeardMs, message, seenAgo, shortId } from "./format";
 import { Modal } from "./Modal";
 import { Sheet } from "./Sheet";
 import { useLiveTools } from "./useLiveTools";
@@ -611,6 +611,26 @@ function TokensSection({
               {copied ? "Copied" : "Copy token"}
             </button>
           </div>
+          {/* THE RESULT NAMES THE EXPIRY IT WAS GIVEN. The rotate dialog states the policy; this is
+              the moment the server answered with. The list's date-only cell hides a change inside
+              the same day, so the result states the day and the local clock, with the exact instant
+              in the title and the UTC in `dateTime`. */}
+          <p className="hint">
+            {created.expires_at_ms == null ? (
+              "This token never expires."
+            ) : (
+              <>
+                This token expires{" "}
+                <time
+                  dateTime={new Date(created.expires_at_ms).toISOString()}
+                  title={exactMoment(created.expires_at_ms)}
+                >
+                  {isoDate(created.expires_at_ms)} {clockTime(created.expires_at_ms)}
+                </time>
+                .
+              </>
+            )}
+          </p>
           {createdFleet && (
             <>
               <pre className="config">{createdConfig}</pre>
@@ -902,6 +922,10 @@ function TokensSection({
           <p className="hint">
             The new token keeps this one's name, its fixed device scope, tools and destructive
             consent. Its value is shown once, right after — the console keeps only its hash.
+          </p>
+          <p className="hint">
+            The new token's expiry is a fresh period of the same length, counted from this rotation
+            — or never, if this token never expires.
           </p>
           {rotateError && <p className="error">{rotateError}</p>}
           <div className="modal-actions">

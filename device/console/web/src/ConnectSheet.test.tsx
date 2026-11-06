@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { HttpError, type Created, type Device, type LiveTool, type TokenMeta } from "./api";
 import { ConnectSheet } from "./ConnectSheet";
+import { exactMoment } from "./format";
 
 const mocks = vi.hoisted(() => ({
   liveTools: vi.fn(),
@@ -259,6 +260,54 @@ describe("ConnectSheet", () => {
     await waitFor(() => expect(mocks.rotateToken).toHaveBeenCalledWith("tok-1"));
     expect(await screen.findByText("Copy this token now. It is not shown again.")).toBeInTheDocument();
     expect(screen.getByText("srm_" + "b".repeat(64))).toBeInTheDocument();
+  });
+
+  it("names the expiry policy the server applies before a rotate", async () => {
+    // The dialog listed the name, scope, tools and destructive consent it keeps. The expiry was the
+    // missing kept fact: the server gives the replacement a fresh period of the old lifetime, never
+    // the old absolute date, and the date-only cell cannot show a change inside the same day.
+    mocks.tokens.mockResolvedValue([
+      tokenMeta({ expires_at_ms: new Date(2026, 11, 4, 9, 41, 5).getTime() })
+    ]);
+    draw({ initialSection: "tokens" });
+
+    fireEvent.click(await screen.findByRole("button", { name: "Rotate" }));
+    const dialog = await screen.findByRole("dialog", { name: 'Rotate "laptop"?' });
+
+    expect(
+      within(dialog).getByText(
+        "The new token's expiry is a fresh period of the same length, counted from this rotation " +
+          "— or never, if this token never expires."
+      )
+    ).toBeInTheDocument();
+  });
+
+  it("shows the new expiry the rotate response carries, with its exact moment", async () => {
+    // Rotating a 30-day token hands the replacement a NEW absolute expiry (now + 30 days), which is
+    // seconds away from the old one: the list's date-only cell reads the same day before and after.
+    // The result panel therefore names the response's own `expires_at_ms`, not the old row.
+    const oldExpiry = new Date(2026, 11, 4, 9, 41, 5).getTime();
+    const newExpiry = new Date(2026, 11, 7, 4, 56, 21).getTime();
+    mocks.tokens.mockResolvedValue([tokenMeta({ expires_at_ms: oldExpiry })]);
+    mocks.rotateToken.mockResolvedValue({
+      ...CREATED,
+      created_at_ms: newExpiry - 30 * 86400_000,
+      expires_at_ms: newExpiry,
+      token: "srm_" + "b".repeat(64)
+    });
+    draw({ initialSection: "tokens" });
+
+    fireEvent.click(await screen.findByRole("button", { name: "Rotate" }));
+    const dialog = await screen.findByRole("dialog", { name: 'Rotate "laptop"?' });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Rotate token" }));
+
+    expect(await screen.findByText("Copy this token now. It is not shown again.")).toBeInTheDocument();
+    const created = document.querySelector(".created-token") as HTMLElement;
+    expect(created.querySelector("time")).not.toBeNull();
+    const expiry = created.querySelector("time") as HTMLTimeElement;
+    expect(expiry).toHaveTextContent(/^2026-12-07 04:56$/);
+    expect(expiry).toHaveAttribute("title", exactMoment(newExpiry));
+    expect(expiry).toHaveAttribute("dateTime", new Date(newExpiry).toISOString());
   });
 
   it("revokes a token only after the confirmation names the consequence", async () => {
