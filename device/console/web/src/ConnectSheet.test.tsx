@@ -4,12 +4,17 @@ import { HttpError, type Created, type Device, type LiveTool, type TokenMeta } f
 import { ConnectSheet } from "./ConnectSheet";
 
 const mocks = vi.hoisted(() => ({
-  tools: vi.fn(),
   liveTools: vi.fn(),
   tokens: vi.fn(),
   createToken: vi.fn(),
   rotateToken: vi.fn(),
   revokeToken: vi.fn()
+}));
+
+// The registry `/tools` answer, as the mocked catalogue hook hands it to the form. A test may
+// replace it with unread (`null`) flags to exercise the honest unknown sentence.
+const catalogue = vi.hoisted(() => ({
+  tools: [] as { name: string; destructive: boolean | null }[]
 }));
 
 vi.mock("./api", async (importOriginal) => {
@@ -18,7 +23,6 @@ vi.mock("./api", async (importOriginal) => {
     ...actual,
     api: {
       ...actual.api,
-      tools: mocks.tools,
       tokens: mocks.tokens,
       createToken: mocks.createToken,
       rotateToken: mocks.rotateToken,
@@ -28,8 +32,9 @@ vi.mock("./api", async (importOriginal) => {
 });
 
 vi.mock("./useLiveTools", () => ({
-  useLiveTools: () => ({
-    tools: mocks.liveTools(),
+  // The live catalogue belongs to a machine; the fleet form (no device) has none.
+  useLiveTools: (deviceId: string | null) => ({
+    tools: deviceId === null ? [] : mocks.liveTools(),
     stale: false,
     error: null,
     offline: false,
@@ -38,11 +43,10 @@ vi.mock("./useLiveTools", () => ({
   })
 }));
 
-const FALLBACK_TOOL_NAMES = ["files.read", "terminal.write"];
-vi.mock("./useToolNames", () => ({
+vi.mock("./useToolCatalogue", () => ({
   // A stable array: the real hook returns state, and an effect that depends on it must not re-run
   // every render.
-  useToolNames: () => FALLBACK_TOOL_NAMES
+  useToolCatalogue: () => catalogue.tools
 }));
 
 const WORKSHOP: Device = {
@@ -97,7 +101,10 @@ const CREATED: Created = {
 };
 
 beforeEach(() => {
-  mocks.tools.mockResolvedValue([{ name: "files.read" }, { name: "terminal.write" }]);
+  catalogue.tools = [
+    { name: "files.read", destructive: false },
+    { name: "terminal.write", destructive: true }
+  ];
   mocks.liveTools.mockReturnValue(TOOLS);
   mocks.tokens.mockResolvedValue([]);
   mocks.createToken.mockReset();
@@ -278,6 +285,33 @@ describe("ConnectSheet", () => {
     // With no current machine the only scope the form can mint is the fleet one.
     expect(screen.getByRole("button", { name: "all machines" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByRole("button", { name: "this machine" })).toBeDisabled();
+  });
+
+  it("counts the fleet form's destructive tools from the served catalogue", () => {
+    draw({ device: null, devices: [WORKSHOP, ATTIC], initialSection: "tokens" });
+
+    // The registry's flags, not the embedded fallback's blanks: one of the two tools changes a
+    // machine, and the fleet form states the same count its machine-selected sibling does.
+    expect(
+      within(tokenForm()).getByText(
+        "2 tools · 1 can change the machine · one list for every machine in the token's scope"
+      )
+    ).toBeInTheDocument();
+  });
+
+  it("never claims zero when the catalogue's destructive flags were not read", () => {
+    catalogue.tools = [
+      { name: "files.read", destructive: null },
+      { name: "terminal.write", destructive: null }
+    ];
+    draw({ device: null, devices: [WORKSHOP], initialSection: "tokens" });
+
+    const count = within(tokenForm()).getByText(/2 tools ·/);
+    expect(count).toHaveTextContent(
+      "2 tools · the count of tools that can change a machine is read from a machine"
+    );
+    // The measured bug: the fallback's unread flags were printed as a fact of zero.
+    expect(count.textContent).not.toContain("0 can change");
   });
 
   it("dims the endpoint and disables Copy while the machine is offline", () => {

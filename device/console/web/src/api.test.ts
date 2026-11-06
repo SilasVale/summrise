@@ -375,11 +375,13 @@ describe("the endpoints", () => {
     expect(init.body).toBeUndefined();
   });
 
-  it("tools GETs the registry and parses the names", async () => {
-    fetchMock.mockResolvedValue(
-      answer({ json: [{ name: "files.read" }, { name: "host.facts" }] })
-    );
-    await expect(api.tools()).resolves.toEqual([{ name: "files.read" }, { name: "host.facts" }]);
+  it("tools GETs the registry and parses each tool's destructive flag", async () => {
+    const served = [
+      { name: "files.read", destructive: false, description: "read a file" },
+      { name: "files.write", destructive: true, description: "write a file" }
+    ];
+    fetchMock.mockResolvedValue(answer({ json: served }));
+    await expect(api.tools()).resolves.toEqual(served);
     const { path, init } = lastRequest();
     expect(path).toBe("/tools");
     expect(init.method).toBeUndefined();

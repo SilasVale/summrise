@@ -127,6 +127,17 @@ export type LiveTool = {
   destructive: boolean;
 };
 
+/**
+ * One tool as the console's static registry serves it at `/tools`: the built-ins a fleet token can
+ * grant, with the registry's own destructive flag. No live device is read for this list, so it is
+ * the one catalogue the fleet form (no selected machine) can count truthfully.
+ */
+export type ToolInfo = {
+  name: string;
+  destructive: boolean;
+  description?: string;
+};
+
 export type Device = {
   id: string;
   name: string | null;
@@ -453,7 +464,9 @@ export const api = {
   // The refusal log is a separate file with the audit line's shape: same route rules, same limit, and
   // no token id because the caller never authenticated.
   health: () => call<{ version: string; devices: number }>("/health"),
-  tools: () => call<{ name: string }[]>("/tools"),
+  // The static registry, with each tool's destructive flag. The console reads it for the grant
+  // form: the fleet scope has no selected machine, so this is the only catalogue it can count.
+  tools: () => call<ToolInfo[]>("/tools"),
   rename: (id: string, name: string | null) =>
     call<{ id: string; name: string | null }>(`/fleet/${id}/name`, {
       method: "POST",

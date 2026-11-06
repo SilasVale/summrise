@@ -113,8 +113,8 @@ const TOKEN = {
   fleet: hexId('token/fleet')
 };
 
-// Mirrors `src/useToolNames.ts`, which mirrors the device's registry. These are the names a grant
-// form offers; /tools is the console's served copy.
+// Mirrors `src/useToolCatalogue.ts`, which mirrors the device's registry. These are the names a grant
+// form offers; /tools is the console's served copy, with each tool's destructive flag.
 const TOOL_NAMES = [
   'files.read',
   'files.write',

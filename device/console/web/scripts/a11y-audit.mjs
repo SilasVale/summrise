@@ -497,7 +497,10 @@ function replyFor(request, url) {
     return { status: 200, sse: `event: snapshot\ndata: ${JSON.stringify({ lines })}\n\n` };
   }
   if (method === 'GET' && pathname === '/denials') return json([]);
-  if (method === 'GET' && pathname === '/tools') return json(TOOL_NAMES.map((name) => ({ name })));
+  // The static registry carries each tool's destructive flag. The fleet token form has no live
+  // catalogue to read, so these are the flags it counts.
+  if (method === 'GET' && pathname === '/tools')
+    return json(TOOL_NAMES.map((name) => ({ name, destructive: DESTRUCTIVE.has(name) })));
   if (method === 'GET' && pathname === '/mesh') return json(MESH);
   if (pathname === '/tokens' && method === 'GET') return json(TOKENS);
   if (/^\/tokens\/[^/]+$/.test(pathname) && method === 'DELETE') return { status: 204 };

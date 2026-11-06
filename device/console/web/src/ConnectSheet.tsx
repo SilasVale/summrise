@@ -6,7 +6,7 @@ import { exactMoment, isoDate, lastHeardMs, message, seenAgo, shortId } from "./
 import { Modal } from "./Modal";
 import { Sheet } from "./Sheet";
 import { useLiveTools } from "./useLiveTools";
-import { useToolNames } from "./useToolNames";
+import { useToolCatalogue, type CatalogueTool } from "./useToolCatalogue";
 import { mergeTokenRows, scopeLabel, tokenScope, type TokenScope } from "./tokenScopes";
 
 export type ConnectSection = "endpoint" | "clients" | "tokens";
@@ -135,7 +135,7 @@ export function ConnectSheet({
   const [client, setClient] = useState<ClientId>("dsh");
   const [notice, setNotice] = useState<string | null>(null);
   const live = useLiveTools(device?.id ?? null);
-  const fallback = useToolNames();
+  const registry = useToolCatalogue();
   const endpoint = device ? `${location.origin}/mcp/${device.id}` : `${location.origin}/mcp/all`;
   const title = initialSection === "tokens" ? "Tokens" : "Connect a client";
   const offline = device?.online === false;
@@ -269,7 +269,7 @@ export function ConnectSheet({
               device={device}
               devices={devices}
               liveTools={live.tools}
-              fallbackNames={fallback}
+              registryTools={registry}
               endpoint={endpoint}
               offline={offline}
               focusTokenId={focusTokenId}
@@ -285,7 +285,7 @@ function TokensSection({
   device,
   devices,
   liveTools,
-  fallbackNames,
+  registryTools,
   endpoint,
   offline,
   focusTokenId
@@ -293,7 +293,7 @@ function TokensSection({
   device: Device | null;
   devices: Device[];
   liveTools: LiveTool[];
-  fallbackNames: string[];
+  registryTools: CatalogueTool[];
   endpoint: string;
   offline: boolean;
   focusTokenId: string | null;
@@ -325,20 +325,29 @@ function TokensSection({
   // list is drawn from a fetch this component owns, so the row exists only after `tokens` answers.
   const focusedRow = useRef<HTMLTableRowElement | null>(null);
 
+  // The catalogue the form counts: the selected machine's live list when it is in hand, otherwise
+  // the registry `/tools` serves. The fleet form has no selected machine, so the registry is its
+  // only catalogue — and its entries carry the same destructive flags the live list does.
   const catalogue = useMemo(
     () =>
       liveTools.length > 0
         ? liveTools
-        : fallbackNames.map((name) => ({
-            name,
+        : registryTools.map((tool) => ({
+            name: tool.name,
             description: "",
             inputSchema: {},
             source: "builtin",
-            capability: name.split(".")[0],
-            destructive: false
+            capability: tool.name.split(".")[0],
+            destructive: tool.destructive === true
           })),
-    [liveTools, fallbackNames]
+    [liveTools, registryTools]
   );
+  // The embedded fallback has names but no flags. Printing `0 can change the machine` over it was
+  // a claim the page had not read: the count is stated only when every flag came from the live list
+  // or the registry, and otherwise the sentence says where the count is read.
+  const destructiveKnown =
+    liveTools.length > 0 ||
+    (registryTools.length > 0 && registryTools.every((tool) => tool.destructive !== null));
   // A fleet token applies one tool list to every machine, and v1 refuses a plugin tool there:
   // only the device that advertises it can vouch for it. A device token still offers the whole
   // live catalogue.
@@ -644,7 +653,9 @@ function TokensSection({
 
           <p className="hint">
             {selectedTools.length} tool{selectedTools.length === 1 ? "" : "s"} ·{" "}
-            {destructiveCount} can change the machine
+            {destructiveKnown
+              ? `${destructiveCount} can change the machine`
+              : "the count of tools that can change a machine is read from a machine"}
             {scope === "fleet" ? " · one list for every machine in the token's scope" : ""}
           </p>
 

@@ -20,23 +20,44 @@ export const TOOL_NAMES = [
 ];
 
 /**
+ * One tool the grant form offers. `destructive` is `null` while the page has only the fallback
+ * names: the flag was not read, and a form that printed `false` for it would claim no tool can
+ * change a machine without having asked anyone.
+ */
+export type CatalogueTool = { name: string; destructive: boolean | null };
+
+/** The embedded fallback: names a form can offer before the registry answers, with unread flags. */
+export const FALLBACK_CATALOGUE: CatalogueTool[] = TOOL_NAMES.map((name) => ({
+  name,
+  destructive: null
+}));
+
+/**
  * The catalogue a grant form offers: the served registry once the client answers, the fallback
- * before that and after any failure.
+ * before that and after any failure. The served entries keep the registry's `destructive` flag —
+ * dropping it is what let the fleet form print `0 can change the machine` over forty-six tools.
  *
  * The registry is the list — a copy in the page drifted once and offered a tool that does not
  * exist. An empty answer is a failure for this purpose: a form with no tools offers nothing to
  * grant, so the copy stays. An answer that lands after unmount is dropped.
  */
-export function useToolNames(): string[] {
-  const [names, setNames] = useState<string[]>(TOOL_NAMES);
+export function useToolCatalogue(): CatalogueTool[] {
+  const [tools, setTools] = useState<CatalogueTool[]>(FALLBACK_CATALOGUE);
 
   useEffect(() => {
     let live = true;
     api
       .tools()
-      .then((tools) => {
-        if (!live || tools.length === 0) return;
-        setNames(tools.map((tool) => tool.name));
+      .then((served) => {
+        if (!live || served.length === 0) return;
+        // A served entry without a boolean flag is not a `false`: it is a flag this page cannot
+        // read, and the form says so instead of counting it as read-only.
+        setTools(
+          served.map((tool) => ({
+            name: tool.name,
+            destructive: typeof tool.destructive === "boolean" ? tool.destructive : null
+          }))
+        );
       })
       .catch(() => {
         /* keep the fallback */
@@ -46,5 +67,5 @@ export function useToolNames(): string[] {
     };
   }, []);
 
-  return names;
+  return tools;
 }

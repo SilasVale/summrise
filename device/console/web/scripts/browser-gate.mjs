@@ -357,6 +357,9 @@ const TOOL_NAMES = [
   'terminal.close',
   'plugins.list'
 ];
+// The registry's destructive flags: the fleet form has no machine to ask, so this is the count it
+// must read. Two of the seven tools change the machine.
+const DESTRUCTIVE_TOOLS = new Set(['terminal.create', 'terminal.write']);
 
 // The only state the gate needs: whether the operator signed in, whether a pty was opened, what the
 // page wrote, and whether the echo has been handed back.
@@ -501,7 +504,7 @@ function apiReply(request, url) {
         inputSchema: { type: 'object', properties: {} },
         source: 'builtin',
         capability: name.split('.')[0],
-        destructive: name === 'terminal.write' || name === 'terminal.create'
+        destructive: DESTRUCTIVE_TOOLS.has(name)
       }))
     });
   }
@@ -588,7 +591,10 @@ function apiReply(request, url) {
     );
   }
   if (method === 'GET' && pathname === '/denials') return json([]);
-  if (method === 'GET' && pathname === '/tools') return json(TOOL_NAMES.map((name) => ({ name })));
+  // The static registry, with the same destructive flags the live catalogue carries. The fleet
+  // token form reads this one: no machine is selected to ask.
+  if (method === 'GET' && pathname === '/tools')
+    return json(TOOL_NAMES.map((name) => ({ name, destructive: DESTRUCTIVE_TOOLS.has(name) })));
 
   if (method === 'POST' && pathname === '/mcp') {
     const call = bodyOf(request)?.request?.params;
@@ -1295,6 +1301,12 @@ try {
   }
   step('opened Connect → Tokens; one row per registry token, including another machine\'s');
 
+  // **THE MACHINE FORM COUNTS THE LIVE CATALOGUE.** The same seven tools carry two destructive
+  // flags on the gate machine; the sentence under them must state that count, not a blank.
+  const machineCount = connect.getByText('7 tools · 2 can change the machine', { exact: true });
+  await machineCount.waitFor({ timeout: 10_000 });
+  step(`the machine token form counts its live catalogue: "${(await machineCount.innerText()).trim()}"`);
+
   // **THE TOKEN SHEET'S DATES ARE THE CONSOLE'S, NOT THE BROWSER'S.** The cells used
   // `toLocaleDateString()`, so an en-US browser read `11/4/2026` and no other locale could be sure
   // of the order. They are ISO now (the audit's own shape), the exact moment is in the cell's
@@ -1462,6 +1474,15 @@ try {
       'machines, mint a new token.'
   );
   await fixedScope.waitFor({ state: 'visible', timeout: 5_000 });
+  // **THE FLEET FORM COUNTS THE REGISTRY, NOT A FALSE ZERO.** No machine is selected here, so the
+  // only catalogue is `/tools`: seven tools, two destructive. The measured bug printed
+  // `0 can change the machine` over exactly this form while the machine form printed the real count.
+  const fleetCount = tokensDoor.getByText(
+    '7 tools · 2 can change the machine · one list for every machine in the token\'s scope',
+    { exact: true }
+  );
+  await fleetCount.waitFor({ timeout: 10_000 });
+  step(`the fleet token form counts the registry: "${(await fleetCount.innerText()).trim()}"`);
   // **THE COVERAGE SENTENCE MARKS THE MACHINES IT WILL COVER.** The fleet row behind this sheet read
   // 14RJCR8's silence as 1h 49m; the sentence a person choosing "all machines" reads must state the
   // same thing about the same machine, or the dead machine looks live. The state is a statement about
