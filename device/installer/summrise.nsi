@@ -238,6 +238,41 @@ Function StopRuntime
   Pop $0
 FunctionEnd
 
+; **THE SERVICE IS THE INSTALL'S VERDICT, NOT ITS SIDE EFFECT.** A setup that ends with
+; `${SERVICE}` stopped has installed files and no product: `/S` has no window in which to notice,
+; and its caller sees only the exit code. Start it when it is not running, wait for the SCM's
+; observable state (bounded), and leave the answer in `$R7`:
+;
+;   $R7 = "1"  the service reported RUNNING before the wait ran out
+;   $R7 = "0"  it did not; `$R2` is the number of start attempts and `$1` the last output
+;
+; Seeking RUNNING in `sc query`'s output rather than calling `sc start` and trusting its exit code
+; is deliberate: `sc start` answers 1056 ("already running") for a service that is not serving, and
+; a start it accepted can still fail in the SCM. `$6` must be the open setup log. This clobbers
+; `$0`, `$1`, `$2`, `$R2` and `$R7`; a caller that needs `sc`'s answer must save it first.
+Function EnsureServiceRunning
+  StrCpy $R7 "0"
+  StrCpy $R2 0
+  ${Do}
+    IntOp $R2 $R2 + 1
+    nsExec::ExecToStack 'cmd /c sc.exe query ${SERVICE} | findstr /I "RUNNING"'
+    Pop $0
+    Pop $1
+    ${If} $0 == "0"
+      StrCpy $R7 "1"
+      ${ExitDo}
+    ${EndIf}
+    ${If} $R2 >= 15
+      ${ExitDo}
+    ${EndIf}
+    nsExec::ExecToStack 'sc.exe start ${SERVICE}'
+    Pop $0
+    Pop $1
+    FileWrite $6 "service: start attempt $R2: exit $0 $1$\r$\n"
+    Sleep 1000
+  ${Loop}
+FunctionEnd
+
 Section "Summrise runtime" SecRuntime
   ; Optional auto-enrolment: `/CONSOLE=<console-url> /CODE=<one-time-code>` makes the installer register
   ; this machine with the console, so "install" is the whole onboarding. Both are absent by default and
@@ -337,14 +372,24 @@ Section "Summrise runtime" SecRuntime
   ; stop is skipped; a failed proof above never reaches this line.
   Call StopRuntime
   ${If} $R6 == "0"
-    FileWrite $6 "stop: ${SERVICE} did not stop; no image was replaced$\r$\n"
+    ; The setup did stop it (or is still doing so) but could not prove STOPPED, so it is aborting
+    ; before replacing images. **PUT THE SERVICE BACK.** A failed install must not also take the
+    ; running product down; if it had reached STOPPED, this starts it again, and if it is still
+    ; stopping the wait covers that. Silent mode has no dialog, so the log and exit code carry it.
+    Call EnsureServiceRunning
+    ${If} $R7 == "1"
+      StrCpy $R4 "The ${SERVICE} service is running again."
+    ${Else}
+      StrCpy $R4 "The ${SERVICE} service is NOT running and $R2 start attempt(s) did not make it answer RUNNING."
+    ${EndIf}
+    FileWrite $6 "stop: ${SERVICE} did not stop; no image was replaced. $R4$\r$\n"
     FileClose $6
     SetErrorLevel 1
     ${IfNot} ${Silent}
       ${If} $R8 == "2"
-        MessageBox MB_ICONSTOP "The ${SERVICE} service did not stop, so the installed files were not replaced.$\r$\n$\r$\n$INSTDIR\current.txt already names ${VERSION}; the process still serving is the version it booted. The pointer can be rolled back with one write.$\r$\n$\r$\nThe setup's log is $TEMP\summrise-setup.log."
+        MessageBox MB_ICONSTOP "The ${SERVICE} service did not stop, so the installed files were not replaced.$\r$\n$\r$\n$INSTDIR\current.txt already names ${VERSION}; the process still serving is the version it booted. The pointer can be rolled back with one write.$\r$\n$\r$\n$R4$\r$\n$\r$\nThe setup's log is $TEMP\summrise-setup.log."
       ${Else}
-        MessageBox MB_ICONSTOP "The ${SERVICE} service did not stop, so the installed files were not replaced.$\r$\n$\r$\nThe setup's log is $TEMP\summrise-setup.log."
+        MessageBox MB_ICONSTOP "The ${SERVICE} service did not stop, so the installed files were not replaced.$\r$\n$\r$\n$R4$\r$\n$\r$\nThe setup's log is $TEMP\summrise-setup.log."
       ${EndIf}
     ${EndIf}
     Abort
@@ -442,24 +487,28 @@ Section "Summrise runtime" SecRuntime
   Pop $1
   FileWrite $6 "install-service: exit $0$\r$\n$1$\r$\n"
   ${If} $0 != "0"
-    ; **THE DIALOG MUST NAME THE LAUNCHER'S FAILURE, NOT sc's.** The `sc start` below overwrote
-    ; $0/$1, so a launcher that refused before registering the service read as "1060, the service is
-    ; not installed" — the one sentence that cannot tell a missing runtime from a seed-sidecar
-    ; refusal from an AV block (measured 2026-11-06 on a real install). Keep the launcher's exit and
-    ; its own message, then append what sc answered.
-    StrCpy $R0 $0
-    StrCpy $R1 $1
+    ; **THE DIALOG MUST NAME THE LAUNCHER'S FAILURE, NOT sc's.** `EnsureServiceRunning` overwrites
+    ; $0/$1 with the start it tried, so a launcher that refused before registering the service read
+    ; as "1060, the service is not installed" — the one sentence that cannot tell a missing runtime
+    ; from a seed-sidecar refusal from an AV block (measured 2026-11-06 on a real install). Keep the
+    ; launcher's exit and its own message in registers the check does not touch.
+    StrCpy $R4 $0
+    StrCpy $R5 $1
     ; Leave the machine serving if it can: the registration is still there (the stop above does not
     ; remove it), so starting it runs whatever generation is consistent rather than nothing at all.
-    nsExec::ExecToStack 'sc.exe start ${SERVICE}'
-    Pop $0
-    Pop $1
-    FileWrite $6 "install-service failed; sc start says $0 $1$\r$\n"
+    ; A start that does not reach RUNNING is reported here, never swallowed.
+    Call EnsureServiceRunning
+    ${If} $R7 == "1"
+      StrCpy $R0 "The ${SERVICE} service is RUNNING; it is serving the generation it booted."
+    ${Else}
+      StrCpy $R0 "The ${SERVICE} service is NOT running; $R2 start attempt(s) did not make it answer RUNNING."
+    ${EndIf}
+    FileWrite $6 "install-service failed; $R0$\r$\n"
     FileClose $6
     ${If} ${Silent}
       SetErrorLevel 1
     ${Else}
-      MessageBox MB_ICONSTOP "The device runtime could not be installed (launcher exit $R0).$\r$\n$\r$\n$R1$\r$\n$\r$\nThe installer's log is $TEMP\summrise-setup.log.$\r$\n$\r$\n(sc start then answered $0: $1)"
+      MessageBox MB_ICONSTOP "The device runtime could not be installed (launcher exit $R4).$\r$\n$\r$\n$R5$\r$\n$\r$\n$R0$\r$\n$\r$\nThe installer's log is $TEMP\summrise-setup.log."
     ${EndIf}
     Abort
   ${EndIf}
@@ -475,11 +524,25 @@ Section "Summrise runtime" SecRuntime
   ${EndIf}
 
   ; `--install-service` starts the service when it is not running; a second start then answers 1056
-  ; ("already running"), which is success, not a warning.
+  ; ("already running"), which is success, not a warning. **THE START IS PROVEN, NOT ASSUMED.** The
+  ; exit code is logged, then the SCM is asked for the state; a service the installer cannot get to
+  ; RUNNING is an install failure even though every file is on disk, and silent mode says so through
+  ; the exit code and the log instead of a dialog nobody can click.
   nsExec::ExecToStack 'sc.exe start ${SERVICE}'
   Pop $0
   Pop $1
   FileWrite $6 "sc start: exit $0$\r$\n$1$\r$\n"
+  Call EnsureServiceRunning
+  ${If} $R7 != "1"
+    FileWrite $6 "service: ${SERVICE} is NOT running after install-service ($R2 start attempt(s))$\r$\n"
+    FileClose $6
+    SetErrorLevel 1
+    ${IfNot} ${Silent}
+      MessageBox MB_ICONSTOP "The device files are installed, but the ${SERVICE} service is not running.$\r$\n$\r$\nThe setup started it $R2 time(s) and the SCM never reported RUNNING.$\r$\n$\r$\nThe setup's log is $TEMP\summrise-setup.log."
+    ${EndIf}
+    Abort
+  ${EndIf}
+  FileWrite $6 "service: ${SERVICE} is RUNNING$\r$\n"
 
   ; **THE INSTALL IS NOT DONE UNTIL THE DEVICE ANSWERS.** A registered service that cannot bind its
   ; port (the legacy agent holds 18080 by default) looks installed and serves nothing. Poll the
@@ -522,7 +585,16 @@ Section "Summrise runtime" SecRuntime
     Sleep 1000
   ${Loop}
   ${If} $3 != "1"
-    FileWrite $6 "health: no ${VERSION} answer on port ${PORT} after $R5s; last answer: $4$\r$\n"
+    ; The health answer is the device's verdict, but the service is the thing this setup owns and
+    ; this is the last place to leave it running. Ask the SCM, start it if the app's failure took it
+    ; down, and put that state in the log and the dialog; a silent install still exits non-zero.
+    Call EnsureServiceRunning
+    ${If} $R7 == "1"
+      StrCpy $R4 "The ${SERVICE} service is RUNNING; the app behind it did not answer."
+    ${Else}
+      StrCpy $R4 "The ${SERVICE} service is NOT running and $R2 start attempt(s) did not make it answer RUNNING."
+    ${EndIf}
+    FileWrite $6 "health: no ${VERSION} answer on port ${PORT} after $R5s; last answer: $4. $R4$\r$\n"
     FileClose $6
     ${If} ${Silent}
       SetErrorLevel 1
@@ -531,9 +603,9 @@ Section "Summrise runtime" SecRuntime
         ; The pointer, the version directory it names and `previous.txt` are all still there, so the
         ; operator can roll back with one pointer write; the old version was never removed. Report,
         ; never repair behind the operator's back, and never call this install a success.
-        MessageBox MB_ICONSTOP "Version ${VERSION} was made current, but the restarted service does not report it on /api/health.$\r$\n$\r$\nLast answer:$\r$\n$4$\r$\n$\r$\n$INSTDIR\current.txt names ${VERSION} and previous.txt still names the version that was running, so the pointer can be rolled back."
+        MessageBox MB_ICONSTOP "Version ${VERSION} was made current, but the restarted service does not report it on /api/health.$\r$\n$\r$\nLast answer:$\r$\n$4$\r$\n$\r$\n$R4$\r$\n$\r$\n$INSTDIR\current.txt names ${VERSION} and previous.txt still names the version that was running, so the pointer can be rolled back."
       ${Else}
-        MessageBox MB_ICONSTOP "The service is registered, but the device does not answer on port ${PORT}.$\r$\n$\r$\nAnother program may be using that port (the pre-1.3 agent holds 18080). Stop it or rebuild the installer with another port."
+        MessageBox MB_ICONSTOP "The service is registered, but the device does not answer on port ${PORT}.$\r$\n$\r$\n$R4$\r$\n$\r$\nAnother program may be using that port (the pre-1.3 agent holds 18080). Stop it or rebuild the installer with another port."
       ${EndIf}
     ${EndIf}
     Abort
@@ -633,6 +705,23 @@ Section "Summrise runtime" SecRuntime
   FileWrite $6 "shell task run: $0$\r$\n$1$\r$\n"
   Sleep 5000
   nsExec::Exec 'schtasks /delete /tn SummriseShellStart /f'
+
+  ; **THE EXIT CODE IS THE SERVICE'S STATE.** The health check proves the device answered; this
+  ; proves the thing the setup stopped, replaced and restarted is still there at the end. Exit 0
+  ; therefore means "files installed and ${SERVICE} RUNNING"; a stopped service is exit 1 and, in
+  ; silent mode, a log line — the only two channels `/S` has. If it stopped during the steps above,
+  ; this starts it again before making that judgement.
+  Call EnsureServiceRunning
+  ${If} $R7 != "1"
+    FileWrite $6 "service: ${SERVICE} is NOT running at the end of the install ($R2 start attempt(s)); exit 1$\r$\n"
+    FileClose $6
+    SetErrorLevel 1
+    ${IfNot} ${Silent}
+      MessageBox MB_ICONSTOP "The device files are installed, but the ${SERVICE} service is not running.$\r$\n$\r$\nThe setup made $R2 start attempt(s) and the SCM never reported RUNNING. The machine will not serve until it is started:$\r$\n$\r$\n    sc start ${SERVICE}$\r$\n$\r$\nThe setup's log is $TEMP\summrise-setup.log."
+    ${EndIf}
+    Abort
+  ${EndIf}
+  FileWrite $6 "service: ${SERVICE} is RUNNING at the end of the install; exit 0$\r$\n"
   FileClose $6
 SectionEnd
 

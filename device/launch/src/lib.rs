@@ -107,6 +107,22 @@ pub const HEALTH_CONSECUTIVE_PROBES: u8 = 2;
 /// How long a candidate gets to answer `/api/health` twice on its scratch port.
 pub const CANDIDATE_HEALTH_TIMEOUT: Duration = Duration::from_secs(30);
 
+/// The `JOB_OBJECT_LIMIT_*` flags of the supervisor's child job (Win32's fixed values: 0x2000
+/// `KILL_ON_JOB_CLOSE`, 0x1000 `SILENT_BREAKAWAY_OK`).
+///
+/// `KILL_ON_JOB_CLOSE` is the promise to the SCM: a supervisor that dies takes the app it was
+/// supervising with it, so the next start finds no orphan holding the port.
+///
+/// `SILENT_BREAKAWAY_OK` narrows that promise to the app itself. Without it a process the app
+/// starts — a `runs.exec` command, the installer on an upgrade driven through the device — is in
+/// the job too, and stopping the service closes the job and kills the very installer that asked for
+/// the stop, before it can start the service again (measured 2026-11-06 on DESKTOP-9VH92BJ: a
+/// silent install run through the device's own shell left `SummriseLaunch` stopped). The app's
+/// descendants already have their own lifetimes (the browser owns a kill-on-close job, and a
+/// console session ends with its pseudoconsole); the supervisor's job never promised to be their
+/// custodian.
+pub const CHILD_JOB_LIMITS: u32 = 0x2000 | 0x1000;
+
 /// What a start-up verification found (or did).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Restore {
@@ -3834,6 +3850,29 @@ mod tests {
             failure_code(Some(-1073741819)),
             1,
             "0xC0000005 as a signed int must not become 0"
+        );
+    }
+
+    #[test]
+    fn the_child_job_kills_the_app_but_not_the_processes_it_started() {
+        // The two Win32 bits are named in CHILD_JOB_LIMITS' doc; assert the exact pair, because
+        // dropping either one changes the lifecycle in opposite directions: without the first a
+        // dead supervisor orphans the app, without the second stopping the service kills the
+        // installer that is replacing it.
+        assert_eq!(
+            CHILD_JOB_LIMITS & 0x2000,
+            0x2000,
+            "KILL_ON_JOB_CLOSE keeps a dead supervisor's app from surviving"
+        );
+        assert_eq!(
+            CHILD_JOB_LIMITS & 0x1000,
+            0x1000,
+            "SILENT_BREAKAWAY_OK keeps the app's children (the installer) out of the job"
+        );
+        assert_eq!(
+            CHILD_JOB_LIMITS & !0x3000,
+            0,
+            "the supervisor's job asks for no other limit"
         );
     }
 

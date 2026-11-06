@@ -46,9 +46,9 @@ use summrise_launch::{
     write_console_link, write_swap_result, Action, AppLocation, Baseline, BaselineChoice,
     BaselineInstall, Config, ConsoleLink, Generation, Migration, MigrationHost, Pointer,
     RestartBudget, Restore, Sidecar, StagedPair, StartWatch, SwapRequestState, SwapResult,
-    TokenAction, Version, VersionProbe, APP_EXE, CURRENT_DIR, LAUNCHER_EXE, LAUNCHER_PUBKEY_HEX,
-    MAX_RESTARTS, PENDING_DIR, RELEASE_PUBKEY_HEX, STABLE_AFTER_MS, SWAP_REQUEST_TIMEOUT_MS,
-    TOKEN_BYTES,
+    TokenAction, Version, VersionProbe, APP_EXE, CHILD_JOB_LIMITS, CURRENT_DIR, LAUNCHER_EXE,
+    LAUNCHER_PUBKEY_HEX, MAX_RESTARTS, PENDING_DIR, RELEASE_PUBKEY_HEX, STABLE_AFTER_MS,
+    SWAP_REQUEST_TIMEOUT_MS, TOKEN_BYTES,
 };
 use windows_service::service::{
     Service, ServiceAccess, ServiceAction, ServiceActionType, ServiceControl, ServiceControlAccept,
@@ -865,22 +865,27 @@ fn report_pending(handle: &ServiceStatusHandle, checkpoint: u32) {
     }
 }
 
-/// The kill-on-close job that owns the supervised app children.
+/// The kill-on-close job that owns the supervised app child.
 ///
-/// The job contains **only** app children. The supervisor performs a swap itself and never exits
-/// while one is in flight (fix design F1), so there is no updater inside the job that a stop could
-/// kill; `--apply` is an operator process started outside it. Closing this handle (which process
-/// exit does implicitly) makes Windows terminate every app child **when the assignment succeeded**:
-/// if `AssignProcessToJobObject` fails, the supervisor logs a warning and continues, so that
-/// guarantee is lost and a dead supervisor could leave the app behind. The handle lives for the
-/// supervisor's whole lifetime and is deliberately not closed by hand.
+/// Despite the name, the job holds **only the app process**, never a process the app starts:
+/// [`CHILD_JOB_LIMITS`] adds `SILENT_BREAKAWAY_OK`, so a `runs.exec` command and an installer run
+/// through the device outlive the service stop that replaces its images. That is not a detail: the
+/// installer stops this service to replace `summrise-launch.exe`, and if its own process were in
+/// the job the stop would kill it before it could start the service again (measured 2026-11-06 on
+/// DESKTOP-9VH92BJ). The app itself is still assigned explicitly, so closing this handle (which
+/// process exit does implicitly) terminates it **when the assignment succeeded**: if
+/// `AssignProcessToJobObject` fails, the supervisor logs a warning and continues, so that guarantee
+/// is lost and a dead supervisor could leave the app behind. The supervisor performs a swap itself
+/// and never exits while one is in flight (fix design F1), so there is no updater inside the job
+/// that a stop could kill; `--apply` is an operator process started outside it. The handle lives
+/// for the supervisor's whole lifetime and is deliberately not closed by hand.
 struct ChildJob(HANDLE);
 
 impl ChildJob {
     fn create() -> Option<ChildJob> {
         use windows_sys::Win32::System::JobObjects::{
             CreateJobObjectW, JobObjectExtendedLimitInformation, SetInformationJobObject,
-            JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+            JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
         };
 
         unsafe {
@@ -893,7 +898,7 @@ impl ChildJob {
                 return None;
             }
             let mut info: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = std::mem::zeroed();
-            info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+            info.BasicLimitInformation.LimitFlags = CHILD_JOB_LIMITS;
             if SetInformationJobObject(
                 handle,
                 JobObjectExtendedLimitInformation,

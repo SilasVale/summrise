@@ -171,17 +171,17 @@ fn the_setup_calls_the_upgrade_on_a_migrated_install_and_migration_only_once() {
         .find("${If} ${FileExists} \"$INSTDIR\\current.txt\"")
         .expect("the upgrade is guarded by current.txt");
     let upgrade = NSI
-        .find("nsExec::ExecToStack '\"$INSTDIR\\summrise-launch.exe\" --install-version")
+        .find("nsExec::ExecToStack '\"$INSTDIR\\summrise-launch-${VERSION}.exe\" --install-version")
         .expect("the installer has an upgrade call");
     let migrate = NSI
         .find("nsExec::ExecToStack '\"$INSTDIR\\summrise-launch.exe\" --migrate-layout")
         .expect("the installer has a migration call");
-    // The outer `${Else}` is the one that opens the no-current.txt branch. The upgrade branch has
-    // its own nested `${If}`/`${Else}` pair (the restart after a successful pointer move), so an
-    // unqualified search would stop at the inner one.
+    // `${If} $R8 != "2"` is the one that opens the no-current.txt branch. The upgrade branch has
+    // its own nested `${If}`/`${Else}` pair (the stop proof and the restart), so an unqualified
+    // search would stop at an inner one.
     let otherwise = NSI
-        .find("\n  ${Else}\n    ; THE ONE-TIME MOVE")
-        .expect("the migration is the else branch of the pointer check");
+        .find("\n  ${If} $R8 != \"2\"\n    ; THE ONE-TIME MOVE")
+        .expect("the migration is the no-current.txt branch");
 
     assert!(guard < upgrade, "the upgrade is inside the pointer guard");
     assert!(
@@ -224,31 +224,33 @@ fn the_setup_calls_the_upgrade_on_a_migrated_install_and_migration_only_once() {
 }
 
 #[test]
-fn the_setup_restarts_the_service_and_requires_the_new_version_after_the_pointer_moves() {
+fn the_setup_starts_the_service_after_the_pointer_moves_and_requires_the_new_version() {
     let upgrade = NSI
-        .find("nsExec::ExecToStack '\"$INSTDIR\\summrise-launch.exe\" --install-version")
+        .find("nsExec::ExecToStack '\"$INSTDIR\\summrise-launch-${VERSION}.exe\" --install-version")
         .expect("the installer has an upgrade call");
     let otherwise = NSI
-        .find("\n  ${Else}\n    ; THE ONE-TIME MOVE")
-        .expect("the migration is the else branch of the pointer check");
+        .find("\n  ${If} $R8 != \"2\"\n    ; THE ONE-TIME MOVE")
+        .expect("the migration is the no-current.txt branch");
     let branch = &NSI[upgrade..otherwise];
 
-    // The launcher's call must return 0 before the installer touches the service: a failed pointer
-    // move is reported and the running process is left alone.
-    let failed = branch
-        .find("${If} $0 != \"0\"")
-        .expect("the installer checks the launcher's exit");
-    let succeeded = branch
-        .find("${Else}")
-        .expect("the restart is the success branch of that check");
-    assert!(failed < succeeded, "the success branch follows the check");
-
+    // The proof comes first: `--install-version` runs before anything running is stopped, and the
+    // stop is a call site, not the init path (a failed proof must leave the service serving).
     let stop = branch
-        .find("sc.exe stop ${SERVICE}")
-        .expect("the setup stops the service after the pointer moves");
-    let start = branch
-        .find("sc.exe start ${SERVICE}")
-        .expect("the setup starts the service again");
+        .find("Call StopRuntime")
+        .expect("the setup stops what is running only in the section");
+    let flat = branch
+        .find("File /oname=summrise-launch.exe")
+        .expect("the flat launcher is replaced");
+    let install_service = branch
+        .find("--install-service --replace-baseline")
+        .expect("the setup re-registers the service it stopped");
+    let started = branch
+        .find("sc start: exit $0")
+        .expect("the setup starts the service after re-registering it");
+    let verified = branch[started..]
+        .find("Call EnsureServiceRunning")
+        .map(|offset| started + offset)
+        .expect("the setup proves the service it started is RUNNING");
     let health = branch
         .find("http://127.0.0.1:${PORT}/api/health")
         .expect("the setup polls the health endpoint");
@@ -256,28 +258,43 @@ fn the_setup_restarts_the_service_and_requires_the_new_version_after_the_pointer
         .find(r#""$\"version$\":$\"${VERSION}$\"""#)
         .expect("the poll requires the reported version to equal ${VERSION}");
     assert!(
-        succeeded < stop,
-        "the restart is requested only after --install-version returned 0"
+        stop < flat,
+        "the service is stopped before its images are replaced"
     );
-    assert!(stop < start, "the service is started after it is stopped");
     assert!(
-        start < health,
-        "health is polled after the restarted process exists"
+        install_service < started && started < verified,
+        "the service is started and then asked for its state"
+    );
+    assert!(
+        verified < health,
+        "the service is proven RUNNING before the device is polled"
     );
     assert!(
         health < version,
         "the health answer is matched against the setup's version"
     );
     assert!(
-        branch.contains("${If} $2 >= 30") && branch.contains("Sleep 1000"),
-        "the version poll is bounded (30 x 1 s)"
+        branch.contains("StrCpy $R5 30") && branch.contains("Sleep 1000"),
+        "the version poll is bounded"
+    );
+
+    // A failed stop must put the service back rather than abort with it down.
+    let failed_stop = branch
+        .find("${If} $R6 == \"0\"")
+        .expect("the setup checks whether the service stopped");
+    let failed_stop_end = branch[failed_stop..]
+        .find("FileClose $6")
+        .expect("the failed-stop branch closes the log");
+    assert!(
+        branch[failed_stop..failed_stop + failed_stop_end].contains("Call EnsureServiceRunning"),
+        "a stop the setup cannot prove starts the service again before aborting"
     );
 
     // A mismatch is reported, not repaired: the pointer and previous.txt stay where the launcher
     // left them, so the operator can still roll back with one write and the old version stays on
     // disk.
     let failure = branch
-        .find("upgrade: ${VERSION} did not answer /api/health")
+        .find("health: no ${VERSION} answer on port ${PORT}")
         .expect("a version that never answers is logged");
     assert!(
         version < failure,
@@ -310,8 +327,8 @@ fn the_installer_argv_is_the_launchers_upgrade_argv() {
 
     assert_eq!(
         argv[0],
-        format!(r"{install}\summrise-launch.exe"),
-        "the setup calls the launcher it installed"
+        format!(r"{install}\summrise-launch-{NEW_VERSION}.exe"),
+        "the setup proves the candidate with the launcher it carries, not the running one"
     );
     assert_eq!(argv[1], "--install-version");
     assert_eq!(
