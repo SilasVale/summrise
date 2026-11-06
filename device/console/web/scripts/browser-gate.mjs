@@ -1287,6 +1287,13 @@ try {
       'machines, mint a new token.'
   );
   await fixedScope.waitFor({ state: 'visible', timeout: 5_000 });
+  // **THE SCOPE CELL NAMES THE MACHINES.** A count alone sent the operator minting another token to
+  // answer "does this one cover 84T3LIN?"; the fleet row must name the gate machine it reaches.
+  const fleetScopeRow = tokensDoor.getByRole('row', { name: /gate-fleet/ });
+  const fleetScopeText = await fleetScopeRow.innerText();
+  if (!fleetScopeText.includes(DEVICE.name)) {
+    throw new Error(`the fleet token's scope read ${JSON.stringify(fleetScopeText)}`);
+  }
   // The sheet's entrance is 180 ms; the screenshot is the evidence, so let it settle.
   await page.waitForTimeout(250);
   await page.screenshot({ path: path.join(OUT, '06b-fleet-tokens-390.png') });

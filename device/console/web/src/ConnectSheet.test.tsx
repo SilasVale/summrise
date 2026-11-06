@@ -320,9 +320,10 @@ describe("ConnectSheet's one credential list", () => {
     const deviceRow = await screen.findByRole("row", { name: /laptop/ });
     const fleetRow = screen.getByRole("row", { name: /dsh-fleet/ });
     expect(deviceRow).toHaveTextContent("this machine");
-    expect(fleetRow).toHaveTextContent("3 machines it was minted for");
+    expect(fleetRow).toHaveTextContent("workshop, dev-attic");
     expect(fleetRow).not.toHaveTextContent("all machines");
-    const scopeChip = within(fleetRow).getByText("3 machines it was minted for");
+    const scopeChip = within(fleetRow).getByText(/workshop, dev-attic/);
+    expect(scopeChip.getAttribute("title")).toContain("Covers 3 machines: workshop, dev-attic");
     expect(scopeChip.getAttribute("title")).toContain("enrolled after");
     expect(screen.getAllByRole("row", { name: /laptop|dsh-fleet/ })).toHaveLength(2);
 
@@ -409,7 +410,7 @@ describe("ConnectSheet's one credential list", () => {
       })
     );
     const row = await screen.findByRole("row", { name: /fleet/ });
-    expect(row).toHaveTextContent("2 machines it was minted for");
+    expect(row).toHaveTextContent("workshop, attic");
     // The one-time value is still the reveal; the row is metadata and never the secret.
     expect(screen.getByText("srm_" + "c".repeat(64))).toBeInTheDocument();
     expect(row).not.toHaveTextContent("srm_");

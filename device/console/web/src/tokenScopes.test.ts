@@ -38,21 +38,40 @@ describe("scopeLabel", () => {
     expect(scopeLabel(token({ device_id: "device-2" }), MACHINES, "device-1").label).toBe("attic");
   });
 
-  it("counts the machines an aggregate token was minted for, not 'all machines'", () => {
+  it("names the machines an aggregate token was minted for, not 'all machines'", () => {
     const fleet = token({ device_id: "", device_ids: ["device-1", "device-2", "device-3"] });
     const words = scopeLabel(fleet, MACHINES, "device-1");
 
-    expect(words.label).toBe("3 machines it was minted for");
+    expect(words.label).toBe("workshop, attic, device-3");
     expect(words.label).not.toBe("all machines");
-    // `/mcp/all` enforces the recorded ids literally; the title is what stops the count reading as
-    // "every machine, including one enrolled tomorrow".
+    // `/mcp/all` enforces the recorded ids literally; the title carries the full list and the rule.
+    expect(words.title).toContain("Covers 3 machines: workshop, attic, device-3.");
     expect(words.title).toContain("enrolled after");
   });
 
-  it("says one machine, not one machines", () => {
-    expect(scopeLabel(token({ device_id: "", device_ids: ["device-1"] })).label).toBe(
-      "1 machine it was minted for"
-    );
+  it("names one machine, not one machines", () => {
+    const words = scopeLabel(token({ device_id: "", device_ids: ["device-1"] }), MACHINES);
+    expect(words.label).toBe("workshop");
+    expect(words.title).toContain("Covers 1 machine: workshop.");
+  });
+
+  it("caps a long list at three names and says how many more the title holds", () => {
+    const fleet = token({
+      device_id: "",
+      device_ids: ["device-1", "device-2", "device-3", "device-4", "device-5"]
+    });
+    const words = scopeLabel(fleet, MACHINES, null);
+
+    expect(words.label).toBe("workshop, attic, device-3 and 2 more");
+    expect(words.title).toContain("Covers 5 machines:");
+    expect(words.title).toContain("device-4");
+  });
+
+  it("falls back to the short id for a machine the fleet does not know", () => {
+    const fleet = token({ device_id: "", device_ids: ["retired-device-0123456789"] });
+    const words = scopeLabel(fleet, MACHINES, null);
+
+    expect(words.label).toBe("retired-devi…");
   });
 });
 

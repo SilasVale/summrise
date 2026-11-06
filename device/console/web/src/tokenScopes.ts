@@ -31,10 +31,19 @@ export function scopeLabel(
   currentDeviceId: string | null = null
 ): ScopeWords {
   if (tokenScope(entry) === "fleet") {
-    const count = entry.device_ids?.length ?? 0;
+    // A count alone cannot answer "does this token reach the machine I am asking about?", which is
+    // the question the refusal `device not permitted by token` sends the operator to this sheet for.
+    const ids = entry.device_ids ?? [];
+    const names = ids.map((id) => machines.find((machine) => machine.id === id)?.name || shortId(id));
+    const shown = names.slice(0, 3);
+    const more = names.length - shown.length;
     return {
-      label: `${count} machine${count === 1 ? "" : "s"} it was minted for`,
+      label:
+        names.length === 0
+          ? "no machines recorded"
+          : `${shown.join(", ")}${more > 0 ? ` and ${more} more` : ""}`,
       title:
+        `Covers ${names.length} machine${names.length === 1 ? "" : "s"}: ${names.join(", ")}. ` +
         "It reaches only the machines recorded on it; a machine enrolled after it was minted is not covered."
     };
   }
