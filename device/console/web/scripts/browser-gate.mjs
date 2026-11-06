@@ -338,6 +338,10 @@ if (BIG_WINDOW_LINES.length !== 1000 || BIG_DRAWABLE !== 974) {
 }
 // The whole registry, not the selected machine's slice: one token for this machine, one for a
 // machine the gate never selects, and one aggregate. The Tokens leg counts the rows against this.
+// **THE AGGREGATE IS THE AUDIT'S THREE-MACHINE SHAPE.** At 390 its scope chip was 337 px and the
+// name cell 0 px, so `zss-harness-20261106-fleet` broke into a 26 x 176 px sliver and the row
+// stood 414 px tall. The phone card must give the name the card's width and put that scope
+// sentence under it, so the fixture carries three enrolled machine names and the measured name.
 const TOKENS = [
   {
     id: 'gate-token-on-gate-device',
@@ -363,9 +367,9 @@ const TOKENS = [
   },
   {
     id: 'gate-token-fleet',
-    name: 'gate-fleet',
+    name: 'zss-harness-20261106-fleet',
     device_id: '',
-    device_ids: [DEVICE.id, 'gate-device-attic-0123456789'],
+    device_ids: [DEVICE.id, QUIET_DEVICE.id, BIG_DEVICE.id],
     tools: ['files.read', 'runs.exec'],
     allow_destructive: true,
     created_at_ms: NOW - 4 * 60 * 60_000
@@ -1555,7 +1559,7 @@ try {
     }
   }
   // A token with neither a use nor a lifetime keeps the words; no element pretends to a date.
-  const neverToken = tokenRows.filter({ hasText: 'gate-fleet' });
+  const neverToken = tokenRows.filter({ hasText: 'zss-harness-20261106-fleet' });
   const neverExpiry = await neverToken.locator('.token-expires').innerText();
   // At the sheet's 600 px container width the cell's own `Expires` label is inline, so the value is
   // the cell's suffix; a digit anywhere would mean a date was drawn for a token that has none.
@@ -1709,14 +1713,135 @@ try {
   step(`the fleet coverage sentence marks each machine: ${coverage}`);
   // **THE SCOPE CELL NAMES THE MACHINES.** A count alone sent the operator minting another token to
   // answer "does this one cover 84T3LIN?"; the fleet row must name the gate machine it reaches.
-  const fleetScopeRow = tokensDoor.getByRole('row', { name: /gate-fleet/ });
+  const fleetScopeRow = tokensDoor.getByRole('row', { name: /zss-harness-20261106-fleet/ });
   const fleetScopeText = await fleetScopeRow.innerText();
   if (!fleetScopeText.includes(DEVICE.name)) {
     throw new Error(`the fleet token's scope read ${JSON.stringify(fleetScopeText)}`);
   }
+  // **AT 390 THE NAME IS THE CARD'S WIDTH, NOT A 26 PX SLIVER.** The measured phone put the
+  // three-machine scope (337 px) in the card's `auto` column beside the name and squeezed the name
+  // cell to 0 px: `zss-harness-20261106-fleet` drew as `zs / har / nes / …` in 26 x 176 px and the
+  // row was 414 px tall. Below 640 px the card is one column: the name takes the whole card, the
+  // scope sentence wraps under it, then the tools, the action row and the dates. The 1440 card is
+  // untouched (the rule is a viewport query), and the name must be whole at both widths.
+  await page.waitForTimeout(200);
+  const tokenCard390 = await tokensDoor.evaluate((sheet) => {
+    const scroller = sheet.querySelector('.token-table-scroll');
+    const box = (element) => {
+      const rect = element?.getBoundingClientRect();
+      return rect
+        ? {
+            top: Math.round(rect.top),
+            right: Math.round(rect.right),
+            bottom: Math.round(rect.bottom),
+            width: Math.round(rect.width),
+            height: Math.round(rect.height)
+          }
+        : null;
+    };
+    return {
+      viewport: document.documentElement.clientWidth,
+      documentScrollWidth: document.documentElement.scrollWidth,
+      sheetRight: Math.round(sheet.getBoundingClientRect().right),
+      scrollerScrollWidth: scroller?.scrollWidth ?? 0,
+      scrollerClientWidth: scroller?.clientWidth ?? 0,
+      rows: [...sheet.querySelectorAll('.token-table tbody tr')].map((row) => {
+        const nameCell = row.cells[0];
+        const nameBox = row.querySelector('.token-name');
+        const strong = nameBox?.querySelector('strong');
+        const scopeCell = row.cells[1];
+        const actions = row.querySelector('.token-actions');
+        // A Range counts the text's line boxes; `strong.getClientRects()` returns the inline's
+        // union box, which stays one rect even when the text is a 26 px-wide 176 px-tall sliver.
+        let lineRects = [];
+        if (strong) {
+          const range = document.createRange();
+          range.selectNodeContents(strong);
+          lineRects = [...range.getClientRects()];
+        }
+        return {
+          name: strong?.textContent?.trim() ?? '',
+          cell: box(nameCell),
+          nameBox: box(nameBox),
+          strong: box(strong),
+          strongLines: lineRects.length,
+          strongWidths: lineRects.map((rect) => Math.round(rect.width)),
+          scope: box(scopeCell),
+          row: box(row),
+          actionLabels: actions
+            ? [...actions.querySelectorAll('button')].map(
+                (button) => button.textContent?.trim() ?? ''
+              )
+            : [],
+          actionsDisplay: actions ? getComputedStyle(actions).display : null
+        };
+      })
+    };
+  });
+  console.log(`browser-gate: tokens at 390: ${JSON.stringify(tokenCard390)}`);
+  if (tokenCard390.rows.length !== TOKENS.length) {
+    throw new Error(
+      `the 390 token card list drew ${tokenCard390.rows.length} rows for ${TOKENS.length} registry tokens`
+    );
+  }
+  const drawnNames = tokenCard390.rows.map((card) => card.name).sort();
+  const expectedNames = TOKENS.map((token) => token.name).sort();
+  if (drawnNames.join('|') !== expectedNames.join('|')) {
+    throw new Error(`the 390 token list dropped a name: ${JSON.stringify(drawnNames)}`);
+  }
+  // The name is the one field that identifies the credential: its box is the card's width and its
+  // text is one line. A 26 px sliver fails both, and it is measured before the row's other boxes.
+  for (const card of tokenCard390.rows) {
+    if (!card.nameBox || card.nameBox.width <= 200) {
+      throw new Error(
+        `the 390 token name's box is ${card.nameBox?.width ?? 0} px wide: ${JSON.stringify(card.name)}`
+      );
+    }
+    if (card.strongLines !== 1 || !card.strong || card.strong.height > 30) {
+      throw new Error(
+        `the 390 token name is drawn in ${card.strongLines} line(s), ` +
+          `${card.strong?.width ?? 0}x${card.strong?.height ?? 0} px: ${JSON.stringify(card.name)}`
+      );
+    }
+  }
+  for (const card of tokenCard390.rows) {
+    if (!card.scope || !card.nameBox || card.scope.top < card.nameBox.bottom) {
+      throw new Error(`the 390 scope is not under the name: ${JSON.stringify(card)}`);
+    }
+    if (card.actionLabels.join('|') !== 'Rotate|Revoke' || card.actionsDisplay === 'none') {
+      throw new Error(
+        `the 390 card lost its action row: ${JSON.stringify(card.actionLabels)} ` +
+          `(${card.actionsDisplay})`
+      );
+    }
+    if (!card.row || card.row.right > tokenCard390.viewport + 1) {
+      throw new Error(`the 390 token card is outside the viewport at ${card.row?.right} px`);
+    }
+  }
+  if (tokenCard390.documentScrollWidth > tokenCard390.viewport) {
+    throw new Error(
+      `the 390 Tokens sheet scrolls sideways: ${tokenCard390.documentScrollWidth} > ` +
+        `${tokenCard390.viewport}`
+    );
+  }
+  if (tokenCard390.scrollerScrollWidth > tokenCard390.scrollerClientWidth) {
+    throw new Error(
+      `the 390 token list scrolls sideways: ${tokenCard390.scrollerScrollWidth} > ` +
+        `${tokenCard390.scrollerClientWidth}`
+    );
+  }
+  step(
+    `at 390 the token cards are one column: names ` +
+      `${tokenCard390.rows.map((card) => `${card.nameBox?.width}px`).join(', ')} wide on one line, ` +
+      `scope under each, actions kept, no sideways scroll`
+  );
   // The sheet's entrance is 180 ms; the screenshot is the evidence, so let it settle.
   await page.waitForTimeout(250);
   await page.screenshot({ path: path.join(OUT, '06b-fleet-tokens-390.png') });
+  // The three cards are the measured evidence: the name whole, the scope sentence under it.
+  await page.locator('.token-table').screenshot({
+    path: path.join(OUT, '06c-token-cards-390.png')
+  });
   step(
     'from the fleet at 390 the Tokens door opens the sheet on Tokens and states the fixed device scope'
   );

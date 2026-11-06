@@ -1904,6 +1904,31 @@ span.files-name {
   .token-table tr.is-managed td { background: transparent; }
 }
 
+/* THE PHONE'S TOKEN CARD IS ONE COLUMN. At the sheet's 560 px desktop width the card above is
+   right: the name gets ~210 px and reads whole. At 390 the same card put the three-machine scope's
+   347 px chip in the `auto` column beside the name: the name cell measured 0 px, its strong drew
+   into a 26 px column as nine line boxes 176 px tall, the row stood 456 px tall and the list
+   scrolled 10 px sideways. Below 640 px of viewport the name takes the card's width, the scope
+   sentence wraps under it, and the tools, the action row and the dates follow as lines. Every
+   rule here is a viewport query, so the 1440 card is unchanged. */
+@media (max-width: 639px) {
+  .token-table tr {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      "name"
+      "scope"
+      "tools"
+      "actions"
+      "expires"
+      "created";
+  }
+  .token-table td:nth-child(2) { justify-self: stretch; text-align: left; }
+  .token-table td:nth-child(2) .chip { white-space: normal; }
+  .token-table td:nth-child(3) { justify-self: stretch; text-align: left; }
+  .token-table td.token-tools { justify-items: start; }
+  .token-table td:nth-child(5) { justify-self: start; text-align: left; }
+}
+
 @media (max-width: 639px) {
   .connect-sheet .connect-tabs button { flex: 1; text-align: center; }
   .scope-group { grid-template-columns: 1fr; }
