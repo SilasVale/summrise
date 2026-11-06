@@ -513,7 +513,7 @@ record, then the panel, then the smaller corrections.
    the fold; the operator scrolls base64 to read the exit. **Fix:** `shortCommand` in the record
    with a `Show full command` toggle, or facts above the command. **S/M.**
 
-4. **The panel's 200-row Timeline card buries Build, Updates and Connect.** The panel's card order
+4. **The panel's 200-row Timeline card buries Build, Updates and Connect.** *(Implemented 2026-11-06, 51c4465; 0.3.286 published and staged on the console; live check pending the channel update. The review render (100 calls) measures Build y 4,870→463 at 1440 and 7,908→598 at 390, Updates 5,065→658 / 8,234→924, the timeline 3,506→891 / 6,187→1,445, and the fold opens all 100 rows (nothing dropped). 617 unit tests, fmt/clippy, layout-gate 0 failures. The 9VH is still 0.3.285 (the channel's interval); the manual `--check-update` fetched 0.3.286 but the launcher refused: `staged artifact C:\Program Files\Summriseersions .3.286 is missing` — recorded as item 8 below.)* The panel's card order
    puts Build at y 4,636 (1440) / 7,625 (390) and Updates at 4,830/7,951; the timeline is
    3,284/5,911 px. **Cost:** the operator scrolls 4–8k px past the call log to see the build or the
    last check. **Fix:** fold the timeline after e.g. 20 rows, or move Build/Updates/Connect above
@@ -529,7 +529,9 @@ record, then the panel, then the smaller corrections.
    to a log or another record and changes while read. **Fix:** show the local instant with the
    exact title, age beside it. **S.**
 
-7. **The rotate dialog omits what happens to the expiry.** It names name/scope/tools/destructive
+7. **The rotate dialog omits what happens to the expiry.**
+8. **The manual update check cannot install the fetched release.** *(Measured 2026-11-06 on 9VH: `summrise-device.exe --check-update http://100.85.163.159:18100/release-canary.json --channel canary --allow-plaintext --data C:\ProgramData\Summrise --install "C:\Program Files\Summrise"` fetched 0.3.286 and then failed: `cannot install the version: the launcher refused the version (exit 2): launch: refusing the update: staged artifact C:\Program Files\Summrise\versions\0.3.286 is missing`. The channel's periodic update and the installer are the working paths; the manual mode's staging is the gap. **Fix:** stage the artifact where the launcher expects it (or say why the stage failed); do not report a check success for an install the launcher then refuses. **S/M.** (device; the update path.)*
+ It names name/scope/tools/destructive
    but not the expiry; the server gives a fresh period of the same length, and the date-only
    `Expires` cell hides the change (`2026-12-07` before/after; the exact title moves 2.5 s).
    **Cost:** the operator cannot tell whether rotation extends, preserves or resets the expiry.
