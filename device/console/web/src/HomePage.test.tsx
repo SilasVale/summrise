@@ -1093,7 +1093,7 @@ describe("Home — the fleet's installer", () => {
 
     expect(
       await screen.findByText(
-        "No installer is published for this console yet. Install from the release, then run the command below."
+        "No installer is published for this console yet. Install it from the release, then add the machine for its enrollment command."
       )
     ).toBeInTheDocument();
     expect(

@@ -167,7 +167,7 @@ const INSTALLER = {
   sha256: '26d39c12' + 'ab'.repeat(28)
 };
 const INSTALLER_SENTENCE =
-  'No installer is published for this console yet. Install from the release, then run the command below.'
+  'No installer is published for this console yet. Install it from the release, then add the machine for its enrollment command.'
 const RUN = {
   id: 'r-1',
   command: 'echo',

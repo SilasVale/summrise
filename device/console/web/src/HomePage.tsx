@@ -80,8 +80,8 @@ function InstallerBlock(props: { installer: Installer }) {
   if (!props.installer.available) {
     return (
       <p className="hint installer-missing">
-        No installer is published for this console yet. Install from the release, then run the
-        command below.
+        No installer is published for this console yet. Install it from the release, then add the
+        machine for its enrollment command.
       </p>
     );
   }
