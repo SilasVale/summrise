@@ -1540,9 +1540,51 @@ try {
   step(`the Machine tab's update line states "${updateLine}"`);
   step('the Machine tab states reachability without a second build line');
 
+  // **THE MACHINE KEEPS ITS CONNECT DOOR.** The button the audit measured at 1440 (59×28 at the
+  // head's right edge) is still the desktop door, named for the sheet it opens. The phone leg below
+  // measures the same button at 390, where the old rule removed it.
+  await page.setViewportSize({ width: 1440, height: 960 });
+  await page.waitForTimeout(300);
+  const deviceConnect1440 = await page.evaluate(() => {
+    const host = document.querySelector('.device-connect');
+    const button = host?.querySelector('button');
+    const box = button?.getBoundingClientRect();
+    return {
+      viewport: document.documentElement.clientWidth,
+      scrollWidth: document.documentElement.scrollWidth,
+      display: host ? getComputedStyle(host).display : null,
+      visible: button != null && button.offsetParent !== null,
+      width: Math.round(box?.width ?? 0),
+      height: Math.round(box?.height ?? 0),
+      right: Math.round(box?.right ?? 0)
+    };
+  });
+  console.log(`browser-gate: device connect at 1440: ${JSON.stringify(deviceConnect1440)}`);
+  if (!deviceConnect1440.visible || deviceConnect1440.display === 'none') {
+    throw new Error('the Device head has no visible Connect button at 1440');
+  }
+  if (deviceConnect1440.width < 50 || deviceConnect1440.height < 28) {
+    throw new Error(
+      `the 1440 Connect button is ${deviceConnect1440.width}×${deviceConnect1440.height}, ` +
+        'not the measured 59×28 control'
+    );
+  }
+  if (
+    deviceConnect1440.right > deviceConnect1440.viewport ||
+    deviceConnect1440.scrollWidth > deviceConnect1440.viewport
+  ) {
+    throw new Error('the 1440 Device head does not fit its viewport');
+  }
+  step(
+    `at 1440 the Device head keeps its ${deviceConnect1440.width}×${deviceConnect1440.height} ` +
+      `Connect button (right ${deviceConnect1440.right} px) named "Connect a client"`
+  );
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.waitForTimeout(300);
+
   // THE CREDENTIAL LIST IS THE WHOLE REGISTRY. `GET /tokens` is the only list route; a row for
   // another machine is still a real token and hidden rows made an occupied registry read "none".
-  await page.getByRole('button', { name: 'Connect', exact: true }).click();
+  await page.getByRole('button', { name: 'Connect a client', exact: true }).click();
   const connect = page.getByRole('dialog', { name: 'Connect a client' });
   await connect.waitFor({ timeout: 10_000 });
   await connect.getByRole('tab', { name: 'Tokens' }).click();
@@ -1648,6 +1690,68 @@ try {
   await page.waitForTimeout(250);
   await page.setViewportSize({ width: 390, height: 844 });
   await page.waitForTimeout(400);
+  // **THE PHONE KEEPS THE MACHINE'S CONNECT DOOR (audit 25 F6).** At 390 the old rule removed the
+  // button outright (`display: none`, `offsetParent === null`). The same button now sits on the
+  // title's row, named "Connect a client"; its click opens the same sheet on this machine, the tab
+  // bar keeps its own row below, and the page does not scroll sideways.
+  const deviceConnect390 = page.getByRole('button', { name: 'Connect a client', exact: true });
+  const connectBox390 = await deviceConnect390.boundingBox();
+  const connectFacts390 = await page.evaluate(() => {
+    const host = document.querySelector('.device-connect');
+    const button = host?.querySelector('button');
+    const box = button?.getBoundingClientRect();
+    const h1 = document.querySelector('.device-head h1')?.getBoundingClientRect();
+    const tabs = document.querySelector('.device-head .device-tabs')?.getBoundingClientRect();
+    return {
+      viewport: document.documentElement.clientWidth,
+      scrollWidth: document.documentElement.scrollWidth,
+      display: host ? getComputedStyle(host).display : null,
+      offsetParent: button ? button.offsetParent !== null : false,
+      width: Math.round(box?.width ?? 0),
+      height: Math.round(box?.height ?? 0),
+      right: Math.round(box?.right ?? 0),
+      titleTop: Math.round(h1?.top ?? 0),
+      buttonTop: Math.round(box?.top ?? 0),
+      tabsTop: Math.round(tabs?.top ?? 0)
+    };
+  });
+  console.log(`browser-gate: device connect at 390: ${JSON.stringify(connectFacts390)}`);
+  if (!connectBox390 || !connectFacts390.offsetParent || connectFacts390.display === 'none') {
+    throw new Error('the 390 Device head still hides its Connect button');
+  }
+  if (connectFacts390.right > connectFacts390.viewport) {
+    throw new Error(`the 390 Connect button is outside the viewport at ${connectFacts390.right} px`);
+  }
+  if (connectFacts390.scrollWidth > connectFacts390.viewport) {
+    throw new Error(
+      `the Device page scrolls sideways at 390: ${connectFacts390.scrollWidth} > ` +
+        `${connectFacts390.viewport}`
+    );
+  }
+  if (connectFacts390.tabsTop <= connectFacts390.buttonTop) {
+    throw new Error('the 390 Connect button does not sit on the title row above the tab bar');
+  }
+  await page.screenshot({ path: path.join(OUT, '06d-device-connect-390.png') });
+  await deviceConnect390.click();
+  const connect390 = page.getByRole('dialog', { name: 'Connect a client' });
+  await connect390.waitFor({ state: 'visible', timeout: 10_000 });
+  const endpoint390 = (await connect390.locator('.endpoint').innerText()).trim();
+  if (endpoint390 !== `${base}/mcp/${DEVICE.id}`) {
+    throw new Error(
+      `the 390 Connect sheet opened ${JSON.stringify(endpoint390)}, not this machine's endpoint`
+    );
+  }
+  await page.waitForTimeout(250);
+  await page.screenshot({ path: path.join(OUT, '06e-device-connect-sheet-390.png') });
+  await page.locator('.sheet-close').first().click();
+  await connect390.waitFor({ state: 'hidden', timeout: 5_000 });
+  if (!(await deviceConnect390.evaluate((button) => button === document.activeElement))) {
+    throw new Error('the 390 Connect sheet did not return focus to its button');
+  }
+  step(
+    `at 390 the Device head keeps a ${connectFacts390.width}×${connectFacts390.height} Connect ` +
+      `button (right ${connectFacts390.right} px); its click opens this machine's Connect sheet`
+  );
   // The same sentence at 390: the state line takes its own row on the card, but it still states the
   // silence's age and never drops it at the narrow width. The fleet list is Home with no machine
   // chosen, so clear the choice through the header's own menu first.

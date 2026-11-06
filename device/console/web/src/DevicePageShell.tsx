@@ -58,8 +58,16 @@ export function DevicePageShell({
             </button>
           ))}
         </nav>
+        {/* The machine's one local door. The sheet is the same one Home and the account menu open;
+            below 640 px this same button stays in the head's first row, with the short visible
+            label and the sheet's full name for assistive technology. */}
         <div className="page-actions device-connect">
-          <button type="button" className="mini" onClick={onConnect}>
+          <button
+            type="button"
+            className="mini"
+            aria-label="Connect a client"
+            onClick={onConnect}
+          >
             Connect
           </button>
         </div>

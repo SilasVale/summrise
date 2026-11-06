@@ -268,12 +268,18 @@ main.terminal-main { display: grid; grid-template-rows: auto minmax(0, 1fr); ali
   .page-actions { width: 100%; margin-left: 0; }
   .search-field { width: 100%; margin-left: 0; }
   .search-field input { width: 100%; }
-  .device-head { align-items: flex-start; }
+  .device-head { align-items: center; }
   .device-head .device-tabs {
+    order: 2;
     width: 100%; margin-left: 0; flex-wrap: nowrap; overflow-x: auto;
     border-bottom: 1px solid var(--line); height: 40px;
   }
-  .device-connect { display: none; }
+  /* The phone keeps the machine's one local door: the same button, on the title's row, with the
+     short `Connect` label and `Connect a client` as its accessible name. The tab bar takes the
+     row below. Before this rule the button was removed outright at ≤639. */
+  .device-connect {
+    display: flex; order: 1; width: auto; margin-left: auto; flex: none;
+  }
   .device-tabs { gap: 0; }
   .device-tab { flex: 0 0 auto; padding: var(--sp-2) var(--sp-3); text-align: center; }
 }

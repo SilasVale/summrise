@@ -1,5 +1,5 @@
-import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { fireEvent, render, screen } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
 import type { Device } from "./api";
 import { DevicePageShell } from "./DevicePageShell";
 import type { DeviceTab } from "./Rail";
@@ -20,7 +20,7 @@ const MACHINE: Device = {
   }
 };
 
-function renderShell(tab: DeviceTab, device: Device = MACHINE) {
+function renderShell(tab: DeviceTab, device: Device = MACHINE, onConnect = () => undefined) {
   return render(
     <DevicePageShell
       tab={tab}
@@ -28,12 +28,23 @@ function renderShell(tab: DeviceTab, device: Device = MACHINE) {
       devices={[device]}
       chosen={device}
       onChoose={() => undefined}
-      onConnect={() => undefined}
+      onConnect={onConnect}
     >
       {() => <p>page contents</p>}
     </DevicePageShell>
   );
 }
+
+describe("DevicePageShell's Connect door", () => {
+  it("names the Device's Connect door for the sheet it opens and calls it", () => {
+    const onConnect = vi.fn();
+    renderShell("machine", MACHINE, onConnect);
+
+    fireEvent.click(screen.getByRole("button", { name: "Connect a client" }));
+
+    expect(onConnect).toHaveBeenCalledTimes(1);
+  });
+});
 
 describe("DevicePageShell offline notice", () => {
   it("says the machine is down on the tabs that ask it for something", () => {
