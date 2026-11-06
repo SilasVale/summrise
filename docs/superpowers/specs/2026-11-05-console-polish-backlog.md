@@ -489,6 +489,53 @@ the setup failure first, then honesty, then the phone, then recovery.
    differently. **Fix:** say `not registered` / `no helper registered this boot`; show pid/session
    only when known. **S.**
 
+## P0 — the sixteenth list (opened 2026-11-06, from the audit of 0.3.273-ux87)
+
+Measured on the live console at 1440×960 and 390×844, Asia/Shanghai, selected machine 9VH92BJ
+(0.3.285), with 14RJCR8 0.3.275 and CPH4KB2 offline at tour time, 84T3LIN 0.3.280 online, and the
+device panel at 127.0.0.1:18090. Ranked by the setup failure and the data loss first, then the
+record, then the panel, then the smaller corrections.
+
+1. **"Add a machine" in the machine menu mints a code the page never shows.** The menu item calls
+   `POST /enroll` (200, 64-hex code, 15-minute expiry) and leaves the selected machine's hub on
+   screen; the code appears only after `All machines` is chosen. **Cost:** the setup action looks
+   dead; repeated presses mint more one-time codes; the operator cannot copy the command. **Fix:**
+   clear the selected machine before minting (`choose(null)`) or show the code in a sheet. **S/M.**
+
+2. **The Files editor discards unsaved changes when Close is pressed.** `Unsaved changes.` is
+   drawn, but `Close` clears the viewer with no dialog; reopening returns the original bytes.
+   **Cost:** a file edit is lost in one click; the page's warning is not a guard. **Fix:** ask
+   `Discard unsaved changes?` when `dirty`, or disable Close until Save/Discard. **S.**
+
+3. **The Runs record's full command buries exit/duration/started.** The record paints the full
+   4,590-character `-EncodedCommand` line: 1,190 px of a 1,551 px card at 1440, 1,866 px of a
+   2,299 px card at 390; the facts begin at y 1,393/2,114. **Cost:** the record's one job is below
+   the fold; the operator scrolls base64 to read the exit. **Fix:** `shortCommand` in the record
+   with a `Show full command` toggle, or facts above the command. **S/M.**
+
+4. **The panel's 200-row Timeline card buries Build, Updates and Connect.** The panel's card order
+   puts Build at y 4,636 (1440) / 7,625 (390) and Updates at 4,830/7,951; the timeline is
+   3,284/5,911 px. **Cost:** the operator scrolls 4–8k px past the call log to see the build or the
+   last check. **Fix:** fold the timeline after e.g. 20 rows, or move Build/Updates/Connect above
+   it. **S/M.** (Device-side panel release.)
+
+5. **The shared root's unreadable state keeps the write controls live.** With `no shared root is
+   configured on this device`, `Upload a file`/`Create` stay enabled; an upload repeats the same
+   refusal. **Cost:** the page offers an action that can only fail and repeats the error. **Fix:**
+   disable write controls after a failed first listing (keep Refresh). **S.**
+
+6. **The Runs record's Started is an age, not an instant.** `21m 04s ago` becomes `21m 11s ago` six
+   seconds later; the `<dd>` has no title/datetime. **Cost:** the record's start cannot be matched
+   to a log or another record and changes while read. **Fix:** show the local instant with the
+   exact title, age beside it. **S.**
+
+7. **The rotate dialog omits what happens to the expiry.** It names name/scope/tools/destructive
+   but not the expiry; the server gives a fresh period of the same length, and the date-only
+   `Expires` cell hides the change (`2026-12-07` before/after; the exact title moves 2.5 s).
+   **Cost:** the operator cannot tell whether rotation extends, preserves or resets the expiry.
+   **Fix:** say `a fresh period of the same length (or never)` in the dialog and/or show the new
+   expiry after. **S.**
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
