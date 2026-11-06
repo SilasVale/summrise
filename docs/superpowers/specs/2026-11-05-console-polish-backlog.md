@@ -211,7 +211,8 @@ nothing on the fleet says so.
    after the person has already downloaded the installer and minted the code. **Fix:** the installer
    owns the root, so it adds `$INSTDIR` to the machine PATH (and the uninstaller removes it), or the
    panel's sentence names the install folder; decide once, in the installer. **M.** (installer +
-   one console sentence.)
+   one console sentence.) *(Split 2026-11-06: the console sentence is task 6 now; the PATH entry is
+   item 3 below, because only the installer knows the root and it needs the Windows run.)*
 2. **A credential has no door from the fleet, and its fixed scope is unstated.** Tokens live only
    under Account → Tokens; the live fleet, the Add-a-machine panel and the Connect sheet have no
    Tokens link (`onTokens` is wired only for the Connect sheet). The operator's colleague measured
@@ -223,6 +224,13 @@ nothing on the fleet says so.
    sheet and the mint form state "the device scope is fixed at creation; Rotate keeps it; to cover
    different machines, mint a new token", and the mint form names the machines it will cover.
    **M.**
+3. **The enrollment command still depends on a PATH entry the installer never writes.** The console
+   sentence (task 6) tells the operator to open the prompt in the install folder; the product's own
+   command is still a bare `summrise-device.exe`, so a prompt opened anywhere else fails. The
+   installer knows the root; the console does not. **Fix:** the installer appends `$INSTDIR` to the
+   machine PATH (`HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Environment`), only
+   when absent, and the uninstaller removes exactly its entry; the Windows run is the first proof.
+   **M.** (installer; measured on the E: install.)
 
 ## How a round goes
 
