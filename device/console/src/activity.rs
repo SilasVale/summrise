@@ -195,6 +195,98 @@ pub(crate) fn describe(tool: &str, arguments: &Value) -> String {
     }
 }
 
+/// Whether a raw write carries text a person typed, judged before [`excerpt`] flattens it.
+///
+/// xterm sends the terminal's own reports through `onData` — `ESC[I` when the tab gains focus,
+/// `ESC[O` when it loses it — and the cursor and function keys are escape sequences too. The
+/// session must receive them (that is the terminal's job), but they are not keys a person typed. A
+/// sequence's final byte is printable (`I`, `O`, `A`), so the sequence has to be removed whole
+/// before asking whether the write has text at all; otherwise `ESC[I` reads as the keys `[I`. A
+/// space is a keystroke; only control bytes without a printable remainder are not.
+fn carries_typed_text(raw: &str) -> bool {
+    let mut rest = raw;
+    while let Some(character) = rest.chars().next() {
+        if character == '\x1b' {
+            rest = skip_escape(&rest[1..]);
+        } else if character.is_control() {
+            rest = &rest[character.len_utf8()..];
+        } else {
+            return true;
+        }
+    }
+    false
+}
+
+/// Skips one escape sequence, given the text after its ESC.
+///
+/// The grammar is the input half of ANSI — CSI, SS3, OSC, the other string controls, and the
+/// two-byte escapes — the same sequences the page's `typedText` removes.
+fn skip_escape(rest: &str) -> &str {
+    match rest.chars().next() {
+        // CSI: parameter bytes 0x30–0x3f, intermediates 0x20–0x2f, then one final byte 0x40–0x7e.
+        Some('[') => {
+            let body = skip_bytes(&rest[1..], |byte| (0x30..=0x3f).contains(&byte));
+            let body = skip_bytes(body, |byte| (0x20..=0x2f).contains(&byte));
+            match body.as_bytes().first() {
+                Some(&final_byte) if (0x40..=0x7e).contains(&final_byte) => &body[1..],
+                // Without its final byte this is not a sequence the page would swallow whole
+                // either: only the `ESC[` goes, and the bytes after it are read as text.
+                _ => &rest[1..],
+            }
+        }
+        // SS3: one final byte, used by the application cursor and function keys.
+        Some('O') => match rest.as_bytes().get(1) {
+            Some(&final_byte) if (0x40..=0x7e).contains(&final_byte) => &rest[2..],
+            _ => &rest[1..],
+        },
+        // OSC ends at BEL or ST; the other string controls (DCS, SOS, PM, APC) end at ST.
+        Some(']') => skip_osc(&rest[1..]),
+        Some('P' | 'X' | '^' | '_') => skip_control_string(&rest[1..]),
+        // Any other escape: optional intermediates, then one optional final byte. A character
+        // outside both ranges (a multi-byte one, say) stays and is read as text.
+        Some(_) => {
+            let body = skip_bytes(rest, |byte| (0x20..=0x2f).contains(&byte));
+            match body.as_bytes().first() {
+                Some(&final_byte) if (0x40..=0x7e).contains(&final_byte) => &body[1..],
+                _ => body,
+            }
+        }
+        None => rest,
+    }
+}
+
+/// Skips the run of ASCII bytes `allowed` accepts; the run always ends on a character boundary.
+fn skip_bytes(rest: &str, allowed: impl Fn(u8) -> bool) -> &str {
+    let count = rest
+        .as_bytes()
+        .iter()
+        .take_while(|&&byte| allowed(byte))
+        .count();
+    &rest[count..]
+}
+
+/// An OSC payload runs to BEL or ST; an ESC that starts no ST is left for the next sequence.
+fn skip_osc(rest: &str) -> &str {
+    let end = rest.find(['\x07', '\x1b']).unwrap_or(rest.len());
+    let tail = &rest[end..];
+    if let Some(after) = tail.strip_prefix('\x07') {
+        after
+    } else {
+        tail.strip_prefix("\x1b\\").unwrap_or(tail)
+    }
+}
+
+/// A DCS/SOS/PM/APC payload runs to ST; an unterminated one takes the rest of the write.
+fn skip_control_string(rest: &str) -> &str {
+    match rest.find('\x1b') {
+        Some(index) => {
+            let tail = &rest[index..];
+            tail.strip_prefix("\x1b\\").unwrap_or(tail)
+        }
+        None => "",
+    }
+}
+
 /// The evidence for one call: the few facts the page can show when a row is opened.
 ///
 /// Only what the caller themselves sent, bounded and flattened — never the device's whole answer.
@@ -243,8 +335,14 @@ pub(crate) fn detail(tool: &str, arguments: &Value) -> Option<Value> {
             if let Some(id) = text("id") {
                 out.insert("session".to_owned(), json!(id));
             }
-            if let Some(input) = text("data") {
-                out.insert("input".to_owned(), json!(input));
+            // The raw write decides whether there was a keystroke; sanitizing first would turn
+            // `ESC[I` into `[I` and record a focus report as typed text. The session stays.
+            if let Some(raw) = arguments
+                .get("data")
+                .and_then(Value::as_str)
+                .filter(|raw| carries_typed_text(raw))
+            {
+                out.insert("input".to_owned(), json!(excerpt(raw)));
             }
         }
         "terminal.read" | "terminal.resize" | "terminal.close" => {
@@ -551,6 +649,32 @@ mod detail_tests {
         .unwrap();
         assert_eq!(detail["session"], json!("session-2"));
         assert_eq!(detail["input"], json!("npm test"));
+    }
+
+    #[test]
+    fn a_focus_report_keeps_the_session_but_records_no_input() {
+        for data in ["\u{1b}[I", "\u{1b}[O"] {
+            let detail = detail(
+                "terminal.write",
+                &json!({ "id": "session-1", "data": data }),
+            )
+            .expect("the session is still evidence");
+            assert_eq!(detail["session"], json!("session-1"));
+            assert!(
+                detail.get("input").is_none(),
+                "{data:?} is a focus report, not a keystroke: {detail}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_space_only_write_still_records_an_input() {
+        let detail = detail("terminal.write", &json!({ "id": "session-1", "data": " " }))
+            .expect("the session is still evidence");
+        assert_eq!(detail["session"], json!("session-1"));
+        // `excerpt` trims the write, so the recorded text is empty — the same evidence the console
+        // wrote before this change; only control-only writes stop producing an `input`.
+        assert_eq!(detail["input"], json!(""));
     }
 
     #[test]
