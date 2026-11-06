@@ -1954,8 +1954,10 @@ span.files-name {
   .audit-table th:nth-child(5), .audit-table td:nth-child(5) { width: 14%; }
 }
 .audit-empty { display: grid; gap: var(--sp-2); justify-items: start; padding: var(--sp-3) 0; }
-/* The one action that leaves the page with data sits at the far end of the filter row. */
+/* The record's export sits beside Time, where the bounds are chosen; the view's CSV stays at the
+   far end of the filter row. */
 .audit-export { margin-left: auto; }
+.audit-export-range { margin-left: 0; }
 
 .screen-shot { max-width: 100%; border: 1px solid var(--line); border-radius: var(--radius); }
 

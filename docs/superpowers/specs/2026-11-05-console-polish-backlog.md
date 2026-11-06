@@ -795,9 +795,26 @@ list is what is left of the page's sense of time, measured.
    clean; `./scripts/build-web.sh --check` clean with dist committed; browser gate PASS 31 steps
    (the preset fires `/audit?from=&to=`, the sentence counts the rows, the fragment carries the
    range); `a11y-audit` 0 findings across 16 page states.)*
-3. **A day cannot leave the product.** There is no export of a slice, so a report or a hand-off
-   means a shell on the host. The shape: an export of the window in hand (JSON Lines, the same lines
-   the table draws) with its bounds in the filename. **S/M.**
+3. **A day cannot leave the product.** *(Done 2026-11-06: `GET /audit/export?from=&to=&device=`
+   serves a chosen range as `application/x-ndjson` — the range query's own lines, oldest first, one
+   audit line per line and no header row — with `Content-Disposition` naming the requested bounds
+   and the machine's short id, `X-Audit-Range`, and `X-Audit-Since` when the file starts after
+   `from`; a range the same 50,000-line scan bound cannot prove is `413 range_too_large` with the
+   console's sentence and no file. The Table's `Export JSONL` sits beside Time: a chosen range asks
+   the route for the drawn bounds and device, the newest window is written in the browser, and the
+   record ignores the Token/Tool/Status narrowing; the existing `Export CSV` still writes the rows
+   on screen. The route fixture measured 2 lines at 1,001,000 and 1,002,999 ms oldest first with
+   `summrise-audit-19700101T001641.000Z_to_19700101T001644.000Z_a1a1a1a1a1a1.ndjson`; the
+   50,001-line fixture measured `413`, `x-audit-bounded: 50000` and no `Content-Disposition`; at 390
+   the gate asked `/audit/export` for the drawn bounds and received the attachment. `cargo test -p
+   summrise-console` 394 passed (148 unit, 1 main, 235 console, 10 tokens; 2 ignored), clippy and
+   fmt clean; `npx vitest run` 701 passed across 53 files; typecheck and build clean;
+   `./scripts/build-web.sh --check` clean with dist committed; browser gate PASS 32 steps;
+   `a11y-audit` 0 findings across 16 page states. Live 2026-11-06 in `0.3.273-ux63`: on
+   console.saisi.online at 1440, `Last hour` drew 20 lines and `Export JSONL` downloaded
+   `summrise-audit-20261106T042044.933Z_to_20261106T052044.933Z.ndjson` — 20 lines, 4,788 bytes,
+   oldest first, every line a JSON audit object — from the live `audit.jsonl` (4.8 MiB, lines since
+   10-22 10:55); the button is on screen at 390 and the page raised no error.)*
 
 Not items, measured: the day count is now the day's (14c4331, a wake check also landed in 2d4c7ec);
 the hub's numbers are the rows its controls reach (d3c0503); a failed run is 424 with its reason

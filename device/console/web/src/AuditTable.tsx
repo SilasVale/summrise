@@ -4,7 +4,7 @@ import {
   type WindowCounts
 } from "./activityMerge";
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
-import type { AuditLine, AuditSource, Device, TokenMeta } from "./api";
+import { api, HttpError, type AuditLine, type AuditSource, type Device, type TokenMeta } from "./api";
 import { auditFailed, filterAudit, type AuditFilter } from "./auditFilter";
 import {
   dateTimeInputValue,
@@ -17,7 +17,7 @@ import {
   type AuditRange,
   type RangeFacts
 } from "./auditTime";
-import { auditCsv, auditCsvName } from "./audit-export";
+import { auditCsv, auditCsvName, auditJsonl, auditJsonlName } from "./audit-export";
 import { downloadFile } from "./download";
 import { age, shortDeviceName, shortId } from "./format";
 import { AuditSourceLine } from "./AuditSourceLine";
@@ -313,6 +313,8 @@ export function AuditTable({
   // its whole short id.
   const fleetNames = useMemo(() => Array.from(deviceNames.values()), [deviceNames]);
   const [copied, setCopied] = useState<string | null>(null);
+  // The export route's refusal (a range the scan bound cannot prove) is a sentence, not a file.
+  const [exportNotice, setExportNotice] = useState<string | null>(null);
   // THE OPENER IS IN THE ROW, NOT AT ITS FAR END. A phone cannot see a sixth column, and the old
   // 44 rem table made opening one record cost a sideways swipe; below 640 px the disclosure is the
   // When cell and the chevron column is not rendered at all. The desktop table is unchanged.
@@ -392,6 +394,33 @@ export function AuditTable({
       ),
       "text/csv;charset=utf-8"
     );
+  };
+
+  /**
+   * Save what the Time control drew. A chosen range is the console's file — its filename, its
+   * bounds headers, its refusal when the scan bound cannot prove it. The newest window has no
+   * bounds to ask for, so the lines in hand are written here, in the same chronological JSON Lines.
+   */
+  const exportFile = async () => {
+    setExportNotice(null);
+    if (range === null) {
+      if (lines.length === 0) return;
+      downloadFile(auditJsonlName(lines), auditJsonl(lines), "application/x-ndjson");
+      return;
+    }
+    try {
+      const answer = await api.auditExport(
+        range,
+        applied.device === "" ? undefined : applied.device
+      );
+      downloadFile(answer.filename, answer.body, "application/x-ndjson");
+    } catch (error) {
+      setExportNotice(
+        error instanceof HttpError
+          ? `The console refused this export: ${error.message}`
+          : "The console could not answer the export."
+      );
+    }
   };
 
   const copyDevice = async (id: string, key: string) => {
@@ -475,6 +504,31 @@ export function AuditTable({
             <option value="custom">Custom…</option>
           </select>
         </label>
+        {/* **THE RANGE THE OPERATOR CHOSE IS THE RANGE THAT LEAVES.** Beside Time, where the
+            choice is made; its accessible name says the file is the range, not the rows the
+            table's other filters hide. */}
+        <button
+          type="button"
+          className="audit-export audit-export-range"
+          disabled={loading || rangeError || (range === null && lines.length === 0)}
+          onClick={() => void exportFile()}
+          title={
+            range === null
+              ? `Export JSONL: the newest window in hand — ${lines.length} ${
+                  lines.length === 1 ? "line" : "lines"
+                }, oldest first; the table's other filters do not apply`
+              : `Export JSONL: the drawn range ${rangeText(range)}, oldest first; the table's other filters do not apply`
+          }
+          aria-label={
+            range === null
+              ? `Export JSONL: the newest window in hand — ${lines.length} ${
+                  lines.length === 1 ? "line" : "lines"
+                }, oldest first; the table's other filters do not apply`
+              : `Export JSONL: the drawn range ${rangeText(range)}, oldest first; the table's other filters do not apply`
+          }
+        >
+          Export JSONL
+        </button>
         {timeMode === "custom" && (
           <>
             <label className="audit-field">
@@ -582,6 +636,12 @@ export function AuditTable({
           Export CSV
         </button>
       </div>
+
+      {exportNotice !== null && (
+        <p className="hint audit-export-note" role="alert">
+          {exportNotice}
+        </p>
+      )}
 
       {/* **A RANGE'S SENTENCE IS THE FETCH'S, NOT THE FILTERS'.** It stays above the empty state
           and the table alike: a range that drew nothing still has to say which range it asked for

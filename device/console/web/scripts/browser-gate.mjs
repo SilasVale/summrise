@@ -344,7 +344,10 @@ const state = {
   streamEchoed: false,
   /** How many `/audit?from=&to=` requests the page made, and the last one's moments and count. */
   rangeRequests: 0,
-  lastRange: null
+  lastRange: null,
+  /** How many `/audit/export` requests the page made, and the bounds the last one asked for. */
+  exportRequests: 0,
+  lastExport: null
 };
 
 /**
@@ -405,6 +408,8 @@ function pushEvent(name, data) {
 }
 
 const json = (body, status = 200) => ({ status, body });
+/** A reply that is not JSON: the export's JSON Lines body and its download headers. */
+const ndjson = (body, headers, status = 200) => ({ status, body, raw: body, headers });
 const bodyOf = (request) => {
   try {
     return request.postDataJSON() ?? {};
@@ -456,6 +461,29 @@ function apiReply(request, url) {
   if (method === 'GET' && pathname === '/tokens') return json(TOKENS);
   // Newest first, as the console serves it: the console's own read is the newer row. `?device=`
   // narrows during the read, exactly as the console does; the gate's one machine owns both rows.
+  // **THE RANGE AS A FILE.** The page's Export fetches this route with the bounds the Time
+  // control drew; the gate answers chronological JSON Lines and records the query, so the leg
+  // below proves the button asked for the range rather than saving whatever happened to be drawn.
+  if (method === 'GET' && pathname === '/audit/export') {
+    const fromMs = Number(url.searchParams.get('from'));
+    const toMs = Number(url.searchParams.get('to'));
+    const device = url.searchParams.get('device');
+    const source =
+      device === BIG_DEVICE.id ? BIG_WINDOW_LINES : [CONSOLE_LINE, AUDIT_LINE, ...HISTORIC_LINES];
+    const lines = source
+      .filter((line) => device === null || line.device_id === device)
+      .filter((line) => line.ts_ms >= fromMs && line.ts_ms < toMs)
+      .sort((left, right) => left.ts_ms - right.ts_ms);
+    state.exportRequests += 1;
+    state.lastExport = { from: fromMs, to: toMs, device, count: lines.length };
+    const compact = (ms) => new Date(ms).toISOString().replace(/[-:]/g, '');
+    const filename = `summrise-audit-${compact(fromMs)}_to_${compact(toMs)}.ndjson`;
+    return ndjson(lines.map((line) => JSON.stringify(line)).join('\n') + (lines.length ? '\n' : ''), {
+      'content-type': 'application/x-ndjson',
+      'content-disposition': `attachment; filename="${filename}"`,
+      'x-audit-range': `from=${fromMs}; to=${toMs}`
+    });
+  }
   if (method === 'GET' && pathname === '/audit') {
     const device = url.searchParams.get('device');
     // **THE END LEG'S WINDOW IS A MACHINE'S OWN 1000 LINES.** The measured shape needs a full answer
@@ -647,8 +675,12 @@ await page.route('**/*', async (route) => {
   if (reply.status === 204) return route.fulfill({ status: 204, headers });
   return route.fulfill({
     status: reply.status,
-    headers: { ...headers, 'content-type': 'application/json; charset=utf-8' },
-    body: JSON.stringify(reply.body)
+    headers: {
+      ...headers,
+      'content-type': 'application/json; charset=utf-8',
+      ...(reply.headers ?? {})
+    },
+    body: reply.raw ?? JSON.stringify(reply.body)
   });
 });
 
@@ -1349,6 +1381,46 @@ try {
   step(
     `at 390 "Last hour" asked /audit?from=&to= and stated ${JSON.stringify(rangeSentence390)} ` +
       `over ${rangeRows} rows; the range is in the fragment`
+  );
+
+  // **THE RANGE THAT WAS DRAWN IS THE RANGE THAT LEAVES.** Export is beside Time and asks the
+  // console's own route for the same two bounds; it must not save a different window or filter.
+  const exportRequestsBefore = state.exportRequests;
+  const exportAnswered = page.waitForResponse(
+    (response) => new URL(response.url()).pathname === '/audit/export',
+    { timeout: 10_000 }
+  );
+  await page
+    .getByRole('button', { name: /^Export JSONL: the drawn range/ })
+    .click();
+  const exportResponse = await exportAnswered;
+  if (state.exportRequests !== exportRequestsBefore + 1) {
+    throw new Error(
+      `Export made ${state.exportRequests - exportRequestsBefore} export requests, not one`
+    );
+  }
+  if (
+    state.lastExport.from !== state.lastRange.from ||
+    state.lastExport.to !== state.lastRange.to
+  ) {
+    throw new Error(
+      `Export asked for ${JSON.stringify(state.lastExport)}, the drawn range is ` +
+        `${JSON.stringify(state.lastRange)}`
+    );
+  }
+  const exportDisposition = exportResponse.headers()['content-disposition'] ?? '';
+  if (
+    exportResponse.status() !== 200 ||
+    !exportDisposition.includes('summrise-audit-') ||
+    !exportDisposition.endsWith('.ndjson"')
+  ) {
+    throw new Error(
+      `Export answered ${exportResponse.status()} with ${JSON.stringify(exportDisposition)}`
+    );
+  }
+  step(
+    `at 390 Export asked /audit/export for the drawn ${state.lastExport.from}–` +
+      `${state.lastExport.to} and received ${JSON.stringify(exportDisposition)}`
   );
 
   // **THE OFFLINE REASON WRAPS INSTEAD OF LOSING ITS LAST WORD.** The measured notice cut

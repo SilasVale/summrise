@@ -202,6 +202,9 @@ export type AuditDay = {
   scan_limit?: number | null;
 };
 
+/** A range's download: the JSON Lines body and the filename the console chose for it. */
+export type AuditExport = { body: string; filename: string };
+
 /**
  * One chosen time range, as `/audit?from=&to=` serves it: `[from, to)`, newest first.
  *
@@ -390,6 +393,34 @@ export const api = {
       `/audit?from=${Math.trunc(range.from)}&to=${Math.trunc(range.to)}&limit=${limit}` +
         `${device ? `&device=${encodeURIComponent(device)}` : ""}`
     ),
+  // A chosen range as a file: the same lines `/audit?from=&to=` serves, oldest first, with the
+  // console's filename in `Content-Disposition`. This is the one read that is not JSON, so it does
+  // not go through `call`: the body is saved as bytes, and a 413's JSON sentence names the bound.
+  auditExport: async (
+    range: { from: number; to: number },
+    device?: string
+  ): Promise<AuditExport> => {
+    const path =
+      `/audit/export?from=${Math.trunc(range.from)}&to=${Math.trunc(range.to)}` +
+      `${device ? `&device=${encodeURIComponent(device)}` : ""}`;
+    const response = await fetch(path);
+    const body = await response.text();
+    if (!response.ok) {
+      let code = response.statusText;
+      let message: string | undefined;
+      try {
+        const failure = JSON.parse(body) as { error?: string; message?: string };
+        code = failure.error ?? code;
+        message = failure.message;
+      } catch {
+        // A proxy's non-JSON refusal keeps the status text as its code.
+      }
+      throw new HttpError(response.status, code, message);
+    }
+    const disposition = response.headers.get("content-disposition") ?? "";
+    const filename = /filename="([^"]+)"/.exec(disposition)?.[1] ?? "summrise-audit.ndjson";
+    return { body, filename };
+  },
   // The local calendar day, counted from the file rather than from the newest window. `device`
   // narrows it during the scan, like `/audit?device=`. The hub's `today` and this route are one
   // read; Activity's header uses this so a sliding window cannot shrink the day's number.

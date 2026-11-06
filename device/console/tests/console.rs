@@ -3761,6 +3761,283 @@ async fn a_malformed_range_is_a_json_refusal() {
     }
 }
 
+/// **A RANGE LEAVES AS A FILE, NOT AS A PAGE.** `GET /audit/export` answers the range's own lines as
+/// JSON Lines, oldest first, with a filename that names both bounds and the headers that state what
+/// the read actually covered. There is no header line in the body: every line is an audit line.
+#[tokio::test]
+async fn the_audit_export_is_chronological_ndjson_with_its_bounds_in_the_filename() {
+    let fixture = Fixture::new("audit-export");
+    let session = fixture.authenticate().await;
+    let alpha = "a1".repeat(32);
+    let beta = "b2".repeat(32);
+    let at = |offset: u64| START_MS + offset;
+    let lines = vec![
+        seeded_call(at(999), &alpha, "before-range"),
+        seeded_call(at(1_000), &alpha, "at-from"),
+        seeded_call(at(1_999), &beta, "other-machine"),
+        seeded_call(at(2_999), &alpha, "inside-range"),
+        seeded_call(at(4_000), &alpha, "at-to"),
+    ];
+    seed_audit_file(&fixture, "audit.jsonl", &lines);
+
+    let (status, headers, bytes) = send_bytes(
+        fixture.app(),
+        get(
+            &format!(
+                "/audit/export?from={}&to={}&device={alpha}",
+                at(1_000),
+                at(4_000)
+            ),
+            Some(&session),
+        ),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        headers
+            .get(header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok()),
+        Some("application/x-ndjson"),
+        "the export is JSON Lines, not JSON and not text/plain"
+    );
+    assert_eq!(
+        headers
+            .get(header::CONTENT_DISPOSITION)
+            .and_then(|value| value.to_str().ok()),
+        Some(
+            "attachment; filename=\"summrise-audit-19700101T001641.000Z_to_\
+             19700101T001644.000Z_a1a1a1a1a1a1.ndjson\""
+        ),
+        "the filename names the requested bounds and the machine's short id"
+    );
+    assert_eq!(
+        headers
+            .get("x-audit-range")
+            .and_then(|value| value.to_str().ok()),
+        Some("from=1001000; to=1004000"),
+        "the header states the bounds the read was asked for"
+    );
+    assert!(
+        headers.get("x-audit-since").is_none(),
+        "the file starts before `from`, so there is no late start to report"
+    );
+    assert!(
+        headers.get("x-audit-bounded").is_none(),
+        "the scan reached `from`, so the bound did not cut this answer"
+    );
+
+    let text = String::from_utf8(bytes.clone()).expect("the export is UTF-8");
+    assert!(
+        text.ends_with('\n'),
+        "every line, including the last, ends with a newline"
+    );
+    let exported: Vec<Value> = text
+        .lines()
+        .map(|line| serde_json::from_str(line).expect("every body line is a JSON audit line"))
+        .collect();
+    assert_eq!(
+        exported
+            .iter()
+            .filter_map(|line| line["ts_ms"].as_u64())
+            .collect::<Vec<_>>(),
+        vec![at(1_000), at(2_999)],
+        "oldest first, and the other machine's in-range line is filtered out: {text}"
+    );
+    assert!(
+        exported.iter().all(|line| line.get("sentence").is_some()),
+        "the file carries the same human sentence the range query serves: {text}"
+    );
+
+    // THE SAME LINES THE RANGE QUERY RETURNS. The export is not a second selection: reverse the
+    // query's newest-first answer and it must equal the file's chronological one object for object.
+    let (status, range) = send(
+        fixture.app(),
+        get(
+            &format!(
+                "/audit?from={}&to={}&device={alpha}&limit=1000",
+                at(1_000),
+                at(4_000)
+            ),
+            Some(&session),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let mut newest_first = range["lines"]
+        .as_array()
+        .expect("the range's lines")
+        .clone();
+    newest_first.reverse();
+    assert_eq!(
+        exported, newest_first,
+        "the file is the range query's lines, chronological"
+    );
+
+    // The device's short id is in the name; a fleet export has no device suffix.
+    let (status, headers, _) = send_bytes(
+        fixture.app(),
+        get(
+            &format!("/audit/export?from={}&to={}", at(1_000), at(4_000)),
+            Some(&session),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        headers
+            .get(header::CONTENT_DISPOSITION)
+            .and_then(|value| value.to_str().ok()),
+        Some(
+            "attachment; filename=\"summrise-audit-19700101T001641.000Z_to_\
+             19700101T001644.000Z.ndjson\""
+        ),
+        "a fleet export names no machine"
+    );
+}
+
+/// **A FILE THAT STARTS LATE SAYS WHERE IT STARTS.** The range's start is older than the current
+/// file (a rotation), so the export carries the lines the file proves and `X-Audit-Since` names the
+/// moment coverage begins. The filename still names the bounds that were asked for.
+#[tokio::test]
+async fn an_audit_export_that_starts_before_the_file_names_its_since() {
+    let fixture = Fixture::new("audit-export-since");
+    let session = fixture.authenticate().await;
+    let alpha = "a1".repeat(32);
+    let at = |offset: u64| START_MS + offset;
+    let file_start = at(3_600_000);
+    seed_audit_file(
+        &fixture,
+        "audit.jsonl",
+        &[
+            seeded_call(file_start, &alpha, "first"),
+            seeded_call(file_start + 1_000, &alpha, "second"),
+        ],
+    );
+
+    let (status, headers, bytes) = send_bytes(
+        fixture.app(),
+        get(
+            &format!("/audit/export?from={}&to={}", at(0), at(7_200_000)),
+            Some(&session),
+        ),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        headers
+            .get("x-audit-range")
+            .and_then(|value| value.to_str().ok()),
+        Some("from=1000000; to=8200000")
+    );
+    assert_eq!(
+        headers
+            .get("x-audit-since")
+            .and_then(|value| value.to_str().ok()),
+        Some(file_start.to_string().as_str()),
+        "the header states the oldest moment the current file proves"
+    );
+    assert!(headers.get("x-audit-bounded").is_none());
+    let text = String::from_utf8(bytes).expect("the export is UTF-8");
+    let times: Vec<u64> = text
+        .lines()
+        .map(|line| {
+            serde_json::from_str::<Value>(line).expect("a JSON line")["ts_ms"]
+                .as_u64()
+                .expect("a moment")
+        })
+        .collect();
+    assert_eq!(
+        times,
+        vec![file_start, file_start + 1_000],
+        "what the file holds, in chronological order"
+    );
+}
+
+/// **A RANGE THE BOUND CANNOT COVER IS REFUSED, NOT SILENTLY SHORTENED.** The scan stops at 50,000
+/// lines before proving the range's start, so the route answers 413 and names the bound; a file that
+/// begins in the middle of the range would be a partial history wearing the range's name.
+#[tokio::test]
+async fn an_audit_export_the_scan_bound_cut_is_refused_and_names_the_bound() {
+    let fixture = Fixture::new("audit-export-bound");
+    let session = fixture.authenticate().await;
+    let alpha = "a1".repeat(32);
+    let count = 50_001u64;
+    let lines: Vec<Value> = (0..count)
+        .map(|index| seeded_call(START_MS + index * 1_000, &alpha, "files.read"))
+        .collect();
+    seed_audit_file(&fixture, "audit.jsonl", &lines);
+
+    let (status, headers, bytes) = send_bytes(
+        fixture.app(),
+        get(
+            &format!(
+                "/audit/export?from={START_MS}&to={}",
+                START_MS + 100_000_000
+            ),
+            Some(&session),
+        ),
+    )
+    .await;
+
+    assert_eq!(
+        status,
+        StatusCode::PAYLOAD_TOO_LARGE,
+        "a range the scan bound cannot prove is refused"
+    );
+    assert_eq!(
+        headers
+            .get("x-audit-bounded")
+            .and_then(|value| value.to_str().ok()),
+        Some("50000"),
+        "the refusal names the line bound it hit"
+    );
+    assert_eq!(
+        headers
+            .get("x-audit-range")
+            .and_then(|value| value.to_str().ok()),
+        Some("from=1000000; to=101000000")
+    );
+    assert!(
+        headers.get(header::CONTENT_DISPOSITION).is_none(),
+        "a refusal is not a downloadable file"
+    );
+    let refusal: Value =
+        serde_json::from_slice(&bytes).expect("the refusal is the console's JSON error");
+    assert_eq!(refusal["error"], json!("range_too_large"));
+    assert!(
+        refusal["message"]
+            .as_str()
+            .is_some_and(|message| message.contains("50,000-line scan bound")),
+        "the sentence names the bound: {refusal}"
+    );
+}
+
+/// The export parses its range exactly as `/audit` does: one endpoint is not a range, and a start at
+/// or after the end is not one either.
+#[tokio::test]
+async fn a_malformed_export_range_is_a_json_refusal() {
+    let fixture = Fixture::new("audit-export-bad");
+    let session = fixture.authenticate().await;
+
+    for query in [
+        "from=1000",
+        "to=2000",
+        "from=2000&to=1000",
+        "from=abc&to=1000",
+    ] {
+        let (status, _, bytes) = send_bytes(
+            fixture.app(),
+            get(&format!("/audit/export?{query}"), Some(&session)),
+        )
+        .await;
+        let body: Value = serde_json::from_slice(&bytes).expect("a JSON refusal");
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{query}: {body}");
+        assert_eq!(body, json!({ "error": "invalid_range" }), "{query}");
+    }
+}
+
 /// Write `count` denial lines to the current file, oldest first, without going through the writer.
 fn seed_denials(fixture: &Fixture, count: usize) {
     let mut text = String::new();

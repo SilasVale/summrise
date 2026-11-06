@@ -42,3 +42,51 @@ export function auditCsvName(at: Date): string {
     ".csv"
   );
 }
+
+/** `20261102T113000.000Z`: basic ISO 8601 in UTC, milliseconds kept, filename-safe. */
+function compactIso(ms: number): string {
+  const at = new Date(ms);
+  const pad = (value: number, width = 2) => String(value).padStart(width, "0");
+  return (
+    String(at.getUTCFullYear()) +
+    pad(at.getUTCMonth() + 1) +
+    pad(at.getUTCDate()) +
+    "T" +
+    pad(at.getUTCHours()) +
+    pad(at.getUTCMinutes()) +
+    pad(at.getUTCSeconds()) +
+    "." +
+    pad(at.getUTCMilliseconds(), 3) +
+    "Z"
+  );
+}
+
+/**
+ * One audit line per line, oldest first, with no header row.
+ *
+ * The page's newest-first window is the present at the top; a file is a history, so it is written
+ * the other way round. The order is by `ts_ms`, stable for equal moments, because the window's own
+ * order is a presentation choice and a file's order should be the record's.
+ */
+export function auditJsonl(lines: AuditLine[]): string {
+  if (lines.length === 0) return "";
+  return (
+    lines
+      .slice()
+      .sort((left, right) => left.ts_ms - right.ts_ms)
+      .map((line) => JSON.stringify(line))
+      .join("\n") + "\n"
+  );
+}
+
+/**
+ * The window's filename, named by the moments it actually spans. `to` is one millisecond past the
+ * newest line because a line exactly at `to` is outside the range the file proves.
+ */
+export function auditJsonlName(lines: AuditLine[]): string {
+  if (lines.length === 0) return "summrise-audit-empty.ndjson";
+  const moments = lines.map((line) => line.ts_ms);
+  const from = Math.min(...moments);
+  const to = Math.max(...moments) + 1;
+  return `summrise-audit-${compactIso(from)}_to_${compactIso(to)}.ndjson`;
+}

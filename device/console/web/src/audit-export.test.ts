@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { auditCsv, auditCsvName } from "./audit-export";
+import { auditCsv, auditCsvName, auditJsonl, auditJsonlName } from "./audit-export";
 import type { AuditLine } from "./api";
 
 const line: AuditLine = {
@@ -30,5 +30,29 @@ describe("audit export", () => {
       '"2026-11-02T11:30:00.000Z","mcp","","","","","runs.exec","200","run ""a,b"" exited 0"'
     );
     expect(auditCsvName(new Date(2026, 10, 2, 9, 5, 7))).toBe("summrise-audit-20261102-090507.csv");
+  });
+});
+
+describe("the JSON Lines window", () => {
+  const early = { ...line, ts_ms: Date.UTC(2026, 10, 2, 11, 30, 0), tool: "early" };
+  const late = { ...line, ts_ms: Date.UTC(2026, 10, 2, 11, 30, 2), tool: "late" };
+  const middle = { ...line, ts_ms: Date.UTC(2026, 10, 2, 11, 30, 1), tool: "middle" };
+
+  it("writes one audit line per line, oldest first, and no header row", () => {
+    // The page holds the server's newest-first window; a file is a history, so the window is
+    // written the other way round. It must not be reordered by anything but the moment.
+    const text = auditJsonl([late, early, middle]);
+    expect(text.endsWith("\n")).toBe(true);
+    const lines = text.trimEnd().split("\n").map((entry) => JSON.parse(entry));
+    expect(lines.map((entry) => entry.tool)).toEqual(["early", "middle", "late"]);
+    expect(lines[0]).toMatchObject({ ts_ms: early.ts_ms, kind: "mcp" });
+    expect(text.startsWith("{")).toBe(true);
+  });
+
+  it("names the window by the moments it actually spans", () => {
+    expect(auditJsonlName([late, early, middle])).toBe(
+      "summrise-audit-20261102T113000.000Z_to_20261102T113002.001Z.ndjson"
+    );
+    expect(auditJsonl([])).toBe("");
   });
 });

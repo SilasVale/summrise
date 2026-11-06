@@ -313,6 +313,11 @@ impl Console {
             // connection the moment it lands, which is the shape the device's own panel always had.
             .route("/terminal/:device/:session/stream", get(terminal_stream))
             .route("/audit", get(list_audit))
+            // **A RANGE LEAVES AS A FILE.** `/audit?from=&to=` draws a range; this answers the same
+            // lines as JSON Lines, oldest first, with the filename and headers that make the file a
+            // portable fact instead of a screenshot of a page. Bounded by the same scan rule as the
+            // query, and a range the bound cannot prove is refused rather than silently shortened.
+            .route("/audit/export", get(export_audit))
             // **WHAT THE WINDOW READS.** `/audit` answers lines; this answers the file those lines
             // came from — its name, size, both ends, the one older generation, and the retention
             // rule as configured. The page states it once beside the cap sentence: that sentence
@@ -4877,6 +4882,174 @@ async fn list_audit(
             .into_response())
         }
     }
+}
+
+/// `GET /audit/export?from=&to=&device=`: one answered range as a JSON Lines download.
+///
+/// The body is the range query's own lines — the same selection, the same `sentence` field — in
+/// chronological order: the table draws newest first because a person reads the present at the top,
+/// and a file is read oldest first because it is a history. The filename names the two requested
+/// bounds and, when one machine was asked for, its short id. `X-Audit-Range` states the bounds, and
+/// `X-Audit-Since` states the moment the current file's coverage begins when the range starts older
+/// than the file. A range the 50,000-line scan bound cannot prove is `413` with `X-Audit-Bounded`
+/// naming the bound: a file that begins in the middle of its own range would be a partial history
+/// wearing the range's name, so it is refused rather than shortened without a word.
+async fn export_audit(
+    State(app): State<AppState>,
+    _: OperatorSession,
+    Query(query): Query<AuditQuery>,
+) -> Response {
+    let window = match audit_window(query.from.as_deref(), query.to.as_deref()) {
+        Ok(AuditWindow::Range { from_ms, to_ms }) => (from_ms, to_ms),
+        // An export is a file with a name and two bounds; the newest window has neither. A caller
+        // that asks for one is told that a range is two moments, exactly as `/audit` answers it.
+        Ok(AuditWindow::Newest) => {
+            return ApiError::bad_request("invalid_range").into_response();
+        }
+        Err(error) => return error.into_response(),
+    };
+    let (from_ms, to_ms) = window;
+    let from = match export_instant(from_ms) {
+        Ok(from) => from,
+        Err(error) => return error.into_response(),
+    };
+    let to = match export_instant(to_ms) {
+        Ok(to) => to,
+        Err(error) => return error.into_response(),
+    };
+
+    let read = app.audit.range(from_ms, to_ms).await;
+    let range_header = format!("from={from_ms}; to={to_ms}");
+    if read.bounded {
+        let message = format!(
+            "the range needs more than the {}-line scan bound; ask for a narrower range",
+            thousands(crate::audit::DAY_SCAN_LIMIT)
+        );
+        let mut response = (
+            StatusCode::PAYLOAD_TOO_LARGE,
+            Json(json!({ "error": "range_too_large", "message": message })),
+        )
+            .into_response();
+        insert_audit_header(response.headers_mut(), "x-audit-range", &range_header);
+        insert_audit_header(
+            response.headers_mut(),
+            "x-audit-bounded",
+            &crate::audit::DAY_SCAN_LIMIT.to_string(),
+        );
+        return response;
+    }
+    let since_ms = read.since_ms;
+    let mut lines: Vec<Value> = read
+        .lines
+        .into_iter()
+        .filter(|line| match query.device.as_deref() {
+            Some(device) => line.get("device_id").and_then(Value::as_str) == Some(device),
+            None => true,
+        })
+        .collect();
+    // The scan reads backwards, so the vector is newest first; reversing puts the file in the order
+    // a history is read without re-sorting equal moments, which keeps the file's own order.
+    lines.reverse();
+    let lines = with_sentences(lines);
+    let mut body = String::new();
+    for line in &lines {
+        body.push_str(&line.to_string());
+        body.push('\n');
+    }
+
+    let mut response = (StatusCode::OK, body).into_response();
+    let filename = export_filename(from, to, query.device.as_deref());
+    insert_audit_header(
+        response.headers_mut(),
+        header::CONTENT_TYPE.as_str(),
+        "application/x-ndjson",
+    );
+    insert_audit_header(
+        response.headers_mut(),
+        header::CONTENT_DISPOSITION.as_str(),
+        &format!("attachment; filename=\"{filename}\""),
+    );
+    insert_audit_header(response.headers_mut(), "x-audit-range", &range_header);
+    if let Some(since_ms) = since_ms {
+        insert_audit_header(
+            response.headers_mut(),
+            "x-audit-since",
+            &since_ms.to_string(),
+        );
+    }
+    response
+}
+
+/// A moment the export can name, or the range refusal when the number is not one.
+///
+/// The query parses `u64`; chrono names an instant as `i64` milliseconds, and a number outside that
+/// range is not a date any filename could state. Refusing it keeps the filename from inventing one.
+fn export_instant(ms: u64) -> Result<chrono::DateTime<chrono::Utc>, ApiError> {
+    use chrono::{TimeZone, Utc};
+
+    let ms = i64::try_from(ms).map_err(|_| ApiError::bad_request("invalid_range"))?;
+    Utc.timestamp_millis_opt(ms)
+        .single()
+        .ok_or_else(|| ApiError::bad_request("invalid_range"))
+}
+
+/// The download's filename: `summrise-audit-<from>_to_<to>[_<device short>].ndjson`.
+///
+/// The moments are basic ISO 8601 in UTC, milliseconds kept, so two ranges inside one second do not
+/// share a name. Colons are not legal in a Windows filename; the basic form has none.
+fn export_filename(
+    from: chrono::DateTime<chrono::Utc>,
+    to: chrono::DateTime<chrono::Utc>,
+    device: Option<&str>,
+) -> String {
+    let compact = |at: chrono::DateTime<chrono::Utc>| {
+        format!(
+            "{}.{:03}Z",
+            at.format("%Y%m%dT%H%M%S"),
+            at.timestamp_subsec_millis()
+        )
+    };
+    let suffix = device
+        .and_then(export_device_short)
+        .map(|short| format!("_{short}"))
+        .unwrap_or_default();
+    format!(
+        "summrise-audit-{}_to_{}{suffix}.ndjson",
+        compact(from),
+        compact(to)
+    )
+}
+
+/// The device's short id as a filename part: its first twelve characters while they are the
+/// canonical id's alphabet. A caller-supplied string outside that alphabet is not put in a name the
+/// browser writes to disk.
+fn export_device_short(device: &str) -> Option<String> {
+    let short: String = device.chars().take(12).collect();
+    (!short.is_empty()
+        && short
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || ch == '-'))
+    .then_some(short)
+}
+
+/// Put one ASCII header on a response. Every value here is built from numbers or a sanitised device
+/// id, so a value the type rejects is a bug in this file, not a caller's input.
+fn insert_audit_header(headers: &mut HeaderMap, name: &'static str, value: &str) {
+    let value = HeaderValue::from_str(value).expect("an audit export header is ASCII");
+    headers.insert(name, value);
+}
+
+/// `50000` as `50,000`: the number a person reads in a refusal.
+fn thousands(count: usize) -> String {
+    let digits = count.to_string();
+    let mut grouped = String::with_capacity(digits.len() + digits.len() / 3);
+    for (index, ch) in digits.chars().enumerate() {
+        if index > 0 && (digits.len() - index).is_multiple_of(3) {
+            grouped.push(',');
+        }
+        grouped.push(ch);
+    }
+    grouped
 }
 
 /// The same sentence the live stream carries, so a fetched window and a streamed line read the

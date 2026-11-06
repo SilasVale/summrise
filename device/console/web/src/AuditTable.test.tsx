@@ -1,10 +1,21 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AuditLine, Device, TokenMeta } from "./api";
 import { AuditTable } from "./AuditTable";
 import { downloadFile } from "./download";
 
 vi.mock("./download", () => ({ downloadFile: vi.fn() }));
+
+/** The part of a fetch Response `api.auditExport` reads, without a real network or a DOM Response. */
+function exportAnswer(body: string, headers: Record<string, string>, status = 200): Response {
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    statusText: status === 200 ? "OK" : "Payload Too Large",
+    text: async () => body,
+    headers: { get: (name: string) => headers[name.toLowerCase()] ?? null }
+  } as Response;
+}
 
 const alpha = "device-a-0123456789ab";
 const beta = "device-b-0123456789ab";
@@ -204,6 +215,10 @@ describe("AuditTable", () => {
     vi.mocked(downloadFile).mockReset();
   });
 
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it("shows a relative time and keeps the exact date in the title", () => {
     const ts = Date.now() - 3 * 24 * 60 * 60_000;
     render(
@@ -233,6 +248,94 @@ describe("AuditTable", () => {
     expect(name).toMatch(/^summrise-audit-\d{8}-\d{6}\.csv$/);
     expect(body).toContain('"tool"');
     expect(type).toBe("text/csv;charset=utf-8");
+  });
+
+  it("exports the newest window in hand as JSON Lines, oldest first", () => {
+    render(<AuditTable lines={lines} devices={devices} tokens={[]} />);
+
+    const button = screen.getByRole("button", {
+      name: /^Export JSONL: the newest window in hand/
+    });
+    // The visible word names the format, so it is not mistaken for the CSV beside it; the
+    // accessible name still says the file is the window, not the table's narrowed rows.
+    expect(button).toHaveTextContent("Export JSONL");
+    expect(button).toHaveAccessibleName(/the table's other filters do not apply$/);
+    fireEvent.click(button);
+
+    expect(downloadFile).toHaveBeenCalledTimes(1);
+    const [name, body, type] = vi.mocked(downloadFile).mock.calls[0];
+    expect(name).toBe("summrise-audit-20261026T080000.000Z_to_20261026T080002.001Z.ndjson");
+    expect(type).toBe("application/x-ndjson");
+    const written = String(body)
+      .trimEnd()
+      .split("\n")
+      .map((entry) => JSON.parse(entry));
+    expect(written.map((entry) => entry.ts_ms)).toEqual([
+      lines[0].ts_ms,
+      lines[1].ts_ms,
+      lines[2].ts_ms
+    ]);
+    expect(String(body).startsWith("{")).toBe(true);
+  });
+
+  it("asks the console for the drawn range, device and bounds included", async () => {
+    const range = {
+      from: new Date(2026, 10, 5, 9, 0, 0, 0).getTime(),
+      to: new Date(2026, 10, 5, 17, 0, 0, 0).getTime()
+    };
+    const filename = "summrise-audit-20261105T010000.000Z_to_20261105T090000.000Z_a1a1a1a1a1a1.ndjson";
+    const fetchMock = vi.fn().mockResolvedValue(
+      exportAnswer('{"ts_ms":1,"kind":"mcp"}\n', {
+        "content-type": "application/x-ndjson",
+        "content-disposition": `attachment; filename="${filename}"`
+      })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <AuditTable
+        lines={lines}
+        devices={devices}
+        tokens={[]}
+        selectedDeviceId={alpha}
+        range={range}
+      />
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: /^Export JSONL: the drawn range/ })
+    );
+
+    await waitFor(() => expect(downloadFile).toHaveBeenCalledTimes(1));
+    expect(fetchMock).toHaveBeenCalledWith(
+      `/audit/export?from=${range.from}&to=${range.to}&device=${alpha}`
+    );
+    const [name, body, type] = vi.mocked(downloadFile).mock.calls[0];
+    expect(name).toBe(filename);
+    expect(String(body)).toBe('{"ts_ms":1,"kind":"mcp"}\n');
+    expect(type).toBe("application/x-ndjson");
+  });
+
+  it("says a range too large to export was refused, and saves no partial file", async () => {
+    const range = {
+      from: new Date(2026, 10, 5, 9, 0, 0, 0).getTime(),
+      to: new Date(2026, 10, 5, 17, 0, 0, 0).getTime()
+    };
+    const message =
+      "the range needs more than the 50,000-line scan bound; ask for a narrower range";
+    const fetchMock = vi.fn().mockResolvedValue(
+      exportAnswer(JSON.stringify({ error: "range_too_large", message }), {
+        "content-type": "application/json"
+      }, 413)
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<AuditTable lines={lines} devices={devices} tokens={[]} range={range} />);
+    fireEvent.click(
+      screen.getByRole("button", { name: /^Export JSONL: the drawn range/ })
+    );
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("50,000-line scan bound");
+    expect(downloadFile).not.toHaveBeenCalled();
   });
 
   it("asks the console for a preset instead of filtering the window it holds", () => {
