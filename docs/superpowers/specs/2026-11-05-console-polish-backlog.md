@@ -226,7 +226,7 @@ nothing on the fleet says so.
    sheet and the mint form state "the device scope is fixed at creation; Rotate keeps it; to cover
    different machines, mint a new token", and the mint form names the machines it will cover.
    **M.**
-3. **The enrollment command still depends on a PATH entry the installer never writes.** The console
+3. **The enrollment command still depends on a PATH entry the installer never writes.** *(Implemented 2026-11-06, 8f1775c: after the install's `/api/health` proof the setup reads the machine `Path` in the 64-bit view, appends the delimited `$INSTDIR` only when absent, writes it as REG_EXPAND_SZ and broadcasts `WM_SETTINGCHANGE`; the uninstaller removes exactly its delimited entry (four positions) and broadcasts. A read error, a Path over the ruled 2000 or over NSIS's 1023-character string cap is logged and the value is left alone; the install continues. Compiled: `SummriseSetup-0.3.282.exe` 172,206 B, exit 0 with stub payloads. NOT RUN ON WINDOWS: the append, idempotency, empty/trailing separator cases, the System::Call broadcast, both length guards and the uninstaller's removal are unexercised; the operator's next install is the first proof. Read-only fleet check: 9VH Path 342 chars, CPH 869, both REG_SZ and the entry absent; 14R did not answer.)* The console
    sentence (task 6) tells the operator to open the prompt in the install folder; the product's own
    command is still a bare `summrise-device.exe`, so a prompt opened anywhere else fails. The
    installer knows the root; the console does not. **Fix:** the installer appends `$INSTDIR` to the
