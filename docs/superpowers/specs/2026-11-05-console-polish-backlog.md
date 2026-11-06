@@ -362,6 +362,11 @@ console's terminal tab is the surface that finds this; the device's read is the 
    two resets for calls that the direct path answers in 1.012 s). **Fix:** for a client already on
    the tailnet, name the direct address beside the public one; outside the tailnet the public door
    stays. **S.** (console copy + the operator's clients; the tunnel itself is deployment.)
+   *(Reframed 2026-11-06: the console's copy cannot remove the tunnel's wait, and a direct address
+   needs a trusted certificate (the nginx's is self-signed), so this is a **deployment item**, not a
+   console code item: repair the tunnel, or serve the tailnet door with a trusted (Tailscale)
+   certificate and name it. The console keeps stating the public door honestly; nothing is added to
+   the page that would not shorten the wait.)*
 
 ## How a round goes
 
