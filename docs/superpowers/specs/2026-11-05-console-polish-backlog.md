@@ -482,7 +482,7 @@ the setup failure first, then honesty, then the phone, then recovery.
    input fact is a phantom control sequence, not a keystroke. **Fix:** ignore control-only input in
    `lastTypedInput`, or label it; fall back to `No keystroke recorded`. **S.**
 
-9. **The Machine tab says "Helper not running" when the fact is "not registered".** The fleet read is
+9. **The Machine tab says "Helper not running" when the fact is "not registered".** *(Done 2026-11-06, 96f9c28, live 0.3.273-ux87: the Machine tab reads `Helper | not registered this boot` for the fleet's `registered:false`, `not reported` when no fact exists, and appends pid/session only when the fleet reports them; `not running` is gone from the built page. 783 web tests (+3), gate PASS 50 steps, a11y 0/3, `build-web --check`. Screenshot /tmp/live-ux87-machine.png.)* The fleet read is
    `helper: {pid:null, registered:false, session:null}` and the Screen page says "has not
    registered"; the Machine tab's `not running` claims a process state the console did not read.
    **Cost:** the operator may hunt a stopped process; the two surfaces describe one fact
