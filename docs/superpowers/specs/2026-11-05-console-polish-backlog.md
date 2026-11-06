@@ -334,25 +334,19 @@ console's terminal tab is the surface that finds this; the device's read is the 
    the next output) so the next bytes are pushed, not polled. **S/M.** (console server; measured by
    task 14's live run.)
 
-4. **A quiet session's read does not return on its wait.** Measured 2026-11-06 on 9VH (0.3.282) after
-   the flood check: `terminal.read` on a fresh quiet PowerShell pty (session-4, cursor 0) with
-   `wait_ms: 1000` held the MCP call for 45 s; the same read without `wait_ms` returned 0 bytes after
-   20 s; `terminal.list` answered in 3 s. A read at a quiet cursor must return the empty answer when
-   its wait expires instead of holding the call (and the device) open. **Fix:** the read's wait is
-   capped by the requested wait (and a default bound), the empty ring returns empty, and the tool
-   handler never waits beyond it. **M.** (device; the pty/read wait path, a release.)
-   *(Second measurement 2026-11-06 on 9VH 0.3.283, after the device restart: the fresh quiet pty
-   session-1's `terminal.read` with `wait_ms` 1000 hung 45 s (0 bytes) and with `wait_ms` 0 hung 20 s;
-   `terminal.list` answered (session-1 listed) and `runs.exec` answered in 297 ms. c3162d6 fixed the
-   follow's socket queue but not this: the read's own task never answers while the registry and the
-   tool writer serve other calls. Next: the read path itself — the output lock's poison recovery, the
-   in-flight permit, or the local device link's dispatch — with a device thread dump and its log.)*
-   *(Third observation 2026-11-06 on 9VH 0.3.283: after a handful of hung terminal.read calls the
-   device's other tools stopped answering too — a root-page fetch through runs.exec got 0 bytes in
-   30 s, where runs.exec had answered in 297 ms minutes earlier. The console transport's
-   `MAX_IN_FLIGHT_FRAMES` is 16 and each hung read task holds one of its permits, so a read whose
-   wait never ends eventually takes the whole tool surface down with it. A restart clears it; the
-   fix must make the read task complete at its deadline (and bound the semaphore wait).)*
+4. **A tool call through the console can spend 45 s upstream of a healthy device.** *(Reframed
+   2026-11-06 by the device-side audit: the device's 12,674 `terminal.read` pairs all end — the
+   longest is 20.003 s for a requested 20,000 ms, the long polls end at 15.002 s, and at most 2 of
+   its 16 in-flight permits were used; current reads are 1 ms. The earlier 45 s (wait_ms 1000) and
+   20 s (wait_ms 0) client timeouts, and the 0-byte `runs.exec`, are therefore upstream: the
+   console's aggregate MCP / device channel / route. The console's own audit rows carry the
+   console-side duration — compare them with the device's 15 s pairs. **Fix:** remove the console's
+   queue/loss so a tool answer arrives within its wait; task 18. **M.** (console; no device
+   release.)*
+
+5. **The console transport's in-flight acquire is unbounded.** `console.rs:795` awaits
+   `in_flight.acquire_owned()` with no bound; if the 16 permits ever do run out, every tool call
+   hangs instead of answering "the device is busy". **S.** (device; hardening, later release.)
 
 ## How a round goes
 
