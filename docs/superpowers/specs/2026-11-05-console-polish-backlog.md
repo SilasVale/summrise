@@ -507,7 +507,7 @@ record, then the panel, then the smaller corrections.
    **Cost:** a file edit is lost in one click; the page's warning is not a guard. **Fix:** ask
    `Discard unsaved changes?` when `dirty`, or disable Close until Save/Discard. **S.**
 
-3. **The Runs record's full command buries exit/duration/started.** The record paints the full
+3. **The Runs record's full command buries exit/duration/started.** *(Done 2026-11-06, fbbd71f, live 0.3.273-ux90: the record draws Exit/Duration/Started/Working directory/stdout/stderr directly under its header, and a long command is painted as a 109-char short form with `4,481 of 4,590 characters hidden.` and a `Show full command` toggle (aria-expanded/aria-controls) that swaps in the exact line; Copy command still copies the full. Gate: at 1440 the card is 1,551→461 px and the facts move y 1,400/1,433/1,466 → 275/308/341; at 390 2,264→519 and 2,106/2,139/2,172 → 104/137/170. 789 tests (+2), gate PASS 51 steps, a11y 0/3, `build-web --check`. Live: the audit's long run's record shows the hidden count, the toggle and the facts above the command (screenshot /tmp/live-ux90-record.png).)* The record paints the full
    4,590-character `-EncodedCommand` line: 1,190 px of a 1,551 px card at 1440, 1,866 px of a
    2,299 px card at 390; the facts begin at y 1,393/2,114. **Cost:** the record's one job is below
    the fold; the operator scrolls base64 to read the exit. **Fix:** `shortCommand` in the record
