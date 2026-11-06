@@ -459,7 +459,7 @@ the setup failure first, then honesty, then the phone, then recovery.
    range is indistinguishable from a failed export. **Fix:** disable both exports on a 0-line range,
    or answer with the range's empty sentence. **S.**
 
-5. **The offline machine's Tools tab says "Reading the tool list…" forever.** At 9 s the header still
+5. **The offline machine's Tools tab says "Reading the tool list…" forever.** *(Done 2026-11-06, d8d586b, live 0.3.273-ux83: the header is state-derived — the count when loaded, `Reading the tool list…` only while loading, `No tool list from this machine; it is offline.` when finished empty and offline, `No tool list from this machine.` when finished empty online. Live 14R: no Reading, the offline header and the body's no-list sentence; 9VH: `46 tools · 11 capabilities`. 771 tests (+3), gate PASS 48 steps, a11y 0/3, `build-web --check`. Screenshots /tmp/live-ux83-14r-tools.png, /tmp/live-ux83-9vh-tools.png.)* At 9 s the header still
    reads `Reading the tool list…` above `The console has no tool list from this machine yet.`; the
    header keys on `tools.length === 0`, not `loading`. **Cost:** a read that cannot finish is
    announced as in progress; the operator waits or retries against an offline machine. **Fix:** use
