@@ -859,7 +859,7 @@ URL in use was the build box's tailnet mirror
    (≤5 min) or a manual start. **Fix:** detect an existing install, keep its root (upgrade in place)
    or refuse a different one with a sentence, and stop the service only once the new generation is
    staged and provable. **M.**
-4. **The public download is 267 builds old.** `GET /repos/SilasVale/summrise/releases?per_page=1`
+4. **The public download is 267 builds old.** *(Measured 2026-11-06: not a console-repo defect. The landing at `summrise.saisi.online` and the `SilasVale/summrise` releases it links to live in the other working tree `/home/zss/summrise` (`index/`); this repo has no landing source. This repo's own `.github/workflows/installer.yml` already attaches the installer to a `v*` tag release (`gh release upload`), so the console side of the pipeline exists — closing this needs the landing repo to point at the release the console serves, i.e. a product decision about which product the public door sells, made there. Left open, out of this repo's scope.)* `GET /repos/SilasVale/summrise/releases?per_page=1`
    answers `v0.3.12` (2026-10-23); the console is `0.3.273-ux63` and the fleet `0.3.279`. **Cost:** a
    person following the product's own download enrols a console-compatible device from a build 267
    device versions behind; the current installer lives on a tailnet address. **Fix:** publish the
