@@ -272,6 +272,26 @@ ships with a device release and never alone.
    know the order. **Fix:** one locale-stable format for created/used/expires — `2026-11-04` (the
    audit's own ISO dates) or a fixed `4 Nov 2026` — with the exact time in the cell's `title`. **S.**
 
+
+## P0 — the twelfth list (opened 2026-11-06, from the live terminal)
+
+Measured live on 0.3.273-ux70, DESKTOP-84T3LIN's serial session-3: the tab read `serial · 41m #3
+read failed`, the pane was an empty cursor, and the sentence said `Reading this session failed:
+terminal.read: the cursor 7812078 is older than the retained output, which starts at 8612223. The
+tab continues from the earliest output the device retains.` Try again repeats the same refusal.
+
+1. **A stream fault from an old cursor leaves the tab dead.** `TerminalWorkspace.tsx`'s `fail()`
+   moves the cursors map to the earliest byte the device retains, but the stream that sent the
+   refusal is not reconnected and the polling feed is only used when the stream is absent; no read
+   ever uses the new cursor, and the pane never draws the output the sentence promises. A tab that
+   fell behind the 1 MiB ring (a hidden tab, a fast serial line) is therefore unrecoverable until
+   Try again — and Try again reopens against the same faulted state. **Cost:** the operator sees a
+   dead tab that claims it continues, while the device still holds a megabyte of the session.
+   **Fix:** on a cursor-too-old refusal, reconnect the stream (or poll) with the earliest cursor
+   automatically and clear the fault when bytes arrive; if the ring keeps advancing faster than the
+   read, degrade to the newest retained output with a sentence naming the dropped bytes, never an
+   empty dead tab. **M.**
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
