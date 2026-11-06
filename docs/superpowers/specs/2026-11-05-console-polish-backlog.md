@@ -390,7 +390,7 @@ every number is a live DOM measurement and the screenshots are `/tmp/audit-20-*.
    **Fix:** use the registry's destructive flags, or the last live catalogue, for the fleet count;
    say `the count is read from a machine` when the flags are unknown, never `0`. **S.**
 
-2. **The hub's day line is four calls longer than its own fold can reach.** The hub read
+2. **The hub's day line is four calls longer than its own fold can reach.** *(Done 2026-11-06, f5b42f5, live 0.3.273-ux76: the hub keeps `/fleet`'s day pair (count + failed) and draws a repeats sentence beside the fold whenever the merged window drops repeats and no cut-window sentence already names them; the audit's shape now reads `Today 183 client calls · 8 failed · last 22:51`, `Show the rest of today (119 more)`, `4 repeats not drawn.` (60+119+4=183). 741 tests (+2), gate PASS 41 steps, a11y 0/3, `build-web --check`. Live: the hub draws `36 repeats not drawn.` beside its fold — the console's own reads are that population, while the day line stays the client calls' pair; screenshot /tmp/live-ux76-hub3.png.)* The hub read
    `Today 183 client calls · 8 failed · last 22:51` with `Show the rest of today (119 more)` over
    60 rows; 60 + 119 = 179, and clicking drew 179. The window held 183 client lines and four
    repeated `(ts_ms, tool, status)` keys; the merge drops them and the hub says nothing, while
