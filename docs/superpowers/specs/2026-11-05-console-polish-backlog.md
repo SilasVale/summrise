@@ -380,7 +380,7 @@ not cover: two honesty gaps at the moment of minting and counting, and two phone
 checks missed. Measured at 1440×960 and 390×844, Asia/Shanghai, selected machine 9VH92BJ (v0.3.284);
 every number is a live DOM measurement and the screenshots are `/tmp/audit-20-*.png`.
 
-1. **The fleet token form says no tool can change a machine while the machine form says 15.**
+1. **The fleet token form says no tool can change a machine while the machine form says 15.** *(Done 2026-11-06, ad0d655, live 0.3.273-ux75: the catalogue hook now keeps `/tools`'s destructive flags (a fallback name carries `null`, never `false`), and the token form counts the live list or the registry, so the fleet form reads `46 tools · 15 can change the machine · one list for every machine in the token's scope`; when the flags are genuinely unread the sentence says the count is read from a machine, never `0 can change`. 739 tests (+2), gate PASS 41 steps, a11y 0/3, `build-web --check`. Live screenshot /tmp/live-ux75-fleet-tokens.png.)*
    Without a current machine the Tokens form falls back to the 46 tool names with every destructive
    flag false and prints `46 tools · 0 can change the machine · one list for every machine in the
    token's scope`; the same sheet with 9VH92BJ selected prints `46 tools · 15 can change the
