@@ -257,6 +257,21 @@ one only by date, not by scope.
    so the person choosing "all machines" sees what they are covering; the token still covers what
    it says. **S.**
 
+
+## P2 — the eleventh list (opened 2026-11-06, from the live token sheet's dates)
+
+Measured on 0.3.273-ux69: the Tokens sheet renders created/used/expires through
+`toLocaleDateString()` — the live rows read `used 11/6/2026`, `created 11/4/2026` in an en-US
+browser. The console's other time language is relative (`1d 1h ago`, `seen 37s ago`) or a clock
+(`last 17:23`); the sheet is the one place a bare numeric date can be read as 4 November or 11
+April. The device-side panel item stays in its own section ("Device-side, still open"), because it
+ships with a device release and never alone.
+
+1. **The token sheet's dates are the browser's locale, not the console's clock.** Same audit: the
+   dates are the only absolute dates in the console; a CN operator sees `11/4/2026` with no way to
+   know the order. **Fix:** one locale-stable format for created/used/expires — `2026-11-04` (the
+   audit's own ISO dates) or a fixed `4 Nov 2026` — with the exact time in the cell's `title`. **S.**
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
