@@ -30,7 +30,7 @@ The 2026-11-04 outage is over: the fleet has run `0.3.279` since 2026-11-05 (thr
 online; the third asleep). What the outage queued has shipped — the first list's statuses say which
 commit and which live list prove it.
 
-5. **The device's own panel gets the same record.** The panel the device serves
+5. **The device's own panel gets the same record.** *(Implemented 2026-11-06, 27179dd: the panel's Timeline card reads the newest 200 lines of the device's own `events.jsonl`, groups them by the local day and draws one row per begin/end pair with the time, tool, outcome, door and the end's error; a bound sentence when the 200 cut it, an empty sentence and an unreadable sentence. 604 device tests, the panel's 28, fmt/clippy clean; the ignored review test wrote `panel-timeline.html` (105 rows, failed tone, bound). Device-side: it ships with a device release — the release is staged separately and the operator's next install is the first live run.)* The panel the device serves
    (`device/device/src/panel.rs`, reachable on the machine and from the console's Screen page) still
    shows raw tables. It should show the same day-grouped timeline — the device already has the audit
    and every call it serves, so this is device-side work and ships with a device release, never alone.
