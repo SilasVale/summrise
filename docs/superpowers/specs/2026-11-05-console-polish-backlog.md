@@ -213,7 +213,7 @@ nothing on the fleet says so.
    panel's sentence names the install folder; decide once, in the installer. **M.** (installer +
    one console sentence.) *(Split 2026-11-06: the console sentence is task 6 now; the PATH entry is
    item 3 below, because only the installer knows the root and it needs the Windows run.)*
-2. **A credential has no door from the fleet, and its fixed scope is unstated.** Tokens live only
+2. **A credential has no door from the fleet, and its fixed scope is unstated.** *(Done 2026-11-06, 5bc53c4, live 0.3.273-ux66: a Tokens control in the fleet header and the Add-a-machine panel opens the existing Connect sheet's Tokens section — no second token UI; the section states "A token's device scope is fixed when it is minted. Rotate keeps it; to cover different machines, mint a new token."; the mint form names the machines the new token will cover and the Rotate dialog says the fixed scope is kept. jsdom 717 tests (+6), typecheck 0, browser gate PASS 36 steps (the 390 door opens the Tokens section and the sentence is visible; screenshot /tmp/console-browser-gate/06b-fleet-tokens-390.png), a11y 0 findings, `build-web --check` clean. Live: the fleet's door opened the Tokens sheet with the sentence; screenshots /tmp/live-tokens-door-1440.png and /tmp/live-tokens-door-390.png.)* Tokens live only
    under Account → Tokens; the live fleet, the Add-a-machine panel and the Connect sheet have no
    Tokens link (`onTokens` is wired only for the Connect sheet). The operator's colleague measured
    "console.saisi.online 根本没有看到 token" on 2026-11-06, while the console actually held five
