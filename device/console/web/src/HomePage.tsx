@@ -580,6 +580,16 @@ function HubHome(
   // the fetched window, and the sentence counts exactly what they hold. It is drawn where Activity
   // draws its cap sentence, and only when this machine's window was cut.
   const windowSentence = ownWindowCut ? hubWindowSentence(hubCounts) : null;
+  // **THE REPEATS ARE NAMED WHEREVER THE WINDOW DROPS THEM, CUT OR NOT.** The day line is `/fleet`'s
+  // day read, which counts every line the file holds; the fold draws the merged window, which draws
+  // a repeated `(ts_ms, tool, status)` key once. On 2026-11-05 that was 183 counted over 179
+  // drawable, and an uncut window had no sentence at all, so the four rows vanished silently. This
+  // is Activity's cap-sentence fact, in its words, beside the fold. A cut window already prints it
+  // in `hubWindowSentence`, so the two cannot say the same count twice.
+  const repeatsSentence =
+    mergedWindow.repeats > 0 && windowSentence === null
+      ? `${plural(mergedWindow.repeats, "repeat")} not drawn.`
+      : null;
   // The empty sentence names what the list is missing rather than claiming nothing happened. With
   // console reads folded, an empty list is usually the console's own polling, and the chip above is
   // the way to it; a window with only unattributed rows is not the AI's work either, and says so
@@ -732,6 +742,11 @@ function HubHome(
           <button type="button" className="link home-more" onClick={() => setWholeDay(true)}>
             Show the rest of today ({hiddenDayRows} more)
           </button>
+        )}
+        {repeatsSentence !== null && (
+          // The day line counts the day; the fold draws the merge. This is the row difference
+          // Activity's cap sentence names, so 60 + 119 + 4 = 183 has a sentence that says so.
+          <p className="hint home-repeats">{repeatsSentence}</p>
         )}
         <WindowRead readAt={readAt} fetchedNewest={fetchedNewest} liveNewest={liveNewest} />
       </section>

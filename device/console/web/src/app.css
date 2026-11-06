@@ -402,6 +402,8 @@ main.terminal-main { display: grid; grid-template-rows: auto minmax(0, 1fr); ali
 /* When the fetched window is older than the live lines, the hub says when it was read. It is a note
    under the timeline, not a second list header: one line, at the panel's own gap. */
 .home-read { margin: 0; }
+/* The rows the merge dropped are named beside the fold, in Activity's cap-sentence words. */
+.home-repeats { margin: 0; }
 /* The Activity header's day count: the hub's summary type, above the stream's own sentence. */
 .activity-today { font-variant-numeric: tabular-nums; }
 /* The day's fold control is a text button in the panel's own column, not a centred page footer. */

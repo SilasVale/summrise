@@ -985,6 +985,74 @@ describe("Home — the hub", () => {
     ).toBeInTheDocument();
   });
 
+  it("names the four repeats the day line counts but the window drops", async () => {
+    // The audit's uncut shape: 60 drawable rows plus four repeated keys. `/fleet` counts all 64
+    // client lines, the merge draws 60, and there is no fold because all 60 drawable rows are
+    // drawn. The day line and the fold cannot meet without the sentence Activity's cap sentence
+    // already prints: 60 drawn + 4 repeats not drawn = the 64 the day line counts.
+    const start = new Date();
+    start.setHours(0, 0, 0, 0);
+    const base = start.getTime() + 3_600_000;
+    const calls = Array.from({ length: 60 }, (_, index) =>
+      call({
+        ts_ms: base - index * 1000,
+        caller: "client",
+        tool: `tool.${index}`,
+        sentence: `Call ${index}`,
+        // The four failures are drawable; the repeats below are successful, so the day read's
+        // `failed` and the failures the list draws are the same four.
+        status: index < 4 ? 503 : 200
+      })
+    );
+    const repeats = calls.slice(4, 8).map((line) => ({ ...line }));
+    draw({
+      audit: [...calls, ...repeats],
+      device: { ...workshop, today: { client_calls: 64, failed: 4 } }
+    });
+
+    expect(
+      await screen.findByText("Today 64 client calls · 4 failed · last 01:00")
+    ).toBeInTheDocument();
+    await waitFor(() => expect(document.querySelectorAll(".timeline-row")).toHaveLength(60));
+    expect(screen.queryByRole("button", { name: /Show the rest of today/ })).toBeNull();
+    expect(screen.getByText("4 repeats not drawn.")).toBeInTheDocument();
+  });
+
+  it("names the four repeats between the measured day line and its fold", async () => {
+    // The 2026-11-05 hub: `/fleet` counted 183 client calls and 8 failed, the window held four
+    // repeated keys, and the fold drew 60 + 119 = 179 rows. The sentence is the missing term:
+    // 60 + 119 + 4 = 183, and the failed count is the same eight the list draws.
+    const start = new Date();
+    start.setHours(0, 0, 0, 0);
+    const base = start.getTime() + 3_600_000;
+    const calls = Array.from({ length: 179 }, (_, index) =>
+      call({
+        ts_ms: base - index * 1000,
+        caller: "client",
+        tool: `tool.${index}`,
+        sentence: `Call ${index}`,
+        status: index < 8 ? 503 : 200
+      })
+    );
+    const repeats = calls.slice(8, 12).map((line) => ({ ...line }));
+    draw({
+      audit: [...calls, ...repeats],
+      device: { ...workshop, today: { client_calls: 183, failed: 8 } }
+    });
+
+    expect(
+      await screen.findByText("Today 183 client calls · 8 failed · last 01:00")
+    ).toBeInTheDocument();
+    const more = screen.getByRole("button", { name: "Show the rest of today (119 more)" });
+    expect(screen.getByText("4 repeats not drawn.")).toBeInTheDocument();
+    fireEvent.click(more);
+
+    await waitFor(() => expect(document.querySelectorAll(".timeline-row")).toHaveLength(179));
+    expect(screen.queryByRole("button", { name: /Show the rest of today/ })).toBeNull();
+    // The sentence stays after the fold is gone: the window still dropped the four rows.
+    expect(screen.getByText("4 repeats not drawn.")).toBeInTheDocument();
+  });
+
   it("recounts the rest when a live row arrives while collapsed", async () => {
     const { rerenderHub } = draw({ audit: todayCalls(75) });
     await screen.findByRole("button", { name: "Show the rest of today (15 more)" });
