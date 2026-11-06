@@ -360,6 +360,8 @@ const state = {
   /** How many `/audit/export` requests the page made, and the bounds the last one asked for. */
   exportRequests: 0,
   lastExport: null,
+  /** Whether the next `/audit/export` is answered as a refusal (the alert's state). */
+  refuseExport: false,
   /** Whether the console's deployment staged an installer, and how often the page asked. */
   installerAvailable: true,
   installerRequests: 0
@@ -486,6 +488,10 @@ function apiReply(request, url) {
   // control drew; the gate answers chronological JSON Lines and records the query, so the leg
   // below proves the button asked for the range rather than saving whatever happened to be drawn.
   if (method === 'GET' && pathname === '/audit/export') {
+    if (state.refuseExport) {
+      state.exportRequests += 1;
+      return json({ error: 'the range holds more lines than the console will scan' }, 413);
+    }
     const fromMs = Number(url.searchParams.get('from'));
     const toMs = Number(url.searchParams.get('to'));
     const device = url.searchParams.get('device');
@@ -678,7 +684,11 @@ const browser = await playwright.chromium.launch();
 const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
 const errors = [];
 page.on('console', (message) => {
-  if (message.type() === 'error') errors.push(message.text());
+  if (message.type() !== 'error') return;
+  // The gate deliberately answers one export with a 413; the browser logs the refused fetch as a
+  // resource error, and that refusal is the state under test, not a page fault.
+  if (state.refuseExport && message.text().includes('413')) return;
+  errors.push(message.text());
 });
 page.on('pageerror', (error) => errors.push('pageerror: ' + error.message));
 page.on('response', (response) => {
@@ -1469,6 +1479,33 @@ try {
     `at 390 Export asked /audit/export for the drawn ${state.lastExport.from}–` +
       `${state.lastExport.to} and received ${JSON.stringify(exportDisposition)}`
   );
+
+  // **A REFUSAL IS AN ALERT, AND IT ENDS WITH ITS RANGE.** The route's 413 is a sentence the
+  // operator must see: the gate answers one, and the page must draw it in the console's alert
+  // surface with a Dismiss — not the muted hint that outlived the range. Clear resets the range and
+  // must take the sentence with it.
+  state.refuseExport = true;
+  await page.getByRole('button', { name: /^Export JSONL: the drawn range/ }).click();
+  const refusal = page.locator('.alert-inline[role="alert"]');
+  await refusal.waitFor({ state: 'visible', timeout: 10_000 });
+  const refusalText = (await refusal.innerText()).trim();
+  if (!refusalText.includes('The console refused this export:')) {
+    throw new Error(`the refusal alert read ${JSON.stringify(refusalText)}`);
+  }
+  if ((await refusal.getAttribute('class') ?? '').includes('hint')) {
+    throw new Error('the refusal still wears the hint surface');
+  }
+  if ((await page.getByRole('button', { name: 'Dismiss' }).count()) === 0) {
+    throw new Error('the refusal alert has no Dismiss');
+  }
+  await page.screenshot({ path: path.join(OUT, '07f-export-refusal-390.png') });
+  await page.getByRole('button', { name: 'Clear' }).first().click();
+  await page.waitForTimeout(800);
+  if ((await page.locator('.alert-inline[role="alert"]').count()) !== 0) {
+    throw new Error('the refusal alert survived the range it answered for');
+  }
+  state.refuseExport = false;
+  step('a refused export draws an alert, and Clear ends it with its range');
 
   // **THE OFFLINE REASON WRAPS INSTEAD OF LOSING ITS LAST WORD.** The measured notice cut
   // "…and then dropped it" to "…and then dro…": 283 px of text in a 265 px line, with the rest only
