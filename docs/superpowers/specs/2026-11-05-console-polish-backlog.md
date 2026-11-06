@@ -197,6 +197,11 @@ workstream owns; each one ships with the same gates as a feature.
 - **C5. Fleet tokens as a second minting place.** *(Done via P1-7: one list with a scope column and one mint form; `FleetTokens.tsx` deleted. Closed 2026-11-04.)* One credential list with a scope column replaces
   two pages.
 
+*(Verified live 2026-11-06 on 0.3.273-ux74: all five hold — the hub has no endpoint hero (the only
+endpoint is in the Connect sheet), the timeline's filter bar is machine chips + search, the tool
+sheet has no Try-it, no page links to `/next` (the shim answers 303) and one mint form sits behind
+every door. Audit: `.superpowers/sdd/2026-11-05-console-polish-backlog/audit-20-report.md`.)*
+
 
 ## P0 — the ninth list (opened 2026-11-06, from the operator's first client and the token confusion)
 
@@ -367,6 +372,49 @@ console's terminal tab is the surface that finds this; the device's read is the 
    console code item: repair the tunnel, or serve the tailnet door with a trusted (Tailscale)
    certificate and name it. The console keeps stating the public door honestly; nothing is added to
    the page that would not shorten the wait.)*
+
+## P0 — the fourteenth list (opened 2026-11-06, from the audit of 0.3.273-ux74)
+
+The five cuts hold on the live console. What the tour found is four residuals the thirteen lists do
+not cover: two honesty gaps at the moment of minting and counting, and two phone layouts the 390
+checks missed. Measured at 1440×960 and 390×844, Asia/Shanghai, selected machine 9VH92BJ (v0.3.284);
+every number is a live DOM measurement and the screenshots are `/tmp/audit-20-*.png`.
+
+1. **The fleet token form says no tool can change a machine while the machine form says 15.**
+   Without a current machine the Tokens form falls back to the 46 tool names with every destructive
+   flag false and prints `46 tools · 0 can change the machine · one list for every machine in the
+   token's scope`; the same sheet with 9VH92BJ selected prints `46 tools · 15 can change the
+   machine`. The `Allow destructive tools` checkbox sits under the `0` as if it had nothing to
+   allow. **Cost:** the person minting a fleet token cannot tell whether the destructive tools are
+   in scope; the page and the device's `allow_destructive` gate disagree at the moment of minting.
+   **Fix:** use the registry's destructive flags, or the last live catalogue, for the fleet count;
+   say `the count is read from a machine` when the flags are unknown, never `0`. **S.**
+
+2. **The hub's day line is four calls longer than its own fold can reach.** The hub read
+   `Today 183 client calls · 8 failed · last 22:51` with `Show the rest of today (119 more)` over
+   60 rows; 60 + 119 = 179, and clicking drew 179. The window held 183 client lines and four
+   repeated `(ts_ms, tool, status)` keys; the merge drops them and the hub says nothing, while
+   Activity's cap sentence names its repeats. **Cost:** the one number and the list under it cannot
+   be reconciled; four calls disappear after the operator asks for the rest of the day. **Fix:**
+   draw the hub's repeats sentence whenever the window drops repeats, not only when it is cut; or
+   count the day line from the drawable rows, one rule with Activity. **S.**
+
+3. **At 390 the Runs history is a 320 px table with an 80 px Command column.** The first run's
+   command is 283 px tall (`powershe / ll.exe - / NoProfil / e - …`), the `stdout / stderr` header
+   wraps in a 52 px cell, and at that row height the 20-run history is a 5,660 px column. At 1440
+   Command is 679 px and a row is 57 px. **Cost:** the phone's run history cannot be scanned or a
+   command identified; the page's stated job — "Choose a command to read its record" — fails.
+   **Fix:** at ≤639 card each run: command full width and wrapping, then exit, duration, started,
+   output sizes; hide the header. **S.**
+
+4. **At 390 the token card squeezes the token's name to 26 px.** The card grid puts the name in
+   `minmax(0, 1fr)` beside an `auto` scope; a three-machine scope is 337 px, the name cell 0 px and
+   `.token-name strong` 26 × 176 px. `zss-harness-20261106-fleet` reads `zs / har / nes / s- / 202 /
+   611 / 06- / flee / t` and the row is 414 px tall; at 1440 the same row is one line. **Cost:** on
+   the phone the operator cannot tell which credential they are rotating or revoking, the one
+   field that identifies it being unreadable. **Fix:** at ≤639 make the card one column — name full
+   width with the scope under it — or cap the scope cell and let it wrap; keep the action row.
+   **S.**
 
 ## How a round goes
 
