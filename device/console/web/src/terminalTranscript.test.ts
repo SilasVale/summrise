@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   earliestCursor,
+  endCursor,
   readTranscript,
   RETAINED_BYTES,
   transcriptFile,
@@ -19,6 +20,16 @@ describe("earliestCursor", () => {
 
   it("returns null for any other sentence", () => {
     expect(earliestCursor("The device is unreachable: Failed to fetch.")).toBeNull();
+  });
+});
+
+describe("endCursor", () => {
+  it("reads the session's end from the device's past-the-end refusal", () => {
+    expect(endCursor("terminal.read: the cursor 9007199254740991 is past the session's end (4096)")).toBe(4096);
+  });
+
+  it("returns null for any other sentence", () => {
+    expect(endCursor(tooOld(0, 4096))).toBeNull();
   });
 });
 

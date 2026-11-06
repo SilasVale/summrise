@@ -37,6 +37,46 @@ const mockedSearch = vi.hoisted(() => ({
   previousResult: true
 }));
 
+/**
+ * `EventSource`, replaced with one the test drives.
+ *
+ * jsdom has none, so the workspace falls back to polling; a test about the stream needs a source it
+ * can refuse and answer on. Every instance is one connection and knows the `from` it asked for,
+ * which is how a reconnect is asserted to use the cursor the device named, not the one it refused.
+ */
+class TestTerminalSource {
+  static instances: TestTerminalSource[] = [];
+  listeners = new Map<string, (event: MessageEvent) => void>();
+  closed = false;
+  onerror: ((event: Event) => void) | null = null;
+
+  constructor(public url: string) {
+    TestTerminalSource.instances.push(this);
+  }
+
+  addEventListener(type: string, listener: (event: MessageEvent) => void) {
+    this.listeners.set(type, listener);
+  }
+
+  close() {
+    this.closed = true;
+  }
+
+  emit(type: string, data: unknown) {
+    this.listeners.get(type)?.({ data: JSON.stringify(data) } as MessageEvent);
+  }
+
+  /** The cursor this connection asked the device to continue from. */
+  from(): number {
+    return Number(new URL(this.url, "http://console.test").searchParams.get("from"));
+  }
+}
+
+/** The device's refusal when a tab's cursor has fallen behind the output it retains. */
+function tooOld(cursor: number, earliest: number): string {
+  return `terminal.read: the cursor ${cursor} is older than the retained output, which starts at ${earliest}`;
+}
+
 vi.mock("@xterm/xterm", () => {
   class Terminal {
     cols = 80;
@@ -125,6 +165,7 @@ beforeEach(() => {
   mockedSearch.instances.length = 0;
   mockedSearch.nextResult = true;
   mockedSearch.previousResult = true;
+  TestTerminalSource.instances = [];
   callToolMock.mockReset();
   callToolMock.mockImplementation(async (_grant, name) => {
     if (name === "terminal.create") {
@@ -147,6 +188,7 @@ beforeEach(() => {
 
 afterEach(() => {
   restoreGlobal(window, "matchMedia", matchMedia);
+  vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
 
@@ -694,6 +736,217 @@ describe("TerminalWorkspace transcript", () => {
     expect(recoveredAt).toBeGreaterThan(0);
     expect(readCursors[recoveredAt - 1]).toBe(6);
     await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
+  });
+});
+
+describe("TerminalWorkspace stream recovery", () => {
+  /**
+   * Open the workspace's one session on a stream the test drives.
+   *
+   * `read` answers any polling read, so a test that expects the stream never to fall back to the
+   * polling loop can assert on the source it keeps instead. The returned source is the live
+   * connection the feed actually holds, not an earlier attempt an effect has already closed; the
+   * renderer is returned too, so a test can re-render the page under a rebuilt grant.
+   */
+  async function openStreamTab(
+    read: (args: Record<string, unknown>) => string = () => JSON.stringify({ data: "", cursor: 0 })
+  ) {
+    callToolMock.mockImplementation(async (_grant, name, args) => {
+      if (name === "terminal.list") return JSON.stringify([{ id: "t1", kind: "pty" }]);
+      if (name === "terminal.resize") return JSON.stringify({ rows: 24, cols: 80 });
+      if (name === "terminal.read") return read((args ?? {}) as Record<string, unknown>);
+      throw new Error(`the test did not expect a ${name} call`);
+    });
+    vi.stubGlobal("EventSource", TestTerminalSource);
+    const { rerender } = render(<TerminalWorkspace grant={GRANT} />);
+    await screen.findByRole("tab", { name: /^pty/ });
+    return { source: await nextLiveSource(), rerender };
+  }
+
+  /** Wait for a live connection other than `previous`; the feed opens one per recovery. */
+  async function nextLiveSource(previous?: TestTerminalSource): Promise<TestTerminalSource> {
+    return waitFor(
+      () => {
+        const live = TestTerminalSource.instances.filter((entry) => !entry.closed);
+        const latest = live[live.length - 1];
+        expect(latest).toBeDefined();
+        if (previous) expect(latest).not.toBe(previous);
+        return latest;
+      },
+      { timeout: 3_000 }
+    );
+  }
+
+  it("reopens the stream at the earliest retained cursor, draws its bytes and clears the fault", async () => {
+    const { source } = await openStreamTab();
+    expect(source.from()).toBe(0);
+
+    act(() => {
+      source.emit("fault", { sentence: tooOld(0, 4096), status: 200 });
+    });
+    // The tab explains the drop while it reconnects, rather than going dark with an empty pane.
+    expect(screen.getByRole("alert")).toHaveTextContent(/earliest output the device retains/);
+
+    const reopened = await nextLiveSource(source);
+    expect(reopened.from()).toBe(4096);
+
+    act(() => {
+      reopened.emit("output", { data: "retained\n", cursor: 4105 });
+    });
+
+    expect(mockedXterm.instances[0].write).toHaveBeenCalledWith("retained\n");
+    await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
+  });
+
+  it("moves again when the reconnected stream is refused with a newer earliest", async () => {
+    const { source } = await openStreamTab();
+
+    act(() => {
+      source.emit("fault", { sentence: tooOld(0, 4096), status: 200 });
+    });
+    const second = await nextLiveSource(source);
+    expect(second.from()).toBe(4096);
+
+    act(() => {
+      second.emit("fault", { sentence: tooOld(4096, 8192), status: 200 });
+    });
+    const third = await nextLiveSource(second);
+    expect(third.from()).toBe(8192);
+
+    act(() => {
+      third.emit("output", { data: "caught up\n", cursor: 8202 });
+    });
+    expect(mockedXterm.instances[0].write).toHaveBeenCalledWith("caught up\n");
+    await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
+  });
+
+  it("stops chasing a ring that keeps outrunning it and reads the newest tail", async () => {
+    const readCursors: number[] = [];
+    const text = "newest retained\n";
+    const end = 1_400_000;
+    const tailFrom = end - 4096;
+    const { source } = await openStreamTab((args) => {
+      const cursor = Number(args.cursor);
+      if (cursor === Number.MAX_SAFE_INTEGER) {
+        // `terminal.read` past the end is how the tab learns the current end without guessing.
+        throw new ToolError(
+          `terminal.read: the cursor ${cursor} is past the session's end (${end})`,
+          200,
+          null,
+          true
+        );
+      }
+      readCursors.push(cursor);
+      return JSON.stringify({ data: text, cursor: tailFrom + text.length });
+    });
+
+    act(() => {
+      source.emit("fault", { sentence: tooOld(0, 4096), status: 200 });
+    });
+    const second = await nextLiveSource(source);
+    act(() => {
+      second.emit("fault", { sentence: tooOld(4096, 8192), status: 200 });
+    });
+    const third = await nextLiveSource(second);
+    expect(third.from()).toBe(8192);
+
+    act(() => {
+      third.emit("fault", { sentence: tooOld(8192, 12288), status: 200 });
+    });
+
+    // The third refusal is not chased at its named start: the feed reads the newest tail from just
+    // below the session's end, states the whole drop from this tab's cursor, and reopens the stream
+    // from where that read finished.
+    expect(await screen.findByRole("alert")).toHaveTextContent(`${tailFrom} bytes were dropped`);
+    await waitFor(() => expect(readCursors).toContain(tailFrom));
+    expect(readCursors).not.toContain(12288);
+    expect(mockedXterm.instances[0].write).toHaveBeenCalledWith(text);
+    const reopened = await nextLiveSource(third);
+    expect(reopened.from()).toBe(tailFrom + text.length);
+    // Bytes that are gone are a fact about the scrollback; the output that follows does not erase
+    // the sentence that says how much is missing.
+    expect(screen.getByRole("alert")).toHaveTextContent(`${tailFrom} bytes were dropped`);
+  });
+
+  it("reads the newest tail when a recovery stream stays silent", async () => {
+    const readCursors: number[] = [];
+    const text = "tail after silence\n";
+    const end = 500_000;
+    const tailFrom = end - 4096;
+    const { source } = await openStreamTab((args) => {
+      const cursor = Number(args.cursor);
+      if (cursor === Number.MAX_SAFE_INTEGER) {
+        throw new ToolError(
+          `terminal.read: the cursor ${cursor} is past the session's end (${end})`,
+          200,
+          null,
+          true
+        );
+      }
+      readCursors.push(cursor);
+      return JSON.stringify({ data: text, cursor: tailFrom + text.length });
+    });
+
+    vi.useFakeTimers();
+    try {
+      act(() => {
+        source.emit("fault", { sentence: tooOld(0, 4096), status: 200 });
+      });
+      // The recovery connection opens at the start the refusal named, and says nothing.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(400);
+      });
+      const silent = TestTerminalSource.instances.filter((entry) => !entry.closed).pop();
+      expect(silent?.from()).toBe(4096);
+
+      // The catch-up guard gives it its bound, then the tab reads the newest tail instead of
+      // waiting forever for a megabyte the device is not delivering at the moving start.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(12_000);
+      });
+
+      expect(readCursors).toContain(tailFrom);
+      expect(mockedXterm.instances[0].write).toHaveBeenCalledWith(text);
+      expect(screen.getByRole("alert")).toHaveTextContent(/sent nothing within 12 seconds/);
+      expect(screen.getByRole("alert")).toHaveTextContent(`${tailFrom} bytes were dropped`);
+      const reopened = TestTerminalSource.instances.filter((entry) => !entry.closed).pop();
+      expect(reopened?.from()).toBe(tailFrom + text.length);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("asks from the current cursor when Try again follows a too-old refusal", async () => {
+    const { source } = await openStreamTab();
+    act(() => {
+      source.emit("output", { data: "first\n", cursor: 6 });
+    });
+    act(() => {
+      source.emit("fault", { sentence: tooOld(6, 4096), status: 200 });
+    });
+    expect(screen.getByRole("alert")).toHaveTextContent(/earliest output the device retains/);
+
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+
+    const reopened = await nextLiveSource(source);
+    expect(reopened.from()).toBe(4096);
+    // None of the connections opened after the refusal repeats the cursor it refused.
+    expect(TestTerminalSource.instances.slice(1).every((entry) => entry.from() === 4096)).toBe(true);
+    await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
+  });
+
+  it("keeps its stream across a parent render that rebuilds the grant object", async () => {
+    const { source, rerender } = await openStreamTab();
+    const connections = TestTerminalSource.instances.length;
+
+    // The Device page rebuilds `{deviceId, envelope: null}` on every five-second fleet poll. That
+    // new identity must not tear the feed down: a restart would abandon the recovery it is in and
+    // open the stream at the moving start again, which is how the live tab stayed dark.
+    rerender(<TerminalWorkspace grant={{ ...GRANT }} />);
+    await act(async () => {});
+
+    expect(TestTerminalSource.instances).toHaveLength(connections);
+    expect(source.closed).toBe(false);
   });
 });
 

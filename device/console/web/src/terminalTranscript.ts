@@ -14,6 +14,18 @@ export function earliestCursor(sentence: string): number | null {
   return match ? Number(match[1]) : null;
 }
 
+/**
+ * The session's end when the sentence is the device's past-the-end refusal, else null.
+ *
+ * A tab that has to give up catching a moving ring reads the newest output instead of the start of
+ * the ring: the start can advance again while that read is in flight, but a cursor just below the
+ * end is many bytes inside the retained window and answers with the tail in one round trip.
+ */
+export function endCursor(sentence: string): number | null {
+  const match = /past the session's end \((\d+)\)/.exec(sentence);
+  return match ? Number(match[1]) : null;
+}
+
 export type TranscriptRead = (cursor: number) => Promise<{ data: string; cursor: number }>;
 
 export type Transcript = { text: string; from: number; to: number; dropped: number };

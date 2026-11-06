@@ -10,7 +10,7 @@ import { createOutputPump, type OutputPump } from "./terminalOutput";
 import { renameTab, tabLabel, titleFromInput, type Tab } from "./terminalTabs";
 import { age } from "./age";
 import type { LiveLine } from "./liveActivity";
-import { earliestCursor, readTranscript, transcriptFile } from "./terminalTranscript";
+import { earliestCursor, endCursor, readTranscript, transcriptFile } from "./terminalTranscript";
 import {
   clampFontSize,
   fontStorage,
@@ -63,6 +63,11 @@ type Fault = {
   kind: FaultKind;
   /** The full sentence the tab shows; the marker is only its short label. */
   sentence: string;
+  /**
+   * The sentence reports output the device no longer retains. That is a fact about the scrollback,
+   * not a fault fresh bytes repair, so arriving output must not erase it (Try again does).
+   */
+  loss?: boolean;
 };
 
 const FAULT_LABELS: Record<FaultKind, string> = {
@@ -82,6 +87,40 @@ const FAULT_LABELS: Record<FaultKind, string> = {
  * stops as soon as one session is listed.
  */
 const EMPTY_LIST_POLL_MS = 10_000;
+
+/**
+ * How many times one feed chases a cursor the device has refused as older than its ring.
+ *
+ * Each chase reopens the stream at the newest start the device named, strictly ahead of the byte it
+ * just refused. Two is enough for a tab that lost one race; a refusal after that means the ring is
+ * outrunning this reader, and a third chase would only be the same refusal with a larger number.
+ * The feed then stops chasing and reads the newest retained output from just below the session's end.
+ */
+const RETAINED_CURSOR_MOVES = 2;
+
+/**
+ * How much of the newest output a degraded tab reads.
+ *
+ * The start of the ring moves while a read is in flight — on a live serial flood the device named a
+ * newer start between two reads a second apart — so a read at that start can be refused forever.
+ * A cursor just below the session's end is deep inside the retained window and answers with a
+ * screenful of the newest output in one round trip; the console's MCP path could not carry the
+ * whole 1 MiB ring from a flooded serial session (measured "device did not answer"). The bytes
+ * before this tail are part of the drop the tab reports.
+ */
+const RETAINED_READ_TAIL = 4 * 1024;
+
+/**
+ * How long a recovery connection may stay silent before the tab stops waiting for the catch-up.
+ *
+ * Reconnecting at the start of the ring asks the device for everything it still retains. Measured
+ * live on DESKTOP-84T3LIN's serial session-3 (0.3.273-ux70): 100 KiB of catch-up took 8 s and a full
+ * megabyte produced nothing in 45 s while the ring's start kept moving, so a tab that waits forever
+ * stays a fault with an empty pane. A quiet shell's first frame is immediate, so a recovery stream
+ * silent for this long is not about to paint the pane; the tail read is a screenful in about a
+ * second. The initial connection is not guarded: a live but quiet session may rightly send nothing.
+ */
+const RETAINED_CATCHUP_MS = 12_000;
 
 /**
  * Whether the empty session list may be polled right now.
@@ -508,6 +547,8 @@ export function TerminalWorkspace({
   // A preference of the operator, not of a tab: every xterm and every tab opened later uses it.
   const [fontSize, setFontSize] = useState(() => loadFontSize(fontStorage()));
   const [connect, setConnect] = useState<Connect | null>(null);
+  /** A per-tab counter that replaces its feed: Try again's way to reopen a stream that was closed. */
+  const [feedRestarts, setFeedRestarts] = useState<Record<string, number>>({});
   const [renaming, setRenaming] = useState<{ key: string; title: string } | null>(null);
   const [presetDialog, setPresetDialog] = useState(false);
   const [preset, setPreset] = useState<Preset>({ ...NEW_PRESET });
@@ -533,6 +574,8 @@ export function TerminalWorkspace({
   const activeRef = useRef<string | null>(null);
   /** Tabs with a read in flight. A slow device must not queue a second read at the same cursor. */
   const reading = useRef(new Set<string>());
+  /** Tabs whose next polling read is the operator's Try again, so that read is recorded, not a poll. */
+  const retryAsks = useRef(new Set<string>());
   // A device older than terminal.read's wait_ms refuses the field; fall back once and remember it.
   const waitReads = useRef(true);
   const findInput = useRef<HTMLInputElement | null>(null);
@@ -631,38 +674,42 @@ export function TerminalWorkspace({
    * One read at this tab's cursor, and the cursor and end facts it returns.
    *
    * `poll` is true for the feed's own tick: the console is redrawing the screen it already shows,
-   * so the read is not the record. A person's Retry passes false and is recorded.
+   * so the read is not the record. A person's Retry passes false and is recorded. `cursorAt` is for
+   * a recovery read that is not at the tab's cursor: the newest-tail read a degraded tab makes.
    */
-  const readOnce = useCallback(async (tab: Tab, poll: boolean): Promise<ReadAnswer> => {
-    const cursor = cursors.current.get(tab.key) ?? 0;
-    const args = waitReads.current
-      ? { id: tab.session, cursor, wait_ms: 15_000 }
-      : { id: tab.session, cursor };
-    try {
-      return JSON.parse(
-        await callTool(grantRef.current, "terminal.read", args, { poll })
-      ) as ReadAnswer;
-    } catch (cause) {
-      // A device from before this field rejects the whole call. Retry once without it, then keep
-      // the old 250 ms poll for the rest of this grant; the read itself is unchanged.
-      if (
-        waitReads.current &&
-        cause instanceof ToolError &&
-        /wait_ms|unknown field|unknown argument|additional propert|input schema/i.test(cause.message)
-      ) {
-        waitReads.current = false;
+  const readOnce = useCallback(
+    async (tab: Tab, poll: boolean, cursorAt?: number): Promise<ReadAnswer> => {
+      const cursor = cursorAt ?? cursors.current.get(tab.key) ?? 0;
+      const args = waitReads.current
+        ? { id: tab.session, cursor, wait_ms: 15_000 }
+        : { id: tab.session, cursor };
+      try {
         return JSON.parse(
-          await callTool(
-            grantRef.current,
-            "terminal.read",
-            { id: tab.session, cursor },
-            { poll }
-          )
+          await callTool(grantRef.current, "terminal.read", args, { poll })
         ) as ReadAnswer;
+      } catch (cause) {
+        // A device from before this field rejects the whole call. Retry once without it, then keep
+        // the old 250 ms poll for the rest of this grant; the read itself is unchanged.
+        if (
+          waitReads.current &&
+          cause instanceof ToolError &&
+          /wait_ms|unknown field|unknown argument|additional propert|input schema/i.test(cause.message)
+        ) {
+          waitReads.current = false;
+          return JSON.parse(
+            await callTool(
+              grantRef.current,
+              "terminal.read",
+              { id: tab.session, cursor },
+              { poll }
+            )
+          ) as ReadAnswer;
+        }
+        throw cause;
       }
-      throw cause;
-    }
-  }, []);
+    },
+    []
+  );
 
   /**
    * Ask the device once what it still has, and turn the answer into one of the three sentences.
@@ -757,10 +804,13 @@ export function TerminalWorkspace({
       // A read refused because its cursor fell behind the ring can recover by itself: move to the
       // earliest byte the device still has before the existing-fault branch below, which only
       // updates the sentence. Without this, a tab already showing a read fault keeps retrying the
-      // refused cursor until the operator presses Try again.
+      // refused cursor until the operator presses Try again. Only a strictly newer start is
+      // progress; moving backwards would replay bytes the terminal already drew.
       if (source === "read") {
         const earliest = earliestCursor(detail);
-        if (earliest !== null) cursors.current.set(tab.key, earliest);
+        if (earliest !== null && earliest > (cursors.current.get(tab.key) ?? 0)) {
+          cursors.current.set(tab.key, earliest);
+        }
       }
       if (current) {
         if (current.kind === "unreachable") {
@@ -866,9 +916,13 @@ export function TerminalWorkspace({
         }
         // A read that works clears a fault about the link or about reading. It does not clear "your
         // keystrokes were not sent": that sentence stays until a write succeeds (or the tab is
-        // retried), because a working read says nothing about the keystroke that was dropped.
+        // retried), because a working read says nothing about the keystroke that was dropped. Nor
+        // does it clear a sentence about bytes the device no longer retains: fresh output cannot
+        // bring those bytes back.
         const fault = faultRef.current.get(tab.key);
-        if (fault && (fault.kind === "unreachable" || fault.kind === "read")) clearFault(tab.key);
+        if (fault && (fault.kind === "unreachable" || (fault.kind === "read" && !fault.loss))) {
+          clearFault(tab.key);
+        }
       } catch (cause) {
         fail(tab, "read", cause);
       } finally {
@@ -1081,14 +1135,125 @@ export function TerminalWorkspace({
       let timer: number | null = null;
       let retry: number | null = null;
       let attempt = 0;
+      // A cursor-too-old refusal is a recoverable event, not a dead tab: the feed moves to the
+      // earliest byte the device still retains and reopens there. `lostFrom` is the cursor the chase
+      // started at, so the swallowed bytes can be counted; `moves` bounds the chase so a ring that
+      // keeps outrunning the reader degrades instead of reopening on one offset forever.
+      let moves = 0;
+      let lostFrom: number | null = null;
+      // A recovery connection is racing a ring that may be moving; if it stays silent for too long
+      // the tab reads the newest tail instead of waiting for a catch-up that may never land.
+      let recovering = false;
+      let catchUp: number | null = null;
+
+      const clearCatchUp = () => {
+        if (catchUp !== null) window.clearTimeout(catchUp);
+        catchUp = null;
+      };
 
       const startPolling = () => {
         if (stopped || timer !== null) return;
         const tick = () => {
-          if (activeRef.current === tab.key) void poll(tab);
+          if (activeRef.current !== tab.key) return;
+          // Try again is a person asking the same read; the feed's own tick is a poll.
+          void poll(tab, retryAsks.current.delete(tab.key));
         };
         tick();
         timer = window.setInterval(tick, 250);
+      };
+
+      /** Say how much output the device no longer has, and continue plainly from what it does. */
+      const nameTheLoss = (sentence: string, dropped: number) => {
+        setFault(tab.key, {
+          kind: "read",
+          loss: true,
+          sentence:
+            `Reading this session failed: ${sentence}. ` +
+            (dropped > 0
+              ? `${dropped} bytes were dropped: the device no longer retains them. `
+              : "") +
+            "The tab continues from the newest retained output."
+        });
+      };
+
+      /**
+       * Recover a cursor the device refused as older than its ring, or say it is another fault.
+       *
+       * The refusal names where the retained output starts, so reopening the stream at that byte is
+       * the whole recovery: the frames that follow are the retained output the tab never drew. Each
+       * refusal must name a strictly newer start; a refusal after RETAINED_CURSOR_MOVES moves means
+       * the ring is outrunning this reader. The feed then stops chasing, reads the newest retained
+       * output from just below the session's end, reports the bytes that are gone, and reopens the
+       * stream from where that read finished.
+       */
+      const recoverTooOld = (sentence: string): boolean => {
+        const earliest = earliestCursor(sentence);
+        if (earliest === null) return false;
+        const held = cursors.current.get(tab.key) ?? 0;
+        if (earliest <= held) {
+          // The device named no newer start than the cursor it refused. Reopening there would ask
+          // for the byte it just refused, so stop chasing and show the newest output instead.
+          if (lostFrom === null) lostFrom = held;
+          void degradeToRetained(sentence, earliest);
+          return true;
+        }
+        if (lostFrom === null) lostFrom = held;
+        cursors.current.set(tab.key, earliest);
+        if (moves >= RETAINED_CURSOR_MOVES) {
+          void degradeToRetained(sentence, earliest);
+          return true;
+        }
+        moves += 1;
+        setFault(tab.key, {
+          kind: "read",
+          sentence: `Reading this session failed: ${sentence}. The tab continues from the earliest output the device retains.`
+        });
+        if (retry !== null) window.clearTimeout(retry);
+        recovering = true;
+        retry = window.setTimeout(connect, moves === 1 ? 400 : 1_500);
+        return true;
+      };
+
+      /**
+       * Stop chasing a ring that keeps outrunning this tab, and read the newest output instead.
+       *
+       * `terminal.read` past the end is the one question whose answer names the current end, so the
+       * tail is read from `end - RETAINED_READ_TAIL`: the start of the ring may move again before
+       * that read lands, but a cursor a whole margin below the end is safe. Its bytes are drawn,
+       * the drop from the tab's old cursor is stated once (the sentence stays until Try again), and
+       * the stream reopens from the read's cursor to carry what comes next.
+       */
+      const degradeToRetained = async (sentence: string, earliest: number) => {
+        // The connection this opens is not a catch-up at the moving start, so it must not be
+        // timed out into another degrade: it resumes at the end of the newest tail.
+        recovering = false;
+        try {
+          let end: number | null = null;
+          try {
+            await readOnce(tab, true, Number.MAX_SAFE_INTEGER);
+          } catch (cause) {
+            end = endCursor(message(cause));
+          }
+          if (stopped) return;
+          if (end === null) {
+            throw new ToolError("the device did not name where the session ends", 200, null, true);
+          }
+          const from = Math.max(0, end - RETAINED_READ_TAIL);
+          const read = await readOnce(tab, true, from);
+          // The tab may have closed while the tail read was in flight; its instance is gone with
+          // it, so there is nothing to draw and no cursor left to continue.
+          if (stopped) return;
+          const at = typeof read.cursor === "number" ? read.cursor : from;
+          cursors.current.set(tab.key, at);
+          if (read.data && instance) pumpFor(tab, instance).push(read.data);
+          nameTheLoss(sentence, Math.max(0, from - (lostFrom ?? earliest)));
+          connect();
+        } catch (cause) {
+          // The tail could not be read either: let the polling loop ask at whatever cursor the
+          // refusal names, at its own pace, instead of spinning on one offset.
+          fail(tab, "read", cause);
+          startPolling();
+        }
       };
 
       const connect = () => {
@@ -1096,31 +1261,60 @@ export function TerminalWorkspace({
           startPolling();
           return;
         }
+        const from = cursors.current.get(tab.key) ?? 0;
+        if (recovering) {
+          // The connection has been asked for; the catch-up's first frame must not take forever.
+          // Degrading is not a second guess at the cursor: it reads the newest tail and reports
+          // every byte between it and the cursor this tab was refused at.
+          clearCatchUp();
+          catchUp = window.setTimeout(() => {
+            catchUp = null;
+            if (stopped) return;
+            stream?.close();
+            stream = null;
+            void degradeToRetained(
+              `the stream from byte ${from} sent nothing within ${RETAINED_CATCHUP_MS / 1_000} seconds`,
+              from
+            );
+          }, RETAINED_CATCHUP_MS);
+        }
         stream = openTerminalStream(
           grantRef.current.deviceId,
           tab.session,
-          cursors.current.get(tab.key) ?? 0,
+          from,
           {
             output: (data, cursor) => {
               attempt = 0;
+              moves = 0;
+              recovering = false;
+              lostFrom = null;
+              clearCatchUp();
               cursors.current.set(tab.key, cursor);
               if (!data) return;
               pumpFor(tab, instance).push(data);
-              // A stream that carries bytes answers the question a read fault asked.
+              // A stream that carries bytes answers the question a read fault asked. A sentence
+              // about bytes the device no longer has is a fact, not a fault fresh output repairs.
               const fault = faultRef.current.get(tab.key);
-              if (fault && (fault.kind === "unreachable" || fault.kind === "read")) {
+              if (fault && (fault.kind === "unreachable" || (fault.kind === "read" && !fault.loss))) {
                 clearFault(tab.key);
               }
             },
             end: (facts) => {
+              clearCatchUp();
               setFault(tab.key, { kind: "closed", sentence: endedSentence(facts) });
             },
             fault: (sentence, status) => {
+              // `terminalStream` closed the source before this callback; a reconnect is a new one,
+              // not this object, so nothing may keep treating the closed stream as the feed.
+              stream = null;
+              clearCatchUp();
+              if (recoverTooOld(sentence)) return;
               // The stream carries the device's own refusal; the tab renders it as a failed read.
               fail(tab, "read", new ToolError(sentence, status ?? 502, null, true));
             },
             error: () => {
               stream = null;
+              clearCatchUp();
               if (stopped) return;
               attempt += 1;
               // A console from before this route answers 404, and an EventSource cannot see the
@@ -1136,21 +1330,26 @@ export function TerminalWorkspace({
         );
         // No `EventSource` in this runtime: the polling loop is the whole feed.
         if (!stream) startPolling();
+        else retryAsks.current.delete(tab.key);
       };
 
       connect();
 
       return () => {
         stopped = true;
+        clearCatchUp();
         if (timer !== null) window.clearInterval(timer);
         if (retry !== null) window.clearTimeout(retry);
         stream?.close();
         stream = null;
       };
     },
-    [clearFault, fail, poll, pumpFor, setFault]
+    [clearFault, fail, poll, pumpFor, readOnce, setFault]
   );
 
+  // A Try again bumps this tab's counter, which tears the old feed down and opens a new one at the
+  // cursor the tab holds now — not the byte the device refused.
+  const feedRestart = active === null ? 0 : feedRestarts[active] ?? 0;
   useEffect(() => {
     if (!active || !visible) return;
     const tab = tabs.find((entry) => entry.key === active);
@@ -1162,7 +1361,11 @@ export function TerminalWorkspace({
       instance.term.focus();
     }
     return startFeed(tab, instance);
-  }, [active, tabs, grant, visible, startFeed, fitActive, instanceAt]);
+    // `grant.deviceId`, not the grant object: the Device page builds a fresh `{deviceId,
+    // envelope: null}` on every five-second fleet poll, and a feed re-opened on that identity
+    // churn would abandon its catch-up (and the guard watching it) before either finished. Every
+    // call inside the feed reads `grantRef.current`, which its own effect keeps current.
+  }, [active, tabs, grant.deviceId, visible, startFeed, fitActive, instanceAt, feedRestart]);
 
   // The presets belong to the device, so they are re-read when the grant's device changes.
   useEffect(() => {
@@ -1492,6 +1695,7 @@ export function TerminalWorkspace({
     cursors.current.delete(tab.key);
     reading.current.delete(tab.key);
     probing.current.delete(tab.key);
+    retryAsks.current.delete(tab.key);
     clearFault(tab.key);
     if (activeRef.current === tab.key) {
       const next = tabs.find((entry) => entry.key !== tab.key) ?? null;
@@ -1516,6 +1720,7 @@ export function TerminalWorkspace({
     cursors.current.delete(tab.key);
     reading.current.delete(tab.key);
     probing.current.delete(tab.key);
+    retryAsks.current.delete(tab.key);
     clearFault(tab.key);
     if (activeRef.current === tab.key) {
       const next = tabs.find((entry) => entry.key !== tab.key) ?? null;
@@ -1524,11 +1729,19 @@ export function TerminalWorkspace({
     void listSessions();
   };
 
-  /** Start a faulted tab again: drop the sentence and read once from the retained output. */
+  /**
+   * Start a faulted tab again: drop the sentence and replace the feed.
+   *
+   * A poll alone was not a recovery: the stream that carried the fault had already closed, so the
+   * tab drew one answer and then went silent. Restarting the feed opens a fresh connection at the
+   * cursor the tab holds now — the retained start the device named, never the byte it refused. The
+   * polling fallback's first read is marked as the person's, the way this button has always read.
+   */
   const retry = (tab: Tab) => {
     clearFault(tab.key);
     probing.current.delete(tab.key);
-    void poll(tab, true);
+    retryAsks.current.add(tab.key);
+    setFeedRestarts((previous) => ({ ...previous, [tab.key]: (previous[tab.key] ?? 0) + 1 }));
   };
 
   /**

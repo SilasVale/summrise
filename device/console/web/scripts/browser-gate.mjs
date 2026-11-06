@@ -25,6 +25,14 @@ const OUT = path.resolve(process.env.CONSOLE_GATE_ROOT || '/tmp/console-browser-
 const TOKEN = 'browser-gate-operator-token';
 const MARKER = 'gate-marker-7f3a';
 
+// The second pty's stream stands in for a device whose ring no longer holds the page's cursor: it
+// refuses the first connection with the device's too-old sentence and answers the page's reconnect
+// at the retained start it named. The bytes it sends are the output the refused tab never drew.
+const RETAINED_SESSION = 'gate-pty-2';
+const RETAINED_FROM = 1024;
+const RETAINED_TEXT = 'gate-retained-after-drop\r\n';
+const RETAINED_END = RETAINED_FROM + RETAINED_TEXT.length;
+
 const require = createRequire(import.meta.url);
 const PLAYWRIGHT_CANDIDATES = [
   process.env.PLAYWRIGHT_CORE_DIR &&
@@ -358,8 +366,15 @@ const state = {
   cursor: 0,
   /** Whether the page subscribed to the session's stream: the push path, not the polling one. */
   streamOpened: false,
+  /** How many ptys the page opened, so the retained-start session has an id of its own. */
+  created: 0,
   /** What the stream has already echoed, so a reconnecting client is not told twice. */
   streamEchoed: false,
+  /** How many times the retained-start stream refused a cursor as older than its ring. */
+  oldCursorRefusals: 0,
+  /** The `from` the page reconnected with, and whether the retained bytes were sent on it. */
+  retainedFrom: null,
+  retainedSent: false,
   /** How many `/audit?from=&to=` requests the page made, and the last one's moments and count. */
   rangeRequests: 0,
   lastRange: null,
@@ -580,7 +595,10 @@ function apiReply(request, url) {
     }
     if (name === 'terminal.create') {
       state.opened = true;
-      return json({ result: { content: [{ type: 'text', text: JSON.stringify({ id: 'gate-pty-1' }) }] } });
+      state.created += 1;
+      return json({
+        result: { content: [{ type: 'text', text: JSON.stringify({ id: `gate-pty-${state.created}` }) }] }
+      });
     }
     if (name === 'terminal.resize') {
       return json({ result: { content: [{ type: 'text', text: JSON.stringify({ rows: 24, cols: 80 }) }] } });
@@ -639,14 +657,40 @@ const server = http.createServer((request, response) => {
   // back through xterm.
   if (request.method === 'GET' && streamRoute.test(url.pathname)) {
     state.streamOpened = true;
+    const session = url.pathname.split('/')[3];
+    const from = Number(url.searchParams.get('from') ?? '0');
     response.writeHead(200, {
       'content-type': 'text/event-stream; charset=utf-8',
       'cache-control': 'no-store',
       'x-accel-buffering': 'no'
     });
     response.write(': stream open\n\n');
+    // **A CURSOR TOO OLD IS REFUSED HERE, AND ONLY HERE.** The page must move to the start the
+    // sentence names and open a NEW connection at it; a page that only moves its map never draws
+    // the retained bytes below.
+    if (session === RETAINED_SESSION) {
+      if (from < RETAINED_FROM) {
+        state.oldCursorRefusals += 1;
+        response.write(
+          `event: fault\ndata: ${JSON.stringify({
+            sentence: `terminal.read: the cursor ${from} is older than the retained output, which starts at ${RETAINED_FROM}`,
+            status: 200
+          })}\n\n`
+        );
+      } else {
+        // The first connection at the retained start is the page's recovery; a later reconnect
+        // (after bytes arrived) resumes at a newer cursor and must not rewrite this fact.
+        if (state.retainedFrom === null) state.retainedFrom = from;
+        if (!state.retainedSent) {
+          state.retainedSent = true;
+          response.write(
+            `event: output\ndata: ${JSON.stringify({ data: RETAINED_TEXT, cursor: RETAINED_END })}\n\n`
+          );
+        }
+      }
+    }
     const timer = setInterval(() => {
-      if (state.echoed && !state.streamEchoed) {
+      if (session !== RETAINED_SESSION && state.echoed && !state.streamEchoed) {
         state.streamEchoed = true;
         response.write(
           `event: output\ndata: ${JSON.stringify({ data: MARKER + '\r\n', cursor: MARKER.length + 2 })}\n\n`
@@ -1020,6 +1064,39 @@ try {
   if (!state.streamOpened) throw new Error('the page never subscribed to the terminal stream');
   step('typed a marker; it reached terminal.write and returned down the open stream');
   await page.screenshot({ path: path.join(OUT, '03-terminal-marker.png') });
+
+  // **A CURSOR TOO OLD RECOVERS IN A REAL BROWSER.** The gate's stream for the second pty refuses
+  // its first connection and answers only a reconnect at the retained start it named. The page must
+  // open that connection by itself, draw the bytes the gate sends, and clear the sentence the
+  // refusal set; a page that only moves its cursor map waits here forever, and one that reopens on
+  // the refused cursor is refused again. The bytes come from the gate's stream, not from the page.
+  await page.getByRole('button', { name: '+ New session' }).click();
+  await page
+    .getByRole('dialog', { name: 'New terminal session' })
+    .getByRole('button', { name: 'Open' })
+    .click();
+  await page.locator('.term-host:not([hidden]) .xterm').waitFor({ state: 'visible', timeout: 10_000 });
+  await page.waitForFunction(
+    (text) => {
+      const rows = document.querySelector('.term-host:not([hidden]) .xterm-rows');
+      return rows?.textContent?.includes(text) ?? false;
+    },
+    RETAINED_TEXT.trim(),
+    { timeout: 10_000 }
+  );
+  if (state.oldCursorRefusals < 1) {
+    throw new Error('the stream never refused a cursor as older than the retained output');
+  }
+  if (state.retainedFrom !== RETAINED_FROM) {
+    throw new Error(
+      `the page reconnected from ${state.retainedFrom}, not the retained start ${RETAINED_FROM}`
+    );
+  }
+  if (await page.locator('.terminal-fault').count()) {
+    throw new Error('the too-old refusal left its sentence on the tab after the retained bytes arrived');
+  }
+  step('a cursor too old reconnected at the retained start, drew its bytes and cleared the fault');
+  await page.screenshot({ path: path.join(OUT, '04-terminal-retained.png') });
 
   await page.getByRole('button', { name: 'Activity' }).click();
   await page.getByRole('heading', { name: 'Activity' }).waitFor({ timeout: 10_000 });
@@ -1810,7 +1887,10 @@ try {
   step('with no installer staged the fleet states the sentence and draws no link');
 
   if (errors.length > 0) throw new Error('console errors: ' + errors.join(' ;; '));
-  console.log(`browser-gate: PASS — ${steps.length} steps, ${state.writes.length} bytes written, marker echoed`);
+  console.log(
+    `browser-gate: PASS — ${steps.length} steps, ${state.writes.length} bytes written, marker echoed, ` +
+      `too-old cursor refused ${state.oldCursorRefusals}x and recovered from ${state.retainedFrom}`
+  );
   console.log(`browser-gate: screenshots in ${OUT}`);
   process.exitCode = 0;
 } catch (error) {
