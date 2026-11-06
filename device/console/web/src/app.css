@@ -813,6 +813,10 @@ tr:last-child td { border-bottom: 0; }
 
 .session button { margin-left: var(--sp-2); padding: var(--sp-1) var(--sp-2); font-size: var(--fs-xs); }
 .browser-pane { display: grid; gap: var(--sp-2); }
+/* The raw device answer is evidence behind one closed disclosure; the sentence above it is the
+   line the operator acts on, so the port and exit status stay one click away rather than first. */
+.browser-answer summary { cursor: pointer; color: var(--ink-muted); font-size: var(--fs-sm); }
+.browser-answer p { margin: var(--sp-2) 0 0; }
 .browser-pane .row { display: flex; gap: var(--sp-2); }
 /* The browser is a picture of the device's viewport, so the operator gets a frame and a scale,
    not an <img> stretched to whatever width the panel happens to have. */

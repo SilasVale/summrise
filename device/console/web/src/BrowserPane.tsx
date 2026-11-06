@@ -26,6 +26,32 @@ const NO_PAGE =
 /** A down machine cannot list or open a browser; the empty state must not invite the click. */
 const OFFLINE = "The machine is offline; its browser cannot be listed or opened until it reconnects.";
 
+/**
+ * The two sentences a browser launch failure earns, and the one recovery the pane already offers.
+ *
+ * The device's launch probe words its failures differently: Chrome exited before the page endpoint
+ * answered, or the endpoint did not answer in time. The console has no error code for either, so the
+ * device's own sentence is matched. Any other refusal — no Chrome installed, a protocol or HTTP
+ * error, the grant — keeps its own answer: "did not come up" would state a cause the answer does not
+ * prove, and its fix is not this pane's Stop/Refresh pair.
+ */
+const BROWSER_DOWN = "The device's browser did not come up.";
+const PAGE_ENDPOINT_SILENT = "The device's browser page endpoint did not answer.";
+const START_AGAIN = "Stop the browser, then choose Refresh pages to start it again.";
+
+function browserStartSentence(raw: string): string | null {
+  if (
+    raw.includes("the browser did not start: chrome exited with") &&
+    raw.includes("before it answered")
+  ) {
+    return BROWSER_DOWN;
+  }
+  if (raw.includes("the browser did not start: chrome did not answer")) {
+    return PAGE_ENDPOINT_SILENT;
+  }
+  return null;
+}
+
 // The device drives a real Chrome over CDP; the page's half of that is an <img>. `browser.screenshot`
 // answers a base64 PNG, which needs no plugin, no second port and no native window.
 export function BrowserPane({ grant, deviceOnline }: { grant: Grant; deviceOnline?: boolean }) {
@@ -38,6 +64,13 @@ export function BrowserPane({ grant, deviceOnline }: { grant: Grant; deviceOnlin
   // The first paint must not invite a control the same props have already disabled; the effect
   // below keeps the sentence right when the fleet's word changes later.
   const [status, setStatus] = useState(offline ? OFFLINE : NO_BROWSER);
+  // The raw `browser.list` answer when the sentence above it is the mapped launch failure. A new
+  // sentence replaces both, so the evidence can never outlive the failure it belongs to.
+  const [rawAnswer, setRawAnswer] = useState<string | null>(null);
+  const say = (sentence: string, raw: string | null = null) => {
+    setStatus(sentence);
+    setRawAnswer(raw);
+  };
   const [live, setLive] = useState(false);
   const [frames, setFrames] = useState(0);
   const [size, setSize] = useState<{ width: number; height: number } | null>(null);
@@ -68,17 +101,21 @@ export function BrowserPane({ grant, deviceOnline }: { grant: Grant; deviceOnlin
       if (pages.length === 0) {
         setTarget("");
         setShot(null);
-        setStatus(answer.length === 0 ? NO_BROWSER : NO_PAGE);
+        say(answer.length === 0 ? NO_BROWSER : NO_PAGE);
         return pages;
       }
       const next = prefer && pages.some((entry) => entry.id === prefer) ? prefer : pages[0].id;
       setTarget(next);
-      setStatus(`${pages.length} ${pages.length === 1 ? "page" : "pages"}.`);
+      say(`${pages.length} ${pages.length === 1 ? "page" : "pages"}.`);
       return pages;
     } catch (cause) {
       // A stale error describes a view that is gone, exactly like stale data does.
       if (listGate.stale(ticket)) return null;
-      setStatus("List failed: " + toolFailure(cause));
+      const raw = toolFailure(cause);
+      const mapped = browserStartSentence(raw);
+      // The device's loopback port and exit status are evidence, not the line: the mapped sentence
+      // says only what the answer proves and names the two controls that can try again.
+      say(mapped ?? "List failed: " + raw, mapped ? raw : null);
       return null;
     }
   };
@@ -101,7 +138,7 @@ export function BrowserPane({ grant, deviceOnline }: { grant: Grant; deviceOnlin
 
   const paint = (answer: { data: string; bytes: number }) => {
     setShot(`data:image/png;base64,${answer.data}`);
-    setStatus(`Captured ${answer.bytes} bytes.`);
+    say(`Captured ${answer.bytes} bytes.`);
   };
 
   const capture = async (which = target) => {
@@ -114,7 +151,7 @@ export function BrowserPane({ grant, deviceOnline }: { grant: Grant; deviceOnlin
       // The picture on screen is of a page this call could not read. Leaving it under a failure
       // sentence would present the old frame as the current one.
       setShot(null);
-      setStatus("Screenshot failed: " + toolFailure(cause));
+      say("Screenshot failed: " + toolFailure(cause));
     }
   };
 
@@ -136,7 +173,7 @@ export function BrowserPane({ grant, deviceOnline }: { grant: Grant; deviceOnlin
       const listed = await list(answer.target);
       if (listed) await capture(answer.target);
     } catch (cause) {
-      setStatus("Open failed: " + toolFailure(cause));
+      say("Open failed: " + toolFailure(cause));
     }
   };
 
@@ -150,7 +187,7 @@ export function BrowserPane({ grant, deviceOnline }: { grant: Grant; deviceOnlin
       // the true one and a screenshot would only replace it with a second failure.
       if (listed?.some((entry) => entry.id === wanted)) await capture(wanted);
     } catch (cause) {
-      setStatus("Navigate failed: " + toolFailure(cause));
+      say("Navigate failed: " + toolFailure(cause));
     }
   };
 
@@ -162,7 +199,7 @@ export function BrowserPane({ grant, deviceOnline }: { grant: Grant; deviceOnlin
       const listed = await list();
       if (listed && listed.length > 0) await capture(listed[0].id);
     } catch (cause) {
-      setStatus("Close failed: " + toolFailure(cause));
+      say("Close failed: " + toolFailure(cause));
     }
   };
 
@@ -176,9 +213,9 @@ export function BrowserPane({ grant, deviceOnline }: { grant: Grant; deviceOnlin
       setTargets([]);
       setTarget("");
       setShot(null);
-      setStatus("The browser is stopped. " + NO_BROWSER);
+      say("The browser is stopped. " + NO_BROWSER);
     } catch (cause) {
-      setStatus("Stop failed: " + toolFailure(cause));
+      say("Stop failed: " + toolFailure(cause));
     }
   };
 
@@ -212,10 +249,10 @@ export function BrowserPane({ grant, deviceOnline }: { grant: Grant; deviceOnlin
       const answer = JSON.parse(await callTool(grant, "browser.eval", { target, expression })) as {
         value?: unknown;
       };
-      setStatus("Clicked " + (answer.value ?? "the page") + ".");
+      say("Clicked " + (answer.value ?? "the page") + ".");
       await capture();
     } catch (cause) {
-      setStatus("Click failed: " + toolFailure(cause));
+      say("Click failed: " + toolFailure(cause));
     }
   };
 
@@ -232,11 +269,11 @@ export function BrowserPane({ grant, deviceOnline }: { grant: Grant; deviceOnlin
       const answer = JSON.parse(await callTool(grant, "browser.eval", { target, expression })) as {
         value?: unknown;
       };
-      setStatus(String(answer.value ?? "typed"));
+      say(String(answer.value ?? "typed"));
       setText("");
       await capture();
     } catch (cause) {
-      setStatus("Type failed: " + toolFailure(cause));
+      say("Type failed: " + toolFailure(cause));
     }
   };
 
@@ -247,7 +284,7 @@ export function BrowserPane({ grant, deviceOnline }: { grant: Grant; deviceOnlin
       setTargets([]);
       setTarget("");
       setShot(null);
-      setStatus(OFFLINE);
+      say(OFFLINE);
       return;
     }
     void list();
@@ -272,7 +309,7 @@ export function BrowserPane({ grant, deviceOnline }: { grant: Grant; deviceOnlin
       // so the timer restarts on that target instead of stopping.
       liveView.current = null;
       setLive(false);
-      setStatus("Live stopped: the grant changed.");
+      say("Live stopped: the grant changed.");
       return;
     }
     liveView.current = { grant, target };
@@ -301,7 +338,7 @@ export function BrowserPane({ grant, deviceOnline }: { grant: Grant; deviceOnlin
         // A refusal and any other failure both end the watch; the operator restarts it with the
         // button. The sentence is the one the on-demand path already uses.
         setShot(null);
-        setStatus("Screenshot failed: " + toolFailure(cause));
+        say("Screenshot failed: " + toolFailure(cause));
         setLive(false);
       } finally {
         inFlight.current = false;
@@ -359,7 +396,16 @@ export function BrowserPane({ grant, deviceOnline }: { grant: Grant; deviceOnlin
           <button type="button" disabled={offline} onClick={() => void stop()}>Stop browser</button>
         </div>
       </div>
-      <p className={status.includes("failed") ? "error" : "hint"}>{status}</p>
+      <p className={rawAnswer !== null || status.includes("failed") ? "error" : "hint"}>{status}</p>
+      {rawAnswer !== null && (
+        <>
+          <p className="hint">{START_AGAIN}</p>
+          <details className="browser-answer">
+            <summary>The device's answer</summary>
+            <p className="mono">{rawAnswer}</p>
+          </details>
+        </>
+      )}
       {live && shot && <p className="hint">{LIVE_LABEL} · frame {frames}</p>}
 
       {targets.length > 0 && (

@@ -153,6 +153,54 @@ describe("BrowserPane", () => {
     expect(screen.getByRole("button", { name: "Close tab" })).toBeDisabled();
   });
 
+  it("turns a browser start failure into a sentence, an action and the device's answer", async () => {
+    const raw =
+      "browser.list: the browser did not start: chrome exited with exit code: 1002 before it " +
+      "answered http://127.0.0.1:62544/json/version; no stderr output";
+    callToolMock.mockImplementation(async (_grant, name, args) => {
+      if (name === "browser.list") throw new ToolError(raw, 200, null, true);
+      return answerFor(name, args);
+    });
+    render(<BrowserPane grant={grant} />);
+
+    const primary = await screen.findByText("The device's browser did not come up.");
+    expect(primary).toHaveClass("error");
+    // The ephemeral port and the exit code are evidence; they are not the line the operator reads.
+    expect(primary.textContent).not.toContain("127.0.0.1");
+    expect(primary.textContent).not.toContain("exit code");
+
+    expect(
+      screen.getByText("Stop the browser, then choose Refresh pages to start it again.")
+    ).toBeInTheDocument();
+    // The recovery line names the two controls the failed state leaves enabled.
+    expect(screen.getByRole("button", { name: "Refresh pages" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Stop browser" })).toBeEnabled();
+
+    const evidence = screen.getByText("The device's answer").closest("details");
+    expect(evidence).not.toBeNull();
+    expect(evidence?.hasAttribute("open")).toBe(false);
+    expect(evidence?.textContent).toContain(raw);
+  });
+
+  it("names the page endpoint when the browser never answered it", async () => {
+    const raw =
+      "browser.list: the browser did not start: chrome did not answer " +
+      "http://127.0.0.1:62544/json/version within 15000 ms; chrome is still running; no stderr output";
+    callToolMock.mockImplementation(async (_grant, name, args) => {
+      if (name === "browser.list") throw new ToolError(raw, 200, null, true);
+      return answerFor(name, args);
+    });
+    render(<BrowserPane grant={grant} />);
+
+    expect(
+      await screen.findByText("The device's browser page endpoint did not answer.")
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("Stop the browser, then choose Refresh pages to start it again.")
+    ).toBeInTheDocument();
+    expect(screen.getByText("The device's answer").closest("details")?.textContent).toContain(raw);
+  });
+
   it("closes the selected tab, re-lists, and follows the survivor", async () => {
     listAnswers = [[A], [B]];
     await openPane();
