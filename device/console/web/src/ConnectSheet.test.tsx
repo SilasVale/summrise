@@ -11,6 +11,13 @@ const mocks = vi.hoisted(() => ({
   revokeToken: vi.fn()
 }));
 
+// The live read's failure state, as the mocked hook hands it to the form: an offline machine's
+// 503 (error + offline) and a list the console could not read. A test sets it; `beforeEach` resets.
+const liveState = vi.hoisted(() => ({
+  error: null as string | null,
+  offline: false
+}));
+
 // The registry `/tools` answer, as the mocked catalogue hook hands it to the form. A test may
 // replace it with unread (`null`) flags to exercise the honest unknown sentence.
 const catalogue = vi.hoisted(() => ({
@@ -36,8 +43,8 @@ vi.mock("./useLiveTools", () => ({
   useLiveTools: (deviceId: string | null) => ({
     tools: deviceId === null ? [] : mocks.liveTools(),
     stale: false,
-    error: null,
-    offline: false,
+    error: deviceId === null ? null : liveState.error,
+    offline: deviceId === null ? false : liveState.offline,
     loading: false,
     retry: vi.fn()
   })
@@ -105,6 +112,8 @@ beforeEach(() => {
     { name: "files.read", destructive: false },
     { name: "terminal.write", destructive: true }
   ];
+  liveState.error = null;
+  liveState.offline = false;
   mocks.liveTools.mockReturnValue(TOOLS);
   mocks.tokens.mockResolvedValue([]);
   mocks.createToken.mockReset();
@@ -361,6 +370,93 @@ describe("ConnectSheet", () => {
     const copy = screen.getByRole("button", { name: "Copy" });
     expect(copy).toBeDisabled();
     expect(screen.getByText(`http://localhost:3000/mcp/${WORKSHOP.id}`)).toHaveClass("dim");
+  });
+
+  it("labels an offline machine's fallback count as the console registry's, on every preset", () => {
+    // The measured DESKTOP-14RJCR8 shape: `/fleet/<id>/tools` answers 503, `/tools` answers the
+    // 46-tool registry with 15 destructive flags, and the default preset printed the registry's
+    // count as the machine's. The clock is pinned so the silence is exact.
+    const now = Date.UTC(2026, 10, 6, 12, 0, 0);
+    const clock = vi.spyOn(Date, "now").mockReturnValue(now);
+    mocks.liveTools.mockReturnValue([]);
+    liveState.error = "this machine is not connected; connect it, then try again";
+    liveState.offline = true;
+    catalogue.tools = Array.from({ length: 46 }, (_, index) => ({
+      name: index < 15 ? `terminal.change${index}` : `files.read${index}`,
+      destructive: index < 15
+    }));
+    const asleep: Device = {
+      ...WORKSHOP,
+      online: false,
+      last_seen_ms: now - 2 * 3_600_000
+    };
+
+    try {
+      draw({ device: asleep, devices: [asleep], initialSection: "tokens" });
+
+      // The default preset is All tools: the fallback note is drawn before any Choose tools… press.
+      expect(
+        within(tokenForm()).getByText(
+          "46 tools (console registry; the machine is offline) · 15 can change the machine"
+        )
+      ).toBeInTheDocument();
+      expect(
+        within(tokenForm()).getByText(
+          "This token will cover workshop (offline, last seen 2h ago)."
+        )
+      ).toBeInTheDocument();
+      expect(
+        within(tokenForm()).getByText(/The machine is offline\. This form counts the static fallback/)
+      ).toBeInTheDocument();
+
+      // Read-only and the checklist keep the same note: it is about the catalogue, not the grid.
+      for (const preset of ["Read-only", "Choose tools…"]) {
+        fireEvent.click(within(tokenForm()).getByRole("button", { name: preset }));
+        expect(
+          within(tokenForm()).getByText(/This form counts the static fallback/)
+        ).toBeInTheDocument();
+      }
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
+  it("uses the last live list when the offline machine's list is already known", () => {
+    // The hook keeps the last good catalogue across a failed read. That list is still the machine's
+    // last one, so the count says where it came from and the static-fallback note does not apply.
+    liveState.error = "this machine is not connected; connect it, then try again";
+    liveState.offline = true;
+    const asleep: Device = { ...WORKSHOP, online: false };
+
+    draw({ device: asleep, devices: [asleep], initialSection: "tokens" });
+
+    expect(
+      within(tokenForm()).getByText(
+        "2 tools (last tool list the console read; the machine is offline) · 1 can change the machine"
+      )
+    ).toBeInTheDocument();
+    expect(within(tokenForm()).queryByText(/static fallback/)).not.toBeInTheDocument();
+  });
+
+  it("labels an online machine's unreadable live list as the console registry's", () => {
+    // A machine the fleet still marks online can fail its live read (a device tool error); the
+    // count is the registry's for the same reason, and the note does not call the machine offline.
+    mocks.liveTools.mockReturnValue([]);
+    liveState.error = "the machine's tool list could not be read";
+
+    draw({ initialSection: "tokens" });
+
+    expect(
+      within(tokenForm()).getByText(
+        "2 tools (console registry; the machine's live list could not be read) · 1 can change the machine"
+      )
+    ).toBeInTheDocument();
+    expect(
+      within(tokenForm()).getByText(/The machine's live list could not be read\. This form counts/)
+    ).toBeInTheDocument();
+    expect(
+      within(tokenForm()).getByText("This token will cover workshop.")
+    ).toBeInTheDocument();
   });
 
   it("drops the client block to a Copied sentence", async () => {

@@ -420,6 +420,11 @@ const state = {
   lastExport: null,
   /** Whether the next `/audit/export` is answered as a refusal (the alert's state). */
   refuseExport: false,
+  /**
+   * Whether the offline machine's `/fleet/<id>/tools` is answered 503, the measured console's
+   * answer for 14R. Armed for the offline leg, where the token form reads it on purpose.
+   */
+  offlineToolsFails: false,
   /** Whether the console's deployment staged an installer, and how often the page asked. */
   installerAvailable: true,
   installerRequests: 0
@@ -527,6 +532,11 @@ function apiReply(request, url) {
     return json(state.installerAvailable ? INSTALLER : { available: false });
   }
   if (method === 'GET' && /^\/fleet\/[^/]+\/tools$/.test(pathname)) {
+    // The measured console with 14R away: `/fleet/<id>/tools` answers 503 for an offline machine,
+    // while `/tools` still serves the registry. The offline token-form leg below reads this.
+    if (state.offlineToolsFails && pathname.split('/')[2] === OFFLINE_DEVICE.id) {
+      return json({ error: 'device reconnecting', retry_after_ms: 1000 }, 503);
+    }
     return json({
       tools: TOOL_NAMES.map((name) => ({
         name,
@@ -798,6 +808,9 @@ page.on('console', (message) => {
   // The gate deliberately answers one export with a 413; the browser logs the refused fetch as a
   // resource error, and that refusal is the state under test, not a page fault.
   if (state.refuseExport && message.text().includes('413')) return;
+  // The same for the offline machine's tools read: its 503 is the measured answer the offline
+  // token-form leg exists to show, not a fault of the page.
+  if (state.offlineToolsFails && message.text().includes('503')) return;
   errors.push(message.text());
 });
 page.on('pageerror', (error) => errors.push('pageerror: ' + error.message));
@@ -2102,6 +2115,9 @@ try {
   // "…and then dropped it" to "…and then dro…": 283 px of text in a 265 px line, with the rest only
   // in a title a phone cannot hover. The reason must be whole on screen and flow onto a second line.
   await page.locator('nav.rail button[title="Home"]').click();
+  // From here the offline machine's tools read is the measured 503; the console error listener
+  // above knows that refusal belongs to this leg.
+  state.offlineToolsFails = true;
   await page.getByRole('button', { name: /^Open DESKTOP-14RJCR8/ }).click();
   await page.getByRole('heading', { name: 'Home', exact: true }).waitFor({ timeout: 10_000 });
   const reason390 = await page.evaluate(() => {
@@ -2146,6 +2162,46 @@ try {
     `at 390 the offline reason is whole across ${reason390.lines} lines ` +
       `(${reason390.width} px), not one clipped line`
   );
+
+  // **THE OFFLINE TOKEN FORM DOES NOT CLAIM THE CONSOLE'S COUNT.** `/fleet/<id>/tools` is 503 for
+  // this machine, so the count comes from `/tools`. The form must name that catalogue, cover the
+  // machine with the row's own silence, and draw the static-fallback note on the default preset —
+  // the measured bug hid the note behind Choose tools… and printed 46 as the machine's.
+  await page.locator('.account > summary').click();
+  await page.locator('.account').getByRole('button', { name: 'Tokens', exact: true }).click();
+  const offlineTokens = page.getByRole('dialog', { name: 'Tokens' });
+  await offlineTokens.waitFor({ timeout: 10_000 });
+  const offlineCount = offlineTokens.getByText(
+    '7 tools (console registry; the machine is offline) · 2 can change the machine',
+    { exact: true }
+  );
+  await offlineCount.waitFor({ timeout: 10_000 });
+  step(
+    `the offline token form names the registry: "${(await offlineCount.innerText()).trim()}"`
+  );
+  const offlineCoverage = offlineTokens.getByText(
+    `This token will cover ${OFFLINE_DEVICE.name} (${offlineState390.replace(' · ', ', ')}).`,
+    { exact: true }
+  );
+  await offlineCoverage.waitFor({ timeout: 10_000 });
+  const offlineFallback = offlineTokens.getByText(
+    /The machine is offline\. This form counts the static fallback; the console refuses a plugin tool it cannot verify\./
+  );
+  await offlineFallback.waitFor({ timeout: 10_000 });
+  // The default preset is All tools; Read-only keeps the same note because it is about the
+  // catalogue, not the checklist.
+  await offlineTokens.getByRole('button', { name: 'Read-only' }).click();
+  await offlineFallback.waitFor({ timeout: 10_000 });
+  await page.screenshot({ path: path.join(OUT, '07c-offline-tokens-390.png') });
+  step(
+    `the offline token form covers "${OFFLINE_DEVICE.name} (${offlineState390.replace(' · ', ', ')})" ` +
+      `and draws the static-fallback note on All tools and Read-only`
+  );
+  await page.locator('.sheet-close').first().click();
+  // The sheet opened from the account menu leaves that `<details>` open; collapse it so the next
+  // leg's machine menu is not under the popup.
+  await page.locator('.account > summary').click();
+  state.offlineToolsFails = false;
 
   // **THE HUB'S SENTENCE NAMES ONLY ROWS ITS CONTROLS REACH.** The end leg opens the machine whose
   // 1000-line window holds the measured 974-row day: 283 client calls, 580 console reads and 111

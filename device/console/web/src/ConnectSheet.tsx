@@ -88,22 +88,32 @@ function Moment({ ts }: { ts: number }) {
 }
 
 /**
- * One machine in the all-machines coverage sentence, with the presence the fleet read serves.
+ * One machine and its silence, for a sentence about that machine alone.
  *
  * The moment and the wording are the fleet row's own: `lastHeardMs` picks the newest evidence and
- * `seenAgo` keeps the minutes, so the sheet cannot date a silence differently from the row behind
- * it. A machine the console has never heard has no age to state, and the console's existing wording
- * for it is just "offline" — the sheet does not invent "never seen". The machine is still named:
- * the token covers every enrolled machine, and the state is a statement about the scope, not a
- * filter of it.
+ * `seenAgo` keeps the minutes, so no surface can date a silence differently from the row behind it.
+ * A machine the console has never heard has no age to state, and the console's existing wording for
+ * it is just "offline" — the sheet does not invent "never seen".
  */
-function coverageMachine(device: Device): string {
+function offlineMachine(device: Device): string {
   const name = device.name || shortId(device.id);
-  if (device.online) return `${name} (online)`;
   const heard = lastHeardMs(device);
   return heard === null
     ? `${name} (offline)`
     : `${name} (offline, last seen ${seenAgo(heard)})`;
+}
+
+/**
+ * One machine in the all-machines coverage sentence, with the presence the fleet read serves.
+ *
+ * The list names the state of every machine because the token covers every enrolled machine, and
+ * the state is a statement about the scope, not a filter of it. The one-machine form above states
+ * only the state that is news.
+ */
+function coverageMachine(device: Device): string {
+  return device.online
+    ? `${device.name || shortId(device.id)} (online)`
+    : offlineMachine(device);
 }
 
 /**
@@ -280,6 +290,8 @@ export function ConnectSheet({
               devices={devices}
               liveTools={live.tools}
               registryTools={registry}
+              liveError={live.error}
+              liveOffline={live.offline}
               endpoint={endpoint}
               offline={offline}
               focusTokenId={focusTokenId}
@@ -296,6 +308,8 @@ function TokensSection({
   devices,
   liveTools,
   registryTools,
+  liveError,
+  liveOffline,
   endpoint,
   offline,
   focusTokenId
@@ -304,6 +318,8 @@ function TokensSection({
   devices: Device[];
   liveTools: LiveTool[];
   registryTools: CatalogueTool[];
+  liveError: string | null;
+  liveOffline: boolean;
   endpoint: string;
   offline: boolean;
   focusTokenId: string | null;
@@ -358,6 +374,39 @@ function TokensSection({
   const destructiveKnown =
     liveTools.length > 0 ||
     (registryTools.length > 0 && registryTools.every((tool) => tool.destructive !== null));
+  // WHICH CATALOGUE THE COUNT IS. The machine's live list is the count when one is in hand — after
+  // a failed read that is the last tool list the console read — and the console registry is the
+  // count otherwise. An offline machine or one whose list could not be read must not have the
+  // registry's count written as the machine's: the label names the catalogue, and the sentence
+  // above the presets says why it is the fallback. The fleet form has no machine to attribute and
+  // keeps its one-list-for-every-machine suffix.
+  const usingLiveList = liveTools.length > 0;
+  const machineOffline = offline || liveOffline;
+  const listUnreadable = liveError !== null;
+  const countFromRegistry = device !== null && !usingLiveList && (machineOffline || listUnreadable);
+  const countFromLastLive = device !== null && usingLiveList && (machineOffline || listUnreadable);
+  const registryReason = machineOffline
+    ? "the machine is offline"
+    : "the machine's live list could not be read";
+  const lastLiveReason = machineOffline
+    ? "the machine is offline"
+    : "it could not be refreshed";
+  const catalogueLabel = countFromRegistry
+    ? ` (console registry; ${registryReason})`
+    : countFromLastLive
+      ? ` (last tool list the console read; ${lastLiveReason})`
+      : "";
+  // The token still covers an offline machine, and the one-machine form now says the state the
+  // fleet form says for the same machine, with the fleet row's own last-seen evidence.
+  const coverDevice = device
+    ? devices.find((entry) => entry.id === device.id) ?? device
+    : null;
+  const coverName =
+    device === null
+      ? ""
+      : machineOffline && coverDevice
+        ? offlineMachine(coverDevice)
+        : device.name || shortId(device.id);
   // A fleet token applies one tool list to every machine, and v1 refuses a plugin tool there:
   // only the device that advertises it can vouch for it. A device token still offers the whole
   // live catalogue.
@@ -614,7 +663,7 @@ function TokensSection({
           </div>
           {scope === "device" && device && (
             <p className="hint">
-              This token will cover {device.name || shortId(device.id)}.
+              This token will cover {coverName}.
             </p>
           )}
           {scope === "fleet" && devices.length > 0 && (
@@ -641,14 +690,18 @@ function TokensSection({
             ))}
           </div>
 
+          {countFromRegistry && (
+            <p className="hint">
+              {machineOffline
+                ? "The machine is offline."
+                : "The machine's live list could not be read."}{" "}
+              This form counts the static fallback; the console refuses a plugin tool it cannot
+              verify.
+            </p>
+          )}
+
           {preset === "choose" && (
             <div className="scope-groups">
-              {offline && (
-                <p className="hint">
-                  The machine is offline. The list below is the static fallback; the console
-                  refuses a plugin tool it cannot verify.
-                </p>
-              )}
               {groups.map((group) => (
                 <fieldset className="scope-group" key={group.name}>
                   <legend>{group.name}</legend>
@@ -668,7 +721,8 @@ function TokensSection({
           )}
 
           <p className="hint">
-            {selectedTools.length} tool{selectedTools.length === 1 ? "" : "s"} ·{" "}
+            {selectedTools.length} tool{selectedTools.length === 1 ? "" : "s"}
+            {catalogueLabel} ·{" "}
             {destructiveKnown
               ? `${destructiveCount} can change the machine`
               : "the count of tools that can change a machine is read from a machine"}
