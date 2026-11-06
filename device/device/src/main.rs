@@ -185,8 +185,10 @@ fn up_to_date_line(version: &str) -> String {
 ///
 /// A legacy install asks the supervisor through `swap.request.json` and waits for its answer. A
 /// versioned install runs the launcher (`--apply`, because these are operator-facing modes: the new
-/// version must be running when they return). The launcher's refusal is returned with its own
-/// sentence; the staged version directory is left on disk for inspection.
+/// version must be running when they return). `--apply` is handed the staged executable inside the
+/// version directory, which is the file its loader hashes; the directory itself is what
+/// `--install-version` takes. The launcher's refusal is returned with its own sentence; the staged
+/// version directory is left on disk for inspection.
 fn install_staged(
     install: &Path,
     staged: &StagedRelease,

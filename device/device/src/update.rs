@@ -19,7 +19,9 @@
 //!   polls, and [`await_swap_result`] reads the answer.
 //! - With it, the verified pair goes into `<install>/versions/<version>/` — never over an existing
 //!   version directory with different bytes — and [`hand_off`] runs the launcher's
-//!   `--install-version` (or `--apply` when the service must restart). A version directory is built
+//!   `--install-version` (or `--apply` when the service must restart). The two modes spell the one
+//!   staged file differently: `--install-version` is handed the version directory and reads
+//!   `summrise-device.exe` inside it, `--apply` is handed that file. A version directory is built
 //!   under a temporary name and renamed into place, so a refused download leaves no half-version.
 //!
 //! The app binary, the baseline and the launcher's other files are unreachable from here by
@@ -132,6 +134,8 @@ pub enum StageError {
     Path,
     /// A version directory already exists, and its bytes are not this release.
     VersionConflict(String),
+    /// The artifact the launcher reads is not on disk, so there is nothing to hand over.
+    MissingArtifact(PathBuf),
     /// The launcher ran and did not install the version; `reason` is what it said.
     Launcher {
         /// The process's exit code, when it exited on its own.
@@ -172,6 +176,12 @@ impl fmt::Display for StageError {
             StageError::Channel => write!(f, "the manifest names an unknown release channel"),
             StageError::Path => write!(f, "the release version is not a plain major.minor.patch"),
             StageError::VersionConflict(detail) => write!(f, "{detail}"),
+            StageError::MissingArtifact(path) => write!(
+                f,
+                "the staged artifact {} is missing or is not a regular file; the version directory \
+                 holds nothing to hand the launcher",
+                path.display()
+            ),
             StageError::Launcher { code, reason } => match code {
                 Some(code) => write!(
                     f,
@@ -671,7 +681,7 @@ fn discard_stale_result(install: &Path, requested_at_ms: u64) -> Result<(), Stag
 pub enum LauncherMode {
     /// `--install-version <dir> <sidecar>`: move the pointer; the owner restarts the child.
     InstallVersion,
-    /// `--apply <dir> <sidecar>`: move the pointer and restart the service now.
+    /// `--apply <staged-exe> <sidecar>`: move the pointer and restart the service now.
     Apply,
 }
 
@@ -757,11 +767,28 @@ pub struct LauncherCall {
 }
 
 impl LauncherCall {
+    /// The staged executable the launcher reads.
+    ///
+    /// Both install modes read the one file the stager wrote, `<install>/versions/<name>/
+    /// summrise-device.exe`; the modes only spell it differently. `--install-version` is handed the
+    /// version directory and joins [`APP_EXE`] itself; `--apply` is handed the file. Passing the
+    /// directory to `--apply` is the measured 0.3.286 refusal: the loader hashed the directory as
+    /// the artifact and reported "staged artifact … is missing".
+    pub fn staged(&self) -> PathBuf {
+        self.version_dir.join(APP_EXE)
+    }
+
     /// The argv after the launcher's own path.
     pub fn arguments(&self) -> Vec<OsString> {
+        // The first argument is the target, and the two modes name it differently:
+        // `--install-version <version-dir> <sidecar>`, `--apply <staged-exe> <sidecar>`.
+        let target = match self.mode {
+            LauncherMode::InstallVersion => self.version_dir.clone(),
+            LauncherMode::Apply => self.staged(),
+        };
         let mut arguments = vec![
             OsString::from(self.mode.flag()),
-            self.version_dir.as_os_str().to_owned(),
+            target.as_os_str().to_owned(),
             self.sidecar.as_os_str().to_owned(),
             OsString::from("--install"),
             self.install.as_os_str().to_owned(),
@@ -899,6 +926,26 @@ pub fn hand_off_with(
         data: options.data.clone(),
         port: options.port,
     };
+    // The stage writes the artifact the launcher reads; if it is not there now, the honest answer
+    // is the path that is missing, not a launcher run that can only refuse it. The launcher's own
+    // loader re-checks the file, so this is the earlier, named half of the same refusal.
+    let staged_exe = call.staged();
+    match fs::metadata(&staged_exe) {
+        Ok(metadata) if metadata.is_file() => {}
+        Ok(_) => return Err(StageError::MissingArtifact(staged_exe)),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            return Err(StageError::MissingArtifact(staged_exe));
+        }
+        Err(error) => {
+            return Err(StageError::Io(io::Error::new(
+                error.kind(),
+                format!(
+                    "cannot inspect the staged artifact {}: {error}",
+                    staged_exe.display()
+                ),
+            )));
+        }
+    }
     launcher.perform(&call)?;
     Ok(Handoff::Installed { mode })
 }
@@ -1653,6 +1700,90 @@ mod tests {
             "when the service must restart, the handoff is --apply"
         );
         assert_eq!(argv(&launcher.calls.borrow()[0])[0], "--apply");
+    }
+
+    /// `--apply` takes the staged *file*: its loader hashes that path as the artifact. The
+    /// version directory is what `--install-version` takes. The 0.3.286 check staged the file
+    /// correctly and then handed the directory to `--apply`, so the launcher refused a missing
+    /// artifact at `<install>/versions/0.3.286`.
+    #[test]
+    fn a_restart_hand_off_hands_the_launcher_the_staged_file_not_its_directory() {
+        let dir = TempDir::new("handoff-apply-file");
+        let install = pointer_install(&dir, "1.0.0");
+        let key = signing_key();
+        let bytes = b"the release bytes";
+        let manifest = manifest_for("2.0.3", "stable", bytes, &key, "2.0.0");
+        let released = stage(bytes, &manifest, &key.verifying_key(), &install)
+            .expect("a pointer-managed install stages");
+
+        let launcher = RecordingLauncher::default();
+        hand_off_with(&install, &released, &HandoffOptions::restart(), &launcher)
+            .expect("the launcher is handed the staged file");
+
+        let staged = version_exe(&install, "2.0.3");
+        assert!(
+            staged.is_file(),
+            "the fixture install root holds the artifact at the path the launcher reads: {}",
+            staged.display()
+        );
+        assert_eq!(
+            fs::read(&staged).expect("the staged exe is readable"),
+            bytes,
+            "the version the stager wrote is the file the launcher is handed"
+        );
+        let arguments = argv(&launcher.calls.borrow()[0]);
+        assert_eq!(arguments[0], "--apply");
+        assert_eq!(
+            arguments[1],
+            staged.display().to_string(),
+            "--apply's <staged> is the artifact file, not its version directory"
+        );
+        assert_eq!(
+            arguments[2],
+            version_sidecar_path(&install, "2.0.3")
+                .display()
+                .to_string(),
+            "the sidecar beside the staged file is the second argument"
+        );
+    }
+
+    /// A stage that did not leave the artifact where the launcher reads it is a failure with the
+    /// path, never a fake success: the mode must not print `applied` for a version nobody installed.
+    #[test]
+    fn a_missing_staged_artifact_is_reported_not_installed() {
+        let dir = TempDir::new("handoff-missing-artifact");
+        let install = pointer_install(&dir, "1.0.0");
+        let key = signing_key();
+        let bytes = b"the release bytes";
+        let manifest = manifest_for("2.0.3", "stable", bytes, &key, "2.0.0");
+        let released = stage(bytes, &manifest, &key.verifying_key(), &install)
+            .expect("a pointer-managed install stages");
+        let staged_exe = version_exe(&install, "2.0.3");
+        fs::remove_file(&staged_exe).expect("the fixture removes the staged artifact");
+
+        let launcher = RecordingLauncher::default();
+        let error = hand_off_with(&install, &released, &HandoffOptions::restart(), &launcher)
+            .expect_err("a missing staged artifact is not an install");
+
+        assert!(
+            matches!(&error, StageError::MissingArtifact(path) if path == &staged_exe),
+            "the refusal names the file the launcher reads: {error:?}"
+        );
+        assert!(
+            error
+                .to_string()
+                .contains(&staged_exe.display().to_string()),
+            "the missing path is in the sentence: {error}"
+        );
+        assert!(
+            launcher.calls.borrow().is_empty(),
+            "the launcher is never asked to install an artifact that is not on disk"
+        );
+        assert_eq!(
+            fs::read_to_string(install.join("current.txt")).expect("the pointer is readable"),
+            "1.0.0\n",
+            "the pointer never moves on a failed handoff"
+        );
     }
 
     #[test]
