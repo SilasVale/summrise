@@ -4,9 +4,14 @@
 //! it, so a browser reload is a fresh read and an enrollment is a plain form POST followed by a
 //! redirect. Only the terminal is scripted, because a browser terminal needs an emulator.
 
+use chrono::{Datelike, Local, TimeZone};
 use maud::{html, Markup, PreEscaped, DOCTYPE};
 
 use crate::console::RetryNote;
+
+/// The newest audit lines the Timeline reads. The device's audit can be 64 MiB; a panel reload is a
+/// glance, not a log export, so it reads a bounded tail and says when older lines exist.
+pub(crate) const TIMELINE_LINES: usize = 200;
 
 /// The page's whole style, copied from the HTML page this replaces: the panel and the console are
 /// two surfaces of one product, so the move into Rust must not restyle either.
@@ -62,6 +67,27 @@ const COMPONENTS: &str = r##"  * { box-sizing: border-box; }
   tr:last-child td { border-bottom: 0; }
   td.kind { color: var(--ink-muted); }
   .none { color: var(--ink-muted); font-size: var(--fs-md); }
+
+  /* **THE RECORD, NOT A TABLE.** The Timeline is one row per call, grouped by the local day and
+     newest first: time, tool, outcome and the door the call came through. The status tone is the
+     audit's own (a failed `end` line), never a second opinion. */
+  .timeline-day-label {
+    margin: 0 0 var(--sp-1-5); font-size: var(--fs-xs); font-weight: 600; text-transform: uppercase;
+    letter-spacing: var(--tracking-label); color: var(--ink-faint);
+  }
+  .timeline-rows { list-style: none; margin: 0; padding: 0; }
+  .timeline-row {
+    display: grid; grid-template-columns: 3.5rem minmax(0, 1fr) auto auto; gap: var(--sp-2);
+    align-items: baseline; padding: var(--sp-1-5) 0; border-bottom: 1px solid var(--line);
+  }
+  .timeline-row:last-child { border-bottom: 0; }
+  .timeline-time { font-family: var(--font-mono); font-size: var(--fs-sm); color: var(--ink-muted); }
+  .timeline-tool { font-family: var(--font-mono); font-size: var(--fs-sm); overflow-wrap: anywhere; }
+  .timeline-status { font-size: var(--fs-xs); font-weight: 600; color: var(--ink-muted); }
+  .timeline-status.ok { color: var(--ok); }
+  .timeline-status.failed { color: var(--error); }
+  .timeline-caller { font-size: var(--fs-sm); color: var(--ink-faint); }
+  .timeline-error { grid-column: 1 / -1; font-size: var(--fs-sm); color: var(--error); }
 
   /* The enroll form: the same fields and vocabulary as the console's "New enrollment code", because the
      person pastes the code from there into here. Field and button rules only; the tokens above are
@@ -179,6 +205,10 @@ const COMPONENTS: &str = r##"  * { box-sizing: border-box; }
        class too: a bare `header` rule loses to `.topbar` on specificity. */
     header.topbar { flex-wrap: wrap; height: auto; min-height: 56px; padding: var(--sp-2) var(--sp-3); row-gap: var(--sp-1-5); }
     header button { margin-left: 0; }
+    /* The caller moves under the tool and the outcome, so the time and the outcome stay on the
+       first line instead of the four-column row shrinking the tool to a few characters. */
+    .timeline-row { grid-template-columns: 3.5rem minmax(0, 1fr) auto; }
+    .timeline-caller { grid-column: 2 / -1; }
   }
 "##;
 
@@ -304,6 +334,15 @@ pub(crate) struct PanelFacts {
     /// `None` is "the device could not read its state document", not "there is no state".
     pub(crate) state: Option<serde_json::Value>,
     pub(crate) events: Vec<serde_json::Value>,
+    /// The audit's newest lines, oldest first, for the Timeline. `None` is "the audit could not be
+    /// read"; `Some(vec![])` is "the audit has no lines", which the page says differently.
+    pub(crate) audit: Option<Vec<serde_json::Value>>,
+    /// True when the audit held more lines than [`TIMELINE_LINES`], so the page says older lines are
+    /// not shown instead of presenting the tail as the whole record.
+    pub(crate) audit_truncated: bool,
+    /// The instant the day labels ("Today", "Yesterday") are relative to. A request reads it once;
+    /// a test pins it instead of racing the wall clock.
+    pub(crate) rendered_at_ms: u64,
     pub(crate) console_attempt: Option<RetryNote>,
     /// The console this machine is linked to, when `console.json` names one.
     pub(crate) console_url: Option<String>,
@@ -397,6 +436,10 @@ fn render(facts: &PanelFacts, outcome: Option<&EnrollOutcome>) -> Markup {
         .map(|milliseconds| crate::store::format_utc(milliseconds / 1_000))
         .unwrap_or_else(|| "never".to_owned());
     let event_rows = event_rows(&facts.events);
+    let timeline = facts
+        .audit
+        .as_deref()
+        .map(|audit| timeline_days(audit, facts.rendered_at_ms));
     let config = local_config(facts);
 
     html! {
@@ -487,6 +530,66 @@ fn render(facts: &PanelFacts, outcome: Option<&EnrollOutcome>) -> Markup {
                                 }
                             }
                             (enroll_form(facts, outcome))
+                        }
+                        }
+                    ))
+
+                    (summrise_ui::card(
+                        "Timeline",
+                        Markup::default(),
+                        Markup::default(),
+                        html! {
+                        // **THE RECORD OF WHAT THIS MACHINE DID, NOT A RAW TABLE.** Every line here
+                        // is the device's own audit: one row per call, grouped by the local day and
+                        // newest first. A call the bound cut says so; an audit that holds nothing
+                        // says that instead of drawing an empty table.
+                        @if let Some(days) = &timeline {
+                            p class="hint" {
+                                "The calls this machine recorded, newest first, in this machine's local time."
+                            }
+                            @if facts.audit_truncated {
+                                p class="hint" id="timeline-bound" {
+                                    "The newest " (TIMELINE_LINES) " lines; older lines are not shown."
+                                }
+                            }
+                            @if days.is_empty() {
+                                p class="none" id="timeline-empty" {
+                                    "No call has been recorded on this device."
+                                }
+                            } @else {
+                                @for day in days {
+                                    section class="timeline-day" {
+                                        h2 class="timeline-day-label" { (day.label) }
+                                        ol class="timeline-rows" {
+                                            @for row in &day.rows {
+                                                li class="timeline-row" {
+                                                    time
+                                                        class="timeline-time"
+                                                        datetime=(crate::store::format_utc(row.at_ms / 1_000))
+                                                        title=(crate::store::format_utc(row.at_ms / 1_000))
+                                                    { (row.time) }
+                                                    span class="timeline-tool" { (row.tool) }
+                                                    @if row.failed {
+                                                        span class="timeline-status failed" { (row.status) }
+                                                    } @else {
+                                                        span class="timeline-status" { (row.status) }
+                                                    }
+                                                    @if !row.caller.is_empty() {
+                                                        span class="timeline-caller" { (row.caller) }
+                                                    }
+                                                    @if let Some(error) = &row.error {
+                                                        span class="timeline-error" { (error) }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        } @else {
+                            p class="none" id="timeline-unreadable" {
+                                "The device's audit could not be read."
+                            }
                         }
                         }
                     ))
@@ -896,6 +999,176 @@ fn event_time(event: &serde_json::Value) -> String {
         .unwrap_or_default()
 }
 
+/// One call in the Timeline: its `begin` line and, when the audit window carries it, its `end`.
+#[derive(Debug)]
+pub(crate) struct TimelineRow {
+    /// The `begin` line's epoch milliseconds; the day group and clock are this instant locally.
+    at_ms: u64,
+    /// `HH:MM` in this machine's timezone.
+    time: String,
+    tool: String,
+    /// The `end` line's `ok`/`failed`, or the `begin` line's decision when no result is in the
+    /// window. Never a word the audit did not write.
+    status: String,
+    failed: bool,
+    /// The audit's own `transport`: the door the call came through.
+    caller: String,
+    /// The `end` line's `error_kind`, when the call failed.
+    error: Option<String>,
+}
+
+/// One local day of calls, newest first.
+#[derive(Debug)]
+pub(crate) struct TimelineDay {
+    label: String,
+    rows: Vec<TimelineRow>,
+}
+
+/// The calls the audit records, grouped by this machine's local day and newest first.
+///
+/// The audit writes two lines per call, `begin` and `end`, under one `id`; the panel shows one row
+/// per call, with the `end` line's outcome and error. An `end` whose `begin` is outside the bounded
+/// window carries no tool, so it cannot become a row: that is the one case the pairing drops. A
+/// `begin` whose `end` has not been written yet keeps the decision as its status.
+pub(crate) fn timeline_days(audit: &[serde_json::Value], now_ms: u64) -> Vec<TimelineDay> {
+    use std::collections::{BTreeMap, HashMap};
+
+    let mut calls: Vec<(&serde_json::Value, Option<&serde_json::Value>)> = Vec::new();
+    let mut pending: HashMap<u64, usize> = HashMap::new();
+    for line in audit {
+        let Some(object) = line.as_object() else {
+            continue;
+        };
+        let Some(id) = object.get("id").and_then(serde_json::Value::as_u64) else {
+            continue;
+        };
+        match object.get("event").and_then(serde_json::Value::as_str) {
+            Some("begin") => {
+                // An id can be reused after a restart; the earlier call stays a row without an end
+                // rather than borrowing the new call's result.
+                pending.insert(id, calls.len());
+                calls.push((line, None));
+            }
+            Some("end") => {
+                if let Some(index) = pending.remove(&id) {
+                    if let Some(call) = calls.get_mut(index) {
+                        call.1 = Some(line);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    let today = local_at(now_ms).map(|at| at.date_naive());
+    let mut days: BTreeMap<chrono::NaiveDate, Vec<TimelineRow>> = BTreeMap::new();
+    for (begin, end) in calls.iter().rev() {
+        let Some(at_ms) = begin.get("ts_ms").and_then(serde_json::Value::as_u64) else {
+            continue;
+        };
+        let Some(at) = local_at(at_ms) else {
+            continue;
+        };
+        let Some(row) = timeline_row(begin, *end, at_ms, &at) else {
+            continue;
+        };
+        days.entry(at.date_naive()).or_default().push(row);
+    }
+
+    days.into_iter()
+        .rev()
+        .map(|(date, mut rows)| {
+            // The window is newest first already; the sort is the guarantee, and a stable one keeps
+            // two calls in the same millisecond in the order the audit wrote them.
+            rows.sort_by_key(|row| std::cmp::Reverse(row.at_ms));
+            TimelineDay {
+                label: day_label(date, today),
+                rows,
+            }
+        })
+        .collect()
+}
+
+fn timeline_row(
+    begin: &serde_json::Value,
+    end: Option<&serde_json::Value>,
+    at_ms: u64,
+    at: &chrono::DateTime<Local>,
+) -> Option<TimelineRow> {
+    let tool = begin
+        .get("tool")
+        .and_then(serde_json::Value::as_str)
+        .filter(|tool| !tool.is_empty())?;
+    let decision = begin
+        .get("decision")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("");
+    let (status, failed) = match end {
+        Some(end) => {
+            let ok = end
+                .get("ok")
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or(false);
+            (if ok { "ok" } else { "failed" }, !ok)
+        }
+        None => (decision, decision == "deny"),
+    };
+    let error = end
+        .and_then(|end| end.get("error_kind"))
+        .and_then(serde_json::Value::as_str)
+        .filter(|kind| !kind.is_empty())
+        .map(str::to_owned);
+
+    Some(TimelineRow {
+        at_ms,
+        time: at.format("%H:%M").to_string(),
+        tool: tool.to_owned(),
+        status: status.to_owned(),
+        failed,
+        caller: begin
+            .get("transport")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("")
+            .to_owned(),
+        error,
+    })
+}
+
+/// The instant in this machine's timezone, or `None` when it is not a representable local time.
+fn local_at(milliseconds: u64) -> Option<chrono::DateTime<Local>> {
+    let milliseconds = i64::try_from(milliseconds).ok()?;
+    Local.timestamp_millis_opt(milliseconds).single()
+}
+
+const WEEKDAYS: [&str; 7] = [
+    "Sunday",
+    "Monday",
+    "Tuesday",
+    "Wednesday",
+    "Thursday",
+    "Friday",
+    "Saturday",
+];
+
+/// `Today`, `Yesterday`, or the date, exactly as the console's Activity timeline labels a day.
+fn day_label(day: chrono::NaiveDate, today: Option<chrono::NaiveDate>) -> String {
+    let today = today.unwrap_or(day);
+    if day == today {
+        return "Today".to_owned();
+    }
+    if today.pred_opt() == Some(day) {
+        return "Yesterday".to_owned();
+    }
+    let weekday = WEEKDAYS[day.weekday().num_days_from_sunday() as usize];
+    let month = day.month();
+    let day_of_month = day.day();
+    if day.year() == today.year() {
+        format!("{weekday}, {month}/{day_of_month}")
+    } else {
+        format!("{weekday}, {month}/{day_of_month}/{}", day.year())
+    }
+}
+
 /// The text behind "Copy diagnostics": the HTML page built it from `/api/panel`; the page carries
 /// the same facts already, so the server builds it once and the browser only copies it.
 fn diagnostics(facts: &PanelFacts) -> String {
@@ -995,6 +1268,41 @@ mod tests {
     use serde_json::json;
 
     fn facts() -> PanelFacts {
+        let audit = vec![
+            json!({
+                "id": 1,
+                "ts_ms": 1_761_566_400_000u64,
+                "event": "begin",
+                "tool": "terminal.create",
+                "decision": "allow",
+                "transport": "panel"
+            }),
+            json!({
+                "id": 1,
+                "ts_ms": 1_761_566_401_000u64,
+                "event": "end",
+                "ok": true,
+                "transport": "panel"
+            }),
+            json!({ "ts_ms": 1_761_566_402_000u64, "event": "repair" }),
+            json!({
+                "id": 2,
+                "ts_ms": 1_761_566_402_000u64,
+                "event": "begin",
+                "tool": "runs.exec",
+                "decision": "allow",
+                "transport": "console"
+            }),
+            json!({
+                "id": 2,
+                "ts_ms": 1_761_566_403_000u64,
+                "event": "end",
+                "ok": false,
+                "error_kind": "refused",
+                "transport": "console"
+            }),
+        ];
+        let events = audit.clone();
         PanelFacts {
             version: "2.0.3".to_owned(),
             channel: "canary".to_owned(),
@@ -1018,16 +1326,10 @@ mod tests {
                     "ts": "2026-10-27T11:00:00Z"
                 }
             })),
-            events: vec![
-                json!({
-                    "ts_ms": 1_761_566_400_000u64,
-                    "event": "begin",
-                    "tool": "terminal.create",
-                    "decision": "allow"
-                }),
-                json!({ "ts_ms": 1_761_566_401_000u64, "event": "end", "ok": true }),
-                json!({ "ts_ms": 1_761_566_402_000u64, "event": "repair" }),
-            ],
+            events,
+            audit: Some(audit),
+            audit_truncated: false,
+            rendered_at_ms: 1_761_566_404_000,
             console_attempt: Some(RetryNote {
                 attempts: 2,
                 reason: "the tunnel was down".to_owned(),
@@ -1188,6 +1490,7 @@ mod tests {
         let mut empty = facts();
         empty.sessions.clear();
         empty.events.clear();
+        empty.audit = Some(Vec::new());
         empty.state = None;
         std::fs::write(dir.join("panel-empty.html"), page(&empty).into_string())
             .expect("the empty panel is written");
@@ -1197,11 +1500,57 @@ mod tests {
         let mut fresh = facts();
         fresh.sessions.clear();
         fresh.events.clear();
+        fresh.audit = Some(Vec::new());
         fresh.state = None;
         fresh.console_url = None;
         fresh.console_attempt = None;
         std::fs::write(dir.join("panel-fresh.html"), page(&fresh).into_string())
             .expect("the first-run panel is written");
+        // The bounded record: more than two hundred audit lines, a failed call every seventeenth, so
+        // the "older lines are not shown" sentence and the failed tone can be looked at too. The
+        // page's facts carry the last two hundred lines and the last ten events, as the route does.
+        let mut bounded = facts();
+        let mut lines = vec![json!({
+            "id": 0,
+            "ts_ms": 1_761_566_400_000u64 - 60_000,
+            "event": "begin",
+            "tool": "host.facts",
+            "decision": "allow",
+            "transport": "loopback"
+        })];
+        for index in 0..100u64 {
+            let at = 1_761_566_400_000 + index * 60_000;
+            let tool = if index % 2 == 0 {
+                "host.facts"
+            } else {
+                "runs.exec"
+            };
+            lines.push(json!({
+                "id": index + 1,
+                "ts_ms": at,
+                "event": "begin",
+                "tool": tool,
+                "decision": "allow",
+                "transport": if index % 3 == 0 { "console" } else { "loopback" }
+            }));
+            lines.push(json!({
+                "id": index + 1,
+                "ts_ms": at + 1_000,
+                "event": "end",
+                "ok": index % 17 != 0,
+                "error_kind": if index % 17 == 0 { Some("refused") } else { None },
+                "transport": if index % 3 == 0 { "console" } else { "loopback" }
+            }));
+        }
+        bounded.events = lines[lines.len() - 10..].to_vec();
+        bounded.audit = Some(lines[lines.len() - TIMELINE_LINES..].to_vec());
+        bounded.audit_truncated = true;
+        bounded.rendered_at_ms = 1_761_566_400_000 + 100 * 60_000;
+        std::fs::write(
+            dir.join("panel-timeline.html"),
+            page(&bounded).into_string(),
+        )
+        .expect("the bounded timeline page is written");
     }
 
     #[test]
@@ -1216,6 +1565,7 @@ mod tests {
             "Open console",
             "Diagnostics",
             "Updates",
+            "Timeline",
             "Check for updates now",
             "idle",
             "never",
@@ -1292,11 +1642,173 @@ mod tests {
         assert!(!html.contains(">end<"), "the raw end row is not printed");
     }
 
+    /// Local noon on a fixed day, in whatever timezone the test host has. The panel groups by the
+    /// same local calendar, so the fixture's days stay the days under any `TZ`.
+    fn local_noon(year: i32, month: u32, day: u32) -> u64 {
+        let date = chrono::NaiveDate::from_ymd_opt(year, month, day).expect("a real day");
+        let noon = date.and_hms_opt(12, 0, 0).expect("a real time");
+        Local
+            .from_local_datetime(&noon)
+            .earliest()
+            .expect("noon exists on this host")
+            .timestamp_millis() as u64
+    }
+
+    fn begin(id: u64, at: u64, tool: &str, transport: &str) -> serde_json::Value {
+        json!({
+            "id": id,
+            "ts_ms": at,
+            "event": "begin",
+            "tool": tool,
+            "decision": "allow",
+            "transport": transport
+        })
+    }
+
+    fn end(
+        id: u64,
+        at: u64,
+        ok: bool,
+        error_kind: Option<&str>,
+        transport: &str,
+    ) -> serde_json::Value {
+        json!({
+            "id": id,
+            "ts_ms": at,
+            "event": "end",
+            "ok": ok,
+            "error_kind": error_kind,
+            "transport": transport
+        })
+    }
+
+    #[test]
+    fn the_timeline_groups_calls_by_local_day_and_newest_first() {
+        let today = local_noon(2026, 11, 6);
+        let yesterday = local_noon(2026, 11, 5);
+        let older = local_noon(2026, 11, 4);
+        let audit = vec![
+            begin(1, older + 4 * 3_600_000, "host.facts", "mesh"),
+            begin(
+                2,
+                yesterday - 2 * 3_600_000 - 45 * 60_000,
+                "files.read",
+                "loopback",
+            ),
+            end(
+                2,
+                yesterday - 2 * 3_600_000 - 44 * 60_000,
+                true,
+                None,
+                "loopback",
+            ),
+            begin(3, today, "terminal.create", "panel"),
+            end(3, today + 1_000, true, None, "panel"),
+            begin(
+                4,
+                today + 2 * 3_600_000 + 30 * 60_000,
+                "runs.exec",
+                "console",
+            ),
+            end(
+                4,
+                today + 2 * 3_600_000 + 31 * 60_000,
+                false,
+                Some("refused"),
+                "console",
+            ),
+        ];
+
+        let days = timeline_days(&audit, today + 3_600_000);
+
+        assert_eq!(days.len(), 3, "one group per local day");
+        assert_eq!(days[0].label, "Today");
+        assert_eq!(
+            days[0]
+                .rows
+                .iter()
+                .map(|row| row.time.as_str())
+                .collect::<Vec<_>>(),
+            ["14:30", "12:00"],
+            "today's calls are newest first"
+        );
+        assert_eq!(days[0].rows[0].tool, "runs.exec");
+        assert_eq!(days[0].rows[0].status, "failed");
+        assert!(days[0].rows[0].failed);
+        assert_eq!(days[0].rows[0].error.as_deref(), Some("refused"));
+        assert_eq!(days[0].rows[0].caller, "console");
+        assert_eq!(days[0].rows[1].status, "ok");
+        assert_eq!(days[1].label, "Yesterday");
+        assert_eq!(days[1].rows.len(), 1);
+        assert_eq!(days[1].rows[0].tool, "files.read");
+        assert_eq!(days[2].label, "Wednesday, 11/4");
+        assert_eq!(
+            days[2].rows[0].status, "allow",
+            "a call whose end is not in the window keeps the decision the begin line wrote"
+        );
+
+        // The same facts reach the page: a call row, its failed tone and the audit's error word.
+        let mut facts = facts();
+        facts.audit = Some(audit);
+        facts.rendered_at_ms = today + 3_600_000;
+        let html = page(&facts).into_string();
+        assert!(html.contains(r#"<h2 class="timeline-day-label">Today</h2>"#));
+        assert!(html.contains(r#"<span class="timeline-tool">runs.exec</span>"#));
+        assert!(html.contains(r#"<span class="timeline-status failed">failed</span>"#));
+        assert!(html.contains(r#"<span class="timeline-error">refused</span>"#));
+        assert!(html.contains(r#"<span class="timeline-caller">console</span>"#));
+    }
+
+    #[test]
+    fn the_timeline_escapes_the_tool_name_it_reads_from_the_audit() {
+        let mut facts = facts();
+        facts.audit = Some(vec![
+            begin(
+                1,
+                1_761_566_400_000,
+                "<script>alert(1)</script>",
+                "loopback",
+            ),
+            end(1, 1_761_566_401_000, true, None, "loopback"),
+        ]);
+        let html = page(&facts).into_string();
+
+        assert!(html.contains("&lt;script&gt;alert(1)&lt;/script&gt;"));
+        assert!(!html.contains("<script>alert(1)</script>"));
+    }
+
+    #[test]
+    fn the_timeline_says_when_it_is_empty_bounded_or_unreadable() {
+        let mut empty = facts();
+        empty.audit = Some(Vec::new());
+        let html = page(&empty).into_string();
+        assert!(html.contains("No call has been recorded on this device."));
+        assert!(
+            !html.contains("older lines are not shown"),
+            "an uncut audit does not claim a cut"
+        );
+
+        let mut bounded = facts();
+        bounded.audit_truncated = true;
+        let html = page(&bounded).into_string();
+        assert!(html.contains("The newest 200 lines; older lines are not shown."));
+
+        let mut unreadable = facts();
+        unreadable.audit = None;
+        let html = page(&unreadable).into_string();
+        assert!(html.contains("The device's audit could not be read."));
+        assert!(
+            !html.contains("No call has been recorded on this device."),
+            "an unreadable audit is not an empty one"
+        );
+    }
+
     #[test]
     fn an_empty_page_says_there_are_no_sessions_events_or_readable_state() {
         let mut facts = facts();
         facts.sessions.clear();
         facts.events.clear();
+        facts.audit = Some(Vec::new());
         facts.state = None;
         facts.console_attempt = None;
         facts.console_url = None;
@@ -1305,6 +1817,7 @@ mod tests {
 
         assert!(html.contains("No live session on this machine."));
         assert!(html.contains("No event has been recorded on this device."));
+        assert!(html.contains("No call has been recorded on this device."));
         assert!(
             !html.contains(r#"id="no-events" hidden"#),
             "the empty-state line is visible when there is no event"

@@ -7,6 +7,9 @@ publish.workspace = true
 
 [dependencies]
 summrise-ui = { path = "../ui" }
+# The panel's Timeline cuts at this machine's local midnight, the same cut the console's Activity
+# timeline draws. `clock` is only the local-timezone lookup; the panel keeps no calendar of its own.
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
 # The helper's per-boot token is OS randomness, like the console's session tokens. `rand_core` with
 # the `getrandom` feature is the same choice the console made, for the same reason.
 rand_core = { version = "0.6", features = ["getrandom"] }

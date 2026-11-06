@@ -489,6 +489,79 @@ async fn panel_page(
     Html(markup.into_string()).into_response()
 }
 
+/// The newest `limit` lines of the audit file, and whether older lines exist beyond them.
+struct AuditTail {
+    lines: Vec<serde_json::Value>,
+    truncated: bool,
+}
+
+/// Read the audit from the end: the panel shows 200 lines, so a forward read of a 64 MiB file would
+/// parse hundreds of thousands of lines and then throw them away.
+///
+/// A byte window starts at the end and grows until it holds `limit + 1` newlines (or reaches the
+/// start of the file); only then are the last `limit` lines parsed. When the window did not reach
+/// the start, at least one older line exists, so the page can say the record was cut.
+fn read_audit_tail(path: &Path, limit: usize) -> io::Result<AuditTail> {
+    use std::fs::File;
+    use std::io::{Read, Seek, SeekFrom};
+
+    /// One read that holds several hundred short audit lines; the window doubles for longer lines.
+    const WINDOW: u64 = 64 * 1024;
+
+    let mut file = match File::open(path) {
+        Ok(file) => file,
+        // A device that has never audited anything has no file; that is an empty record, not an
+        // unreadable one.
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            return Ok(AuditTail {
+                lines: Vec::new(),
+                truncated: false,
+            })
+        }
+        Err(error) => return Err(error),
+    };
+    let length = file.metadata()?.len();
+    let mut window = WINDOW;
+    let (bytes, start) = loop {
+        let start = length.saturating_sub(window);
+        let mut bytes = vec![0u8; (length - start) as usize];
+        file.seek(SeekFrom::Start(start))?;
+        file.read_exact(&mut bytes)?;
+        let newlines = bytes.iter().filter(|byte| **byte == b'\n').count();
+        if start == 0 || newlines > limit {
+            break (bytes, start);
+        }
+        window = window.saturating_mul(2);
+    };
+
+    let text = String::from_utf8_lossy(&bytes);
+    let mut lines: Vec<&str> = text
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .collect();
+    let truncated = if start == 0 {
+        lines.len() > limit
+    } else {
+        // The window starts before the `limit + 1`th newline, so the first fragment and every line
+        // before the tail belong to older calls.
+        true
+    };
+    if lines.len() > limit {
+        lines.drain(..lines.len() - limit);
+    }
+    let lines = lines
+        .into_iter()
+        .map(|line| {
+            // The same fallback `Store::tail_events` uses: a corrupt line is shown as text rather
+            // than taking the whole record with it. The Timeline ignores it; it has no tool.
+            serde_json::from_str(line)
+                .unwrap_or_else(|_| serde_json::Value::String(line.to_owned()))
+        })
+        .collect();
+
+    Ok(AuditTail { lines, truncated })
+}
+
 /// Read every fact the rendered panel shows, from the same sources `/api/panel` reads. One read
 /// per request: a browser reload is a fresh look at the machine, and nothing is cached in between.
 fn panel_facts(app: &AppState) -> panel::PanelFacts {
@@ -497,9 +570,18 @@ fn panel_facts(app: &AppState) -> panel::PanelFacts {
         .load()
         .ok()
         .and_then(|state| serde_json::to_value(state).ok());
-    // A failure to read the log prints the same "no events" line the HTML page printed for a null
-    // tail; the difference is not a fact the page has ever shown.
-    let events = app.store.tail_events(EVENT_TAIL).unwrap_or_default();
+    // One bounded read of the device's own audit feeds both the Timeline and the older "Recent
+    // events" table. The table shows the last ten of those lines, exactly the tail it showed before;
+    // a failed read is still the empty table, while the Timeline says the audit could not be read.
+    let (events, audit, audit_truncated) =
+        match read_audit_tail(&app.data.join("events.jsonl"), panel::TIMELINE_LINES) {
+            Ok(tail) => {
+                let start = tail.lines.len().saturating_sub(EVENT_TAIL);
+                let events = tail.lines[start..].to_vec();
+                (events, Some(tail.lines), tail.truncated)
+            }
+            Err(_) => (Vec::new(), None, false),
+        };
     let sessions = app
         .terminal
         .list()
@@ -522,6 +604,10 @@ fn panel_facts(app: &AppState) -> panel::PanelFacts {
                 .filter(|url| !url.is_empty())
                 .map(str::to_owned)
         });
+    let rendered_at_ms = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_millis().min(u128::from(u64::MAX)) as u64)
+        .unwrap_or(0);
 
     panel::PanelFacts {
         version: app.release.version.clone(),
@@ -534,6 +620,9 @@ fn panel_facts(app: &AppState) -> panel::PanelFacts {
         token_command,
         state,
         events,
+        audit,
+        audit_truncated,
+        rendered_at_ms,
         console_attempt: crate::console::last_attempt(),
         console_url,
         sessions,
@@ -2785,6 +2874,95 @@ mod tests {
             PANEL_TERMINAL_JS.contains("wait_ms=15000"),
             "the panel read long-polls instead of asking again every 150 ms"
         );
+    }
+
+    #[test]
+    fn the_audit_tail_is_bounded_and_reports_the_cut() {
+        let fixture = fixture("panel-audit-tail", None);
+        let path = fixture.config.data.join("events.jsonl");
+
+        let tail = read_audit_tail(&path, 200).expect("a missing audit is an empty record");
+        assert!(tail.lines.is_empty());
+        assert!(!tail.truncated);
+
+        // A file larger than the first read window: the reader must find the tail without parsing
+        // the whole file, and it must know the lines before it are real.
+        let mut text = String::new();
+        for index in 0..5_000u64 {
+            text.push_str(&format!(
+                "{{\"id\":{index},\"event\":\"begin\",\"tool\":\"host.facts\"}}\n"
+            ));
+        }
+        fs::write(&path, &text).expect("the audit fixture is written");
+        let tail = read_audit_tail(&path, 200).expect("the audit is readable");
+        assert_eq!(tail.lines.len(), 200);
+        assert!(tail.truncated);
+        assert_eq!(tail.lines[0]["id"], json!(4_800));
+        assert_eq!(tail.lines[199]["id"], json!(4_999));
+
+        // Exactly the bound is not a cut: the page must not say older lines are missing when none
+        // are.
+        let text: String = (0..200u64)
+            .map(|index| {
+                format!("{{\"id\":{index},\"event\":\"begin\",\"tool\":\"host.facts\"}}\n")
+            })
+            .collect();
+        fs::write(&path, text).expect("the exact-bound fixture is written");
+        let tail = read_audit_tail(&path, 200).expect("the audit is readable");
+        assert_eq!(tail.lines.len(), 200);
+        assert!(!tail.truncated);
+        assert_eq!(tail.lines[0]["id"], json!(0));
+    }
+
+    #[tokio::test]
+    async fn the_panel_timeline_reads_the_device_own_audit() {
+        let fixture = fixture("panel-timeline", None);
+        let mut text = String::new();
+        for index in 0..250u64 {
+            let at = 1_761_566_400_000 + index * 1_000;
+            text.push_str(&format!(
+                "{}\n{}\n",
+                json!({
+                    "id": index,
+                    "ts_ms": at,
+                    "event": "begin",
+                    "tool": if index % 2 == 0 { "host.facts" } else { "runs.exec" },
+                    "decision": "allow",
+                    "transport": "loopback"
+                }),
+                json!({
+                    "id": index,
+                    "ts_ms": at + 500,
+                    "event": "end",
+                    "ok": index % 13 != 0,
+                    "transport": "loopback"
+                })
+            ));
+        }
+        fs::write(fixture.config.data.join("events.jsonl"), text)
+            .expect("the audit fixture is written");
+        let server = PanelServer::start(fixture.app()).await;
+        let (status, html) = get_text(&client(), &format!("{}/panel", server.base_url)).await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert!(
+            html.contains("The newest 200 lines; older lines are not shown."),
+            "the route tells the page the read was cut: {html}"
+        );
+        let newest = if 249 % 2 == 0 {
+            "host.facts"
+        } else {
+            "runs.exec"
+        };
+        assert!(
+            html.contains(&format!(r#"<span class="timeline-tool">{newest}</span>"#)),
+            "the newest call is in the record: {html}"
+        );
+        assert!(
+            html.contains(r#"<span class="timeline-status failed">failed</span>"#),
+            "the audit's `ok: false` is a failed row: {html}"
+        );
+        assert!(html.contains(r#"<span class="timeline-caller">loopback</span>"#));
     }
 
     #[tokio::test]
