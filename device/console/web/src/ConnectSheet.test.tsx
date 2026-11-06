@@ -562,3 +562,59 @@ describe("ConnectSheet's one credential list", () => {
     );
   });
 });
+
+describe("ConnectSheet's token dates", () => {
+  // Local instants, so the assertions do not depend on the machine's timezone.
+  const CREATED_AT = new Date(2026, 10, 2, 17, 3, 9).getTime();
+  const USED_AT = new Date(2026, 10, 4, 9, 41, 5).getTime();
+  const EXPIRES_AT = new Date(2026, 11, 4, 9, 41, 5).getTime();
+
+  it("dates created, used and expires in ISO, with the exact moment in the title", async () => {
+    // The measured token sheet read `used 11/6/2026` / `created 11/4/2026` in en-US: the browser's
+    // locale chose the order. The audit's absolute dates are ISO, and so are these.
+    mocks.tokens.mockResolvedValue([
+      tokenMeta({
+        name: "dated",
+        created_at_ms: CREATED_AT,
+        last_used_ms: USED_AT,
+        expires_at_ms: EXPIRES_AT
+      })
+    ]);
+
+    draw({ initialSection: "tokens" });
+    const row = await screen.findByRole("row", { name: /dated/ });
+    const created = row.querySelector(".token-created time") as HTMLTimeElement;
+    const used = row.querySelector(".token-name .hint time") as HTMLTimeElement;
+    const expires = row.querySelector(".token-expires time") as HTMLTimeElement;
+
+    expect(created).toHaveTextContent(/^2026-11-02$/);
+    expect(used).toHaveTextContent(/^2026-11-04$/);
+    expect(expires).toHaveTextContent(/^2026-12-04$/);
+    // The exact time is the cell's title, with the audit's UTC instant beside it.
+    expect(created).toHaveAttribute(
+      "title",
+      `2026-11-02 17:03:09 (${new Date(CREATED_AT).toISOString()})`
+    );
+    expect(used.getAttribute("title")).toContain("09:41:05");
+    expect(expires.getAttribute("title")).toContain("09:41:05");
+    expect(created).toHaveAttribute("dateTime", new Date(CREATED_AT).toISOString());
+    // Not one locale's slash form anywhere on the row.
+    expect(row.textContent).not.toMatch(/\d{1,2}\/\d{1,2}\/\d{4}/);
+  });
+
+  it("keeps never for a token with no expiry and never used for one no call has used", async () => {
+    mocks.tokens.mockResolvedValue([
+      tokenMeta({ name: "unused", created_at_ms: CREATED_AT })
+    ]);
+
+    draw({ initialSection: "tokens" });
+    const row = await screen.findByRole("row", { name: /unused/ });
+    const expires = row.querySelector(".token-expires") as HTMLElement;
+    const hint = row.querySelector(".token-name .hint") as HTMLElement;
+
+    expect(expires.querySelector("time")).toBeNull();
+    expect(expires).toHaveTextContent("never");
+    expect(hint).toHaveTextContent("never used");
+    expect(hint.querySelector("time")).toBeNull();
+  });
+});

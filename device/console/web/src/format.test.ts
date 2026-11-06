@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { lastHeardMs, message, seenAgo, shortDeviceName, shortId } from "./format";
+import {
+  exactMoment,
+  isoDate,
+  lastHeardMs,
+  message,
+  seenAgo,
+  shortDeviceName,
+  shortId
+} from "./format";
 
 describe("shortId", () => {
   it("leaves an id of twelve characters alone", () => {
@@ -26,6 +34,25 @@ describe("message", () => {
 
   it("is anything else as a string", () => {
     expect(message(42)).toBe("42");
+  });
+});
+
+describe("the console's absolute date", () => {
+  // Local instants, so the assertions do not depend on the machine's timezone.
+  const at = new Date(2026, 10, 4, 9, 41, 5).getTime();
+
+  it("states the local day in ISO, not the browser's locale", () => {
+    // The measured token sheet read `11/4/2026` in en-US: the locale decided the order, and a CN
+    // operator had no way to tell day from month. The audit's own dates are ISO.
+    expect(isoDate(at)).toBe("2026-11-04");
+  });
+
+  it("keeps the fixed width for a single-digit month and day", () => {
+    expect(isoDate(new Date(2026, 0, 5, 7, 3, 2).getTime())).toBe("2026-01-05");
+  });
+
+  it("puts the exact local clock and the audit's UTC instant in the title", () => {
+    expect(exactMoment(at)).toBe(`2026-11-04 09:41:05 (${new Date(at).toISOString()})`);
   });
 });
 

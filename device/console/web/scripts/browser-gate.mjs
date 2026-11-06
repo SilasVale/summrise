@@ -312,7 +312,11 @@ const TOKENS = [
     device_id: DEVICE.id,
     tools: ['files.read', 'terminal.read'],
     allow_destructive: false,
-    created_at_ms: NOW - 2 * 60 * 60_000
+    created_at_ms: NOW - 2 * 60 * 60_000,
+    // The date cells' three shapes: a used moment, an expiring token, and (below) a token with
+    // neither, which must keep `never used` / `never`. The gate pins their ISO text and titles.
+    last_used_ms: NOW - 90 * 60_000,
+    expires_at_ms: NOW + 30 * 86400_000
   },
   {
     id: 'gate-token-elsewhere',
@@ -320,7 +324,9 @@ const TOKENS = [
     device_id: 'gate-device-attic-0123456789',
     tools: ['runs.list'],
     allow_destructive: false,
-    created_at_ms: NOW - 3 * 60 * 60_000
+    created_at_ms: NOW - 3 * 60 * 60_000,
+    last_used_ms: NOW - 3 * 86400_000,
+    expires_at_ms: NOW + 90 * 86400_000
   },
   {
     id: 'gate-token-fleet',
@@ -1179,6 +1185,66 @@ try {
     if (!listed.includes(token.name)) throw new Error(`the token list dropped ${token.name}`);
   }
   step('opened Connect → Tokens; one row per registry token, including another machine\'s');
+
+  // **THE TOKEN SHEET'S DATES ARE THE CONSOLE'S, NOT THE BROWSER'S.** The cells used
+  // `toLocaleDateString()`, so an en-US browser read `11/4/2026` and no other locale could be sure
+  // of the order. They are ISO now (the audit's own shape), the exact moment is in the cell's
+  // title, and a token minted without a lifetime still reads `never`.
+  const isoDay = (ms) => {
+    const at = new Date(ms);
+    const pad = (value) => String(value).padStart(2, '0');
+    return `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())}`;
+  };
+  const exactMoment = (ms) => {
+    const at = new Date(ms);
+    const pad = (value) => String(value).padStart(2, '0');
+    return (
+      `${isoDay(ms)} ${pad(at.getHours())}:${pad(at.getMinutes())}:${pad(at.getSeconds())}` +
+      ` (${at.toISOString()})`
+    );
+  };
+  const dated = tokenRows.first();
+  const createdCell = dated.locator('.token-created time');
+  const usedCell = dated.locator('.token-name .hint time');
+  const expiresCell = dated.locator('.token-expires time');
+  for (const [cell, atMs, label] of [
+    [createdCell, TOKENS[0].created_at_ms, 'created'],
+    [usedCell, TOKENS[0].last_used_ms, 'used'],
+    [expiresCell, TOKENS[0].expires_at_ms, 'expires']
+  ]) {
+    const day = await cell.innerText();
+    if (day !== isoDay(atMs)) {
+      throw new Error(`the token's ${label} date reads "${day}", not ${isoDay(atMs)}`);
+    }
+    const title = await cell.getAttribute('title');
+    if (title !== exactMoment(atMs)) {
+      throw new Error(`the token's ${label} title reads "${title}", not the exact moment`);
+    }
+  }
+  // Every absolute date the sheet states is the audit's shape; a locale's slash form fails here.
+  for (const day of await page.locator('.token-table time').allInnerTexts()) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) {
+      throw new Error(`the token sheet drew a non-ISO date: "${day}"`);
+    }
+  }
+  // A token with neither a use nor a lifetime keeps the words; no element pretends to a date.
+  const neverToken = tokenRows.filter({ hasText: 'gate-fleet' });
+  const neverExpiry = await neverToken.locator('.token-expires').innerText();
+  // At the sheet's 600 px container width the cell's own `Expires` label is inline, so the value is
+  // the cell's suffix; a digit anywhere would mean a date was drawn for a token that has none.
+  if (!neverExpiry.endsWith('never') || /\d/.test(neverExpiry)) {
+    throw new Error(`a token with no expiry read ${JSON.stringify(neverExpiry)}, not never`);
+  }
+  if ((await neverToken.locator('.token-expires time').count()) !== 0) {
+    throw new Error('a token with no expiry drew a date');
+  }
+  const neverUsed = await neverToken.locator('.token-name .hint').innerText();
+  if (neverUsed !== 'never used') {
+    throw new Error(`a token that was never used read ${JSON.stringify(neverUsed)}, not never used`);
+  }
+  step(
+    'the token sheet dates created/used/expires in ISO with the exact moment in the title, and never for a token with no expiry'
+  );
   await page.screenshot({ path: path.join(OUT, '06-connect-tokens.png') });
 
   // ITEM 5, MEASURED AT 1280. The sheet is 600 px wide on desktop, so the token row is measured

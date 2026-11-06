@@ -1,10 +1,42 @@
 export { shortId, age, ageAt } from "./logic";
 
+function pad(value: number): string {
+  return String(value).padStart(2, "0");
+}
+
 /** A clock a person reads on a summary line: HH:MM in the console's own timezone. */
 export function clockTime(ts: number): string {
   const date = new Date(ts);
-  const pad = (value: number) => String(value).padStart(2, "0");
   return `${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+/**
+ * `2026-11-04`: the console's one absolute date, in the operator's own timezone.
+ *
+ * `toLocaleDateString()` put the browser's order in the token sheet — `11/4/2026` in en-US, and a
+ * different order in every other locale, so a CN operator could not tell the day from the month
+ * without knowing the browser's locale. The audit writes ISO, and this is the same day's shape.
+ * The day is the console's local day, because the clock beside it (`last 17:23`) is; `exactMoment`
+ * states the time behind it.
+ */
+export function isoDate(ts: number): string {
+  const at = new Date(ts);
+  return `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())}`;
+}
+
+/**
+ * The exact moment behind an `isoDate`, for a cell's `title`: the console's clock to the second,
+ * with the full UTC ISO instant the audit's filenames use beside it.
+ *
+ * `20261102T113000.000Z` and the token sheet's day are the same moment stated two ways; a title
+ * that names both lets an operator match a token to the export it appears in.
+ */
+export function exactMoment(ts: number): string {
+  const at = new Date(ts);
+  return (
+    `${isoDate(ts)} ${pad(at.getHours())}:${pad(at.getMinutes())}:${pad(at.getSeconds())}` +
+    ` (${at.toISOString()})`
+  );
 }
 
 /**

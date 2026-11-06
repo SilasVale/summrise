@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, type Created, type Device, type LiveTool, type TokenMeta } from "./api";
 import { groupByCapability } from "./capabilities";
 import { copyText } from "./copy";
-import { lastHeardMs, message, seenAgo, shortId } from "./format";
+import { exactMoment, isoDate, lastHeardMs, message, seenAgo, shortId } from "./format";
 import { Modal } from "./Modal";
 import { Sheet } from "./Sheet";
 import { useLiveTools } from "./useLiveTools";
@@ -72,15 +72,19 @@ function clientConfig(client: ClientId, url: string): string {
   );
 }
 
-function lastUsed(entry: TokenMeta): string {
-  return entry.last_used_ms == null
-    ? "never used"
-    : `used ${new Date(entry.last_used_ms).toLocaleDateString()}`;
-}
-
-/** The Expires cell: the column already says what the date means. */
-function expiry(entry: TokenMeta): string {
-  return entry.expires_at_ms == null ? "never" : new Date(entry.expires_at_ms).toLocaleDateString();
+/**
+ * One absolute moment on the sheet: the ISO day a person reads, with the exact time in its title.
+ *
+ * The token sheet's only absolute dates share this element. `toLocaleDateString()` put the browser's
+ * order in the cell — `11/4/2026` in en-US, another order in every other locale — which is not a
+ * date an operator can read without knowing the browser's locale first.
+ */
+function Moment({ ts }: { ts: number }) {
+  return (
+    <time dateTime={new Date(ts).toISOString()} title={exactMoment(ts)}>
+      {isoDate(ts)}
+    </time>
+  );
 }
 
 /**
@@ -734,7 +738,13 @@ function TokensSection({
                               {copiedId === entry.id ? "Copied" : "Copy"}
                             </button>
                           </span>
-                          <span className="hint">{lastUsed(entry)}</span>
+                          <span className="hint">
+                            {entry.last_used_ms == null ? (
+                              "never used"
+                            ) : (
+                              <>used <Moment ts={entry.last_used_ms} /></>
+                            )}
+                          </span>
                         </div>
                       </td>
                       <td>
@@ -752,13 +762,15 @@ function TokensSection({
                       </td>
                       <td className="token-expires">
                         <span className="token-meta-label" aria-hidden="true">Expires</span>
-                        {expiry(entry)}
+                        {entry.expires_at_ms == null ? (
+                          "never"
+                        ) : (
+                          <Moment ts={entry.expires_at_ms} />
+                        )}
                       </td>
                       <td className="token-created">
                         <span className="token-meta-label" aria-hidden="true">Created</span>
-                        <time dateTime={new Date(entry.created_at_ms).toISOString()}>
-                          {new Date(entry.created_at_ms).toLocaleDateString()}
-                        </time>
+                        <Moment ts={entry.created_at_ms} />
                       </td>
                       <td className="token-actions">
                         <button
