@@ -314,7 +314,7 @@ console's terminal tab is the surface that finds this; the device's read is the 
    (device; a device release. The still-wedged session-3 is the reproduction; 9VH/CPH's 0.3.281
    channel can carry the fix to a fresh flooded pty for the live proof.)
 
-2. **The console still asks for the whole ring, so the fix's paging is unused.** The device's
+2. **The console still asks for the whole ring, so the fix's paging is unused.** *(Done 2026-11-06, 73df5d4, live 0.3.273-ux72: on a cursor-too-old the console pages the retained ring through polling `terminal.read` with `limit` 65,536, draws each page, advances the cursor, treats a short/empty page as the end, then opens the stream at the reached cursor; a page cap of 17 and the 12 s guard cut into the newest 4 KiB with the existing loss sentence; an older device refusing `limit` disables the field once for the grant and takes the old reconnect/tail path. 737 tests (+3), typecheck 0, gate PASS 39 steps (a stubbed too-old refused once and paged from 1024, the stream resumed at 1050), a11y 0/3, `build-web --check` clean. Live: a fresh 9VH 0.3.282 PowerShell pty session-2 flooded >1 MiB; the deployed page drew it with 0 `.terminal-fault` and no page errors (screenshot /tmp/live-ux72-paged.png), and the implementer's candidate-page run made 16 limited reads of 65,536 + one short page, advanced 299,744 → 1,351,568, resumed the stream there and drew the output (/tmp/live-task14-paged.png); each MCP answer ~160 KB, not the whole-ring frame.)* The device's
    `terminal.read` now takes an optional byte `limit` (184ee8c), but the console's recovery reconnects
    the stream at the earliest cursor and the device's subscribe frame carries the whole ring (up to
    1 MiB, `data` + `data_base64`) — the frame whose 30 s bound the measured 504 came from. **Cost:**
@@ -324,6 +324,15 @@ console's terminal tab is the surface that finds this; the device's read is the 
    `wait_ms`-style capability check for devices that refuse the field; only after the pages are drawn
    (or the guard expires) does it open the stream at the reached cursor. **M.** (console; live on a
    fresh flooded pty after the 0.3.282 channel update.)
+
+3. **The console server closes a subscription whose ack arrives empty.** The paged catch-up resumes
+   the stream at the reached cursor; the console server's subscription ack for an up-to-date cursor
+   is an empty read, `read_event` emits no SSE event, the stream closes, the page reconnects once at
+   the same cursor and then falls back to 250 ms polling. **Cost:** every tab that catches up pays a
+   reconnect and then polls until new output; the stream's job is lost exactly when the tab is
+   current. **Fix:** keep the subscription open across an empty ack (a keep-alive frame or a wait for
+   the next output) so the next bytes are pushed, not polled. **S/M.** (console server; measured by
+   task 14's live run.)
 
 ## How a round goes
 
