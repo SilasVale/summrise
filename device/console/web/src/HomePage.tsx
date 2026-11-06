@@ -180,6 +180,9 @@ function FleetHome(props: FleetProps) {
               key={device.id}
               device={device}
               selected={props.selectedId === device.id}
+              // The staged installer's version is a fact of the same page: Add-a-machine offers
+              // that file, and each row says when the machine it opens is older than it.
+              installerVersion={installer?.available ? installer.version : null}
               onSelect={() => props.onOpen(device.id)}
               onRename={() => props.onRename(device)}
               onRemove={() => props.onRemove(device)}

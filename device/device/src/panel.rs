@@ -433,8 +433,16 @@ fn render(facts: &PanelFacts, outcome: Option<&EnrollOutcome>) -> Markup {
     let update_last = update
         .and_then(|update| update.get("lastResultAtMs"))
         .and_then(serde_json::Value::as_u64)
-        .map(|milliseconds| crate::store::format_utc(milliseconds / 1_000))
-        .unwrap_or_else(|| "never".to_owned());
+        .and_then(local_moment);
+    // **THE LAST CHECK IS A FACT OF ITS OWN.** `/api/panel` has carried `lastCheck` all along, but
+    // the card never drew it; a build newer than the applied target then read as a stale updater
+    // when the device had checked that same day. A document that has no check (an older build, or a
+    // device that never checked) says so instead of inventing a time.
+    let update_last_check = update
+        .and_then(|update| update.get("lastCheck"))
+        .and_then(|check| check.get("atMs"))
+        .and_then(serde_json::Value::as_u64)
+        .and_then(local_moment);
     let event_rows = event_rows(&facts.events);
     let timeline = facts
         .audit
@@ -704,12 +712,26 @@ fn render(facts: &PanelFacts, outcome: Option<&EnrollOutcome>) -> Markup {
                         dl id="updates" {
                             dt { "Phase" }
                             dd { (update_phase) }
-                            dt { "Target" }
+                            dt { "Last target" }
                             dd { (update_target) }
-                            dt { "Outcome" }
+                            dt { "Last outcome" }
                             dd { (update_outcome) }
                             dt { "Last result" }
-                            dd { (update_last) }
+                            dd {
+                                @if let Some((local, exact)) = &update_last {
+                                    time datetime=(exact) title=(exact) { (local) }
+                                } @else {
+                                    "never"
+                                }
+                            }
+                            dt { "Last check" }
+                            dd {
+                                @if let Some((local, exact)) = &update_last_check {
+                                    time datetime=(exact) title=(exact) { (local) }
+                                } @else {
+                                    "not recorded"
+                                }
+                            }
                         }
                         form method="post" action="/api/panel/update" {
                             input type="hidden" name="panel_token" value=(facts.panel_token);
@@ -1138,6 +1160,18 @@ fn timeline_row(
 fn local_at(milliseconds: u64) -> Option<chrono::DateTime<Local>> {
     let milliseconds = i64::try_from(milliseconds).ok()?;
     Local.timestamp_millis_opt(milliseconds).single()
+}
+
+/// One moment as the page draws it: the machine's local clock, and the exact UTC instant for the
+/// title. The Timeline and the Updates card read the same clock; only the reader's timezone differs
+/// from the audit's UTC spelling, which stays available on hover.
+fn local_moment(milliseconds: u64) -> Option<(String, String)> {
+    local_at(milliseconds).map(|at| {
+        (
+            at.format("%Y-%m-%d %H:%M:%S").to_string(),
+            crate::store::format_utc(milliseconds / 1_000),
+        )
+    })
 }
 
 const WEEKDAYS: [&str; 7] = [
@@ -1628,6 +1662,83 @@ mod tests {
             html.contains("&lt;contents of /var/lib/summrise/token&gt;"),
             "the config block shows the placeholder where the token goes"
         );
+    }
+
+    /// The Updates card's two moments are the LAST ones, not a current target: `to` is the target of
+    /// the last applied update, which can be older than the build above it. The labels say so, the
+    /// last check the state actually carries is drawn, and both moments are local with the exact UTC
+    /// instant in the title (the timeline above this card is local too).
+    #[test]
+    fn the_updates_card_labels_the_last_result_and_shows_the_last_check_locally() {
+        let check_at = Local
+            .with_ymd_and_hms(2026, 11, 6, 17, 26, 2)
+            .single()
+            .expect("a real local time")
+            .timestamp_millis() as u64;
+        let result_at = Local
+            .with_ymd_and_hms(2026, 11, 4, 19, 11, 5)
+            .single()
+            .expect("a real local time")
+            .timestamp_millis() as u64;
+        let mut facts = facts();
+        facts.state = Some(json!({
+            "schema": 1,
+            "update": {
+                "phase": "idle",
+                "to": "0.3.273",
+                "outcome": "applied",
+                "lastResultAtMs": result_at,
+                "lastCheck": { "atMs": check_at, "trigger": "channel" }
+            }
+        }));
+
+        let html = page(&facts).into_string();
+        let card = html
+            .split(r#"<dl id="updates">"#)
+            .nth(1)
+            .and_then(|rest| rest.split("</dl>").next())
+            .expect("the Updates card is on the page");
+
+        assert!(card.contains("<dt>Last target</dt>"), "{card}");
+        assert!(card.contains("<dt>Last outcome</dt>"), "{card}");
+        assert!(card.contains("<dt>Last check</dt>"), "{card}");
+        assert!(
+            !card.contains("<dt>Target</dt>"),
+            "the applied target is never a current target: {card}"
+        );
+        assert!(card.contains("<dd>0.3.273</dd>"), "{card}");
+        assert!(card.contains("<dd>applied</dd>"), "{card}");
+        assert!(card.contains("2026-11-04 19:11:05"), "{card}");
+        assert!(card.contains("2026-11-06 17:26:02"), "{card}");
+        assert!(
+            card.contains(&format!(
+                r#"title="{}""#,
+                crate::store::format_utc(check_at / 1_000)
+            )),
+            "the exact instant is in the last check's title: {card}"
+        );
+        assert!(
+            card.contains(&format!(
+                r#"title="{}""#,
+                crate::store::format_utc(result_at / 1_000)
+            )),
+            "the exact instant is in the last result's title: {card}"
+        );
+    }
+
+    /// A state document written before `lastCheck` existed has no check to show; the card says it
+    /// was not recorded rather than inventing "never" or a time.
+    #[test]
+    fn the_updates_card_says_the_last_check_was_not_recorded() {
+        let html = page(&facts()).into_string();
+        let card = html
+            .split(r#"<dl id="updates">"#)
+            .nth(1)
+            .and_then(|rest| rest.split("</dl>").next())
+            .expect("the Updates card is on the page");
+
+        assert!(card.contains("<dt>Last check</dt>"), "{card}");
+        assert!(card.contains("not recorded"), "{card}");
     }
 
     #[test]

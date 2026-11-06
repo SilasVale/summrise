@@ -342,6 +342,9 @@ main.terminal-main { display: grid; grid-template-rows: auto minmax(0, 1fr); ali
 .fleet-state { color: var(--ink-muted); font-size: var(--fs-sm); white-space: nowrap; }
 .fleet-work { color: var(--ink-muted); font-size: var(--fs-sm); white-space: nowrap; }
 .fleet-build { color: var(--ink-faint); font-size: var(--fs-xs); white-space: nowrap; }
+/* The staged installer is the fleet's other version. The cue rides in the build's own cell so the
+   row does not grow a column for a comparison, and its weight lifts it out of the faint chip. */
+.fleet-behind { color: var(--ink-muted); font-weight: var(--fw-medium); }
 .fleet-chevron { color: var(--ink-faint); font-size: var(--fs-md); line-height: 1; }
 .fleet-verdict {
   /* THE DEVICE'S OWN LINE, under the silence rather than replacing it. One line, cut with the title
@@ -2469,6 +2472,9 @@ input:not([type="checkbox"]):not([type="radio"]):focus, select:focus, textarea:f
 }
 .system-section > h3 { margin: 0; font-size: var(--fs-md); font-weight: var(--fw-semi); letter-spacing: -0.01em; }
 .system-section > .hint { max-width: 68ch; }
+/* The update line's moments are read against each other, so its figures keep one width. It is a
+   device fact on the section's own muted line, not a control or a second heading. */
+.system-update { margin: 0; font-variant-numeric: tabular-nums; }
 .system-section .card { border: 0; background: var(--canvas); }
 
 /* ── The files page ─────────────────────────────────────────────────────────────────────────────

@@ -2,6 +2,7 @@ import type { DeviceUpdate, HostFacts } from "./api";
 import type { LastAttempt } from "./attempt";
 import { callsLine, lastHeardMs, seenAgo, shortId } from "./format";
 import { startedLine, processStartMs } from "./updateStory";
+import { versionBelow } from "./versions";
 
 export type Device = {
   id: string;
@@ -42,6 +43,13 @@ export type Device = {
 type Props = {
   device: Device;
   selected: boolean;
+  /**
+   * The staged installer's version, when `/installer` reported one. The row compares it with the
+   * device's own version and marks the machine only when both are numeric versions; `null` is
+   * "the console staged nothing" (or the read has not landed), which draws no cue rather than a
+   * guessed one.
+   */
+  installerVersion?: string | null;
   onSelect: () => void;
   onRename: () => void;
   onRemove: () => void;
@@ -53,7 +61,15 @@ type Props = {
  * overflow holds the three management actions. There is no per-row Connect and no accent on a row:
  * the screen's one primary action is Add a machine.
  */
-export function DeviceCard({ device, selected, onSelect, onRename, onRemove, onDiagnostics }: Props) {
+export function DeviceCard({
+  device,
+  selected,
+  installerVersion = null,
+  onSelect,
+  onRename,
+  onRemove,
+  onDiagnostics
+}: Props) {
   const label = device.name ?? shortId(device.id);
   // **THE AGE IS THE NEWEST EVIDENCE THE CONSOLE HAS.** A frame proves presence and wins; a console
   // that restarted mid-outage still has the audit's newest open `device.left`; the registry's
@@ -90,6 +106,13 @@ export function DeviceCard({ device, selected, onSelect, onRename, onRemove, onD
   // stays one row at 1440; at 390 the status cell takes its own line and the counts wrap below the
   // state.
   const work = callsLine(device.today);
+  // **THE INSTALLER IS THE SURFACE'S OTHER VERSION.** The chip says what the machine runs; the
+  // Add-a-machine block says what the console offers. A machine older than that file is the one
+  // fact the operator needs from this row, and it is drawn only when both versions are known and
+  // numerically ordered. It sits in the build's cell, so the row keeps the version once and does
+  // not grow a third column for a comparison.
+  const behind =
+    installerVersion && versionBelow(device.version, installerVersion) ? installerVersion : null;
   return (
     <article className={"fleet-row" + (selected ? " is-current" : "")}>
       <button type="button" className="fleet-open" aria-label={`Open ${label}`} onClick={onSelect}>
@@ -99,7 +122,17 @@ export function DeviceCard({ device, selected, onSelect, onRename, onRemove, onD
           <span className={"fleet-state" + (device.online ? " ok" : "")}>{state}</span>
           {work && <span className="fleet-work">{work}</span>}
         </span>
-        {device.version && <span className="fleet-build mono">v{device.version}</span>}
+        {device.version && (
+          <span className="fleet-build mono">
+            v{device.version}
+            {behind && (
+              <>
+                {" · "}
+                <span className="fleet-behind">behind {behind}</span>
+              </>
+            )}
+          </span>
+        )}
         <span className="fleet-chevron" aria-hidden="true">›</span>
         {started && (
           <span className="fleet-verdict" title={started}>

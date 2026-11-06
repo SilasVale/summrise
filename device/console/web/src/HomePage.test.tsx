@@ -1159,6 +1159,24 @@ describe("Home — the fleet's installer", () => {
     ).toBeTruthy();
   });
 
+  it("marks a fleet row whose version is behind the staged installer", async () => {
+    // The measured fleet's 84T3LIN row: the machine ran v0.3.280 while this same page offered the
+    // 0.3.284 installer, and the row said nothing. The comparison uses the one `/installer` read
+    // the Add-a-machine block already makes.
+    installerApi.installer.mockResolvedValue(installerFacts);
+    drawFleet({ devices: [{ ...workshop, version: "0.3.8" }] });
+
+    expect(await screen.findByText("behind 0.3.9")).toBeInTheDocument();
+  });
+
+  it("draws no fleet cue when the console staged no installer", async () => {
+    installerApi.installer.mockResolvedValue({ available: false });
+    drawFleet({ devices: [{ ...workshop, version: "0.3.8" }] });
+
+    await screen.findByText(/No installer is published/);
+    expect(screen.queryByText(/behind/)).not.toBeInTheDocument();
+  });
+
   it("says plainly when the release carries no installer, and draws no door", async () => {
     installerApi.installer.mockResolvedValue({ available: false });
     drawFleet();

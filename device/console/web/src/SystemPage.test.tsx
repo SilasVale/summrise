@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { SystemPage } from "./SystemPage";
 import { callTool, ToolError, type Grant } from "./terminal";
+import { clockTime, exactMoment, isoDate } from "./format";
 
 // The page's whole device surface is `callTool`; the real `ToolError` stays so a refusal is the class
 // the page actually receives from `./terminal`.
@@ -84,6 +85,99 @@ describe("SystemPage", () => {
     expect(await screen.findByText("online")).toBeInTheDocument();
     expect(screen.queryByText(/build/)).toBeNull();
     expect(screen.queryByText(/0\.3\.1/)).toBeNull();
+  });
+
+  it("states the device's own update facts, including the last check", async () => {
+    // The measured Machine tab left the operator with `Running · v0.3.284` and no update story at
+    // all, while the fleet read carried the running version, the last check and the last outcome.
+    device(() => JSON.stringify([]));
+    const checkAt = new Date(2026, 10, 6, 17, 26, 2).getTime();
+    const resultAt = new Date(2026, 10, 4, 19, 11, 5).getTime();
+    const { container } = render(
+      <SystemPage
+        grant={GRANT}
+        device={{
+          id: "device-1",
+          name: "workshop",
+          online: true,
+          version: "0.3.284",
+          last_frame_ms: 1,
+          update: {
+            current: "0.3.284",
+            last_check: { at_ms: checkAt, trigger: "channel" },
+            last_update: { to: "0.3.273", outcome: "applied", at_ms: resultAt }
+          },
+          host: {
+            update: {
+              current: { version: "0.3.284", channel: "canary" },
+              previous: null,
+              pending: null,
+              last_swap: null,
+              repairs: []
+            }
+          }
+        }}
+      />
+    );
+
+    await screen.findByText("online");
+    const line = container.querySelector(".system-update");
+    expect(line).not.toBeNull();
+    expect(line).toHaveTextContent("running v0.3.284");
+    expect(line).toHaveTextContent("channel canary");
+    expect(line).toHaveTextContent(`last check ${isoDate(checkAt)} ${clockTime(checkAt)}`);
+    expect(line).toHaveTextContent("last outcome applied to 0.3.273");
+    expect(line).toHaveTextContent(isoDate(resultAt));
+    const check = within(line as HTMLElement).getByText(
+      `${isoDate(checkAt)} ${clockTime(checkAt)}`
+    );
+    expect(check).toHaveAttribute("title", exactMoment(checkAt));
+  });
+
+  it("says which update facts the device did not report instead of guessing them", async () => {
+    device(() => JSON.stringify([]));
+    const { container } = render(
+      <SystemPage
+        grant={GRANT}
+        device={{
+          id: "device-1",
+          name: "workshop",
+          online: true,
+          version: "0.3.284",
+          last_frame_ms: 1,
+          update: { current: "0.3.284" }
+        }}
+      />
+    );
+
+    await screen.findByText("online");
+    const line = container.querySelector(".system-update");
+    expect(line).not.toBeNull();
+    expect(line).toHaveTextContent("running v0.3.284");
+    expect(line).toHaveTextContent("channel not reported");
+    expect(line).toHaveTextContent("no last check reported");
+    expect(line).toHaveTextContent("no update result reported");
+  });
+
+  it("says the console has no update facts when the device never sent a story", async () => {
+    device(() => JSON.stringify([]));
+    const { container } = render(
+      <SystemPage
+        grant={GRANT}
+        device={{
+          id: "device-1",
+          name: "workshop",
+          online: true,
+          version: "0.3.284",
+          last_frame_ms: 1
+        }}
+      />
+    );
+
+    await screen.findByText("online");
+    expect(container.querySelector(".system-update")).toHaveTextContent(
+      "The console has no update facts from this device: it has not sent its update story."
+    );
   });
 
   it("lists the device's processes and sends the filter the box asked for", async () => {

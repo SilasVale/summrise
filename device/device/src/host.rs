@@ -136,6 +136,9 @@ pub fn frame(data: &std::path::Path) -> String {
 ///   start or the updater's last answer;
 /// * `last_update` — `update.to`/`outcome`/`lastResultAtMs`, present only after the app has folded a
 ///   swap result in (a staged release is not a result, and `to` alone would read as one);
+/// * `last_check` — `update.lastCheck`'s `atMs` and `trigger`, present when the state records a
+///   check. It is a separate fact from `last_update`: a machine that looked and found nothing has
+///   checked without producing a result, and the console must be able to say when it last looked;
 /// * `rolled_back_to` — present only when that last answer was `rolled_back`, and naming the version
 ///   the device is now running: the swap result names the candidate that failed, and the version
 ///   that took its place is the one this process started from.
@@ -166,6 +169,18 @@ pub fn update_story(data: &Path) -> Option<serde_json::Value> {
         if outcome == UpdateOutcome::RolledBack {
             story.insert("rolled_back_to".to_owned(), current.into());
         }
+    }
+    // The last check is separate from the last result: a device that checked today and found
+    // nothing new has no result to fold in, and its panel/console must still say it looked. Absent
+    // when the state document predates the field, so "not recorded" is not drawn as "never".
+    if let Some(check) = state.update.last_check {
+        story.insert(
+            "last_check".to_owned(),
+            serde_json::json!({
+                "at_ms": check.at_ms,
+                "trigger": check.trigger.as_str(),
+            }),
+        );
     }
     Some(serde_json::Value::Object(story))
 }
@@ -909,6 +924,31 @@ mod tests {
                     "at_ms": 1762330860000_u64,
                 },
             }))
+        );
+    }
+
+    /// The last check is a fact the device keeps in its own state (`update.lastCheck`) and the
+    /// panel reads it; the frame carries it too, so the console's Machine tab can say when the
+    /// machine last looked rather than treating the last applied target as the current one. The
+    /// trigger is the device's own word for what asked for the check.
+    #[test]
+    fn the_update_story_reports_the_last_check_and_what_asked_for_it() {
+        let dir = TempDir::new("update-story-last-check");
+        let data = dir.join("data");
+        write_state(
+            &data,
+            &state_document(
+                "0.3.284",
+                r#"{"ts":"2026-11-06T17:24:00Z","outcome":"ok","detail":"started 0.3.284"}"#,
+                r#"{"phase":"idle","to":"0.3.273","outcome":"applied","lastResultAtMs":1762330860000,"lastCheck":{"atMs":1793985962342,"trigger":"channel"}}"#,
+            ),
+        );
+
+        let story = update_story(&data).expect("the state document is readable");
+        assert_eq!(
+            story["last_check"],
+            serde_json::json!({ "at_ms": 1793985962342_u64, "trigger": "channel" }),
+            "the last check is the state's own moment and trigger: {story}"
         );
     }
 

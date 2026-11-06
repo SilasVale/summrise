@@ -43,8 +43,9 @@ export type UpdateRepair = { at_ms: number; from: "baseline" | "previous"; sha25
 
 /**
  * The device's own update story, as its host frame carries it: the version it actually runs, the
- * verdict of its last start, and the updater's last answer. Every field is the device's; the console
- * does not fill in a missing one, because "unknown" and "none" are different facts.
+ * verdict of its last start, the updater's last answer, and when it last checked. Every field is
+ * the device's; the console does not fill in a missing one, because "unknown" and "none" are
+ * different facts.
  *
  * It is a separate section of the frame from [`HostFacts.update`], which is the launcher's files on
  * disk. This one comes from the state document the running app writes.
@@ -58,6 +59,10 @@ export type DeviceUpdate = {
   /// The updater's last answer, present only after a swap result was folded in. A staged release is
   /// not a result, so this is absent until one exists.
   last_update?: { to?: string; outcome: string; at_ms: number } | null;
+  /// When the device last looked for a release, and what asked it to (`start`, `channel`,
+  /// `schedule`). The device's own state records this beside its update phase; a device whose state
+  /// predates the field omits it, so "not recorded" is not drawn as "never checked".
+  last_check?: { at_ms: number; trigger?: string } | null;
   /// The version a rollback returned to, present only when the last answer was `rolled_back`.
   rolled_back_to?: string;
 };

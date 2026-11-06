@@ -29,9 +29,14 @@ const callbacks = {
   onDiagnostics: vi.fn()
 };
 
-function draw(overrides: Partial<Device> = {}) {
+function draw(overrides: Partial<Device> = {}, installerVersion: string | null = null) {
   return render(
-    <DeviceCard device={{ ...device, ...overrides }} selected={false} {...callbacks} />
+    <DeviceCard
+      device={{ ...device, ...overrides }}
+      selected={false}
+      installerVersion={installerVersion}
+      {...callbacks}
+    />
   );
 }
 
@@ -298,5 +303,38 @@ describe("DeviceCard — one row on the fleet", () => {
     expect(work?.closest(".fleet-name")).toBeNull();
     expect(work?.parentElement?.className).toBe("fleet-now");
     expect(name?.parentElement).toBe(work?.parentElement?.parentElement);
+  });
+
+  it("marks a machine behind the staged installer beside its build", () => {
+    // The measured fleet: 84T3LIN read v0.3.280 while the same page offered the 0.3.284
+    // installer, and the row gave the operator no way to notice without comparing two surfaces.
+    const { container } = draw({ version: "0.3.280" }, "0.3.284");
+
+    expect(screen.getByText("behind 0.3.284")).toBeInTheDocument();
+    const build = container.querySelector(".fleet-build");
+    expect(build).toHaveTextContent("v0.3.280 · behind 0.3.284");
+  });
+
+  it("draws no behind cue when the versions are equal", () => {
+    const { container } = draw({ version: "0.3.284" }, "0.3.284");
+
+    expect(screen.queryByText(/behind/)).not.toBeInTheDocument();
+    expect(container.querySelector(".fleet-build")).toHaveTextContent("v0.3.284");
+  });
+
+  it("draws no behind cue when either version is unknown", () => {
+    // The installer read failed or the device never announced a version: the row cannot compare,
+    // and a cue would be a guess.
+    const noInstaller = draw({ version: "0.3.280" }, null);
+    expect(screen.queryByText(/behind/)).not.toBeInTheDocument();
+    noInstaller.unmount();
+
+    draw({ version: null }, "0.3.284");
+    expect(screen.queryByText(/behind/)).not.toBeInTheDocument();
+  });
+
+  it("draws no behind cue for a machine newer than the staged installer", () => {
+    draw({ version: "0.3.285" }, "0.3.284");
+    expect(screen.queryByText(/behind/)).not.toBeInTheDocument();
   });
 });

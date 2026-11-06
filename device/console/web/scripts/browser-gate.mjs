@@ -102,14 +102,26 @@ const DEVICE = {
   update: {
     current: '0.3.42',
     verdict: { outcome: 'ok', detail: 'started 0.3.42' },
-    last_update: { to: '0.3.43', outcome: 'refused', at_ms: NOW - 60_000 }
+    last_update: { to: '0.3.43', outcome: 'refused', at_ms: NOW - 60_000 },
+    // The device's last check, and what woke it. The Machine tab's update line must draw this
+    // rather than treating the refused target as the current one.
+    last_check: { at_ms: NOW - 20 * 60_000, trigger: 'channel' }
   },
   // The platform the run form chooses its example from. Only `os` and the boot journal are here:
   // the form needs the OS fact, and the journal's newest entry is the moment this process started,
   // which is what makes the refused answer at NOW - 60 s belong to it (ITEM 5).
   host: {
     os: { name: 'Windows', version: '10.0.26100', arch: 'x86_64' },
-    restarts: [{ at_ms: NOW - 60 * 60_000, version: '0.3.42', channel: 'stable', pid: 4200 }]
+    restarts: [{ at_ms: NOW - 60 * 60_000, version: '0.3.42', channel: 'stable', pid: 4200 }],
+    // The launcher's current generation carries the channel the update line names when the fleet
+    // reports one. No other surface in this gate needs the launcher's update block.
+    update: {
+      current: { version: '0.3.42', channel: 'stable' },
+      previous: null,
+      pending: null,
+      last_swap: null,
+      repairs: []
+    }
   }
 };
 // THE OFFLINE ROW'S AGE. The measured DESKTOP-14RJCR8 case: no frame since the console restarted,
@@ -910,6 +922,14 @@ try {
   if (versionCopies !== 1) {
     throw new Error(`the online row carried ${versionCopies} copies of its version: "${onlineRowText}"`);
   }
+  // **THE INSTALLER IS THE FLEET'S OTHER VERSION.** Every gate machine runs 0.3.42 and the staged
+  // file is 0.3.280, so each row must say it is behind that file beside its own build — the
+  // measured fleet had 84T3LIN on 0.3.280 beside the 0.3.284 installer and said nothing.
+  const build = (await onlineRow.locator('.fleet-build').textContent())?.trim();
+  if (build !== 'v0.3.42 · behind 0.3.280') {
+    throw new Error(`the online row's build read "${build}", not its own version and the staged one`);
+  }
+  step(`the online row's build states "${build}"`);
   const verdict = (await onlineRow.locator('.fleet-verdict').textContent())?.trim();
   if (verdict !== 'update to 0.3.43 refused') {
     throw new Error(`the online row's update line read "${verdict}"`);
@@ -1507,6 +1527,17 @@ try {
   if (machinePageText.includes('build ')) {
     throw new Error('the Machine tab repeated the build the header already shows');
   }
+  // **THE DEVICE'S OWN UPDATE STORY IS THE LINE THE TAB WAS MISSING.** It is not a second build
+  // chip: it names the version its state document records, the channel the fleet reports, the last
+  // check and the updater's last outcome. All four are the gate fixture's facts, not the header's
+  // chip repeated.
+  const updateLine = (await page.locator('.system-update').innerText()).trim();
+  for (const fact of ['running v0.3.42', 'channel stable', 'last check', 'last outcome refused to 0.3.43']) {
+    if (!updateLine.includes(fact)) {
+      throw new Error(`the Machine update line read "${updateLine}", missing ${JSON.stringify(fact)}`);
+    }
+  }
+  step(`the Machine tab's update line states "${updateLine}"`);
   step('the Machine tab states reachability without a second build line');
 
   // THE CREDENTIAL LIST IS THE WHOLE REGISTRY. `GET /tokens` is the only list route; a row for

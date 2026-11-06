@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import type { Device } from "./DeviceCard";
-import { message } from "./format";
+import { clockTime, exactMoment, isoDate, message } from "./format";
 import { HostFactsBlock } from "./HostFacts";
 import { Modal } from "./Modal";
 import { useRequestGate } from "./requests";
@@ -88,6 +88,73 @@ const READING_PROCESSES = "Reading the device's process list…";
 const RESTARTED_SENTENCE =
   "The device is restarting through its launcher. It will reconnect in a few seconds; " +
   "terminals, browser tabs and runs on the device ended.";
+
+/**
+ * The device's own update story, as the fleet read carries it.
+ *
+ * The Machine tab used to answer only "is it online": the version in the header and the launcher's
+ * baseline files in This machine, but never the device's account of its own updates. So a build
+ * newer than the last applied target looked stale, and a machine that checked this morning looked
+ * like it had never checked. This line draws the device's facts — the version its state document
+ * records, the channel the launcher's generation came from, when it last checked, and the updater's
+ * last answer — and says plainly which of them the device did not report. The console composes no
+ * fact here: a missing version is "not reported", never the header's chip borrowed to fill the gap.
+ */
+function UpdateStoryLine({ device }: { device?: Device | null }) {
+  const update = device?.update;
+  if (!update) {
+    return (
+      <p className="hint system-update">
+        The console has no update facts from this device: it has not sent its update story.
+      </p>
+    );
+  }
+  const channel = device?.host?.update?.current?.channel;
+  const version = update.current ? `running v${update.current}` : "running version not reported";
+  const channelLine = channel ? `channel ${channel}` : "channel not reported";
+  const check = update.last_check ? moment(update.last_check.at_ms) : null;
+  const last = update.last_update ? moment(update.last_update.at_ms) : null;
+  return (
+    <p className="hint system-update">
+      {version}
+      {" · "}
+      {channelLine}
+      {" · "}
+      {update.last_check ? (
+        check ? (
+          <>
+            last check <time title={check.title}>{check.text}</time>
+          </>
+        ) : (
+          "last check time not readable"
+        )
+      ) : (
+        "no last check reported"
+      )}
+      {" · "}
+      {update.last_update ? (
+        last ? (
+          <>
+            last outcome {update.last_update.outcome}
+            {update.last_update.to ? ` to ${update.last_update.to}` : ""} on{" "}
+            <time title={last.title}>{last.text}</time>
+          </>
+        ) : (
+          "last outcome time not readable"
+        )
+      ) : (
+        "no update result reported"
+      )}
+    </p>
+  );
+}
+
+/** One update moment in the console's local clock, with the exact instant for its title. */
+function moment(atMs: number): { text: string; title: string } | null {
+  const date = new Date(atMs);
+  if (Number.isNaN(date.getTime())) return null;
+  return { text: `${isoDate(atMs)} ${clockTime(atMs)}`, title: exactMoment(atMs) };
+}
 
 /**
  * The device's processes and its reachability, as a page.
@@ -399,6 +466,7 @@ export function SystemPage({
 
       <section className="system-section" aria-labelledby="system-device-app">
         <h3 id="system-device-app">Device app</h3>
+        <UpdateStoryLine device={device} />
         <p className="hint">
           The app the launcher supervises. Restarting it ends every open terminal, browser tab and
           run on the device, and takes the device offline briefly while the launcher starts it again.
