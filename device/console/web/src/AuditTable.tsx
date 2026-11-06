@@ -519,11 +519,15 @@ export function AuditTable({
         </label>
         {/* **THE RANGE THE OPERATOR CHOSE IS THE RANGE THAT LEAVES.** Beside Time, where the
             choice is made; its accessible name says the file is the range, not the rows the
-            table's other filters hide. */}
+            table's other filters hide. **A RANGE THAT DREW NOTHING LEAVES NOTHING.** Both exports
+            are disabled when the range's own answer held no lines: the CSV has no rows to write,
+            and the route would answer this one with an empty body — a zero-byte file with a name
+            and no sentence. The count is the range's answer, not the filters' rows, because this
+            file ignores those filters. */}
         <button
           type="button"
           className="audit-export audit-export-range"
-          disabled={loading || rangeError || (range === null && lines.length === 0)}
+          disabled={loading || rangeError || lines.length === 0}
           onClick={() => void exportFile()}
           title={
             range === null

@@ -295,6 +295,32 @@ describe("AuditTable", () => {
     expect(String(body).startsWith("{")).toBe(true);
   });
 
+  it("leaves both exports disabled when the drawn range held no lines", () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    render(<AuditTable lines={[]} devices={devices} tokens={[]} range={drawnRange} />);
+
+    // The range's own sentence says it is empty; both controls must agree with it rather than
+    // offer a press that could only download a zero-byte file.
+    expect(screen.getByText(/0 lines/)).toBeInTheDocument();
+    const jsonl = screen.getByRole("button", { name: /^Export JSONL: the drawn range/ });
+    const csv = screen.getByRole("button", { name: "Export CSV" });
+    expect(jsonl).toBeDisabled();
+    expect(csv).toBeDisabled();
+
+    fireEvent.click(jsonl);
+    fireEvent.click(csv);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(downloadFile).not.toHaveBeenCalled();
+  });
+
+  it("keeps both exports when the drawn range held lines", () => {
+    render(<AuditTable lines={lines} devices={devices} tokens={[]} range={drawnRange} />);
+
+    expect(screen.getByRole("button", { name: /^Export JSONL: the drawn range/ })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Export CSV" })).toBeEnabled();
+  });
+
   it("asks the console for the drawn range, device and bounds included", async () => {
     const range = {
       from: new Date(2026, 10, 5, 9, 0, 0, 0).getTime(),
