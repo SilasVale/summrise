@@ -836,7 +836,7 @@ sends "Download for Windows" to GitHub releases whose newest installer is **`v0.
 URL in use was the build box's tailnet mirror
 `http://100.85.163.159:18100/SummriseSetup-0.3.279.exe`, which a normal user cannot reach.
 
-1. **The console hands out the enrollment command but not the installer.** The Add-a-machine flow
+1. **The console hands out the enrollment command but not the installer.** *(Done 2026-11-06, 9bed334 + 9bcab60, live 0.3.273-ux64: the fleet and the Add-a-machine panel draw `Install the device runtime` with the console's own filename, size and short sha — `SummriseSetup-0.3.280.exe · 6.3 MB · sha256 26d39c12…` — and a same-origin `/installer/download`; the live download was exactly 6,638,339 bytes with sha256 `26d39c1239f9…`; with no staged installer the sentence is true before a code exists and no link is drawn; 402 console tests, web 706, gate 34 steps, a11y 0 findings; screenshots /tmp/live-installer-1440.png and /tmp/live-installer-390.png.)* The Add-a-machine flow
    mints a 15-minute code and prints `summrise-device.exe --enroll <console> <code> --data …`, which
    assumes the binary is already installed; no control on the page offers the installer, and the
    only download actions in the page are data exports. **Cost:** the operator's first minute depends
