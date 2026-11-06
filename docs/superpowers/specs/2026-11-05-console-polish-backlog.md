@@ -453,7 +453,7 @@ the setup failure first, then honesty, then the phone, then recovery.
    `Last target` / `Last outcome` and show `Last check` locally; render the fleet's
    update/channel on the Machine tab and mark versions behind the staged installer. **M.**
 
-4. **An empty range's Export JSONL downloads a 0-byte file.** `Showing 00:00–23:59 of 11-08, 0
+4. **An empty range's Export JSONL downloads a 0-byte file.** *(Done 2026-11-06, 3ae4194, live 0.3.273-ux82: the JSONL predicate is now `loading || rangeError || lines.length === 0`, so a chosen range with 0 lines disables both formats and a press makes no `/audit/export` request; a non-empty range keeps both enabled with the same attachment. 768 tests (+2), gate PASS 48 steps, a11y 0/3, `build-web --check`. Live: `Showing 00:00–23:59 of 11-08, 0 lines` leaves Export JSONL and Export CSV both disabled; screenshot /tmp/live-ux82-empty-range.png.)* `Showing 00:00–23:59 of 11-08, 0
    lines` leaves `Export JSONL` enabled while `Export CSV` is disabled; a press downloads a 0-byte
    `.ndjson` with no sentence. **Cost:** the export appears to succeed but carries nothing; an empty
    range is indistinguishable from a failed export. **Fix:** disable both exports on a 0-line range,
