@@ -156,6 +156,18 @@ const BIG_DEVICE = {
   today: { client_calls: 283, failed: 0 },
   host: null
 };
+// **THE INSTALLER THE CONSOLE WAS GIVEN.** The item's door is a same-origin link, so the gate
+// stubs the facts the page reads once and never follows the download: the assertion is that the
+// fleet's zero state offers the file the console holds, with the numbers the route answered.
+const INSTALLER = {
+  available: true,
+  filename: 'SummriseSetup-0.3.280.exe',
+  version: '0.3.280',
+  size_bytes: 6_638_339,
+  sha256: '26d39c12' + 'ab'.repeat(28)
+};
+const INSTALLER_SENTENCE =
+  'No installer is published for this console yet. Install from the release, then run the command below.'
 const RUN = {
   id: 'r-1',
   command: 'echo',
@@ -347,7 +359,10 @@ const state = {
   lastRange: null,
   /** How many `/audit/export` requests the page made, and the bounds the last one asked for. */
   exportRequests: 0,
-  lastExport: null
+  lastExport: null,
+  /** Whether the console's deployment staged an installer, and how often the page asked. */
+  installerAvailable: true,
+  installerRequests: 0
 };
 
 /**
@@ -445,6 +460,12 @@ function apiReply(request, url) {
   }
   if (method === 'GET' && pathname === '/fleet')
     return json([DEVICE, OFFLINE_DEVICE, QUIET_DEVICE, BIG_DEVICE]);
+  // THE INSTALLER READ. One answer per fleet render; the page must not poll it, and the gate
+  // counts the requests so a poll would show up here.
+  if (method === 'GET' && pathname === '/installer') {
+    state.installerRequests += 1;
+    return json(state.installerAvailable ? INSTALLER : { available: false });
+  }
   if (method === 'GET' && /^\/fleet\/[^/]+\/tools$/.test(pathname)) {
     return json({
       tools: TOOL_NAMES.map((name) => ({
@@ -700,6 +721,32 @@ try {
   await page.getByRole('button', { name: 'Sign in' }).click();
   await page.getByRole('heading', { name: 'Machines', exact: true }).waitFor({ timeout: 10_000 });
   step('signed in through /auth; the fleet is Home\'s zero state');
+  // **THE DOOR IS WHERE THE PERSON ARRIVES.** The fleet's zero state is where Add-a-machine starts,
+  // and the enrollment command it prints assumes the runtime is installed. The block must name the
+  // file the console holds — its filename, size and short sha, all from `/installer` — and its
+  // link must be the same-origin download, not a fetch the page turns into a blob.
+  await page.getByRole('heading', { name: 'Install the device runtime' }).waitFor({ timeout: 10_000 });
+  const installerLink = page.getByRole('link', { name: 'Download Windows installer' });
+  if ((await installerLink.getAttribute('href')) !== '/installer/download') {
+    throw new Error(`the installer link points at ${await installerLink.getAttribute('href')}`);
+  }
+  if ((await installerLink.getAttribute('download')) === null) {
+    throw new Error('the installer link is not a download');
+  }
+  const installerLine = (await page.locator('.installer .hint').textContent())?.trim();
+  const expectedInstallerLine =
+    'SummriseSetup-0.3.280.exe · 6.3 MB · sha256 26d39c12…';
+  if (installerLine !== expectedInstallerLine) {
+    throw new Error(
+      `the installer line read ${JSON.stringify(installerLine)}, expected ${JSON.stringify(expectedInstallerLine)}`
+    );
+  }
+  if (state.installerRequests !== 1) {
+    throw new Error(`the fleet read /installer ${state.installerRequests} times, not once`);
+  }
+  step(
+    `the fleet's zero state offers ${INSTALLER.filename} (${installerLine}) from /installer/download`
+  );
   await page.screenshot({ path: path.join(OUT, '02-machines.png') });
 
   // **AN OFFLINE MACHINE'S AGE IS THE NEWEST EVIDENCE.** No frame survived the console restart; the
@@ -1595,6 +1642,20 @@ try {
   }
   await page.screenshot({ path: path.join(OUT, '08-tokens-390.png') });
   step('at 390 the first token\'s Revoke is inside the sheet, under the token\'s name');
+
+  // **A RELEASE WITH NO INSTALLER SAYS SO, AND DRAWS NO DOOR.** The page reads `/installer` once
+  // when the console boots, so a fresh boot after the stub stops holding the file is the
+  // unavailable state. The stored machine is cleared first so this boot lands on the fleet (the
+  // page remembers the chosen machine across reloads); the session itself is still the gate's.
+  state.installerAvailable = false;
+  await page.evaluate(() => localStorage.removeItem('summrise.selected.device'));
+  await page.goto(base + '/', { waitUntil: 'domcontentloaded' });
+  await page.getByRole('heading', { name: 'Machines', exact: true }).waitFor({ timeout: 10_000 });
+  await page.getByText(INSTALLER_SENTENCE).waitFor({ timeout: 10_000 });
+  if ((await page.getByRole('link', { name: 'Download Windows installer' }).count()) !== 0) {
+    throw new Error('the unavailable installer still drew a download link');
+  }
+  step('with no installer staged the fleet states the sentence and draws no link');
 
   if (errors.length > 0) throw new Error('console errors: ' + errors.join(' ;; '));
   console.log(`browser-gate: PASS — ${steps.length} steps, ${state.writes.length} bytes written, marker echoed`);

@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { LiveNow } from "./LiveNow";
 import type { LiveLine, StartedCall } from "./liveActivity";
-import { api, type AuditLine, type Device } from "./api";
+import { api, type AuditLine, type Device, type Installer } from "./api";
 import { AttemptReason, attemptCount, attemptReason } from "./attempt";
 import { DeviceCard } from "./DeviceCard";
 import { copyText } from "./copy";
 import { clockTime, coverageClause, shortId } from "./format";
+import { bytes } from "./runFormat";
 import { listPlugins } from "./pluginApi";
 import { useLiveTools } from "./useLiveTools";
 import { ActivityTimeline } from "./ActivityTimeline";
@@ -43,12 +44,70 @@ type FleetProps = {
 };
 
 /**
+ * The installer the console was given, read once when the fleet is drawn.
+ *
+ * `null` is "nothing to show": the read has not landed, or it failed. A failed read hides the block
+ * rather than drawing a door that cannot open, and the page does not poll it — the next visit to
+ * the fleet is the next read.
+ */
+function useInstaller(): Installer | null {
+  const [installer, setInstaller] = useState<Installer | null>(null);
+  useEffect(() => {
+    let live = true;
+    api
+      .installer()
+      .then((answer) => {
+        if (live) setInstaller(answer);
+      })
+      .catch(() => {
+        if (live) setInstaller(null);
+      });
+    return () => {
+      live = false;
+    };
+  }, []);
+  return installer;
+}
+
+/**
+ * Where to get the device runtime, above the command that assumes it is installed.
+ *
+ * Every value is the `/installer` answer: the filename and version are the console's staged file,
+ * the size and short hash are over the bytes the link serves. An unavailable installer is one
+ * sentence and no link — the page offers no download it cannot honour.
+ */
+function InstallerBlock(props: { installer: Installer }) {
+  if (!props.installer.available) {
+    return (
+      <p className="hint installer-missing">
+        No installer is published for this console yet. Install from the release, then run the
+        command below.
+      </p>
+    );
+  }
+  const installer = props.installer;
+  return (
+    <section className="installer" aria-label="Install the device runtime">
+      <h2>Install the device runtime</h2>
+      <a className="btn primary" href="/installer/download" download>
+        Download Windows installer
+      </a>
+      <p className="hint">
+        {installer.filename} · {bytes(installer.size_bytes)} · sha256{" "}
+        {installer.sha256.slice(0, 8)}…
+      </p>
+    </section>
+  );
+}
+
+/**
  * Home before a machine is selected: the fleet. One row per machine, one accent for the action that
  * adds one, and the enrollment command when it exists. This is the previous Devices page kept because
  * it is the only way in — restyled to the hub's shell, not given a second dashboard.
  */
 function FleetHome(props: FleetProps) {
   const online = props.devices.filter((device) => device.online).length;
+  const installer = useInstaller();
   return (
     <div className="page home-page">
       <header className="page-head">
@@ -64,6 +123,8 @@ function FleetHome(props: FleetProps) {
           </button>
         </div>
       </header>
+
+      {installer !== null && <InstallerBlock installer={installer} />}
 
       {props.code && (
         <section className="enroll" aria-label="Enrollment command">

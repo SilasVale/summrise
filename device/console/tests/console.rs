@@ -10762,3 +10762,167 @@ async fn a_device_refusal_reaches_the_stream_as_a_failure_with_its_reason() {
         "a proxied call is a live event, not an audit row: {seen}"
     );
 }
+
+// ---- the release installer the console was given ---------------------------------------------
+
+/// The bytes a test installer carries: not JSON, so a route that parsed them would fail loudly.
+const INSTALLER_BYTES: &[u8] = b"MZ\x90\x00summrise setup fixture";
+
+/// Place one installer in the fixture's data directory, exactly where the deployment puts it.
+fn write_installer(data: &Path, name: &str, bytes: &[u8]) -> PathBuf {
+    let directory = data.join("installer");
+    fs::create_dir_all(&directory).expect("the installer directory is creatable");
+    let path = directory.join(name);
+    fs::write(&path, bytes).expect("the fixture installer is written");
+    path
+}
+
+/// Set a fixture's modification time. The selection rule is the newest mtime, and a test that
+/// depended on the filesystem clock ticking between two writes would be a race.
+fn set_modified(path: &Path, seconds: u64) {
+    let file = fs::OpenOptions::new()
+        .write(true)
+        .open(path)
+        .expect("the fixture opens for its mtime");
+    file.set_times(fs::FileTimes::new().set_modified(UNIX_EPOCH + Duration::from_secs(seconds)))
+        .expect("the fixture's mtime is settable");
+}
+
+/// `/installer` states the file, its version from the filename and the hash of the bytes it would
+/// serve; `/installer/download` serves exactly those bytes, as an attachment, behind the operator's
+/// session and under the console's `no-store`.
+#[tokio::test]
+async fn the_installer_routes_report_and_serve_the_file_the_console_was_given() {
+    let fixture = Fixture::new("installer-facts");
+    let session = fixture.authenticate().await;
+    write_installer(
+        &fixture.config.data,
+        "SummriseSetup-0.3.9.exe",
+        INSTALLER_BYTES,
+    );
+
+    let (status, headers, body) =
+        send_with_headers(fixture.app(), get("/installer", Some(&session))).await;
+    assert_eq!(status, StatusCode::OK, "the facts: {body}");
+    assert_eq!(body["available"], json!(true), "{body}");
+    assert_eq!(body["filename"], json!("SummriseSetup-0.3.9.exe"));
+    assert_eq!(
+        body["version"],
+        json!("0.3.9"),
+        "the version is the filename's, never the bytes'"
+    );
+    assert_eq!(body["size_bytes"], json!(INSTALLER_BYTES.len()));
+    let digest = Sha256::digest(INSTALLER_BYTES);
+    assert_eq!(
+        body["sha256"],
+        json!(hex(&digest)),
+        "the hash is over the bytes the download serves"
+    );
+    assert_eq!(
+        headers
+            .get(header::CACHE_CONTROL)
+            .and_then(|value| value.to_str().ok()),
+        Some("no-store"),
+        "an installer's facts are as fresh as the directory"
+    );
+
+    let (status, headers, bytes) =
+        send_bytes(fixture.app(), get("/installer/download", Some(&session))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(bytes, INSTALLER_BYTES, "the download is the exact file");
+    assert_eq!(
+        headers
+            .get(header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok()),
+        Some("application/octet-stream")
+    );
+    assert_eq!(
+        headers
+            .get(header::CONTENT_DISPOSITION)
+            .and_then(|value| value.to_str().ok()),
+        Some("attachment; filename=\"SummriseSetup-0.3.9.exe\"")
+    );
+    assert_eq!(
+        headers
+            .get(header::CACHE_CONTROL)
+            .and_then(|value| value.to_str().ok()),
+        Some("no-store")
+    );
+    // One file was read twice: the facts and the bytes describe the same answer.
+    assert_eq!(body["size_bytes"], json!(bytes.len()));
+}
+
+/// No installer directory is the normal state of a console whose deployment has not staged one:
+/// the facts say so and the download is a JSON 404, never a 500 or an empty file.
+#[tokio::test]
+async fn with_no_installer_the_routes_say_so_instead_of_failing() {
+    let fixture = Fixture::new("installer-missing");
+    let session = fixture.authenticate().await;
+
+    let (status, _, body) =
+        send_with_headers(fixture.app(), get("/installer", Some(&session))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body, json!({ "available": false }));
+
+    let (status, headers, body) =
+        send_with_headers(fixture.app(), get("/installer/download", Some(&session))).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert_eq!(body, json!({ "error": "no_installer" }));
+    assert_eq!(
+        headers
+            .get(header::CACHE_CONTROL)
+            .and_then(|value| value.to_str().ok()),
+        Some("no-store"),
+        "a refusal is never what a browser shows after the operator signs in"
+    );
+}
+
+/// Two staged releases are one answer: the newest modification time wins, even when its filename
+/// would sort or compare older, and the download serves that same file.
+#[tokio::test]
+async fn the_newest_installer_by_mtime_is_the_one_both_routes_answer_with() {
+    let fixture = Fixture::new("installer-newest");
+    let session = fixture.authenticate().await;
+    let older = write_installer(
+        &fixture.config.data,
+        "SummriseSetup-9.9.9.exe",
+        b"the older release",
+    );
+    let newer = write_installer(
+        &fixture.config.data,
+        "SummriseSetup-0.0.1.exe",
+        b"the newer release",
+    );
+    set_modified(&older, 1_000);
+    set_modified(&newer, 2_000);
+
+    let (status, _, body) =
+        send_with_headers(fixture.app(), get("/installer", Some(&session))).await;
+    assert_eq!(status, StatusCode::OK, "the facts: {body}");
+    assert_eq!(body["filename"], json!("SummriseSetup-0.0.1.exe"));
+    assert_eq!(body["version"], json!("0.0.1"));
+    assert_eq!(body["size_bytes"], json!(b"the newer release".len()));
+
+    let (status, _, bytes) =
+        send_bytes(fixture.app(), get("/installer/download", Some(&session))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(bytes, b"the newer release");
+}
+
+/// Both routes are the operator's: an unauthenticated read of either gets no facts and no bytes.
+#[tokio::test]
+async fn the_installer_routes_need_the_operator_session() {
+    let fixture = Fixture::new("installer-auth");
+    write_installer(
+        &fixture.config.data,
+        "SummriseSetup-0.3.9.exe",
+        INSTALLER_BYTES,
+    );
+
+    let (status, _, body) = send_with_headers(fixture.app(), get("/installer", None)).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    assert_eq!(body["error"], json!("unauthorized"));
+
+    let (status, _, _) = send_bytes(fixture.app(), get("/installer/download", None)).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+}

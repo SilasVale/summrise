@@ -242,6 +242,23 @@ export type AuditSource = {
 };
 
 /**
+ * The Windows installer the console was given, as `GET /installer` reports it.
+ *
+ * The version is parsed from the filename (`SummriseSetup-<version>.exe`), never read from the
+ * bytes; `size_bytes` and `sha256` describe exactly the file `/installer/download` serves.
+ * `available: false` is a normal state — a deployment that staged no installer — not an error.
+ */
+export type Installer =
+  | { available: false }
+  | {
+      available: true;
+      filename: string;
+      version: string;
+      size_bytes: number;
+      sha256: string;
+    };
+
+/**
  * One permanent token's metadata, as the console lists it: never the token itself.
  *
  * The plaintext `srm_…` is returned once by `createToken` and exists nowhere else — the console keeps
@@ -429,6 +446,10 @@ export const api = {
   // **WHAT THE WINDOW READS.** The file's name, size, the moments its lines span and its one older
   // generation. A separate read from `/audit` because it is a fact about the reader, not a line.
   auditSource: () => call<AuditSource>("/audit/source"),
+  // The release's own installer, when the deployment staged one. The download is a plain
+  // same-origin link (`/installer/download`) that sends the session cookie; this read is only the
+  // facts that link states, and it is read once rather than polled.
+  installer: () => call<Installer>("/installer"),
   // The refusal log is a separate file with the audit line's shape: same route rules, same limit, and
   // no token id because the caller never authenticated.
   health: () => call<{ version: string; devices: number }>("/health"),

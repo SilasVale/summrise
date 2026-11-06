@@ -503,6 +503,31 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
   background: var(--surface-recessed);
 }
 .enroll .hint { margin: 0; }
+
+/* THE RUNTIME'S DOOR, ABOVE THE COMMAND THAT ASSUMES IT. The enrollment command installs nothing,
+   so the block that hands out the release's installer sits first, in the fleet's zero state and in
+   the Add-a-machine panel. Its one link is the browser's own same-origin download: the session
+   cookie is the gate, and the page never holds the file. */
+.installer {
+  display: grid; gap: var(--sp-2); justify-items: start;
+  padding: var(--sp-3); margin: 0 0 var(--sp-3);
+  border: 1px solid var(--line); border-radius: var(--radius-xs);
+  background: var(--surface-recessed);
+}
+.installer h2 { font-size: var(--fs-base); }
+.installer .hint { margin: 0; }
+.installer-missing { margin: 0 0 var(--sp-3); }
+
+/* A link that acts like the button it stands for: same box and colours, native navigation. */
+a.btn {
+  display: inline-block; font: inherit; font-size: var(--fs-sm); font-weight: var(--fw-medium);
+  padding: var(--sp-1-5) var(--sp-3); border-radius: var(--radius-sm2);
+  border: 1px solid var(--line-strong); background: var(--surface); color: var(--ink);
+  text-decoration: none; cursor: pointer; transition: background 0.12s ease, border-color 0.12s ease;
+}
+a.btn:hover { background: var(--panel-3); border-color: var(--line-strong); }
+a.btn.primary { background: var(--accent-solid); border-color: var(--accent-solid); color: var(--accent-fg); }
+a.btn.primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
 .alert-banner {
   position: fixed; top: var(--sp-3); left: 50%; transform: translateX(-50%);
   z-index: 60; display: flex; align-items: center; gap: var(--sp-3);

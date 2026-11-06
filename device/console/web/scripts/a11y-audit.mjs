@@ -428,6 +428,17 @@ function replyFor(request, url) {
   if (method === 'GET' && pathname === '/session') return json(SESSION);
   if (method === 'GET' && pathname === '/health') return json(HEALTH);
   if (method === 'GET' && pathname === '/fleet') return json(DEVICES);
+  // The fleet's installer door, so the audit measures the link and the muted facts line the fleet
+  // actually draws (a fixture hole would hide the block and audit a state the page never shows).
+  if (method === 'GET' && pathname === '/installer') {
+    return json({
+      available: true,
+      filename: 'SummriseSetup-0.3.280.exe',
+      version: '0.3.280',
+      size_bytes: 6_638_339,
+      sha256: '26d39c12' + 'ab'.repeat(28)
+    });
+  }
   if (method === 'GET' && pathname === '/audit/day') {
     // The audit's day, by the page's four buckets: boundaries are not calls, a poll is its own
     // bucket, and a failed row is status 400+ or a JSON-RPC error inside a 200.

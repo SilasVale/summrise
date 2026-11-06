@@ -7,7 +7,10 @@ import type { LiveLine } from "./liveActivity";
 // The hub asks `/audit?device=` for its own machine's newest lines; the fleet window belongs to
 // Activity. These tests drive the fetch the way the console answers it.
 const auditApi = vi.hoisted(() => ({ audit: vi.fn() }));
-vi.mock("./api", () => ({ api: { audit: auditApi.audit } }));
+const installerApi = vi.hoisted(() => ({ installer: vi.fn() }));
+vi.mock("./api", () => ({
+  api: { audit: auditApi.audit, installer: installerApi.installer }
+}));
 
 const live = vi.hoisted(() => ({ value: {} as Record<string, unknown> }));
 vi.mock("./useLiveTools", () => ({ useLiveTools: () => live.value }));
@@ -1013,5 +1016,136 @@ describe("Home — the hub", () => {
     ).toBeInTheDocument();
     // Expanded stays expanded; the hidden-rows control has nothing left to offer.
     expect(screen.queryByRole("button", { name: /Show the rest of today/ })).toBeNull();
+  });
+});
+
+/** The installer facts the console answers with, as a fleet test's `/installer` would. */
+const installerFacts = {
+  available: true as const,
+  filename: "SummriseSetup-0.3.9.exe",
+  version: "0.3.9",
+  size_bytes: 6_638_339,
+  sha256: "26d39c12" + "a".repeat(56)
+};
+
+/**
+ * Render Home with no machine chosen: the fleet, where the Add-a-machine flow lives. This is the
+ * state the gate signs in to and the item is about.
+ */
+function drawFleet(extra: Record<string, unknown> = {}) {
+  const fleetProps = {
+    device: null,
+    devices: [],
+    selectedId: null,
+    code: null,
+    enrollCommand: "",
+    busy: false,
+    onOpen: vi.fn(),
+    onRename: vi.fn(),
+    onRemove: vi.fn(),
+    onDiagnostics: vi.fn(),
+    onAddMachine: vi.fn(),
+    onDismissCode: vi.fn(),
+    onNotice: vi.fn(),
+    onConnect: vi.fn(),
+    onTools: vi.fn(),
+    onActivity: vi.fn()
+  };
+  const page = (overrides: Record<string, unknown> = {}) => (
+    <HomePage {...fleetProps} {...overrides} />
+  );
+  const view = render(page(extra));
+  return {
+    ...view,
+    rerenderFleet: (overrides: Record<string, unknown>) =>
+      view.rerender(page({ ...extra, ...overrides }))
+  };
+}
+
+describe("Home — the fleet's installer", () => {
+  beforeEach(() => {
+    installerApi.installer.mockReset();
+  });
+
+  it("offers the installer the console was given, with its own filename, size and hash", async () => {
+    installerApi.installer.mockResolvedValue(installerFacts);
+    drawFleet();
+
+    const heading = await screen.findByRole("heading", {
+      name: "Install the device runtime"
+    });
+    const link = screen.getByRole("link", { name: "Download Windows installer" });
+    expect(link).toHaveAttribute("href", "/installer/download");
+    expect(link).toHaveAttribute("download");
+    // Every value on the muted line is the /installer answer: the filename, the size at the scale
+    // runFormat states it, and the first eight hex characters of the hash it computed.
+    expect(
+      screen.getByText("SummriseSetup-0.3.9.exe · 6.3 MB · sha256 26d39c12…")
+    ).toBeInTheDocument();
+    expect(
+      heading.compareDocumentPosition(link) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+  });
+
+  it("says plainly when the release carries no installer, and draws no door", async () => {
+    installerApi.installer.mockResolvedValue({ available: false });
+    drawFleet();
+
+    expect(
+      await screen.findByText(
+        "No installer is published for this console yet. Install from the release, then run the command below."
+      )
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("link", { name: "Download Windows installer" })
+    ).toBeNull();
+    expect(
+      screen.queryByRole("heading", { name: "Install the device runtime" })
+    ).toBeNull();
+  });
+
+  it("hides the block when the read fails rather than showing a door that cannot open", async () => {
+    installerApi.installer.mockRejectedValue(new Error("the installer could not be read"));
+    drawFleet();
+
+    await waitFor(() => expect(installerApi.installer).toHaveBeenCalledTimes(1));
+    expect(
+      screen.queryByRole("heading", { name: "Install the device runtime" })
+    ).toBeNull();
+    expect(screen.queryByText(/No installer is published/)).toBeNull();
+  });
+
+  it("reads the installer once, not on every redraw", async () => {
+    installerApi.installer.mockResolvedValue(installerFacts);
+    const { rerenderFleet } = drawFleet();
+    await screen.findByRole("heading", { name: "Install the device runtime" });
+
+    rerenderFleet({ busy: true });
+    await act(async () => {});
+
+    expect(installerApi.installer).toHaveBeenCalledTimes(1);
+  });
+
+  it("puts the block before the enrollment command in the Add-a-machine panel", async () => {
+    installerApi.installer.mockResolvedValue(installerFacts);
+    drawFleet({
+      code: { code: "code-1", expires_at_ms: Date.now() + 15 * 60_000 },
+      enrollCommand:
+        "summrise-device.exe --enroll https://console.test code-1 --data C:\\ProgramData\\Summrise"
+    });
+
+    const heading = await screen.findByRole("heading", {
+      name: "Install the device runtime"
+    });
+    const command = screen.getByText(
+      "summrise-device.exe --enroll https://console.test code-1 --data C:\\ProgramData\\Summrise"
+    );
+    // The command assumes the binary is installed; the door that installs it comes first.
+    expect(
+      heading.compareDocumentPosition(command) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+    expect(
+      screen.getAllByRole("heading", { name: "Install the device runtime" })
+    ).toHaveLength(1);
   });
 });

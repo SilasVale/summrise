@@ -8,6 +8,7 @@
 use std::collections::HashMap;
 use std::convert::Infallible;
 use std::net::{IpAddr, SocketAddr};
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -48,6 +49,22 @@ const DEFAULT_LOG_LIMIT: usize = 100;
 /// The largest limit the log routes honor: an operator reading an index must not make the console
 /// hold an unbounded slice of it.
 const MAX_LOG_LIMIT: usize = 1000;
+
+/// The directory under `--data` where the deployment places the release's Windows installer.
+///
+/// There is no CLI flag for it: the installer is a file the deployment gives the console, and a
+/// missing directory is a normal state — a release that carries no setup binary.
+const INSTALLER_DIR: &str = "installer";
+
+/// The name every installer candidate carries: `SummriseSetup-<version>.exe`.
+const INSTALLER_PREFIX: &str = "SummriseSetup-";
+const INSTALLER_SUFFIX: &str = ".exe";
+
+/// The largest installer these routes will serve: 128 MiB.
+///
+/// A console is a broker, not a file server. A file dropped under the right name is read into
+/// memory for its hash; anything larger than this is treated as no installer at all.
+const MAX_INSTALLER_BYTES: u64 = 128 * 1024 * 1024;
 
 /// The header a trusted reverse proxy uses to name the operator it let in.
 ///
@@ -313,6 +330,13 @@ impl Console {
             // connection the moment it lands, which is the shape the device's own panel always had.
             .route("/terminal/:device/:session/stream", get(terminal_stream))
             .route("/audit", get(list_audit))
+            // **THE INSTALLER THE CONSOLE WAS GIVEN.** The deployment stages
+            // `SummriseSetup-<version>.exe` in `<data>/installer/`, and these two routes turn that
+            // file into the Add-a-machine flow's download: the facts a person checks first, then
+            // the bytes. The page is the operator's own, so the session `/audit` needs is the gate
+            // here too. A console whose deployment staged nothing says so; it does not fail.
+            .route("/installer", get(installer_facts))
+            .route("/installer/download", get(installer_download))
             // **A RANGE LEAVES AS A FILE.** `/audit?from=&to=` draws a range; this answers the same
             // lines as JSON Lines, oldest first, with the filename and headers that make the file a
             // portable fact instead of a screenshot of a page. Bounded by the same scan rule as the
@@ -1428,6 +1452,145 @@ async fn react_page() -> Html<&'static str> {
 /// does not render a fallback page for a path it does not serve.
 async fn not_found() -> StatusCode {
     StatusCode::NOT_FOUND
+}
+
+/// One installer the selection rule found: the file both installer routes answer with.
+struct InstallerFile {
+    path: PathBuf,
+    filename: String,
+    version: String,
+    size_bytes: u64,
+    modified: SystemTime,
+}
+
+/// The version an installer's filename carries, or `None` when the name is not the convention.
+fn installer_version(filename: &str) -> Option<&str> {
+    let version = filename
+        .strip_prefix(INSTALLER_PREFIX)?
+        .strip_suffix(INSTALLER_SUFFIX)?;
+    // An empty middle is not a version, and a route must not report one.
+    (!version.is_empty()).then_some(version)
+}
+
+/// The newest staged installer under `<data>/installer`, at the production cap.
+fn newest_installer(data: &std::path::Path) -> Option<InstallerFile> {
+    newest_installer_up_to(data, MAX_INSTALLER_BYTES)
+}
+
+/// The newest installer under `<data>/installer` no larger than `max_bytes`.
+///
+/// One rule serves both routes: a regular file whose name is `SummriseSetup-<version>.exe`, newest
+/// modification time first, with the filename as the tie-break so two reads cannot disagree. A
+/// missing or unreadable directory, an unreadable entry and an over-cap file are all `None`; the
+/// routes then answer "no installer", never a 500. The cap is a parameter for the same reason the
+/// audit cap is one: a unit test can exercise it with six bytes instead of a 128 MiB fixture.
+fn newest_installer_up_to(data: &std::path::Path, max_bytes: u64) -> Option<InstallerFile> {
+    let entries = std::fs::read_dir(data.join(INSTALLER_DIR)).ok()?;
+    let mut newest: Option<InstallerFile> = None;
+    for entry in entries.flatten() {
+        // A directory or a link named like an installer is not one. `file_type` does not follow
+        // links, so the console serves a file the deployment staged, not whatever a link names.
+        if !entry.file_type().is_ok_and(|kind| kind.is_file()) {
+            continue;
+        }
+        let Ok(filename) = entry.file_name().into_string() else {
+            continue;
+        };
+        let Some(version) = installer_version(&filename).map(str::to_owned) else {
+            continue;
+        };
+        let Ok(metadata) = entry.metadata() else {
+            continue;
+        };
+        // The cap is a property of the candidate: a file that is too large is not an installer
+        // this console hands out, however new it is.
+        if metadata.len() > max_bytes {
+            continue;
+        }
+        // A moment the filesystem cannot state is the oldest possible one, not an invented now.
+        let modified = metadata.modified().unwrap_or(UNIX_EPOCH);
+        let candidate = InstallerFile {
+            path: entry.path(),
+            filename,
+            version,
+            size_bytes: metadata.len(),
+            modified,
+        };
+        let wins = match &newest {
+            None => true,
+            Some(current) => {
+                candidate.modified > current.modified
+                    || (candidate.modified == current.modified
+                        && candidate.filename > current.filename)
+            }
+        };
+        if wins {
+            newest = Some(candidate);
+        }
+    }
+    newest
+}
+
+/// `GET /installer`: the release installer the console was given, and the facts a person needs
+/// before downloading it.
+///
+/// The version is the filename's; the size and sha256 are the bytes the download would serve.
+/// Nothing is cached and nothing is invented: a missing directory, and a file that vanished or
+/// grew between selection and read, are the same `{"available": false}` answer the page can state
+/// honestly.
+async fn installer_facts(State(app): State<AppState>, _: OperatorSession) -> Json<Value> {
+    let Some(installer) = newest_installer(&app.data) else {
+        return Json(json!({ "available": false }));
+    };
+    match tokio::fs::read(&installer.path).await {
+        // The facts are the bytes this answer hashed: if the file changed size after selection,
+        // describing it would be describing a different file than the one read.
+        Ok(bytes)
+            if installer.size_bytes <= MAX_INSTALLER_BYTES
+                && bytes.len() as u64 == installer.size_bytes =>
+        {
+            Json(json!({
+                "available": true,
+                "filename": installer.filename,
+                "version": installer.version,
+                "size_bytes": installer.size_bytes,
+                "sha256": hex::encode(&sha2::Sha256::digest(&bytes)),
+            }))
+        }
+        // The facts must not describe a file the download would refuse.
+        _ => Json(json!({ "available": false })),
+    }
+}
+
+/// `GET /installer/download`: the same file `/installer` described, as an attachment.
+///
+/// The page's link is same-origin, so the browser sends the HttpOnly session cookie and the gate
+/// is the one every operator route has; the global middleware adds `no-store`. No installer is a
+/// JSON 404 with a stable code, which the page can tell from an edge refusal.
+async fn installer_download(State(app): State<AppState>, _: OperatorSession) -> Response {
+    let Some(installer) = newest_installer(&app.data) else {
+        return ApiError::not_found("no_installer").into_response();
+    };
+    let bytes = match tokio::fs::read(&installer.path).await {
+        Ok(bytes) if bytes.len() as u64 <= MAX_INSTALLER_BYTES => bytes,
+        _ => return ApiError::not_found("no_installer").into_response(),
+    };
+    let disposition = format!("attachment; filename=\"{}\"", installer.filename);
+    let Ok(disposition) = HeaderValue::from_str(&disposition) else {
+        // A name that cannot be a header value cannot be handed out safely.
+        return ApiError::not_found("no_installer").into_response();
+    };
+    (
+        [
+            (
+                header::CONTENT_TYPE,
+                HeaderValue::from_static("application/octet-stream"),
+            ),
+            (header::CONTENT_DISPOSITION, disposition),
+        ],
+        axum::body::Bytes::from(bytes),
+    )
+        .into_response()
 }
 
 async fn health(State(app): State<AppState>) -> Json<Health> {
@@ -5718,5 +5881,125 @@ mod tests {
             catalogue_from_tools(&[]).expect("an empty list is valid"),
             Vec::new()
         );
+    }
+
+    // ---- the release installer -----------------------------------------------------------------
+
+    /// A uniquely named directory under the system temp directory, removed when the test ends.
+    struct InstallerDir(PathBuf);
+
+    impl InstallerDir {
+        fn new(label: &str) -> Self {
+            static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+            let path = std::env::temp_dir().join(format!(
+                "summrise-console-installer-{}-{}-{label}",
+                std::process::id(),
+                NEXT.fetch_add(1, Ordering::Relaxed)
+            ));
+            let _ = std::fs::remove_dir_all(&path);
+            std::fs::create_dir_all(&path).expect("the installer fixture directory is creatable");
+            Self(path)
+        }
+
+        /// One file in `<data>/installer` with an explicit modification time, so "newest" is the
+        /// test's fact and not the filesystem's clock.
+        fn put(&self, name: &str, bytes: &[u8], modified_s: u64) {
+            let directory = self.0.join(INSTALLER_DIR);
+            std::fs::create_dir_all(&directory).expect("the installer directory is creatable");
+            let path = directory.join(name);
+            std::fs::write(&path, bytes).expect("the installer fixture is written");
+            let file = std::fs::OpenOptions::new()
+                .write(true)
+                .open(&path)
+                .expect("the installer fixture opens");
+            file.set_times(
+                std::fs::FileTimes::new()
+                    .set_modified(UNIX_EPOCH + Duration::from_secs(modified_s)),
+            )
+            .expect("the fixture's mtime is settable");
+        }
+    }
+
+    impl Drop for InstallerDir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    /// The version is the filename's middle: the prefix and suffix are the convention, the middle
+    /// is the release, and a name that is not the convention carries no version to report.
+    #[test]
+    fn an_installer_name_carries_its_version_and_nothing_else() {
+        assert_eq!(
+            installer_version("SummriseSetup-0.3.280.exe"),
+            Some("0.3.280")
+        );
+        assert_eq!(
+            installer_version("SummriseSetup-0.3.273-ux43.exe"),
+            Some("0.3.273-ux43")
+        );
+        assert_eq!(installer_version("SummriseSetup-.exe"), None);
+        assert_eq!(installer_version("summrisesetup-0.3.280.exe"), None);
+        assert_eq!(installer_version("SummriseSetup-0.3.280.exe.tmp"), None);
+        assert_eq!(installer_version("other-0.3.280.exe"), None);
+    }
+
+    /// The selection is one rule both routes share: the newest mtime wins, a tie is broken by the
+    /// filename so two reads cannot disagree, and only a regular file whose name is the convention
+    /// is a candidate.
+    #[test]
+    fn the_selection_is_the_newest_installer_by_mtime() {
+        let dir = InstallerDir::new("selection");
+        assert!(newest_installer_up_to(&dir.0, MAX_INSTALLER_BYTES).is_none());
+
+        dir.put("notes.txt", b"not an installer", 5_000);
+        assert!(
+            newest_installer_up_to(&dir.0, MAX_INSTALLER_BYTES).is_none(),
+            "an unrelated file is not the release's installer"
+        );
+
+        dir.put("SummriseSetup-9.9.9.exe", b"the older release", 1_000);
+        dir.put("SummriseSetup-0.0.1.exe", b"the newer release", 2_000);
+        let chosen =
+            newest_installer_up_to(&dir.0, MAX_INSTALLER_BYTES).expect("one installer is staged");
+        assert_eq!(chosen.filename, "SummriseSetup-0.0.1.exe");
+        assert_eq!(chosen.version, "0.0.1");
+        assert_eq!(chosen.size_bytes, b"the newer release".len() as u64);
+
+        // The same moment: the greater filename wins, deterministically.
+        dir.put("SummriseSetup-0.0.2.exe", b"the tie", 2_000);
+        let tied = newest_installer_up_to(&dir.0, MAX_INSTALLER_BYTES).expect("one installer");
+        assert_eq!(tied.filename, "SummriseSetup-0.0.2.exe");
+    }
+
+    /// A directory named like an installer is not one: the rule serves a release file, not whatever
+    /// the data directory happens to hold under the right name.
+    #[test]
+    fn a_directory_named_like_an_installer_is_not_one() {
+        let dir = InstallerDir::new("directory");
+        let installers = dir.0.join(INSTALLER_DIR);
+        std::fs::create_dir_all(&installers).expect("the installer directory is creatable");
+        std::fs::create_dir(installers.join("SummriseSetup-9.9.9.exe"))
+            .expect("the fixture directory is creatable");
+        assert!(newest_installer_up_to(&dir.0, MAX_INSTALLER_BYTES).is_none());
+    }
+
+    /// The cap is a parameter so a test can reach it with six bytes rather than a 128 MiB fixture;
+    /// the newest file over it is not served, the older file under it is, and with nothing under it
+    /// there is no installer. The production cap is the ruling's 128 MiB.
+    #[test]
+    fn a_candidate_over_the_cap_is_not_served() {
+        let dir = InstallerDir::new("cap");
+        dir.put("SummriseSetup-9.9.9.exe", b"sixteen bytes...", 2_000);
+        dir.put("SummriseSetup-0.0.1.exe", b"older", 1_000);
+
+        let chosen =
+            newest_installer_up_to(&dir.0, 5).expect("the older file is under the five-byte cap");
+        assert_eq!(chosen.filename, "SummriseSetup-0.0.1.exe");
+        assert!(
+            newest_installer_up_to(&dir.0, 4).is_none(),
+            "with every candidate over the cap there is no installer"
+        );
+        assert_eq!(MAX_INSTALLER_BYTES, 128 * 1024 * 1024);
     }
 }

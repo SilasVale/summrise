@@ -18,6 +18,7 @@ const mocks = vi.hoisted(() => ({
   auditRange: vi.fn(),
   auditDay: vi.fn(),
   auditSource: vi.fn(),
+  installer: vi.fn(),
   denials: vi.fn(),
   connections: vi.fn(),
   signIn: vi.fn(),
@@ -43,6 +44,7 @@ vi.mock("./api", () => ({
     auditRange: mocks.auditRange,
     auditDay: mocks.auditDay,
     auditSource: mocks.auditSource,
+    installer: mocks.installer,
     denials: mocks.denials,
     connections: mocks.connections,
     signIn: mocks.signIn,
@@ -285,6 +287,9 @@ beforeEach(() => {
   // A route the fixture does not describe answers with no facts, so the page draws no source
   // line unless a test names one.
   mocks.auditSource.mockResolvedValue({});
+  // A console with no staged installer: the fleet says so and draws no download. The installer
+  // tests name their own answer.
+  mocks.installer.mockResolvedValue({ available: false });
   mocks.denials.mockResolvedValue([]);
   mocks.connections.mockResolvedValue([]);
   mocks.signIn.mockImplementation(async () => {
