@@ -42,7 +42,7 @@ sleep 1
 host() { python3 /tmp/host_call.py --raw "$HOST_DEVICE" "$1" "$2"; }
 
 host runs.exec "{\"command\":\"curl.exe\",\"args\":[\"-fsS\",\"--retry\",\"2\",\"-o\",\"C:\\\\SummriseConsole\\\\summrise-console.exe.new\",\"$URL/summrise-console-$VERSION.exe\"],\"timeout_ms\":120000}" >/dev/null
-REMOTE=$(host runs.exec '{"command":"powershell.exe","args":["-NoProfile","-Command","(Get-FileHash C:\\SummriseConsole\\summrise-console.exe.new -Algorithm SHA256).Hash.ToLower()"]}' | python3 -c 'import json,sys; print(json.load(sys.stdin)["result"]["content"][0]["text"].strip())')
+REMOTE=$(host runs.exec '{"command":"powershell.exe","args":["-NoProfile","-Command","(Get-FileHash C:\\SummriseConsole\\summrise-console.exe.new -Algorithm SHA256).Hash.ToLower()"]}' | python3 -c 'import json,sys; outer=json.load(sys.stdin); inner=json.loads(outer["result"]["content"][0]["text"]); print(inner["stdout"].strip())')
 [ "$REMOTE" = "$SHA" ] || { echo "digest mismatch: local $SHA remote $REMOTE" >&2; exit 1; }
 echo "host fetched the same bytes"
 
