@@ -416,6 +416,79 @@ every number is a live DOM measurement and the screenshots are `/tmp/audit-20-*.
    width with the scope under it — or cap the scope cell and let it wrap; keep the action row.
    **S.**
 
+## P0 — the fifteenth list (opened 2026-11-06, from the audit of 0.3.273-ux78)
+
+Measured on the live console at 1440×960 and 390×844, Asia/Shanghai, selected machine 9VH92BJ
+(0.3.284), with 14RJCR8 offline (0.3.275), 84T3LIN 0.3.280, the device panel at 127.0.0.1:18090,
+and both MCP endpoints exercised with live tokens. The fourteenth list's four items hold. Ranked by
+the setup failure first, then honesty, then the phone, then recovery.
+
+1. **The two MCP endpoints take different token kinds, and the token list never says which endpoint a
+   token belongs to.** `/mcp/all` prints a fleet-scoped token's config, `/mcp/<id>` a device-scoped
+   token's. `test` (device, 9VH) and `e2e-connect` (aggregate with one device, 9VH) both read
+   `DESKTOP-9VH92BJ` in the fleet Tokens door; the device token is **401** at `/mcp/all`, the
+   aggregate **401** at `/mcp/9VH`, and the 401 is a bare `{"error":"unauthorized"}`. **Cost:** a
+   token that names the machine is refused at the URL the Clients tab prints; the operator and
+   client cannot tell the kinds apart and the first call fails. **Fix:** label `fleet · /mcp/all`
+   vs `device · /mcp/<short>` in the Scope cell and the Endpoint/Clients copy; or accept a token
+   whose recorded `device_ids` include the machine at `/mcp/<id>`; make the 401 name the door the
+   token opens. **M.**
+
+2. **The offline machine's token form counts the console's 46-tool fallback as the machine's.** With
+   14R offline, `/fleet/14R/tools` is 503 and `/tools` is 46, but the form says `This token will
+   cover DESKTOP-14RJCR8.` and `46 tools · 15 can change the machine`; the static-fallback sentence
+   appears only under `Choose tools…`, and the coverage sentence omits the offline state the fleet
+   form shows. **Cost:** the operator cannot tell the count is not the 0.3.275 machine's list; a
+   token minted with all 46 names may name tools the device does not advertise. **Fix:** show the
+   offline/static sentence on every preset, label the count as the console registry, and mark the
+   coverage sentence offline; use the last live list when known. **S.**
+
+3. **The update story is stale on the device panel and absent from the console.** The panel's
+   `BUILD Version 0.3.284` sits above `UPDATES Target 0.3.273 / Outcome applied / Last result
+   2026-11-04T19:11:05Z`, while `/api/panel`'s last check is today; `Target` is the last applied
+   target, and the card does not say so. The console's Machine tab has no update line; the fleet
+   row `84T3LIN v0.3.280` sits beside the 0.3.284 installer with no cue. **Cost:** the panel's
+   target reads as an older current target; the operator cannot tell if a machine is current, which
+   source it uses, or that 84T3LIN is at 0.3.280 while the installer is 0.3.284. **Fix:** label
+   `Last target` / `Last outcome` and show `Last check` locally; render the fleet's
+   update/channel on the Machine tab and mark versions behind the staged installer. **M.**
+
+4. **An empty range's Export JSONL downloads a 0-byte file.** `Showing 00:00–23:59 of 11-08, 0
+   lines` leaves `Export JSONL` enabled while `Export CSV` is disabled; a press downloads a 0-byte
+   `.ndjson` with no sentence. **Cost:** the export appears to succeed but carries nothing; an empty
+   range is indistinguishable from a failed export. **Fix:** disable both exports on a 0-line range,
+   or answer with the range's empty sentence. **S.**
+
+5. **The offline machine's Tools tab says "Reading the tool list…" forever.** At 9 s the header still
+   reads `Reading the tool list…` above `The console has no tool list from this machine yet.`; the
+   header keys on `tools.length === 0`, not `loading`. **Cost:** a read that cannot finish is
+   announced as in progress; the operator waits or retries against an offline machine. **Fix:** use
+   `loading` for `Reading…`, and the offline state for `No tool list from this machine`. **S.**
+
+6. **At 390 the Device page hides its Connect button.** `.device-connect` is `display:none` at ≤639
+   (the button exists but `offsetParent === null`); the only doors are the header's unlabeled account
+   icon or Home. At 1440 the button is a visible 59×28 at x 1299. **Cost:** on a phone the machine
+   page loses its one per-machine endpoint/credential action. **Fix:** keep a compact Connect control
+   at ≤639. **S.**
+
+7. **Screen → Browser shows the raw `chrome exited with exit code: 1002` error with no recovery
+   sentence.** The primary line includes `http://127.0.0.1:62544/json/version` and `no stderr
+   output`; only `Refresh pages` and `Stop browser` are enabled, and neither is explained. **Cost:**
+   the operator sees an internal failure and can only repeat the same call. **Fix:** map it to a
+   sentence with a Stop/Retry/Restart action; keep the raw text behind evidence. **S.**
+
+8. **The session card's Last input is `[I`.** Opening a pty with no typing shows `Last input [I 4s
+   ago`; the xterm focus sequence `ESC[I` was written to the session. **Cost:** the card's first
+   input fact is a phantom control sequence, not a keystroke. **Fix:** ignore control-only input in
+   `lastTypedInput`, or label it; fall back to `No keystroke recorded`. **S.**
+
+9. **The Machine tab says "Helper not running" when the fact is "not registered".** The fleet read is
+   `helper: {pid:null, registered:false, session:null}` and the Screen page says "has not
+   registered"; the Machine tab's `not running` claims a process state the console did not read.
+   **Cost:** the operator may hunt a stopped process; the two surfaces describe one fact
+   differently. **Fix:** say `not registered` / `no helper registered this boot`; show pid/session
+   only when known. **S.**
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
