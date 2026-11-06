@@ -530,13 +530,9 @@ record, then the panel, then the smaller corrections.
    exact title, age beside it. **S.**
 
 7. **The rotate dialog omits what happens to the expiry.** *(Done 2026-11-06, eb92f9b, live 0.3.273-ux92: the dialog says `The new token's expiry is a fresh period of the same length, counted from this rotation — or never, if this token never expires.`; the result panel names the rotate response's own `expires_at_ms` (`This token expires <time>…` with the exact title, or `This token never expires.`), and the list's date-only cell is unchanged. 793 tests (+2), gate PASS 52 steps, a11y 0/3, `build-web --check`. Live: the Tokens sheet's Rotate dialog carries the sentence; screenshot /tmp/live-ux92-rotate.png.)*
-8. **The manual update check cannot install the fetched release.** *(Measured 2026-11-06 on 9VH: `summrise-device.exe --check-update http://100.85.163.159:18100/release-canary.json --channel canary --allow-plaintext --data C:\ProgramData\Summrise --install "C:\Program Files\Summrise"` fetched 0.3.286 and then failed: `cannot install the version: the launcher refused the version (exit 2): launch: refusing the update: staged artifact C:\Program Files\Summrise\versions\0.3.286 is missing`. The channel's periodic update and the installer are the working paths; the manual mode's staging is the gap. **Fix:** stage the artifact where the launcher expects it (or say why the stage failed); do not report a check success for an install the launcher then refuses. **S/M.** (device; the update path.)*
- It names name/scope/tools/destructive
-   but not the expiry; the server gives a fresh period of the same length, and the date-only
-   `Expires` cell hides the change (`2026-12-07` before/after; the exact title moves 2.5 s).
-   **Cost:** the operator cannot tell whether rotation extends, preserves or resets the expiry.
-   **Fix:** say `a fresh period of the same length (or never)` in the dialog and/or show the new
-   expiry after. **S.**
+8. **The manual update check cannot install the fetched release.** *(Implemented 2026-11-06, a057dc4: `--apply` now receives the staged file (`<install>\versions\<v>\summrise-device.exe`) instead of the version directory, and a missing artifact is reported by name without invoking the launcher or moving `current.txt`; 619 unit tests, fmt/clippy. 0.3.287 is published and its installer is on the console door. The live 9VH proof is blocked: a silent installer run stopped `SummriseLaunch` and the device went offline at ~23:02 UTC; the operator was mailed the exact state and fix (`sc start SummriseLaunch` or a reboot). The installer's silent start is item 9.)*
+
+9. **The silent installer leaves SummriseLaunch stopped.** *(Measured 2026-11-06 on 9VH: `SummriseSetup-0.3.287.exe /S` installed the files and the installer process finished, but the `SummriseLaunch` service stayed stopped; the device went offline and the console's door lost it. The `/S` install must start the service it stopped (or report the failed start), and the installer's exit code currently says nothing about it. **S/M.** (installer; the update path.)*
 
 ## How a round goes
 
