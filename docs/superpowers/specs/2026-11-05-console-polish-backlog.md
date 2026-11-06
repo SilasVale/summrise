@@ -534,6 +534,57 @@ record, then the panel, then the smaller corrections.
 
 9. **The silent installer leaves SummriseLaunch stopped.** *(Implemented 2026-11-06, 13bc4a0: the installer's `EnsureServiceRunning` runs on every path that can end after the stop (stop-proof failure, install-service failure, post-install, health failure, and a final check before SectionEnd), so exit 0 means "files installed and SummriseLaunch RUNNING" and exit 1 logs the state; the launcher's child job now carries SILENT_BREAKAWAY so an installer driven through the device is not killed with the supervisor. makensis compiles (937 instructions), summrise-launch 148+5 tests, fmt/clippy/cargo xwin check. 0.3.288 is built. The door staging and the live /S proof wait for the 9VH's recovery — the console host is the 9VH and its disk cannot be written while it is offline; the live run must not be risked on the 84T3LIN.)*
 
+## P0 — the seventeenth list (opened 2026-11-06, from the audit of 0.3.273-ux92)
+
+Measured on the live console at 1440×960 and 390×844, Asia/Shanghai, selected machine
+DESKTOP-84T3LIN (0.3.280) for the device pages, with the 9VH 0.3.286 offline and 14R/CPH offline,
+and the 84T's panel at 127.0.0.1:18090. Ranked by the outage's timeline first, then the only online
+machine's update story, then the controls.
+
+1. **The last start is dropped when it repeats the header's version.** The 9VH started 0.3.286 at
+   06:16:08, checked 06:30:32 and vanished at 06:40:26; the fleet row and Machine tab show no start,
+   and the Machine tab's only update fact is `applied to 0.3.273 on 2026-11-05 03:11`. The 84T
+   started 22:22:19 and its line has no start either. **Cost:** the outage cannot be placed against
+   the last check; the start is the fact that separates a sleep from a failed install. **Fix:** draw
+   `started vX 24m ago` from the restart journal even when the version repeats, and label an
+   outcome older than this start. **S/M.**
+
+2. **The 84T's update story says "channel not reported" and never names its verdict or 14 console
+   retries.** The console's Machine line is four absences; the device's panel names `Channel
+   canary`, 14 failed console-channel attempts ("the console accepted the channel and then dropped
+   it") and a start verdict at 22:22:19. The console's audit has 24 joins/2 leaves in its newest
+   1000 lines; the fleet says `online`. **Cost:** the only online machine is seven versions behind,
+   and the console cannot say why its link flaps or whether its updater ran. **Fix:** read the
+   channel from `restarts[0].channel`, draw the verdict/start, and surface `console_attempt` (or the
+   join/leave count); name the local panel's check if no tool exists. **M.**
+
+3. **Screen capture is refused by the helper's disconnected session, but the page predicts only
+   "locked and disconnected" in general.** The helper is registered in session 2; #2 is
+   disconnected; `Capture screen` is live and answers `screen.capture: the capture thread could not
+   attach to the input desktop: 拒绝访问。 (os error 5)`. The facts are on the Machine tab as
+   `Helper session 2` and `#2 disconnected`. **Cost:** a daily action is invited into a refusal the
+   page already knows; the error has no next step. **Fix:** pass the helper's session/state and say
+   it before the press; disable or annotate the button. **S/M.**
+
+4. **The Terminal session card says "No keystroke recorded" after a reload.** At 390 the card reads
+   `session-3 / opened 9m 14s ago / No keystroke recorded for this session yet`, while the xterm
+   shows `echo audit37-terminal`; at 1440 the card's LAST INPUT is the one-character-short fragment
+   `cho audit37-terminal`. The card reads only the live 200-line feed. **Cost:** the first block on
+   the Terminal page is false after a reload; the audit has the evidence. **Fix:** read the
+   session's audit evidence, or say "since this page opened"; accumulate the line. **S.**
+
+5. **The fleet card says "calls" when it counts client calls only.** The 9VH reads
+   `141 calls · 4 failed` beside `Console reads · 238`; the 84T's hub reads `Today 3 client calls`
+   beside `Console reads · 37`; the hub's day line says `client calls`. **Cost:** the row undercounts
+   the machine's work and makes the hub's client count look contradictory. **Fix:** `141 client
+   calls`. **S.**
+
+6. **The offline hub tells the operator to open the machine's panel, which it neither links nor
+   addresses.** `…open the machine's panel if it stays offline.` with only `Retry`; the panel is
+   `127.0.0.1:18090` and loopback-only, and the console's Connect sheet names only its `/mcp`
+   endpoint. **Cost:** the outage's one "what next" is a dead end from the console. **Fix:** link
+   the Device → Machine view and name the local panel URL as local. **S.**
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
