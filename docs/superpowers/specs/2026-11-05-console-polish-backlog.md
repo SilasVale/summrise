@@ -325,7 +325,7 @@ console's terminal tab is the surface that finds this; the device's read is the 
    (or the guard expires) does it open the stream at the reached cursor. **M.** (console; live on a
    fresh flooded pty after the 0.3.282 channel update.)
 
-3. **The console server closes a subscription whose ack arrives empty.** The paged catch-up resumes
+3. **The console server closes a subscription whose ack arrives empty.** *(Done 2026-11-06, 18163fd, live 0.3.273-ux73: `subscription_stream` now runs the ack and the pushed frames through one loop and one `FrameStep` — empty-and-alive frames are skipped in both positions, and the stream ends only on `recv() == None`, `alive:false`, or a fault/error; a refused subscribe is normalised to the same `{"error": sentence}` shape, so ack and follow share one fault payload. Four new integration tests (empty ack then output; empty frame between outputs; end; fault) failed against the unmodified server and pass after; 243 console tests, fmt/clippy clean. NOT yet live-verified: the deployed ux73 is up, but the 9VH device's `terminal.read` hung on a quiet pty (45 s with wait_ms 1000; 20 s with no wait, 0 bytes), so the stream's empty-ack behaviour could not be exercised end-to-end; that device read is item 4.)* The paged catch-up resumes
    the stream at the reached cursor; the console server's subscription ack for an up-to-date cursor
    is an empty read, `read_event` emits no SSE event, the stream closes, the page reconnects once at
    the same cursor and then falls back to 250 ms polling. **Cost:** every tab that catches up pays a
@@ -333,6 +333,14 @@ console's terminal tab is the surface that finds this; the device's read is the 
    current. **Fix:** keep the subscription open across an empty ack (a keep-alive frame or a wait for
    the next output) so the next bytes are pushed, not polled. **S/M.** (console server; measured by
    task 14's live run.)
+
+4. **A quiet session's read does not return on its wait.** Measured 2026-11-06 on 9VH (0.3.282) after
+   the flood check: `terminal.read` on a fresh quiet PowerShell pty (session-4, cursor 0) with
+   `wait_ms: 1000` held the MCP call for 45 s; the same read without `wait_ms` returned 0 bytes after
+   20 s; `terminal.list` answered in 3 s. A read at a quiet cursor must return the empty answer when
+   its wait expires instead of holding the call (and the device) open. **Fix:** the read's wait is
+   capped by the requested wait (and a default bound), the empty ring returns empty, and the tool
+   handler never waits beyond it. **M.** (device; the pty/read wait path, a release.)
 
 ## How a round goes
 
