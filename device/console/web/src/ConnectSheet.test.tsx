@@ -514,8 +514,51 @@ describe("ConnectSheet's one credential list", () => {
 
     expect(
       within(tokenForm()).getByText(
-        "This token will cover the 2 machines enrolled now: workshop, attic."
+        "This token will cover the 2 machines enrolled now: workshop (online), attic (online)."
       )
     ).toBeInTheDocument();
+  });
+
+  it("marks an offline machine in the coverage sentence with its silence, and still covers it", async () => {
+    // The measured bug: a machine 23 hours silent was listed exactly like the live ones. The age is
+    // the fleet row's own evidence and formatter, and the clock is pinned so the sentence is exact.
+    const now = Date.UTC(2026, 10, 6, 12, 0, 0);
+    const clock = vi.spyOn(Date, "now").mockReturnValue(now);
+    const asleep: Device = {
+      id: "dev-attic",
+      name: "attic",
+      online: false,
+      version: "0.3.42",
+      // The measured DESKTOP-14RJCR8 shape: no frame, the silence ages from the newest open close.
+      last_seen_ms: now - 2 * 3_600_000,
+      last_left_ms: now - (1 * 60 + 49) * 60_000
+    };
+    const unseen: Device = {
+      id: "dev-basement",
+      name: "basement",
+      online: false,
+      version: "0.3.42",
+      last_seen_ms: null
+    };
+
+    draw({ initialSection: "tokens", device: null, devices: [WORKSHOP, asleep, unseen] });
+
+    expect(
+      within(tokenForm()).getByText(
+        "This token will cover the 3 machines enrolled now: workshop (online), " +
+          "attic (offline, last seen 1h 49m ago), basement (offline)."
+      )
+    ).toBeInTheDocument();
+
+    // THE STATE IS A STATEMENT, NOT A FILTER: the two offline machines are still in the minted
+    // scope. The pinned clock is released before the async mint so `waitFor` reads real time.
+    clock.mockRestore();
+    fireEvent.change(within(tokenForm()).getByLabelText("Name"), { target: { value: "all" } });
+    fireEvent.click(within(tokenForm()).getByRole("button", { name: "Create token" }));
+    await waitFor(() =>
+      expect(mocks.createToken).toHaveBeenCalledWith(
+        expect.objectContaining({ device_ids: [WORKSHOP.id, asleep.id, unseen.id] })
+      )
+    );
   });
 });

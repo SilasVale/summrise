@@ -1287,6 +1287,24 @@ try {
       'machines, mint a new token.'
   );
   await fixedScope.waitFor({ state: 'visible', timeout: 5_000 });
+  // **THE COVERAGE SENTENCE MARKS THE MACHINES IT WILL COVER.** The fleet row behind this sheet read
+  // 14RJCR8's silence as 1h 49m; the sentence a person choosing "all machines" reads must state the
+  // same thing about the same machine, or the dead machine looks live. The state is a statement about
+  // the scope, not a filter of it: the sentence still names every enrolled machine.
+  const coverage = (
+    await tokensDoor.getByText(/This token will cover the \d+ machines enrolled now:/).innerText()
+  ).trim();
+  if (!coverage.includes(`${DEVICE.name} (online)`)) {
+    throw new Error(`the coverage sentence did not mark the live machine: ${JSON.stringify(coverage)}`);
+  }
+  const markedOffline = `${OFFLINE_DEVICE.name} (${offlineState390.replace(' · ', ', ')})`;
+  if (!coverage.includes(markedOffline)) {
+    throw new Error(
+      `the coverage sentence did not mark the silent machine as ${JSON.stringify(markedOffline)}: ` +
+        JSON.stringify(coverage)
+    );
+  }
+  step(`the fleet coverage sentence marks each machine: ${coverage}`);
   // **THE SCOPE CELL NAMES THE MACHINES.** A count alone sent the operator minting another token to
   // answer "does this one cover 84T3LIN?"; the fleet row must name the gate machine it reaches.
   const fleetScopeRow = tokensDoor.getByRole('row', { name: /gate-fleet/ });

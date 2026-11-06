@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, type Created, type Device, type LiveTool, type TokenMeta } from "./api";
 import { groupByCapability } from "./capabilities";
 import { copyText } from "./copy";
-import { message, shortId } from "./format";
+import { lastHeardMs, message, seenAgo, shortId } from "./format";
 import { Modal } from "./Modal";
 import { Sheet } from "./Sheet";
 import { useLiveTools } from "./useLiveTools";
@@ -81,6 +81,25 @@ function lastUsed(entry: TokenMeta): string {
 /** The Expires cell: the column already says what the date means. */
 function expiry(entry: TokenMeta): string {
   return entry.expires_at_ms == null ? "never" : new Date(entry.expires_at_ms).toLocaleDateString();
+}
+
+/**
+ * One machine in the all-machines coverage sentence, with the presence the fleet read serves.
+ *
+ * The moment and the wording are the fleet row's own: `lastHeardMs` picks the newest evidence and
+ * `seenAgo` keeps the minutes, so the sheet cannot date a silence differently from the row behind
+ * it. A machine the console has never heard has no age to state, and the console's existing wording
+ * for it is just "offline" — the sheet does not invent "never seen". The machine is still named:
+ * the token covers every enrolled machine, and the state is a statement about the scope, not a
+ * filter of it.
+ */
+function coverageMachine(device: Device): string {
+  const name = device.name || shortId(device.id);
+  if (device.online) return `${name} (online)`;
+  const heard = lastHeardMs(device);
+  return heard === null
+    ? `${name} (offline)`
+    : `${name} (offline, last seen ${seenAgo(heard)})`;
 }
 
 /**
@@ -573,7 +592,7 @@ function TokensSection({
             <p className="hint">
               This token will cover the {devices.length} machine
               {devices.length === 1 ? "" : "s"} enrolled now:{" "}
-              {devices.map((entry) => entry.name || shortId(entry.id)).join(", ")}.
+              {devices.map(coverageMachine).join(", ")}.
             </p>
           )}
           {scope === "fleet" && devices.length === 0 && (
