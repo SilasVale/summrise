@@ -399,7 +399,7 @@ every number is a live DOM measurement and the screenshots are `/tmp/audit-20-*.
    draw the hub's repeats sentence whenever the window drops repeats, not only when it is cut; or
    count the day line from the drawable rows, one rule with Activity. **S.**
 
-3. **At 390 the Runs history is a 320 px table with an 80 px Command column.** The first run's
+3. **At 390 the Runs history is a 320 px table with an 80 px Command column.** *(Done 2026-11-06, e43e30c, live 0.3.273-ux77: at ≤639 the history is a card list — the command full width and wrapping (294×70 in the live check), the header `display:none`, Exit/Duration/Started/stdout/stderr as labelled lines, and no sideways scroll (document 390/390); the 1440 table is unchanged (header 1,004 px, command 655 px, row 58 px). 743 tests (+2), gate PASS 43 steps (a 1440 table leg and a 390 card leg), a11y 0/3, `build-web --check`. Screenshot /tmp/live-ux77-runs390.png.)* The first run's
    command is 283 px tall (`powershe / ll.exe - / NoProfil / e - …`), the `stdout / stderr` header
    wraps in a 52 px cell, and at that row height the 20-run history is a 5,660 px column. At 1440
    Command is 679 px and a row is 57 px. **Cost:** the phone's run history cannot be scanned or a
