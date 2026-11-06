@@ -8,26 +8,27 @@ Each item ships on its own: the web gates, the console's Rust tests, a live chec
 
 ## P0 — the record of what the AI did
 
-1. **Timeline + evidence** *(code complete 2026-11-04; deployment blocked by the device outage —
-   see 2026-11-04-device-outage.md; ship the console as soon as a host answers).* One row per action (time, sentence, machine, outcome,
+1. **Timeline + evidence** *(Shipped after the 2026-11-04 outage: live by `0.3.273-ux44` and
+   measured in the fifth list; `78fd4a6` opened Activity on the timeline, `8d07eab` made a row open
+   its evidence.)* One row per action (time, sentence, machine, outcome,
    duration); a click opens the evidence (command, output tail, session, links). The audit table
    stays behind the `Table` toggle.
-2. **Screenshots as evidence.** *(Code complete 2026-11-04: 4 per device, 32 total, LRU, memory only; the row opens the frame with its capture time; the route is authenticated and a restart forgets it.)* A `screen.capture` call keeps its last image in console memory
+2. **Screenshots as evidence.** *(Shipped: `550da0a` — 4 per device, 32 total, LRU, memory only; the row opens the frame with its capture time; the route is authenticated and a restart forgets it; the live build carries it.)* A `screen.capture` call keeps its last image in console memory
    (bounded per device) and the row opens it inline. The image is ephemeral: nothing is written to
    disk and a restart forgets it.
-3. **The session card.** *(Code complete 2026-11-04, queued behind the outage: the card leads the page — machine, session, kind, age, last keystroke from the live evidence.)* The Terminal page shows the session before the terminal: machine, shell,
+3. **The session card.** *(Shipped: `1561857` — the terminal opens with the card, not a black rectangle: machine, session, kind, age, last keystroke from the live evidence.)* The Terminal page shows the session before the terminal: machine, shell,
    how long it has been open, the last command, the last few lines, and one button to attach. The
    raw terminal is what you get after that card, not the first thing.
-4. **Home stops leading with the endpoint** *(code complete 2026-11-04, queued behind the outage:
-   the hub is the machine — Now band, today's timeline, one `Connect a client` action; the endpoint
-   lives only in the Connect sheet).* The hub becomes this machine's live page: Now (presence,
+4. **Home stops leading with the endpoint** *(Shipped: `f6ff6aa` deleted the endpoint hero; the
+   fifth list measured the hub live at `0.3.273-ux49` — Now band, today's timeline, one `Connect a
+   client` action, the endpoint only in the sheet.)* The hub becomes this machine's live page: Now (presence,
    rate, last steps), today's timeline, the session preview. The endpoint lives in the Connect sheet.
 
-## Blocked on 2026-11-04
+## Device-side, still open
 
-The device fleet is offline after canary `0.3.272`; the console is healthy but every deploy needs a
-host's `runs.exec`. Code-only work continues; nothing ships until a device answers. The console build
-`0.3.272-ux37` (timeline + evidence + review fixes) is green and queued.
+The 2026-11-04 outage is over: the fleet has run `0.3.279` since 2026-11-05 (three machines, two
+online; the third asleep). What the outage queued has shipped — the first list's statuses say which
+commit and which live list prove it.
 
 5. **The device's own panel gets the same record.** The panel the device serves
    (`device/device/src/panel.rs`, reachable on the machine and from the console's Screen page) still
@@ -819,3 +820,62 @@ list is what is left of the page's sense of time, measured.
 Not items, measured: the day count is now the day's (14c4331, a wake check also landed in 2d4c7ec);
 the hub's numbers are the rows its controls reach (d3c0503); a failed run is 424 with its reason
 (live-verified).
+
+## P0 — the eighth list (opened 2026-11-06, from the first real install)
+
+Measured on 2026-11-06: `SummriseSetup-0.3.279.exe` was run on a Windows machine into
+`E:\Program Files\Summrise`, and the installer aborted after writing the files. Its dialog said
+**"The device runtime could not be installed (exit 1060)"** — the exit of the `sc start` attempted
+*after* the launcher's `--install-service` had already failed — with `[SC] ... 指定的服务未安装`.
+The launcher's own exit and message are written to `%TEMP%\summrise-setup.log`; the operator saw
+neither, and no sentence said where to look. The product's own public doors were absent or 267 builds
+behind: the console page (live `0.3.273-ux63`) carries **no installer URL** (`grep` of
+`device/console/web/src`: only the data-export downloads), and the landing at `summrise.saisi.online`
+sends "Download for Windows" to GitHub releases whose newest installer is **`v0.3.12`
+(2026-10-23, `SummriseSetup-0.3.12.exe`)** while the fleet runs `0.3.279`. The only 0.3.279 installer
+URL in use was the build box's tailnet mirror
+`http://100.85.163.159:18100/SummriseSetup-0.3.279.exe`, which a normal user cannot reach.
+
+1. **The console hands out the enrollment command but not the installer.** The Add-a-machine flow
+   mints a 15-minute code and prints `summrise-device.exe --enroll <console> <code> --data …`, which
+   assumes the binary is already installed; no control on the page offers the installer, and the
+   only download actions in the page are data exports. **Cost:** the operator's first minute depends
+   on a file from outside the product — in this round, a tailnet URL or a 0.3.12 release. **Fix:** the
+   Add-a-machine flow offers the installer for the release the console serves (a console route for
+   the setup the release carries, with its sha256), and says so plainly when the release has no
+   installer. **M.**
+2. **A failed install names the wrong error, and only the log knows the cause.** `summrise.nsi`
+   overwrites the launcher's `$0`/`$1` with the `sc start` result before the MessageBox, so a
+   launcher that refused before registering the service reads as "1060, service not installed"; the
+   real exit and stack are one file away (`$TEMP\summrise-setup.log`, `install-service: exit N`).
+   **Cost:** a missing runtime, a seed-sidecar refusal and an AV block are indistinguishable on the
+   machine that has the problem. **Fix:** keep the launcher's exit and message in the dialog (and
+   name the log path), put `sc`'s answer on a second line. **S.**
+3. **The installer takes a working service down before it knows it can install.** `.onInit` runs
+   `sc stop SummriseLaunch` and taskkills the app before the section checks the path, seeds the
+   baseline or touches the service; the directory page accepts any root, and nothing reads an
+   existing install's `HKLM\...\InstallLocation`. **Cost:** a second-root attempt on a machine that
+   works stops the working service first, and a failure leaves it stopped until `SummriseRepair`
+   (≤5 min) or a manual start. **Fix:** detect an existing install, keep its root (upgrade in place)
+   or refuse a different one with a sentence, and stop the service only once the new generation is
+   staged and provable. **M.**
+4. **The public download is 267 builds old.** `GET /repos/SilasVale/summrise/releases?per_page=1`
+   answers `v0.3.12` (2026-10-23); the console is `0.3.273-ux63` and the fleet `0.3.279`. **Cost:** a
+   person following the product's own download enrols a console-compatible device from a build 267
+   device versions behind; the current installer lives on a tailnet address. **Fix:** publish the
+   installer with every console-compatible release and point the landing at the release the console
+   serves — the old product's setup block already knows to offer a download only when the manifest
+   carries one. **M.**
+
+### P1
+
+5. **The export's refusal reads as a hint and outlives its range.** `exportNotice` is a muted
+   `.hint` paragraph with `role=alert`, and it stays after the Time control changes, so it can
+   describe a range the page no longer shows. **Fix:** clear it when the range changes and draw it on
+   the console's alert surface. **S.** *(From the seventh list's item 3 review: behaviour correct,
+   surface not.)*
+
+### Cuts
+
+- **C11. The landing's GitHub-releases download.** It serves `v0.3.12` while the console runs
+  `0.3.273-ux63`; replace it with the release the console serves — one door, not two. *(Item 4.)*
