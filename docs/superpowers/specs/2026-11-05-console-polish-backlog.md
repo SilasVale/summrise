@@ -347,6 +347,12 @@ console's terminal tab is the surface that finds this; the device's read is the 
    follow's socket queue but not this: the read's own task never answers while the registry and the
    tool writer serve other calls. Next: the read path itself — the output lock's poison recovery, the
    in-flight permit, or the local device link's dispatch — with a device thread dump and its log.)*
+   *(Third observation 2026-11-06 on 9VH 0.3.283: after a handful of hung terminal.read calls the
+   device's other tools stopped answering too — a root-page fetch through runs.exec got 0 bytes in
+   30 s, where runs.exec had answered in 297 ms minutes earlier. The console transport's
+   `MAX_IN_FLIGHT_FRAMES` is 16 and each hung read task holds one of its permits, so a read whose
+   wait never ends eventually takes the whole tool surface down with it. A restart clears it; the
+   fix must make the read task complete at its deadline (and bound the semaphore wait).)*
 
 ## How a round goes
 
