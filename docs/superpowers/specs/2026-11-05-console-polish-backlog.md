@@ -424,7 +424,7 @@ and both MCP endpoints exercised with live tokens. The fourteenth list's four it
 the setup failure first, then honesty, then the phone, then recovery.
 
 1. **The two MCP endpoints take different token kinds, and the token list never says which endpoint a
-   token belongs to.** `/mcp/all` prints a fleet-scoped token's config, `/mcp/<id>` a device-scoped
+   token belongs to.** *(Done 2026-11-06, 1302298, live 0.3.273-ux79: `tokens.json` records carry `kind: device|fleet` and the list/create/rotate metadata carries `TokenMeta.kind`; an old file infers the door only from the `device_ids` shape (a contradicting kind quarantines the file), and the web prints `unknown · endpoint not recorded` when no fact proves it. The Scope cell prints `fleet · /mcp/all` vs `device · /mcp/<short>`; the Endpoint/Clients copy names the URL for the sheet's kind; a wrong-door live token gets the additive `message` naming its door. 411 console tests, 751 web tests, gate PASS 44 steps, a11y 0/3, `build-web --check`. Live: a fleet probe at `/mcp/<9VH>` answered `401 {"error":"unauthorized","message":"this token is for /mcp/all; a device endpoint takes a device token"}` and 200 at `/mcp/all`; the Tokens list reads `fleet · /mcp/all` and `device · /mcp/4c718d6e44c8…` (screenshot /tmp/live-ux79-doors.png); the probe was revoked.)* `/mcp/all` prints a fleet-scoped token's config, `/mcp/<id>` a device-scoped
    token's. `test` (device, 9VH) and `e2e-connect` (aggregate with one device, 9VH) both read
    `DESKTOP-9VH92BJ` in the fleet Tokens door; the device token is **401** at `/mcp/all`, the
    aggregate **401** at `/mcp/9VH`, and the 401 is a bare `{"error":"unauthorized"}`. **Cost:** a
