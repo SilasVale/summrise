@@ -74,6 +74,10 @@ export function FilesPage({
   const [note, setNote] = useState("Reading the device's files root…");
   const [loadingDir, setLoadingDir] = useState(false);
   const [listError, setListError] = useState<string | null>(null);
+  // The root's first listing failed: there is no folder here that a write could target. Only the
+  // first read sets this — a failed refresh leaves the previous readable listing (and its write
+  // controls) where they are. A successful listing, a new root, or a new grant clears it.
+  const [rootUnreadable, setRootUnreadable] = useState(false);
 
   const [open, setOpen] = useState<Open | null>(null);
   const [opening, setOpening] = useState<string | null>(null);
@@ -119,6 +123,7 @@ export function FilesPage({
         ) as Entry[];
         if (listGate.stale(ticket)) return;
         listed.current = true;
+        setRootUnreadable(false);
         // The device sorts by name; the page's order is the file manager's: folders, files, then
         // the entries it cannot open.
         rows.sort(entryOrder);
@@ -130,8 +135,11 @@ export function FilesPage({
       } catch (cause) {
         if (listGate.stale(ticket)) return;
         // The previous listing stays, and its breadcrumb still says where it is. Only a first read
-        // has no note to keep.
-        if (!listed.current) setNote("The device's files could not be read.");
+        // has no note to keep, and only a first read leaves no folder a write could target.
+        if (!listed.current) {
+          setNote("The device's files could not be read.");
+          setRootUnreadable(true);
+        }
         setListError("Could not list " + displayPath(wanted) + ": " + message(cause));
       } finally {
         if (!listGate.stale(ticket)) setLoadingDir(false);
@@ -153,6 +161,7 @@ export function FilesPage({
     setFileError(null);
     setClosing(false);
     setListError(null);
+    setRootUnreadable(false);
     setNote("Reading the device's files root…");
   };
 
@@ -166,6 +175,7 @@ export function FilesPage({
     setEntries([]);
     setNote("Reading the device's files root…");
     setListError(null);
+    setRootUnreadable(false);
     setOpen(null);
     setOpening(null);
     setFileError(null);
@@ -310,6 +320,9 @@ export function FilesPage({
 
   const createFolder = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    // Enter can submit the form while the submit button is disabled; the unreadable root must not
+    // turn that into the same device refusal a second time.
+    if (rootUnreadable) return;
     const name = folderName.trim();
     const problem = nameProblem(name);
     if (problem !== null) {
@@ -337,6 +350,7 @@ export function FilesPage({
   };
 
   const upload = async (event: ChangeEvent<HTMLInputElement>) => {
+    if (rootUnreadable) return;
     const input = event.currentTarget;
     const file = input.files?.[0] ?? null;
     // Clearing the selection is what lets the same name be chosen again: a real change event needs
@@ -453,6 +467,12 @@ export function FilesPage({
       </div>
 
       {listError && <p className="error">{listError}</p>}
+      {rootUnreadable && (
+        <p className="hint">
+          New folder and Upload a file are unavailable until this root can be listed; Refresh tries
+          again.
+        </p>
+      )}
 
       <div className="files-tools">
         <form className="files-new" onSubmit={(event) => void createFolder(event)}>
@@ -469,8 +489,14 @@ export function FilesPage({
             <button
               type="submit"
               className="mini"
-              disabled={creating || folderName.trim() === "" || offline}
-              title={offline ? "The machine is offline; a folder can be made when it reconnects" : undefined}
+              disabled={creating || folderName.trim() === "" || offline || rootUnreadable}
+              title={
+                offline
+                  ? "The machine is offline; a folder can be made when it reconnects"
+                  : rootUnreadable
+                    ? "The root could not be listed; Refresh tries again"
+                    : undefined
+              }
             >
               {creating ? "Creating…" : "Create"}
             </button>
@@ -483,7 +509,14 @@ export function FilesPage({
             <input
               id="files-upload"
               type="file"
-              disabled={uploading || offline}
+              disabled={uploading || offline || rootUnreadable}
+              title={
+                offline
+                  ? "The machine is offline; an upload can be sent when it reconnects"
+                  : rootUnreadable
+                    ? "The root could not be listed; Refresh tries again"
+                    : undefined
+              }
               onChange={(event) => void upload(event)}
             />
           </label>

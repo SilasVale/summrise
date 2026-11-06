@@ -158,7 +158,34 @@ describe("FilesPage listing", () => {
       screen.getByText("Could not list the files root: " + sentence)
     ).toBeInTheDocument();
     expect(screen.queryByRole("list")).not.toBeInTheDocument();
+    // A root the page cannot list offers no write that must fail, and says why once. The name is
+    // filled in so Create is disabled by the unreadable root, not by an empty field. Refresh is the
+    // control that can still succeed, so it stays live.
+    fireEvent.change(screen.getByLabelText("New folder"), { target: { value: "drafts" } });
+    expect(screen.getByRole("button", { name: "Create" })).toBeDisabled();
+    expect(screen.getByLabelText("Upload a file")).toBeDisabled();
+    expect(
+      screen.getByText(
+        "New folder and Upload a file are unavailable until this root can be listed; Refresh tries again."
+      )
+    ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Refresh" })).toBeEnabled();
+  });
+
+  it("keeps the write controls live when the root is readable", async () => {
+    mocked.mockResolvedValue(JSON.stringify(ROOT));
+
+    render(<FilesPage grant={GRANT} />);
+    await screen.findByRole("button", { name: "notes.txt" });
+
+    fireEvent.change(screen.getByLabelText("New folder"), { target: { value: "drafts" } });
+    expect(screen.getByRole("button", { name: "Create" })).toBeEnabled();
+    expect(screen.getByLabelText("Upload a file")).toBeEnabled();
+    expect(
+      screen.queryByText(
+        "New folder and Upload a file are unavailable until this root can be listed; Refresh tries again."
+      )
+    ).not.toBeInTheDocument();
   });
 });
 
