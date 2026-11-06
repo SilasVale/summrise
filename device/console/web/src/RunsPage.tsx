@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { copyText } from "./copy";
-import { message } from "./format";
+import { clockTime, exactMoment, isoDate, message } from "./format";
 import { useRequestGate } from "./requests";
 import { age } from "./age";
 import { callTool, type Grant } from "./terminal";
@@ -245,7 +245,21 @@ export function RunsPage({
             </div>
             <div>
               <dt>Started</dt>
-              <dd>{age(Date.now() - detail.started_at_ms)} ago</dd>
+              {/* THE START IS AN INSTANT, NOT AN AGE. The record's own `started_at_ms` is painted
+                  in the console's local clock (the day `isoDate` writes, the clock `clockTime`
+                  writes), the exact moment — local to the second and the UTC instant — is the
+                  `title`, and `dateTime` carries the UTC for anything that reads the record instead
+                  of looking at it. The age stays beside it as the glance; it may move, the instant
+                  may not. */}
+              <dd>
+                <time
+                  dateTime={new Date(detail.started_at_ms).toISOString()}
+                  title={exactMoment(detail.started_at_ms)}
+                >
+                  {isoDate(detail.started_at_ms)} {clockTime(detail.started_at_ms)}
+                </time>{" "}
+                <span className="hint">· {age(Date.now() - detail.started_at_ms)} ago</span>
+              </dd>
             </div>
             <div>
               <dt>Working directory</dt>

@@ -1485,11 +1485,12 @@ try {
   // 390, with Exit/Duration/Started beginning at y 1,393/2,114 — the facts were below the first
   // screen at both widths. The record must put the facts first, paint the short form with the count
   // it hides, and keep the exact full line behind one `Show full command` toggle.
-  const recordMetrics = () =>
-    page.evaluate(() => {
+  const recordMetrics = (startedAt) =>
+    page.evaluate((startedAt) => {
       const card = document.querySelector('.runs-detail');
       const command = document.querySelector('#runs-detail-command-text');
       const facts = card?.querySelector('dl.facts');
+      const startedTime = facts?.querySelector('time[datetime]');
       const fact = (label) => {
         const dt = [...(facts?.querySelectorAll('dt') ?? [])].find(
           (node) => node.textContent === label
@@ -1508,6 +1509,14 @@ try {
       const commandBox = command?.getBoundingClientRect();
       const toggle = document.querySelector('.runs-detail-command-more button');
       return {
+        // The Started fact is an instant, not an age: the `<time>`'s text is the local day and
+        // clock, `dateTime` is the exact UTC instant and `title` carries both clocks.
+        started: {
+          text: (startedTime?.textContent ?? '').trim(),
+          dateTime: startedTime?.getAttribute('datetime') ?? null,
+          title: startedTime?.getAttribute('title') ?? null,
+          exact: new Date(startedAt).toISOString()
+        },
         viewport: { width: window.innerWidth, height: window.innerHeight },
         card: cardBox
           ? { top: Math.round(cardBox.top), height: Math.round(cardBox.height) }
@@ -1523,7 +1532,7 @@ try {
         toggle: toggle?.textContent ?? null,
         expanded: toggle?.getAttribute('aria-expanded') ?? null
       };
-    });
+    }, startedAt);
   const factsAboveCommand = () =>
     page.evaluate(() => {
       const facts = document.querySelector('.runs-detail dl.facts');
@@ -1566,11 +1575,41 @@ try {
     if (!record.facts.exit.text.startsWith('exit ')) {
       throw new Error(`${where}: the exit fact is ${JSON.stringify(record.facts.exit.text)}`);
     }
+    // **THE START IS AN INSTANT.** Audit 36 F6 measured `21m 04s ago` become `21m 11s ago` six
+    // seconds later, with no title or datetime. The `<time>` now carries the exact UTC in
+    // `dateTime`, both clocks in its title, the local day and clock as its text, and the age beside
+    // it — at both widths.
+    if (!record.started.dateTime || !record.started.title || !record.started.text) {
+      throw new Error(`${where}: the Started fact draws no <time> with dateTime/title`);
+    }
+    if (record.started.dateTime !== record.started.exact) {
+      throw new Error(
+        `${where}: Started dateTime is ${JSON.stringify(record.started.dateTime)}, not ${record.started.exact}`
+      );
+    }
+    if (!record.started.title.includes(`(${record.started.exact})`)) {
+      throw new Error(
+        `${where}: Started title is ${JSON.stringify(record.started.title)}, not the exact instant`
+      );
+    }
+    // The visible text is `YYYY-MM-DD HH:MM` in whatever timezone the browser runs, not a locale
+    // form; the age is the fact beside it, not instead of it.
+    if (!/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(record.started.text)) {
+      throw new Error(`${where}: Started text is ${JSON.stringify(record.started.text)}`);
+    }
+    if (!record.facts.started.text.startsWith(`${record.started.text} · `)) {
+      throw new Error(
+        `${where}: Started reads ${JSON.stringify(record.facts.started.text)}, not the instant and the age beside it`
+      );
+    }
+    if (!record.facts.started.text.endsWith(' ago')) {
+      throw new Error(`${where}: Started carries no age: ${JSON.stringify(record.facts.started.text)}`);
+    }
   };
   const expandRecord = async (where) => {
     await page.getByRole('button', { name: 'Show full command' }).click();
     await page.waitForTimeout(150);
-    const expanded = await recordMetrics();
+    const expanded = await recordMetrics(LONG_RUN.started_at_ms);
     if (expanded.command?.text !== LONG_LINE) {
       throw new Error(
         `${where}: Show full command painted ${expanded.command?.text.length} chars, not ${LONG_LINE.length}`
@@ -1599,16 +1638,35 @@ try {
   await page.getByRole('button', { name: 'Show full command' }).waitFor({ timeout: 10_000 });
   await page.evaluate(() => document.querySelector('.runs-detail')?.scrollIntoView({ block: 'start' }));
   await page.waitForTimeout(300);
-  const record390 = await recordMetrics();
+  const record390 = await recordMetrics(LONG_RUN.started_at_ms);
   checkRecord('390', record390);
   await page.screenshot({ path: path.join(OUT, '04c-runs-record-390.png') });
+
+  // **THE INSTANT DOES NOT MOVE.** The audit's record read `21m 04s ago` and `21m 11s ago` six
+  // seconds apart. Refresh re-reads the history and re-renders the record (so the age is read
+  // again); the `<time>`'s text, dateTime and title must be exactly what they were.
+  await page.getByRole('button', { name: 'Refresh history' }).click();
+  await page.waitForTimeout(1_200);
+  const record390Again = await recordMetrics(LONG_RUN.started_at_ms);
+  if (JSON.stringify(record390Again.started) !== JSON.stringify(record390.started)) {
+    throw new Error(
+      `the Started instant moved on refresh: ${JSON.stringify(record390.started)} -> ` +
+        JSON.stringify(record390Again.started)
+    );
+  }
+  step(
+    `the record's Started is the instant ${record390.started.text} ` +
+      `(${record390.started.dateTime} in dateTime, ${JSON.stringify(record390.started.title)} in ` +
+      `its title) and reads ${JSON.stringify(record390.facts.started.text)} before and after the ` +
+      `1.2 s refresh`
+  );
   await expandRecord('390');
 
   await page.setViewportSize({ width: 1440, height: 960 });
   await page.waitForTimeout(400);
   await page.evaluate(() => document.querySelector('.runs-detail')?.scrollIntoView({ block: 'start' }));
   await page.waitForTimeout(250);
-  const record1440 = await recordMetrics();
+  const record1440 = await recordMetrics(LONG_RUN.started_at_ms);
   checkRecord('1440', record1440);
   await page.screenshot({ path: path.join(OUT, '04d-runs-record-1440.png') });
   await expandRecord('1440');

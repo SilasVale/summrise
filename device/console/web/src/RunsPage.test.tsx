@@ -2,6 +2,8 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { RunsPage } from "./RunsPage";
 import { copyText } from "./copy";
+import { age } from "./age";
+import { clockTime, exactMoment, isoDate } from "./format";
 import { commandLine, shortCommand } from "./runFormat";
 import { callTool, type Grant } from "./terminal";
 
@@ -320,6 +322,54 @@ describe("RunsPage", () => {
     expect(screen.queryByText("run-2")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "echo hello" })).toBeInTheDocument();
     expect(called("runs.get")).toHaveLength(1);
+  });
+
+  it("dates a record's Started with the local instant and the exact moment in its title", async () => {
+    // Local instants, so the assertions do not depend on the machine's timezone: `format.ts` is the
+    // expected clock, the same helpers the page paints with.
+    const startedAt = new Date(2026, 10, 4, 9, 41, 5).getTime();
+    const now = new Date(2026, 10, 4, 10, 0, 0).getTime();
+    const record: RunRecord = { ...HELLO, started_at_ms: startedAt };
+    mocked.mockImplementation(async (_grant, name) => {
+      if (name === "runs.list") return JSON.stringify([record]);
+      if (name === "runs.get") return JSON.stringify(record);
+      throw new Error(`the test did not expect ${name}`);
+    });
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(now);
+
+    try {
+      const view = render(<RunsPage grant={GRANT} />);
+      fireEvent.click(await screen.findByRole("button", { name: "echo hello" }));
+
+      const heading = await screen.findByRole("heading", { name: "Command" });
+      const detail = heading.closest("section") as HTMLElement;
+      const facts = detail.querySelector("dl.facts") as HTMLElement;
+      const started = within(facts).getByText("Started").nextElementSibling as HTMLElement;
+      const time = started.querySelector("time") as HTMLTimeElement;
+
+      // THE INSTANT AND ITS EXACT MOMENT. The visible text is the console's local day and clock;
+      // `title` is `exactMoment` (local to the second plus the UTC ISO instant) and `dateTime` is
+      // the UTC instant itself — the audit's "no title/datetime" is the bug this asserts gone.
+      expect(time).not.toBeNull();
+      expect(time).toHaveTextContent(`${isoDate(startedAt)} ${clockTime(startedAt)}`);
+      expect(time).toHaveAttribute("title", exactMoment(startedAt));
+      expect(time).toHaveAttribute("dateTime", new Date(startedAt).toISOString());
+      expect(started).toHaveTextContent(
+        `${isoDate(startedAt)} ${clockTime(startedAt)} · ${age(now - startedAt)} ago`
+      );
+
+      // SIX SECONDS LATER THE INSTANT IS THE SAME. The audit measured `21m 04s ago` become
+      // `21m 11s ago` six seconds later; the age may move with the clock, the start may not.
+      nowSpy.mockReturnValue(now + 6_000);
+      view.rerender(<RunsPage grant={GRANT} />);
+      expect(started.querySelector("time")).toHaveTextContent(
+        `${isoDate(startedAt)} ${clockTime(startedAt)}`
+      );
+      expect(started.querySelector("time")).toHaveAttribute("title", exactMoment(startedAt));
+      expect(started).toHaveTextContent(`${age(now + 6_000 - startedAt)} ago`);
+    } finally {
+      nowSpy.mockRestore();
+    }
   });
 
   it("opens a long run on its short command, with the facts above the full line behind a toggle", async () => {
