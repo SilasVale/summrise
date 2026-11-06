@@ -622,8 +622,16 @@ async fn connect(
 /// run itself. A serial loop turned one slow command into an unanswerable device.
 const MAX_IN_FLIGHT_FRAMES: usize = 16;
 
-/// How many finished answers may wait for the socket before a task waits for the loop.
+/// How many finished frames may wait for the socket before a task waits for the loop.
 const OUTGOING_FRAMES: usize = 64;
+
+/// How often a follow waiting for its frame to be written checks whether the console has fallen
+/// out of the ring's window.
+///
+/// The wait is a loop of these checks rather than an unbounded await: a console that stopped
+/// reading is turned into the one sentence its paged catch-up can recover from, instead of a task
+/// parked for as long as the socket stays open.
+const FOLLOW_GAP_CHECK: Duration = Duration::from_millis(250);
 
 /// How many terminal subscriptions one channel may hold at once.
 ///
@@ -641,13 +649,50 @@ const FOLLOW_WAIT: Duration = Duration::from_secs(2);
 /// (and a relay in front of it) from carrying a megabyte burst as one message.
 const FOLLOW_CHUNK: usize = 32 * 1024;
 
+/// One frame on its way to the console.
+///
+/// **A FOLLOW PUSH IS RELEASED BY THE WRITER, NOT BY THE QUEUE.** A tool answer is done once it is
+/// in the queue; a follow's push carries the sender that says the socket took it, and the follow
+/// waits for that before producing its next chunk. That one-frame window is what bounds a lagging
+/// follow's outbound queue: a console that stops reading can make the writer wait, but it cannot
+/// make the follow stack megabytes of pushed frames in front of an answer.
+enum Outbound {
+    /// A tool answer, a subscribe ack, a refusal, or the sentence that stops a subscription.
+    Answer(Value),
+    /// One followed terminal frame, and the release the follow waits on.
+    Push {
+        value: Value,
+        written: tokio::sync::oneshot::Sender<()>,
+    },
+}
+
+impl Outbound {
+    /// The frame the socket writes, and the release a follow waits on when it is a push.
+    fn release(self) -> (Value, Option<tokio::sync::oneshot::Sender<()>>) {
+        match self {
+            Outbound::Answer(value) => (value, None),
+            Outbound::Push { value, written } => (value, Some(written)),
+        }
+    }
+}
+
 /// Serve one socket until it closes, then return whether it carried any frame.
-async fn serve(
-    mut socket: WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>,
+///
+/// The socket is generic over the WebSocket stream so a test can drive this loop over an in-memory
+/// pipe with a reader it controls. That is not cosmetic: a loopback socket buffers megabytes before
+/// it pushes back (measured: 57 32 KiB frames accepted by an unread peer), so a test on a real
+/// socket cannot make the writer wait the way a console that stops reading does.
+async fn serve<S>(
+    mut socket: S,
     endpoint: &ConsoleEndpoint,
     server: &DeviceServer,
     key: Option<&VerifyingKey>,
-) -> bool {
+) -> bool
+where
+    S: futures_util::Sink<Message, Error = tokio_tungstenite::tungstenite::Error>
+        + futures_util::Stream<Item = Result<Message, tokio_tungstenite::tungstenite::Error>>
+        + Unpin,
+{
     let mut served = false;
     // The host report rides the same socket as the request/answer traffic: one frame on connect (the
     // first tick fires immediately) and one a minute after. It is unsolicited, which is the point —
@@ -656,7 +701,7 @@ async fn serve(
     host.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     // A frame is answered by its own task, and the answer comes back here: the socket has one owner,
     // so a ping is still answered while a tool is running, and one slow tool cannot stop the channel.
-    let (outgoing, mut answers) = tokio::sync::mpsc::channel::<Value>(OUTGOING_FRAMES);
+    let (outgoing, mut answers) = tokio::sync::mpsc::channel::<Outbound>(OUTGOING_FRAMES);
     let in_flight = std::sync::Arc::new(tokio::sync::Semaphore::new(MAX_IN_FLIGHT_FRAMES));
     // The stop signal of every live subscription on this socket. Dropping a sender stops its task;
     // dropping the whole map (the socket closed) stops them all.
@@ -675,7 +720,14 @@ async fn serve(
                 let Some(answer) = answer else {
                     break;
                 };
-                if let Err(error) = socket.send(Message::text(answer.to_string())).await {
+                let (value, written) = answer.release();
+                let sent = socket.send(Message::text(value.to_string())).await;
+                // Release the follow's next chunk only once this frame is on the wire (or failed):
+                // this ack is the write bound, and a follow may have at most one frame in the queue.
+                if let Some(written) = written {
+                    let _ = written.send(());
+                }
+                if let Err(error) = sent {
                     eprintln!("summrise-device: the console channel write failed: {error}");
                     break;
                 }
@@ -707,7 +759,7 @@ async fn serve(
                                     });
                                     let outgoing = outgoing.clone();
                                     tokio::spawn(async move {
-                                        let _ = outgoing.send(refusal).await;
+                                        let _ = outgoing.send(Outbound::Answer(refusal)).await;
                                     });
                                 } else {
                                     spawn_follow(
@@ -730,7 +782,7 @@ async fn serve(
                                 });
                                 let outgoing = outgoing.clone();
                                 tokio::spawn(async move {
-                                    let _ = outgoing.send(reply).await;
+                                    let _ = outgoing.send(Outbound::Answer(reply)).await;
                                 });
                                 continue;
                             }
@@ -750,7 +802,7 @@ async fn serve(
                             if let Some(reply) =
                                 handle_frame(text.as_str(), &endpoint, &server, key.as_ref()).await
                             {
-                                let _ = outgoing.send(reply).await;
+                                let _ = outgoing.send(Outbound::Answer(reply)).await;
                             }
                         });
                     }
@@ -790,7 +842,7 @@ fn spawn_follow(
     endpoint: ConsoleEndpoint,
     server: DeviceServer,
     key: Option<VerifyingKey>,
-    outgoing: tokio::sync::mpsc::Sender<Value>,
+    outgoing: tokio::sync::mpsc::Sender<Outbound>,
     streams: Arc<Mutex<HashMap<u64, tokio::sync::oneshot::Sender<()>>>>,
 ) {
     tokio::spawn(async move {
@@ -830,7 +882,7 @@ fn spawn_follow(
                         refusal.message(),
                     ),
                 });
-                let _ = outgoing.send(error).await;
+                let _ = outgoing.send(Outbound::Answer(error)).await;
                 return;
             }
         };
@@ -851,7 +903,9 @@ fn spawn_follow(
         // named, and it is the one audited call this subscription makes.
         let Some(mcp) = frame.mcp.as_ref() else {
             let _ = outgoing
-                .send(json!({ "term": { "sub": id, "error": "the subscription carried no request" } }))
+                .send(Outbound::Answer(
+                    json!({ "term": { "sub": id, "error": "the subscription carried no request" } }),
+                ))
                 .await;
             return;
         };
@@ -861,7 +915,7 @@ fn spawn_follow(
         } else {
             json!({ "id": id, "result": response })
         };
-        if outgoing.send(first).await.is_err() {
+        if outgoing.send(Outbound::Answer(first)).await.is_err() {
             return;
         }
         let mut cursor = read_cursor(&response).unwrap_or(subscribe.from);
@@ -869,9 +923,9 @@ fn spawn_follow(
         let Some(session) = crate::capabilities::terminal::SessionId::parse(&subscribe.session_id)
         else {
             let _ = outgoing
-                .send(json!({
+                .send(Outbound::Answer(json!({
                     "term": { "sub": id, "error": "the id is not a session id" }
-                }))
+                })))
                 .await;
             return;
         };
@@ -885,7 +939,13 @@ fn spawn_follow(
             match answer {
                 Ok(answer) => {
                     if !answer.data.is_empty() {
+                        let mut offset = 0usize;
                         for chunk in utf8_chunks(&answer.data, FOLLOW_CHUNK) {
+                            // Every chunk of one read carries that read's end; its start is what a
+                            // lag check asks the ring about, because the console's cursor cannot be
+                            // ahead of the first chunk it has not been given.
+                            let from = cursor + offset as u64;
+                            offset += chunk.len();
                             let pushed = json!({
                                 "term": {
                                     "sub": id,
@@ -895,16 +955,37 @@ fn spawn_follow(
                                     "alive": answer.alive,
                                 }
                             });
-                            if outgoing.send(pushed).await.is_err() {
-                                lock_streams(&streams).remove(&id);
-                                return;
+                            match push_follow_frame(
+                                &outgoing,
+                                &terminal,
+                                &session,
+                                pushed,
+                                from,
+                                &mut stopped,
+                            )
+                            .await
+                            {
+                                FollowPush::Written => {}
+                                FollowPush::Cut(sentence) => {
+                                    let _ = outgoing
+                                        .send(Outbound::Answer(
+                                            json!({ "term": { "sub": id, "error": sentence } }),
+                                        ))
+                                        .await;
+                                    lock_streams(&streams).remove(&id);
+                                    return;
+                                }
+                                FollowPush::Stopped | FollowPush::Gone => {
+                                    lock_streams(&streams).remove(&id);
+                                    return;
+                                }
                             }
                         }
                     }
                     cursor = answer.cursor;
                     if !answer.alive {
                         let _ = outgoing
-                            .send(json!({
+                            .send(Outbound::Answer(json!({
                                 "term": {
                                     "sub": id,
                                     "alive": false,
@@ -912,14 +993,16 @@ fn spawn_follow(
                                     "exit_code": answer.end.exit_code,
                                     "signal": answer.end.signal,
                                 }
-                            }))
+                            })))
                             .await;
                         break;
                     }
                 }
                 Err(error) => {
                     let _ = outgoing
-                        .send(json!({ "term": { "sub": id, "error": error.to_string() } }))
+                        .send(Outbound::Answer(
+                            json!({ "term": { "sub": id, "error": error.to_string() } }),
+                        ))
                         .await;
                     break;
                 }
@@ -927,6 +1010,64 @@ fn spawn_follow(
         }
         lock_streams(&streams).remove(&id);
     });
+}
+
+/// What waiting for one followed frame's write decided.
+enum FollowPush {
+    /// The socket writer took the frame.
+    Written,
+    /// The subscription was stopped while the frame waited.
+    Stopped,
+    /// The socket writer is gone; the channel is closing.
+    Gone,
+    /// The console fell out of the ring's window: this sentence stops the subscription.
+    Cut(String),
+}
+
+/// Hand one followed frame to the socket writer and wait for it to be written.
+///
+/// **THIS WAIT IS THE LAG BOUND.** A follow may have one frame in the outbound queue at a time, so
+/// a console that stops reading cannot make the follow stack output in front of another call's
+/// answer. While the frame waits, the ring is checked every [`FOLLOW_GAP_CHECK`]: when the console
+/// is so far behind that the ring has dropped the bytes this frame starts at, the subscription is
+/// cut with the ring's own refusal — the sentence the console's paged catch-up already parses to
+/// resume from the oldest byte the device still has. A merely slow console is waited for, because
+/// the frame's queue is bounded and no output is lost.
+async fn push_follow_frame(
+    outgoing: &tokio::sync::mpsc::Sender<Outbound>,
+    terminal: &crate::capabilities::terminal::PtyRegistry,
+    session: &crate::capabilities::terminal::SessionId,
+    value: Value,
+    from: u64,
+    stopped: &mut tokio::sync::oneshot::Receiver<()>,
+) -> FollowPush {
+    let (written, mut acknowledged) = tokio::sync::oneshot::channel::<()>();
+    if outgoing
+        .send(Outbound::Push { value, written })
+        .await
+        .is_err()
+    {
+        return FollowPush::Gone;
+    }
+    loop {
+        tokio::select! {
+            _ = &mut *stopped => return FollowPush::Stopped,
+            acknowledged = &mut acknowledged => {
+                return match acknowledged {
+                    Ok(()) => FollowPush::Written,
+                    Err(_) => FollowPush::Gone,
+                };
+            }
+            _ = tokio::time::sleep(FOLLOW_GAP_CHECK) => {
+                // Reading one byte at this cursor is the cheapest question the ring answers with
+                // its window: `Ok` means the frame is still inside it, `CursorTooOld` names the
+                // oldest byte the console can page from.
+                if let Err(error) = terminal.read_with_limit(session, from, Some(1)) {
+                    return FollowPush::Cut(error.to_string());
+                }
+            }
+        }
+    }
 }
 
 /// The cursor a read answer ended at, from the MCP envelope `server.handle` returns.
@@ -1054,6 +1195,7 @@ mod tests {
     use tokio::net::TcpListener;
     use tokio::sync::mpsc;
     use tokio_tungstenite::tungstenite::handshake::server::{Request, Response};
+    use tokio_tungstenite::tungstenite::protocol::Role;
     use tokio_tungstenite::tungstenite::Message as WsMessage;
     use tokio_tungstenite::{accept_hdr_async, WebSocketStream};
 
@@ -1243,7 +1385,10 @@ mod tests {
         }
     }
 
-    async fn send_frame(socket: &mut WebSocketStream<tokio::net::TcpStream>, frame: Value) {
+    async fn send_frame<S>(socket: &mut S, frame: Value)
+    where
+        S: futures_util::Sink<WsMessage, Error = tokio_tungstenite::tungstenite::Error> + Unpin,
+    {
         socket
             .send(WsMessage::text(frame.to_string()))
             .await
@@ -1256,7 +1401,11 @@ mod tests {
     /// answer — the console keys it by `host`, not by `id`. A test that reads "the next frame" after
     /// sending a request wants the answer and must not depend on which of the two the loop flushed
     /// first.
-    async fn next_frame(socket: &mut WebSocketStream<tokio::net::TcpStream>) -> Value {
+    async fn next_frame<S>(socket: &mut S) -> Value
+    where
+        S: futures_util::Stream<Item = Result<WsMessage, tokio_tungstenite::tungstenite::Error>>
+            + Unpin,
+    {
         loop {
             match socket
                 .next()
@@ -1771,6 +1920,329 @@ mod tests {
             pushed["term"]["error"].is_string(),
             "the follow loop reports the end once: {pushed}"
         );
+    }
+
+    /// A channel whose console end is an in-memory pipe of `capacity` bytes.
+    ///
+    /// The pipe is the reader a test controls: once the test stops reading, the device's next write
+    /// that does not fit blocks exactly as a console that stopped reading its socket does. A
+    /// loopback socket is not usable for this — measured on 2026-11-06, the kernel accepted 57
+    /// 32 KiB frames for an unread peer before the writer waited — so a queue bound would be
+    /// invisible behind the kernel's own buffer.
+    async fn piped_console(
+        server: &DeviceServer,
+        capacity: usize,
+    ) -> (WebSocketStream<tokio::io::DuplexStream>, JoinHandle<bool>) {
+        let (device_side, test_side) = tokio::io::duplex(capacity);
+        let endpoint = endpoint("ws://pipe");
+        let key = signing().verifying_key();
+        let server = server.clone();
+        let handle = tokio::spawn(async move {
+            let socket = WebSocketStream::from_raw_socket(device_side, Role::Server, None).await;
+            serve(socket, &endpoint, &server, Some(&key)).await
+        });
+        let console = WebSocketStream::from_raw_socket(test_side, Role::Client, None).await;
+        (console, handle)
+    }
+
+    /// A grant the test signs for one frame, with a nonce of its own.
+    ///
+    /// The shared [`grant`] helper reuses one nonce, which the device's replay log reads as the
+    /// same consent; a test that sends more than one granted frame needs a nonce per frame.
+    fn grant_once(tools: &[&str], nonce: &str) -> GrantEnvelope {
+        signed_by(
+            &signing(),
+            Grant {
+                device_id: device_id(),
+                tools: tools.iter().map(|tool| (*tool).to_owned()).collect(),
+                expires_at_ms: now_ms() as u64 + 60_000,
+                allow_destructive: false,
+                nonce: nonce.to_owned(),
+            },
+        )
+    }
+
+    /// A subscribe frame: a `terminal.read` from `from`, carried as a subscription.
+    fn subscribe_frame(frame_id: u64, request_id: u64, session: &str, from: u64) -> Value {
+        json!({
+            "id": frame_id,
+            "mcp": json!({
+                "jsonrpc": "2.0",
+                "id": request_id,
+                "method": "tools/call",
+                "params": { "name": "terminal.read", "arguments": { "id": session, "cursor": from } },
+            }),
+            "subscribe": { "session_id": session, "from": from },
+            "grant": grant_once(&["terminal.read"], &format!("0{frame_id:02x}")),
+        })
+    }
+
+    /// A lagging console cannot make a follow queue output ahead of another call's answer, and a
+    /// follow it has left behind the ring is cut with the ring's own sentence.
+    ///
+    /// Measured on 9VH (0.3.282) after a >1 MiB pty flood: a quiet pty's `terminal.read` held the
+    /// MCP call 45 s while `terminal.list` answered in 3 s. The read's own wait is bounded, so the
+    /// answers were stuck in one outbound queue behind the flood's pushed frames. Here the pipe
+    /// holds three chunks, so a fourth write waits exactly as a console that stopped reading does;
+    /// the tool call is sent while it waits, and the ring then moves past the frame the writer is
+    /// holding.
+    #[tokio::test]
+    async fn a_lagging_console_does_not_hold_another_calls_answer() {
+        let (server, _config, _dir) = fixture("console-follow-lag");
+        let registry = server.terminal_registry();
+        let session = registry
+            .create(terminal::CreateTarget::Pty { shell: None }, 24, 80)
+            .await
+            .expect("a local shell");
+        let session_id = session.as_str().to_owned();
+        let (mut console, _serve) = piped_console(&server, 96 * 1024).await;
+
+        send_frame(&mut console, subscribe_frame(51, 1, &session_id, 0)).await;
+        let ack = next_frame(&mut console).await;
+        assert_eq!(ack["id"], 51, "the subscribe is acked: {ack}");
+
+        // One read's worth of flood: the follow hands it over a frame at a time, and the pipe
+        // holds three 32 KiB frames before the writer has to wait.
+        registry
+            .push_output_for_test(&session, &vec![b'a'; 512 * 1024])
+            .expect("the ring takes output");
+        tokio::time::sleep(Duration::from_millis(150)).await;
+
+        // A call whose answer must not queue behind the flood. It cannot even be read until the
+        // writer takes the frame it is waiting on.
+        send_frame(
+            &mut console,
+            json!({
+                "id": 52,
+                "mcp": json!({
+                    "jsonrpc": "2.0",
+                    "id": 2,
+                    "method": "tools/call",
+                    "params": { "name": "terminal.list", "arguments": {} },
+                }),
+                "grant": grant_once(&["terminal.list"], "a52"),
+            }),
+        )
+        .await;
+
+        // The ring moves past the frame the writer is holding: the console is out of the window
+        // now, so no later frame can catch it up. The follow must say so and stop.
+        registry
+            .push_output_for_test(&session, &vec![b'b'; 1024 * 1024])
+            .expect("the ring takes output");
+        tokio::time::sleep(Duration::from_millis(700)).await;
+
+        let mut seen = 0usize;
+        let mut data_frames = 0usize;
+        let mut answer_at = None;
+        let mut cut_at = None;
+        let mut cut = String::new();
+        while seen < 24 && (answer_at.is_none() || cut_at.is_none()) {
+            let Ok(frame) =
+                tokio::time::timeout(Duration::from_secs(2), next_frame(&mut console)).await
+            else {
+                break;
+            };
+            seen += 1;
+            if frame["id"] == 52 {
+                answer_at = Some(seen);
+            }
+            if let Some(term) = frame.get("term") {
+                if term["data"].as_str().is_some_and(|data| !data.is_empty()) {
+                    data_frames += 1;
+                }
+                if let Some(sentence) = term["error"].as_str() {
+                    cut = sentence.to_owned();
+                    cut_at = Some(seen);
+                }
+            }
+        }
+        assert!(
+            data_frames > 0,
+            "the flood's frames were in front of the answer, not skipped: {seen} frames"
+        );
+        assert!(
+            cut_at.is_some(),
+            "the follow was cut once the ring passed its frame: {cut:?}"
+        );
+        assert!(
+            cut.contains("older than the retained output"),
+            "the cut is the ring's own sentence, the one the console's paged catch-up reads: {cut}"
+        );
+        assert!(
+            answer_at.is_some(),
+            "the tool answer arrived within the first {seen} frames"
+        );
+        assert!(
+            answer_at.expect("the answer arrived") <= 8,
+            "the answer queued behind the flood: frame {answer_at:?} of {seen}"
+        );
+        let _ = registry.close(&session).await;
+    }
+
+    /// A console that keeps up keeps the follow's frames, their order and their size.
+    #[tokio::test]
+    async fn a_console_that_keeps_up_keeps_the_follows_frames_and_order() {
+        let (server, _config, _dir) = fixture("console-follow-order");
+        let registry = server.terminal_registry();
+        let session = registry
+            .create(terminal::CreateTarget::Pty { shell: None }, 24, 80)
+            .await
+            .expect("a local shell");
+        let session_id = session.as_str().to_owned();
+        let (mut console, _serve) = piped_console(&server, 1024 * 1024).await;
+
+        send_frame(&mut console, subscribe_frame(61, 1, &session_id, 0)).await;
+        let ack = next_frame(&mut console).await;
+        assert_eq!(ack["id"], 61, "the subscribe is acked: {ack}");
+
+        // 96 KiB in one append is three full chunks: the framing the console already knows.
+        let payload: String = (0..96 * 1024)
+            .map(|index| (b'a' + (index % 26) as u8) as char)
+            .collect();
+        registry
+            .push_output_for_test(&session, payload.as_bytes())
+            .expect("the ring takes output");
+
+        let mut text = String::new();
+        let mut sizes = Vec::new();
+        let mut cursors = Vec::new();
+        while text.len() < payload.len() {
+            let frame = tokio::time::timeout(Duration::from_secs(5), next_frame(&mut console))
+                .await
+                .expect("the follow pushes the output");
+            let term = frame
+                .get("term")
+                .unwrap_or_else(|| panic!("a pushed frame: {frame}"));
+            assert_eq!(
+                term["sub"], 61,
+                "a pushed frame names its subscription: {frame}"
+            );
+            assert!(
+                term.get("error").is_none(),
+                "the follow stays live: {frame}"
+            );
+            let data = term["data"].as_str().expect("a pushed chunk is text");
+            assert!(
+                data.len() <= FOLLOW_CHUNK,
+                "a frame carries at most one chunk: {}",
+                data.len()
+            );
+            text.push_str(data);
+            sizes.push(data.len());
+            cursors.push(term["cursor"].as_u64().expect("the frame names its cursor"));
+        }
+        assert_eq!(text, payload, "every byte arrives, in order");
+        assert_eq!(
+            sizes,
+            vec![FOLLOW_CHUNK, FOLLOW_CHUNK, FOLLOW_CHUNK],
+            "the chunks are the ones the console already reads"
+        );
+        assert!(
+            cursors.windows(2).all(|pair| pair[0] <= pair[1]),
+            "the cursor never goes backwards: {cursors:?}"
+        );
+
+        // And the follow is still live: the next output is pushed, not polled.
+        registry
+            .push_output_for_test(&session, b"after\n")
+            .expect("the ring takes output");
+        let frame = tokio::time::timeout(Duration::from_secs(5), next_frame(&mut console))
+            .await
+            .expect("the follow is still live");
+        assert_eq!(frame["term"]["data"], "after\n", "{frame}");
+        let _ = registry.close(&session).await;
+    }
+
+    /// The ring's own refusal from a lag cut names a cursor the console can page to and resume
+    /// from: the subscription after the cut follows the session again.
+    #[tokio::test]
+    async fn the_cursor_from_a_lag_cut_resumes_the_subscription() {
+        let (server, _config, _dir) = fixture("console-follow-resume");
+        let registry = server.terminal_registry();
+        let session = registry
+            .create(terminal::CreateTarget::Pty { shell: None }, 24, 80)
+            .await
+            .expect("a local shell");
+        let session_id = session.as_str().to_owned();
+        let (mut console, _serve) = piped_console(&server, 96 * 1024).await;
+
+        send_frame(&mut console, subscribe_frame(71, 1, &session_id, 0)).await;
+        let ack = next_frame(&mut console).await;
+        assert_eq!(ack["id"], 71, "the subscribe is acked: {ack}");
+
+        registry
+            .push_output_for_test(&session, &vec![b'a'; 512 * 1024])
+            .expect("the ring takes output");
+        tokio::time::sleep(Duration::from_millis(150)).await;
+        registry
+            .push_output_for_test(&session, &vec![b'b'; 1024 * 1024])
+            .expect("the ring takes output");
+        tokio::time::sleep(Duration::from_millis(700)).await;
+
+        // Drain until the follow is cut; the sentence names the oldest byte still retained.
+        let mut earliest = None;
+        let mut data_frames = 0usize;
+        while earliest.is_none() {
+            let frame = tokio::time::timeout(Duration::from_secs(5), next_frame(&mut console))
+                .await
+                .expect("the follow is cut");
+            if let Some(term) = frame.get("term") {
+                if term["data"].as_str().is_some_and(|data| !data.is_empty()) {
+                    data_frames += 1;
+                }
+                earliest = term
+                    .get("error")
+                    .and_then(Value::as_str)
+                    .and_then(|sentence| sentence.split("which starts at ").nth(1))
+                    .and_then(|number| number.parse::<u64>().ok());
+            }
+        }
+        assert!(
+            data_frames > 0,
+            "the flood reached the pipe before the ring passed it"
+        );
+        let earliest = earliest.expect("the cut names where the retained output starts");
+
+        // What the console's paged catch-up does: page the ring to its end, then subscribe there.
+        let end = registry
+            .read(&session, earliest)
+            .expect("the cursor the cut reported is still served")
+            .cursor;
+        send_frame(&mut console, subscribe_frame(72, 2, &session_id, end)).await;
+        let resumed = next_frame(&mut console).await;
+        assert_eq!(resumed["id"], 72, "the resubscribe is acked: {resumed}");
+        assert!(
+            resumed.get("error").is_none(),
+            "the cursor is served: {resumed}"
+        );
+        let text = resumed["result"]["result"]["content"][0]["text"]
+            .as_str()
+            .unwrap_or_default();
+        let answer: Value = serde_json::from_str(text).expect("the ack is the read's own JSON");
+        assert_eq!(
+            answer["cursor"],
+            json!(end),
+            "the ack resumes at the cursor it asked from: {answer}"
+        );
+
+        registry
+            .push_output_for_test(&session, b"resumed-after-cut\n")
+            .expect("the ring takes output");
+        let mut pushed = String::new();
+        while !pushed.contains("resumed-after-cut") {
+            let frame = tokio::time::timeout(Duration::from_secs(5), next_frame(&mut console))
+                .await
+                .expect("the resumed follow pushes");
+            if let Some(term) = frame.get("term") {
+                pushed.push_str(term["data"].as_str().unwrap_or_default());
+            }
+        }
+        assert!(
+            pushed.contains("resumed-after-cut"),
+            "the subscription follows again: {pushed:?}"
+        );
+        let _ = registry.close(&session).await;
     }
 
     #[test]

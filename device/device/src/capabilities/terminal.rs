@@ -1326,6 +1326,23 @@ impl PtyRegistry {
         Ok(read_output(&output, cursor, limit)?.0)
     }
 
+    /// Append output to a live session's ring, exactly as its reader would.
+    ///
+    /// Test-only: the console transport's lag test needs a producer it can pace. A real pty would
+    /// make the flood a shell command whose rate is the platform's, and the test would then be
+    /// measuring the shell. This writes the same ring [`read_with_limit`](Self::read_with_limit)
+    /// serves from, so the follow, its cursor and its ring boundary are the real ones.
+    #[cfg(test)]
+    pub(crate) fn push_output_for_test(
+        &self,
+        id: &SessionId,
+        bytes: &[u8],
+    ) -> Result<(), PtyError> {
+        let output = self.output_handle(id)?;
+        lock(&output).push(bytes);
+        Ok(())
+    }
+
     /// The live session's output handle, its idle clock refreshed, with the registry released when
     /// this returns.
     fn output_handle(&self, id: &SessionId) -> Result<Arc<Mutex<Output>>, PtyError> {
