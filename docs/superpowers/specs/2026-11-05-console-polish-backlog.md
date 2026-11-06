@@ -844,7 +844,7 @@ URL in use was the build box's tailnet mirror
    Add-a-machine flow offers the installer for the release the console serves (a console route for
    the setup the release carries, with its sha256), and says so plainly when the release has no
    installer. **M.**
-2. **A failed install names the wrong error, and only the log knows the cause.** `summrise.nsi`
+2. **A failed install names the wrong error, and only the log knows the cause.** *(Done 2026-11-06, fe9617d: the dialog keeps the launcher's `$R0`/`$R1` across the `sc` answer, shows the launcher's exit and message, names `%TEMP%\summrise-setup.log`, and puts sc's answer on the last line; the shipped binaries are static-CRT so a clean Windows can start the launcher. Built into 0.3.280 (6,638,339 B, sha256 `26d39c12…`), which the operator ran on Windows; the failure dialog itself was not re-exercised.)* `summrise.nsi`
    overwrites the launcher's `$0`/`$1` with the `sc start` result before the MessageBox, so a
    launcher that refused before registering the service reads as "1060, service not installed"; the
    real exit and stack are one file away (`$TEMP\summrise-setup.log`, `install-service: exit N`).
