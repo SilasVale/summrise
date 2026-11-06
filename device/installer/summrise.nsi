@@ -248,6 +248,13 @@ Section "Summrise runtime" SecRuntime
   Pop $1
   FileWrite $6 "install-service: exit $0$\r$\n$1$\r$\n"
   ${If} $0 != "0"
+    ; **THE DIALOG MUST NAME THE LAUNCHER'S FAILURE, NOT sc's.** The `sc start` below overwrote
+    ; $0/$1, so a launcher that refused before registering the service read as "1060, the service is
+    ; not installed" — the one sentence that cannot tell a missing runtime from a seed-sidecar
+    ; refusal from an AV block (measured 2026-11-06 on a real install). Keep the launcher's exit and
+    ; its own message, then append what sc answered.
+    StrCpy $R0 $0
+    StrCpy $R1 $1
     ; Leave the machine serving if it can: the registration is still there (onInit no longer removes
     ; it), so starting it runs whatever generation is consistent rather than nothing at all.
     nsExec::ExecToStack 'sc.exe start ${SERVICE}'
@@ -258,7 +265,7 @@ Section "Summrise runtime" SecRuntime
     ${If} ${Silent}
       SetErrorLevel 1
     ${Else}
-      MessageBox MB_ICONSTOP "The device runtime could not be installed (exit $0).$\r$\n$\r$\n$1"
+      MessageBox MB_ICONSTOP "The device runtime could not be installed (launcher exit $R0).$\r$\n$\r$\n$R1$\r$\n$\r$\nThe installer's log is $TEMP\summrise-setup.log.$\r$\n$\r$\n(sc start then answered $0: $1)"
     ${EndIf}
     Abort
   ${EndIf}

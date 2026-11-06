@@ -76,6 +76,9 @@ jobs:
         shell: bash
         env:
           SUMMRISE_CONSOLE_GRANT_KEY: ${{ vars.SUMMRISE_CONSOLE_GRANT_KEY }}
+          # See publish-canary.bash: a dynamic MSVC CRT imports VCRUNTIME140.dll, which a clean
+          # Windows lacks; the launcher then cannot start and the service is never registered.
+          RUSTFLAGS: -C target-feature=+crt-static
         run: |
           set -euo pipefail
           cargo build --release --manifest-path device/Cargo.toml \

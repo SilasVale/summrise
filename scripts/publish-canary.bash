@@ -149,6 +149,12 @@ signer="target/release/summrise-release"
 export SUMMRISE_BUILD_VERSION="$version"
 
 echo "== building the runtime for $target"
+# **THE BINARIES CARRY THEIR OWN C RUNTIME.** A dynamically linked MSVC build imports
+# `VCRUNTIME140.dll`, which a clean Windows does not reliably have; the launcher then fails to start
+# under the installer's nsExec and the service is never registered — the install's only visible symptom
+# is `sc start`'s 1060 (measured 2026-11-06 on a real install, and the CI-built installer links the
+# same way). `+crt-static` makes the launcher and the app depend on system DLLs only.
+export RUSTFLAGS="${RUSTFLAGS:-} -C target-feature=+crt-static"
 cargo xwin build --release --target "$target" -p summrise-launch -p summrise-device -p summrise-console -p summrise-shell
 bin="target/$target/release"
 mkdir -p "$out"
