@@ -353,7 +353,7 @@ console's terminal tab is the surface that finds this; the device's read is the 
    terminal.read whose device-side legal wait is also 30 s; task 18 fixes it by deriving the bound
    from wait_ms, like run_wait does for runs.exec.)* *(Done 2026-11-06, 7841b9d, live 0.3.273-ux74: on the direct tailnet path a `terminal.read` with `wait_ms: 30000` returned the device's empty answer at **30.0197 s** (200), where the console's 30 s reply bound used to cut it; 245 console tests, fmt/clippy clean. The measured 45 s/20 s were the Cloudflare tunnel (item 6's deployment note), not the console.)*
 
-5. **The console transport's in-flight acquire is unbounded.** `console.rs:795` awaits
+5. **The console transport's in-flight acquire is unbounded.** *(Done 2026-11-06, cd88550, live 0.3.284 on DESKTOP-CPH4KB2: the acquire is bounded by `IN_FLIGHT_WAIT` 5 s; on expiry the frame gets the transport's error envelope (-32003 "the device is busy: too many requests are already running; retry shortly") and is audited deny/busy with its end recorded. 612 device tests, fmt/clippy clean. Live: 17 concurrent `terminal.read` calls (wait_ms 15000, cursor 407) through the console — 16 answered at 15.04-15.09 s, the 17th at 5.1 s with exactly the -32003 sentence; the console forwards the envelope unchanged and needs no change.)*
    `in_flight.acquire_owned()` with no bound; if the 16 permits ever do run out, every tool call
    hangs instead of answering "the device is busy". **S.** (device; hardening, later release.)
 
