@@ -502,7 +502,7 @@ record, then the panel, then the smaller corrections.
    dead; repeated presses mint more one-time codes; the operator cannot copy the command. **Fix:**
    clear the selected machine before minting (`choose(null)`) or show the code in a sheet. **S/M.**
 
-2. **The Files editor discards unsaved changes when Close is pressed.** `Unsaved changes.` is
+2. **The Files editor discards unsaved changes when Close is pressed.** *(Done 2026-11-06, 4a395a3, live 0.3.273-ux89: a clean Close behaves as before; a dirty one opens a modal titled `Discard unsaved changes?` naming the file and saying the device keeps the last saved bytes, with Cancel (focused) and `Discard changes`; the viewer and draft stay until Discard, Cancel/Escape keeps them, and discarding sends no `files.write`. 787 tests (+2), gate PASS 50 steps, a11y 0/3, `build-web --check`. Live: the audit's 22 B file edited → Close shows the dialog; Cancel keeps the dirty editor; screenshot /tmp/live-ux89-close.png.)* `Unsaved changes.` is
    drawn, but `Close` clears the viewer with no dialog; reopening returns the original bytes.
    **Cost:** a file edit is lost in one click; the page's warning is not a guard. **Fix:** ask
    `Discard unsaved changes?` when `dirty`, or disable Close until Save/Discard. **S.**
