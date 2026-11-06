@@ -187,6 +187,8 @@ describe("FilesPage opening a file", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Close" }));
 
+    // Nothing has been typed, so there is nothing to ask about.
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Text")).not.toBeInTheDocument();
     expect(screen.queryByText("/notes.txt")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "notes.txt" })).toBeInTheDocument();
@@ -255,6 +257,79 @@ describe("FilesPage opening a file", () => {
     expect(mocked).toHaveBeenCalledWith(GRANT, "files.mkdir", { path: "docs/reports" });
     expect(await screen.findByRole("button", { name: "reports/" })).toBeInTheDocument();
     expect(lists).toEqual(["", "docs", "docs"]);
+  });
+});
+
+describe("FilesPage closing a dirty editor", () => {
+  beforeEach(() => {
+    mocked.mockReset();
+  });
+
+  /// Open `notes.txt`, let the device answer, and type a draft that is not what the page read.
+  async function openAndEdit() {
+    mocked.mockImplementation(async (_grant, name) => {
+      if (name === "files.list") return JSON.stringify(ROOT);
+      if (name === "files.read") return "hello world\n";
+      if (name === "files.write") return JSON.stringify({ path: "notes.txt", bytes: 12 });
+      throw new Error(`the test did not expect a ${name} call`);
+    });
+
+    render(<FilesPage grant={GRANT} />);
+    await screen.findByRole("button", { name: "notes.txt" });
+    fireEvent.click(screen.getByRole("button", { name: "notes.txt" }));
+    const editor = await screen.findByLabelText("Text");
+    fireEvent.change(editor, { target: { value: "hello again\n" } });
+    expect(screen.getByText("Unsaved changes.")).toBeInTheDocument();
+    return editor;
+  }
+
+  it("asks before discarding and leaves the editor up until the discard is confirmed", async () => {
+    await openAndEdit();
+
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+
+    // The question is named, and the body names the file and what is lost.
+    const dialog = screen.getByRole("dialog", { name: "Discard unsaved changes?" });
+    expect(dialog).toHaveTextContent("unsaved changes to /notes.txt.");
+    expect(dialog).toHaveTextContent("the file on the device keeps the bytes last saved");
+    // The viewer and the draft stay while the question is open, and the path is on both the
+    // viewer's header and the question.
+    expect(screen.getByLabelText("Text")).toHaveValue("hello again\n");
+    expect(screen.getAllByText("/notes.txt")).toHaveLength(2);
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "Discard changes" }));
+
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Text")).not.toBeInTheDocument();
+    expect(screen.queryByText("/notes.txt")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "notes.txt" })).toBeInTheDocument();
+    // Discarding is not saving: nothing was written to the device.
+    expect(mocked).not.toHaveBeenCalledWith(GRANT, "files.write", expect.anything());
+  });
+
+  it("cancelling keeps the editor and the draft, and Save still works", async () => {
+    await openAndEdit();
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+
+    fireEvent.click(
+      within(screen.getByRole("dialog", { name: "Discard unsaved changes?" })).getByRole("button", {
+        name: "Cancel"
+      })
+    );
+
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Text")).toHaveValue("hello again\n");
+    expect(screen.getByText("Unsaved changes.")).toBeInTheDocument();
+    expect(screen.getByText("/notes.txt")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(await screen.findByText("Saved /notes.txt (12 B).")).toBeInTheDocument();
+    expect(mocked).toHaveBeenCalledWith(GRANT, "files.write", {
+      path: "notes.txt",
+      content: "hello again\n"
+    });
+    expect(screen.getByText("No unsaved changes.")).toBeInTheDocument();
   });
 });
 

@@ -8,6 +8,7 @@ import {
   type FormEvent
 } from "react";
 import { message } from "./format";
+import { Modal } from "./Modal";
 import { useRequestGate } from "./requests";
 import { downloadFile } from "./download";
 import { callTool, type Grant } from "./terminal";
@@ -78,6 +79,8 @@ export function FilesPage({
   const [opening, setOpening] = useState<string | null>(null);
   const [fileError, setFileError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  /** The close question is up: the editor is dirty, and Close must not drop the draft silently. */
+  const [closing, setClosing] = useState(false);
 
   const [folderName, setFolderName] = useState("");
   const [creating, setCreating] = useState(false);
@@ -148,6 +151,7 @@ export function FilesPage({
     setOpen(null);
     setOpening(null);
     setFileError(null);
+    setClosing(false);
     setListError(null);
     setNote("Reading the device's files root…");
   };
@@ -165,6 +169,7 @@ export function FilesPage({
     setOpen(null);
     setOpening(null);
     setFileError(null);
+    setClosing(false);
     setSaving(false);
     setCreating(false);
     setUploading(false);
@@ -188,6 +193,7 @@ export function FilesPage({
     setOpening(null);
     setOpen(null);
     setFileError(null);
+    setClosing(false);
   };
 
   // A file over the cap is a fact the page can state without a device call: `files.read` enforces
@@ -377,6 +383,16 @@ export function FilesPage({
   const up = parentOf(dir);
   const dirty = open !== null && open.mode === "text" && open.text !== open.saved;
   const busy = opening !== null || saving;
+
+  // Close is one click only while there is nothing to lose. A dirty editor asks first: the audit
+  // found Close discarding the draft with no dialog, and reopening returned the original bytes.
+  const requestClose = () => {
+    if (dirty) {
+      setClosing(true);
+      return;
+    }
+    closeViewer();
+  };
 
   // Case-insensitive substring, the same reading as the Tools search: one field, no syntax.
   const needle = filter.trim().toLowerCase();
@@ -569,7 +585,7 @@ export function FilesPage({
                 type="button"
                 className="mini"
                 disabled={saving}
-                onClick={closeViewer}
+                onClick={requestClose}
               >
                 Close
               </button>
@@ -676,6 +692,30 @@ export function FilesPage({
             </>
           )}
         </section>
+      )}
+
+      {/* THE DISCARD IS A QUESTION, NOT A BUTTON THAT LOOKS LIKE ONE. `Modal` gives it the
+          dialog role, Escape, the focus trap and focus restored to Close; the body names the
+          file and the loss, and Cancel is the first control so focus starts on the way back. */}
+      {closing && open && open.mode === "text" && (
+        <Modal title="Discard unsaved changes?" onClose={() => setClosing(false)}>
+          <p>
+            There are unsaved changes to <span className="mono">{displayFile(open.path)}</span>.
+            Closing the editor discards them, and the file on the device keeps the bytes last
+            saved.
+          </p>
+          <p className="hint">
+            Save keeps the edit. Discard changes closes the editor without writing it.
+          </p>
+          <div className="modal-actions">
+            <button type="button" onClick={() => setClosing(false)}>
+              Cancel
+            </button>
+            <button type="button" className="danger" onClick={closeViewer}>
+              Discard changes
+            </button>
+          </div>
+        </Modal>
       )}
 
       <details className="limits">
