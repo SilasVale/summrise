@@ -11,11 +11,16 @@
 Unicode true
 !include "MUI2.nsh"
 !include "LogicLib.nsh"
+; `HWND_BROADCAST` and `WM_SETTINGCHANGE` name the environment-change broadcast below.
+!include "WinMessages.nsh"
 ; `/CONSOLE=` and `/CODE=` are read out of the command line: the optional auto-enrolment below.
 !include "FileFunc.nsh"
-; `StrStr` is how the upgrade proves the restarted app's `/api/health` reports its version.
+; `StrStr` is how the upgrade proves the restarted app's `/api/health` reports its version, and how
+; the install proves the delimited PATH entry absent; `UnStrRep` is how the uninstaller takes that
+; entry back out.
 !include "StrFunc.nsh"
 ${Using:StrFunc} StrStr
+${Using:StrFunc} UnStrRep
 
 !ifndef VERSION
   !error "VERSION is required (-DVERSION=0.1.1)"
@@ -49,10 +54,20 @@ VIAddVersionKey "FileVersion" "${VERSION}"
 VIAddVersionKey "ProductVersion" "${VERSION}"
 VIAddVersionKey "LegalCopyright" "Summrise"
 !define UNINST_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\Summrise"
+; The machine environment block: `Path` here is what a prompt opened after the setup inherits.
+!define MACHINE_ENV "SYSTEM\CurrentControlSet\Control\Session Manager\Environment"
 ; With `SetShellVarContext all`, `$APPDATA` is the machine's ProgramData. NSIS has no
 ; `$COMMONAPPDATA` constant: writing one compiles to a literal path and puts the data
 ; directory in the wrong place.
 !define DATA_DIR "$APPDATA\Summrise"
+
+; `WM_SETTINGCHANGE` with `lParam = "Environment"` is how a running Explorer tells new processes
+; that the machine environment changed; without it a prompt opened after the setup keeps the old
+; Path until a sign-out. Best effort: the send carries a 5 s timeout and its result is not checked,
+; because a hung window must not turn a successful install or uninstall into a failure.
+!macro BroadcastEnvironmentChange
+  System::Call 'user32::SendMessageTimeoutW(i ${HWND_BROADCAST}, i ${WM_SETTINGCHANGE}, i 0, w "Environment", i 0, i 5000, i 0)'
+!macroend
 
 Name "${PRODUCT} ${VERSION}"
 OutFile "SummriseSetup-${VERSION}.exe"
@@ -524,6 +539,61 @@ Section "Summrise runtime" SecRuntime
     Abort
   ${EndIf}
   FileWrite $6 "health: ok on port ${PORT}$\r$\n"
+  ; **THE PRODUCT'S OWN COMMAND IS A BARE NAME, SO THE MACHINE PATH MUST CARRY THE ROOT.** The
+  ; console's enrollment sentence names the install folder, but a prompt opened anywhere else finds
+  ; `summrise-device.exe` only when its directory is on the machine Path. This runs after the health
+  ; check: a setup that could not prove a working device has no business putting its directory on
+  ; the machine's Path. An entry already present is left untouched; otherwise it is appended once,
+  ; delimited by `;`.
+  ;
+  ; `ReadRegStr` returns the stored REG_EXPAND_SZ text without expanding it, so other entries'
+  ; `%SystemRoot%` spellings survive the write below. It sets the error flag and leaves the variable
+  ; empty for a value longer than this setup's 1024-character buffer, or a missing/non-string value;
+  ; that is "unreadable", not "empty", and is left alone rather than overwritten.
+  ClearErrors
+  ReadRegStr $0 HKLM "${MACHINE_ENV}" "Path"
+  ${If} ${Errors}
+    FileWrite $6 "path: machine Path is unreadable (missing, non-string, or longer than this setup's 1024-character buffer); not written$\r$\n"
+  ${Else}
+    ; Delimited membership: wrapping the value in `;` turns an entry at either end into a middle
+    ; entry, so one search proves `;$INSTDIR;` and never matches a longer path that merely starts or
+    ; ends with the same text.
+    StrCpy $1 ";$0;"
+    ${StrStr} $2 "$1" ";$INSTDIR;"
+    ${If} $2 != ""
+      FileWrite $6 "path: $INSTDIR is already present; not written$\r$\n"
+    ${Else}
+      ; Exactly one separator: none before an empty value, none after one that already ends in `;`.
+      StrCpy $3 ";"
+      ${If} $0 == ""
+        StrCpy $3 ""
+      ${Else}
+        StrCpy $4 $0 1 -1
+        ${If} $4 == ";"
+          StrCpy $3 ""
+        ${EndIf}
+      ${EndIf}
+      StrLen $5 "$0"
+      StrLen $R0 "$INSTDIR"
+      IntOp $R0 $5 + $R0
+      StrLen $R1 "$3"
+      IntOp $R0 $R0 + $R1
+      ; 2000 is the ceiling this entry may cost the machine Path. 1023 is the real ceiling of the
+      ; setup's own string buffer: `WriteRegExpandStr` writes that buffer, and a longer value would
+      ; be silently cut mid-entry. Either way the Path is left alone and the install still succeeds;
+      ; the console sentence still tells the operator the folder.
+      ${If} $R0 > 2000
+        FileWrite $6 "path: not written; the machine Path would be $R0 characters (over 2000)$\r$\n"
+      ${ElseIf} $R0 > 1023
+        FileWrite $6 "path: not written; the machine Path would be $R0 characters, over this setup's 1024-character string buffer$\r$\n"
+      ${Else}
+        StrCpy $R1 "$0$3$INSTDIR"
+        WriteRegExpandStr HKLM "${MACHINE_ENV}" "Path" "$R1"
+        FileWrite $6 "path: appended $INSTDIR; the machine Path is now $R0 characters$\r$\n"
+        !insertmacro BroadcastEnvironmentChange
+      ${EndIf}
+    ${EndIf}
+  ${EndIf}
   ; **AN UPGRADE IS NOT A MIGRATION.** `--migrate-layout` is the one-time move from the flat layout:
   ; once `current.txt` exists it answers "already on the versioned layout" and changes nothing. An
   ; existing install was already staged as `versions\<version>\`, proven, and its pointer moved
@@ -595,6 +665,46 @@ Section "Uninstall"
   Delete "$INSTDIR\swap.result.json"
   Delete "$INSTDIR\*.json.tmp"
   RMDir "$INSTDIR"
+
+  ; **TAKE EXACTLY ITS OWN DELIMITED ENTRY BACK OUT.** The install appends `$INSTDIR` as a
+  ; `;`-delimited entry; an entry that merely contains the same text — a sibling directory or a
+  ; longer path — must survive, so every match here is bounded by `;` or by the value's end.
+  ; This reads only the registry: the tree above is already gone, and a stale Path entry must not
+  ; depend on a file that no longer exists.
+  ;
+  ; A read that fails (missing, non-string, or longer than this setup's 1024-character buffer) is
+  ; left alone: the uninstaller cannot safely rewrite a value it could not read, and a dead entry in
+  ; the Path breaks nothing.
+  ClearErrors
+  ReadRegStr $0 HKLM "${MACHINE_ENV}" "Path"
+  ${IfNot} ${Errors}
+    StrCpy $1 "$0"
+    ; middle: ";$INSTDIR;" -> ";"
+    ${UnStrRep} $1 "$1" ";$INSTDIR;" ";"
+    StrLen $2 "$INSTDIR"
+    IntOp $3 $2 + 1
+    ; first: "$INSTDIR;" at the start
+    StrCpy $4 "$1" $3
+    ${If} $4 == "$INSTDIR;"
+      StrCpy $1 "$1" "" $3
+    ${EndIf}
+    ; last: ";$INSTDIR" at the end
+    IntOp $4 $3 * -1
+    StrCpy $5 "$1" "" $4
+    ${If} $5 == ";$INSTDIR"
+      StrLen $5 "$1"
+      IntOp $2 $5 - $3
+      StrCpy $1 "$1" $2
+    ${EndIf}
+    ; the whole value was the entry
+    ${If} $1 == "$INSTDIR"
+      StrCpy $1 ""
+    ${EndIf}
+    ${If} $1 != "$0"
+      WriteRegExpandStr HKLM "${MACHINE_ENV}" "Path" "$1"
+      !insertmacro BroadcastEnvironmentChange
+    ${EndIf}
+  ${EndIf}
 
   DeleteRegKey HKLM "${UNINST_KEY}"
 
