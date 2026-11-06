@@ -851,7 +851,7 @@ URL in use was the build box's tailnet mirror
    **Cost:** a missing runtime, a seed-sidecar refusal and an AV block are indistinguishable on the
    machine that has the problem. **Fix:** keep the launcher's exit and message in the dialog (and
    name the log path), put `sc`'s answer on a second line. **S.**
-3. **The installer takes a working service down before it knows it can install.** `.onInit` runs
+3. **The installer takes a working service down before it knows it can install.** *(Implemented 2026-11-06, 55f5480: the setup reads `HKLM\...\Uninstall\Summrise\InstallLocation` in the 64-bit view before anything else, refuses a different chosen root (page leave, `/S` and `/D=` all checked), stages `versions\<version>` and proves it with the launcher it carries — a 0.3.275/0.3.276 launcher's `--install-version` accepts only the release key — and only then stops the service, waits it out, replaces the flat images and starts it again with a version-aware health poll; a failed proof leaves the service running and `current.txt` untouched. Compiled with the repository's extracted NSIS: `SummriseSetup-0.3.281.exe` 159,413 B with stub payloads, exit 0. NOT YET RUN ON WINDOWS: the guard dialogs, the staged proof, the stop/wait and both upgrade paths are unexercised; the operator's next install is the first execution. Tick after that run.)* `.onInit` runs
    `sc stop SummriseLaunch` and taskkills the app before the section checks the path, seeds the
    baseline or touches the service; the directory page accepts any root, and nothing reads an
    existing install's `HKLM\...\InstallLocation`. **Cost:** a second-root attempt on a machine that
