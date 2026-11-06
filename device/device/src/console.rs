@@ -622,6 +622,28 @@ async fn connect(
 /// run itself. A serial loop turned one slow command into an unanswerable device.
 const MAX_IN_FLIGHT_FRAMES: usize = 16;
 
+/// How long a frame waits for one of the [`MAX_IN_FLIGHT_FRAMES`] permits before the device says
+/// it is busy.
+///
+/// A request that cannot get a permit is not a request the device failed: the channel is running
+/// every call it agreed to run. Parking it for as long as a slow tool takes would make a saturated
+/// device indistinguishable from one that accepted the frame and forgot it — and the console's own
+/// wait for an answer is 30 s, after which the operator reads a timeout with no reason. Five
+/// seconds is longer than any handoff measured here (at most 2 of the 16 were ever in flight as of
+/// 2026-11-06) and short enough that the retry the sentence asks for is still useful.
+const IN_FLIGHT_WAIT: Duration = Duration::from_secs(5);
+
+/// The JSON-RPC code a frame answers when no permit was free inside [`IN_FLIGHT_WAIT`].
+///
+/// It is not [`remote::GRANT_REFUSAL_CODE`]: the frame's grant may be perfectly good, the device
+/// just could not run the call now. The console forwards this envelope to its client unchanged, so
+/// the page reads [`DEVICE_BUSY_MESSAGE`] rather than a 30 s timeout.
+const DEVICE_BUSY_CODE: i32 = -32003;
+
+/// The sentence a client reads when the channel is at [`MAX_IN_FLIGHT_FRAMES`].
+const DEVICE_BUSY_MESSAGE: &str =
+    "the device is busy: too many requests are already running; retry shortly";
+
 /// How many finished frames may wait for the socket before a task waits for the loop.
 const OUTGOING_FRAMES: usize = 64;
 
@@ -683,10 +705,32 @@ impl Outbound {
 /// it pushes back (measured: 57 32 KiB frames accepted by an unread peer), so a test on a real
 /// socket cannot make the writer wait the way a console that stops reading does.
 async fn serve<S>(
+    socket: S,
+    endpoint: &ConsoleEndpoint,
+    server: &DeviceServer,
+    key: Option<&VerifyingKey>,
+) -> bool
+where
+    S: futures_util::Sink<Message, Error = tokio_tungstenite::tungstenite::Error>
+        + futures_util::Stream<Item = Result<Message, tokio_tungstenite::tungstenite::Error>>
+        + Unpin,
+{
+    let in_flight = std::sync::Arc::new(tokio::sync::Semaphore::new(MAX_IN_FLIGHT_FRAMES));
+    serve_with_in_flight(socket, endpoint, server, key, in_flight).await
+}
+
+/// [`serve`] with its in-flight semaphore supplied.
+///
+/// The semaphore is a parameter so a test can take every permit before the loop opens and prove the
+/// busy answer directly; in a real saturation the moment a permit frees is the running tools'
+/// business, which is exactly the timing a bound's test must not depend on. Production calls
+/// [`serve`], which builds a fresh semaphore per socket, so the serving loop itself is unchanged.
+async fn serve_with_in_flight<S>(
     mut socket: S,
     endpoint: &ConsoleEndpoint,
     server: &DeviceServer,
     key: Option<&VerifyingKey>,
+    in_flight: std::sync::Arc<tokio::sync::Semaphore>,
 ) -> bool
 where
     S: futures_util::Sink<Message, Error = tokio_tungstenite::tungstenite::Error>
@@ -702,7 +746,6 @@ where
     // A frame is answered by its own task, and the answer comes back here: the socket has one owner,
     // so a ping is still answered while a tool is running, and one slow tool cannot stop the channel.
     let (outgoing, mut answers) = tokio::sync::mpsc::channel::<Outbound>(OUTGOING_FRAMES);
-    let in_flight = std::sync::Arc::new(tokio::sync::Semaphore::new(MAX_IN_FLIGHT_FRAMES));
     // The stop signal of every live subscription on this socket. Dropping a sender stops its task;
     // dropping the whole map (the socket closed) stops them all.
     let streams: Arc<Mutex<HashMap<u64, tokio::sync::oneshot::Sender<()>>>> =
@@ -795,10 +838,36 @@ where
                         let in_flight = in_flight.clone();
                         tokio::spawn(async move {
                             // The permit is taken here, not in the read loop: a saturated channel
-                            // parks the task, and pings and the host report keep flowing.
-                            let Ok(_permit) = in_flight.acquire_owned().await else {
-                                return;
-                            };
+                            // parks the task, and pings and the host report keep flowing. The wait
+                            // for the permit is bounded: a full channel answers the frame instead
+                            // of parking it until the console gives up.
+                            let _permit =
+                                match tokio::time::timeout(IN_FLIGHT_WAIT, in_flight.acquire_owned())
+                                    .await
+                                {
+                                    Ok(Ok(permit)) => permit,
+                                    // The semaphore is only closed with this loop, and the loop
+                                    // owns the socket an answer would go out on.
+                                    Ok(Err(_)) => return,
+                                    Err(_) => {
+                                        if let Some((reply, tool)) = busy_answer(&text) {
+                                            // A refusal is a call, not a gap: the begin and end
+                                            // lines say the console was answered, and why.
+                                            server
+                                                .audit_refused(
+                                                    &tool,
+                                                    "busy",
+                                                    Arrival::Console,
+                                                    None,
+                                                )
+                                                .await;
+                                            let _ = outgoing
+                                                .send(Outbound::Answer(reply))
+                                                .await;
+                                        }
+                                        return;
+                                    }
+                                };
                             if let Some(reply) =
                                 handle_frame(text.as_str(), &endpoint, &server, key.as_ref()).await
                             {
@@ -1103,6 +1172,33 @@ fn utf8_chunks(bytes: &[u8], max: usize) -> Vec<&[u8]> {
         start = end;
     }
     out
+}
+
+/// The answer a frame gets when it waited [`IN_FLIGHT_WAIT`] for a permit and the channel was full.
+///
+/// The shape is the one a refused frame answers with — `{"id","error":jsonrpc_error(...)}` — so the
+/// console's waiter is released and the page reads a sentence instead of timing out. The frame id
+/// still correlates it. A frame that does not parse cannot be correlated, so it gets no answer (the
+/// handler would not have answered it either). The returned tool is what the audit line names.
+fn busy_answer(text: &str) -> Option<(Value, String)> {
+    let frame: RemoteFrame = serde_json::from_str(text).ok()?;
+    let request_id = frame
+        .mcp
+        .as_ref()
+        .and_then(|mcp| mcp.get("id"))
+        .cloned()
+        .unwrap_or(Value::Null);
+    let tool = frame
+        .mcp
+        .as_ref()
+        .and_then(remote::requested_tool)
+        .unwrap_or("(unknown)")
+        .to_owned();
+    let answer = json!({
+        "id": frame.id,
+        "error": remote::jsonrpc_error(request_id, DEVICE_BUSY_CODE, DEVICE_BUSY_MESSAGE),
+    });
+    Some((answer, tool))
 }
 
 /// Handle one socket frame; `None` means the frame was malformed and cannot be correlated.
@@ -1788,6 +1884,93 @@ mod tests {
         handle.abort();
     }
 
+    /// A full channel answers "the device is busy" inside [`IN_FLIGHT_WAIT`] instead of parking
+    /// the frame for ever.
+    ///
+    /// With all sixteen permits held, a fast tool's frame used to wait for one to be released —
+    /// indistinguishable to the console from a frame the device accepted and dropped, and past the
+    /// console's own 30 s wait a timeout instead of a reason. The answer must be the transport's
+    /// error envelope, with its audit begin and end; once a permit is free the same frame runs.
+    ///
+    /// Mutation proof: with the acquire unbounded again, this test times out at
+    /// `IN_FLIGHT_WAIT + 2 s` waiting for the answer, because the permits are held for the whole
+    /// test.
+    #[tokio::test]
+    async fn a_full_channel_answers_busy_instead_of_parking_the_frame() {
+        let (server, config, _dir) = fixture("console-in-flight-busy");
+        // Hold all sixteen permits before the socket opens. A real saturation would be sixteen
+        // parked calls, but then the fixture's own session output would decide when a permit
+        // frees, and this test would be measuring timing rather than a bound.
+        let in_flight = Arc::new(tokio::sync::Semaphore::new(MAX_IN_FLIGHT_FRAMES));
+        let held = Arc::clone(&in_flight)
+            .acquire_many_owned(MAX_IN_FLIGHT_FRAMES as u32)
+            .await
+            .expect("every permit is free in a fresh channel");
+        let (mut console, serve) = piped_console_with(&server, 1024 * 1024, in_flight).await;
+
+        send_frame(
+            &mut console,
+            json!({
+                "id": 300,
+                "mcp": state_call(2_000),
+                "grant": grant_once(&["state.get"], "b900"),
+            }),
+        )
+        .await;
+        let answer = tokio::time::timeout(
+            IN_FLIGHT_WAIT + Duration::from_secs(2),
+            next_frame(&mut console),
+        )
+        .await
+        .expect("a full channel answers inside the bound instead of parking the frame");
+        assert_eq!(answer["id"], 300, "{answer}");
+        assert_eq!(
+            answer["error"]["error"]["code"],
+            json!(DEVICE_BUSY_CODE),
+            "busy is its own code, not a grant refusal: {answer}"
+        );
+        assert_eq!(
+            answer["error"]["error"]["message"],
+            json!(DEVICE_BUSY_MESSAGE),
+            "the client reads the sentence, not a timeout: {answer}"
+        );
+
+        // The refusal is a call with its end, as every answer is: the console's timeline must show
+        // this request was answered, and why.
+        let lines = audit_lines(&config);
+        let begin = lines
+            .iter()
+            .find(|line| line["event"] == "begin" && line["tool"] == "state.get")
+            .unwrap_or_else(|| panic!("the busy frame has a begin line: {lines:?}"));
+        assert_eq!(begin["decision"], "deny");
+        let id = begin["id"].as_u64().expect("the call id");
+        let end = lines
+            .iter()
+            .find(|line| line["event"] == "end" && line["id"] == json!(id))
+            .unwrap_or_else(|| panic!("the busy frame has its end line: {lines:?}"));
+        assert_eq!(end["ok"], false);
+        assert_eq!(end["error_kind"], "busy");
+
+        // The normal path is untouched: once a permit is free the same frame runs and answers as
+        // the transport always did.
+        drop(held);
+        send_frame(
+            &mut console,
+            json!({
+                "id": 301,
+                "mcp": state_call(2_001),
+                "grant": grant_once(&["state.get"], "b901"),
+            }),
+        )
+        .await;
+        let answer = tokio::time::timeout(Duration::from_secs(5), next_frame(&mut console))
+            .await
+            .expect("a frame that gets a permit runs");
+        assert_eq!(answer["id"], 301, "{answer}");
+        assert_eq!(answer["result"]["id"], 2_001, "{answer}");
+        serve.abort();
+    }
+
     /// A subscription follows a live session: one audited read as the ack, then pushed frames
     /// until the console says stop.
     #[tokio::test]
@@ -1933,13 +2116,23 @@ mod tests {
         server: &DeviceServer,
         capacity: usize,
     ) -> (WebSocketStream<tokio::io::DuplexStream>, JoinHandle<bool>) {
+        let in_flight = Arc::new(tokio::sync::Semaphore::new(MAX_IN_FLIGHT_FRAMES));
+        piped_console_with(server, capacity, in_flight).await
+    }
+
+    /// [`piped_console`] with the in-flight semaphore supplied, so a test can hold every permit.
+    async fn piped_console_with(
+        server: &DeviceServer,
+        capacity: usize,
+        in_flight: Arc<tokio::sync::Semaphore>,
+    ) -> (WebSocketStream<tokio::io::DuplexStream>, JoinHandle<bool>) {
         let (device_side, test_side) = tokio::io::duplex(capacity);
         let endpoint = endpoint("ws://pipe");
         let key = signing().verifying_key();
         let server = server.clone();
         let handle = tokio::spawn(async move {
             let socket = WebSocketStream::from_raw_socket(device_side, Role::Server, None).await;
-            serve(socket, &endpoint, &server, Some(&key)).await
+            serve_with_in_flight(socket, &endpoint, &server, Some(&key), in_flight).await
         });
         let console = WebSocketStream::from_raw_socket(test_side, Role::Client, None).await;
         (console, handle)
