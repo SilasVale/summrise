@@ -12,7 +12,11 @@
 //! the bytes after it and the new cursor. The cursor is the client's resume token: a second call
 //! with the returned cursor returns exactly what arrived in between. The ring keeps the newest
 //! [`BUFFER_BYTES`]; a cursor older than that window is a typed refusal, because bytes that were
-//! dropped cannot be invented.
+//! dropped cannot be invented. A read may name a byte `limit`: it then copies at most that many
+//! retained bytes, oldest first, and the answered cursor advances by the bytes copied, so a
+//! catch-up can be paged without changing what a cursor means. Reading never waits for the feed:
+//! the registry lock is released before the ring lock, so a flooding line cannot hold up the
+//! device's other terminal calls.
 //!
 //! The caps are the capability's, not a client convention: at most [`MAX_SESSIONS`] live sessions,
 //! [`BUFFER_BYTES`] retained per session, [`MAX_INPUT_BYTES`] per write, and a session that no client
@@ -708,8 +712,12 @@ impl Ring {
         self.bytes.iter().copied().collect()
     }
 
-    /// Copy everything from `cursor` to the current end.
-    fn read_from(&self, cursor: u64) -> Result<(Vec<u8>, u64), PtyError> {
+    /// Copy from `cursor`, at most `limit` bytes, oldest first; `None` copies to the end.
+    ///
+    /// The returned cursor advances by exactly the bytes copied, so a paged reader resumes where
+    /// its page ended. The refusal rules come before the limit and do not depend on it: a cursor
+    /// the ring dropped, or one past the end, is the same typed error either way.
+    fn read_from(&self, cursor: u64, limit: Option<usize>) -> Result<(Vec<u8>, u64), PtyError> {
         let earliest = self.earliest();
         if cursor > self.total {
             return Err(PtyError::CursorAhead {
@@ -721,7 +729,10 @@ impl Ring {
             return Err(PtyError::CursorTooOld { cursor, earliest });
         }
         let skip = (cursor - earliest) as usize;
-        Ok((self.bytes.iter().skip(skip).copied().collect(), self.total))
+        let retained = self.bytes.len() - skip;
+        let take = limit.map_or(retained, |limit| limit.min(retained));
+        let data = self.bytes.iter().skip(skip).take(take).copied().collect();
+        Ok((data, cursor + take as u64))
     }
 }
 
@@ -823,6 +834,30 @@ impl Output {
         self.eof = true;
         self.notify.notify_one();
     }
+}
+
+/// Snapshot one read answer from a session's output, and the notifier a long poll parks on.
+///
+/// Only this session's ring lock is taken here; the registry is not involved. That is what keeps a
+/// flooded feed from stalling a call about another session. `closed` is not read for the same reason
+/// [`PtyRegistry::read_with_limit`] cannot see it: a closing session is already out of the registry,
+/// so the end a reader can read is the reader's EOF.
+fn read_output(
+    output: &Mutex<Output>,
+    cursor: u64,
+    limit: Option<usize>,
+) -> Result<(ReadAnswer, Arc<tokio::sync::Notify>), PtyError> {
+    let output = lock(output);
+    let (data, cursor) = output.ring.read_from(cursor, limit)?;
+    Ok((
+        ReadAnswer {
+            data,
+            cursor,
+            alive: !output.eof,
+            end: output.end.clone(),
+        },
+        Arc::clone(&output.notify),
+    ))
 }
 
 /// One live session.
@@ -1267,25 +1302,37 @@ impl PtyRegistry {
 
     /// Copy a session's output from `cursor` to the current end, with the session's end facts.
     pub fn read(&self, id: &SessionId, cursor: u64) -> Result<ReadAnswer, PtyError> {
+        self.read_with_limit(id, cursor, None)
+    }
+
+    /// Copy at most `limit` bytes of a session's output from `cursor`, oldest first.
+    ///
+    /// **THE REGISTRY LOCK IS NOT HELD ACROSS THE RING.** A live session's reader thread — the
+    /// flood's — holds that session's output lock on every chunk it appends, so this takes the
+    /// output handle under the registry lock, releases the registry, and only then waits for the
+    /// ring. A read therefore cannot park every other terminal call (`list`, `create`, `write`,
+    /// `close`) behind a busy feed; it waits for at most the chunk in flight.
+    ///
+    /// `limit` pages a retained tail without changing what a cursor means: the answered cursor
+    /// advances by the bytes carried, and `None` is the whole retained tail — exactly what
+    /// [`read`](Self::read) has always returned.
+    pub fn read_with_limit(
+        &self,
+        id: &SessionId,
+        cursor: u64,
+        limit: Option<usize>,
+    ) -> Result<ReadAnswer, PtyError> {
+        let output = self.output_handle(id)?;
+        Ok(read_output(&output, cursor, limit)?.0)
+    }
+
+    /// The live session's output handle, its idle clock refreshed, with the registry released when
+    /// this returns.
+    fn output_handle(&self, id: &SessionId) -> Result<Arc<Mutex<Output>>, PtyError> {
         let mut sessions = lock(&self.sessions);
         let session = sessions.get_mut(id).ok_or_else(|| unknown(id))?;
         session.last_active_ms = (self.clock)();
-        let read = {
-            let output = lock(&session.output);
-            output
-                .ring
-                .read_from(cursor)
-                .map(|(data, cursor)| ReadAnswer {
-                    data,
-                    cursor,
-                    // `closed` cannot be observed here: a closing session is already out of the map
-                    // this call holds. The end a reader can read is the reader's EOF.
-                    alive: !output.eof,
-                    end: output.end.clone(),
-                })
-        };
-        drop(sessions);
-        read
+        Ok(Arc::clone(&session.output))
     }
 
     /// Read, waiting up to `wait` for output when the cursor is already at the end.
@@ -1299,26 +1346,33 @@ impl PtyRegistry {
         cursor: u64,
         wait: Duration,
     ) -> Result<ReadAnswer, PtyError> {
+        self.read_wait_with_limit(id, cursor, wait, None).await
+    }
+
+    /// [`read_wait`](Self::read_wait) with an optional byte cap.
+    ///
+    /// A cap is a page, not a wait: as soon as the ring retains bytes after the cursor the read
+    /// answers with at most `limit` of them, and the wait only happens at the end where there is
+    /// nothing to page. The registry lock is released before the ring lock in every iteration, so
+    /// a long poll on a flooded session cannot hold another terminal call.
+    pub async fn read_wait_with_limit(
+        &self,
+        id: &SessionId,
+        cursor: u64,
+        wait: Duration,
+        limit: Option<usize>,
+    ) -> Result<ReadAnswer, PtyError> {
         if wait.is_zero() {
-            return self.read(id, cursor);
+            return match limit {
+                None => self.read(id, cursor),
+                Some(limit) => self.read_with_limit(id, cursor, Some(limit)),
+            };
         }
         let deadline = Instant::now() + wait;
         loop {
             let (answer, notify) = {
-                let mut sessions = lock(&self.sessions);
-                let session = sessions.get_mut(id).ok_or_else(|| unknown(id))?;
-                session.last_active_ms = (self.clock)();
-                let output = lock(&session.output);
-                let answer = output
-                    .ring
-                    .read_from(cursor)
-                    .map(|(data, cursor)| ReadAnswer {
-                        data,
-                        cursor,
-                        alive: !output.eof,
-                        end: output.end.clone(),
-                    })?;
-                (answer, Arc::clone(&output.notify))
+                let output = self.output_handle(id)?;
+                read_output(&output, cursor, limit)?
             };
             if !answer.data.is_empty() || !answer.alive || wait.is_zero() {
                 return Ok(answer);
@@ -1341,11 +1395,8 @@ impl PtyRegistry {
     /// will render them), `\r` is dropped, and only the last `lines` lines are returned. It counts
     /// as activity for the idle sweeper, because a client watching a screen is using the session.
     pub fn screen(&self, id: &SessionId, lines: usize) -> Result<String, PtyError> {
-        let mut sessions = lock(&self.sessions);
-        let session = sessions.get_mut(id).ok_or_else(|| unknown(id))?;
-        session.last_active_ms = (self.clock)();
-        let bytes = lock(&session.output).ring.snapshot();
-        drop(sessions);
+        let output = self.output_handle(id)?;
+        let bytes = lock(&output).ring.snapshot();
         Ok(screen_text(&bytes, lines))
     }
 
@@ -2506,6 +2557,31 @@ mod tests {
         panic!("{marker:?} did not arrive within {MARKER_TIMEOUT:?}; output so far: {text:?}");
     }
 
+    /// Read a moving cursor until `marker` appears, stepping over the refusal a dropped cursor gets.
+    ///
+    /// A stream larger than the ring cannot be read from cursor 0: the earliest cursor moves while
+    /// the client reads, so the client follows it exactly as a browser does.
+    async fn read_until_after_drop(registry: &PtyRegistry, id: &SessionId, marker: &str) {
+        let deadline = Instant::now() + MARKER_TIMEOUT;
+        let mut cursor = 0u64;
+        let mut text = String::new();
+        while Instant::now() < deadline {
+            match registry.read(id, cursor) {
+                Ok(answer) => {
+                    text.push_str(&String::from_utf8_lossy(&answer.data));
+                    cursor = answer.cursor;
+                }
+                Err(PtyError::CursorTooOld { earliest, .. }) => cursor = earliest,
+                Err(error) => panic!("a live session reads: {error}"),
+            }
+            if text.contains(marker) {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        panic!("{marker:?} did not arrive within {MARKER_TIMEOUT:?}");
+    }
+
     /// Read until `marker` is followed by ASCII digits anywhere in the output.
     ///
     /// The echoed command contains the marker too (with `$$`/`$!` after it), and an interactive
@@ -2597,6 +2673,268 @@ mod tests {
             String::from_utf8_lossy(&answer.data)
         );
         assert!(answer.cursor > cursor);
+    }
+
+    /// **A READ WAITING FOR THE FEED MUST NOT HOLD THE REGISTRY.**
+    ///
+    /// A flooding line's reader holds its session's output lock on every chunk it appends. A read
+    /// that takes the registry lock and then waits for that ring turns one busy line into every
+    /// other terminal call timing out. This test fills a large retained tail, holds the ring as the
+    /// feed does, parks a read on it, and proves the read is parked *and* the registry is free —
+    /// the two facts that let another call (a `list`, a `create`, a `write`) run meanwhile.
+    #[tokio::test]
+    async fn a_read_waits_for_the_feed_without_holding_the_registry() {
+        let fixture = Fixture::with_limits(
+            "read-lock-scope",
+            Limits {
+                buffer_bytes: 256 * 1024,
+                ..Limits::default()
+            },
+        );
+        let id = fixture
+            .registry
+            .create(
+                CreateTarget::Pty {
+                    shell: Some("/bin/sh"),
+                },
+                24,
+                80,
+            )
+            .await
+            .expect("a shell starts");
+        // The read stamps the session's idle clock when it starts; a different value names the
+        // moment it is past the registry lock.
+        fixture.advance(4_000);
+        let output = {
+            let sessions = lock(&fixture.registry.sessions);
+            Arc::clone(&sessions.get(&id).expect("the session is live").output)
+        };
+        // A large retained tail, as a flooded feed leaves it.
+        {
+            let mut output = lock(&output);
+            output.push(&vec![b'x'; 200 * 1024]);
+        }
+        let start = lock(&output).ring.earliest();
+        let held = lock(&output);
+        std::thread::scope(|scope| {
+            let registry = &fixture.registry;
+            let read_id = id.clone();
+            let (started_tx, started) = std::sync::mpsc::channel();
+            let (done_tx, done) = std::sync::mpsc::channel();
+            scope.spawn(move || {
+                let _ = started_tx.send(());
+                let answer = registry.read(&read_id, start);
+                // The receiver is dropped if an assertion above fails; the read still returns.
+                let _ = done_tx.send(answer);
+            });
+            started.recv().expect("the read thread started");
+
+            let mut parked = false;
+            let mut registry_free = true;
+            let mut blocked = 0;
+            for _ in 0..1_000 {
+                match registry.sessions.try_lock() {
+                    Ok(sessions) => {
+                        blocked = 0;
+                        if sessions
+                            .get(&id)
+                            .is_some_and(|session| session.last_active_ms == 5_000)
+                        {
+                            parked = true;
+                            break;
+                        }
+                        drop(sessions);
+                    }
+                    Err(std::sync::TryLockError::WouldBlock) => {
+                        blocked += 1;
+                        if blocked > 200 {
+                            // Two hundred milliseconds is far longer than any chunk append; a
+                            // sustained hold is the lock order this test exists to forbid.
+                            registry_free = false;
+                            break;
+                        }
+                    }
+                    Err(std::sync::TryLockError::Poisoned(_)) => {
+                        panic!("the registry lock is poisoned")
+                    }
+                }
+                std::thread::sleep(Duration::from_millis(1));
+            }
+            assert!(
+                registry_free,
+                "a read waiting for the feed held the registry, so every other terminal call waits too"
+            );
+            assert!(
+                parked,
+                "the read reached the ring lock (the session's activity was stamped)"
+            );
+
+            // Releasing the feed's chunk lets the parked read finish. It copies the retained tail
+            // and returns; it does not wait for the line to produce more output.
+            drop(held);
+            let answer = done
+                .recv_timeout(Duration::from_secs(5))
+                .expect("the parked read returns once the feed releases its chunk");
+            let answer = answer.expect("the retained ring reads");
+            assert!(
+                answer.data.len() >= 200 * 1024,
+                "the read copied the large retained tail: {} bytes",
+                answer.data.len()
+            );
+            assert_eq!(
+                answer.cursor - start,
+                answer.data.len() as u64,
+                "the cursor advances by exactly the bytes the answer carried"
+            );
+        });
+    }
+
+    /// A page is the oldest retained bytes, and its cursor advances by exactly what it carried;
+    /// paging the whole ring reconstructs the no-limit answer byte for byte.
+    #[tokio::test]
+    async fn a_limited_read_pages_the_ring_and_a_read_without_a_limit_returns_it_whole() {
+        let fixture = Fixture::new("read-pages");
+        let id = fixture
+            .registry
+            .create(
+                CreateTarget::Pty {
+                    shell: Some("/bin/sh"),
+                },
+                24,
+                80,
+            )
+            .await
+            .expect("a shell starts");
+        // `PAGE-END-42` is computed by the shell, so the pty's echo of the command (which carries
+        // `PAGE-END-%s` and `$((6*7))`) cannot satisfy the wait; the trailing sleep keeps the
+        // prompt out of the ring while the pages are read.
+        fixture
+            .registry
+            .write(
+                &id,
+                b"i=0; while [ $i -lt 4000 ]; do printf 'PAGE-%04d\\n' \"$i\"; i=$((i+1)); done; printf 'PAGE-END-%s\\n' \"$((6*7))\"; sleep 30\n",
+            )
+            .await
+            .expect("the print command is written");
+        let _ = read_until(&fixture.registry, &id, "PAGE-END-42").await;
+        let whole = fixture
+            .registry
+            .read(&id, 0)
+            .expect("the retained ring reads");
+        assert!(
+            whole.data.len() > 40_000,
+            "the ring holds the whole print: {} bytes",
+            whole.data.len()
+        );
+        let start = whole.cursor - whole.data.len() as u64;
+
+        let mut cursor = start;
+        let mut paged = Vec::new();
+        loop {
+            let page = fixture
+                .registry
+                .read_with_limit(&id, cursor, Some(4_096))
+                .expect("a page reads");
+            assert!(
+                page.data.len() <= 4_096,
+                "a page is capped: {} bytes",
+                page.data.len()
+            );
+            assert_eq!(
+                page.cursor,
+                cursor + page.data.len() as u64,
+                "the page's cursor advances by its bytes"
+            );
+            if page.data.is_empty() {
+                break;
+            }
+            paged.extend_from_slice(&page.data);
+            cursor = page.cursor;
+        }
+        assert_eq!(
+            paged, whole.data,
+            "the pages are exactly the whole ring, oldest first"
+        );
+        assert_eq!(cursor, whole.cursor, "paging ends at the stream end");
+
+        // No limit is unchanged: `read_with_limit(.., None)` and `read` both answer the whole
+        // retained tail with the stream-end cursor.
+        let unlimited = fixture
+            .registry
+            .read_with_limit(&id, start, None)
+            .expect("a no-limit read");
+        assert_eq!(unlimited.data, whole.data, "no limit is the whole tail");
+        assert_eq!(unlimited.cursor, whole.cursor);
+        let plain = fixture
+            .registry
+            .read(&id, start)
+            .expect("read is the no-limit form");
+        assert_eq!(plain.data, whole.data);
+        assert_eq!(plain.cursor, whole.cursor);
+    }
+
+    /// A page does not soften a refusal: a cursor the ring dropped is still refused with the same
+    /// sentence, and the retained start it names is readable in pages.
+    #[tokio::test]
+    async fn a_limited_read_still_refuses_a_cursor_the_ring_dropped() {
+        let fixture = Fixture::new("read-too-old");
+        let id = fixture
+            .registry
+            .create(
+                CreateTarget::Pty {
+                    shell: Some("/bin/sh"),
+                },
+                24,
+                80,
+            )
+            .await
+            .expect("a shell starts");
+        fixture
+            .registry
+            .write(
+                &id,
+                b"yes | head -c 1200000; printf 'BIG-END-%s\\n' \"$((6*7))\"; sleep 30\n",
+            )
+            .await
+            .expect("the flood command is written");
+        read_until_after_drop(&fixture.registry, &id, "BIG-END-42").await;
+
+        let refused = fixture.registry.read_with_limit(&id, 0, Some(4_096));
+        let earliest = match refused {
+            Err(PtyError::CursorTooOld {
+                cursor: 0,
+                earliest,
+            }) => earliest,
+            other => panic!(
+                "a dropped cursor is refused with the earliest retained cursor, limit or not: {other:?}"
+            ),
+        };
+        assert!(
+            earliest > 0,
+            "the ring dropped the beginning of a 1.2 MB stream"
+        );
+        let page = fixture
+            .registry
+            .read_with_limit(&id, earliest, Some(4_096))
+            .expect("the retained start reads");
+        assert_eq!(page.data.len(), 4_096);
+        assert_eq!(page.cursor, earliest + 4_096);
+
+        // The long-poll form refuses identically before it would ever park.
+        let waited = fixture
+            .registry
+            .read_wait_with_limit(&id, 0, Duration::from_secs(2), Some(4_096))
+            .await;
+        assert!(
+            matches!(
+                waited,
+                Err(PtyError::CursorTooOld {
+                    cursor: 0,
+                    earliest: refused_at
+                }) if refused_at == earliest
+            ),
+            "a long poll with a limit is the same refusal: {waited:?}"
+        );
     }
 
     #[tokio::test]
@@ -3778,7 +4116,7 @@ mod tests {
         assert_eq!(ring.earliest(), 2);
         assert!(
             matches!(
-                ring.read_from(0),
+                ring.read_from(0, None),
                 Err(PtyError::CursorTooOld {
                     cursor: 0,
                     earliest: 2
@@ -3787,7 +4125,7 @@ mod tests {
             "bytes the ring dropped are not invented"
         );
         assert!(matches!(
-            ring.read_from(11),
+            ring.read_from(11, None),
             Err(PtyError::CursorAhead {
                 cursor: 11,
                 total: 10
@@ -3795,19 +4133,46 @@ mod tests {
         ));
 
         assert_eq!(
-            ring.read_from(2).expect("the retained tail reads"),
+            ring.read_from(2, None).expect("the retained tail reads"),
             (b"23456789".to_vec(), 10)
         );
         assert_eq!(
-            ring.read_from(9)
+            ring.read_from(9, None)
                 .expect("a mid-tail cursor reads only what follows"),
             (b"9".to_vec(), 10)
         );
         assert_eq!(
-            ring.read_from(10)
+            ring.read_from(10, None)
                 .expect("a caught-up cursor reads nothing"),
             (Vec::new(), 10)
         );
+
+        // A page is the oldest bytes from the cursor, and its cursor advances by exactly what it
+        // carried — never to the ring's end.
+        assert_eq!(
+            ring.read_from(2, Some(3)).expect("a page reads"),
+            (b"234".to_vec(), 5)
+        );
+        assert_eq!(
+            ring.read_from(5, Some(100))
+                .expect("a page larger than the tail reads the tail"),
+            (b"56789".to_vec(), 10)
+        );
+        assert_eq!(
+            ring.read_from(10, Some(1))
+                .expect("a caught-up page is empty"),
+            (Vec::new(), 10)
+        );
+        // The limit does not soften a refusal: a dropped cursor and a cursor past the end are the
+        // same typed errors they are without one.
+        assert!(matches!(
+            ring.read_from(0, Some(1)),
+            Err(PtyError::CursorTooOld { .. })
+        ));
+        assert!(matches!(
+            ring.read_from(11, Some(1)),
+            Err(PtyError::CursorAhead { .. })
+        ));
     }
 
     #[test]

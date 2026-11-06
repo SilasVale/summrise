@@ -120,7 +120,7 @@ pub const CAPABILITIES: &[Capability] = &[
                 name: "terminal.read",
                 destructive: false,
                 description:
-                    "Read a session's output since a cursor and return the new cursor; only the newest 1 MiB is retained, so an older cursor is refused. Optional wait_ms (0-30000) parks until output arrives or the deadline passes; a terminal client should use it instead of polling.",
+                    "Read a session's output since a cursor and return the new cursor; only the newest 1 MiB is retained, so an older cursor is refused. Optional wait_ms (0-30000) parks until output arrives or the deadline passes; a terminal client should use it instead of polling. Optional limit pages the retained tail: at most that many bytes, oldest first, and the returned cursor advances by what the page carried.",
             },
             ToolDef {
                 name: "terminal.resize",

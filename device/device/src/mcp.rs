@@ -1053,9 +1053,21 @@ impl DeviceServer {
                 let arguments: PtyReadArgs = parse(arguments, name)?;
                 let id = session_id(name, &arguments.id)?;
                 let wait = Duration::from_millis(arguments.wait_ms.unwrap_or(0).min(30_000));
+                // A limit is a page size, not a wait. Zero would answer nothing at the same cursor,
+                // so a client paging on it would never advance; it is refused as an argument error
+                // rather than returning a page that cannot be consumed.
+                let limit = match arguments.limit {
+                    Some(0) => {
+                        return Err(ToolError::Arguments(format!(
+                            "{name}: limit is a byte count and must be at least 1"
+                        )));
+                    }
+                    Some(limit) => Some(usize::try_from(limit).unwrap_or(usize::MAX)),
+                    None => None,
+                };
                 let answer = self
                     .terminal
-                    .read_wait(&id, arguments.cursor.unwrap_or(0), wait)
+                    .read_wait_with_limit(&id, arguments.cursor.unwrap_or(0), wait, limit)
                     .await
                     .map_err(|error| refused(name, error))?;
                 // The wire is JSON, so the bytes are rendered as UTF-8. This is lossy on purpose: a
@@ -2089,6 +2101,11 @@ fn input_schema(definition: &ToolDef) -> Value {
                     "minimum": 0,
                     "maximum": 30000,
                     "description": "Wait up to this long for new output when the cursor is already at the end; absent/0 answers immediately. The device caps the wait at 30 s."
+                },
+                "limit": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "description": "Return at most this many bytes from the cursor, oldest first; the returned cursor advances by what the page carried, so the next call continues. Absent returns the whole retained tail."
                 }
             },
             "required": ["id"],
@@ -2748,6 +2765,8 @@ struct PtyReadArgs {
     /// How long to park when the cursor is already at the end. Absent means answer now; the device
     /// caps the wait so a client cannot hold a connection for arbitrary time.
     wait_ms: Option<u64>,
+    /// The most bytes this page may carry. Absent means the whole retained tail; zero is refused.
+    limit: Option<u64>,
 }
 
 /// The arguments `terminal.resize` takes.
@@ -3540,6 +3559,22 @@ mod tests {
         assert_eq!(
             schema("terminal.read")["properties"]["cursor"]["type"],
             "integer"
+        );
+        assert_eq!(
+            schema("terminal.read")["properties"]["limit"]["type"],
+            "integer",
+            "terminal.read can page its retained tail"
+        );
+        assert_eq!(
+            schema("terminal.read")["properties"]["limit"]["minimum"],
+            1,
+            "a page of zero bytes would never advance a paging client"
+        );
+        assert!(
+            schema("terminal.read")["properties"]["limit"]["description"]
+                .as_str()
+                .is_some_and(|text| text.contains("cursor")),
+            "the limit's description says the returned cursor advances"
         );
         assert_eq!(
             schema("terminal.resize")["required"],
@@ -4540,6 +4575,95 @@ mod tests {
         assert!(
             output.contains("SUMMRISE42"),
             "the shell's output arrives through MCP: {output:?}"
+        );
+
+        // `limit` pages the retained tail through the tool surface: a page is capped, its cursor
+        // advances by exactly its bytes, and the next page continues where it ended.
+        let first = client
+            .call(
+                "terminal.read",
+                json!({ "id": id, "cursor": 0, "limit": 3 }),
+            )
+            .await;
+        assert_eq!(first["result"]["isError"], false, "{first}");
+        let first: Value = serde_json::from_str(text_of(&first)).expect("read is JSON");
+        let first_data = first["data"]
+            .as_str()
+            .expect("data is a string")
+            .as_bytes()
+            .to_vec();
+        let first_bytes = BASE64
+            .decode(first["data_base64"].as_str().expect("base64 is a string"))
+            .expect("the page's bytes are base64");
+        assert_eq!(first_bytes, first_data);
+        assert_eq!(first_data.len(), 3, "the page is exactly the cap: {first}");
+        assert_eq!(
+            first["cursor"],
+            json!(3),
+            "the page's cursor advances by its bytes: {first}"
+        );
+
+        let second = client
+            .call(
+                "terminal.read",
+                json!({ "id": id, "cursor": 3, "limit": 3 }),
+            )
+            .await;
+        assert_eq!(second["result"]["isError"], false, "{second}");
+        let second: Value = serde_json::from_str(text_of(&second)).expect("read is JSON");
+        let second_data = second["data"]
+            .as_str()
+            .expect("data is a string")
+            .as_bytes()
+            .to_vec();
+        assert_eq!(
+            second["cursor"],
+            json!(6),
+            "the second page continues from the first: {second}"
+        );
+
+        // No limit is unchanged: the whole retained tail, ending at the stream end, and the pages
+        // it contains are its prefix.
+        let whole = client
+            .call("terminal.read", json!({ "id": id, "cursor": 0 }))
+            .await;
+        assert_eq!(whole["result"]["isError"], false, "{whole}");
+        let whole: Value = serde_json::from_str(text_of(&whole)).expect("read is JSON");
+        let whole_data = whole["data"]
+            .as_str()
+            .expect("data is a string")
+            .as_bytes()
+            .to_vec();
+        let mut pages = first_data;
+        pages.extend_from_slice(&second_data);
+        assert!(
+            whole_data.starts_with(&pages),
+            "the pages are the start of the no-limit answer"
+        );
+        assert_eq!(
+            whole["cursor"].as_u64(),
+            Some(whole_data.len() as u64),
+            "a no-limit read from the retained start ends at the stream end: {whole}"
+        );
+
+        // A zero page would answer nothing at the same cursor forever; it is refused as an
+        // argument, not answered as an empty page a paging loop could spin on.
+        let zero = client
+            .call(
+                "terminal.read",
+                json!({ "id": id, "cursor": 0, "limit": 0 }),
+            )
+            .await;
+        assert_eq!(
+            zero["error"]["code"],
+            json!(-32602),
+            "a zero limit is an argument error: {zero}"
+        );
+        assert!(
+            zero["error"]["message"]
+                .as_str()
+                .is_some_and(|message| message.contains("at least 1")),
+            "the sentence names the rule: {zero}"
         );
 
         let resized = client
