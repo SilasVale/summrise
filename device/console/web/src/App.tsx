@@ -741,7 +741,13 @@ export function App() {
     setNotice("Diagnostics copied for " + (device.name ?? shortId(device.id)) + ".");
   };
 
+  // One answer at a time: a second press before the first answers would mint a second, unseen
+  // one-time code. `enrolling` draws the button's state; this ref is the guard the state cannot be
+  // until React redraws.
+  const mintInFlight = useRef(false);
   const mintCode = async () => {
+    if (mintInFlight.current) return;
+    mintInFlight.current = true;
     setError(null);
     setEnrolling(true);
     try {
@@ -749,14 +755,24 @@ export function App() {
     } catch (cause) {
       setError(describe(cause));
     } finally {
+      mintInFlight.current = false;
       setEnrolling(false);
     }
   };
 
   /// Add a machine is one verb: Home owns the fleet, the code panel is part of it.
+  ///
+  /// **THE CODE IS THE DESTINATION.** The selected machine's hub stays on screen otherwise, and a
+  /// press whose whole purpose is to produce a command looks like a dead one while the minted code
+  /// waits on a page nobody was sent to. Clearing the choice is also the address: All machines is
+  /// where the fleet panel lives. A live code already in hand is shown again rather than silently
+  /// minting a second one-time code; Dismiss forgets it, and the next press mints a fresh one.
   const addMachine = () => {
     setPage("home");
-    void mintCode();
+    choose(null);
+    setError(null);
+    const live = code !== null && code.expires_at_ms > Date.now();
+    if (!live) void mintCode();
   };
 
   if (session === null) {

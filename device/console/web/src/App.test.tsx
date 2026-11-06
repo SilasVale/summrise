@@ -932,6 +932,60 @@ describe("App", () => {
     await waitFor(() => expect(mocks.enroll).toHaveBeenCalledTimes(1));
   });
 
+  it("keeps the fleet's own Add a machine showing the code it mints", async () => {
+    const minted = "c".repeat(64);
+    mocks.enroll.mockResolvedValue({
+      code: minted,
+      expires_at_ms: Date.now() + 15 * 60_000
+    });
+    await bootAndSignIn();
+
+    // The page's accent button, not the header menu: the fleet's flow is the one the menu reuses.
+    fireEvent.click(
+      within(screen.getByRole("main")).getByRole("button", { name: "Add a machine" })
+    );
+
+    const panel = await screen.findByRole("region", { name: "Enrollment command" });
+    expect(panel).toHaveTextContent(minted);
+    expect(mocks.enroll).toHaveBeenCalledTimes(1);
+  });
+
+  it("lands on the code Add a machine mints when a machine was selected", async () => {
+    const minted = "b".repeat(64);
+    mocks.enroll.mockResolvedValue({
+      code: minted,
+      expires_at_ms: Date.now() + 15 * 60_000
+    });
+    await bootAndSignIn();
+    selectDevice("workshop");
+    await screen.findByRole("heading", { name: "Home", level: 1 });
+
+    // The header's own menu, opened on the selected machine.
+    fireEvent.click(screen.getByLabelText("Machine: workshop"));
+    fireEvent.click(
+      within(screen.getByLabelText("Machines")).getByRole("button", { name: "Add a machine" })
+    );
+
+    // The fleet is the destination now, and the code the console answered is on it: the panel
+    // that was previously reachable only by choosing All machines afterwards.
+    await screen.findByRole("heading", { name: "Machines", level: 1 });
+    expect(screen.getByLabelText("All machines")).toBeInTheDocument();
+    const panel = screen.getByRole("region", { name: "Enrollment command" });
+    expect(panel).toHaveTextContent(minted);
+    expect(within(panel).getByRole("button", { name: "Copy command" })).toBeInTheDocument();
+    expect(mocks.enroll).toHaveBeenCalledTimes(1);
+
+    // The same action again shows the code already in hand; it does not spend a second one-time
+    // code behind the operator's back. Dismiss is the way to ask for a fresh one.
+    fireEvent.click(screen.getByLabelText("All machines"));
+    fireEvent.click(
+      within(screen.getByLabelText("Machines")).getByRole("button", { name: "Add a machine" })
+    );
+    await act(async () => {});
+    expect(mocks.enroll).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("region", { name: "Enrollment command" })).toHaveTextContent(minted);
+  });
+
   it("opens a tool's sheet from a capabilities deep link, inside the Tools tab", async () => {
     window.history.replaceState(null, "", "#capabilities/files.read");
     // A device-specific catalogue needs a machine; the selection survives a reload.
