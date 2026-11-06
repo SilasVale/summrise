@@ -443,7 +443,7 @@ the setup failure first, then honesty, then the phone, then recovery.
    offline/static sentence on every preset, label the count as the console registry, and mark the
    coverage sentence offline; use the last live list when known. **S.**
 
-3. **The update story is stale on the device panel and absent from the console.** The panel's
+3. **The update story is stale on the device panel and absent from the console.** *(Done 2026-11-06, 48d679b, live 0.3.273-ux81 / device 0.3.285: the panel reads `Last target 0.3.273`, `Last outcome applied`, `Last result 2026-11-05 03:11:05` (exact UTC in the title) and `Last check 2026-11-07 03:08:05` (UTC title 2026-11-06T19:08:05Z); the old `Target`/`Outcome` labels are gone. The Machine tab reads `running v0.3.285 · channel not reported · last check 2026-11-06 19:08 · last outcome applied to 0.3.273 on 2026-11-04 19:11` (missing facts are named, no invented source). The fleet marks `behind 0.3.285` on 84T3LIN v0.3.280 and CPH v0.3.284. 614 device tests, 766 web tests, gate PASS 48 steps, a11y 0/3, `build-web --check`. Screenshots /tmp/live-ux81-fleet.png, /tmp/live-ux81-machine.png; the 0.3.285 installer is on the console's /installer.)* The panel's
    `BUILD Version 0.3.284` sits above `UPDATES Target 0.3.273 / Outcome applied / Last result
    2026-11-04T19:11:05Z`, while `/api/panel`'s last check is today; `Target` is the last applied
    target, and the card does not say so. The console's Machine tab has no update line; the fleet
