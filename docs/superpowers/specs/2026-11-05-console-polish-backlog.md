@@ -292,6 +292,28 @@ tab continues from the earliest output the device retains.` Try again repeats th
    read, degrade to the newest retained output with a sentence naming the dropped bytes, never an
    empty dead tab. **M.**
 
+
+## P0 — the thirteenth list (opened 2026-11-06, from the flooded serial session)
+
+Measured while checking the terminal fix against DESKTOP-84T3LIN (0.3.280, session-3, a serial line
+that had produced 18.1 MB): `terminal.read` at cursor 0 answered in 2 s with the too-old refusal
+(`the cursor 0 is older than the retained output, which starts at 18153607`); the read at
+**18153607** was answered by Cloudflare with a **504 after 33.8 s** (16-byte error body), and every
+subsequent MCP call on that device (`host.facts`) timed out at 20 s. The device's own channel still
+reports frames, so the console shows it online while its MCP service is no longer answering. The
+console's terminal tab is the surface that finds this; the device's read is the cause.
+
+1. **A flooded serial session's read blocks the device's whole MCP service.** The read of the ring at
+   the oldest retained cursor waits (for the serial feed or on a lock held across it) instead of
+   copying the retained bytes; the call runs past the proxy's timeout, the device stops answering
+   other tools, and the only recovery is a local restart. **Cost:** one busy serial line takes the
+   machine off the console; the terminal fix can degrade the tab but cannot get the ring or keep the
+   device answering. **Fix:** the read copies the retained bytes from the cursor without holding the
+   registry across the feed — an old-cursor read answers immediately, and an optional byte `limit`
+   lets the console page the catch-up; the too-old refusal and the ring semantics stay. **M/L.**
+   (device; a device release. The still-wedged session-3 is the reproduction; 9VH/CPH's 0.3.281
+   channel can carry the fix to a fresh flooded pty for the live proof.)
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
