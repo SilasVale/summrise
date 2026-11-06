@@ -148,8 +148,10 @@ All six console-only; the last is the deletion. Ranked by how often the friction
 
 ## P1 — the console stops feeling like a configuration tool
 
-5. **Activity filters become chips.** Machine chips and a search field; the time-range select, the
-   token column and the status select move into the Table view where they belong.
+5. **Activity filters become chips.** *(Done 2026-11-04, e918981: the C2 cut — machine chips and a
+   search on the timeline, the six controls table-only, the shared state surviving a switch.)*
+   Machine chips and a search field; the time-range select, the token column and the status select
+   move into the Table view where they belong.
 6. **Terminal tabs carry facts.** *(Done 2026-11-04, bdefee2: a tab says `pty · 12m`; the shell is not in `terminal.list`, so it is not claimed; a renamed tab keeps its name.)* A tab says the shell and the age, not just `pty 1`.
 7. **Connect has one token tab.** *(Done 2026-11-04, 2b681e3: one list, scope column, one mint form; `FleetTokens.tsx` deleted; the second read that 405'd is gone in 44e60f7.)* Per-device tokens and fleet tokens are the same idea at two
    scopes; one list with a scope column, not two places to mint a credential.
@@ -231,6 +233,29 @@ nothing on the fleet says so.
    machine PATH (`HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Environment`), only
    when absent, and the uninstaller removes exactly its entry; the Windows run is the first proof.
    **M.** (installer; measured on the E: install.)
+
+
+## P1 — the tenth list (opened 2026-11-06, from the live token sheet)
+
+Measured in the live Tokens sheet (0.3.273-ux66) after the operator's "which token has 84T3LIN?"
+question: every multi-machine token's SCOPE cell reads a count ("3 machines it was minted for"), never
+the names, and the all-machines mint form lists a machine that has not answered in 23 hours as if it
+were live. The sheet shows last-used and created dates, so a stale credential can be told from a live
+one only by date, not by scope.
+
+1. **A token's scope counts machines but never names them.** The sheet's SCOPE cell for a fleet token
+   is "3 machines it was minted for"; the operator cannot see that one of five tokens covers
+   84T3LIN and another covers CPH4KB2. The refusal `device not permitted by token` then has no
+   visible cause, and the operator mints another token to guess. **Fix:** the scope cell names the
+   machines from the token's `device_ids` and the fleet's names (single device: its name; fleet:
+   names with "and N more" when long), keeping the count for the totals. **M.**
+2. **The all-machines mint form lists a dead machine as if it were live.** The coverage sentence
+   read "This token will cover the 4 machines enrolled now: DESKTOP-9VH92BJ, DESKTOP-14RJCR8,
+   DESKTOP-CPH4KB2, DESKTOP-84T3LIN" while 14RJCR8 had not answered for 23 hours; minting "all
+   machines" silently adds a machine that cannot answer to every future scope. **Fix:** the
+   coverage sentence marks each machine's state from `/fleet` (online, or `offline, last seen …`),
+   so the person choosing "all machines" sees what they are covering; the token still covers what
+   it says. **S.**
 
 ## How a round goes
 
@@ -656,8 +681,11 @@ Terminal); the console's own reads are folded behind a counted chip (`Console re
 update line no longer repeats the running version; the run form's placeholder is
 `cmd.exe /c echo hello`; and no fleet row draws a reconnect sentence.
 
-1. **There is no route to an answer older than the window.** `/audit` takes `limit` and `device`
-   and nothing else, and `limit` is clamped to **1000** (`MAX_LOG_LIMIT`, `http.rs:50`). The fleet's
+1. **There is no route to an answer older than the window.** *(Superseded 2026-11-05 by the seventh
+   list's item 2: `GET /audit?from=&to=` plus the Time control is the real read, and the item's own
+   "make the Time select a real read or delete it" is answered — the select now issues the range and
+   the URL carries it. No separate commit; the seventh item's done note is the record.)* `/audit`
+   takes `limit` and `device` and nothing else, and `limit` is clamped to **1000** (`MAX_LOG_LIMIT`, `http.rs:50`). The fleet's
    window is **8.5 h** (04:35:49–13:15:28 UTC); DESKTOP-14RJCR8's 1,000 lines are **10.3%** of its
    9,747 (9.7 h), DESKTOP-9VH92BJ's **5.7%** of 17,606 (22.8 h). The Table's Time control (All time /
    Last hour / Last day / Last week) flips to `Last week` with **0 requests** and the same **985
