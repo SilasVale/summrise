@@ -11,6 +11,10 @@ import type { LiveToolsState } from "./useLiveTools";
  * This is the catalogue half of the Tools tab; the tab's `<h2>` and the plugin section live in
  * `ToolsTab.tsx`. The offline notice is the Device shell's, above both sections, so this one does
  * not repeat it.
+ *
+ * THE HEADER NEVER CLAIMS A READ IS IN PROGRESS UNLESS ONE IS. `Reading the tool list…` is the
+ * `live.loading` state alone; a finished read that brought no list says there is no list, and an
+ * offline machine's header says so too, because a read that cannot finish must not read as pending.
  */
 export function ToolCatalogue({
   live,
@@ -37,15 +41,19 @@ export function ToolCatalogue({
   const capabilities = useMemo(() => groupByCapability(live.tools).length, [live.tools]);
   const openTool = tool ? live.tools.find((entry) => entry.name === tool) ?? null : null;
   const missingTool = tool !== null && !live.loading && live.tools.length > 0 && !openTool;
+  const subtitle =
+    live.tools.length > 0
+      ? `${live.tools.length} tools · ${capabilities} capabilit${capabilities === 1 ? "y" : "ies"}`
+      : live.loading
+        ? "Reading the tool list…"
+        : offline
+          ? "No tool list from this machine; it is offline."
+          : "No tool list from this machine.";
 
   return (
     <>
       <div className="tools-section-head">
-        <p className="page-sub">
-          {live.tools.length > 0
-            ? `${live.tools.length} tools · ${capabilities} capabilit${capabilities === 1 ? "y" : "ies"}`
-            : "Reading the tool list…"}
-        </p>
+        <p className="page-sub">{subtitle}</p>
         <label className="search-field">
           <span className="sr-only">Search tools</span>
           <input

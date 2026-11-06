@@ -123,6 +123,34 @@ describe("ToolCatalogue", () => {
     expect(document.querySelectorAll(".skeleton-row")).toHaveLength(3);
   });
 
+  it("says it is reading only while the list is on the wire", () => {
+    draw({ live: state({ tools: [], loading: true }) });
+    expect(screen.getByText("Reading the tool list…")).toBeInTheDocument();
+  });
+
+  it("stops saying it is reading once the read has finished empty", () => {
+    draw({ live: state({ tools: [] }) });
+    expect(screen.queryByText("Reading the tool list…")).not.toBeInTheDocument();
+    expect(screen.getByText("No tool list from this machine.")).toBeInTheDocument();
+  });
+
+  it("names the offline machine instead of reading a list it cannot get", () => {
+    draw({
+      live: state({
+        tools: [],
+        error: "this machine is not connected; connect it, then try again",
+        offline: true
+      }),
+      offline: true
+    });
+
+    expect(screen.queryByText("Reading the tool list…")).not.toBeInTheDocument();
+    expect(screen.getByText("No tool list from this machine; it is offline.")).toBeInTheDocument();
+    expect(
+      screen.getByText("The console has no tool list from this machine yet.")
+    ).toBeInTheDocument();
+  });
+
   it("does not repeat the machine's offline state inside the catalogue", () => {
     const retry = vi.fn();
     draw({
