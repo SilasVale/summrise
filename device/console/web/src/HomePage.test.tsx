@@ -1155,6 +1155,35 @@ describe("Home — the fleet's installer", () => {
 });
 
 /**
+ * The enrollment command names only `summrise-device.exe`, and the console cannot know a machine's
+ * install root, so the sentence must carry what the command cannot: the folder chosen on the
+ * installer's directory page (its default is C:\Program Files\Summrise). An elevated prompt opened
+ * anywhere else fails with "not recognized".
+ */
+describe("Home — the enrollment sentence", () => {
+  beforeEach(() => {
+    installerApi.installer.mockResolvedValue(installerFacts);
+  });
+
+  it("sends the elevated prompt to the folder where Summrise was installed", () => {
+    drawFleet({
+      code: { code: "code-1", expires_at_ms: Date.now() + 15 * 60_000 },
+      enrollCommand:
+        "summrise-device.exe --enroll https://console.test code-1 --data C:\\ProgramData\\Summrise"
+    });
+
+    const panel = screen.getByRole("region", { name: "Enrollment command" });
+    expect(panel).toHaveTextContent(
+      "On the Windows machine, open an elevated Command Prompt in the folder you chose on the installer's directory page (the default is C:\\Program Files\\Summrise), run this command, then restart the SummriseLaunch service."
+    );
+    // The old sentence sent the person to a prompt whose cwd was not the install folder.
+    expect(panel).not.toHaveTextContent("run this in an elevated Command Prompt");
+    expect(within(panel).getByText("SummriseLaunch").tagName).toBe("CODE");
+    expect(within(panel).getByText("C:\\Program Files\\Summrise").tagName).toBe("CODE");
+  });
+});
+
+/**
  * The credential's door. Tokens used to live only under Account → Tokens, so a person adding a
  * machine never met the thing a client needs; the fleet header and the Add-a-machine panel each
  * open the same Connect sheet on its Tokens section. There is no second token surface to test.

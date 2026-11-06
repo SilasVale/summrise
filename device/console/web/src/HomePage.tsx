@@ -137,8 +137,10 @@ function FleetHome(props: FleetProps) {
       {props.code && (
         <section className="enroll" aria-label="Enrollment command">
           <p className="hint">
-            This code works once, for 15 minutes. On the Windows machine, run this in an elevated
-            Command Prompt, then restart the <code>SummriseLaunch</code> service.
+            This code works once, for 15 minutes. On the Windows machine, open an elevated Command
+            Prompt in the folder you chose on the installer's directory page (the default is{" "}
+            <code>C:\Program Files\Summrise</code>), run this command, then restart the{" "}
+            <code>SummriseLaunch</code> service.
           </p>
           <pre className="code">{props.enrollCommand}</pre>
           <div className="actions">
