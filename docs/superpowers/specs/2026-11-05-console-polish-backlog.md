@@ -477,7 +477,7 @@ the setup failure first, then honesty, then the phone, then recovery.
    the operator sees an internal failure and can only repeat the same call. **Fix:** map it to a
    sentence with a Stop/Retry/Restart action; keep the raw text behind evidence. **S.**
 
-8. **The session card's Last input is `[I`.** Opening a pty with no typing shows `Last input [I 4s
+8. **The session card's Last input is `[I`.** *(Implemented 2026-11-06, 2f6fd3d, deployed 0.3.273-ux86, but the LIVE CHECK FAILED: a fresh pty's card still reads `Last input [I` (the xterm focus sequence) while a typed `x` is recorded. The jsdom tests with a synthetic `\x1b[I` pass, so the live's `evidence.input` (or the console's live line) differs from the tests' input; the fix stays in the tree, the item stays open, and the next step is the `/events` activity line's evidence.input for the xterm focus plus the `typedText` live path.)* Opening a pty with no typing shows `Last input [I 4s
    ago`; the xterm focus sequence `ESC[I` was written to the session. **Cost:** the card's first
    input fact is a phantom control sequence, not a keystroke. **Fix:** ignore control-only input in
    `lastTypedInput`, or label it; fall back to `No keystroke recorded`. **S.**
