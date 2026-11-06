@@ -267,7 +267,7 @@ browser. The console's other time language is relative (`1d 1h ago`, `seen 37s a
 April. The device-side panel item stays in its own section ("Device-side, still open"), because it
 ships with a device release and never alone.
 
-1. **The token sheet's dates are the browser's locale, not the console's clock.** Same audit: the
+1. **The token sheet's dates are the browser's locale, not the console's clock.** *(Done 2026-11-06, 0fad059, live 0.3.273-ux70: created/used/expires share one `<time>` element — local-day ISO `2026-11-04`, `title` the local clock to the second plus the UTC ISO instant; a null expiry renders `never` and a null last use `never used`, with no date element. vitest 726 passed/53 files (+5), typecheck 0, gate PASS 38 steps (asserts ISO text, exact titles and `never`), a11y 0 findings/3 allowed tab stops, `build-web --check` clean. Live read: 8 times all `YYYY-MM-DD`, the first `2026-11-06` with title `2026-11-06 08:21:12 (2026-11-06T08:21:12.787Z)`; screenshot /tmp/live-token-dates-1440.png.)* Same audit: the
    dates are the only absolute dates in the console; a CN operator sees `11/4/2026` with no way to
    know the order. **Fix:** one locale-stable format for created/used/expires — `2026-11-04` (the
    audit's own ISO dates) or a fixed `4 Nov 2026` — with the exact time in the cell's `title`. **S.**
