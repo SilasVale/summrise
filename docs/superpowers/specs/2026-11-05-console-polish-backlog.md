@@ -343,10 +343,25 @@ console's terminal tab is the surface that finds this; the device's read is the 
    console-side duration — compare them with the device's 15 s pairs. **Fix:** remove the console's
    queue/loss so a tool answer arrives within its wait; task 18. **M.** (console; no device
    release.)*
+   *(Measured 2026-11-06 through task 18: the direct nginx->console path answers terminal.read
+   wait_ms 1000 in 1.012 s (device pair 1002 ms), terminal.list in 0.010 s, and 20 concurrent reads
+   with 16 at 1.02 s and 4 at 2.03 s, no loss. The same requests via mcp.saisi.online (the Cloudflare
+   tunnel) took 1.7-65.7 s with two resets, while even initialize (pure console) took 2.3-8.4 s; an
+   unrelated zss-dsh endpoint was equally slow, so the tunnel is degraded generally. The 45 s/20 s
+   reads left no console audit row and no device pair — they never reached nginx. The measured 45 s
+   is the tunnel, not the console. The console's only related defect is its 30 s reply bound cutting a
+   terminal.read whose device-side legal wait is also 30 s; task 18 fixes it by deriving the bound
+   from wait_ms, like run_wait does for runs.exec.)*
 
 5. **The console transport's in-flight acquire is unbounded.** `console.rs:795` awaits
    `in_flight.acquire_owned()` with no bound; if the 16 permits ever do run out, every tool call
    hangs instead of answering "the device is busy". **S.** (device; hardening, later release.)
+
+6. **The console hands its own operator the slow door.** The token/connect copy names
+   `https://mcp.saisi.online/mcp/all`, which crosses the Cloudflare tunnel (measured 1.7-65.7 s and
+   two resets for calls that the direct path answers in 1.012 s). **Fix:** for a client already on
+   the tailnet, name the direct address beside the public one; outside the tailnet the public door
+   stays. **S.** (console copy + the operator's clients; the tunnel itself is deployment.)
 
 ## How a round goes
 
