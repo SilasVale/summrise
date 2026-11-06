@@ -314,6 +314,17 @@ console's terminal tab is the surface that finds this; the device's read is the 
    (device; a device release. The still-wedged session-3 is the reproduction; 9VH/CPH's 0.3.281
    channel can carry the fix to a fresh flooded pty for the live proof.)
 
+2. **The console still asks for the whole ring, so the fix's paging is unused.** The device's
+   `terminal.read` now takes an optional byte `limit` (184ee8c), but the console's recovery reconnects
+   the stream at the earliest cursor and the device's subscribe frame carries the whole ring (up to
+   1 MiB, `data` + `data_base64`) — the frame whose 30 s bound the measured 504 came from. **Cost:**
+   the registry no longer wedges, but the catch-up can still be too large to arrive, and the console's
+   degraded tab throws away the ring it could have paged. **Fix:** the console pages the catch-up
+   with `terminal.read`'s `limit` (64 KiB), drawing each page and advancing the cursor, with the
+   `wait_ms`-style capability check for devices that refuse the field; only after the pages are drawn
+   (or the guard expires) does it open the stream at the reached cursor. **M.** (console; live on a
+   fresh flooded pty after the 0.3.282 channel update.)
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
