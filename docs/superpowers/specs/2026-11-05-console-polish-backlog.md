@@ -519,12 +519,12 @@ record, then the panel, then the smaller corrections.
    last check. **Fix:** fold the timeline after e.g. 20 rows, or move Build/Updates/Connect above
    it. **S/M.** (Device-side panel release.)
 
-5. **The shared root's unreadable state keeps the write controls live.** With `no shared root is
+5. **The shared root's unreadable state keeps the write controls live.** *(Done 2026-11-06, 917cfa9, live 0.3.273-ux91: after the root's first listing fails, Create and Upload are disabled (Refresh and the Root select stay live) with the hint `New folder and Upload a file are unavailable until this root can be listed; Refresh tries again.`; a successful listing re-enables them, a readable root is unchanged, and a disabled submit cannot repeat the refusal. 790 tests, gate PASS 51 steps, a11y 0/3, `build-web --check`. Live: the Shared root shows the no-shared-root fact, the hint, Upload/Create disabled and Refresh enabled; screenshot /tmp/live-ux91-shared.png.)* With `no shared root is
    configured on this device`, `Upload a file`/`Create` stay enabled; an upload repeats the same
    refusal. **Cost:** the page offers an action that can only fail and repeats the error. **Fix:**
    disable write controls after a failed first listing (keep Refresh). **S.**
 
-6. **The Runs record's Started is an age, not an instant.** `21m 04s ago` becomes `21m 11s ago` six
+6. **The Runs record's Started is an age, not an instant.** *(Done 2026-11-06, 6fadbf7, live 0.3.273-ux91: the record's Started is a `<time>` with the local instant (`2026-11-06 22:19`), the exact UTC in its `title` and datetime, and the age beside it (`· 38s ago`); the instant does not move on refresh, only the age. 791 tests (+1), gate PASS 52 steps (the fixture asserts dateTime/title/text before and after a 1.2 s refresh), a11y 0/3, `build-web --check`. Live: datetime 2026-11-06T22:19:08.893Z, the title's exact UTC and the local text; screenshot /tmp/live-ux91-started.png.)* `21m 04s ago` becomes `21m 11s ago` six
    seconds later; the `<dd>` has no title/datetime. **Cost:** the record's start cannot be matched
    to a log or another record and changes while read. **Fix:** show the local instant with the
    exact title, age beside it. **S.**
