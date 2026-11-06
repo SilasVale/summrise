@@ -243,7 +243,7 @@ the names, and the all-machines mint form lists a machine that has not answered 
 were live. The sheet shows last-used and created dates, so a stale credential can be told from a live
 one only by date, not by scope.
 
-1. **A token's scope counts machines but never names them.** The sheet's SCOPE cell for a fleet token
+1. **A token's scope counts machines but never names them.** *(Done 2026-11-06, 651d337, live 0.3.273-ux68: the SCOPE cell maps the token's `device_ids` through the fleet's names — a single device is named, a fleet token lists up to three names and says "and N more", and the title carries the full list, the count and the recorded-at-mint rule; unknown ids fall back to the console's short id. Live: the fleet token's row reads `DESKTOP-9VH92BJ, DESKTOP-CPH4KB2, DESKTOP-84T3LIN` instead of "3 machines it was minted for". vitest 720 passed/53 files, typecheck 0, gate PASS 36 steps (the fleet row names the gate machine), a11y 0 findings/3 allowed tab stops, `build-web --check` clean; live screenshot /tmp/live-token-scope-names-1440.png.)* The sheet's SCOPE cell for a fleet token
    is "3 machines it was minted for"; the operator cannot see that one of five tokens covers
    84T3LIN and another covers CPH4KB2. The refusal `device not permitted by token` then has no
    visible cause, and the operator mints another token to guess. **Fix:** the scope cell names the
