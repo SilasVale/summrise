@@ -47,6 +47,13 @@ jobs:
       # layout with a fake archive; the Windows installer has its own BROWSER_SOURCE path.
       - name: the browser pack installer lays out current
         run: ./scripts/test-browser-pack-install.sh
+      # THE CONSOLE DEPLOY'S FIRST STEP IS THE HOST DEVICE'S DOOR. The fetch and the swap are
+      # `runs.exec` calls on DESKTOP-9VH92BJ, so an offline device stops a console deploy even
+      # though the console serves its page. The script must refuse by name before it builds, not
+      # after a full build ends in a bare `HTTP Error 503`. The loopback stub touches no real
+      # console or device.
+      - name: the console deploy refuses a closed host door
+        run: ./scripts/test-console-deploy-preflight.sh
 
       # The console page's pure decisions are a Rust crate outside the device workspace (its
       # artifact is wasm). Its parity tests are Rust, so they run here rather than in a JS job.
