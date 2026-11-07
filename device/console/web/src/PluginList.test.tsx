@@ -146,6 +146,26 @@ describe("PluginList", () => {
     expect(screen.queryByText(/not connected/)).toBeNull();
     expect(screen.queryByText("No plugins yet.")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Add plugin" })).not.toBeInTheDocument();
+    // The Retry belongs to the tools read, above this section; a second one would be the same read
+    // asked twice.
+    expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
+  });
+
+  it("inherits a failed tools read as one sentence with no second Retry", () => {
+    draw({
+      live: state([], {
+        error: "the console could not read this machine's tools"
+      })
+    });
+
+    expect(
+      screen.getByText("Plugins are unavailable until the console can read the tool list.")
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/The console could not read this machine's tools/)).toBeNull();
+    expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
+    expect(
+      screen.queryByText("No plugins yet. Add one when a built-in cannot do the job.")
+    ).toBeNull();
   });
 
   it("lists each plugin with its state, tools and source path, and a failed row's reason and Restart", async () => {

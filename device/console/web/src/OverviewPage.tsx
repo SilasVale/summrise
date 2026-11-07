@@ -6,6 +6,7 @@ import { AttemptReason, attemptCount, attemptReason } from "./attempt";
 import { clockTime, coverageClause, shortId } from "./format";
 import { listPlugins } from "./pluginApi";
 import { surfaceHash } from "./surface-link";
+import { toolsReadState } from "./toolsRead";
 import { useLiveTools, type LiveToolsRetry } from "./useLiveTools";
 import { ActivityTimeline } from "./ActivityTimeline";
 import {
@@ -286,6 +287,9 @@ export function OverviewPage(props: OverviewPageProps) {
   const device = props.device;
   const name = device.name ?? shortId(device.id);
   const live = useLiveTools(device.id);
+  // One reading/failed/ready state for the counts line. A zero is drawn only when the read
+  // answered with no tools; while it is on the wire the line says so.
+  const read = toolsReadState(live);
   // A stale catalogue still names the tool surface, so the plugin read is allowed; an empty list
   // after a failed read knows nothing and must not be read as "an older build".
   const known = live.tools.length > 0 || (!live.loading && live.error === null);
@@ -514,7 +518,9 @@ export function OverviewPage(props: OverviewPageProps) {
           </>
         )
     : live.error
-      ? "The machine is running. The console could not read its tool list, so these counts may be stale."
+      ? live.tools.length === 0
+        ? "The machine is running. The console could not read its tool list, so the counts are not shown."
+        : "The machine is running. The console could not read its tool list, so these counts may be stale."
       : null;
 
   return (
@@ -571,7 +577,14 @@ export function OverviewPage(props: OverviewPageProps) {
           day's record. */}
       {offline ? (
         <p className="hint">Tool counts are unavailable while the machine is offline.</p>
-      ) : live.error && live.tools.length === 0 ? (
+      ) : read === "reading" ? (
+        // THE ZERO WAS A READ THAT HAD NOT ANSWERED. The measured 84T read `0 tools · 0
+        // capabilities` at 300 ms and `46 tools · 11 capabilities` at 800 ms; the line now says
+        // what it is doing until the machine answers (audit-42 F5).
+        <p className="hint" role="status">
+          Reading the tool list…
+        </p>
+      ) : read === "failed" ? (
         <p className="hint">Tool counts are unavailable until the console can read the machine's list.</p>
       ) : (
         <button type="button" className="counts-line" onClick={props.onTools}>

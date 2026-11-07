@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { filterTools, groupByCapability } from "./capabilities";
 import { ToolSheet } from "./ToolSheet";
+import { toolsReadState } from "./toolsRead";
 import type { LiveToolsState } from "./useLiveTools";
 
 /**
@@ -13,8 +14,8 @@ import type { LiveToolsState } from "./useLiveTools";
  * not repeat it.
  *
  * THE HEADER NEVER CLAIMS A READ IS IN PROGRESS UNLESS ONE IS. `Reading the tool list…` is the
- * `live.loading` state alone; a finished read that brought no list says there is no list, and an
- * offline machine's header says so too, because a read that cannot finish must not read as pending.
+ * reading state alone; a finished read that brought no list says there is no list, and an offline
+ * machine's header says so too, because a read that cannot finish must not read as pending.
  */
 export function ToolCatalogue({
   live,
@@ -40,11 +41,14 @@ export function ToolCatalogue({
   );
   const capabilities = useMemo(() => groupByCapability(live.tools).length, [live.tools]);
   const openTool = tool ? live.tools.find((entry) => entry.name === tool) ?? null : null;
-  const missingTool = tool !== null && !live.loading && live.tools.length > 0 && !openTool;
+  // One reading/failed/ready state for the header and the body, so an unfinished read cannot be
+  // drawn as a finished empty catalogue.
+  const read = toolsReadState(live);
+  const missingTool = tool !== null && read !== "reading" && live.tools.length > 0 && !openTool;
   const subtitle =
     live.tools.length > 0
       ? `${live.tools.length} tools · ${capabilities} capabilit${capabilities === 1 ? "y" : "ies"}`
-      : live.loading
+      : read === "reading"
         ? "Reading the tool list…"
         : offline
           ? "No tool list from this machine; it is offline."
@@ -66,7 +70,7 @@ export function ToolCatalogue({
         </label>
       </div>
 
-      {live.loading && live.tools.length === 0 ? (
+      {read === "reading" ? (
         <div className="skeleton-list" aria-label="Reading the tool list" role="status">
           {[0, 1, 2].map((row) => (
             <div className="skeleton-row" key={row}>
@@ -82,7 +86,7 @@ export function ToolCatalogue({
             Retry
           </button>
         </section>
-      ) : live.error && live.tools.length === 0 ? (
+      ) : read === "failed" ? (
         <div className="notice" role="status">
           <span>The console could not read this machine's tools: {live.error}</span>
           <button type="button" onClick={() => live.retry()}>

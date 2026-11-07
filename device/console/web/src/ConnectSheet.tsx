@@ -5,6 +5,7 @@ import { copyText } from "./copy";
 import { clockTime, exactMoment, isoDate, lastHeardMs, message, seenAgo, shortId } from "./format";
 import { Modal } from "./Modal";
 import { Sheet } from "./Sheet";
+import { toolsReadState } from "./toolsRead";
 import { useLiveTools } from "./useLiveTools";
 import { useToolCatalogue, type CatalogueTool } from "./useToolCatalogue";
 import { mergeTokenRows, scopeLabel, tokenScope, type TokenScope } from "./tokenScopes";
@@ -292,6 +293,9 @@ export function ConnectSheet({
               registryTools={registry}
               liveError={live.error}
               liveOffline={live.offline}
+              liveLoading={live.loading}
+              liveRetrying={live.retrying}
+              onRetryLive={live.retry}
               endpoint={endpoint}
               offline={offline}
               focusTokenId={focusTokenId}
@@ -310,6 +314,9 @@ function TokensSection({
   registryTools,
   liveError,
   liveOffline,
+  liveLoading,
+  liveRetrying,
+  onRetryLive,
   endpoint,
   offline,
   focusTokenId
@@ -320,6 +327,9 @@ function TokensSection({
   registryTools: CatalogueTool[];
   liveError: string | null;
   liveOffline: boolean;
+  liveLoading: boolean;
+  liveRetrying: boolean;
+  onRetryLive: () => void;
   endpoint: string;
   offline: boolean;
   focusTokenId: string | null;
@@ -383,11 +393,21 @@ function TokensSection({
   const usingLiveList = liveTools.length > 0;
   const machineOffline = offline || liveOffline;
   const listUnreadable = liveError !== null;
-  const countFromRegistry = device !== null && !usingLiveList && (machineOffline || listUnreadable);
+  // THE READ'S THREE STATES, ON THE FORM'S OWN COUNT. A machine-selected form must not wear the
+  // registry's count as the machine's while the machine's list is still on the wire; the label says
+  // which catalogue it is and why, and one notice with one Retry is the failed state (audit-42 F5).
+  const read =
+    device === null ? "ready" : toolsReadState({ tools: liveTools, loading: liveLoading, error: liveError });
+  const readingLive = device !== null && !usingLiveList && read === "reading";
+  const countFromRegistry =
+    device !== null && !usingLiveList && (machineOffline || listUnreadable || readingLive);
   const countFromLastLive = device !== null && usingLiveList && (machineOffline || listUnreadable);
+  const liveFailed = device !== null && (machineOffline || listUnreadable);
   const registryReason = machineOffline
     ? "the machine is offline"
-    : "the machine's live list could not be read";
+    : readingLive
+      ? "reading the machine's live list"
+      : "the machine's live list could not be read";
   const lastLiveReason = machineOffline
     ? "the machine is offline"
     : "it could not be refreshed";
@@ -710,14 +730,23 @@ function TokensSection({
             ))}
           </div>
 
-          {countFromRegistry && (
-            <p className="hint">
-              {machineOffline
-                ? "The machine is offline."
-                : "The machine's live list could not be read."}{" "}
-              This form counts the static fallback; the console refuses a plugin tool it cannot
-              verify.
-            </p>
+          {liveFailed && (
+            <div className="notice" role="status">
+              <span>
+                {machineOffline
+                  ? "The machine is offline."
+                  : usingLiveList
+                    ? "The machine's live list could not be refreshed."
+                    : "The machine's live list could not be read."}{" "}
+                {usingLiveList
+                  ? "This form counts the last tool list the console read."
+                  : "This form counts the static fallback; the console refuses a plugin tool it " +
+                    "cannot verify."}
+              </span>
+              <button type="button" disabled={liveRetrying} onClick={onRetryLive}>
+                {liveRetrying ? "Retrying…" : "Retry"}
+              </button>
+            </div>
           )}
 
           {preset === "choose" && (

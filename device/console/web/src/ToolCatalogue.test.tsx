@@ -172,6 +172,26 @@ describe("ToolCatalogue", () => {
     expect(retry).toHaveBeenCalledTimes(1);
   });
 
+  it("draws one notice and one Retry for a failed online read", () => {
+    const retry = vi.fn();
+    draw({
+      live: state({
+        tools: [],
+        error: "the tools read failed",
+        retry
+      })
+    });
+
+    expect(
+      screen.getByText("The console could not read this machine's tools: the tools read failed")
+    ).toBeInTheDocument();
+    const retries = screen.getAllByRole("button", { name: "Retry" });
+    expect(retries).toHaveLength(1);
+    fireEvent.click(retries[0]);
+    expect(retry).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText("No tools")).not.toBeInTheDocument();
+  });
+
   it("labels a stale catalogue instead of hiding it", () => {
     draw({ live: state({ stale: true, error: "read failed" }) });
     expect(

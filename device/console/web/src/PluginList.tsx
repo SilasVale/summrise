@@ -14,6 +14,7 @@ import {
   type PluginSummary
 } from "./pluginApi";
 import { Sheet } from "./Sheet";
+import { toolsReadState } from "./toolsRead";
 import type { LiveToolsState } from "./useLiveTools";
 
 const LOG_LINES = 200;
@@ -97,6 +98,7 @@ export function PluginList({
   onMachine: () => void;
 }) {
   const known = !live.loading && live.error === null;
+  const read = toolsReadState(live);
   const supported = live.tools.some((tool) => tool.name === "plugins.list");
   const remote = usePlugins(device.id, known && supported);
   const [adding, setAdding] = useState(false);
@@ -140,7 +142,7 @@ export function PluginList({
         )}
       </div>
 
-      {live.loading && live.tools.length === 0 ? (
+      {read === "reading" ? (
         <div className="skeleton-list" aria-label="Reading the plugin list" role="status">
           {[0, 1, 2].map((row) => (
             <div className="skeleton-row" key={row}>
@@ -149,6 +151,13 @@ export function PluginList({
             </div>
           ))}
         </div>
+      ) : offline && remote.plugins.length === 0 ? (
+        <p className="hint">The console has no plugin list from this machine yet.</p>
+      ) : live.error !== null && remote.plugins.length === 0 ? (
+        // THE TOOLS READ OWNS THE ONE RETRY. Its failure is one notice under `Tools on this
+        // machine`; this section inherits that state as one sentence, because a second Retry here
+        // asked the same read twice (audit-42 F5).
+        <p className="hint">Plugins are unavailable until the console can read the tool list.</p>
       ) : known && !supported ? (
         <section className="empty-state">
           <h3>Older build</h3>
@@ -157,32 +166,6 @@ export function PluginList({
             Open Machine
           </button>
         </section>
-      ) : offline && remote.plugins.length === 0 ? (
-        <section className="empty-state">
-          <p className="hint">The console has no plugin list from this machine yet.</p>
-          <button
-            type="button"
-            onClick={() => {
-              live.retry();
-              void remote.reload();
-            }}
-          >
-            Retry
-          </button>
-        </section>
-      ) : live.error && live.tools.length === 0 ? (
-        <div className="notice" role="status">
-          <span>The console could not read this machine's tools: {live.error}</span>
-          <button
-            type="button"
-            onClick={() => {
-              live.retry();
-              void remote.reload();
-            }}
-          >
-            Retry
-          </button>
-        </div>
       ) : remote.loading && remote.plugins.length === 0 ? (
         <div className="skeleton-list" aria-label="Reading the plugin list" role="status">
           {[0, 1, 2].map((row) => (

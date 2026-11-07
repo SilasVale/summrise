@@ -85,11 +85,17 @@ function read(deviceId: string): Promise<Cached> {
  * forces the next read.
  */
 export function useLiveTools(deviceId: string | null): LiveToolsState {
-  const [tools, setTools] = useState<LiveTool[]>([]);
+  // **THE FIRST PAINT IS NOT A ZERO.** A device's read is on the wire from its first commit, so
+  // `loading` starts true unless the cache already holds an answer. `useEffect` runs after paint,
+  // so without this the hook's initial empty list is a zero a surface could draw before any read
+  // answered (the measured 84T showed `0 tools · 0 capabilities` at first paint, audit-42 F5).
+  const [tools, setTools] = useState<LiveTool[]>(() =>
+    deviceId === null ? [] : cache.get(deviceId)?.tools ?? []
+  );
   const [stale, setStale] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [offline, setOffline] = useState(false);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(() => deviceId !== null && !cache.has(deviceId));
   const [attempt, setAttempt] = useState(0);
   const [retrying, setRetrying] = useState(false);
   const [retried, setRetried] = useState<LiveToolsRetry | null>(null);

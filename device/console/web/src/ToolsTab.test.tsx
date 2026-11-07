@@ -164,6 +164,77 @@ describe("ToolsTab", () => {
     renderTools({ tool: "files.read" });
     expect(screen.getByRole("dialog", { name: "files.read" })).toBeInTheDocument();
   });
+
+  it("says the tools and plugins are reading, not that the machine has none", () => {
+    live.value = {
+      tools: [],
+      stale: false,
+      error: null,
+      offline: false,
+      loading: true,
+      retrying: false,
+      retried: null,
+      retry: vi.fn()
+    };
+    renderTools();
+
+    expect(screen.getByRole("status", { name: "Reading the tool list" })).toBeInTheDocument();
+    expect(screen.getByRole("status", { name: "Reading the plugin list" })).toBeInTheDocument();
+    expect(screen.queryByText("No tool list from this machine.")).toBeNull();
+    expect(
+      screen.queryByText("No plugins yet. Add one when a built-in cannot do the job.")
+    ).toBeNull();
+    expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
+  });
+
+  it("says a failed tools read once, with one Retry, and the plugin section inherits it", () => {
+    const retry = vi.fn();
+    live.value = {
+      tools: [],
+      stale: false,
+      error: "the console could not read this machine's tools",
+      offline: false,
+      loading: false,
+      retrying: false,
+      retried: null,
+      retry
+    };
+    renderTools();
+
+    // The measured failure said the same sentence twice, under Tools and under Plugins, with two
+    // Retry buttons for one read.
+    expect(screen.getAllByText(/The console could not read this machine's tools/)).toHaveLength(1);
+    const retries = screen.getAllByRole("button", { name: "Retry" });
+    expect(retries).toHaveLength(1);
+    fireEvent.click(retries[0]);
+    expect(retry).toHaveBeenCalledTimes(1);
+
+    expect(
+      screen.getByText("Plugins are unavailable until the console can read the tool list.")
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText("No plugins yet. Add one when a built-in cannot do the job.")
+    ).toBeNull();
+  });
+
+  it("draws one Retry for an offline tools read, not one per section", () => {
+    live.value = {
+      tools: [],
+      stale: false,
+      error: "this machine is not connected; connect it, then try again",
+      offline: true,
+      loading: false,
+      retrying: false,
+      retried: null,
+      retry: vi.fn()
+    };
+    renderTools({ deviceOnline: false, device: { ...workshop, online: false } });
+
+    expect(screen.getAllByRole("button", { name: "Retry" })).toHaveLength(1);
+    expect(
+      screen.getByText("The console has no plugin list from this machine yet.")
+    ).toBeInTheDocument();
+  });
 });
 
 /**

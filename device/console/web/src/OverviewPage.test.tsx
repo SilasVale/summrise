@@ -933,6 +933,63 @@ describe("Device overview — the machine's live page", () => {
     expect(screen.queryByText(/^0 tools/)).not.toBeInTheDocument();
   });
 
+  it("draws the read instead of a zero while the tool list is on the wire", () => {
+    live.value = {
+      tools: [],
+      stale: false,
+      error: null,
+      offline: false,
+      loading: true,
+      retry: vi.fn()
+    };
+    draw();
+
+    expect(screen.getByText("Reading the tool list…")).toBeInTheDocument();
+    expect(screen.queryByText(/^0 tools/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /tools ·/ })).not.toBeInTheDocument();
+  });
+
+  it("says the counts are not shown when the failed read left no list", () => {
+    live.value = {
+      tools: [],
+      stale: false,
+      error: "the console could not read this machine's tools",
+      offline: false,
+      loading: false,
+      retry: vi.fn()
+    };
+    draw();
+
+    // "may be stale" needs counts to have a subject; a failed read with no list draws none.
+    expect(
+      screen.getByText(
+        "The machine is running. The console could not read its tool list, so the counts are not shown."
+      )
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/may be stale/)).toBeNull();
+    expect(
+      within(screen.getByRole("status")).getByRole("button", { name: "Retry" })
+    ).toBeInTheDocument();
+  });
+
+  it("draws a true zero once the read answered with no tools", async () => {
+    live.value = {
+      tools: [],
+      stale: false,
+      error: null,
+      offline: false,
+      loading: false,
+      retry: vi.fn()
+    };
+    draw();
+
+    // This zero is the machine's answer, not a placeholder for a read still in flight.
+    expect(
+      await screen.findByRole("button", { name: /0 tools · 0 capabilities/ })
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Reading the tool list…")).toBeNull();
+  });
+
   it("counts zero plugins on an older build without plugins.list", async () => {
     live.value = {
       tools: [tool("terminal.create", "terminal")],

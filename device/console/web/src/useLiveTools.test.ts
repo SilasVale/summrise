@@ -12,7 +12,7 @@ vi.mock("./api", async (importOriginal) => {
   };
 });
 
-import { resetLiveToolsCache, useLiveTools } from "./useLiveTools";
+import { resetLiveToolsCache, useLiveTools, type LiveToolsState } from "./useLiveTools";
 
 function tool(name: string, capability: string): LiveTool {
   return {
@@ -33,6 +33,40 @@ beforeEach(() => {
 });
 
 describe("useLiveTools", () => {
+  it("starts reading on a device's first render, not ready with an empty list", () => {
+    mocks.liveTools.mockReturnValue(new Promise(() => {}));
+    const seen: LiveToolsState[] = [];
+    renderHook(() => {
+      const state = useLiveTools("dev-1");
+      seen.push(state);
+      return state;
+    });
+
+    // The first commit is the one before `useEffect` starts the read. A surface that draws a zero
+    // there wears the empty list as an answer; the hook says reading until an answer exists.
+    expect(seen[0].tools).toEqual([]);
+    expect(seen[0].loading).toBe(true);
+  });
+
+  it("starts ready when the cache already holds the answer", async () => {
+    mocks.liveTools.mockResolvedValue({ tools: TOOLS });
+    const first = renderHook(() => useLiveTools("dev-1"));
+    await waitFor(() => expect(first.result.current.tools).toHaveLength(2));
+    first.unmount();
+
+    const seen: LiveToolsState[] = [];
+    mocks.liveTools.mockReturnValue(new Promise(() => {}));
+    renderHook(() => {
+      const state = useLiveTools("dev-1");
+      seen.push(state);
+      return state;
+    });
+
+    // A cached list is the read's last answer, not a pending read: no skeleton on a remount.
+    expect(seen[0].tools).toHaveLength(2);
+    expect(seen[0].loading).toBe(false);
+  });
+
   it("reads the live catalogue and serves it from the 30 s cache", async () => {
     mocks.liveTools.mockResolvedValue({ tools: TOOLS });
 

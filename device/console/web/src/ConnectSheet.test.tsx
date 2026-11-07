@@ -16,7 +16,10 @@ const mocks = vi.hoisted(() => ({
 // 503 (error + offline) and a list the console could not read. A test sets it; `beforeEach` resets.
 const liveState = vi.hoisted(() => ({
   error: null as string | null,
-  offline: false
+  offline: false,
+  loading: false,
+  retrying: false,
+  retry: vi.fn()
 }));
 
 // The registry `/tools` answer, as the mocked catalogue hook hands it to the form. A test may
@@ -46,10 +49,10 @@ vi.mock("./useLiveTools", () => ({
     stale: false,
     error: deviceId === null ? null : liveState.error,
     offline: deviceId === null ? false : liveState.offline,
-    loading: false,
-    retrying: false,
+    loading: deviceId === null ? false : liveState.loading,
+    retrying: deviceId === null ? false : liveState.retrying,
     retried: null,
-    retry: vi.fn()
+    retry: liveState.retry
   })
 }));
 
@@ -117,6 +120,9 @@ beforeEach(() => {
   ];
   liveState.error = null;
   liveState.offline = false;
+  liveState.loading = false;
+  liveState.retrying = false;
+  liveState.retry.mockReset();
   mocks.liveTools.mockReturnValue(TOOLS);
   mocks.tokens.mockResolvedValue([]);
   mocks.createToken.mockReset();
@@ -508,6 +514,62 @@ describe("ConnectSheet", () => {
     expect(
       within(tokenForm()).getByText("This token will cover workshop.")
     ).toBeInTheDocument();
+  });
+
+  it("labels a registry count as reading the machine's live list, with no Retry yet", () => {
+    // The read has not answered: the form may count the registry to stay usable, but it must say
+    // that the machine's list is still on the wire rather than wear the count as the machine's.
+    mocks.liveTools.mockReturnValue([]);
+    liveState.loading = true;
+
+    draw({ initialSection: "tokens" });
+
+    expect(
+      within(tokenForm()).getByText(
+        "2 tools (console registry; reading the machine's live list) · 1 can change the machine"
+      )
+    ).toBeInTheDocument();
+    expect(within(tokenForm()).queryByRole("button", { name: "Retry" })).toBeNull();
+    expect(within(tokenForm()).queryByText(/static fallback/)).toBeNull();
+  });
+
+  it("draws one notice and one Retry for a failed live read, then reads again", () => {
+    mocks.liveTools.mockReturnValue([]);
+    liveState.error = "the machine's tool list could not be read";
+
+    draw({ initialSection: "tokens" });
+
+    const notice = within(tokenForm()).getByRole("status");
+    expect(notice).toHaveTextContent(
+      "The machine's live list could not be read. This form counts the static fallback; " +
+        "the console refuses a plugin tool it cannot verify."
+    );
+    expect(within(tokenForm()).getAllByRole("button", { name: "Retry" })).toHaveLength(1);
+    fireEvent.click(within(notice).getByRole("button", { name: "Retry" }));
+    expect(liveState.retry).toHaveBeenCalledTimes(1);
+  });
+
+  it("says a failed refresh over the last live list, with one Retry", () => {
+    // The hook keeps the last good catalogue: that list is still the machine's last one, so the
+    // count names it and the failure is one notice rather than a fallback note.
+    liveState.error = "the console could not read the machine's tools";
+
+    draw({ initialSection: "tokens" });
+
+    expect(
+      within(tokenForm()).getByText(
+        "2 tools (last tool list the console read; it could not be refreshed) · " +
+          "1 can change the machine"
+      )
+    ).toBeInTheDocument();
+    const notice = within(tokenForm()).getByRole("status");
+    expect(notice).toHaveTextContent(
+      "The machine's live list could not be refreshed. This form counts the last tool list " +
+        "the console read."
+    );
+    expect(within(tokenForm()).queryByText(/static fallback/)).not.toBeInTheDocument();
+    fireEvent.click(within(notice).getByRole("button", { name: "Retry" }));
+    expect(liveState.retry).toHaveBeenCalledTimes(1);
   });
 
   it("drops the client block to a Copied sentence", async () => {
