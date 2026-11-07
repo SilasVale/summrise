@@ -153,20 +153,94 @@ describe("ActivityTimeline stretches", () => {
   });
 });
 
-describe("ActivityTimeline unknown machines", () => {
-  it("does not let an id the fleet lacks read like a machine", () => {
+describe("ActivityTimeline ids the fleet no longer lists", () => {
+  it("dates a line-derived id as old instead of calling it an unknown machine", () => {
     // The live window has one line whose device id is a hostname from an old enrollment. The line is
-    // real, so the chip exists — but it says "unknown machine", not a name that looks like a fleet.
+    // real, so it keeps a chip — but the chip says what the record knows (an old id and the age of
+    // its newest line), not that a machine exists under a name the page cannot read.
     const ghost = line({
       ts_ms: Date.UTC(2026, 10, 5, 9, 5, 0),
       device_id: "desktop-9vh92bj",
       sentence: "Listed the plugins",
       tool: "plugins.list"
     });
-    render(<ActivityTimeline lines={[ghost]} devices={devices} />);
+    render(
+      <ActivityTimeline
+        lines={[ghost]}
+        devices={devices}
+        nowMs={Date.UTC(2026, 10, 5, 9, 10, 0)}
+      />
+    );
     const group = screen.getByRole("group", { name: "Filter by machine" });
-    expect(within(group).getByText("unknown machine · desktop-9vh9")).toBeInTheDocument();
-    expect(within(group).queryByText("desktop-9vh92bj")).not.toBeInTheDocument();
+    expect(within(group).queryByText(/unknown machine/)).toBeNull();
+    const chip = within(group).getByRole("button", {
+      name: "old id · desktop-9vh9… · 5m ago"
+    });
+    expect(chip).toHaveAttribute(
+      "title",
+      "not in the fleet: desktop-9vh92bj; newest line 5m ago"
+    );
+    expect(screen.getByText("Listed the plugins")).toBeInTheDocument();
+  });
+
+  it("gives the selected gone id no chip and the ux95 window's old id a dated one", () => {
+    // ux95 measured this shape with the selected id deadbeefdead: the chips drew
+    // `unknown machine · deadbeefdead` (the fallback's id) and `unknown machine · fe209fc2d86a`
+    // (an old audit line). The fallback sentence is the only place the selected id is named; the
+    // line-derived id keeps a scope but says it is old and how old its newest line is.
+    const now = Date.UTC(2026, 10, 5, 9, 0, 0);
+    const gone = line({
+      ts_ms: now - 300_000,
+      device_id: "deadbeefdead",
+      sentence: "Read a removed machine's notes",
+      tool: "files.list"
+    });
+    const old = line({
+      ts_ms: now - 120_000,
+      device_id: "fe209fc2d86a",
+      sentence: "Refused a request",
+      tool: "files.read",
+      status: 403
+    });
+    render(
+      <ActivityTimeline lines={[gone, old]} devices={devices} goneId="deadbeefdead" nowMs={now} />
+    );
+
+    const group = screen.getByRole("group", { name: "Filter by machine" });
+    expect(within(group).queryByText(/unknown machine/)).toBeNull();
+    expect(within(group).queryByRole("button", { name: /deadbeef/ })).toBeNull();
+    const oldChip = within(group).getByRole("button", {
+      name: "old id · fe209fc2d86a · 2m ago"
+    });
+    expect(oldChip).toHaveAttribute(
+      "title",
+      "not in the fleet: fe209fc2d86a; newest line 2m ago"
+    );
+    // Known machines are unchanged: the fleet's name, not a prefix, and the id in the title.
+    expect(within(group).getByRole("button", { name: "Alpha" })).toHaveAttribute("title", alpha);
+    // The rows stay, and the old id is still a scope: pressing it narrows to that id's history.
+    expect(screen.getByText("Read a removed machine's notes")).toBeInTheDocument();
+    fireEvent.click(oldChip);
+    expect(screen.queryByText("Read a removed machine's notes")).not.toBeInTheDocument();
+    expect(screen.getByText("Refused a request")).toBeInTheDocument();
+    expect(oldChip).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("shows a table's old-id filter as an old id, not a missing machine", () => {
+    // The table's device select offers an id the fleet does not list, so the shared filter can be
+    // one while the timeline's window has no line for it. The chip that keeps that filter visible
+    // must not invent an age the window cannot prove.
+    const retired = "retired-device-0123456789";
+    render(<ActivityTimeline lines={[fromAlpha]} devices={devices} device={retired} />);
+    const group = screen.getByRole("group", { name: "Filter by machine" });
+    expect(within(group).queryByText(/unknown machine/)).toBeNull();
+    const chip = within(group).getByRole("button", { name: "old id · retired-devi…" });
+    expect(chip).toHaveAttribute("aria-pressed", "true");
+    expect(chip).toHaveAttribute(
+      "title",
+      `not in the fleet: ${retired}; no line in this window`
+    );
+    expect(screen.getByText("No activity on retired-devi….")).toBeInTheDocument();
   });
 });
 

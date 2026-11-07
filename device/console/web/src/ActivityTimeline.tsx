@@ -446,47 +446,72 @@ function Row(props: {
   );
 }
 
+type MachineOption = { id: string; name: string; known: boolean; title: string };
+
 /**
- * The machines the timeline can scope to: every registered machine, then any machine the lines
- * name that the fleet no longer lists, then the active filter if it is neither.
+ * The machines the timeline can scope to: every registered machine, then any id the lines name
+ * that the fleet no longer lists, then the active filter if it is neither.
  *
  * A chip is a scope, not only a filter over the lines in hand: another machine's chip must stay
  * reachable while one machine's window is on screen. A machine with no line in this window still
  * gets a chip, and selecting it reads that machine's window instead of filtering this one.
  *
+ * An id the fleet does not list is not a machine and is not called one. A line-derived id keeps a
+ * chip with what the record proves — `old id · <prefix> · <age of its newest line>` — and a filter
+ * the table set on such an id keeps one without an age, because this window has no line to date it.
+ * Both are real scopes over that id's history, not claims that a machine still exists under it.
+ *
  * `goneId` is the one id that gets none: the page has already fallen back from it because `/fleet`
- * answered without it (audit-38 F8), so an `unknown machine · <hex>` scope here would name as a
- * machine the very selection the page just said is not one. Its rows stay in the window — a removed
- * machine's past activity is still the record — but the page's fallback sentence is the only place
- * that id is explained, and presenting it again as a chip is what the measured page did.
+ * answered without it (audit-38 F8), and the page's fallback sentence is where that id is explained.
+ * Its rows stay in the window — a removed machine's past activity is still the record — but a chip
+ * here would present the selection the page just said is not in the fleet as a scope.
  */
 function machineOptions(
   lines: AuditLine[],
   devices: Device[],
   active: string,
-  goneId: string | null
-): Array<{ id: string; name: string; known: boolean }> {
-  const present = new Map<string, { name: string; known: boolean }>();
-  for (const device of devices) present.set(device.id, { name: device.name ?? device.id, known: true });
+  goneId: string | null,
+  nowMs: number
+): MachineOption[] {
+  const present = new Map<string, { name: string; known: boolean; newestMs: number | null }>();
+  for (const device of devices) {
+    present.set(device.id, { name: device.name ?? device.id, known: true, newestMs: null });
+  }
   for (const line of lines) {
     const id = line.device_id;
-    if (!id || id === goneId || present.has(id)) continue;
-    // A line can name an id the fleet does not list — an old enrollment, a retired machine. The
-    // line is real, so it keeps a chip; the chip must not read like a machine.
-    present.set(id, { name: `unknown machine · ${id.slice(0, 12)}`, known: false });
+    if (!id || id === goneId) continue;
+    const entry = present.get(id);
+    if (entry?.known) continue;
+    if (entry) {
+      if (entry.newestMs === null || line.ts_ms > entry.newestMs) entry.newestMs = line.ts_ms;
+      continue;
+    }
+    // A line can name an id the fleet does not list — an old enrollment, a retired machine, or an
+    // identity that was never a machine. The line is real, so it keeps a chip; the chip must say
+    // what the record knows instead of reading like a name for a machine.
+    present.set(id, { name: "", known: false, newestMs: line.ts_ms });
   }
-  // The table can narrow to a machine this window has no line for — a retired device, or a window
-  // that slid. The chip is how that filter stays visible (and clearable) on the timeline. A filter
-  // that IS the fallen-back id is left without a chip too: the page's sentence, not a scope the
-  // fleet does not list, is what carries that id.
+  // The table's device select offers the audit's line-derived ids too, so the shared filter can be
+  // an id this window has no line for. Keep that filter visible and clearable, but claim no age:
+  // the window has no line that could prove one.
   if (active !== "" && active !== goneId && !present.has(active)) {
-    const known = devices.some((device) => device.id === active);
-    present.set(active, {
-      name: known ? machineName(devices, active) ?? active : `unknown machine · ${active.slice(0, 12)}`,
-      known
-    });
+    present.set(active, { name: "", known: false, newestMs: null });
   }
-  return Array.from(present, ([id, entry]) => ({ id, name: entry.name, known: entry.known }));
+  return Array.from(present, ([id, entry]) => {
+    if (entry.known) {
+      return { id, name: entry.name, known: true, title: id };
+    }
+    const age = entry.newestMs === null ? null : ageAt(entry.newestMs, nowMs);
+    return {
+      id,
+      name: `old id · ${shortId(id)}${age === null ? "" : ` · ${age}`}`,
+      known: false,
+      title:
+        age === null
+          ? `not in the fleet: ${id}; no line in this window`
+          : `not in the fleet: ${id}; newest line ${age}`
+    };
+  });
 }
 
 /**
@@ -643,8 +668,8 @@ export function ActivityTimeline(props: {
     [props.tokens]
   );
   const machines = useMemo(
-    () => machineOptions(rows, props.devices, device, props.goneId ?? null),
-    [rows, props.devices, device, props.goneId]
+    () => machineOptions(rows, props.devices, device, props.goneId ?? null, at),
+    [rows, props.devices, device, props.goneId, at]
   );
   const filtered = useMemo(() => {
     if (needle === "" && device === "" && !clientsOnly) return rows;
@@ -713,8 +738,8 @@ export function ActivityTimeline(props: {
               <button
                 key={machine.id}
                 type="button"
-                className={machine.known ? "chip" : "chip is-unknown"}
-                title={machine.known ? machine.id : `not in the fleet: ${machine.id}`}
+                className={machine.known ? "chip" : "chip is-old"}
+                title={machine.title}
                 aria-pressed={device === machine.id}
                 onClick={() => setDevice(machine.id)}
               >

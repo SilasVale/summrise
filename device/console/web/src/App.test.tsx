@@ -2262,6 +2262,15 @@ describe("App", () => {
         token_id: null,
         tool: "files.list",
         sentence: "Read a removed machine's notes"
+      },
+      {
+        ...tokenCall,
+        ts_ms: Date.now() - 120_000,
+        device_id: "fe209fc2d86a",
+        token_id: null,
+        tool: "files.read",
+        status: 403,
+        sentence: "Refused a request from an old identity"
       }
     ]);
     const view = await bootAndSignIn();
@@ -2273,11 +2282,27 @@ describe("App", () => {
     const allMachines = screen.getByRole("group", { name: "Filter by machine" });
     expect(within(allMachines).queryByText(/unknown machine · deadbeefdead/)).toBeNull();
     expect(within(allMachines).queryByText(/unknown machine/)).toBeNull();
-    expect(within(allMachines).getByRole("button", { name: "workshop" })).toBeInTheDocument();
-    expect(within(allMachines).getByRole("button", { name: "attic" })).toBeInTheDocument();
+    expect(within(allMachines).queryByRole("button", { name: /deadbeef/ })).toBeNull();
+    // The old line keeps a scope, dated by its newest line; the fleet's names are unchanged.
+    const oldId = within(allMachines).getByRole("button", {
+      name: /^old id · fe209fc2d86a · 2m ago$/
+    });
+    expect(oldId).toHaveAttribute(
+      "title",
+      "not in the fleet: fe209fc2d86a; newest line 2m ago"
+    );
+    expect(within(allMachines).getByRole("button", { name: "workshop" })).toHaveAttribute(
+      "title",
+      workshop.id
+    );
+    expect(within(allMachines).getByRole("button", { name: "attic" })).toHaveAttribute(
+      "title",
+      attic.id
+    );
     // The record itself is still drawn: the sentence promises the past activity stays searchable,
     // so the fix takes away the chip, not the rows.
     expect(screen.getByText("Read a removed machine's notes")).toBeInTheDocument();
+    expect(screen.getByText("Refused a request from an old identity")).toBeInTheDocument();
     expect(screen.queryByText(/No activity on deadbeefdead/)).toBeNull();
     const notice = screen
       .getByText(
