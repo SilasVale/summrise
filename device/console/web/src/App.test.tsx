@@ -2332,10 +2332,11 @@ describe("App", () => {
     expect(screen.getByText("Reading the machine list…")).toBeInTheDocument();
     expect(screen.queryByText("No machines yet")).toBeNull();
     expect(screen.queryByText("0 machines · 0 online")).toBeNull();
-    // The setup action waits for the read that would tell the operator whether it is needed.
+    // The reading sentence is the fleet's state; the setup door is the account's and does not wait
+    // for it (task 72). Neither it nor the installer reads `/fleet`.
     expect(
-      within(screen.getByRole("main")).queryByRole("button", { name: "Add a machine" })
-    ).toBeNull();
+      within(screen.getByRole("main")).getByRole("button", { name: "Add a machine" })
+    ).toBeInTheDocument();
 
     await act(async () => {
       answer.resolve([workshop, attic]);
@@ -2356,9 +2357,10 @@ describe("App", () => {
     ).toBeInTheDocument();
     expect(screen.getByText("The machine list could not be read.")).toBeInTheDocument();
     expect(screen.queryByText("No machines yet")).toBeNull();
+    // The failed read is stated; the next step is still reachable.
     expect(
-      within(screen.getByRole("main")).queryByRole("button", { name: "Add a machine" })
-    ).toBeNull();
+      within(screen.getByRole("main")).getByRole("button", { name: "Add a machine" })
+    ).toBeInTheDocument();
 
     // A failed poll repeats the shell banner's named failure. Dismiss is the banner's control; the
     // read's own sentence is the page's and must survive it.
@@ -2383,6 +2385,31 @@ describe("App", () => {
     expect(screen.queryByText(/could not read the machine list/)).toBeNull();
     expect(
       within(screen.getByRole("main")).getByRole("button", { name: "Add a machine" })
+    ).toBeInTheDocument();
+    view.unmount();
+  });
+
+  it("mints a machine's code from a failed machine list", async () => {
+    mocks.devices.mockRejectedValue(new TypeError("Failed to fetch"));
+    const minted = "d".repeat(64);
+    mocks.enroll.mockResolvedValue({
+      code: minted,
+      expires_at_ms: Date.now() + 15 * 60_000
+    });
+    const view = await signInWithoutFleet();
+
+    // The read's failure is on the page; the enrollment door is the next step and still works.
+    await screen.findByText("The console could not read the machine list: Failed to fetch.");
+    fireEvent.click(
+      within(screen.getByRole("main")).getByRole("button", { name: "Add a machine" })
+    );
+
+    const panel = await screen.findByRole("region", { name: "Enrollment command" });
+    expect(panel).toHaveTextContent(minted);
+    expect(mocks.enroll).toHaveBeenCalledTimes(1);
+    // Minting did not paper over the read's failure.
+    expect(
+      screen.getByText("The console could not read the machine list: Failed to fetch.")
     ).toBeInTheDocument();
     view.unmount();
   });

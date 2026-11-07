@@ -1243,6 +1243,7 @@ const installerFacts = {
 function drawFleet(extra: Record<string, unknown> = {}) {
   const onTokens = vi.fn();
   const onRetryFleet = vi.fn();
+  const onAddMachine = vi.fn();
   const fleetProps = {
     device: null,
     devices: [],
@@ -1254,7 +1255,7 @@ function drawFleet(extra: Record<string, unknown> = {}) {
     onRename: vi.fn(),
     onRemove: vi.fn(),
     onDiagnostics: vi.fn(),
-    onAddMachine: vi.fn(),
+    onAddMachine,
     onTokens,
     onDismissCode: vi.fn(),
     onNotice: vi.fn(),
@@ -1271,6 +1272,7 @@ function drawFleet(extra: Record<string, unknown> = {}) {
     ...view,
     onTokens,
     onRetryFleet,
+    onAddMachine,
     rerenderFleet: (overrides: Record<string, unknown>) =>
       view.rerender(page({ ...extra, ...overrides }))
   };
@@ -1454,9 +1456,10 @@ describe("Home — the fleet's Tokens door", () => {
 
 /**
  * THE FLEET IS A READ BEFORE IT IS A LIST. A pending `/fleet` said `0 machines · 0 online` and
- * `No machines yet`, and a failed one said the same under a dismissable banner: the setup action
- * was offered for a fleet the console had not read. These three fixtures are the whole state
- * machine — reading, failed, and the successful empty answer that is the only zero state.
+ * `No machines yet`, and a failed one said the same under a dismissable banner. These fixtures are
+ * the whole state machine — reading, failed, and the successful empty answer that is the only zero
+ * state. The setup doors do not wait for the read: adding a machine mints a code and the installer
+ * is a file the console serves, so the read's state never takes them away (task 72).
  */
 describe("Home — the fleet's read", () => {
   beforeEach(() => {
@@ -1474,13 +1477,14 @@ describe("Home — the fleet's read", () => {
     ).toBeInTheDocument();
     expect(screen.queryByText("No machines yet")).toBeNull();
     expect(screen.queryByText("0 machines · 0 online")).toBeNull();
-    // The setup action waits for the read: a fleet the console has not read is not an empty fleet.
-    expect(screen.queryByRole("button", { name: "Add a machine" })).toBeNull();
+    // The reading sentence is the page's claim about the fleet; the setup doors are the account's
+    // and do not wait for that claim. A person on a slow link may be adding the machine now.
+    expect(screen.getByRole("button", { name: "Add a machine" })).toBeInTheDocument();
     await waitFor(() => expect(installerApi.installer).toHaveBeenCalledTimes(1));
     expect(
-      screen.queryByRole("heading", { name: "Install the device runtime" })
-    ).toBeNull();
-    // The credential door is not the setup action; it stays.
+      screen.getByRole("heading", { name: "Install the device runtime" })
+    ).toBeInTheDocument();
+    // The credential door is not the setup action; it stays too.
     expect(screen.getByRole("button", { name: "Tokens" })).toBeInTheDocument();
   });
 
@@ -1494,11 +1498,12 @@ describe("Home — the fleet's read", () => {
       screen.getByText("The console could not read the machine list: Failed to fetch.")
     ).toBeInTheDocument();
     expect(screen.queryByText("No machines yet")).toBeNull();
-    expect(screen.queryByRole("button", { name: "Add a machine" })).toBeNull();
+    // The failed read states its own failure; it does not take away the next step.
+    expect(screen.getByRole("button", { name: "Add a machine" })).toBeInTheDocument();
     await waitFor(() => expect(installerApi.installer).toHaveBeenCalledTimes(1));
     expect(
-      screen.queryByRole("heading", { name: "Install the device runtime" })
-    ).toBeNull();
+      screen.getByRole("heading", { name: "Install the device runtime" })
+    ).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));
     expect(onRetryFleet).toHaveBeenCalledTimes(1);
@@ -1515,7 +1520,54 @@ describe("Home — the fleet's read", () => {
     ).toBeInTheDocument();
     expect(screen.getByText("workshop")).toBeInTheDocument();
     expect(screen.queryByText("No machines yet")).toBeNull();
-    expect(screen.queryByRole("button", { name: "Add a machine" })).toBeNull();
+    // A stale list is still not a clean page: the door to add another machine is there.
+    expect(screen.getByRole("button", { name: "Add a machine" })).toBeInTheDocument();
+  });
+
+  it("keeps Add a machine and the installer doors while the machine list is pending", async () => {
+    const { onAddMachine } = drawFleet({ fleetRead: { state: "reading" } });
+
+    // The read's own sentence stays: the doors are drawn beside it, not instead of it.
+    expect(screen.getByText("Reading the machine list…")).toBeInTheDocument();
+    // Neither door reads `/fleet`: adding a machine mints a code with a POST, and the installer is
+    // a file this console serves. A slow list is when a person may need them most.
+    const add = screen.getByRole("button", { name: "Add a machine" });
+    expect(add).toBeEnabled();
+    fireEvent.click(add);
+    expect(onAddMachine).toHaveBeenCalledTimes(1);
+    expect(
+      await screen.findByRole("heading", { name: "Install the device runtime" })
+    ).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Download Windows installer" })).toHaveAttribute(
+      "href",
+      "/installer/download"
+    );
+    // A door is not a fleet: the page still does not claim the list is empty.
+    expect(screen.queryByText("No machines yet")).toBeNull();
+    expect(screen.queryByText("0 machines · 0 online")).toBeNull();
+  });
+
+  it("keeps Add a machine and the installer doors while the machine list failed", async () => {
+    const { onAddMachine, onRetryFleet } = drawFleet({
+      fleetRead: { state: "failed", reason: "Failed to fetch" }
+    });
+
+    // The failure and its Retry stay; the doors are the next step below the stated failure.
+    expect(
+      screen.getByText("The console could not read the machine list: Failed to fetch.")
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    expect(onRetryFleet).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole("button", { name: "Add a machine" }));
+    expect(onAddMachine).toHaveBeenCalledTimes(1);
+    expect(
+      await screen.findByRole("heading", { name: "Install the device runtime" })
+    ).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Download Windows installer" })).toHaveAttribute(
+      "href",
+      "/installer/download"
+    );
+    expect(screen.queryByText("No machines yet")).toBeNull();
   });
 
   it("offers enrollment only when a successful read returned no machines", async () => {

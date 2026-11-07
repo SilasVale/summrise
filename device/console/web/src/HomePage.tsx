@@ -69,11 +69,12 @@ type FleetProps = {
 };
 
 /**
- * The installer the console was given, read once when the fleet is drawn.
+ * The installer the console was given, read once when the fleet page is drawn.
  *
- * `null` is "nothing to show": the read has not landed, or it failed. A failed read hides the block
- * rather than drawing a door that cannot open, and the page does not poll it — the next visit to
- * the fleet is the next read.
+ * `null` is "nothing to show": the read has not landed, or it failed. That read is the installer's,
+ * not `/fleet`'s: a slow or failed machine list must not take away the file that installs a machine.
+ * A failed installer read hides the block rather than drawing a door that cannot open, and the page
+ * does not poll it — the next visit to the fleet is the next read.
  */
 function useInstaller(): Installer | null {
   const [installer, setInstaller] = useState<Installer | null>(null);
@@ -155,17 +156,18 @@ function FleetHome(props: FleetProps) {
           <button type="button" onClick={props.onTokens}>
             Tokens
           </button>
-          {/* The setup action waits for the read that would say whether it is needed. */}
-          {fleet.state === "ready" && (
-            <button
-              type="button"
-              className="primary"
-              disabled={props.busy}
-              onClick={props.onAddMachine}
-            >
-              Add a machine
-            </button>
-          )}
+          {/* **A READ IN FLIGHT IS NOT A REASON TO TAKE THE DOOR AWAY.** The fleet's read and the
+              enrollment are different subjects: adding a machine mints a code with a POST and never
+              waits for `/fleet`. A slow or failing list is exactly when a person may be adding one,
+              so the door is drawn in every read state; only the page's claim about the fleet waits. */}
+          <button
+            type="button"
+            className="primary"
+            disabled={props.busy}
+            onClick={props.onAddMachine}
+          >
+            Add a machine
+          </button>
         </div>
       </header>
 
@@ -196,9 +198,10 @@ function FleetHome(props: FleetProps) {
         </div>
       )}
 
-      {/* The installer is a setup action too: offered once the fleet has answered, not as a
-          substitute for an answer that has not arrived. */}
-      {fleet.state === "ready" && installer !== null && <InstallerBlock installer={installer} />}
+      {/* The installer is the account's, not the read's: `/installer` is a separate answer, and this
+          block is the next step whether the machine list arrived, is still coming, or failed. It is
+          not a substitute for the list's state — that sentence stays above it. */}
+      {installer !== null && <InstallerBlock installer={installer} />}
 
       {props.code && (
         <section className="enroll" aria-label="Enrollment command">
