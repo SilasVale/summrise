@@ -61,6 +61,39 @@ function storeSelectedDevice(id: string | null) {
   }
 }
 
+/**
+ * One named failure on the shell's banner.
+ *
+ * `key` is the read, not the sentence: the five-second poll fails many times during one outage, and
+ * a repeat is the same fact. Replacing the entry by key is the dedupe (audit-38 F2 measured the old
+ * banner reading `The console could not read Failed to fetch; Failed to fetch`).
+ *
+ * `detail` is evidence, never the sentence: the browser's own `Failed to fetch`, or the console's
+ * status and code. It is the entry's title, where a curious operator can read it and a sentence
+ * cannot present it as the console's words.
+ */
+type BannerFailure = {
+  key: string;
+  sentence: string;
+  detail?: string;
+  retry?: { label: string; run: () => void };
+};
+
+/** A failed read's entry: the subject is the sentence, the cause is the title, the retry is offered. */
+function readFailure(
+  key: string,
+  subject: string,
+  cause: unknown,
+  run: () => void
+): BannerFailure {
+  return {
+    key,
+    sentence: `The console could not read ${subject}.`,
+    detail: describe(cause),
+    retry: { label: `Retry reading ${subject}`, run }
+  };
+}
+
 export function App() {
   const [session, setSession] = useState<Session | null>(null);
   const [devices, setDevices] = useState<Device[]>([]);
@@ -294,7 +327,14 @@ export function App() {
   const [selected, setSelected] = useState<string | null>(initialSelected);
   // A run id handed from Activity to Runs; RunsPage consumes it once and clears it.
   const [runsFocus, setRunsFocus] = useState<string | null>(initialRun?.runId ?? null);
-  const [error, setError] = useState<string | null>(null);
+  /**
+   * The shell's named failures, one entry per read and replaced by that read's next failure.
+   *
+   * THE OLD STATE WAS ONE STRING OF RAW CAUSES: `The console could not read Failed to fetch`, and
+   * two failed reads joined with `; ` (audit-38 F2). A failure now carries its subject, the
+   * browser's text only as the entry's title, and the retry that reads again.
+   */
+  const [failures, setFailures] = useState<BannerFailure[]>([]);
   const [busy, setBusy] = useState(false);
   const [enrolling, setEnrolling] = useState(false);
   const [tokenInput, setTokenInput] = useState("");
@@ -407,24 +447,42 @@ export function App() {
       : null;
 
   /**
-   * A scope change is a new window, so it is a new read — through the same reader the five-second
-   * poll and the lag catch-up use, with the scope's device. `auditReadDevice` is the read already in
-   * hand or in flight; when it already names this scope there is nothing to fetch.
+   * Record a failure by its read. A repeat replaces the read's entry in place, so an outage's many
+   * polls show one banner and a new cause does not stack a second one.
    */
-  useEffect(() => {
-    if (!session?.authenticated) return;
-    if (auditReadDevice === auditScopeDevice) return;
-    rereadAudit().catch((cause) => {
-      setError(
-        "The console could not read " +
-          (auditScopeDevice === null
-            ? "the fleet's audit window"
-            : `the audit window for ${shortId(auditScopeDevice)}`) +
-          ": " +
-          describe(cause)
-      );
+  const reportFailure = useCallback((failure: BannerFailure) => {
+    setFailures((current) => {
+      const index = current.findIndex((entry) => entry.key === failure.key);
+      if (index === -1) return [...current, failure];
+      const next = current.slice();
+      next[index] = failure;
+      return next;
     });
-  }, [session?.authenticated, auditScopeDevice, auditReadDevice, rereadAudit]);
+  }, []);
+
+  /** The read answered: its banner has nothing left to say. Other reads' entries are untouched. */
+  const clearFailure = useCallback((key: string) => {
+    setFailures((current) =>
+      current.some((entry) => entry.key === key)
+        ? current.filter((entry) => entry.key !== key)
+        : current
+    );
+  }, []);
+
+  /**
+   * /session is this page's first read: its failure is a subject like any other, and the login
+   * card's `Try again` is its retry.
+   */
+  const reportProbeFailure = useCallback(
+    (cause: unknown) => {
+      reportFailure({
+        key: "console",
+        sentence: "The console could not read its own state.",
+        detail: describe(cause)
+      });
+    },
+    [reportFailure]
+  );
 
   // The operator's session is the credential. Selecting a machine starts a session-scoped grant
   // (no envelope); `/mcp` treats an absent grant as full operator authority on that device, so every
@@ -446,40 +504,69 @@ export function App() {
   // not failures, and exactly the noise that hides a real one later.
   const refreshData = useCallback(async () => {
     // EACH STREAM ANSWERS FOR ITSELF. A failed /audit must not turn the fleet into "0 devices" or
-    // Activity into "no calls": the last known values stay, and one banner says which read failed.
+    // Activity into "no calls": the last known values stay, and each failed read keeps its own
+    // named banner with the same reader as its retry.
     const [list, auditRead, tokenList] = await Promise.allSettled([
       api.devices(),
       rereadAudit(),
       tokensOrEmpty()
     ]);
+    const retry = () => void refreshData();
     if (list.status === "fulfilled") {
       setDevices(list.value);
       setFleetRead({ state: "ready" });
       // The poll is the only sampler; the stored last timestamp enforces the 30 s cadence. Sampling
       // after a successful fleet fetch is what keeps an offline device from adding a stale point.
       setVitals(recordVitals(list.value, Date.now()));
+      clearFailure("fleet");
     } else {
       // The last list stays on screen: it is still the console's knowledge. The read state is what
       // keeps it from being drawn as an empty fleet, and the reason is what the page can say.
       setFleetRead({ state: "failed", reason: describe(list.reason) });
+      // The page's own notice carries the reason; the shell's banner names the read, offers the
+      // retry, and keeps the browser's text in the title rather than in the sentence.
+      reportFailure(readFailure("fleet", "the machine list", list.reason, retry));
     }
     // `rereadAudit` owns the audit state; its rejection is only one of the reads the banner names.
     if (tokenList.status === "fulfilled") setTokens(tokenList.value);
-    const failed = [list, auditRead, tokenList].filter(
-      (result): result is PromiseRejectedResult => result.status === "rejected"
-    );
-    if (failed.length > 0) {
-      setError("The console could not read " + failed.map((result) => describe(result.reason)).join("; "));
+    if (auditRead.status === "fulfilled") {
+      clearFailure("audit");
     } else {
-      setError(null);
+      reportFailure(readFailure("audit", "the audit", auditRead.reason, retry));
     }
-  }, [rereadAudit]);
+  }, [rereadAudit, reportFailure, clearFailure]);
+
+  /**
+   * A scope change is a new window, so it is a new read — through the same reader the five-second
+   * poll and the lag catch-up use, with the scope's device. `auditReadDevice` is the read already in
+   * hand or in flight; when it already names this scope there is nothing to fetch.
+   *
+   * It is declared after `refreshData` because the banner's Retry is that reader: a retry answers
+   * both reads and clears each banner its answer settles.
+   */
+  useEffect(() => {
+    if (!session?.authenticated) return;
+    if (auditReadDevice === auditScopeDevice) return;
+    rereadAudit().catch((cause) => {
+      reportFailure(readFailure("audit", "the audit", cause, () => void refreshData()));
+    });
+  }, [
+    session?.authenticated,
+    auditScopeDevice,
+    auditReadDevice,
+    rereadAudit,
+    refreshData,
+    reportFailure
+  ]);
 
   const probe = useCallback(async () => {
     // /session decides the page; /health only labels the console's build. Waiting for both meant a
     // console whose /health failed could never render, even with a valid session.
     const state = await api.session();
     setSession(state);
+    // A fresh answer to /session starts a clean page: the previous session's failures do not stand
+    // over this one. The read failures `refreshData` reports below are this session's, and stay.
+    setFailures([]);
     // The page remembers HOW it was let in, past a local sign-out: a proxy identity cannot be ended
     // from this tab, so the signed-out screen must not hand the operator a token form with no way to
     // use it. `via` is the console's own answer, not a guess from the headers.
@@ -494,7 +581,6 @@ export function App() {
     } catch {
       /* the version label stays "…" — the page is not blocked on a cosmetic fact */
     }
-    setError(null);
   }, [refreshData]);
 
   const load = useCallback(async () => {
@@ -525,9 +611,9 @@ export function App() {
         setSession({ authenticated: false });
         return;
       }
-      setError(describe(cause));
+      reportProbeFailure(cause);
     });
-  }, [probe]);
+  }, [probe, reportProbeFailure]);
 
   // A signed-in session polls; a signed-out one does not. The device list is the thing an operator
   // watches, and this poll is the page's only read: a manual button would repeat it and still could
@@ -557,6 +643,7 @@ export function App() {
       })
       .catch(() => {});
     setSession({ authenticated: false });
+    setFailures([]);
     setDevices([]);
     setFleetRead({ state: "reading" });
     setVitals({});
@@ -681,7 +768,11 @@ export function App() {
       setTokenInput("");
       await load();
     } catch (cause) {
-      setError(describe(cause));
+      reportFailure({
+        key: "sign-in",
+        sentence: "The console could not sign you in.",
+        detail: describe(cause)
+      });
     } finally {
       setBusy(false);
     }
@@ -689,7 +780,7 @@ export function App() {
 
   const applyRename = async () => {
     if (!renaming) return;
-    setError(null);
+    clearFailure("rename");
     const name = draftName.trim();
     try {
       await api.rename(renaming.id, name === "" ? null : name);
@@ -697,13 +788,17 @@ export function App() {
       setNotice(name === "" ? "Name cleared; the device's own hostname applies." : `Renamed to ${name}.`);
       await load();
     } catch (cause) {
-      setError(describe(cause));
+      reportFailure({
+        key: "rename",
+        sentence: "The console could not rename the machine.",
+        detail: describe(cause)
+      });
     }
   };
 
   const applyRemove = async () => {
     if (!removing) return;
-    setError(null);
+    clearFailure("remove");
     try {
       await api.remove(removing.id);
       setNotice(`${removing.name ?? shortId(removing.id)} was removed; its channel closed.`);
@@ -711,7 +806,11 @@ export function App() {
       if (selected === removing.id) choose(null);
       await load();
     } catch (cause) {
-      setError(describe(cause));
+      reportFailure({
+        key: "remove",
+        sentence: "The console could not remove the machine.",
+        detail: describe(cause)
+      });
     }
   };
 
@@ -764,12 +863,16 @@ export function App() {
   const mintCode = async () => {
     if (mintInFlight.current) return;
     mintInFlight.current = true;
-    setError(null);
+    clearFailure("enroll");
     setEnrolling(true);
     try {
       setCode(await api.enroll());
     } catch (cause) {
-      setError(describe(cause));
+      reportFailure({
+        key: "enroll",
+        sentence: "The console could not create an enrollment code.",
+        detail: describe(cause)
+      });
     } finally {
       mintInFlight.current = false;
       setEnrolling(false);
@@ -786,7 +889,7 @@ export function App() {
   const addMachine = () => {
     setPage("home");
     choose(null);
-    setError(null);
+    clearFailure("enroll");
     const live = code !== null && code.expires_at_ms > Date.now();
     if (!live) void mintCode();
   };
@@ -797,10 +900,16 @@ export function App() {
         <section className="panel login">
           <img src={logoUrl} alt="" width={40} height={40} />
           <h1>Connecting to the console</h1>
-          {error ? (
+          {failures.length > 0 ? (
             <>
-              <p className="error">{error}</p>
-              <button type="button" className="primary" onClick={() => void probe().catch((cause) => setError(describe(cause)))}>
+              <p className="error" title={failures[0].detail}>
+                {failures[0].sentence}
+              </p>
+              <button
+                type="button"
+                className="primary"
+                onClick={() => void probe().catch(reportProbeFailure)}
+              >
                 Try again
               </button>
             </>
@@ -883,7 +992,19 @@ export function App() {
           <button className="primary" type="button" disabled={busy || tokenInput.trim().length === 0} onClick={() => void signIn()}>
             {busy ? "Checking…" : "Sign in"}
           </button>
-          {error && <p className="error">{error}</p>}
+          {failures.length > 0 && (
+            <p
+              className="error"
+              title={
+                failures
+                  .map((failure) => failure.detail)
+                  .filter(Boolean)
+                  .join(" · ") || undefined
+              }
+            >
+              {failures.map((failure) => failure.sentence).join(" ")}
+            </p>
+          )}
         </section>
       </div>
     );
@@ -910,14 +1031,29 @@ export function App() {
   return (
     <div className="shell">
       <a className="skip-link" href="#main">Skip to content</a>
-      {error && (
-        // POST-SIGN-IN FAILURES HAD NO SURFACE: every handler wrote `error`, and only the signed-out
-        // card ever drew it. A rejected enrollment or rename then looked like a click that did
-        // nothing. This banner sits above the shell, says the sentence, and stays until dismissed or
-        // replaced by the next success.
-        <div className="alert-banner" role="alert">
-          <span>{error}</span>
-          <button type="button" onClick={() => setError(null)}>Dismiss</button>
+      {failures.length > 0 && (
+        // POST-SIGN-IN FAILURES HAD NO SURFACE: every handler wrote an error string, and only the
+        // signed-out card ever drew it. The banner keeps each failure its own, names the read that
+        // failed, offers that read again, and keeps the technical cause in the title (audit-38 F2).
+        // A repeat of the same read replaces its entry instead of stacking another banner.
+        <div className="alert-stack">
+          {failures.map((failure) => (
+            <div className="alert-banner" role="alert" key={failure.key}>
+              <span title={failure.detail}>{failure.sentence}</span>
+              {failure.retry && (
+                <button
+                  type="button"
+                  aria-label={failure.retry.label}
+                  onClick={failure.retry.run}
+                >
+                  Retry
+                </button>
+              )}
+              <button type="button" onClick={() => clearFailure(failure.key)}>
+                Dismiss
+              </button>
+            </div>
+          ))}
         </div>
       )}
 

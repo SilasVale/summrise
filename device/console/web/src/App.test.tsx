@@ -2135,8 +2135,8 @@ describe("App", () => {
       within(screen.getByRole("main")).queryByRole("button", { name: "Add a machine" })
     ).toBeNull();
 
-    // The next poll fails too, which is what raises the shell's banner. Dismiss is the banner's
-    // control; the read's own sentence is the page's and must survive it.
+    // A failed poll repeats the shell banner's named failure. Dismiss is the banner's control; the
+    // read's own sentence is the page's and must survive it.
     const poll = startPoll.mock.calls.findIndex(([, delay]) => delay === 5000);
     expect(poll).toBeGreaterThanOrEqual(0);
     window.clearInterval(startPoll.mock.results[poll].value as number);
@@ -2159,6 +2159,72 @@ describe("App", () => {
     expect(
       within(screen.getByRole("main")).getByRole("button", { name: "Add a machine" })
     ).toBeInTheDocument();
+    view.unmount();
+  });
+
+  it("names a failed read and offers its retry instead of the browser's words", async () => {
+    mocks.devices.mockRejectedValue(new TypeError("Failed to fetch"));
+    const view = await signInWithoutFleet();
+
+    // audit-38 F2: the banner said `The console could not read Failed to fetch`. The read is the
+    // sentence's subject; the browser's own text is evidence, and evidence may sit in the title.
+    const banner = await screen.findByRole("alert");
+    expect(
+      within(banner).getByText("The console could not read the machine list.")
+    ).toBeInTheDocument();
+    expect(banner).not.toHaveTextContent("Failed to fetch");
+    expect(within(banner).getByTitle("Failed to fetch")).toBeInTheDocument();
+
+    // The banner's Retry is the read again: the answer puts the fleet back and the banner away.
+    mocks.devices.mockResolvedValue([workshop, attic]);
+    fireEvent.click(
+      within(banner).getByRole("button", { name: "Retry reading the machine list" })
+    );
+    await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
+    expect(await screen.findByText("2 machines · 2 online")).toBeInTheDocument();
+    view.unmount();
+  });
+
+  it("keeps one banner when the same read fails again", async () => {
+    const startPoll = vi.spyOn(window, "setInterval");
+    mocks.devices.mockRejectedValue(new TypeError("Failed to fetch"));
+    const view = await signInWithoutFleet();
+    expect(await screen.findByRole("alert")).toBeInTheDocument();
+
+    // Two more failed polls of the same read: a repeat is the same failure, not a second banner.
+    const poll = startPoll.mock.calls.findIndex(([, delay]) => delay === 5000);
+    expect(poll).toBeGreaterThanOrEqual(0);
+    window.clearInterval(startPoll.mock.results[poll].value as number);
+    await act(async () => {
+      (startPoll.mock.calls[poll][0] as () => void)();
+    });
+    await act(async () => {
+      (startPoll.mock.calls[poll][0] as () => void)();
+    });
+
+    expect(screen.getAllByRole("alert")).toHaveLength(1);
+    expect(screen.getAllByText("The console could not read the machine list.")).toHaveLength(1);
+    view.unmount();
+  });
+
+  it("names each failed read in its own banner instead of joining them", async () => {
+    mocks.devices.mockRejectedValue(new TypeError("Failed to fetch"));
+    mocks.audit.mockRejectedValue(new TypeError("Failed to fetch"));
+    const view = await signInWithoutFleet();
+
+    // Two reads, two subjects, one banner each: the old sentence joined the same raw text twice.
+    const banners = await screen.findAllByRole("alert");
+    expect(banners).toHaveLength(2);
+    expect(
+      within(banners[0]).getByText("The console could not read the machine list.")
+    ).toBeInTheDocument();
+    expect(
+      within(banners[1]).getByText("The console could not read the audit.")
+    ).toBeInTheDocument();
+    expect(banners.map((banner) => banner.textContent).join(" ")).not.toContain("Failed to fetch");
+    for (const banner of banners) {
+      expect(within(banner).getByRole("button", { name: /^Retry reading/ })).toBeInTheDocument();
+    }
     view.unmount();
   });
 

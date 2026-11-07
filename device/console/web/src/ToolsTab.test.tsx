@@ -102,6 +102,8 @@ beforeEach(() => {
     error: null,
     offline: false,
     loading: false,
+    retrying: false,
+    retried: null,
     retry: vi.fn()
   };
   mocks.list.mockReset();

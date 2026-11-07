@@ -52,6 +52,8 @@ function state(tools: LiveTool[] = [supportTool()], overrides: Partial<LiveTools
     error: null,
     offline: false,
     loading: false,
+    retrying: false,
+    retried: null,
     retry: vi.fn(),
     ...overrides
   };

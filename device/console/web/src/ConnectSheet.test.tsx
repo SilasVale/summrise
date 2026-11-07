@@ -47,6 +47,8 @@ vi.mock("./useLiveTools", () => ({
     error: deviceId === null ? null : liveState.error,
     offline: deviceId === null ? false : liveState.offline,
     loading: false,
+    retrying: false,
+    retried: null,
     retry: vi.fn()
   })
 }));

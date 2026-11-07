@@ -34,6 +34,8 @@ function state(overrides: Partial<LiveToolsState> = {}): LiveToolsState {
     error: null,
     offline: false,
     loading: false,
+    retrying: false,
+    retried: null,
     retry: vi.fn(),
     ...overrides
   };
