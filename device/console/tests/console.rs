@@ -530,14 +530,26 @@ fn registration_body_signed_by(signer: &SigningKey, id: &str, code: &str, ts_ms:
 async fn a_wrong_operator_token_is_401() {
     let fixture = Fixture::new("wrong-token");
 
-    let (status, body) = send(
+    let (status, headers, body) = send_with_headers(
         fixture.app(),
         post_json("/auth", json!({ "token": "00".repeat(32) })),
     )
     .await;
 
     assert_eq!(status, StatusCode::UNAUTHORIZED);
-    assert_eq!(body, json!({ "error": "unauthorized" }));
+    assert!(
+        !headers.contains_key(header::WWW_AUTHENTICATE),
+        "the sign-in form is not a bearer door; a challenge would name a scheme it does not take"
+    );
+    assert_eq!(body["error"], json!("unauthorized"));
+    let message = body["message"]
+        .as_str()
+        .expect("a refused sign-in says what to type");
+    assert!(message.contains("that token was not accepted"), "{message}");
+    assert!(
+        message.contains("64 hex characters") && message.contains("--operator-token-file"),
+        "the sentence names the value and where it lives: {message}"
+    );
 }
 
 #[tokio::test]
@@ -3168,7 +3180,12 @@ async fn an_mcp_call_to_an_unregistered_device_is_404() {
     .await;
 
     assert_eq!(status, StatusCode::NOT_FOUND);
-    assert_eq!(body, json!({ "error": "unknown_device" }));
+    assert_eq!(body["error"], json!("unknown_device"));
+    let message = body["message"]
+        .as_str()
+        .expect("a missing machine says to check the id");
+    assert!(message.contains("no machine"), "{message}");
+    assert!(message.contains("Machines page"), "{message}");
 }
 
 #[tokio::test]
@@ -3202,7 +3219,11 @@ async fn a_request_with_no_channel_waits_then_is_503_device_reconnecting() {
     );
     assert_eq!(
         body,
-        json!({ "error": "device reconnecting", "retry_after_ms": 1000 }),
+        json!({
+            "error": "device reconnecting",
+            "message": "this machine is reconnecting; try again in a moment",
+            "retry_after_ms": 1000,
+        }),
         "a missing channel is retryable, never a silent drop"
     );
     assert!(
@@ -7308,6 +7329,11 @@ async fn an_ambiguous_name_is_refused_with_the_scope_error_and_audited_as_reques
     .await;
     assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
     assert_eq!(body["error"]["code"], json!(-32001));
+    let message = body["error"]["message"].as_str().expect("a reason");
+    assert!(
+        message.contains("ambiguous") && message.contains("use the machine id"),
+        "an ambiguous name says how to disambiguate: {message}"
+    );
     let audit = audit_lines(&fixture);
     assert!(
         audit.iter().any(|line| line["kind"] == json!("denied")
@@ -7340,6 +7366,12 @@ async fn an_aggregate_token_cannot_reach_another_device() {
     )
     .await;
     assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+    assert_eq!(body["error"]["code"], json!(-32001));
+    let message = body["error"]["message"].as_str().expect("a reason");
+    assert!(message.contains("not permitted by this token"), "{message}");
+    assert!(message.contains("not in the token's fleet"), "{message}");
+    assert!(message.contains("Mint a token"), "{message}");
+    assert_eq!(body["error"]["data"]["device"], json!(c));
     let audit = audit_lines(&fixture);
     assert!(
         audit.iter().any(|line| line["kind"] == json!("denied")
@@ -7360,13 +7392,20 @@ async fn a_device_token_is_refused_on_the_aggregate_route() {
         .await;
     let token = created["token"].as_str().expect("the secret").to_owned();
 
-    let (status, body) = send(
+    let (status, headers, body) = send_with_headers(
         fixture.app(),
         aggregate_request(&token, json!({"jsonrpc": "2.0", "id": 4, "method": "ping"})),
     )
     .await;
     assert_eq!(status, StatusCode::UNAUTHORIZED, "{body}");
     assert_eq!(body["error"], json!("unauthorized"));
+    assert_eq!(
+        headers
+            .get(header::WWW_AUTHENTICATE)
+            .and_then(|value| value.to_str().ok()),
+        Some("Bearer realm=\"summrise-console\", error=\"invalid_token\""),
+        "a live token at the wrong door is still a bearer challenge"
+    );
     let door = format!("/mcp/{}…", &device_id[..12]);
     let message = body["message"]
         .as_str()
@@ -7405,7 +7444,7 @@ async fn an_aggregate_token_is_refused_on_a_device_route() {
     )
     .await;
 
-    let (status, body) = send(
+    let (status, headers, body) = send_with_headers(
         fixture.app(),
         post_token(
             &device_id,
@@ -7416,6 +7455,12 @@ async fn an_aggregate_token_is_refused_on_a_device_route() {
     .await;
     assert_eq!(status, StatusCode::UNAUTHORIZED, "{body}");
     assert_eq!(body["error"], json!("unauthorized"));
+    assert_eq!(
+        headers
+            .get(header::WWW_AUTHENTICATE)
+            .and_then(|value| value.to_str().ok()),
+        Some("Bearer realm=\"summrise-console\", error=\"invalid_token\"")
+    );
     let message = body["message"]
         .as_str()
         .expect("a live token's refusal names the door it opens");
@@ -7696,7 +7741,14 @@ async fn a_rotated_token_kills_the_old_one_and_keeps_the_scope() {
         StatusCode::UNAUTHORIZED,
         "the old token is dead at once: {body}"
     );
-    assert_eq!(body, json!({ "error": "unauthorized" }));
+    assert_eq!(body["error"], json!("unauthorized"));
+    assert!(
+        body["message"]
+            .as_str()
+            .expect("a reason")
+            .contains("not one this console issued, or it was revoked"),
+        "the old secret reads as a revoked token: {body}"
+    );
 
     let request = json!({ "jsonrpc": "2.0", "id": 31, "method": "tools/list" });
     let http = send(
@@ -8369,13 +8421,27 @@ async fn an_unknown_revoked_or_mismatched_token_is_unauthorized() {
     );
 
     let unknown = format!("srm_{}", "00".repeat(32));
-    let (status, body) = send(
+    let (status, headers, body) = send_with_headers(
         fixture.app(),
         post_token(&device_a, &unknown, ping_request()),
     )
     .await;
     assert_eq!(status, StatusCode::UNAUTHORIZED, "{body}");
-    assert_eq!(body, json!({ "error": "unauthorized" }));
+    assert_eq!(body["error"], json!("unauthorized"));
+    assert_eq!(
+        headers
+            .get(header::WWW_AUTHENTICATE)
+            .and_then(|value| value.to_str().ok()),
+        Some("Bearer realm=\"summrise-console\", error=\"invalid_token\""),
+        "an unissued bearer gets the challenge, not a bare 401"
+    );
+    assert!(
+        body["message"]
+            .as_str()
+            .expect("a reason")
+            .contains("not one this console issued, or it was revoked"),
+        "{body}"
+    );
 
     let (status, _) = send(
         fixture.app(),
@@ -8389,7 +8455,14 @@ async fn an_unknown_revoked_or_mismatched_token_is_unauthorized() {
     );
     let (status, body) = send(fixture.app(), post_token(&device_a, &token, ping_request())).await;
     assert_eq!(status, StatusCode::UNAUTHORIZED, "{body}");
-    assert_eq!(body, json!({ "error": "unauthorized" }));
+    assert_eq!(body["error"], json!("unauthorized"));
+    assert!(
+        body["message"]
+            .as_str()
+            .expect("a reason")
+            .contains("not one this console issued, or it was revoked"),
+        "a revoked token is not distinguished from an unissued one on the wire: {body}"
+    );
 
     let denials = denial_lines(&fixture);
     assert!(
@@ -8426,6 +8499,170 @@ async fn an_unknown_revoked_or_mismatched_token_is_unauthorized() {
             "management needs the operator"
         );
     }
+}
+
+/// **A 401 TELLS THE CLIENT WHICH DOOR AND WHY.** Missing, non-bearer and unreadable credentials all
+/// name the endpoint and carry the HTTP challenge; the body keeps the stable `unauthorized` code.
+#[tokio::test]
+async fn a_refused_bearer_names_the_door_and_the_challenge() {
+    let fixture = Fixture::new("mcp-401-shape");
+    let (device_id, _token) = fixture.register(&signing_key(0xc1)).await;
+    let door = format!("/mcp/{}…", &device_id[..12]);
+
+    for (authorization, reason) in [
+        (None, "carried no bearer token"),
+        (Some("Basic abcd"), "is not a Bearer token"),
+    ] {
+        let (status, headers, body) = send_with_headers(
+            fixture.app(),
+            standard_request(
+                &device_id,
+                authorization,
+                Some("application/json"),
+                Some("application/json"),
+                Body::from(ping_request().to_string()),
+            ),
+        )
+        .await;
+        assert_eq!(
+            status,
+            StatusCode::UNAUTHORIZED,
+            "{authorization:?}: {body}"
+        );
+        assert_eq!(body["error"], json!("unauthorized"));
+        let message = body["message"].as_str().expect("a reason");
+        assert!(message.contains(&door), "{authorization:?}: {message}");
+        assert!(message.contains(reason), "{authorization:?}: {message}");
+        assert!(
+            message.contains("Authorization: Bearer"),
+            "the sentence names the header to send: {message}"
+        );
+        assert_eq!(
+            headers
+                .get(header::WWW_AUTHENTICATE)
+                .and_then(|value| value.to_str().ok()),
+            Some("Bearer realm=\"summrise-console\""),
+            "no credential at all gets the bare challenge"
+        );
+    }
+
+    // A Bearer value that is not a token or a grant is a presented-but-invalid credential, and the
+    // challenge says so.
+    let (status, headers, body) = send_with_headers(
+        fixture.app(),
+        standard_request(
+            &device_id,
+            Some("Bearer zz"),
+            Some("application/json"),
+            Some("application/json"),
+            Body::from(ping_request().to_string()),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED, "{body}");
+    assert!(
+        body["message"]
+            .as_str()
+            .expect("a reason")
+            .contains("neither a grant nor a token this console issued"),
+        "{body}"
+    );
+    assert_eq!(
+        headers
+            .get(header::WWW_AUTHENTICATE)
+            .and_then(|value| value.to_str().ok()),
+        Some("Bearer realm=\"summrise-console\", error=\"invalid_token\"")
+    );
+
+    // The fleet door names itself too, and says which credential it takes.
+    let (status, _, body) = send_with_headers(
+        fixture.app(),
+        Request::builder()
+            .method("POST")
+            .uri("/mcp/all")
+            .header(header::CONTENT_TYPE, "application/json")
+            .header(header::ACCEPT, "application/json")
+            .body(Body::from(ping_request().to_string()))
+            .expect("the request builds"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED, "{body}");
+    let message = body["message"].as_str().expect("a reason");
+    assert!(message.contains("/mcp/all"), "{message}");
+    assert!(message.contains("fleet token"), "{message}");
+}
+
+/// A valid token at a machine that does not exist names the missing machine; it is not blamed on
+/// another machine's door, because minting a new token would not help.
+#[tokio::test]
+async fn a_valid_token_at_an_unknown_machine_is_a_404() {
+    let fixture = Fixture::new("token-unknown-machine");
+    let (device_id, _token) = fixture.register(&signing_key(0xc2)).await;
+    let session = fixture.authenticate().await;
+    let (status, created) = fixture
+        .create_token(&session, &device_id, "reader", &["files.read"], false)
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{created}");
+    let token = created["token"].as_str().expect("the token").to_owned();
+
+    let (status, body) = send(
+        fixture.app(),
+        post_token("deadbeef", &token, ping_request()),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "{body}");
+    assert_eq!(body["error"], json!("unknown_device"));
+    let message = body["message"].as_str().expect("a reason");
+    assert!(message.contains("no machine deadbeef"), "{message}");
+    assert!(message.contains("Machines page"), "{message}");
+    assert!(
+        !message.contains("another machine's endpoint"),
+        "the token was not the problem: {message}"
+    );
+}
+
+/// An unknown `device` in an aggregate call is a bad argument, not a token-scope refusal: the
+/// operator is sent to check the id, not to mint another token.
+#[tokio::test]
+async fn an_unknown_device_in_an_aggregate_call_is_not_a_scope_refusal() {
+    let fixture = Fixture::new("aggregate-unknown-machine");
+    let (device_id, _token) = fixture.register(&signing_key(0xc3)).await;
+    let session = fixture.authenticate().await;
+    let (_token_id, fleet) =
+        aggregate_token_for(&fixture, &session, &[device_id], &["state.get"]).await;
+
+    let (status, body) = send(
+        fixture.app(),
+        aggregate_request(
+            &fleet,
+            json!({
+                "jsonrpc": "2.0", "id": 7, "method": "tools/call",
+                "params": {
+                    "name": "state.get",
+                    "arguments": { "device": "deadbeefdeadbeef" }
+                }
+            }),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "{body}");
+    assert_eq!(
+        body["error"]["code"],
+        json!(-32602),
+        "an unknown machine is invalid params, not the token's -32001: {body}"
+    );
+    let message = body["error"]["message"].as_str().expect("a reason");
+    assert!(message.contains("unknown device"), "{message}");
+    assert!(message.contains("deadbeefdeadbeef"), "{message}");
+    assert!(message.contains("Machines page"), "{message}");
+    assert_eq!(body["error"]["data"]["device"], json!("deadbeefdeadbeef"));
+    let audit = audit_lines(&fixture);
+    assert!(
+        audit.iter().any(|line| line["kind"] == json!("denied")
+            && line["device_id"] == json!("deadbeefdeadbeef")
+            && line["detail"] == json!("unknown_device")),
+        "{audit:?}"
+    );
 }
 
 /// Removing a device removes its tokens with it: no token outlives the machine it was scoped to.
@@ -8656,14 +8893,28 @@ async fn an_expired_token_is_refused_as_expired_without_a_grant_or_an_audit() {
         StatusCode::UNAUTHORIZED,
         "an expired token is a credential failure: {body}"
     );
-    assert_eq!(body, json!({ "error": "unauthorized" }));
+    assert_eq!(body["error"], json!("unauthorized"));
+    assert!(
+        body["message"]
+            .as_str()
+            .expect("a reason")
+            .contains("bearer token has expired"),
+        "{body}"
+    );
 
     let (status, body) = send(fixture.app(), post_token(&device_b, &token, ping_request())).await;
     assert_eq!(status, StatusCode::UNAUTHORIZED, "{body}");
     assert_eq!(
-        body,
-        json!({ "error": "unauthorized" }),
-        "the wire answer does not distinguish the reasons"
+        body["error"],
+        json!("unauthorized"),
+        "the wire code does not distinguish the reasons"
+    );
+    assert!(
+        body["message"]
+            .as_str()
+            .expect("a reason")
+            .contains("bearer token has expired"),
+        "the sentence names expiry even on the foreign device: {body}"
     );
 
     let frame = tokio::time::timeout(Duration::from_millis(100), device.next()).await;
@@ -8963,6 +9214,9 @@ async fn the_live_catalogue_is_503_when_the_device_is_offline() {
     let fixture = Fixture::new("live-catalogue-offline");
     let (device_id, _token) = fixture.register(&signing_key(0xb8)).await;
     let session = fixture.authenticate().await;
+    // The device was registered 5 h 21 m ago and never opened a channel: the age is the silence
+    // since the console's last evidence, not a reconnect it cannot observe.
+    fixture.advance_ms((5 * 60 + 21) * 60_000);
 
     let (status, body) = send(
         fixture.app(),
@@ -8971,15 +9225,140 @@ async fn the_live_catalogue_is_503_when_the_device_is_offline() {
     .await;
 
     assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "{body}");
-    assert_eq!(body["error"], json!("device reconnecting"));
-    let message = body["message"]
-        .as_str()
-        .expect("the refusal has a sentence");
-    assert!(message.contains("not connected"), "{message}");
-    assert!(
-        message.contains("connect"),
-        "the sentence names the action: {message}"
+    assert_eq!(body["error"], json!("device not connected"));
+    assert_eq!(
+        body["message"],
+        json!("this machine is not connected since 5h 21m ago; connect it, then try again")
     );
+    assert!(
+        body.get("retry_after_ms").is_none(),
+        "a five-hour silence is not a retry-in-a-second: {body}"
+    );
+    assert!(
+        body["message"]
+            .as_str()
+            .expect("a sentence")
+            .contains("connect"),
+        "the sentence names the action"
+    );
+}
+
+/// **ONE SILENCE, ONE SENTENCE.** The tool read and both MCP doors derive the same state from the
+/// same last frame: five hours after the machine was heard, none of them promises a reconnect.
+#[tokio::test]
+async fn the_mcp_door_and_the_tool_read_state_the_same_silence() {
+    let fixture = Fixture::new("silence-one-sentence");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, device) = present_device(&fixture, &server, &signing_key(0xbf)).await;
+    let session = fixture.authenticate().await;
+    drop(device);
+    wait_until_offline(fixture.app(), &session, &device_id).await;
+    fixture.advance_ms((5 * 60 + 21) * 60_000);
+
+    let grant = fixture.create_grant(&session, &device_id, 24 * 3_600).await;
+    let (status, headers, body) = send_with_headers(
+        fixture.app(),
+        post_standard(
+            &device_id,
+            &grant,
+            json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list" }),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "{body}");
+    assert_eq!(body["error"], json!("device not connected"));
+    assert_eq!(
+        body["message"],
+        json!("this machine is not connected since 5h 21m ago; connect it, then try again")
+    );
+    assert!(
+        body.get("retry_after_ms").is_none(),
+        "a five-hour silence is not a retry-in-a-second: {body}"
+    );
+    assert!(
+        !headers.contains_key(header::RETRY_AFTER),
+        "the HTTP half must not promise a retry either"
+    );
+
+    let (read_status, read_body) = send(
+        fixture.app(),
+        get(&format!("/fleet/{device_id}/tools"), Some(&session)),
+    )
+    .await;
+    assert_eq!(read_status, status);
+    assert_eq!(
+        read_body, body,
+        "the operator's read and the MCP door say the same thing about the same silence"
+    );
+
+    let (_token_id, fleet) = aggregate_token_for(
+        &fixture,
+        &session,
+        std::slice::from_ref(&device_id),
+        &["state.get"],
+    )
+    .await;
+    let (status, headers, aggregate_body) = send_with_headers(
+        fixture.app(),
+        aggregate_request(
+            &fleet,
+            json!({
+                "jsonrpc": "2.0", "id": 7, "method": "tools/call",
+                "params": {"name": "state.get", "arguments": {"device": device_id}}
+            }),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "{aggregate_body}");
+    assert_eq!(
+        aggregate_body, body,
+        "/mcp/all's state.get repeats the tool read's sentence for the same machine"
+    );
+    assert!(!headers.contains_key(header::RETRY_AFTER));
+}
+
+/// **"RECONNECTING" IS ONLY FOR A RECENT ATTEMPT.** A channel that closed a moment ago is between
+/// connections; the same facts, read by both doors, still say reconnecting and still invite a retry.
+#[tokio::test]
+async fn a_device_heard_moments_ago_is_reconnecting_on_both_doors() {
+    let fixture = Fixture::new("reconnect-recent");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, device) = present_device(&fixture, &server, &signing_key(0xc0)).await;
+    let session = fixture.authenticate().await;
+    drop(device);
+    wait_until_offline(fixture.app(), &session, &device_id).await;
+    let grant = fixture.create_grant(&session, &device_id, 60).await;
+
+    let (status, headers, body) = send_with_headers(
+        fixture.app(),
+        post_standard(
+            &device_id,
+            &grant,
+            json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list" }),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "{body}");
+    assert_eq!(body["error"], json!("device reconnecting"));
+    assert_eq!(
+        body["message"],
+        json!("this machine is reconnecting; try again in a moment")
+    );
+    assert_eq!(body["retry_after_ms"], json!(1_000));
+    assert_eq!(
+        headers
+            .get(header::RETRY_AFTER)
+            .and_then(|value| value.to_str().ok()),
+        Some("1")
+    );
+
+    let (read_status, read_body) = send(
+        fixture.app(),
+        get(&format!("/fleet/{device_id}/tools"), Some(&session)),
+    )
+    .await;
+    assert_eq!(read_status, status);
+    assert_eq!(read_body, body);
 }
 
 /// A device that takes the frame and does not answer inside the console's bound is 504.

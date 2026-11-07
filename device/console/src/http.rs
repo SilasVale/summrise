@@ -1113,7 +1113,18 @@ pub(crate) struct ApiError {
     status: StatusCode,
     code: &'static str,
     message: Option<String>,
+    /// Present only when nothing was written and a retry is safe: the body's `retry_after_ms`
+    /// and the HTTP `Retry-After` header carry the same fact.
+    retry_after_ms: Option<u64>,
+    /// The `WWW-Authenticate` challenge, on the 401s whose credential is a bearer.
+    challenge: Option<&'static str>,
 }
+
+/// The challenge for a door that wants a bearer and was given none.
+const BEARER_CHALLENGE: &str = "Bearer realm=\"summrise-console\"";
+
+/// The challenge for a door that was given a bearer it does not accept.
+const INVALID_BEARER_CHALLENGE: &str = "Bearer realm=\"summrise-console\", error=\"invalid_token\"";
 
 impl ApiError {
     fn unauthorized() -> Self {
@@ -1121,6 +1132,8 @@ impl ApiError {
             status: StatusCode::UNAUTHORIZED,
             code: "unauthorized",
             message: None,
+            retry_after_ms: None,
+            challenge: None,
         }
     }
 
@@ -1129,6 +1142,8 @@ impl ApiError {
             status: StatusCode::FORBIDDEN,
             code,
             message: None,
+            retry_after_ms: None,
+            challenge: None,
         }
     }
 
@@ -1137,6 +1152,8 @@ impl ApiError {
             status: StatusCode::BAD_REQUEST,
             code,
             message: None,
+            retry_after_ms: None,
+            challenge: None,
         }
     }
 
@@ -1145,6 +1162,8 @@ impl ApiError {
             status: StatusCode::NOT_FOUND,
             code,
             message: None,
+            retry_after_ms: None,
+            challenge: None,
         }
     }
 
@@ -1153,6 +1172,8 @@ impl ApiError {
             status: StatusCode::TOO_MANY_REQUESTS,
             code,
             message: None,
+            retry_after_ms: None,
+            challenge: None,
         }
     }
 
@@ -1161,6 +1182,18 @@ impl ApiError {
             status: StatusCode::SERVICE_UNAVAILABLE,
             code,
             message: None,
+            retry_after_ms: None,
+            challenge: None,
+        }
+    }
+
+    fn bad_gateway(code: &'static str) -> Self {
+        ApiError {
+            status: StatusCode::BAD_GATEWAY,
+            code,
+            message: None,
+            retry_after_ms: None,
+            challenge: None,
         }
     }
 
@@ -1169,6 +1202,8 @@ impl ApiError {
             status: StatusCode::GATEWAY_TIMEOUT,
             code,
             message: None,
+            retry_after_ms: None,
+            challenge: None,
         }
     }
 
@@ -1177,6 +1212,8 @@ impl ApiError {
             status: StatusCode::INTERNAL_SERVER_ERROR,
             code: "internal",
             message: None,
+            retry_after_ms: None,
+            challenge: None,
         }
     }
 
@@ -1185,12 +1222,32 @@ impl ApiError {
             status: StatusCode::INTERNAL_SERVER_ERROR,
             code,
             message: None,
+            retry_after_ms: None,
+            challenge: None,
         }
     }
 
     /// Attach the sentence a person reads. It names the next action, never only the failure.
     fn saying(mut self, message: impl Into<String>) -> Self {
         self.message = Some(message.into());
+        self
+    }
+
+    /// Mark the refusal as safe to retry, and say how long the caller should wait.
+    fn retrying(mut self, retry_after_ms: u64) -> Self {
+        self.retry_after_ms = Some(retry_after_ms);
+        self
+    }
+
+    /// The 401 for a bearer door that was given no bearer: a challenge, no `invalid_token`.
+    fn challenging(mut self) -> Self {
+        self.challenge = Some(BEARER_CHALLENGE);
+        self
+    }
+
+    /// The 401 for a bearer door that was given a bearer it does not accept.
+    fn with_invalid_bearer(mut self) -> Self {
+        self.challenge = Some(INVALID_BEARER_CHALLENGE);
         self
     }
 }
@@ -1201,7 +1258,25 @@ impl IntoResponse for ApiError {
         if let Some(message) = self.message {
             body["message"] = json!(message);
         }
-        (self.status, Json(body)).into_response()
+        if let Some(retry_after_ms) = self.retry_after_ms {
+            body["retry_after_ms"] = json!(retry_after_ms);
+        }
+        let mut response = (self.status, Json(body)).into_response();
+        if let Some(retry_after_ms) = self.retry_after_ms {
+            // `Retry-After` is in seconds; round up so a 250 ms wait is not advertised as zero.
+            let seconds = retry_after_ms.div_ceil(1_000).max(1);
+            response.headers_mut().insert(
+                header::RETRY_AFTER,
+                HeaderValue::from_str(&seconds.to_string()).expect("a decimal Retry-After"),
+            );
+        }
+        if let Some(challenge) = self.challenge {
+            response.headers_mut().insert(
+                header::WWW_AUTHENTICATE,
+                HeaderValue::from_static(challenge),
+            );
+        }
+        response
     }
 }
 
@@ -1731,6 +1806,14 @@ async fn logout(State(app): State<AppState>, _: OperatorSession, headers: Header
     response
 }
 
+/// The sentence a refused operator token needs: what to type, and where the right value lives.
+fn bad_operator_token() -> ApiError {
+    ApiError::unauthorized().saying(
+        "that token was not accepted; the operator token is the 64 hex characters in the file \
+         named by --operator-token-file",
+    )
+}
+
 /// Verify the operator's secret: a typed token, or a one-time login code. `/auth` is the caller,
 /// and the denial line is written here so every sign-in failure records the same thing.
 async fn operator_from_credentials(
@@ -1745,21 +1828,28 @@ async fn operator_from_credentials(
             Err(reason) => {
                 eprintln!("summrise-console: refused a login code: {reason}");
                 return Err(app
-                    .refuse_as(None, ApiError::unauthorized(), "bad_login_code")
+                    .refuse_as(
+                        None,
+                        ApiError::unauthorized().saying(
+                            "that sign-in code was not accepted; it may have expired or already \
+                             been used. Mint a new one with --login-link",
+                        ),
+                        "bad_login_code",
+                    )
                     .await);
             }
         }
     } else {
         let Some(presented) = token.and_then(hex::decode_32) else {
             return Err(app
-                .refuse_as(None, ApiError::unauthorized(), "bad_operator_token")
+                .refuse_as(None, bad_operator_token(), "bad_operator_token")
                 .await);
         };
         constant_time_eq(&presented, &app.operator_token)
     };
     if !accepted {
         return Err(app
-            .refuse_as(None, ApiError::unauthorized(), "bad_operator_token")
+            .refuse_as(None, bad_operator_token(), "bad_operator_token")
             .await);
     }
     Ok(())
@@ -3103,8 +3193,16 @@ fn ensure_registered(app: &AppState, device_id: &str) -> Result<(), ApiError> {
     if lock(&app.devices).contains(device_id) {
         Ok(())
     } else {
-        Err(ApiError::not_found("unknown_device"))
+        Err(unknown_device(device_id))
     }
+}
+
+/// The 404 for a door that names no machine: a wrong id, not a credential problem.
+fn unknown_device(device_id: &str) -> ApiError {
+    ApiError::not_found("unknown_device").saying(format!(
+        "there is no machine {} in this console's fleet; check the id on the Machines page",
+        short_device_id(device_id)
+    ))
 }
 
 /// The operator's own scope on one device: every tool, destructive allowed.
@@ -3163,8 +3261,52 @@ fn short_device_id(device_id: &str) -> String {
 fn token_door(record: &Token) -> String {
     match record.kind() {
         TokenKind::Fleet => "/mcp/all".to_owned(),
-        TokenKind::Device => format!("/mcp/{}", short_device_id(&record.device_id)),
+        TokenKind::Device => device_door(&record.device_id),
     }
+}
+
+/// One device's MCP door, as a refusal names it.
+fn device_door(device_id: &str) -> String {
+    format!("/mcp/{}", short_device_id(device_id))
+}
+
+/// The 401 a bearer door gives a request whose header is missing or not a bearer.
+///
+/// The door and the credential it wants are in the sentence; the challenge is the HTTP half of the
+/// same fact. A malformed bearer gets `invalid_token`; an absent one gets the bare challenge,
+/// because no credential was presented.
+fn bearer_unauthorized(
+    door: &str,
+    problem: crate::mcp::BearerProblem,
+    credential: &str,
+) -> ApiError {
+    match problem {
+        crate::mcp::BearerProblem::Missing => ApiError::unauthorized()
+            .saying(format!(
+                "this is the MCP door at {door}; the request carried no bearer token. Send \
+                 {credential} as \"Authorization: Bearer …\""
+            ))
+            .challenging(),
+        crate::mcp::BearerProblem::NotBearer => ApiError::unauthorized()
+            .saying(format!(
+                "this is the MCP door at {door}; the Authorization header is not a Bearer token. \
+                 Send {credential} as \"Authorization: Bearer …\""
+            ))
+            .challenging(),
+        crate::mcp::BearerProblem::Unreadable => ApiError::unauthorized()
+            .saying(format!(
+                "this is the MCP door at {door}; the bearer value is neither a grant nor a token \
+                 this console issued. Send {credential} as \"Authorization: Bearer …\""
+            ))
+            .with_invalid_bearer(),
+    }
+}
+
+/// The 401 for a bearer that named itself but was not accepted.
+fn invalid_bearer(door: &str, reason: &str) -> ApiError {
+    ApiError::unauthorized()
+        .saying(format!("this is the MCP door at {door}; {reason}"))
+        .with_invalid_bearer()
 }
 
 /// The one wire answer for an aggregate token that failed lookup or minting: 401, with the denial
@@ -3172,22 +3314,39 @@ fn token_door(record: &Token) -> String {
 /// wire; a live token of the other kind is, because the caller already proved that credential and
 /// needs to know the door it opens.
 async fn refuse_token(app: &AppState, refusal: TokenRefusal) -> Response {
-    let (detail, message) = match refusal {
-        TokenRefusal::Unauthenticated(detail) => (detail, None),
+    let (detail, error) = match refusal {
+        TokenRefusal::Unauthenticated(detail) => {
+            let reason = match detail {
+                "expired_api_token" => {
+                    "the bearer token has expired; mint a new fleet token for /mcp/all"
+                }
+                _ => {
+                    "the bearer token is not one this console issued, or it was revoked; mint a \
+                     new fleet token for /mcp/all"
+                }
+            };
+            (detail, invalid_bearer("/mcp/all", reason))
+        }
         TokenRefusal::WrongDoor(door) => (
             "not_an_aggregate_token",
-            Some(format!(
-                "this token is for {door}; /mcp/all takes a fleet token"
-            )),
+            invalid_bearer(
+                "/mcp/all",
+                &format!("this token is for {door}; /mcp/all takes a fleet token"),
+            ),
         ),
         // The aggregate route reaches this only for a token whose list no longer contains the
-        // requested device. That is not a wrong door, so it keeps the bare refusal.
-        TokenRefusal::ForeignDevice(_) => ("foreign_api_token", None),
+        // requested device. That is not a wrong door, so it stays in the fleet's own words.
+        TokenRefusal::ForeignDevice(door) => (
+            "foreign_api_token",
+            invalid_bearer(
+                "/mcp/all",
+                &format!(
+                    "this token is for {door}; the requested machine is not in its fleet. Mint a \
+                     token that includes it"
+                ),
+            ),
+        ),
     };
-    let mut error = ApiError::unauthorized();
-    if let Some(message) = message {
-        error = error.saying(message);
-    }
     app.refuse_as(None, error, detail).await.into_response()
 }
 
@@ -3239,12 +3398,14 @@ fn token_scope(app: &AppState, record: &Token, device_id: &str) -> MintedScope {
 }
 
 /// A device token on `/mcp/:id`: one device only, never a fleet record.
-fn mint_token_scope(
+///
+/// The caller has already looked the record up, because it also has to check the registry between
+/// authentication and the door decision.
+fn mint_token_scope_from(
     app: &AppState,
     device_id: &str,
-    token: &str,
+    record: Token,
 ) -> Result<MintedScope, TokenRefusal> {
-    let record = live_token(app, token)?;
     match record.kind() {
         // The token authenticated; it is simply the wrong kind for this URL. Naming its own door
         // makes the first failing call say where the credential belongs.
@@ -3258,19 +3419,18 @@ fn mint_token_scope(
 
 /// An aggregate token on `/mcp/all`: the path is not a device, so the requested device is checked
 /// against the record's list before anything is signed.
-fn mint_aggregate_scope(
+fn mint_aggregate_scope_from(
     app: &AppState,
     device_id: &str,
-    token: &str,
+    record: &Token,
 ) -> Result<MintedScope, TokenRefusal> {
-    let record = live_token(app, token)?;
     let Some(allowed) = record.device_ids.as_ref() else {
-        return Err(TokenRefusal::WrongDoor(token_door(&record)));
+        return Err(TokenRefusal::WrongDoor(token_door(record)));
     };
     if !allowed.iter().any(|id| id == device_id) {
-        return Err(TokenRefusal::ForeignDevice(token_door(&record)));
+        return Err(TokenRefusal::ForeignDevice(token_door(record)));
     }
-    Ok(token_scope(app, &record, device_id))
+    Ok(token_scope(app, record, device_id))
 }
 
 /// The JSON-RPC code a device's error envelope carries, when it is one.
@@ -3388,7 +3548,10 @@ async fn proxy_reply(
                 StatusCode::FORBIDDEN,
                 request_id,
                 -32001,
-                "tool not permitted by grant",
+                &format!(
+                    "tool {tool} is not permitted by the presented credential; include it in \
+                     the token or grant, then try again"
+                ),
                 Some(json!({ "tool": tool })),
             )));
         }
@@ -3458,14 +3621,15 @@ async fn proxy_reply(
             ))
         }
         Ok(Err(error)) => {
-            let failure = failure_for(error);
+            let now = (app.now)();
+            let failure = failure_for(error, app.link_state(device_id, now), now);
             app.publish_work(
                 poll,
                 LiveCall {
                     device_id: audit_id.as_deref(),
                     tool: tool.as_deref(),
                     sentence: &publish_sentence,
-                    status: failure.status,
+                    status: failure.status(),
                     ok: false,
                     detail: failure.detail,
                     ms: started.elapsed().as_millis() as u64,
@@ -3477,7 +3641,7 @@ async fn proxy_reply(
             app.record_facts(AuditFacts {
                 kind: if poll { "poll" } else { "denied" },
                 device_id: audit_id.as_deref(),
-                status: failure.status,
+                status: failure.status(),
                 detail: Some(failure.detail),
                 tool: tool.as_deref(),
                 token_id: identity.token_id,
@@ -3689,10 +3853,12 @@ async fn forward(
 /// failure and would lose the error's `code`/`message`/`data`.
 ///
 /// A device that is between connections (the request waits [`crate::channels::RECONNECT_WAIT`] for
-/// the next one) returns 503 with `retry_after_ms`, because nothing was written and the operator's
-/// client can retry. A request whose channel closed after the frame was written returns 502 with no
-/// retry hint: the outcome is unknown, and a retry could execute it twice. 504 remains the request
-/// the device took and did not answer.
+/// the next one) returns 503, because nothing was written and the operator's client can retry. The
+/// sentence and the retry hint come from [`LinkState`]: "reconnecting" (with `retry_after_ms`) while
+/// the last frame is recent, otherwise "not connected since <age>" with no hint. A request whose
+/// channel closed after the frame was written returns 502 with no retry hint: the outcome is
+/// unknown, and a retry could execute it twice. 504 remains the request the device took and did not
+/// answer.
 ///
 /// This route's refusals are audited: the operator session has already proved a credential. The
 /// standard route (`/mcp/:id`) shares the same three pieces and sends its pre-authentication refusals
@@ -3756,7 +3922,10 @@ async fn proxy_mcp(
 ///
 /// Either credential is checked before the device lookup (no registry oracle) and before the body is
 /// read (no 8 MiB buffer for an unauthenticated caller). Everything before a verified grant or a
-/// valid token goes to the denial log; everything after it is an audited action.
+/// valid token goes to the denial log; everything after it is an audited action. A 401 names this
+/// door and the reason (no bearer, unknown or revoked, expired, the other door's token, another
+/// machine's token) and carries `WWW-Authenticate`; once a token has authenticated, an id that names
+/// no machine is a 404 `unknown_device`, not another token blamed for the wrong door.
 async fn standard_mcp(
     State(app): State<AppState>,
     Path(device_id): Path<String>,
@@ -3781,11 +3950,11 @@ async fn standard_mcp(
             .into_response();
     }
 
+    let door = device_door(&device_id);
     let Some(bearer) = crate::mcp::bearer_from_headers(&headers) else {
-        return app
-            .refuse(audit_id.as_deref(), ApiError::unauthorized())
-            .await
-            .into_response();
+        let problem = crate::mcp::bearer_problem(&headers);
+        let error = bearer_unauthorized(&door, problem, "the device token (srm_…)");
+        return app.refuse(audit_id.as_deref(), error).await.into_response();
     };
     // Two bearer types, one grant from here on: a presented envelope is verified exactly as before,
     // and a token mints an envelope with the token's scope. A token failure is a
@@ -3802,51 +3971,110 @@ async fn standard_mcp(
             }
             (BearerAuth::Grant(grant), None)
         }
-        crate::mcp::BearerKind::Token(token) => match mint_token_scope(&app, &device_id, &token) {
-            Ok(minted) => (BearerAuth::Token(minted.scope), Some(minted.token_id)),
-            Err(TokenRefusal::Unauthenticated(detail)) => {
+        crate::mcp::BearerKind::Token(token) => {
+            // The credential is looked up before the registry, so an unauthenticated caller cannot
+            // use this route to learn which ids exist. Once it *is* authenticated, a missing machine
+            // is a 404 rather than another token blamed for the wrong door.
+            let record = match live_token(&app, &token) {
+                Ok(record) => record,
+                Err(TokenRefusal::Unauthenticated(detail)) => {
+                    let reason = match detail {
+                        "expired_api_token" => {
+                            format!("the bearer token has expired; mint a new one for {door}")
+                        }
+                        _ => format!(
+                            "the bearer token is not one this console issued, or it was revoked; \
+                             mint a new token for {door}"
+                        ),
+                    };
+                    return app
+                        .refuse_as(audit_id.as_deref(), invalid_bearer(&door, &reason), detail)
+                        .await
+                        .into_response();
+                }
+                Err(_) => {
+                    return app
+                        .refuse_as(
+                            audit_id.as_deref(),
+                            invalid_bearer(
+                                &door,
+                                &format!(
+                                    "the bearer token was not accepted; mint a new one for {door}"
+                                ),
+                            ),
+                            "unknown_api_token",
+                        )
+                        .await
+                        .into_response();
+                }
+            };
+            if let Err(error) = ensure_registered(&app, &device_id) {
                 return app
-                    .refuse_as(audit_id.as_deref(), ApiError::unauthorized(), detail)
+                    .deny_from(Some(Caller::Client), audit_id.as_deref(), error)
                     .await
-                    .into_response()
-            }
-            // A live token of the other kind is authenticated, so its refusal may name the door it
-            // opens. The audit keeps the difference from a plain wrong-device attempt.
-            Err(TokenRefusal::WrongDoor(door)) => {
-                app.record_facts(AuditFacts {
-                    kind: "denied",
-                    device_id: audit_id.as_deref(),
-                    status: StatusCode::UNAUTHORIZED,
-                    detail: Some("api_token_wrong_endpoint"),
-                    tool: None,
-                    token_id: None,
-                    caller: Some(Caller::Client),
-                })
-                .await;
-                return ApiError::unauthorized()
-                    .saying(format!(
-                        "this token is for {door}; a device endpoint takes a device token"
-                    ))
                     .into_response();
             }
-            Err(TokenRefusal::ForeignDevice(door)) => {
-                app.record_facts(AuditFacts {
-                    kind: "denied",
-                    device_id: audit_id.as_deref(),
-                    status: StatusCode::UNAUTHORIZED,
-                    detail: Some("api_token_device_mismatch"),
-                    tool: None,
-                    token_id: None,
-                    caller: Some(Caller::Client),
-                })
-                .await;
-                return ApiError::unauthorized()
-                    .saying(format!(
-                        "this token is for {door}; it is not accepted at another machine's endpoint"
-                    ))
+            match mint_token_scope_from(&app, &device_id, record) {
+                Ok(minted) => (BearerAuth::Token(minted.scope), Some(minted.token_id)),
+                // A live token of the other kind is authenticated, so its refusal may name the door
+                // it opens. The audit keeps the difference from a plain wrong-device attempt.
+                Err(TokenRefusal::WrongDoor(token_door)) => {
+                    app.record_facts(AuditFacts {
+                        kind: "denied",
+                        device_id: audit_id.as_deref(),
+                        status: StatusCode::UNAUTHORIZED,
+                        detail: Some("api_token_wrong_endpoint"),
+                        tool: None,
+                        token_id: None,
+                        caller: Some(Caller::Client),
+                    })
+                    .await;
+                    return invalid_bearer(
+                        &door,
+                        &format!(
+                            "this token is for {token_door}; a device endpoint takes a device \
+                             token for that machine"
+                        ),
+                    )
                     .into_response();
+                }
+                Err(TokenRefusal::ForeignDevice(token_door)) => {
+                    app.record_facts(AuditFacts {
+                        kind: "denied",
+                        device_id: audit_id.as_deref(),
+                        status: StatusCode::UNAUTHORIZED,
+                        detail: Some("api_token_device_mismatch"),
+                        tool: None,
+                        token_id: None,
+                        caller: Some(Caller::Client),
+                    })
+                    .await;
+                    return invalid_bearer(
+                        &door,
+                        &format!(
+                            "this token is for {token_door}; it is not accepted at another \
+                             machine's endpoint"
+                        ),
+                    )
+                    .into_response();
+                }
+                Err(TokenRefusal::Unauthenticated(detail)) => {
+                    // `live_token` already succeeded, so this arm is unreachable in the current
+                    // split; it still names the door rather than falling back to a bare 401.
+                    return app
+                        .refuse_as(
+                            audit_id.as_deref(),
+                            invalid_bearer(
+                                &door,
+                                &format!("the bearer token could not be re-read; mint a new one for {door}"),
+                            ),
+                            detail,
+                        )
+                        .await
+                        .into_response();
+                }
             }
-        },
+        }
     };
     let auth = match &bearer_auth {
         BearerAuth::Grant(grant) => RequestAuth::Grant(grant),
@@ -3966,7 +4194,10 @@ async fn standard_mcp(
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum DeviceResolution {
     Resolved(String),
+    /// A registered machine, but not one this token lists.
     OutOfScope,
+    /// A name or id no machine in the fleet has: a typo or a removed machine, not a scope refusal.
+    Unknown,
     Ambiguous,
 }
 
@@ -3974,23 +4205,34 @@ enum DeviceResolution {
 ///
 /// An exact id wins. A name is matched only among the **allowed** devices, so a name that exists
 /// outside the scope is an out-of-scope request, not a hint; a name shared by two allowed devices is
-/// ambiguous rather than resolved by order.
+/// ambiguous rather than resolved by order. A value that names no machine at all is [`Unknown`]:
+/// the operator needs to check the id, not mint another token.
 fn resolve_aggregate_device(
     allowed: &[String],
-    devices: &[DeviceRef],
+    in_scope: &[DeviceRef],
+    fleet: &[DeviceRef],
     requested: &str,
 ) -> DeviceResolution {
     if allowed.iter().any(|id| id == requested) {
         return DeviceResolution::Resolved(requested.to_owned());
     }
-    let matches: Vec<&String> = devices
+    let matches: Vec<&String> = in_scope
         .iter()
-        .filter(|device| allowed.contains(&device.id) && device.name.as_deref() == Some(requested))
+        .filter(|device| device.name.as_deref() == Some(requested))
         .map(|device| &device.id)
         .collect();
     match matches.as_slice() {
-        [] => DeviceResolution::OutOfScope,
         [id] => DeviceResolution::Resolved((*id).clone()),
+        [] => {
+            let exists = fleet
+                .iter()
+                .any(|device| device.id == requested || device.name.as_deref() == Some(requested));
+            if exists {
+                DeviceResolution::OutOfScope
+            } else {
+                DeviceResolution::Unknown
+            }
+        }
         _ => DeviceResolution::Ambiguous,
     }
 }
@@ -4027,6 +4269,21 @@ fn aggregate_devices(app: &AppState, allowed: &[String]) -> Vec<DeviceRef> {
         .collect()
 }
 
+/// Every registered machine, as `(id, name)`: the fleet an aggregate argument is checked against.
+///
+/// The scope check uses this only to tell "not in this token's fleet" from "no such machine"; the
+/// resolved id still has to come from the token's own list.
+fn fleet_devices(app: &AppState) -> Vec<DeviceRef> {
+    lock(&app.devices)
+        .list()
+        .into_iter()
+        .map(|device| DeviceRef {
+            id: device.id,
+            name: device.name,
+        })
+        .collect()
+}
+
 /// `POST /mcp/all`: one standard MCP transport for every device an aggregate token names.
 ///
 /// The bearer is an aggregate token only. `initialize` names the token's devices, `tools/list` is
@@ -4053,16 +4310,22 @@ async fn aggregate_mcp(State(app): State<AppState>, request: axum::extract::Requ
     }
 
     let Some(bearer) = crate::mcp::bearer_from_headers(&headers) else {
-        return app
-            .refuse(None, ApiError::unauthorized())
-            .await
-            .into_response();
+        let problem = crate::mcp::bearer_problem(&headers);
+        let error = bearer_unauthorized("/mcp/all", problem, "a fleet token (srm_…)");
+        return app.refuse(None, error).await.into_response();
     };
     let token = match bearer {
         crate::mcp::BearerKind::Token(token) => token,
         crate::mcp::BearerKind::Grant(_) => {
             return app
-                .refuse_as(None, ApiError::unauthorized(), "aggregate_requires_token")
+                .refuse_as(
+                    None,
+                    invalid_bearer(
+                        "/mcp/all",
+                        "a grant is not accepted here; /mcp/all takes a fleet token",
+                    ),
+                    "aggregate_requires_token",
+                )
                 .await
                 .into_response()
         }
@@ -4137,9 +4400,18 @@ async fn aggregate_mcp(State(app): State<AppState>, request: axum::extract::Requ
             .into_response(),
         "tools/list" => {
             let Some(device_id) = allowed.iter().find(|id| app.channels.online(id)).cloned() else {
-                return failure_for(RequestError::Offline).into_response();
+                // No machine in this token's fleet is present. A fleet list has no single age to
+                // state, so it says the fleet's fact and leaves the retry open: any machine
+                // connecting changes it.
+                return ApiError::unavailable("devices not connected")
+                    .saying(
+                        "no machine in this token's fleet is connected; connect one of them, then \
+                         try again",
+                    )
+                    .retrying(RETRY_AFTER_MS)
+                    .into_response();
             };
-            let granted = match mint_aggregate_scope(&app, &device_id, &token) {
+            let granted = match mint_aggregate_scope_from(&app, &device_id, &record) {
                 Ok(granted) => granted,
                 Err(refusal) => return refuse_token(&app, refusal).await,
             };
@@ -4192,26 +4464,28 @@ async fn aggregate_mcp(State(app): State<AppState>, request: axum::extract::Requ
                 }
             };
             let devices = aggregate_devices(&app, &allowed);
-            match resolve_aggregate_device(&allowed, &devices, &requested) {
+            let fleet = fleet_devices(&app);
+            let resolution = resolve_aggregate_device(&allowed, &devices, &fleet, &requested);
+            match &resolution {
                 DeviceResolution::Resolved(device_id) => {
-                    if let Err(error) = ensure_registered(&app, &device_id) {
+                    if let Err(error) = ensure_registered(&app, device_id) {
                         return app
                             .deny_from(
                                 Some(Caller::Client),
-                                audit_device_id(&device_id).as_deref(),
+                                audit_device_id(device_id).as_deref(),
                                 error,
                             )
                             .await
                             .into_response();
                     }
-                    let granted = match mint_aggregate_scope(&app, &device_id, &token) {
+                    let granted = match mint_aggregate_scope_from(&app, device_id, &record) {
                         Ok(granted) => granted,
                         Err(refusal) => return refuse_token(&app, refusal).await,
                     };
                     let auth = RequestAuth::Token(&granted.scope);
                     forward(
                         &app,
-                        &device_id,
+                        device_id,
                         &auth,
                         CallIdentity {
                             caller: Caller::Client,
@@ -4224,11 +4498,35 @@ async fn aggregate_mcp(State(app): State<AppState>, request: axum::extract::Requ
                     )
                     .await
                 }
+                DeviceResolution::Unknown => {
+                    // A machine that does not exist is not a scope refusal: minting another token
+                    // would not help. The distinct error and 404 say to check the id instead.
+                    app.record_facts(AuditFacts {
+                        kind: "denied",
+                        device_id: Some(requested.as_str()),
+                        status: StatusCode::NOT_FOUND,
+                        detail: Some("unknown_device"),
+                        tool: None,
+                        token_id: Some(&record.id),
+                        caller: Some(Caller::Client),
+                    })
+                    .await;
+                    jsonrpc_error(
+                        StatusCode::NOT_FOUND,
+                        id,
+                        -32602,
+                        &format!(
+                            "unknown device: {requested} is not in this console's fleet; check \
+                             the id on the Machines page"
+                        ),
+                        Some(json!({ "device": requested })),
+                    )
+                }
                 DeviceResolution::OutOfScope | DeviceResolution::Ambiguous => {
                     // The audit records the `device` value as sent: a name is a legal input, and an
-                    // ambiguous one is exactly what an operator needs to see. The wire answer stays
-                    // the plan's one scope refusal, so the error code cannot probe for a device
-                    // outside the token.
+                    // ambiguous one is exactly what an operator needs to see. The wire code stays
+                    // the plan's one scope refusal, so it cannot probe for a device outside the
+                    // token; the sentence still has to say which of the two happened.
                     app.record_facts(AuditFacts {
                         kind: "denied",
                         device_id: Some(requested.as_str()),
@@ -4239,11 +4537,22 @@ async fn aggregate_mcp(State(app): State<AppState>, request: axum::extract::Requ
                         caller: Some(Caller::Client),
                     })
                     .await;
+                    let message = match &resolution {
+                        DeviceResolution::Ambiguous => format!(
+                            "device name {requested} is ambiguous: it matches more than one \
+                             machine in this token's fleet; use the machine id instead"
+                        ),
+                        _ => format!(
+                            "device {requested} is not permitted by this token; it is not in the \
+                             token's fleet. Mint a token that includes it, or call a machine the \
+                             token lists"
+                        ),
+                    };
                     jsonrpc_error(
                         StatusCode::FORBIDDEN,
                         id,
                         -32001,
-                        "device not permitted by token",
+                        &message,
                         Some(json!({ "device": requested })),
                     )
                 }
@@ -4456,21 +4765,24 @@ struct ToolView {
 /// The device is the authority on what it advertises. The console adds only the two facts a page
 /// cannot derive: where the tool comes from (`builtin`, or the plugin namespace) and, for a
 /// built-in, the capability group the registry declares it under. A read never falls back to the
-/// static registry: an offline device is an offline state, not a shorter list.
+/// static registry: an offline device is an offline state, not a shorter list. The refusal's
+/// sentence is the MCP door's own [`LinkState`] sentence, so one silence reads one way everywhere.
 async fn live_tool_catalogue(
     State(app): State<AppState>,
     Path(device_id): Path<String>,
     _: OperatorSession,
 ) -> Response {
     if !app.has_device(&device_id) {
-        return ApiError::not_found("unknown_device").into_response();
+        return unknown_device(&device_id).into_response();
     }
     match read_live_tools(&app, &device_id).await {
         Ok(tools) => match catalogue_from_tools(&tools) {
             Ok(tools) => (StatusCode::OK, Json(json!({ "tools": tools }))).into_response(),
-            Err(()) => LiveToolsError::Malformed.refusal().into_response(),
+            Err(()) => LiveToolsError::Malformed
+                .refusal(&app, &device_id)
+                .into_response(),
         },
-        Err(error) => error.refusal().into_response(),
+        Err(error) => error.refusal(&app, &device_id).into_response(),
     }
 }
 
@@ -4500,10 +4812,15 @@ enum LiveToolsError {
 
 impl LiveToolsError {
     /// The catalogue route's answer: 503 offline, 504 timeout, 500 malformed, each with a sentence.
-    fn refusal(self) -> ApiError {
+    ///
+    /// The offline sentence comes from the same [`LinkState`] the MCP door uses, so the operator's
+    /// read and an AI client's refused call never describe one silence two ways.
+    fn refusal(self, app: &AppState, device_id: &str) -> ApiError {
         match self {
-            LiveToolsError::Unavailable => ApiError::unavailable("device reconnecting")
-                .saying("this machine is not connected; connect it, then try again"),
+            LiveToolsError::Unavailable => {
+                let now = (app.now)();
+                LinkRefusal::from_state(app.link_state(device_id, now), now).into_api_error()
+            }
             LiveToolsError::Timeout => ApiError::gateway_timeout("device timeout")
                 .saying("the device did not answer; it may still be working, so try again"),
             LiveToolsError::Malformed => ApiError::internal_code("malformed_tools").saying(
@@ -4964,12 +5281,133 @@ fn channel_activity_view(
 
 /// How a transport failure is answered, and whether the operator may retry.
 struct TransportFailure {
-    status: StatusCode,
+    error: ApiError,
+    /// The audit detail: the same fact the wire error names.
+    detail: &'static str,
+}
+
+/// What the console can prove about a device it could not reach, from the device's last frame.
+///
+/// This is the ONE derivation both the operator's tool read and the MCP door use, so the two
+/// never tell different stories about the same silence.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum LinkState {
+    /// The device was heard inside [`crate::channels::PRESENCE_WINDOW`]: its channel is between
+    /// connections, and the next reconnect attempt is still recent. Nothing is known to be lost.
+    Reconnecting,
+    /// The last frame (or, after a console restart, the last accepted channel) is older than that
+    /// window. The silence is the fact, and an age can be stated. `None` is a device the console
+    /// has never heard: there is no moment to age.
+    NotConnected { since_ms: Option<u64> },
+}
+
+/// How long after its last frame the console still calls a missing device "reconnecting".
+///
+/// It is the presence window itself: that is the moment the fleet stops counting the device as
+/// online, so it is also the longest the console can say "it was just here" without inventing a
+/// recovery it cannot observe. Past it, the sentence is the age of the silence.
+const RECONNECT_GRACE_MS: u64 = crate::channels::PRESENCE_WINDOW.as_millis() as u64;
+
+impl Inner {
+    /// What the console can say about this device's link now, from its last frame.
+    ///
+    /// The frame is the evidence. A console restarted mid-outage has none, so the registry's last
+    /// accepted channel is the fallback: the device's first frame arrives on the channel it opened,
+    /// and the open is a known moment. A device the console has never seen has no moment; it reads
+    /// as not connected since the console started rather than inventing a frame time.
+    fn link_state(&self, device_id: &str, now_ms: u64) -> LinkState {
+        let since_ms = self.channels.last_frame(device_id).or_else(|| {
+            lock(&self.devices)
+                .get(device_id)
+                .map(|device| device.last_seen_ms)
+        });
+        match since_ms {
+            Some(since_ms) if now_ms.saturating_sub(since_ms) <= RECONNECT_GRACE_MS => {
+                LinkState::Reconnecting
+            }
+            since_ms => LinkState::NotConnected { since_ms },
+        }
+    }
+}
+
+/// One refusal for a missing device, as both doors render it.
+struct LinkRefusal {
     error: &'static str,
-    /// Present only when nothing was written and a retry is safe.
+    message: String,
     retry_after_ms: Option<u64>,
     /// The audit detail: the same fact the wire error names.
     detail: &'static str,
+}
+
+impl LinkRefusal {
+    fn from_state(state: LinkState, now_ms: u64) -> Self {
+        match state {
+            LinkState::Reconnecting => LinkRefusal {
+                error: "device reconnecting",
+                message: "this machine is reconnecting; try again in a moment".to_owned(),
+                retry_after_ms: Some(RETRY_AFTER_MS),
+                detail: "device reconnecting",
+            },
+            LinkState::NotConnected { since_ms: None } => LinkRefusal {
+                error: "device not connected",
+                message: "this machine is not connected; the console has not heard from it since \
+                          it started. Connect it, then try again"
+                    .to_owned(),
+                retry_after_ms: None,
+                detail: "device not connected",
+            },
+            LinkState::NotConnected {
+                since_ms: Some(since_ms),
+            } => LinkRefusal {
+                error: "device not connected",
+                message: format!(
+                    "this machine is not connected since {} ago; connect it, then try again",
+                    age_sentence(now_ms.saturating_sub(since_ms))
+                ),
+                retry_after_ms: None,
+                detail: "device not connected",
+            },
+        }
+    }
+
+    fn into_api_error(self) -> ApiError {
+        let error = ApiError::unavailable(self.error).saying(self.message);
+        match self.retry_after_ms {
+            Some(retry_after_ms) => error.retrying(retry_after_ms),
+            None => error,
+        }
+    }
+}
+
+/// A silence in the fleet's own units: seconds, minutes, then hours and minutes, then days.
+///
+/// The page's `seenAgo` uses the same units; a console sentence and the row above it must not
+/// disagree about how long five hours is.
+fn age_sentence(elapsed_ms: u64) -> String {
+    let seconds = (elapsed_ms + 500) / 1_000;
+    if seconds < 60 {
+        return format!("{seconds}s");
+    }
+    let minutes = (elapsed_ms + 30_000) / 60_000;
+    if minutes < 60 {
+        return format!("{minutes}m");
+    }
+    let hours = minutes / 60;
+    let rest = minutes % 60;
+    if hours < 24 {
+        return if rest == 0 {
+            format!("{hours}h")
+        } else {
+            format!("{hours}h {rest:02}m")
+        };
+    }
+    let days = hours / 24;
+    let rest = hours % 24;
+    if rest == 0 {
+        format!("{days}d")
+    } else {
+        format!("{days}d {rest}h")
+    }
 }
 
 /// Map the channel's failure onto the proxy's status contract.
@@ -4977,58 +5415,43 @@ struct TransportFailure {
 /// `503` is reserved for "nothing was written": a device between channels, or a full queue. A frame
 /// that was written and never answered is `502` with no retry hint, because the device may have
 /// executed it. A socket that did not accept a frame inside its bound is `504`.
-fn failure_for(error: RequestError) -> TransportFailure {
-    match error {
-        RequestError::Offline => TransportFailure {
-            status: StatusCode::SERVICE_UNAVAILABLE,
-            error: "device reconnecting",
-            retry_after_ms: Some(RETRY_AFTER_MS),
-            detail: "device reconnecting",
-        },
-        RequestError::Disconnected => TransportFailure {
-            status: StatusCode::BAD_GATEWAY,
-            error: "device disconnected",
-            retry_after_ms: None,
-            detail: "device disconnected",
-        },
-        RequestError::Busy => TransportFailure {
-            status: StatusCode::SERVICE_UNAVAILABLE,
-            error: "device busy",
-            retry_after_ms: Some(BUSY_RETRY_AFTER_MS),
-            detail: "device busy",
-        },
-        RequestError::SendTimeout => TransportFailure {
-            status: StatusCode::GATEWAY_TIMEOUT,
-            error: "device timeout",
-            retry_after_ms: None,
-            detail: "device timeout",
-        },
-        RequestError::ReplyTimeout => TransportFailure {
-            status: StatusCode::GATEWAY_TIMEOUT,
-            error: "device did not answer",
-            retry_after_ms: None,
-            detail:
-                "the device accepted the request and did not answer inside the console's bound; \
-                     it may still be working on it",
-        },
-    }
+///
+/// `link` is read only for [`RequestError::Offline`]; every other failure has its own state.
+fn failure_for(error: RequestError, link: LinkState, now_ms: u64) -> TransportFailure {
+    let (error, detail) = match error {
+        RequestError::Offline => {
+            let refusal = LinkRefusal::from_state(link, now_ms);
+            let detail = refusal.detail;
+            (refusal.into_api_error(), detail)
+        }
+        RequestError::Disconnected => (
+            ApiError::bad_gateway("device disconnected"),
+            "device disconnected",
+        ),
+        RequestError::Busy => (
+            ApiError::unavailable("device busy").retrying(BUSY_RETRY_AFTER_MS),
+            "device busy",
+        ),
+        RequestError::SendTimeout => (
+            ApiError::gateway_timeout("device timeout"),
+            "device timeout",
+        ),
+        RequestError::ReplyTimeout => (
+            ApiError::gateway_timeout("device did not answer"),
+            "the device accepted the request and did not answer inside the console's bound; \
+             it may still be working on it",
+        ),
+    };
+    TransportFailure { error, detail }
 }
 
 impl TransportFailure {
+    fn status(&self) -> StatusCode {
+        self.error.status
+    }
+
     fn into_response(self) -> Response {
-        let body = match self.retry_after_ms {
-            Some(retry_after_ms) => {
-                json!({ "error": self.error, "retry_after_ms": retry_after_ms })
-            }
-            None => json!({ "error": self.error }),
-        };
-        if self.retry_after_ms.is_some() {
-            let mut headers = HeaderMap::new();
-            headers.insert(header::RETRY_AFTER, HeaderValue::from_static("1"));
-            (self.status, headers, Json(body)).into_response()
-        } else {
-            (self.status, Json(body)).into_response()
-        }
+        self.error.into_response()
     }
 }
 
@@ -5681,29 +6104,42 @@ mod tests {
 
     #[test]
     fn transport_failures_map_to_the_status_contract() {
-        let offline = failure_for(RequestError::Offline);
-        assert_eq!(offline.status, StatusCode::SERVICE_UNAVAILABLE);
-        assert_eq!(offline.error, "device reconnecting");
-        assert_eq!(offline.retry_after_ms, Some(1_000));
+        let now = 1_000_000_000_000;
+        let offline = failure_for(
+            RequestError::Offline,
+            LinkState::NotConnected {
+                since_ms: Some(now - 5 * 3_600_000),
+            },
+            now,
+        );
+        assert_eq!(offline.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(offline.error.code, "device not connected");
+        assert_eq!(offline.error.retry_after_ms, None);
 
-        let disconnected = failure_for(RequestError::Disconnected);
-        assert_eq!(disconnected.status, StatusCode::BAD_GATEWAY);
-        assert_eq!(disconnected.retry_after_ms, None);
+        let reconnecting = failure_for(RequestError::Offline, LinkState::Reconnecting, now);
+        assert_eq!(reconnecting.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(reconnecting.error.code, "device reconnecting");
+        assert_eq!(reconnecting.error.retry_after_ms, Some(1_000));
 
-        let busy = failure_for(RequestError::Busy);
-        assert_eq!(busy.status, StatusCode::SERVICE_UNAVAILABLE);
-        assert_eq!(busy.error, "device busy");
-        assert_eq!(busy.retry_after_ms, Some(250));
+        let disconnected = failure_for(RequestError::Disconnected, LinkState::Reconnecting, now);
+        assert_eq!(disconnected.status(), StatusCode::BAD_GATEWAY);
+        assert_eq!(disconnected.error.retry_after_ms, None);
 
-        let send_timeout = failure_for(RequestError::SendTimeout);
-        assert_eq!(send_timeout.status, StatusCode::GATEWAY_TIMEOUT);
-        assert_eq!(send_timeout.retry_after_ms, None);
+        let busy = failure_for(RequestError::Busy, LinkState::Reconnecting, now);
+        assert_eq!(busy.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(busy.error.code, "device busy");
+        assert_eq!(busy.error.retry_after_ms, Some(250));
+
+        let send_timeout = failure_for(RequestError::SendTimeout, LinkState::Reconnecting, now);
+        assert_eq!(send_timeout.status(), StatusCode::GATEWAY_TIMEOUT);
+        assert_eq!(send_timeout.error.retry_after_ms, None);
     }
 
     #[test]
     fn only_retryable_failures_carry_a_retry_after_header() {
+        let now = 1_000_000_000_000;
         for error in [RequestError::Offline, RequestError::Busy] {
-            let response = failure_for(error).into_response();
+            let response = failure_for(error, LinkState::Reconnecting, now).into_response();
             assert!(
                 response.headers().contains_key(header::RETRY_AFTER),
                 "a safe retry names its delay"
@@ -5714,12 +6150,64 @@ mod tests {
             RequestError::SendTimeout,
             RequestError::ReplyTimeout,
         ] {
-            let response = failure_for(error).into_response();
+            let response = failure_for(error, LinkState::Reconnecting, now).into_response();
             assert!(
                 !response.headers().contains_key(header::RETRY_AFTER),
                 "an unknown or timed-out outcome must not invite a blind retry"
             );
         }
+        // A long silence has no retry promise: the age is the answer, not a delay.
+        let offline = failure_for(
+            RequestError::Offline,
+            LinkState::NotConnected {
+                since_ms: Some(now - 5 * 3_600_000),
+            },
+            now,
+        );
+        assert!(!offline
+            .into_response()
+            .headers()
+            .contains_key(header::RETRY_AFTER));
+    }
+
+    #[test]
+    fn the_link_sentence_has_one_state_and_the_age_of_the_last_frame() {
+        let now = 1_000_000_000_000;
+        let reconnecting = LinkRefusal::from_state(LinkState::Reconnecting, now);
+        assert_eq!(
+            reconnecting.message,
+            "this machine is reconnecting; try again in a moment"
+        );
+        assert_eq!(reconnecting.detail, "device reconnecting");
+
+        let away = LinkRefusal::from_state(
+            LinkState::NotConnected {
+                since_ms: Some(now - ((5 * 60 + 21) * 60_000)),
+            },
+            now,
+        );
+        assert_eq!(
+            away.message,
+            "this machine is not connected since 5h 21m ago; connect it, then try again"
+        );
+        assert_eq!(away.detail, "device not connected");
+        assert_eq!(away.retry_after_ms, None);
+
+        let never = LinkRefusal::from_state(LinkState::NotConnected { since_ms: None }, now);
+        assert_eq!(
+            never.message,
+            "this machine is not connected; the console has not heard from it since it started. \
+             Connect it, then try again"
+        );
+    }
+
+    #[test]
+    fn an_age_is_written_in_the_fleet_units() {
+        assert_eq!(age_sentence(15_000), "15s");
+        assert_eq!(age_sentence(7 * 60_000), "7m");
+        assert_eq!(age_sentence((60 + 49) * 60_000), "1h 49m");
+        assert_eq!(age_sentence(2 * 3_600_000), "2h");
+        assert_eq!(age_sentence((24 + 5) * 3_600_000), "1d 5h");
     }
 
     fn device(id: &str, name: Option<&str>) -> DeviceRef {
@@ -5731,40 +6219,55 @@ mod tests {
 
     #[test]
     fn a_device_name_resolves_only_within_the_scope() {
-        let devices = vec![
+        let fleet = vec![
             device("a", Some("ALPHA")),
             device("b", Some("BETA")),
             device("c", Some("GAMMA")),
         ];
         let allowed = vec!["a".to_string(), "b".to_string()];
         assert_eq!(
-            resolve_aggregate_device(&allowed, &devices, "b"),
+            resolve_aggregate_device(&allowed, &fleet[..2], &fleet, "b"),
             DeviceResolution::Resolved("b".to_owned())
         );
         assert_eq!(
-            resolve_aggregate_device(&allowed, &devices, "BETA"),
+            resolve_aggregate_device(&allowed, &fleet[..2], &fleet, "BETA"),
             DeviceResolution::Resolved("b".to_owned())
         );
         assert_eq!(
-            resolve_aggregate_device(&allowed, &devices, "GAMMA"),
+            resolve_aggregate_device(&allowed, &fleet[..2], &fleet, "GAMMA"),
             DeviceResolution::OutOfScope
         );
         assert_eq!(
-            resolve_aggregate_device(&allowed, &devices, "nope"),
+            resolve_aggregate_device(&allowed, &fleet[..2], &fleet, "nope"),
+            DeviceResolution::Unknown
+        );
+    }
+
+    #[test]
+    fn an_unknown_machine_is_not_a_scope_refusal() {
+        let fleet = vec![device("a", Some("ALPHA"))];
+        assert_eq!(
+            resolve_aggregate_device(&["a".into()], &fleet, &fleet, "deadbeef"),
+            DeviceResolution::Unknown
+        );
+        // A machine that exists outside the token is the scope's refusal, not a typo.
+        let fleet = vec![device("a", Some("ALPHA")), device("b", Some("BETA"))];
+        assert_eq!(
+            resolve_aggregate_device(&["a".into()], &fleet[..1], &fleet, "BETA"),
             DeviceResolution::OutOfScope
         );
     }
 
     #[test]
     fn a_shared_device_name_is_ambiguous() {
-        let devices = vec![device("a", Some("SAME")), device("b", Some("SAME"))];
+        let fleet = vec![device("a", Some("SAME")), device("b", Some("SAME"))];
         assert_eq!(
-            resolve_aggregate_device(&["a".into(), "b".into()], &devices, "SAME"),
+            resolve_aggregate_device(&["a".into(), "b".into()], &fleet, &fleet, "SAME"),
             DeviceResolution::Ambiguous
         );
         // The same name outside the scope is not a match at all.
         assert_eq!(
-            resolve_aggregate_device(&["a".into()], &devices, "SAME"),
+            resolve_aggregate_device(&["a".into()], &fleet[..1], &fleet, "SAME"),
             DeviceResolution::Resolved("a".to_owned())
         );
     }

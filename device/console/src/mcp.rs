@@ -27,6 +27,40 @@ pub(crate) enum BearerKind {
     Token(String),
 }
 
+/// Why a request carried no usable bearer, as far as the header itself can say.
+///
+/// The 401 needs this: "missing token" and "a token this console never issued" are different
+/// operator actions, and a bare `unauthorized` makes them the same.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum BearerProblem {
+    /// The request carried no `Authorization` header.
+    Missing,
+    /// The header exists but is not `Bearer <credential>`.
+    NotBearer,
+    /// A `Bearer` value that is neither an `srm_` token nor a grant envelope.
+    Unreadable,
+}
+
+/// Classify a request that [`bearer_from_headers`] could not turn into a bearer.
+///
+/// Call only when that function returned `None`: this reads the same header a second time, so the
+/// accepted path pays nothing.
+pub(crate) fn bearer_problem(headers: &HeaderMap) -> BearerProblem {
+    let Some(value) = headers
+        .get(header::AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
+    else {
+        return BearerProblem::Missing;
+    };
+    let Some((scheme, token)) = value.split_once(' ') else {
+        return BearerProblem::NotBearer;
+    };
+    if !scheme.eq_ignore_ascii_case("bearer") || token.trim().is_empty() {
+        return BearerProblem::NotBearer;
+    }
+    BearerProblem::Unreadable
+}
+
 /// Classify the `Authorization` header: a permanent token, or a grant.
 ///
 /// The token is recognized by its prefix, which is why the prefix exists: a bearer that is not a
