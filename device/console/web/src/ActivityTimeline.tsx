@@ -101,10 +101,44 @@ function tone(line: AuditLine): "ok" | "bad" | "warn" {
   return "ok";
 }
 
+/**
+ * Whether a value is shaped like a device id: the console mints them as 64 hex characters.
+ *
+ * A `device_id` is not always an id. A 403 `device_not_permitted` records the requested machine's
+ * *name* in the field (audit-39 F2), so only this shape may be read as an id the fleet can lack.
+ */
+function isDeviceId(value: string): boolean {
+  return /^[0-9a-f]{64}$/i.test(value);
+}
+
+/**
+ * The fleet machine a recorded `device_id` names, by id or by name.
+ *
+ * A name the fleet knows is that machine, not an identity the fleet lacks: the live audit carries
+ * `"device_id": "DESKTOP-84T3LIN"` for a machine whose fleet id is 64 hex.
+ */
+function fleetMachine(devices: Device[], value: string | null | undefined): Device | null {
+  if (!value) return null;
+  const byId = devices.find((device) => device.id === value);
+  if (byId) return byId;
+  const name = value.toLowerCase();
+  return devices.find((device) => (device.name ?? "").toLowerCase() === name) ?? null;
+}
+
+/**
+ * The machine a row belongs to: the fleet id when the record names the machine by id or by name,
+ * else the recorded value itself (a retired id, or a name no machine carries).
+ */
+function machineKey(devices: Device[], value: string | null | undefined): string {
+  if (!value) return "";
+  return fleetMachine(devices, value)?.id ?? value;
+}
+
 function machineName(devices: Device[], id: string | null | undefined): string | null {
   if (!id) return null;
-  const device = devices.find((candidate) => candidate.id === id);
-  return device?.name ?? shortId(id);
+  const device = fleetMachine(devices, id);
+  if (device) return device.name ?? device.id;
+  return shortId(id);
 }
 
 function text(evidence: Record<string, unknown>, key: string): string | null {
@@ -456,10 +490,14 @@ type MachineOption = { id: string; name: string; known: boolean; title: string }
  * reachable while one machine's window is on screen. A machine with no line in this window still
  * gets a chip, and selecting it reads that machine's window instead of filtering this one.
  *
- * An id the fleet does not list is not a machine and is not called one. A line-derived id keeps a
- * chip with what the record proves — `old id · <prefix> · <age of its newest line>` — and a filter
- * the table set on such an id keeps one without an age, because this window has no line to date it.
- * Both are real scopes over that id's history, not claims that a machine still exists under it.
+ * A line's `device_id` is not always a machine id. A refusal records the requested machine's name
+ * there (audit-39 F2), so a value that names a fleet machine is that machine's line and is folded
+ * into its chip: the page must never call a machine that is in the fleet "not in the fleet". Only
+ * a value shaped like an id (64 hex) that the fleet does not list keeps a chip of its own, with
+ * what the record proves: `old id · <prefix> · <age of its newest line>`. A name no machine
+ * carries is neither: it stays in the row's own record, because a name is not an id whose history
+ * a scope can read. A filter the table set on such an id while this window has no line for it
+ * keeps a chip without an age, so the filter stays visible and clearable without inventing a date.
  *
  * `goneId` is the one id that gets none: the page has already fallen back from it because `/fleet`
  * answered without it (audit-38 F8), and the page's fallback sentence is where that id is explained.
@@ -478,23 +516,28 @@ function machineOptions(
     present.set(device.id, { name: device.name ?? device.id, known: true, newestMs: null });
   }
   for (const line of lines) {
-    const id = line.device_id;
-    if (!id || id === goneId) continue;
-    const entry = present.get(id);
+    const value = line.device_id;
+    if (!value || value === goneId) continue;
+    // The value names a fleet machine by its name: it already has that machine's chip. Skipping it
+    // here is what keeps `old id · DESKTOP-84T3… · 37m ago` from sitting beside the live machine.
+    const key = machineKey(devices, value);
+    if (key !== value) continue;
+    const entry = present.get(key);
     if (entry?.known) continue;
     if (entry) {
       if (entry.newestMs === null || line.ts_ms > entry.newestMs) entry.newestMs = line.ts_ms;
       continue;
     }
-    // A line can name an id the fleet does not list — an old enrollment, a retired machine, or an
-    // identity that was never a machine. The line is real, so it keeps a chip; the chip must say
-    // what the record knows instead of reading like a name for a machine.
-    present.set(id, { name: "", known: false, newestMs: line.ts_ms });
+    // Only an id-shaped value can be a machine the fleet lost. A name is the record's own: drawing
+    // it as an old id would invent a retired machine out of a refusal's device name.
+    if (!isDeviceId(key)) continue;
+    present.set(key, { name: "", known: false, newestMs: line.ts_ms });
   }
-  // The table's device select offers the audit's line-derived ids too, so the shared filter can be
-  // an id this window has no line for. Keep that filter visible and clearable, but claim no age:
-  // the window has no line that could prove one.
-  if (active !== "" && active !== goneId && !present.has(active)) {
+  // The table's device select offers the audit's retired ids too, so the shared filter can be an
+  // id this window has no line for. Keep that filter visible and clearable, but claim no age: the
+  // window has no line that could prove one. A name-shaped filter is left to the record like a
+  // name-shaped line.
+  if (active !== "" && active !== goneId && !present.has(active) && isDeviceId(active)) {
     present.set(active, { name: "", known: false, newestMs: null });
   }
   return Array.from(present, ([id, entry]) => {
@@ -636,6 +679,10 @@ export function ActivityTimeline(props: {
   const setQuery = props.onQuery ?? setOwnQuery;
   const device = filterable ? (props.device ?? ownDevice) : "";
   const setDevice = props.onDevice ?? setOwnDevice;
+  // The shared filter normally holds a fleet id, but it can also hold a name a refusal recorded in
+  // `device_id`. Resolve it to the machine it names before the chips and rows ask what is selected
+  // (audit-39 F2), so a name never becomes a second, retired-looking scope beside the machine.
+  const scope = machineKey(props.devices, device);
   // **THE PAGE'S SUBJECT IS THE AI'S WORK.** One chip narrows the timeline to the calls a client can
   // be proven to have made (its caller, or a token on a row with no console mark), using the same
   // rule as the header's day count. It is a view control, not a scope: the window stays the one the
@@ -668,24 +715,24 @@ export function ActivityTimeline(props: {
     [props.tokens]
   );
   const machines = useMemo(
-    () => machineOptions(rows, props.devices, device, props.goneId ?? null, at),
-    [rows, props.devices, device, props.goneId, at]
+    () => machineOptions(rows, props.devices, scope, props.goneId ?? null, at),
+    [rows, props.devices, scope, props.goneId, at]
   );
   const filtered = useMemo(() => {
-    if (needle === "" && device === "" && !clientsOnly) return rows;
+    if (needle === "" && scope === "" && !clientsOnly) return rows;
     return rows.filter((line) => {
       if (clientsOnly && !isClientCall(line)) return false;
-      if (device !== "" && line.device_id !== device) return false;
+      if (scope !== "" && machineKey(props.devices, line.device_id) !== scope) return false;
       if (needle === "") return true;
       const machine = line.device_id ? machineName(props.devices, line.device_id) : null;
       return [line.sentence, line.tool, line.detail, machine]
         .filter((value): value is string => typeof value === "string")
         .some((value) => value.toLowerCase().includes(needle));
     });
-  }, [rows, props.devices, device, needle, clientsOnly]);
+  }, [rows, props.devices, scope, needle, clientsOnly]);
   const days = groupDays(filtered, at);
-  const filtering = needle !== "" || device !== "" || clientsOnly;
-  const deviceLabel = device !== "" ? (machineName(props.devices, device) ?? device) : "";
+  const filtering = needle !== "" || scope !== "" || clientsOnly;
+  const deviceLabel = scope !== "" ? (machineName(props.devices, scope) ?? scope) : "";
 
   return (
     <div className="activity-timeline">
@@ -740,7 +787,7 @@ export function ActivityTimeline(props: {
                 type="button"
                 className={machine.known ? "chip" : "chip is-old"}
                 title={machine.title}
-                aria-pressed={device === machine.id}
+                aria-pressed={scope === machine.id}
                 onClick={() => setDevice(machine.id)}
               >
                 {machine.name}

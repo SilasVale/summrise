@@ -2253,6 +2253,8 @@ describe("App", () => {
     // the dead id and drew an empty "machine" whose only name was its hex prefix. The live follow-up
     // found the second face: the id's old rows are still in the fleet's window, so the timeline's
     // line-derived chips drew `unknown machine · deadbeefdead` under the fallback sentence.
+    // audit-39 F2: only a 64-hex id is an old id; the retired line below is the real shape.
+    const retiredId = "fe209fc2c119e368ee8e36eeb211984e07ab99a4c867d984f71b23562f797d82";
     localStorage.setItem("summrise.selected.device", "deadbeefdead");
     mocks.audit.mockResolvedValue([
       {
@@ -2266,7 +2268,7 @@ describe("App", () => {
       {
         ...tokenCall,
         ts_ms: Date.now() - 120_000,
-        device_id: "fe209fc2d86a",
+        device_id: retiredId,
         token_id: null,
         tool: "files.read",
         status: 403,
@@ -2285,11 +2287,11 @@ describe("App", () => {
     expect(within(allMachines).queryByRole("button", { name: /deadbeef/ })).toBeNull();
     // The old line keeps a scope, dated by its newest line; the fleet's names are unchanged.
     const oldId = within(allMachines).getByRole("button", {
-      name: /^old id · fe209fc2d86a · 2m ago$/
+      name: /^old id · fe209fc2c119… · 2m ago$/
     });
     expect(oldId).toHaveAttribute(
       "title",
-      "not in the fleet: fe209fc2d86a; newest line 2m ago"
+      `not in the fleet: ${retiredId}; newest line 2m ago`
     );
     expect(within(allMachines).getByRole("button", { name: "workshop" })).toHaveAttribute(
       "title",
