@@ -597,32 +597,36 @@ are not repeated.
    the 5 s poll. **Cost:** the one action on an outage page looks dead. **Fix:** show the attempt and
    its outcome (same result counts). **S.**
 
-4. **The MCP door's 503 and the console's own tool read disagree.** `/mcp` answers 503
+4. **The MCP door's 503 and the console's own tool read disagree.** *(Live 0.3.273-ux94: `/fleet/<14R>/tools` answers `503 device not connected` with `this machine is not connected since 1d 23h ago; connect it, then try again`; the online 9VH's tools read is 200. The MCP door now dates the silence the same way; the wrong-door 401 is item 5. Implemented 492a642.)* `/mcp` answers 503
    `retry-after: 1` / `{"error":"device reconnecting","retry_after_ms":1000}` for the 9VH after 5 h,
    while `/fleet/<id>/tools` says `this machine is not connected; connect it, then try again`.
    **Cost:** two surfaces describe one state differently; "reconnecting" cannot be true after 5 h.
    **Fix:** one sentence derived from the device's last frame, with the age. **S/M.**
 
-5. **Missing, bogus and revoked tokens get bare 401s with no message or WWW-Authenticate;** a valid
+5. **Missing, bogus and revoked tokens get bare 401s with no message or WWW-Authenticate;** *(Live 0.3.273-ux94: no token → 401 naming `/mcp/all` and the bearer shape, with `WWW-Authenticate: Bearer realm="summrise-console"`; a fleet token at a device door names the wrong door; `/mcp/deadbeef` → 404 `unknown_device` with the Machines-page hint; an out-of-scope device → 403 -32001 "not in the token's fleet. Mint a token that includes it". Implemented 492a642; the sign-in page's sentence is item 9.)* a valid
    token at `/mcp/deadbeef` gets "another machine's endpoint"; an unknown device's `state.get` gets
    -32001 "device not permitted by token"; bad operator sign-in shows "401 unauthorized". **Cost:**
    an AI client cannot tell a wrong door from a revoked secret from a typo. **Fix:** name the door and
    the reason; keep one shape. **S/M.**
 
-6. **Activity claims it is following a failed audit.** When `/audit` failed, the page still says
+6. **Activity claims it is following a failed audit.** *(Live 0.3.273-ux94: a route-aborted `/audit` draws `could not read the fleet's audit: Failed to fetch. This timeline shows only calls that arrive live.` + Retry, no "Following the console's audit". Implemented aca00df.)* When `/audit` failed, the page still says
    "Following the console's audit as it is written" (live-only rows, no counts, no hub-style notice);
    a slow `/audit` labels known machines `unknown machine · <hex>` and drops the selected header.
    **Cost:** the audit view lies about its source and loses the machine's identity while loading.
    **Fix:** say when the audit read failed; keep the selected header through the slow read. **S/M.**
 
-7. **The offline Machine tab's last-frame facts read present tense.** The 9VH's Machine tab shows
+7. **The offline Machine tab's last-frame facts read present tense.** *(Live 0.3.273-ux95: the 14R's Machine page says `Last seen 2d 0h ago. Nothing on this page can reach it until it reconnects; the console keeps trying on its own.` — dated from `last_seen_ms`. The 14R carries no `host` facts, so the fact block honestly reads "no machine facts from this device yet". Implemented 2662bd5.)* The 9VH's Machine tab shows
    `Sessions … #3 connected` and `Helper not registered this boot` from the 22:40 frame. **Cost:** a
    five-hour-old frame is read as now. **Fix:** date the fact block with the frame's age. **S.**
 
-8. **An unknown selected id strands Activity.** A selected id not in `/fleet` leaves Activity on
+8. **An unknown selected id strands Activity.** *(Live 0.3.273-ux95: the fallback sentence and Clear work, but the timeline's chips still draw `unknown machine · deadbeefdead` and `unknown machine · fe209fc2d86a` — line-derived ids the fleet no longer lists. The goneId skip covers only the selected id; the broader line-derived chip is item 10. Partial: 2662bd5.)* A selected id not in `/fleet` leaves Activity on
    `unknown machine · deadbeefdead / No activity on deadbeefdead…` while Home/Device fall back; the
    fleet row menu's Remove is the real path. **Cost:** the page looks broken until the id is
    cleared. **Fix:** fall back like Home/Device and say the machine is not in the fleet. **S.**
+
+9. **The sign-in page ignores the server's 401 sentence.** *(Measured 2026-11-07: /auth's 401 now says "that token was not accepted; the operator token is the 64 hex characters in the file named by --operator-token-file", but App.tsx still draws "The console could not sign you in." with "401 unauthorized" in its title. **Fix:** surface the server's message. **S.** (web.)*
+
+10. **Activity's line-derived chips label old ids as unknown machines.** *(Live 0.3.273-ux95: with the selected id deadbeefdead, the timeline's chips draw `unknown machine · deadbeefdead` and `unknown machine · fe209fc2d86a`; machineOptions' goneId skips only the selected id, and every line-named id the fleet no longer lists is drawn as "unknown machine". The audit's F8 wanted known machines not labelled unknown; the line-derived chip needs a history shape (a dated old id, not a claim of unknown machine). **Fix:** for line-derived ids not in the fleet, label them as retired/old (with the age of their newest line) or drop them from the chips; the selected gone id gets none. **S.** (web; Activity.)*
 
 ## How a round goes
 
