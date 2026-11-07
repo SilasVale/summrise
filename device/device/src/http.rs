@@ -1880,7 +1880,8 @@ mod tests {
             Some("b1946ac92492d2347c6235b4d2611184"),
             Some(Channel::Canary),
         );
-        crate::ensure_state(&fixture.store, true).expect("startup writes the release facts");
+        crate::ensure_state(&fixture.store, true, 1_794_045_000_000)
+            .expect("startup writes the release facts");
 
         let (status, body) = send(fixture.app(), get("/api/state", Some(&token_hex()))).await;
 
@@ -1974,7 +1975,8 @@ mod tests {
         // `a_corrupt_state_file_is_quarantined_and_rebuilt`). This tests the other half — the
         // document is corrupted while the device runs, a torn write or a disk that lied — and the
         // API must say so instead of inventing a document.
-        crate::ensure_state(&fixture.store, true).expect("a clean start writes the document");
+        crate::ensure_state(&fixture.store, true, 1_794_045_000_000)
+            .expect("a clean start writes the document");
         fs::write(fixture.store.state_path(), "{ not a document")
             .expect("the corrupt fixture is written");
 

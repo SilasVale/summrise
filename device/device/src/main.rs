@@ -980,13 +980,17 @@ async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
     let _lock = lock::DeviceLock::acquire(&config.data)?;
     let store = Store::new(&config.install, &config.data, config.release());
     // The launcher always passes the release facts; a direct start passes none and claims none.
-    ensure_state(&store, config.release_version.is_some())?;
+    // **ONE BOOT MOMENT FOR THE STATE AND THE JOURNAL.** `update.lastResultAtMs` for an apply this
+    // start proves (see `ensure_state`) must be the same instant the restart journal records, or the
+    // console's first surface would say the answer came before the start it belongs to.
+    let started_at_ms = crate::http::now_ms().max(0) as u64;
+    ensure_state(&store, config.release_version.is_some(), started_at_ms)?;
     // This boot, journaled before it can serve anything: the facts carry the last few, so a console
     // can say whether a device is restarting in a loop or simply came up once this morning. A journal
     // that cannot be written is a line on stderr, not a device that refuses to start.
     let release = config.release();
     let restart = restarts::Restart {
-        at_ms: crate::http::now_ms().max(0) as u64,
+        at_ms: started_at_ms,
         version: release.version.clone(),
         sha256: release.sha256.clone(),
         channel: release.channel.clone(),
@@ -1154,11 +1158,15 @@ fn ensure_files_root(config: &Config) -> Result<(), StartupError> {
 /// and sessions are kept. A corrupt document is never replaced: startup's job is to serve the API
 /// that can report the corruption, and rewriting the file would destroy the evidence the report is
 /// about. The swap request and result are applied after `refresh_start`, so their phase and verdict
-/// win over "started".
-fn ensure_state(store: &Store, claimed: bool) -> std::io::Result<()> {
-    let mut state = if store.exists() {
+/// win over "started"; an apply no result file names is recorded last, from the version change this
+/// claimed start proves and at the boot moment the restart journal also records.
+fn ensure_state(store: &Store, claimed: bool, started_at_ms: u64) -> std::io::Result<()> {
+    let (mut state, previous_version) = if store.exists() {
         match store.load() {
             Ok(mut state) => {
+                // The version this document was written under is what this start can be compared
+                // with; `refresh_start` replaces it with this process's release.
+                let previous_version = state.install.version.clone();
                 // A start that claims a release replaces the identity facts; a start that claims
                 // nothing refreshes only its own liveness, so a development run cannot rewrite what
                 // the launcher recorded.
@@ -1167,7 +1175,7 @@ fn ensure_state(store: &Store, claimed: bool) -> std::io::Result<()> {
                 } else {
                     store.refresh_liveness(&mut state);
                 }
-                state
+                (state, Some(previous_version))
             }
             Err(error) => {
                 // A torn document must not leave a device degraded until a human deletes a file: the
@@ -1197,11 +1205,11 @@ fn ensure_state(store: &Store, claimed: bool) -> std::io::Result<()> {
                 eprintln!(
                     "summrise-device: the state file was unreadable ({error}); kept it and rebuilt the document"
                 );
-                store.initial()
+                (store.initial(), None)
             }
         }
     } else {
-        store.initial()
+        (store.initial(), None)
     };
     // I3: a repair the launcher made while this app was down is a fact in the document, not a
     // sentence in a log nobody reads. Ingest runs before the swap files so a rolled-back update's
@@ -1210,6 +1218,14 @@ fn ensure_state(store: &Store, claimed: bool) -> std::io::Result<()> {
     store.ingest_repairs(&mut state)?;
     store.ingest_swap_request(&mut state)?;
     store.apply_swap_result(&mut state)?;
+    // A claimed start whose release differs from the previous document's version is the one moment
+    // this device knows an install happened without an updater answer: record it, so the panel and
+    // the console name the version that is running rather than the last one an answer happened to.
+    if claimed {
+        if let Some(previous_version) = previous_version.as_deref() {
+            store.record_version_change(&mut state, previous_version, started_at_ms);
+        }
+    }
     // A start that cannot WRITE the document is a device whose disk is full or whose data directory
     // was made read-only: the identity facts were read successfully, so the device must serve rather
     // than exit — exiting takes the console channel with it, exactly when an operator needs it. The
@@ -1421,13 +1437,38 @@ mod tests {
 
     use ed25519_dalek::SigningKey;
     use summrise_core::{
-        RolledBackArtifact, ServiceState, UpdateOutcome, UpdatePhase, VerdictOutcome,
-        SCHEMA_VERSION,
+        RolledBackArtifact, ServiceState, Update, UpdateCheck, UpdateCheckTrigger, UpdateOutcome,
+        UpdatePhase, VerdictOutcome, SCHEMA_VERSION,
     };
 
     use crate::config::Release;
     use crate::test_support::{serve_release, serve_release_with_revocations, TempDir};
     use crate::update::fixtures::TEST_SEED;
+
+    /// The boot moment the startup tests fix, so a recorded apply has one exact time to name.
+    const START_MS: u64 = 1_794_045_000_000;
+
+    /// A boot of `version` over one install/data pair; the launcher's release facts are the claim.
+    fn release_store(dir: &TempDir, version: &str) -> Store {
+        Store::new(
+            dir.join("install"),
+            dir.join("data"),
+            Release {
+                version: version.to_owned(),
+                sha256: "ab".repeat(32),
+                channel: "canary".to_owned(),
+            },
+        )
+    }
+
+    /// The document a device was running before it updated: the old apply, and any check it kept.
+    fn save_previous(store: &Store, update: Update) {
+        let mut state = store.initial();
+        state.update = update;
+        store
+            .save(&state)
+            .expect("the previous document is written");
+    }
 
     fn store_in(dir: &TempDir) -> Store {
         Store::new(dir.join("install"), dir.join("data"), Release::standalone())
@@ -1438,7 +1479,7 @@ mod tests {
         let dir = TempDir::new("startup-absent");
         let store = store_in(&dir);
 
-        ensure_state(&store, true).expect("startup can write the initial document");
+        ensure_state(&store, true, START_MS).expect("startup can write the initial document");
 
         assert!(store.exists());
         let state = store.load().expect("what startup wrote is a document");
@@ -1524,7 +1565,7 @@ mod tests {
         assert_ne!(config.release().version, env!("CARGO_PKG_VERSION"));
         let store = Store::new(dir.join("install"), dir.join("data"), config.release());
 
-        ensure_state(&store, true).expect("startup can write the initial document");
+        ensure_state(&store, true, START_MS).expect("startup can write the initial document");
 
         let state = store.load().expect("what startup wrote is a document");
         assert_eq!(state.install.version, "9.9.9");
@@ -1551,7 +1592,7 @@ mod tests {
         state.service.state = ServiceState::Stopped;
         store.save(&state).expect("the fixture is written");
 
-        ensure_state(&store, true).expect("startup records the new start");
+        ensure_state(&store, true, START_MS).expect("startup records the new start");
 
         let after = store.load().expect("the document is readable");
         assert_eq!(
@@ -1585,6 +1626,295 @@ mod tests {
         assert_eq!(after.service.state, ServiceState::Running);
     }
 
+    /// **THE UPDATE THAT CHANGED THE VERSION IS THE ONE THE STORY MUST NAME.** The measured 9VH
+    /// shape: the document's last answer was `applied to 0.3.273` on 2026-11-05, while the process
+    /// that starts is 0.3.289 (the restart journal since carries 0.3.284 → 0.3.289). Nothing folded
+    /// that version change into `update` — the versioned handoff writes no `swap.result.json` — so
+    /// the panel and the console kept naming a two-day-old target. The start proves the change, and
+    /// the boot's own moment is the only honest time to record: the journal writes the same value.
+    #[test]
+    fn a_version_change_records_the_apply_that_made_it() {
+        let dir = TempDir::new("startup-version-apply");
+        let before = release_store(&dir, "0.3.288");
+        save_previous(
+            &before,
+            Update {
+                phase: UpdatePhase::Idle,
+                to: Some("0.3.273".to_owned()),
+                outcome: Some(UpdateOutcome::Applied),
+                last_result_at_ms: Some(1_793_819_465_957),
+                last_check: None,
+            },
+        );
+
+        let after = release_store(&dir, "0.3.289");
+        ensure_state(&after, true, START_MS).expect("startup records the new version");
+
+        let state = after.load().expect("the document loads");
+        assert_eq!(state.install.version, "0.3.289");
+        assert_eq!(
+            state.update.to.as_deref(),
+            Some("0.3.289"),
+            "the apply that made the running version is the last target: {state:?}"
+        );
+        assert_eq!(state.update.outcome, Some(UpdateOutcome::Applied));
+        assert_eq!(
+            state.update.last_result_at_ms,
+            Some(START_MS),
+            "the result is the boot's own journal moment, not an invented time"
+        );
+        assert_eq!(
+            state.last_verdict.detail, "started 0.3.289",
+            "the verdict stays this start's sentence; the apply is update.outcome"
+        );
+        // The console's Machine line reads this exact section from `/fleet`; the panel reads the
+        // document. One write feeds both, so they cannot tell two stories.
+        let story = crate::host::update_story(after.data_dir())
+            .expect("the frame's update story is readable");
+        assert_eq!(story["current"], serde_json::json!("0.3.289"));
+        assert_eq!(story["last_update"]["to"], serde_json::json!("0.3.289"));
+        assert_eq!(
+            story["last_update"]["outcome"],
+            serde_json::json!("applied")
+        );
+        assert_eq!(
+            story["last_update"]["at_ms"],
+            serde_json::json!(START_MS),
+            "the frame carries the boot moment the journal also records"
+        );
+    }
+
+    /// The measured CPH shape adds the check the device kept: the apply that made 0.3.289 is the
+    /// last target, and the machine's own last check survives it. A record that reset the check
+    /// would make a device that looked this morning read as if it never had.
+    #[test]
+    fn a_recorded_version_change_keeps_the_last_check() {
+        let dir = TempDir::new("startup-version-apply-check");
+        let before = release_store(&dir, "0.3.288");
+        let check_at = 1_794_047_864_847;
+        save_previous(
+            &before,
+            Update {
+                phase: UpdatePhase::Idle,
+                to: Some("0.3.275".to_owned()),
+                outcome: Some(UpdateOutcome::Applied),
+                last_result_at_ms: Some(1_793_863_270_084),
+                last_check: Some(UpdateCheck {
+                    at_ms: check_at,
+                    trigger: UpdateCheckTrigger::Channel,
+                }),
+            },
+        );
+
+        let after = release_store(&dir, "0.3.289");
+        ensure_state(&after, true, START_MS).expect("startup records the new version");
+
+        let state = after.load().expect("the document loads");
+        assert_eq!(state.update.to.as_deref(), Some("0.3.289"));
+        assert_eq!(state.update.last_result_at_ms, Some(START_MS));
+        assert_eq!(
+            state.update.last_check,
+            Some(UpdateCheck {
+                at_ms: check_at,
+                trigger: UpdateCheckTrigger::Channel,
+            }),
+            "the last check is this device's own fact and is not replaced by an apply"
+        );
+    }
+
+    /// The measured 84T shape: no recorded outcome and no check after 0.3.280 → 0.3.289. The
+    /// version change is enough to record the apply; the missing check stays missing rather than
+    /// borrowing the boot moment.
+    #[test]
+    fn a_version_change_with_no_previous_outcome_or_check_records_only_the_apply() {
+        let dir = TempDir::new("startup-version-apply-none");
+        let before = release_store(&dir, "0.3.280");
+        save_previous(
+            &before,
+            Update {
+                phase: UpdatePhase::Idle,
+                to: None,
+                outcome: None,
+                last_result_at_ms: None,
+                last_check: None,
+            },
+        );
+
+        let after = release_store(&dir, "0.3.289");
+        ensure_state(&after, true, START_MS).expect("startup records the new version");
+
+        let state = after.load().expect("the document loads");
+        assert_eq!(state.update.to.as_deref(), Some("0.3.289"));
+        assert_eq!(state.update.outcome, Some(UpdateOutcome::Applied));
+        assert_eq!(state.update.last_result_at_ms, Some(START_MS));
+        assert_eq!(
+            state.update.last_check, None,
+            "no check was recorded, so none is invented"
+        );
+    }
+
+    /// A fresh install has no previous version to compare with, so it has no apply to record: the
+    /// card's `none / none / never` is the honest first-run shape, not a fabricated 0.3.289 result.
+    #[test]
+    fn a_fresh_install_records_no_apply_of_its_own_version() {
+        let dir = TempDir::new("startup-version-fresh");
+        let store = release_store(&dir, "0.3.289");
+
+        ensure_state(&store, true, START_MS).expect("the fresh document is written");
+
+        let state = store.load().expect("the document loads");
+        assert_eq!(state.install.version, "0.3.289");
+        assert_eq!(state.update.to, None);
+        assert_eq!(state.update.outcome, None);
+        assert_eq!(state.update.last_result_at_ms, None);
+        assert_eq!(
+            state.last_verdict.detail, "started 0.3.289",
+            "the start is still the fresh install's verdict"
+        );
+    }
+
+    /// A restart on the same version is not a new apply: the recorded moment is the boot that
+    /// changed the version, and a later ordinary restart must not move it forward.
+    #[test]
+    fn a_same_version_restart_keeps_the_recorded_apply_moment() {
+        let dir = TempDir::new("startup-version-same");
+        let first_boot = 1_794_000_000_000;
+        let before = release_store(&dir, "0.3.289");
+        save_previous(
+            &before,
+            Update {
+                phase: UpdatePhase::Idle,
+                to: Some("0.3.289".to_owned()),
+                outcome: Some(UpdateOutcome::Applied),
+                last_result_at_ms: Some(first_boot),
+                last_check: None,
+            },
+        );
+
+        let after = release_store(&dir, "0.3.289");
+        ensure_state(&after, true, START_MS).expect("the restart is recorded");
+
+        let state = after.load().expect("the document loads");
+        assert_eq!(
+            state.update.last_result_at_ms,
+            Some(first_boot),
+            "an ordinary restart is not another apply"
+        );
+        assert_eq!(state.update.to.as_deref(), Some("0.3.289"));
+    }
+
+    /// A start under an OLDER release is a rollback (two failed starts roll `current.txt` back), not
+    /// an apply of the restored version. The document still names the candidate's failed start; the
+    /// old apply must stay where it was, not be re-stamped as a fresh success at the rollback boot.
+    #[test]
+    fn a_start_under_an_older_release_is_not_recorded_as_an_apply() {
+        let dir = TempDir::new("startup-version-rollback");
+        let candidate = release_store(&dir, "0.3.290");
+        let old_apply = 1_793_900_000_000;
+        let mut state = candidate.initial();
+        state.update = Update {
+            phase: UpdatePhase::Idle,
+            to: Some("0.3.289".to_owned()),
+            outcome: Some(UpdateOutcome::Applied),
+            last_result_at_ms: Some(old_apply),
+            last_check: None,
+        };
+        candidate
+            .save(&state)
+            .expect("the candidate's document is written");
+
+        let restored = release_store(&dir, "0.3.289");
+        ensure_state(&restored, true, START_MS).expect("the rollback start is recorded");
+
+        let state = restored.load().expect("the document loads");
+        assert_eq!(
+            state.update.last_result_at_ms,
+            Some(old_apply),
+            "the old apply is history, not a result of the rollback start"
+        );
+        assert_eq!(state.update.to.as_deref(), Some("0.3.289"));
+    }
+
+    /// When the updater DID leave a result for this version, that answer is the record: its own
+    /// `at_ms` is the apply moment, and the boot must not replace it with a later one. This is the
+    /// no-invented-times rule in the other direction — the exact fact wins over the inference.
+    #[test]
+    fn an_updater_result_for_the_running_version_keeps_its_own_moment() {
+        let dir = TempDir::new("startup-version-result");
+        let before = release_store(&dir, "0.3.288");
+        save_previous(
+            &before,
+            Update {
+                phase: UpdatePhase::Idle,
+                to: Some("0.3.273".to_owned()),
+                outcome: Some(UpdateOutcome::Applied),
+                last_result_at_ms: Some(1_793_819_465_957),
+                last_check: None,
+            },
+        );
+        let result_at = START_MS - 5_000;
+        let result = serde_json::json!({
+            "outcome": "applied",
+            "version": "0.3.289",
+            "sha256": "ab".repeat(32),
+            "at_ms": result_at,
+        });
+        let result_path = before.swap_result_path();
+        std::fs::create_dir_all(result_path.parent().expect("the result has a parent"))
+            .expect("the install directory is creatable");
+        std::fs::write(&result_path, result.to_string()).expect("the result is written");
+
+        let after = release_store(&dir, "0.3.289");
+        ensure_state(&after, true, START_MS).expect("startup folds the result in");
+
+        let state = after.load().expect("the document loads");
+        assert_eq!(state.update.to.as_deref(), Some("0.3.289"));
+        assert_eq!(state.update.outcome, Some(UpdateOutcome::Applied));
+        assert_eq!(
+            state.update.last_result_at_ms,
+            Some(result_at),
+            "the supervisor's own apply moment is the record, not the later boot"
+        );
+        assert_eq!(state.last_verdict.detail, "updated to 0.3.289");
+    }
+
+    /// A stale result for an older version is history, not this start's answer. The version change
+    /// is newer than it in every sense, so it is still recorded; only a result naming the running
+    /// version can claim the moment.
+    #[test]
+    fn a_stale_result_for_an_older_version_does_not_block_the_version_change() {
+        let dir = TempDir::new("startup-version-stale-result");
+        let before = release_store(&dir, "0.3.288");
+        save_previous(
+            &before,
+            Update {
+                phase: UpdatePhase::Idle,
+                to: None,
+                outcome: None,
+                last_result_at_ms: None,
+                last_check: None,
+            },
+        );
+        let stale_at: u64 = 1_793_800_000_000;
+        let stale = serde_json::json!({
+            "outcome": "applied",
+            "version": "0.3.273",
+            "sha256": "cd".repeat(32),
+            "at_ms": stale_at,
+        });
+        let stale_path = before.swap_result_path();
+        std::fs::create_dir_all(stale_path.parent().expect("the result has a parent"))
+            .expect("the install directory is creatable");
+        std::fs::write(&stale_path, stale.to_string()).expect("the stale result is written");
+
+        let after = release_store(&dir, "0.3.289");
+        ensure_state(&after, true, START_MS).expect("startup records the version change");
+
+        let state = after.load().expect("the document loads");
+        assert_eq!(state.update.to.as_deref(), Some("0.3.289"));
+        assert_eq!(state.update.last_result_at_ms, Some(START_MS));
+    }
+
     /// A data directory that cannot be written (a full disk, a read-only volume, a permissions
     /// mishap) must not take the device down: the facts were read, so the device serves and says the
     /// write failed. Exiting would lose the console channel exactly when it is needed.
@@ -1594,7 +1924,7 @@ mod tests {
         let dir = TempDir::new("startup-readonly");
         let store = store_in(&dir);
         std::fs::create_dir_all(dir.join("data")).expect("the data directory is creatable");
-        ensure_state(&store, true).expect("the first start writes the document");
+        ensure_state(&store, true, START_MS).expect("the first start writes the document");
 
         let mut attributes = std::fs::metadata(store.state_path())
             .expect("the document exists")
@@ -1603,7 +1933,7 @@ mod tests {
         std::fs::set_permissions(store.state_path(), attributes.clone())
             .expect("the document is made read-only");
 
-        ensure_state(&store, true).expect("a failed write does not stop the start");
+        ensure_state(&store, true, START_MS).expect("a failed write does not stop the start");
 
         attributes.set_readonly(false);
         let _ = std::fs::set_permissions(store.state_path(), attributes);
@@ -1616,7 +1946,7 @@ mod tests {
         std::fs::create_dir_all(dir.join("data")).expect("the data directory is creatable");
         std::fs::write(store.state_path(), "{ not a document").expect("the fixture is written");
 
-        ensure_state(&store, true).expect("a corrupt document does not stop the process");
+        ensure_state(&store, true, START_MS).expect("a corrupt document does not stop the process");
 
         // The device is not left needing an operator: the unreadable bytes are kept as evidence and
         // the document the install can describe is written in their place.
@@ -1643,7 +1973,7 @@ mod tests {
     fn a_start_ingests_the_launchers_repair_record() {
         let dir = TempDir::new("startup-repair");
         let store = store_in(&dir);
-        ensure_state(&store, true).expect("the first start writes the document");
+        ensure_state(&store, true, START_MS).expect("the first start writes the document");
         let sha = "cd".repeat(32);
         let line = format!(
             r#"{{"ts_ms":1700000000000,"kind":"repaired","from":"baseline","sha256":"{sha}"}}"#
@@ -1653,7 +1983,7 @@ mod tests {
         std::fs::write(store.repair_log_path(), format!("{line}\n"))
             .expect("the launcher's repair log is written");
 
-        ensure_state(&store, true).expect("the next start ingests the repair");
+        ensure_state(&store, true, START_MS).expect("the next start ingests the repair");
 
         let state = store.load().expect("the document loads");
         assert_eq!(state.last_verdict.outcome, VerdictOutcome::Repaired);
@@ -2237,7 +2567,7 @@ mod tests {
         )
         .expect("the request is written");
 
-        ensure_state(&store, true).expect("startup records the pending stage");
+        ensure_state(&store, true, START_MS).expect("startup records the pending stage");
 
         let state = store.load().expect("the document loads");
         assert_eq!(
@@ -2277,7 +2607,8 @@ mod tests {
         )
         .expect("the request is written");
 
-        ensure_state(&store, true).expect("startup records both the start and the swap files");
+        ensure_state(&store, true, START_MS)
+            .expect("startup records both the start and the swap files");
 
         let state = store.load().expect("the document loads");
         assert_eq!(state.update.outcome, Some(UpdateOutcome::Applied));

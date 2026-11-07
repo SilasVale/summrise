@@ -134,8 +134,10 @@ pub fn frame(data: &std::path::Path) -> String {
 ///   `--release-version` argv, not this build's compile-time version);
 /// * `verdict` — `lastVerdict`'s outcome and detail, the sentence the device wrote about its last
 ///   start or the updater's last answer;
-/// * `last_update` — `update.to`/`outcome`/`lastResultAtMs`, present only after the app has folded a
-///   swap result in (a staged release is not a result, and `to` alone would read as one);
+/// * `last_update` — `update.to`/`outcome`/`lastResultAtMs`, present once the app has recorded a
+///   result: a folded swap answer, or the version change its own claimed start proves (the versioned
+///   handoff writes no result file). A staged release is not a result, and `to` alone would read as
+///   one;
 /// * `last_check` — `update.lastCheck`'s `atMs` and `trigger`, present when the state records a
 ///   check. It is a separate fact from `last_update`: a machine that looked and found nothing has
 ///   checked without producing a result, and the console must be able to say when it last looked;

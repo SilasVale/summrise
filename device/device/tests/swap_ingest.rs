@@ -46,21 +46,23 @@ struct Running {
 
 impl Running {
     fn start(dir: &TempDir) -> Running {
-        let stderr = dir.join("device.err");
-        let log = File::create(&stderr).expect("the log is created");
-        let child = Command::new(env!("CARGO_BIN_EXE_summrise-device"))
-            .arg("--install")
-            .arg(dir.join("install"))
-            .arg("--data")
-            .arg(dir.join("data"))
-            .arg("--port")
-            .arg("0")
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::from(log))
-            .spawn()
-            .expect("the device binary starts");
-        Running { child, stderr }
+        start_with(dir, &[])
+    }
+
+    /// A supervised-style start that claims a release, as the launcher's argv does.
+    fn start_as(dir: &TempDir, version: &str) -> Running {
+        let sha = "ab".repeat(32);
+        start_with(
+            dir,
+            &[
+                "--release-version",
+                version,
+                "--release-sha",
+                &sha,
+                "--release-channel",
+                "canary",
+            ],
+        )
     }
 
     fn stderr_text(&self) -> String {
@@ -125,6 +127,45 @@ impl Drop for Running {
             let _ = self.child.kill();
             let _ = self.child.wait();
         }
+    }
+}
+
+/// Start the binary over `dir`, with whatever release flags the caller's argv adds.
+fn start_with(dir: &TempDir, release: &[&str]) -> Running {
+    let stderr = dir.join("device.err");
+    let log = File::create(&stderr).expect("the log is created");
+    let child = Command::new(env!("CARGO_BIN_EXE_summrise-device"))
+        .arg("--install")
+        .arg(dir.join("install"))
+        .arg("--data")
+        .arg(dir.join("data"))
+        .arg("--port")
+        .arg("0")
+        .args(release)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::from(log))
+        .spawn()
+        .expect("the device binary starts");
+    Running { child, stderr }
+}
+
+/// The newest boot the device journalled for `version`, or a panic if it never appears.
+fn wait_for_boot(dir: &TempDir, version: &str) -> serde_json::Value {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        if let Ok(text) = fs::read_to_string(dir.join("data").join("restarts.jsonl")) {
+            if let Some(entry) = text.lines().rev().find_map(|line| {
+                let entry: serde_json::Value = serde_json::from_str(line).ok()?;
+                (entry["version"] == version).then_some(entry)
+            }) {
+                return entry;
+            }
+        }
+        if Instant::now() >= deadline {
+            panic!("the device did not journal a {version} boot within 10s");
+        }
+        std::thread::sleep(Duration::from_millis(20));
     }
 }
 
@@ -198,4 +239,53 @@ fn the_app_records_the_request_as_staged_and_then_the_result_as_applied() {
     );
 
     device.stop();
+}
+
+/// **THE VERSION CHANGE NO RESULT FILE NAMES IS STILL AN APPLY.** The versioned handoff
+/// (`--install-version`/`--apply`) moves the pointer and restarts the app; it writes no
+/// `swap.result.json`. The measured 9VH then read `applied to 0.3.273` two days and six starts
+/// behind. This drives the real binary: the previous document names 0.3.288 (with an old apply),
+/// the launcher starts 0.3.289, and the app records the apply at the boot moment its own restart
+/// journal carries — the same instant, so the panel and the console cannot date it differently.
+#[test]
+fn a_new_release_start_records_the_apply_at_its_journalled_boot_moment() {
+    let dir = TempDir::new("version-change");
+    let mut first = Running::start_as(&dir, "0.3.288");
+    first.wait_for_state(&dir, "the first release", |state| {
+        state["install"]["version"] == "0.3.288"
+    });
+    first.stop();
+
+    // The document the previous process left: the measured 9VH's old answer, unchanged by the
+    // pointer move that has not started a process yet.
+    let path = dir.join("data").join("state.json");
+    let mut state: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(&path).expect("the first document is readable"))
+            .expect("the first document is JSON");
+    state["update"] = serde_json::json!({
+        "phase": "idle",
+        "to": "0.3.273",
+        "outcome": "applied",
+        "lastResultAtMs": 1_793_819_465_957u64,
+        "lastCheck": null,
+    });
+    fs::write(&path, state.to_string()).expect("the measured previous document is written");
+
+    let mut second = Running::start_as(&dir, "0.3.289");
+    let state = second.wait_for_state(&dir, "the apply of 0.3.289", |state| {
+        state["install"]["version"] == "0.3.289"
+            && state["update"]["to"] == "0.3.289"
+            && state["update"]["outcome"] == "applied"
+    });
+    let boot = wait_for_boot(&dir, "0.3.289");
+    assert_eq!(
+        state["update"]["lastResultAtMs"], boot["at_ms"],
+        "the apply's moment is the boot the restart journal records: {state} / {boot}"
+    );
+    assert_ne!(
+        state["update"]["lastResultAtMs"],
+        serde_json::json!(1_793_819_465_957u64),
+        "the old apply's moment is not reused"
+    );
+    second.stop();
 }

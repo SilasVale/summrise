@@ -11,6 +11,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde::Deserialize;
+use summrise_core::manifest::Version;
 use summrise_core::{
     Baseline, Install, LastVerdict, RolledBackArtifact, Service, ServiceState, State, Update,
     UpdateCheck, UpdateCheckTrigger, UpdateOutcome, UpdatePhase, VerdictOutcome, SCHEMA_VERSION,
@@ -209,6 +210,62 @@ impl Store {
         state.service.state = ServiceState::Running;
         state.service.pid = std::process::id();
         state.service.started_at = now_rfc3339();
+    }
+
+    /// Record the apply this start proves: the release it claims differs from the version the
+    /// document named before it started.
+    ///
+    /// **THE VERSIONED HANDOFF WRITES NO SWAP RESULT.** `--install-version` and `--apply` move
+    /// `current.txt` and restart the owner; there is no `swap.result.json` for `apply_swap_result`
+    /// to fold in, so the document kept naming the last answer a supervisor happened to write —
+    /// measured on 0.3.289 devices as `applied to 0.3.273` two days and six starts behind. The
+    /// start itself is the evidence: the launcher boots the release the pointer names, so a claimed
+    /// release different from the previous document's version was applied between the two starts.
+    ///
+    /// The moment is the boot's own (`started_at_ms`, the same value the restart journal records),
+    /// not a guessed apply time. Returns whether the document changed.
+    pub fn record_version_change(
+        &self,
+        state: &mut State,
+        previous_version: &str,
+        started_at_ms: u64,
+    ) -> bool {
+        if state.install.version == previous_version {
+            return false;
+        }
+        // **A DOWNGRADE IS NOT AN APPLIED UPDATE.** Two failed starts roll `current.txt` back to the
+        // previous version; the state still names the candidate (it wrote its own start before it
+        // died). Recording the restored, older version as applied would turn a rollback into a
+        // success. A version this build cannot parse is no evidence either: leave the document.
+        let (Ok(previous), Ok(running)) = (
+            Version::parse(previous_version),
+            Version::parse(&state.install.version),
+        ) else {
+            return false;
+        };
+        if running <= previous {
+            return false;
+        }
+        // **AN EXACT ANSWER WINS OVER THE INFERENCE.** `apply_swap_result` has already folded a
+        // result for this start. When it names the running version as applied, its moment is the
+        // supervisor's own apply time and is the record; replacing it with the later boot would
+        // invent a second, wrong time. A result that names a DIFFERENT (older) version is history
+        // and does not stop this start's version change from being recorded.
+        if state.update.to.as_deref() == Some(state.install.version.as_str())
+            && state.update.outcome == Some(UpdateOutcome::Applied)
+            && state.update.last_result_at_ms.is_some()
+        {
+            return false;
+        }
+        let last_check = state.update.last_check;
+        state.update = Update {
+            phase: UpdatePhase::Idle,
+            to: Some(state.install.version.clone()),
+            outcome: Some(UpdateOutcome::Applied),
+            last_result_at_ms: Some(started_at_ms),
+            last_check,
+        };
+        true
     }
 
     /// Record this process's start without claiming a release: liveness and the verdict only.

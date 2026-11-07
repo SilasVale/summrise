@@ -192,25 +192,33 @@ pub enum SessionState {
 pub struct Update {
     /// The phase the update is in.
     pub phase: UpdatePhase,
-    /// The version the update is heading to, or `None` when nothing is in flight.
+    /// The version the update last named.
+    ///
+    /// While an update is in flight it is the target; after a result it is the version that result
+    /// applied, refused or rolled back from. `None` until the device records an update fact.
     ///
     /// The four `Option` fields (`to`, `outcome`, `lastResultAtMs`, `lastCheck`) tolerate absence on
     /// the wire: serde reads a missing `Option` as `None` (the latter three also say
     /// `#[serde(default)]` so the rule is explicit), which is what keeps a document written by an
     /// older build readable. Every non-`Option` field is refused when missing.
     pub to: Option<String>,
-    /// What the supervisor's last swap result said, once this app has recorded it.
+    /// What the last recorded update result said.
     ///
-    /// This is the terminal half of the update story: `phase` says what is in flight, `outcome`
-    /// says how the last swap ended. `#[serde(default)]` keeps a document written before the field
-    /// existed readable instead of turning an upgrade into a schema error (I1).
+    /// The supervisor's swap answer when one was folded in, or `applied` for the version change a
+    /// claimed start proves: the versioned handoff (`--install-version`/`--apply`) moves the
+    /// pointer and writes no `swap.result.json`, so the start that first runs a different version is
+    /// the record (`Store::record_version_change`). This is the terminal half of the update story:
+    /// `phase` says what is in flight, `outcome` says how the last update ended. `#[serde(default)]`
+    /// keeps a document written before the field existed readable instead of turning an upgrade into
+    /// a schema error (I1).
     #[serde(default)]
     pub outcome: Option<UpdateOutcome>,
-    /// The `at_ms` of the last `swap.result.json` this app has folded into the document.
+    /// The moment of the last recorded result.
     ///
-    /// The result file is the supervisor's, not the app's; this is how the app records one result
-    /// exactly once across restarts and the one-second reconciliation. `#[serde(default)]` makes it
-    /// optional on the wire (I1).
+    /// The `at_ms` of the `swap.result.json` this app folded in, or the boot moment of the version
+    /// change it recorded from its own claimed start (the same value the restart journal carries).
+    /// This is how the app records one result exactly once across restarts and the one-second
+    /// reconciliation. `#[serde(default)]` makes it optional on the wire (I1).
     #[serde(default)]
     pub last_result_at_ms: Option<u64>,
     /// The last time this device checked for a release, and what asked it to.
