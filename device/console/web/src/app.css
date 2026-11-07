@@ -2798,10 +2798,10 @@ main::-webkit-scrollbar-track, .sheet-body::-webkit-scrollbar-track, .scroll::-w
    white card belongs to Home's fleet table; Activity drops it so the two pages cannot read as the
    same shape at a glance. */
 .activity-page { gap: 16px; }
-.activity-page .page-head h1 { font-size: 26px; }
+.activity-page .page-head h1 { font-size: var(--fs-xl); }
 .activity-today {
   margin: 8px 0 0; max-width: 80ch;
-  font-size: 18px; line-height: 1.45; font-weight: var(--fw-medium);
+  font-size: var(--fs-lg); line-height: 1.45; font-weight: var(--fw-medium);
   color: var(--ink); font-variant-numeric: tabular-nums; text-wrap: pretty;
 }
 .activity-status { margin-top: 4px; font-size: var(--fs-sm); color: var(--ink-muted); }
@@ -2846,8 +2846,8 @@ main::-webkit-scrollbar-track, .sheet-body::-webkit-scrollbar-track, .scroll::-w
 .timeline-search { margin-left: auto; }
 .timeline-search input { width: 18rem; max-width: 100%; }
 @media (max-width: 639px) {
-  .activity-page .page-head h1 { font-size: 24px; }
-  .activity-today { font-size: 16px; }
+  .activity-page .page-head h1 { font-size: var(--fs-xl); }
+  .activity-today { font-size: var(--fs-lg); }
   .activity-panel.is-record .stream-bar { padding-top: 12px; }
   .timeline-filters { gap: 12px; }
   .filter-block { width: 100%; }
@@ -2866,7 +2866,7 @@ main::-webkit-scrollbar-track, .sheet-body::-webkit-scrollbar-track, .scroll::-w
 .timeline-loading, .audit-loading { margin: var(--sp-3) 0; }
 .timeline-day-label {
   margin: 0; padding: 0 0 10px;
-  font-size: 20px; line-height: 1.2; font-weight: var(--fw-semi);
+  font-size: var(--fs-xl); line-height: 1.2; font-weight: var(--fw-semi);
   color: var(--ink); letter-spacing: var(--tracking-tight);
 }
 /* The timeline scrolls inside `main`, not with the page, so the day's name sticks to that
@@ -2913,7 +2913,7 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
 .timeline-dot[data-tone="warn"] { background: var(--warn); }
 .timeline-words { min-width: 0; display: grid; gap: 5px; }
 .timeline-sentence {
-  font-size: 15px; line-height: 1.4; font-weight: var(--fw-medium); color: var(--ink);
+  font-size: var(--fs-md); line-height: 1.4; font-weight: var(--fw-medium); color: var(--ink);
   overflow: visible; text-overflow: clip; white-space: normal;
 }
 .timeline-facts { display: flex; align-items: baseline; gap: 7px; flex-wrap: wrap; }
@@ -3046,10 +3046,10 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
    chip, one start line, and a wider gap between the page's sections. */
 
 .home-page { gap: 22px; }
-.home-page .page-head h1 { font-size: 30px; }
+.home-page .page-head h1 { font-size: var(--fs-xl); }
 .home-verdict {
   margin: 6px 0 0; max-width: 40ch;
-  color: var(--ink); font-size: 26px; line-height: 1.2;
+  color: var(--ink); font-size: var(--fs-xl); line-height: 1.2;
   font-weight: var(--fw-semi); letter-spacing: var(--tracking-tight);
   text-wrap: balance;
 }
@@ -3127,7 +3127,7 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
 }
 .fleet-open:hover { background: transparent; color: var(--accent); border-color: transparent; }
 .fleet-name {
-  font-size: 16px; font-weight: var(--fw-semi); letter-spacing: var(--tracking-tight);
+  font-size: var(--fs-lg); font-weight: var(--fw-semi); letter-spacing: var(--tracking-tight);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .fleet-chevron { color: var(--ink-faint); font-size: var(--fs-md); line-height: 1; }
@@ -3165,8 +3165,8 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
 
 @media (max-width: 639px) {
   .home-page { gap: 18px; }
-  .home-page .page-head h1 { font-size: 26px; }
-  .home-verdict { font-size: 24px; max-width: none; }
+  .home-page .page-head h1 { font-size: var(--fs-xl); }
+  .home-verdict { font-size: var(--fs-xl); max-width: none; }
   .attention { padding: 14px; }
   .attention-row {
     display: grid; grid-template-columns: auto minmax(0, 1fr); row-gap: 8px;
