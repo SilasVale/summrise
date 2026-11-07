@@ -658,7 +658,7 @@ Measured 2026-11-07 on the live console and the 0.3.289 devices (9VH moved to 0.
 CPH at 09:53, 84T at 09:55; 14R offline at 0.3.275). Seven findings; the previous lists' verified
 items are not repeated.
 
-1. **The update story names an apply older than the running version.** The 9VH reads `last recorded
+1. **The update story names an apply older than the running version.** *(Live 0.3.273-ux99 on 0.3.290: the 9VH's Machine line reads `last outcome applied to 0.3.290 on 2026-11-07 16:22`. Implemented bc1af1e, release 0.3.290.)* The 9VH reads `last recorded
    outcome before this start: applied to 0.3.273 on 2026-11-05 03:11` while on 0.3.289 (its restarts
    show 0.3.284→0.3.289 since); the CPH says `applied to 0.3.275 on 2026-11-05 15:21` while on
    0.3.289 (panel `Last target 0.3.275`); the 84T has no outcome/check at all after
@@ -666,36 +666,36 @@ items are not repeated.
    applied version (the device's update record or the console's rendering of the restart journal's
    versions), so `applied 0.3.289` follows the install. **M.**
 
-2. **An "old id" chip calls a live machine "not in the fleet".** The timeline draws
+2. **An "old id" chip calls a live machine "not in the fleet".** *(Live 0.3.273-ux99: the 84T's chip is its fleet name; a 64-hex old id keeps its dated chip. Implemented b3773b7.)* The timeline draws
    `old id · DESKTOP-84T3… · 37m ago` with title `not in the fleet: DESKTOP-84T3LIN` beside the live
    `DESKTOP-84T3LIN` chip; the audit row carries `device_id: "DESKTOP-84T3LIN"` — a name from a 403
    `device_not_permitted`. **Cost:** the chip contradicts the row it sits on. **Fix:** only 64-hex
    `device_id`s get the retired-id shape; a name is matched to the fleet or left as the deny's own.
    **S/M.**
 
-3. **A failed machine list hides enrollment and the installer.** Pending and failed `/fleet` states
+3. **A failed machine list hides enrollment and the installer.** *(Implemented b750c49; local pending/failed screenshots show the doors.)* Pending and failed `/fleet` states
    draw only `Tokens` — no Add a machine, Install the device runtime, or download. **Cost:** a
    console that could not read the fleet also removes every way to add one. **Fix:** keep the
    enrollment/installer doors reachable with the failure stated. **S.**
 
-4. **One failed read is said three times and "Failed to fetch" is back in the page sentence.**
+4. **One failed read is said three times and "Failed to fetch" is back in the page sentence.** *(Live 0.3.273-ux99: `Failed to fetch` exists only in titles. Implemented ca775dc.)*
    Banner + empty-state line + `The console could not read …: Failed to fetch.` + Retry. **Cost:**
    the page repeats one failure three ways and leaks the raw text the 18th list's fix removed.
    **Fix:** one sentence per failure; the technical text in a title. **S.**
 
-5. **Activity counts client calls twice over two windows.** `Today 199 client calls` beside
+5. **Activity counts client calls twice over two windows.** *(Fixed with the Activity redesign: one sentence, `client calls` once, `Clients only` labelled `rows in this window`. Implemented be4e510.)* `Today 199 client calls` beside
    `Clients only · 400` (the fetched window); pressing draws 397 rows and the header keeps 199.
    **Cost:** two numbers for the same noun; neither says which window it counts. **Fix:** one window
    per count, labelled, or a single number reconciled with the rows. **S.**
 
 6. **The refused sign-in is a lowercase fragment in a plain paragraph, and the panel has no
-   address.** `that token was not accepted; …` sits in `<p class="error" title="401 unauthorized">`
+   address.** *(Live 0.3.273-ux99: `#signin` renders `Sign in to the console` with `Back to the console`; a refused token is capitalized and `role=alert`. Implemented ca775dc.)* `that token was not accepted; …` sits in `<p class="error" title="401 unauthorized">`
    (no `role=alert`); `#signin` lands on `#home`; the panel is reachable only through Sign out.
    **Cos
 t:** the sentence is unannounced and unfindable. **Fix:** a sentence, `role=alert`, and a `/signin`
    route (or the sign-out path linked). **S.**
 
-7. **The channel trace counts joins/leaves without the window's span.** `54 joins and 20 leaves … in
+7. **The channel trace counts joins/leaves without the window's span.** *(Implemented b739d09: `… in its newest 1,000 lines, spanning 17 h`; the 2000-vs-1000 claim is gone.)* `54 joins and 20 leaves … in
    its newest 2000 lines` while the 1,000-line window spans 17 h. **Cost:** the rate is unreadable.
    **Fix:** state the window's span (and the lines actually read). **S.**
 
