@@ -26,6 +26,28 @@ export function versionBelow(
   return false;
 }
 
+/**
+ * Whether two dotted versions name the same release.
+ *
+ * The update story compares what the running process records with the version the updater says it
+ * applied; those are two fields written by two builds of the device. `0.3.284` and `0.3.284.0` are
+ * the same release, and a value that is not a version proves nothing about another value — so an
+ * unknown side answers false and the caller draws no "this is the running one" claim.
+ */
+export function versionEqual(
+  left: string | null | undefined,
+  right: string | null | undefined
+): boolean {
+  const a = parseVersion(left);
+  const b = parseVersion(right);
+  if (a === null || b === null) return false;
+  const length = Math.max(a.length, b.length);
+  for (let index = 0; index < length; index += 1) {
+    if ((a[index] ?? 0) !== (b[index] ?? 0)) return false;
+  }
+  return true;
+}
+
 /** The numeric parts of a dotted version, or null when the value is not one. */
 function parseVersion(value: string | null | undefined): number[] | null {
   if (typeof value !== "string" || value.trim() === "") return null;

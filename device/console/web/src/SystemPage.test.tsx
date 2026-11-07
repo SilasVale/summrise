@@ -30,6 +30,19 @@ function device(answers: (name: string, args: Record<string, unknown>) => string
 
 const called = (name: string) => mocked.mock.calls.filter((call) => call[1] === name);
 
+/** The update card's labelled rows, in reading order, read from the rendered DOM. */
+function gridRows(container: HTMLElement) {
+  const grid = container.querySelector(".system-update dl");
+  if (!(grid instanceof HTMLElement)) {
+    throw new Error("the update card's grid is not on the page");
+  }
+  return Array.from(grid.querySelectorAll(":scope > div")).map((row) => ({
+    label: row.querySelector("dt")?.textContent?.trim() ?? "",
+    value: row.querySelector("dd")?.textContent?.trim() ?? "",
+    title: row.querySelector("time")?.getAttribute("title") ?? null
+  }));
+}
+
 describe("SystemPage", () => {
   beforeEach(() => {
     mocked.mockReset();
@@ -147,7 +160,8 @@ describe("SystemPage", () => {
 
   it("leaves the running version to the header chip, once per surface", async () => {
     // The measured Machine tab carried `build 0.3.277 · online` under a header that already said
-    // `Running · v0.3.277`: a third copy on a page that needs one. This line states reachability.
+    // `Running · v0.3.277`: a third copy on a page that needs one. The status line is labelled now,
+    // and the update card is the only place the update story is written.
     device((name) => {
       if (name !== "system.process_list") {
         throw new Error(`the test did not expect a ${name} call`);
@@ -162,13 +176,16 @@ describe("SystemPage", () => {
     );
 
     expect(await screen.findByText("online")).toBeInTheDocument();
+    // The word now has a subject: `Status · online`, not a bare value under the facts card.
+    expect(screen.getByText("Status").parentElement).toHaveTextContent("Status · online");
     expect(screen.queryByText(/build/)).toBeNull();
     expect(screen.queryByText(/0\.3\.1/)).toBeNull();
   });
 
   it("states the device's own update facts, including the last check", async () => {
-    // The measured Machine tab left the operator with `Running · v0.3.284` and no update story at
-    // all, while the fleet read carried the running version, the last check and the last outcome.
+    // The measured Machine tab left the operator with `Running · v0.3.284` and a sentence whose
+    // last clause was the answer. The card states the facts as rows: the running version and the
+    // last target are different versions here, so each one has its own row.
     device(() => JSON.stringify([]));
     const checkAt = new Date(2026, 10, 6, 17, 26, 2).getTime();
     const resultAt = new Date(2026, 10, 4, 19, 11, 5).getTime();
@@ -200,17 +217,109 @@ describe("SystemPage", () => {
     );
 
     await screen.findByText("online");
-    const line = container.querySelector(".system-update");
-    expect(line).not.toBeNull();
-    expect(line).toHaveTextContent("running v0.3.284");
-    expect(line).toHaveTextContent("channel canary");
-    expect(line).toHaveTextContent(`last check ${isoDate(checkAt)} ${clockTime(checkAt)}`);
-    expect(line).toHaveTextContent("last outcome applied to 0.3.273");
-    expect(line).toHaveTextContent(isoDate(resultAt));
-    const check = within(line as HTMLElement).getByText(
-      `${isoDate(checkAt)} ${clockTime(checkAt)}`
+    const rows = gridRows(container);
+    expect(rows.map((row) => row.label)).toEqual([
+      "Running",
+      "Last target",
+      "Last outcome",
+      "Last result",
+      "Last check",
+      "Channel"
+    ]);
+    expect(rows[0].value).toBe("0.3.284");
+    expect(rows[1].value).toBe("0.3.273");
+    expect(rows[2].value).toBe("applied");
+    expect(rows[3].value).toBe(`${isoDate(resultAt)} ${clockTime(resultAt)}`);
+    expect(rows[4].value).toBe(`${isoDate(checkAt)} ${clockTime(checkAt)}`);
+    expect(rows[4].title).toBe(exactMoment(checkAt));
+    expect(rows[5].value).toBe("canary");
+  });
+
+  it("draws the applied version first when it is the one running, and states it once", async () => {
+    // THE IN-CHANNEL SHAPE: the update applied and this process runs it. The answer is the card's
+    // first row, and the version is written on exactly one row — the measured paragraph wrote it
+    // three times on the first screen and twice in one line.
+    device(() => JSON.stringify([]));
+    const checkAt = new Date(2026, 10, 6, 17, 26, 2).getTime();
+    const appliedAt = new Date(2026, 10, 6, 16, 0, 0).getTime();
+    const { container } = render(
+      <SystemPage
+        grant={GRANT}
+        device={{
+          id: "device-1",
+          name: "workshop",
+          online: true,
+          version: "0.3.290",
+          last_frame_ms: 1,
+          update: {
+            current: "0.3.290",
+            last_check: { at_ms: checkAt, trigger: "schedule" },
+            last_update: { to: "0.3.290", outcome: "applied", at_ms: appliedAt }
+          },
+          host: {
+            restarts: [{ at_ms: appliedAt, version: "0.3.290", channel: "canary" }]
+          }
+        }}
+      />
     );
-    expect(check).toHaveAttribute("title", exactMoment(checkAt));
+
+    await screen.findByText("online");
+    const rows = gridRows(container);
+    expect(rows.map((row) => row.label)).toEqual([
+      "Applied",
+      "Last outcome",
+      "Last result",
+      "Last check",
+      "Channel"
+    ]);
+    expect(rows[0]).toMatchObject({ label: "Applied", value: "0.3.290" });
+    // ONE VERSION, ONE ROW: no `Running` or `Last target` row repeats what the applied row states.
+    expect(rows.filter((row) => row.value.includes("0.3.290"))).toHaveLength(1);
+  });
+
+  it("puts the running version and the last target on their own rows when the machine is behind", async () => {
+    // THE BEHIND SHAPE: the updater applied 0.3.290 but the process still runs 0.3.280. Each version
+    // is a row, so the gap is read instead of buried in a clause; the chip above states the same
+    // running version, and the card does not pretend the target is current.
+    device(() => JSON.stringify([]));
+    const checkAt = new Date(2026, 10, 7, 2, 25, 43).getTime();
+    const appliedAt = new Date(2026, 10, 8, 0, 22, 52).getTime();
+    const { container } = render(
+      <SystemPage
+        grant={GRANT}
+        device={{
+          id: "device-1",
+          name: "workshop",
+          online: true,
+          version: "0.3.280",
+          last_frame_ms: 1,
+          update: {
+            current: "0.3.280",
+            last_check: { at_ms: checkAt, trigger: "channel" },
+            last_update: { to: "0.3.290", outcome: "applied", at_ms: appliedAt }
+          },
+          host: {
+            restarts: [{ at_ms: appliedAt, version: "0.3.280", channel: "canary" }]
+          }
+        }}
+      />
+    );
+
+    await screen.findByText("online");
+    const rows = gridRows(container);
+    expect(rows.map((row) => row.label)).toEqual([
+      "Running",
+      "Last target",
+      "Last outcome",
+      "Last result",
+      "Last check",
+      "Channel"
+    ]);
+    expect(rows[0].value).toBe("0.3.280");
+    expect(rows[1].value).toBe("0.3.290");
+    expect(rows[2].value).toBe("applied");
+    // The applied version is not the running one, so it is not the first row.
+    expect(rows[0].label).not.toBe("Applied");
   });
 
   it("labels an applied outcome older than this start as history", async () => {
@@ -242,15 +351,15 @@ describe("SystemPage", () => {
     );
 
     await screen.findByText("online");
-    const line = container.querySelector(".system-update");
-    expect(line).not.toBeNull();
-    expect(line).toHaveTextContent("running v0.3.286");
-    expect(line).toHaveTextContent(
-      "last recorded outcome before this start: applied to 0.3.273 on " +
-        `${isoDate(appliedAt)} ${clockTime(appliedAt)}`
-    );
+    const rows = gridRows(container);
+    expect(rows[0]).toMatchObject({ label: "Running", value: "0.3.286" });
+    expect(rows[1]).toMatchObject({ label: "Last target", value: "0.3.273" });
     // The old apply is not printed as the last outcome this process produced.
-    expect(line).not.toHaveTextContent("last outcome applied");
+    expect(rows[2]).toMatchObject({
+      label: "Last outcome",
+      value: "applied · before this start"
+    });
+    expect(rows[3].value).toBe(`${isoDate(appliedAt)} ${clockTime(appliedAt)}`);
   });
 
   it("keeps an applied outcome current when it followed this start", async () => {
@@ -277,12 +386,15 @@ describe("SystemPage", () => {
     );
 
     await screen.findByText("online");
-    const line = container.querySelector(".system-update");
-    expect(line).toHaveTextContent("last outcome applied to 0.3.273");
-    expect(line).not.toHaveTextContent("before this start");
+    const rows = gridRows(container);
+    expect(rows.find((row) => row.label === "Last outcome")?.value).toBe("applied");
+    expect(rows.some((row) => row.value.includes("before this start"))).toBe(false);
   });
 
   it("says which update facts the device did not report instead of guessing them", async () => {
+    // THE NO-RECORD SHAPE: the device sent its running version and nothing else about updates. The
+    // card states that absence in the panel's rows; the console-link line and the check line keep
+    // saying what is absent rather than inventing a join, a retry or a console check.
     device(() => JSON.stringify([]));
     const { container } = render(
       <SystemPage
@@ -299,14 +411,18 @@ describe("SystemPage", () => {
     );
 
     await screen.findByText("online");
-    const line = container.querySelector(".system-update");
-    expect(line).not.toBeNull();
-    expect(line).toHaveTextContent("running v0.3.284");
-    expect(line).toHaveTextContent("channel not reported");
-    expect(line).toHaveTextContent("no last check reported");
-    expect(line).toHaveTextContent("no update result reported");
-    // The console-link line and the check line keep saying what is absent rather than inventing a
-    // join, a retry or a console check.
+    const rows = gridRows(container);
+    expect(rows.map((row) => row.label)).toEqual([
+      "Running",
+      "Last target",
+      "Last outcome",
+      "Last result",
+      "Last check",
+      "Channel"
+    ]);
+    expect(rows[0].value).toBe("0.3.284");
+    for (const row of rows.slice(1, 5)) expect(row.value).toBe("not recorded");
+    expect(rows[5].value).toBe("not reported");
     expect(container.querySelector(".system-channel")).toHaveTextContent(
       "no record of this machine's channel attempts"
     );
@@ -319,7 +435,8 @@ describe("SystemPage", () => {
     // The measured 84T: `host.update.current` was null, so the line said "channel not reported"
     // while the restart journal said canary and the verdict said `started 0.3.280`. The device's own
     // console attempt (14 failures) reached the console as `last_attempt`; the Machine tab is where
-    // the sentence that explains it belongs.
+    // the sentence that explains it belongs. The verdict is the card's result when no swap answer
+    // was folded in.
     device(() => JSON.stringify([]));
     const startedAt = Date.now() - 7 * 3_600_000;
     const { container } = render(
@@ -348,13 +465,13 @@ describe("SystemPage", () => {
     );
 
     await screen.findByText("online");
-    const line = container.querySelector(".system-update");
-    expect(line).toHaveTextContent("running v0.3.280");
-    expect(line).toHaveTextContent("channel canary");
-    expect(line).not.toHaveTextContent("channel not reported");
-    expect(line).toHaveTextContent("verdict ok");
-    expect(line).toHaveTextContent(/started 0\.3\.280 · 7h ago/);
-    expect(line).not.toHaveTextContent("no update result reported");
+    const rows = gridRows(container);
+    expect(rows[0]).toMatchObject({ label: "Running", value: "0.3.280" });
+    expect(rows.find((row) => row.label === "Channel")?.value).toBe("canary");
+    expect(rows.find((row) => row.label === "Verdict")?.value).toMatch(
+      /^ok · started 0\.3\.280 · 7h ago$/
+    );
+    expect(rows.some((row) => row.value === "not reported")).toBe(false);
 
     const channel = container.querySelector(".system-channel");
     expect(channel).toHaveTextContent(

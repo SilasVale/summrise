@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import type { Device } from "./DeviceCard";
 import { spanText } from "./age";
-import { clockTime, exactMoment, grouped, isoDate, message } from "./format";
+import { grouped, message } from "./format";
 import { HostFactsBlock } from "./HostFacts";
 import { Modal } from "./Modal";
 import { useRequestGate } from "./requests";
 import { callTool, ToolError, type Grant } from "./terminal";
-import { processStartMs, startedStory, updateChannel } from "./updateStory";
+import { updateRows } from "./updateCard";
 import type { VitalsSample } from "./vitals";
 
 /**
@@ -92,84 +92,45 @@ const RESTARTED_SENTENCE =
   "terminals, browser tabs and runs on the device ended.";
 
 /**
- * The device's own update story, as the fleet read carries it.
+ * The device's own update story, as the device's panel draws it: a labelled grid, not a sentence.
  *
- * The Machine tab used to answer only "is it online": the version in the header and the launcher's
- * baseline files in This machine, but never the device's account of its own updates. So a build
- * newer than the last applied target looked stale, and a machine that checked this morning looked
- * like it had never checked. This line draws the device's facts — the version its state document
- * records, the channel the launcher's generation came from, when it last checked, and the updater's
- * last answer — and says plainly which of them the device did not report. The console composes no
- * fact here: a missing version is "not reported", never the header's chip borrowed to fill the gap.
+ * The Machine tab used to answer "did the update land" with one 12 px grey paragraph after the
+ * facts — `running v0.3.290 · channel canary · last check 01:51 · last outcome applied to 0.3.290 on
+ * 00:22` — so the applied answer was the paragraph's last clause, the running version was written
+ * three times on the first screen, and the target version twice in one line. The device's own panel
+ * answers the same question with labelled rows (`Last target`, `Last outcome`, `Last result`, `Last
+ * check`); this card is that reading, in the console's `card` + `facts` vocabulary.
+ *
+ * `updateRows` decides the rows and their order: the applied version leads when it is the one
+ * running, the running version and the target get a row each when they differ, and a record from
+ * before this start says so. The card draws no fact the fleet did not send — a story the device
+ * never sent keeps the one honest sentence instead of a grid of absences.
  */
-function UpdateStoryLine({ device }: { device?: Device | null }) {
-  const update = device?.update;
-  if (!update) {
+function UpdateCard({ device }: { device?: Device | null }) {
+  if (!device?.update) {
     return (
       <p className="hint system-update">
         The console has no update facts from this device: it has not sent its update story.
       </p>
     );
   }
-  const channel = device ? updateChannel(device) : null;
-  const version = update.current ? `running v${update.current}` : "running version not reported";
-  const channelLine = channel ? `channel ${channel}` : "channel not reported";
-  const check = update.last_check ? moment(update.last_check.at_ms) : null;
-  const last = update.last_update ? moment(update.last_update.at_ms) : null;
-  // **AN ANSWER FROM BEFORE THIS START IS HISTORY, NOT THE LAST OUTCOME.** The newest journal entry
-  // is when the running process began; an updater answer older than it belongs to an earlier process.
-  // It stays on the line — it is the device's own record — but labelled as before this start, so the
-  // 9VH's two-day-old apply cannot read as what the machine just did.
-  const startedAtMs = device ? processStartMs(device) : null;
-  // **THE VERDICT IS THE RESULT WHEN NO SWAP ANSWER WAS FOLDED IN.** The measured 84T's only update
-  // result was its last start's verdict (`started 0.3.280`), and the line said "no update result
-  // reported" while the fleet carried that sentence. The verdict is drawn as the device wrote it,
-  // aged only when the journal proves when the start was; without a journal moment the sentence is
-  // kept verbatim and no time is invented.
-  const verdict = update.verdict;
-  const verdictDetail = verdict?.detail?.trim() ?? "";
-  const start = startedStory(update, { startedAtMs, shownVersion: device?.version });
-  const beforeStart =
-    startedAtMs !== null &&
-    update.last_update != null &&
-    update.last_update.at_ms < startedAtMs;
+  const rows = updateRows(device);
   return (
-    <p className="hint system-update">
-      {version}
-      {" · "}
-      {channelLine}
-      {" · "}
-      {update.last_check ? (
-        check ? (
-          <>
-            last check <time title={check.title}>{check.text}</time>
-          </>
-        ) : (
-          "last check time not readable"
-        )
-      ) : (
-        "no last check reported"
-      )}
-      {" · "}
-      {update.last_update ? (
-        last ? (
-          <>
-            {beforeStart ? "last recorded outcome before this start: " : "last outcome "}
-            {update.last_update.outcome}
-            {update.last_update.to ? ` to ${update.last_update.to}` : ""} on{" "}
-            <time title={last.title}>{last.text}</time>
-          </>
-        ) : (
-          "last outcome time not readable"
-        )
-      ) : verdict && verdictDetail ? (
-        <>
-          verdict {verdict.outcome} · {start?.text ?? verdictDetail}
-        </>
-      ) : (
-        "no update result reported"
-      )}
-    </p>
+    <section className="card system-update" aria-labelledby="system-update-title">
+      <header>
+        <strong id="system-update-title">Updates</strong>
+      </header>
+      <dl className="facts">
+        {rows.map((row) => (
+          <div key={row.key}>
+            <dt>{row.label}</dt>
+            <dd className={row.absent ? "muted" : undefined}>
+              {row.exact ? <time title={row.exact}>{row.text}</time> : row.text}
+            </dd>
+          </div>
+        ))}
+      </dl>
+    </section>
   );
 }
 
@@ -245,13 +206,6 @@ function UpdateCheckLine() {
       updates now").
     </p>
   );
-}
-
-/** One update moment in the console's local clock, with the exact instant for its title. */
-function moment(atMs: number): { text: string; title: string } | null {
-  const date = new Date(atMs);
-  if (Number.isNaN(date.getTime())) return null;
-  return { text: `${isoDate(atMs)} ${clockTime(atMs)}`, title: exactMoment(atMs) };
 }
 
 /**
@@ -567,17 +521,22 @@ export function SystemPage({
           </p>
         )}
         {device && (
-          // The id is not printed here: nothing on this page acts on it, and the two places that do
-          // (the record's Copy id, the Connect endpoint) carry it with a copy control. Nor is the
-          // build: the header chip already says `Running · vX` once per surface, and a third copy
-          // here was the measured duplication. This line answers reachability only.
-          <p className="hint">{device.online ? "online" : "offline"}</p>
+          // **THE REACHABILITY WORD NOW HAS A SUBJECT.** The facts card ended on a bare `online`
+          // (audit-40 F3): a 12 px orphan under the chart, reading as a label with no value or a
+          // value with no label. It is the machine's status, so the line names it; the topbar still
+          // carries the running chip, and the offline notice still explains the silence.
+          <p className="hint system-status">
+            <span className="muted">Status</span> ·{" "}
+            <span className={device.online ? "ok" : undefined}>
+              {device.online ? "online" : "offline"}
+            </span>
+          </p>
         )}
       </section>
 
       <section className="system-section" aria-labelledby="system-device-app">
         <h3 id="system-device-app">Device app</h3>
-        <UpdateStoryLine device={device} />
+        <UpdateCard device={device} />
         {device && (
           <>
             <ConsoleLinkLine device={device} />

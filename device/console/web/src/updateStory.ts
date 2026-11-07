@@ -44,6 +44,16 @@ export type StartStoryContext = {
   shownVersion?: string | null;
   /** The clock the age is read against; the components leave it to `Date.now()`. */
   nowMs?: number;
+  /**
+   * True when the page draws the update card beside this line (the Machine tab's `Updates`).
+   *
+   * **THE CARD OWNS THE UPDATE ANSWER THERE.** The card states the applied version first when it is
+   * the running one, and it dates the updater's last answer; a parenthetical `(updated 12m ago)`
+   * beside the start would say the same thing twice, and the version would repeat the chip's and
+   * the card's. So on that page the line states only when the start was — and keeps a start version
+   * the chip does not show, because that contradiction is a fact the card does not carry.
+   */
+  updateShown?: boolean;
 };
 
 /** The sentence a surface draws, and the exact instant its `title` should carry when it is a start. */
@@ -67,6 +77,9 @@ export function startedStory(
   if (!detail.startsWith("started ")) {
     const updatedTo = /^updated to\s+(\S+)/.exec(detail)?.[1] ?? null;
     if (updatedTo !== null && updatedTo === context.shownVersion) {
+      // The card states this answer in its own row when the page draws one; the line has nothing
+      // to add, so it adds nothing rather than repeating the age beside the card's result.
+      if (context.updateShown) return null;
       return last && insideStart(last.at_ms, context)
         ? { text: `updated ${seenAgo(last.at_ms, context.nowMs)}`, title: null }
         : null;
@@ -79,11 +92,22 @@ export function startedStory(
   // carries the exact instant behind the age.
   const startVersion = detail.slice("started ".length).trim();
   const startedAt = startMoment(context.startedAtMs);
-  const clause = updateClause(last, update?.rolled_back_to, context);
+  const clause = context.updateShown
+    ? null
+    : updateClause(last, update?.rolled_back_to, context);
   let base: string | null;
   if (startedAt !== null) {
-    const label = startVersion === "" ? "started" : `started ${startVersion}`;
-    base = `${label} · ${seenAgo(startedAt, context.nowMs)}`;
+    // The version is dropped when the update card beside the line states it and the chip already
+    // shows it; a start naming another version is still drawn as the device's sentence.
+    const repeated =
+      context.updateShown === true &&
+      startVersion !== "" &&
+      startVersion === (context.shownVersion ?? null);
+    const label = startVersion === "" || repeated ? "started" : `started ${startVersion}`;
+    base =
+      label === "started"
+        ? `started ${seenAgo(startedAt, context.nowMs)}`
+        : `${label} · ${seenAgo(startedAt, context.nowMs)}`;
   } else {
     // No journal: never borrow another moment for this start. A differing version is still the
     // device's sentence; a repeat of the chip has nothing new to say.

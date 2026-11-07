@@ -2216,30 +2216,70 @@ try {
   await page.screenshot({ path: path.join(OUT, '05-tools.png') });
 
   // **ITEM 5: THE MACHINE TAB DOES NOT RE-STATE THE BUILD.** The header says `Running · v0.3.42`
-  // once; the measured `build 0.3.42 · online` here was a third copy. The line keeps reachability
-  // and drops the build.
+  // once; the measured `build 0.3.42 · online` here was a third copy. The status line is labelled
+  // now, and the update card is where the update story is written.
   await page.getByRole('button', { name: 'Machine', exact: true }).click();
   await page.getByRole('heading', { name: 'Machine', exact: true }).waitFor({ timeout: 10_000 });
   const machinePageText = await page.locator('.system-page').innerText();
   if (machinePageText.includes('build ')) {
     throw new Error('the Machine tab repeated the build the header already shows');
   }
-  // **THE DEVICE'S OWN UPDATE STORY IS THE LINE THE TAB WAS MISSING.** It is not a second build
-  // chip: it names the version its state document records, the channel the fleet reports, the last
-  // check and the updater's last outcome. All four are the gate fixture's facts, not the header's
-  // chip repeated.
-  const updateLine = (await page.locator('.system-update').innerText()).trim();
-  for (const fact of ['running v0.3.42', 'channel stable', 'last check', 'last outcome refused to 0.3.43']) {
-    if (!updateLine.includes(fact)) {
-      throw new Error(`the Machine update line read "${updateLine}", missing ${JSON.stringify(fact)}`);
+  const statusLine = (await page.locator('.system-status').innerText()).trim();
+  if (statusLine !== 'Status · online') {
+    throw new Error(`the Machine tab's status line read "${statusLine}"`);
+  }
+  // **THE DEVICE'S OWN UPDATE STORY IS THE PANEL'S GRID, NOT A GREY PARAGRAPH (audit-40 F3).** The
+  // card states one fact per labelled row — the panel's `Last target` / `Last outcome` / `Last
+  // result` / `Last check` vocabulary — with the running version on its own row. The fixture's
+  // applied answer is a refusal to 0.3.43, so the applied version is not what runs and the grid
+  // leads with `Running`; the target is the refused one, and the version appears once per row.
+  const updateRows = await page.evaluate(() => {
+    const grid = document.querySelector('.system-update dl');
+    if (!grid) return null;
+    return Array.from(grid.querySelectorAll(':scope > div')).map((row) => ({
+      label: row.querySelector('dt')?.textContent?.trim() ?? '',
+      value: row.querySelector('dd')?.textContent?.trim() ?? ''
+    }));
+  });
+  if (!updateRows) {
+    throw new Error('the Machine tab did not draw the update card');
+  }
+  const expectedRows = ['Running', 'Last target', 'Last outcome', 'Last result', 'Last check', 'Channel'];
+  const labels = updateRows.map((row) => row.label);
+  if (labels.join('|') !== expectedRows.join('|')) {
+    throw new Error(`the update card's rows read ${JSON.stringify(labels)}`);
+  }
+  const rowValue = (label) => updateRows.find((row) => row.label === label)?.value ?? '';
+  if (rowValue('Running') !== '0.3.42') {
+    throw new Error(`the update card's Running row read "${rowValue('Running')}"`);
+  }
+  if (rowValue('Last target') !== '0.3.43') {
+    throw new Error(`the update card's Last target row read "${rowValue('Last target')}"`);
+  }
+  if (rowValue('Last outcome') !== 'refused') {
+    throw new Error(`the update card's Last outcome row read "${rowValue('Last outcome')}"`);
+  }
+  if (!rowValue('Last result') || !rowValue('Last check')) {
+    throw new Error('the update card did not date its result and its check');
+  }
+  if (rowValue('Channel') !== 'stable') {
+    throw new Error(`the update card's Channel row read "${rowValue('Channel')}"`);
+  }
+  for (const row of updateRows) {
+    if ((row.value.match(/\d+\.\d+\.\d+/g) ?? []).length > 1) {
+      throw new Error(`the update card's ${row.label} row repeats a version: "${row.value}"`);
     }
   }
-  step(`the Machine tab's update line states "${updateLine}"`);
-  // **THE START IS ON THE MACHINE TAB, WITHOUT OPENING THE DEVICE'S OWN PANEL.** The same journal
-  // entry the fleet row reads dates this line, which repeats the header's version because that is
-  // what the device said it started; the exact instant is in the title.
+  step(
+    `the Machine tab draws the update card as labelled rows: ${updateRows
+      .map((row) => `${row.label} ${row.value}`)
+      .join(' · ')}`
+  );
+  // **THE START SAYS WHEN, NOT WHICH BUILD.** The card states the running version and the update
+  // answer; the header chip states what runs, so the start line keeps only the moment — and the card
+  // carries the refused answer the line used to repeat. The exact instant stays in the title.
   const machineStart = (await page.locator('.started-line').innerText()).trim();
-  if (machineStart !== 'started 0.3.42 · 1h ago (update to 0.3.43 refused)') {
+  if (machineStart !== 'started 1h ago') {
     throw new Error(`the Machine tab's start line read "${machineStart}"`);
   }
   const machineStartTitle = (await page.locator('.started-line').getAttribute('title')) ?? '';
@@ -2265,7 +2305,62 @@ try {
     throw new Error(`the Machine tab's check line read "${machineCheck}"`);
   }
   step('the Machine tab names the console link\'s last attempt and the panel\'s local check');
-  step('the Machine tab states reachability without a second build line');
+  step('the Machine tab states reachability as Status · online, without a second build line');
+
+  // **THE CARD AT BOTH WIDTHS, AND THE PHONE KEEPS IT IN THE VIEWPORT.** The panel's grid is one
+  // label/value row per fact; at 390 the rows wrap rather than pushing the page sideways. These are
+  // the two pictures the F3 brief asks for.
+  await page.setViewportSize({ width: 1440, height: 960 });
+  await page.waitForTimeout(300);
+  const card1440 = await page.evaluate(() => {
+    const card = document.querySelector('.system-update');
+    const first = card?.querySelector('dl > div');
+    const box = (element) =>
+      element
+        ? {
+            y: Math.round(element.getBoundingClientRect().y),
+            width: Math.round(element.getBoundingClientRect().width),
+            height: Math.round(element.getBoundingClientRect().height)
+          }
+        : null;
+    return {
+      tag: card?.tagName ?? null,
+      rows: card?.querySelectorAll('dl > div').length ?? 0,
+      card: box(card),
+      firstRow: box(first),
+      labelFont: first ? getComputedStyle(first.querySelector('dt')).fontSize : null
+    };
+  });
+  console.log(`browser-gate: update card at 1440: ${JSON.stringify(card1440)}`);
+  await page.screenshot({ path: path.join(OUT, 'machine-1440.png') });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.waitForTimeout(300);
+  const machine390 = await page.evaluate(() => ({
+    viewport: document.documentElement.clientWidth,
+    scrollWidth: document.documentElement.scrollWidth,
+    rows: document.querySelectorAll('.system-update dl > div').length,
+    firstLabel: document.querySelector('.system-update dl > div dt')?.textContent?.trim() ?? ''
+  }));
+  if (machine390.scrollWidth > machine390.viewport) {
+    throw new Error(
+      `the Machine tab at 390 scrolls sideways: ${machine390.viewport}/${machine390.scrollWidth}`
+    );
+  }
+  if (machine390.rows !== updateRows.length) {
+    throw new Error(
+      `the update card drew ${machine390.rows} rows at 390; the fixture has ${updateRows.length}`
+    );
+  }
+  if (machine390.firstLabel !== 'Running') {
+    throw new Error(`the update card's first row at 390 was ${JSON.stringify(machine390.firstLabel)}`);
+  }
+  await page.screenshot({ path: path.join(OUT, 'machine-390.png') });
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.waitForTimeout(200);
+  step(
+    `the update card keeps its ${machine390.rows} labelled rows at 390 with no sideways scroll ` +
+      `(${machine390.viewport}/${machine390.scrollWidth})`
+  );
 
   // **THE SCREEN PAGE NAMES THE HELPER'S SESSION BEFORE THE PRESS (audit 37 F3).** The fleet's
   // helper fact is session 2 and session 2 is disconnected; the measured live page offered the

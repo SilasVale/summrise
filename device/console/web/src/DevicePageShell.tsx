@@ -42,7 +42,10 @@ export function DevicePageShell({
   const started = chosen
     ? startedStory(chosen.update, {
         startedAtMs: processStartMs(chosen),
-        shownVersion: chosen.version
+        shownVersion: chosen.version,
+        // The Machine tab draws the Updates card beside this line: the card states the running
+        // version and the updater's last answer, so the line keeps only the moment of the start.
+        updateShown: tab === "machine"
       })
     : null;
   return (

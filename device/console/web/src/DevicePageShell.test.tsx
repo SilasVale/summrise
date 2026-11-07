@@ -91,7 +91,7 @@ describe("DevicePageShell offline notice", () => {
     expect(screen.queryByRole("status")).not.toBeInTheDocument();
   });
 
-  it("draws the start even when it repeats the header's version, on the Machine tab too", () => {
+  it("draws the start on the Machine tab without the version or the clause the card states", () => {
     renderShell("machine", {
       ...MACHINE,
       update: {
@@ -101,9 +101,10 @@ describe("DevicePageShell offline notice", () => {
       }
     });
 
-    // The header chip says what runs; this line says when it started, which no chip can. It is
-    // drawn on every tab, including Machine, without opening the device's own panel.
-    const line = screen.getByText("started 0.3.42 · 1d 1h ago");
+    // The Machine tab draws the update card beside this line: the card states the running version
+    // and the updater's last answer, so the line keeps the moment a chip cannot state. A start that
+    // named another version would still be drawn; the exact instant stays in the title.
+    const line = screen.getByText("started 1d 1h ago");
     expect(line).toHaveAttribute("title", exactMoment(BOOT_AT));
     expect(screen.queryByText(/updated/)).not.toBeInTheDocument();
   });

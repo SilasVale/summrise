@@ -292,3 +292,64 @@ describe("updateChannel — the channel the running process started from", () =>
     ).toBeNull();
   });
 });
+
+/**
+ * THE PAGE THAT DRAWS THE UPDATE CARD SAYS IT ONCE.
+ *
+ * The Machine tab now carries the panel's `Updates` grid beside the start line. The card states the
+ * applied version first when it is the running one, and it dates the updater's last answer; a start
+ * line that repeated the version or the `(updated …)` clause would say the same thing twice. What
+ * the line keeps is the start's own moment, and a start version the chip does not show — that
+ * contradiction is a fact the card does not carry.
+ */
+describe("startedLine — a page that draws the update card", () => {
+  it("leaves the repeated version and the applied clause to the card", () => {
+    expect(
+      startedLine(
+        {
+          current: "0.3.277",
+          verdict: { outcome: "ok", detail: "started 0.3.277" },
+          last_update: { to: "0.3.277", outcome: "applied", at_ms: NOW - 12 * 60_000 }
+        },
+        { ...context, updateShown: true }
+      )
+    ).toBe("started 2h ago");
+  });
+
+  it("keeps a start version the chip does not show, because the card cannot state it", () => {
+    expect(
+      startedLine(
+        {
+          current: "0.3.275",
+          verdict: { outcome: "ok", detail: "started 0.3.275" }
+        },
+        { ...context, updateShown: true, shownVersion: "0.3.42" }
+      )
+    ).toBe("started 0.3.275 · 2h ago");
+  });
+
+  it("draws no second copy of an applied verdict the card states", () => {
+    expect(
+      startedLine(
+        {
+          current: "0.3.277",
+          verdict: { outcome: "ok", detail: "updated to 0.3.277" },
+          last_update: { to: "0.3.277", outcome: "applied", at_ms: NOW - 12 * 60_000 }
+        },
+        { ...context, updateShown: true }
+      )
+    ).toBeNull();
+  });
+
+  it("keeps the device's own current sentence, which the card does not carry", () => {
+    expect(
+      startedLine(
+        {
+          current: "0.3.277",
+          verdict: { outcome: "needs_attention", detail: "refused: nothing was installed" }
+        },
+        { ...context, updateShown: true }
+      )
+    ).toBe("refused: nothing was installed");
+  });
+});
