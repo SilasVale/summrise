@@ -64,9 +64,11 @@ vi.mock("./api", () => ({
   HttpError: class HttpError extends Error {
     constructor(
       readonly status: number,
-      readonly code: string
+      readonly code: string,
+      message?: string
     ) {
-      super(code);
+      // Mirrors the real class: the body's `message` when the console wrote one, else the code.
+      super(message ?? code);
     }
   },
   NoAnswer: class NoAnswer extends Error {}
@@ -400,6 +402,35 @@ describe("App", () => {
     // The tab title and the address bar are both effects over the route the page has just drawn.
     await waitFor(() => expect(document.title).toBe("Machines · Summrise console"));
     await waitFor(() => expect(window.location.hash).toBe("#home"));
+  });
+
+  it("shows the console's own 401 sentence in the sign-in panel", async () => {
+    // The Rust `/auth` refusal names the actionable thing — the 64 hex characters and the flag
+    // whose file holds them — and the panel must draw that sentence, not a generic apology.
+    const refusal =
+      "that token was not accepted; the operator token is the 64 hex characters in the file " +
+      "named by --operator-token-file";
+    mocks.signIn.mockRejectedValueOnce(new HttpError(401, "unauthorized", refusal));
+    await boot();
+    fireEvent.change(screen.getByLabelText("Operator token"), { target: { value: "wrong-token" } });
+    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+
+    expect(await screen.findByText(refusal)).toBeInTheDocument();
+    expect(screen.queryByText("The console could not sign you in.")).toBeNull();
+    // The cause stays in the title, where the banner's own rule puts evidence.
+    expect(screen.getByTitle("401 unauthorized")).toBeInTheDocument();
+  });
+
+  it("falls back to the generic sentence when the 401 says nothing", async () => {
+    // `message` falls back to the machine code, so a body with only `error` must not put
+    // "unauthorized" in front of the operator as if the console had said it.
+    mocks.signIn.mockRejectedValueOnce(new HttpError(401, "unauthorized"));
+    await boot();
+    fireEvent.change(screen.getByLabelText("Operator token"), { target: { value: "wrong-token" } });
+    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+
+    expect(await screen.findByText("The console could not sign you in.")).toBeInTheDocument();
+    expect(screen.queryByText("unauthorized")).toBeNull();
   });
 
   it("opens the Device surface named in the URL after sign-in, through the legacy alias", async () => {

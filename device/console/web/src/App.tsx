@@ -868,9 +868,17 @@ export function App() {
       setTokenInput("");
       await load();
     } catch (cause) {
+      // THE REFUSAL'S OWN SENTENCE IS THE ACTION. The Rust `/auth` 401 names the value to type and
+      // the flag whose file holds it; the generic apology is only for a refusal that said nothing.
+      // `HttpError.message` falls back to the machine code, so a bare `unauthorized` is not a
+      // sentence: only a message distinct from the code is the console's own words.
+      const refusal =
+        cause instanceof HttpError && cause.message && cause.message !== cause.code
+          ? cause.message
+          : null;
       reportFailure({
         key: "sign-in",
-        sentence: "The console could not sign you in.",
+        sentence: refusal ?? "The console could not sign you in.",
         detail: describe(cause)
       });
     } finally {
