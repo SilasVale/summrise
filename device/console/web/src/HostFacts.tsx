@@ -38,7 +38,8 @@ export function HostFactsBlock({
   host,
   vitals,
   collecting = true,
-  readAtMs = null
+  readAtMs = null,
+  readFrom = "frame"
 }: {
   host: HostFacts;
   vitals: VitalsSample[];
@@ -54,6 +55,12 @@ export function HostFactsBlock({
    * has no moment to name), and a live block is not dated at all.
    */
   readAtMs?: number | null;
+  /**
+   * Which evidence `readAtMs` is: the frame the values came from, or — when a console restarted
+   * mid-outage and has no frame date — the registry's last-seen moment. The prefix must name the
+   * source, because "last frame 5h ago" and "last seen 5h ago" are different claims about the facts.
+   */
+  readFrom?: "frame" | "seen";
 }) {
   const memory = host.memory;
   const sessions = host.sessions ?? [];
@@ -63,10 +70,13 @@ export function HostFactsBlock({
   return (
     <>
       {readAtMs !== null && (
-        // THE BLOCK'S OWN CLOCK. Not "now": the age is the distance from the frame's moment, and
-        // the exact instant stays in the title for anyone matching it to a log.
+        // THE BLOCK'S OWN CLOCK. Not "now": the age is the distance from the moment above, and the
+        // exact instant stays in the title for anyone matching it to a log. A last-seen date is not
+        // a frame date, so the sentence says what it is rather than handing the values that moment.
         <p className="hint facts-read" title={exactMoment(readAtMs)}>
-          Last read {seenAgo(readAtMs)}. These facts are the machine's last frame, not a live read.
+          {readFrom === "frame"
+            ? `Last frame ${seenAgo(readAtMs)}. These facts are the machine's last frame, not a live read.`
+            : `Last seen ${seenAgo(readAtMs)}. These facts are the machine's last frame; the console has no timestamp for that frame.`}
         </p>
       )}
       <dl className="facts host">

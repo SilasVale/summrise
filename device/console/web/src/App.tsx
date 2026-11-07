@@ -1342,6 +1342,10 @@ export function App() {
                   clientsOnly={activityClientsOnly}
                   onClientsOnly={setActivityClientsOnly}
                   device={activityMachine}
+                  // THE FALLBACK'S ID IS NOT A SCOPE. Its rows are still in the window (the page
+                  // says the past activity stays searchable), but the timeline must not turn the
+                  // id into an `unknown machine · <hex>` chip above them (audit-38 F8).
+                  goneId={selectedGone ? selected : null}
                   onDevice={(deviceId) => {
                     setActivityFilter((current) => ({ ...current, device: deviceId }));
                     // A chip is the scope: the header's machine is what the table calls "This

@@ -453,24 +453,33 @@ function Row(props: {
  * A chip is a scope, not only a filter over the lines in hand: another machine's chip must stay
  * reachable while one machine's window is on screen. A machine with no line in this window still
  * gets a chip, and selecting it reads that machine's window instead of filtering this one.
+ *
+ * `goneId` is the one id that gets none: the page has already fallen back from it because `/fleet`
+ * answered without it (audit-38 F8), so an `unknown machine · <hex>` scope here would name as a
+ * machine the very selection the page just said is not one. Its rows stay in the window — a removed
+ * machine's past activity is still the record — but the page's fallback sentence is the only place
+ * that id is explained, and presenting it again as a chip is what the measured page did.
  */
 function machineOptions(
   lines: AuditLine[],
   devices: Device[],
-  active: string
+  active: string,
+  goneId: string | null
 ): Array<{ id: string; name: string; known: boolean }> {
   const present = new Map<string, { name: string; known: boolean }>();
   for (const device of devices) present.set(device.id, { name: device.name ?? device.id, known: true });
   for (const line of lines) {
     const id = line.device_id;
-    if (!id || present.has(id)) continue;
+    if (!id || id === goneId || present.has(id)) continue;
     // A line can name an id the fleet does not list — an old enrollment, a retired machine. The
     // line is real, so it keeps a chip; the chip must not read like a machine.
     present.set(id, { name: `unknown machine · ${id.slice(0, 12)}`, known: false });
   }
   // The table can narrow to a machine this window has no line for — a retired device, or a window
-  // that slid. The chip is how that filter stays visible (and clearable) on the timeline.
-  if (active !== "" && !present.has(active)) {
+  // that slid. The chip is how that filter stays visible (and clearable) on the timeline. A filter
+  // that IS the fallen-back id is left without a chip too: the page's sentence, not a scope the
+  // fleet does not list, is what carries that id.
+  if (active !== "" && active !== goneId && !present.has(active)) {
     const known = devices.some((device) => device.id === active);
     present.set(active, {
       name: known ? machineName(devices, active) ?? active : `unknown machine · ${active.slice(0, 12)}`,
@@ -507,6 +516,12 @@ export function ActivityTimeline(props: {
   /** The machine the rows are narrowed to, or "" for every machine. */
   device?: string;
   onDevice?: (value: string) => void;
+  /**
+   * The selected id the page has fallen back from because `/fleet` answered without it (audit-38
+   * F8). The id gets no machine chip — not from its lines, not as an active filter — because the
+   * page's fallback sentence already says it is not in the fleet. Its rows still draw.
+   */
+  goneId?: string | null;
   /**
    * The "Clients only" chip, shared with the page so its header can state the same subset the rows
    * show. Uncontrolled when the timeline is rendered on its own.
@@ -628,8 +643,8 @@ export function ActivityTimeline(props: {
     [props.tokens]
   );
   const machines = useMemo(
-    () => machineOptions(rows, props.devices, device),
-    [rows, props.devices, device]
+    () => machineOptions(rows, props.devices, device, props.goneId ?? null),
+    [rows, props.devices, device, props.goneId]
   );
   const filtered = useMemo(() => {
     if (needle === "" && device === "" && !clientsOnly) return rows;

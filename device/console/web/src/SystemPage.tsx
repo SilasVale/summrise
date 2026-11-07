@@ -532,6 +532,13 @@ export function SystemPage({
   const listedFilter = filter.trim();
   const filterPending = listedFilter !== applied;
 
+  // **AN OFFLINE BLOCK IS DATED BY THE NEWEST MOMENT THE FLEET CAN VOUCH FOR.** A frame is what the
+  // values came from and wins when the console has one; a console that restarted mid-outage has no
+  // `last_frame_ms` (the measured 14R) and the registry's `last_seen_ms` is the only moment left.
+  // Which fact dated it travels with the moment: "last frame" and "last seen" are different claims.
+  const factsReadAt = offline ? (device?.last_frame_ms ?? device?.last_seen_ms ?? null) : null;
+  const factsReadFrom = device?.last_frame_ms != null ? "frame" : "seen";
+
   return (
     <div className="system-page">
       <section className="system-section" aria-labelledby="system-this-machine">
@@ -541,9 +548,8 @@ export function SystemPage({
             host={device.host}
             vitals={vitals}
             collecting={!offline}
-            // **AN OFFLINE BLOCK IS DATED BY THE FRAME, NOT BY NOW.** The values are the machine's
-            // last report; the age is the distance to the frame that carried it (audit-38 F7).
-            readAtMs={offline ? (device.last_frame_ms ?? null) : null}
+            readAtMs={factsReadAt}
+            readFrom={factsReadFrom}
           />
         ) : (
           <p className="hint">

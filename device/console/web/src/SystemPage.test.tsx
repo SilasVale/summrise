@@ -96,9 +96,51 @@ describe("SystemPage", () => {
       />
     );
 
-    const age = screen.getByText(/^Last read 5h ago/);
+    const age = screen.getByText(/^Last frame 5h ago/);
     expect(age).toHaveAttribute("title", exactMoment(frameAt));
     // The facts themselves are still the frame's, not re-read: the age says which moment they are.
+    expect(screen.getByText("4.0 GiB free of 8.0 GiB")).toBeInTheDocument();
+    expect(screen.getByText("#3 connected")).toBeInTheDocument();
+  });
+
+  it("dates an offline machine the console never saw a frame from by its last seen moment", async () => {
+    // audit-38 F7's live follow-up: the measured 14R's fleet row has `last_frame_ms: null` and
+    // `last_seen_ms` set, because the console restarted mid-outage. Passing only the frame left the
+    // block undated; the registry's last-seen is the moment left, and the line names that evidence.
+    device((name) => {
+      if (name !== "system.process_list") {
+        throw new Error(`the test did not expect a ${name} call`);
+      }
+      return JSON.stringify([]);
+    });
+    const seenAt = Date.now() - 5 * 3_600_000;
+    render(
+      <SystemPage
+        grant={GRANT}
+        deviceOnline={false}
+        device={{
+          id: "device-14r",
+          name: "DESKTOP-14RJCR8",
+          online: false,
+          version: "0.3.1",
+          last_frame_ms: null,
+          last_seen_ms: seenAt,
+          host: {
+            memory: { total_bytes: 8 * 1024 ** 3, available_bytes: 4 * 1024 ** 3 },
+            sessions: [{ id: 3, state: "connected" }],
+            helper: { registered: false }
+          }
+        }}
+      />
+    );
+
+    const age = screen.getByText(/^Last seen 5h ago/);
+    expect(age).toHaveAttribute("title", exactMoment(seenAt));
+    // It is a last-seen date, not a frame date: the sentence says so instead of handing the
+    // values a moment the console cannot prove they came from.
+    expect(age).toHaveTextContent("the console has no timestamp for that frame");
+    expect(screen.queryByText(/^Last frame/)).toBeNull();
+    // The values are unchanged: only their date is stated, from the evidence that exists.
     expect(screen.getByText("4.0 GiB free of 8.0 GiB")).toBeInTheDocument();
     expect(screen.getByText("#3 connected")).toBeInTheDocument();
   });

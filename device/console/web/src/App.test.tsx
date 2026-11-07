@@ -2219,15 +2219,34 @@ describe("App", () => {
 
   it("falls back from a selected id the fleet no longer lists, and says so", async () => {
     // audit-38 F8: Home and Device fall back when the selected id is not in `/fleet`; Activity kept
-    // the dead id and drew an empty "machine" whose only name was its hex prefix.
+    // the dead id and drew an empty "machine" whose only name was its hex prefix. The live follow-up
+    // found the second face: the id's old rows are still in the fleet's window, so the timeline's
+    // line-derived chips drew `unknown machine · deadbeefdead` under the fallback sentence.
     localStorage.setItem("summrise.selected.device", "deadbeefdead");
+    mocks.audit.mockResolvedValue([
+      {
+        ...tokenCall,
+        ts_ms: Date.now() - 60_000,
+        device_id: "deadbeefdead",
+        token_id: null,
+        tool: "files.list",
+        sentence: "Read a removed machine's notes"
+      }
+    ]);
     const view = await bootAndSignIn();
     expect(screen.getByRole("heading", { name: "Machines", level: 1 })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Activity" }));
     await screen.findByRole("heading", { name: "Activity", level: 1 });
 
-    expect(screen.queryByText(/unknown machine · deadbeefdead/)).toBeNull();
+    const allMachines = screen.getByRole("group", { name: "Filter by machine" });
+    expect(within(allMachines).queryByText(/unknown machine · deadbeefdead/)).toBeNull();
+    expect(within(allMachines).queryByText(/unknown machine/)).toBeNull();
+    expect(within(allMachines).getByRole("button", { name: "workshop" })).toBeInTheDocument();
+    expect(within(allMachines).getByRole("button", { name: "attic" })).toBeInTheDocument();
+    // The record itself is still drawn: the sentence promises the past activity stays searchable,
+    // so the fix takes away the chip, not the rows.
+    expect(screen.getByText("Read a removed machine's notes")).toBeInTheDocument();
     expect(screen.queryByText(/No activity on deadbeefdead/)).toBeNull();
     const notice = screen
       .getByText(
@@ -2235,7 +2254,6 @@ describe("App", () => {
       )
       .closest(".notice");
     expect(notice).not.toBeNull();
-    const allMachines = screen.getByRole("group", { name: "Filter by machine" });
     expect(within(allMachines).getByRole("button", { name: "All machines" })).toHaveAttribute(
       "aria-pressed",
       "true"
