@@ -2097,6 +2097,157 @@ describe("App", () => {
     ).toBeInTheDocument();
   }, 10_000);
 
+  it("says the audit read failed, with its reason and a retry, instead of following it", async () => {
+    // audit-38 F6: the audit was unread, but Activity still said it was following the record; the
+    // counts and the source line were gone with no sentence saying why, so a live-only list read as
+    // the whole day's work.
+    mocks.audit.mockRejectedValue(new TypeError("Failed to fetch"));
+    const view = await bootAndSignIn();
+    fireEvent.click(screen.getByRole("button", { name: "Activity" }));
+    await screen.findByRole("heading", { name: "Activity", level: 1 });
+
+    // The stream is healthy; that is exactly the state the audit's failure must not hide behind.
+    const source = TestEventSource.instances[TestEventSource.instances.length - 1];
+    act(() => {
+      source.emit("snapshot", { lines: [] });
+    });
+
+    expect(screen.queryByText(/Following the console's audit/)).toBeNull();
+    expect(screen.getByText("The audit could not be read.")).toBeInTheDocument();
+    const notice = screen
+      .getByText(
+        "The console could not read the fleet's audit: Failed to fetch. This timeline shows only calls that arrive live."
+      )
+      .closest(".notice");
+    expect(notice).not.toBeNull();
+    expect(
+      within(notice as HTMLElement).getByRole("button", { name: "Retry" })
+    ).toBeInTheDocument();
+    // A record that was not read is not "nothing happened".
+    expect(screen.queryByText(/No activity yet/)).toBeNull();
+
+    // Retry is the read again; its answer is what lets the page say it is following the record.
+    mocks.audit.mockResolvedValue([
+      { ...tokenCall, ts_ms: Date.now(), sentence: "Read the fleet's notes" }
+    ]);
+    fireEvent.click(within(notice as HTMLElement).getByRole("button", { name: "Retry" }));
+
+    expect(
+      await screen.findByText("Following the console's audit as it is written.")
+    ).toBeInTheDocument();
+    expect(await screen.findByText("Read the fleet's notes")).toBeInTheDocument();
+    expect(screen.queryByText(/could not read the fleet's audit/)).toBeNull();
+    view.unmount();
+  });
+
+  it("keeps the fleet's names and the selected header while the audit read is slow", async () => {
+    // audit-38 F6: with `/audit` delayed, the page waited for it before drawing `/fleet`, so known
+    // machines read "unknown machine · <hex>" and the selected machine's header was gone. Each read
+    // now lands on its own; the slow one cannot relabel the fleet.
+    localStorage.setItem("summrise.selected.device", workshop.id);
+    const answer = deferred<unknown[]>();
+    mocks.audit.mockReturnValueOnce(answer.promise);
+    const view = await boot();
+    fireEvent.change(screen.getByLabelText("Operator token"), { target: { value: "operator-token" } });
+    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+
+    // `/fleet` answered; the selected machine is in the header while its audit window is still out.
+    // On the measured page the two arrived together, so this header waited for the slow `/audit`.
+    expect(await screen.findByLabelText("Machine: workshop")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Activity" }));
+    await screen.findByRole("heading", { name: "Activity", level: 1 });
+    const stream = TestEventSource.instances[TestEventSource.instances.length - 1];
+    act(() => {
+      stream.emit("snapshot", { lines: [] });
+    });
+
+    expect(screen.getByText("Reading the audit…")).toBeInTheDocument();
+    expect(screen.queryByText(/Following the console's audit/)).toBeNull();
+    const chips = screen.getByRole("group", { name: "Filter by machine" });
+    expect(within(chips).getByRole("button", { name: "workshop" })).toBeInTheDocument();
+    expect(within(chips).getByRole("button", { name: "attic" })).toBeInTheDocument();
+    expect(within(chips).queryByText(/unknown machine/)).toBeNull();
+    expect(screen.queryByText(/No activity yet/)).toBeNull();
+
+    await act(async () => {
+      answer.resolve([
+        { ...tokenCall, ts_ms: Date.now(), sentence: "Read the workshop's notes" }
+      ]);
+    });
+    expect(
+      await screen.findByText("Following the console's audit as it is written.")
+    ).toBeInTheDocument();
+    expect(await screen.findByText("Read the workshop's notes")).toBeInTheDocument();
+    view.unmount();
+  });
+
+  it("says a changed scope's read failed instead of reading it forever", async () => {
+    // A chip is a new window. When that read fails, the old machine's rows may not stand under the
+    // new chip, but the list must not keep saying it is reading: the page states the failure.
+    mocks.audit.mockImplementation(async (_limit: number, device?: string) =>
+      device === workshop.id
+        ? [{ ...tokenCall, ts_ms: Date.now(), sentence: "Read the workshop's notes" }]
+        : [{ ...tokenCall, ts_ms: Date.now() - 1_000, sentence: "Listed the attic" }]
+    );
+    await bootAndSignIn();
+    selectDevice("workshop");
+    fireEvent.click(screen.getByRole("button", { name: "Activity" }));
+    expect(await screen.findByText("Read the workshop's notes")).toBeInTheDocument();
+
+    const answer = deferred<unknown[]>();
+    mocks.audit.mockReturnValueOnce(answer.promise);
+    const readsBefore = mocks.audit.mock.calls.length;
+    const chips = screen.getByRole("group", { name: "Filter by machine" });
+    fireEvent.click(within(chips).getByRole("button", { name: "attic" }));
+    await waitFor(() => expect(mocks.audit).toHaveBeenCalledTimes(readsBefore + 1));
+    expect(mocks.audit).toHaveBeenLastCalledWith(1000, attic.id);
+    expect(screen.getByText("Reading attic's window…")).toBeInTheDocument();
+
+    await act(async () => {
+      answer.reject(new TypeError("Failed to fetch"));
+    });
+    expect(screen.getByText("The audit could not be read.")).toBeInTheDocument();
+    expect(
+      await screen.findByText(
+        "The console could not read attic's audit: Failed to fetch. This timeline shows only calls that arrive live."
+      )
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Reading attic's window…")).toBeNull();
+    expect(screen.queryByText("Read the workshop's notes")).toBeNull();
+  });
+
+  it("falls back from a selected id the fleet no longer lists, and says so", async () => {
+    // audit-38 F8: Home and Device fall back when the selected id is not in `/fleet`; Activity kept
+    // the dead id and drew an empty "machine" whose only name was its hex prefix.
+    localStorage.setItem("summrise.selected.device", "deadbeefdead");
+    const view = await bootAndSignIn();
+    expect(screen.getByRole("heading", { name: "Machines", level: 1 })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Activity" }));
+    await screen.findByRole("heading", { name: "Activity", level: 1 });
+
+    expect(screen.queryByText(/unknown machine · deadbeefdead/)).toBeNull();
+    expect(screen.queryByText(/No activity on deadbeefdead/)).toBeNull();
+    const notice = screen
+      .getByText(
+        "deadbeefdead is not in this console's fleet. The timeline shows every machine; its past activity is still searchable."
+      )
+      .closest(".notice");
+    expect(notice).not.toBeNull();
+    const allMachines = screen.getByRole("group", { name: "Filter by machine" });
+    expect(within(allMachines).getByRole("button", { name: "All machines" })).toHaveAttribute(
+      "aria-pressed",
+      "true"
+    );
+
+    // The dead id is cleared from the stored selection, so the fallback is not repeated forever.
+    fireEvent.click(within(notice as HTMLElement).getByRole("button", { name: "Clear the selection" }));
+    expect(screen.queryByText(/is not in this console's fleet/)).toBeNull();
+    expect(localStorage.getItem("summrise.selected.device")).toBeNull();
+    view.unmount();
+  });
+
   it("says the machine list is being read instead of drawing an empty fleet", async () => {
     const answer = deferred<Array<typeof workshop>>();
     mocks.devices.mockReturnValue(answer.promise);

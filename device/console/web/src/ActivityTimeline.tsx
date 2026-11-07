@@ -565,8 +565,20 @@ export function ActivityTimeline(props: {
    * window, so the list shows one reading line instead of drawing another window's rows.
    */
   loading?: boolean;
+  /**
+   * True when that read failed: the old scope's rows still may not be drawn under this scope, but
+   * the list must not keep saying it is reading. The page's own notice states the failure.
+   */
+  loadingFailed?: boolean;
   /** The machine whose window is being read, or `null` for the fleet's. */
   loadingMachine?: string | null;
+  /**
+   * True when the page holds no audit window because its read is still out, or failed. The empty
+   * sentence is a claim about the record ("No activity yet"), and a list that was not read cannot
+   * make it; the page states the read instead. Live rows are still drawn, because they are real and
+   * the page's notice says they are what it has.
+   */
+  unread?: boolean;
   /**
    * The file the window is read from, as `/audit/source` served it. The line beside the cap
    * sentence states it; absent or unreadable facts draw nothing rather than a guess.
@@ -717,7 +729,7 @@ export function ActivityTimeline(props: {
           </label>
         </div>
       )}
-      {props.loading && (
+      {props.loading && !props.loadingFailed && (
         <p className="hint timeline-loading">
           {windowLoadingSentence(props.loadingMachine ?? null)}
         </p>
@@ -741,7 +753,7 @@ export function ActivityTimeline(props: {
       )}
       {!props.loading && <AuditSourceLine source={props.source} />}
       {!props.loading && (days.length === 0 ? (
-        filtering ? (
+        props.unread ? null : filtering ? (
           // A filter that hides every row is not "nothing happened": the page names what narrowed
           // the list and keeps the way back next to it.
           <div className="timeline-empty timeline-empty-filtered">

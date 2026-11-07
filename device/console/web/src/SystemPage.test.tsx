@@ -66,6 +66,43 @@ describe("SystemPage", () => {
     expect(screen.getByText(/repeats every few seconds/)).toBeInTheDocument();
   });
 
+  it("dates an offline machine's facts with the age of its last frame", async () => {
+    // audit-38 F7: the 9VH had been offline five hours, and the Machine tab still read `#3 connected`
+    // and `Helper not registered this boot` as present-tense facts. The frame's own moment is what
+    // dates them; "now" would repeat the lie the banner already corrects.
+    device((name) => {
+      if (name !== "system.process_list") {
+        throw new Error(`the test did not expect a ${name} call`);
+      }
+      return JSON.stringify([]);
+    });
+    const frameAt = Date.now() - 5 * 3_600_000;
+    render(
+      <SystemPage
+        grant={GRANT}
+        deviceOnline={false}
+        device={{
+          id: "device-1",
+          name: "workshop",
+          online: false,
+          version: "0.3.1",
+          last_frame_ms: frameAt,
+          host: {
+            memory: { total_bytes: 8 * 1024 ** 3, available_bytes: 4 * 1024 ** 3 },
+            sessions: [{ id: 3, state: "connected" }],
+            helper: { registered: false }
+          }
+        }}
+      />
+    );
+
+    const age = screen.getByText(/^Last read 5h ago/);
+    expect(age).toHaveAttribute("title", exactMoment(frameAt));
+    // The facts themselves are still the frame's, not re-read: the age says which moment they are.
+    expect(screen.getByText("4.0 GiB free of 8.0 GiB")).toBeInTheDocument();
+    expect(screen.getByText("#3 connected")).toBeInTheDocument();
+  });
+
   it("leaves the running version to the header chip, once per surface", async () => {
     // The measured Machine tab carried `build 0.3.277 · online` under a header that already said
     // `Running · v0.3.277`: a third copy on a page that needs one. This line states reachability.

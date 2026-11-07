@@ -537,7 +537,14 @@ export function SystemPage({
       <section className="system-section" aria-labelledby="system-this-machine">
         <h3 id="system-this-machine">This machine</h3>
         {device?.host ? (
-          <HostFactsBlock host={device.host} vitals={vitals} collecting={!offline} />
+          <HostFactsBlock
+            host={device.host}
+            vitals={vitals}
+            collecting={!offline}
+            // **AN OFFLINE BLOCK IS DATED BY THE FRAME, NOT BY NOW.** The values are the machine's
+            // last report; the age is the distance to the frame that carried it (audit-38 F7).
+            readAtMs={offline ? (device.last_frame_ms ?? null) : null}
+          />
         ) : (
           <p className="hint">
             The console has no machine facts from this device yet. They travel with the fleet read,

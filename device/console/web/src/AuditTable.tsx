@@ -175,7 +175,9 @@ export function AuditTable({
   atLimit = false,
   windowCounts = null,
   loading = false,
+  loadingFailed = false,
   loadingMachine = null,
+  unread = false,
   source = null
 }: {
   lines: AuditLine[];
@@ -196,8 +198,16 @@ export function AuditTable({
   windowCounts?: WindowCounts | null;
   /** True while a changed scope's window is being read; the table says so instead of the old rows. */
   loading?: boolean;
+  /** True when that read failed: hide the old rows, but do not keep saying the table is reading. */
+  loadingFailed?: boolean;
   /** The machine whose window is being read, or `null` for the fleet's. */
   loadingMachine?: string | null;
+  /**
+   * True when the page holds no audit window because its read is still out, or failed. The table's
+   * empty sentence is a claim about the record, and an unread table cannot make it; the page states
+   * the read instead. Rows in hand (live, or a range's answer) are still drawn.
+   */
+  unread?: boolean;
   /**
    * The file the window is read from, as `/audit/source` served it. The line sits beside the cap
    * sentence; absent or unreadable facts draw nothing rather than a guess.
@@ -677,16 +687,20 @@ export function AuditTable({
         </p>
       )}
       {range !== null && rangeError ? null : loading ? (
-        <p className="hint audit-loading">{windowLoadingSentence(loadingMachine)}</p>
+        loadingFailed ? null : (
+          <p className="hint audit-loading">{windowLoadingSentence(loadingMachine)}</p>
+        )
       ) : shown.length === 0 ? (
-        <div className="audit-empty">
-          <p className="hint">{emptySentence}</p>
-          {narrowed && (
-            <button type="button" onClick={clearAll}>
-              Clear filters
-            </button>
-          )}
-        </div>
+        unread && range === null ? null : (
+          <div className="audit-empty">
+            <p className="hint">{emptySentence}</p>
+            {narrowed && (
+              <button type="button" onClick={clearAll}>
+                Clear filters
+              </button>
+            )}
+          </div>
+        )
       ) : (
         <div className="table-scroll" tabIndex={0} role="region" aria-label="Audit lines">
           {range === null && (capped || atLimit) && (

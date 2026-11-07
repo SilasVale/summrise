@@ -1,5 +1,5 @@
 import type { HostFacts, UpdateGeneration, UpdateRepair, UpdateSwap } from "./api";
-import { age } from "./format";
+import { age, exactMoment, seenAgo } from "./format";
 import { VitalsChart } from "./VitalsChart";
 import type { VitalsSample } from "./vitals";
 
@@ -37,12 +37,23 @@ const REPAIR_LIMIT = 5;
 export function HostFactsBlock({
   host,
   vitals,
-  collecting = true
+  collecting = true,
+  readAtMs = null
 }: {
   host: HostFacts;
   vitals: VitalsSample[];
   /** False when the machine is offline: the vitals caption must not promise sampling. */
   collecting?: boolean;
+  /**
+   * When the console last saw a frame from this machine, for a fact block that is not current.
+   *
+   * **THE FACTS ARE THE FRAME'S, AND THE FRAME HAS AN AGE.** The measured 9VH had been offline five
+   * hours, and `#3 connected` / `Helper not registered this boot` still read as this moment's facts.
+   * Dating the block is what makes the tense honest: the values stay exactly as the device reported
+   * them, and the sentence says when that was. `null` draws no date (a device that has sent no frame
+   * has no moment to name), and a live block is not dated at all.
+   */
+  readAtMs?: number | null;
 }) {
   const memory = host.memory;
   const sessions = host.sessions ?? [];
@@ -51,6 +62,13 @@ export function HostFactsBlock({
   const repairs = host.update?.repairs ?? [];
   return (
     <>
+      {readAtMs !== null && (
+        // THE BLOCK'S OWN CLOCK. Not "now": the age is the distance from the frame's moment, and
+        // the exact instant stays in the title for anyone matching it to a log.
+        <p className="hint facts-read" title={exactMoment(readAtMs)}>
+          Last read {seenAgo(readAtMs)}. These facts are the machine's last frame, not a live read.
+        </p>
+      )}
       <dl className="facts host">
         {memory && memory.total_bytes ? (
           <div>

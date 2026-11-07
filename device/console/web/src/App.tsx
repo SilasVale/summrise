@@ -94,6 +94,19 @@ function readFailure(
   };
 }
 
+/**
+ * What Activity knows about the audit window it is meant to draw.
+ *
+ * `reading` is before the first answer for this scope, `failed` is a read that did not arrive with
+ * the console's reason, and `ready` is a window in hand. The page's sentence and its notice are
+ * derived from this, not from `audit.length`: an empty array is both "nothing happened" and
+ * "nothing read", and audit-38 F6 measured the page claiming to follow the record it had not read.
+ */
+type AuditRead =
+  | { state: "reading" }
+  | { state: "failed"; reason: string }
+  | { state: "ready" };
+
 export function App() {
   const [session, setSession] = useState<Session | null>(null);
   const [devices, setDevices] = useState<Device[]>([]);
@@ -138,6 +151,18 @@ export function App() {
    */
   const [auditSource, setAuditSource] = useState<AuditSource | null>(null);
   /**
+   * The audit read's own state, so Activity can say it is reading, that it failed with a reason, or
+   * that it is following the record. It is a separate fact from `audit` and `devices`: a slow audit
+   * must not hold the fleet back, and a failed one must not leave the page claiming the record.
+   */
+  const [auditRead, setAuditRead] = useState<AuditRead>({ state: "reading" });
+  /**
+   * The scope whose window the latest successful read put in hand; `undefined` before any answer.
+   * A failed read never moves it, which is how the page tells "no window at all" from "the last
+   * window, plus a failed reread".
+   */
+  const auditAnsweredDevice = useRef<string | null | undefined>(undefined);
+  /**
    * Read the audit window again into the page.
    *
    * One function for every reader: the five-second poll, the stream's catch-up after a dropped
@@ -159,23 +184,37 @@ export function App() {
     const device = auditWindowDevice.current;
     const generation = ++auditReadStarted.current;
     setAuditReadDevice(device);
+    // A scope with no answer yet is being read, and the page says so. A poll over a window already
+    // in hand keeps saying it is following: a healthy five-second read must not blank the sentence.
+    if (auditAnsweredDevice.current !== device) setAuditRead({ state: "reading" });
     // One snapshot, three reads: the rows the page draws from the window, the day those rows
     // belong to, and the file both were read from. Asking together keeps the header, the list and
     // the source line on the same clock; the window may be smaller than the day, and that is
     // exactly what the two numbers are allowed to say.
-    const [lines, day, source] = await Promise.all([
-      device === null ? api.audit(AUDIT_WINDOW) : api.audit(AUDIT_WINDOW, device),
-      api.auditDay(device ?? undefined),
-      // The source line is a companion fact, not the window: a failed read here must not fail the
-      // rows, and the page then says nothing about the file rather than guessing.
-      api.auditSource().catch(() => null)
-    ]);
-    if (generation > auditReadApplied.current) {
-      auditReadApplied.current = generation;
-      setAudit(lines);
-      setAuditDevice(device);
-      setDaySummary({ device, day });
-      setAuditSource(source);
+    try {
+      const [lines, day, source] = await Promise.all([
+        device === null ? api.audit(AUDIT_WINDOW) : api.audit(AUDIT_WINDOW, device),
+        api.auditDay(device ?? undefined),
+        // The source line is a companion fact, not the window: a failed read here must not fail the
+        // rows, and the page then says nothing about the file rather than guessing.
+        api.auditSource().catch(() => null)
+      ]);
+      if (generation > auditReadApplied.current) {
+        auditReadApplied.current = generation;
+        auditAnsweredDevice.current = device;
+        setAudit(lines);
+        setAuditDevice(device);
+        setDaySummary({ device, day });
+        setAuditSource(source);
+        setAuditRead({ state: "ready" });
+      }
+    } catch (cause) {
+      // A failed read never counts as an answer, so it cannot hide an older read that did answer.
+      // The reason is the page's, and the window already in hand stays where it is.
+      if (generation > auditReadApplied.current) {
+        setAuditRead({ state: "failed", reason: describe(cause) });
+      }
+      throw cause;
     }
   }, []);
   // The same index, streamed: what the AI is doing now, not what it did before the last read.
@@ -358,11 +397,30 @@ export function App() {
   const [accessNote, setAccessNote] = useState<string | null>(null);
   const phone = useMediaQuery("(max-width: 639px)");
   const chosen = devices.find((device) => device.id === selected) ?? null;
+  /**
+   * A selected id the fleet answered without is not a machine: it is a stale bookmark, or one the
+   * fleet row's Remove ended. Home and Device already fall back (the fleet page, the picker) by
+   * drawing `chosen === null`; Activity kept the id as its scope and drew it as `unknown machine ·
+   * <hex>` (audit-38 F8). The fallback is the same everywhere; only the sentence is Activity's,
+   * because that is the page whose filter used to stand for a machine.
+   *
+   * It waits for a successful `/fleet`: while that read is pending or failed the list in hand is
+   * not proof the id is gone, and the wrong fallback would be worse than the stale filter.
+   */
+  const selectedGone =
+    selected !== null &&
+    fleetRead.state === "ready" &&
+    !devices.some((device) => device.id === selected);
+  // The selection Activity may act on. A gone id is no selection, so its window is the fleet's.
+  const activeDevice = selectedGone ? null : selected;
   // The scope defaults to the chosen machine and follows it while it stays implicit; the timeline
-  // shows the same device the table is applying, so neither view can silently disagree.
-  const activityScopeNow: AuditScope = activityScope ?? (selected ? "machine" : "all");
+  // shows the same device the table is applying, so neither view can silently disagree. No machine
+  // is "All machines", even if an earlier scope choice named one: a fallback cannot keep a control
+  // pressed for a machine that is not there.
+  const activityScopeNow: AuditScope =
+    activeDevice === null ? "all" : (activityScope ?? "machine");
   const activityMachine =
-    activityScopeNow === "machine" && selected ? selected : activityFilter.device;
+    activityScopeNow === "machine" && activeDevice ? activeDevice : activityFilter.device;
   // THE SCOPE IS THE WINDOW. The rows are narrowed to this machine, and when there is one the read
   // asks the console for that machine's newest lines rather than filtering the fleet's window: with
   // `limit` 3, a machine's six older lines can sit entirely behind another machine's eight newer ones.
@@ -425,6 +483,9 @@ export function App() {
   // an answer from a window that includes the scope.
   const auditReadingOther =
     !activityPaused && auditDevice !== null && auditDevice !== auditScopeDevice;
+  // The scope's own read failed: the old window still cannot be drawn under the new scope, but the
+  // list must not keep saying it is reading it. The page's notice states the failure.
+  const auditScopeReadFailed = auditReadingOther && auditRead.state === "failed";
   // A paused list keeps its own window, so its cap sentence names the machine it was frozen from.
   const shownWindowDevice = activityPaused && frozenActivity ? frozenDevice : auditDevice;
   const shownWindowName = shownWindowDevice === null ? null : deviceName(shownWindowDevice);
@@ -445,6 +506,37 @@ export function App() {
           activityView === "stream" && activityClientsOnly
         )
       : null;
+  /**
+   * Whether a successful window for the current scope is in hand. The day answer and the rows
+   * arrive together, so their scope is the same fact; a failed reread leaves both where they were.
+   * This is what tells "no window at all" from "the last window, plus a failed reread".
+   */
+  const auditHaveWindow =
+    daySummary !== null &&
+    daySummary.device === auditScopeDevice &&
+    auditDevice === auditScopeDevice;
+  /** The audit the page is supposed to be drawing, as a sentence's subject. */
+  const auditSubject =
+    auditScopeDevice === null
+      ? "the fleet's audit"
+      : `${auditReadingName ?? "the machine"}'s audit`;
+  /**
+   * The page's own notice, in the hub's voice: the reason the read failed, what the timeline is
+   * therefore showing, and the control that reads again. A failed read with no window is the
+   * measured F6 state; one over a window already in hand keeps that window and says so.
+   */
+  const auditFailedNotice =
+    auditRead.state === "failed"
+      ? auditHaveWindow
+        ? `The console could not read ${auditSubject}: ${auditRead.reason}. The rows below are the last read; calls that arrive live are added to them.`
+        : `The console could not read ${auditSubject}: ${auditRead.reason}. This timeline shows only calls that arrive live.`
+      : null;
+  /** No window is in hand: the page's subtitle says so, and the list may not claim emptiness. */
+  const auditUnread = auditRead.state !== "ready" && !auditHaveWindow;
+  // A scope change already has the timeline's own "Reading <machine>'s window…" line; the page's
+  // first read is the one that has no other loading surface.
+  const auditReadingFirst =
+    auditRead.state === "reading" && auditUnread && !auditReadingOther;
 
   /**
    * Record a failure by its read. A repeat replaces the read's entry in place, so an outage's many
@@ -503,37 +595,41 @@ export function App() {
   // a session earns two 401s on every cold load — visible in the browser console as failures that are
   // not failures, and exactly the noise that hides a real one later.
   const refreshData = useCallback(async () => {
-    // EACH STREAM ANSWERS FOR ITSELF. A failed /audit must not turn the fleet into "0 devices" or
-    // Activity into "no calls": the last known values stay, and each failed read keeps its own
-    // named banner with the same reader as its retry.
-    const [list, auditRead, tokenList] = await Promise.allSettled([
-      api.devices(),
-      rereadAudit(),
-      tokensOrEmpty()
-    ]);
+    // EACH STREAM ANSWERS FOR ITSELF, AND LANDS WHEN IT ANSWERS. A failed /audit must not turn the
+    // fleet into "0 devices" or Activity into "no calls": the last known values stay, and each failed
+    // read keeps its own named banner with the same reader as its retry. Nor may a SLOW /audit hold
+    // /fleet back: audit-38 F6 measured known machines drawn as "unknown machine · <hex>" and the
+    // selected header missing because the page waited for every read before drawing any of them.
     const retry = () => void refreshData();
-    if (list.status === "fulfilled") {
-      setDevices(list.value);
-      setFleetRead({ state: "ready" });
-      // The poll is the only sampler; the stored last timestamp enforces the 30 s cadence. Sampling
-      // after a successful fleet fetch is what keeps an offline device from adding a stale point.
-      setVitals(recordVitals(list.value, Date.now()));
-      clearFailure("fleet");
-    } else {
-      // The last list stays on screen: it is still the console's knowledge. The read state is what
-      // keeps it from being drawn as an empty fleet, and the reason is what the page can say.
-      setFleetRead({ state: "failed", reason: describe(list.reason) });
-      // The page's own notice carries the reason; the shell's banner names the read, offers the
-      // retry, and keeps the browser's text in the title rather than in the sentence.
-      reportFailure(readFailure("fleet", "the machine list", list.reason, retry));
-    }
-    // `rereadAudit` owns the audit state; its rejection is only one of the reads the banner names.
-    if (tokenList.status === "fulfilled") setTokens(tokenList.value);
-    if (auditRead.status === "fulfilled") {
-      clearFailure("audit");
-    } else {
-      reportFailure(readFailure("audit", "the audit", auditRead.reason, retry));
-    }
+    const fleetAnswer = api.devices().then(
+      (list) => {
+        setDevices(list);
+        setFleetRead({ state: "ready" });
+        // The poll is the only sampler; the stored last timestamp enforces the 30 s cadence.
+        // Sampling after a successful fleet fetch is what keeps an offline device from adding a
+        // stale point.
+        setVitals(recordVitals(list, Date.now()));
+        clearFailure("fleet");
+      },
+      (reason) => {
+        // The last list stays on screen: it is still the console's knowledge. The read state is what
+        // keeps it from being drawn as an empty fleet, and the reason is what the page can say.
+        setFleetRead({ state: "failed", reason: describe(reason) });
+        // The page's own notice carries the reason; the shell's banner names the read, offers the
+        // retry, and keeps the browser's text in the title rather than in the sentence.
+        reportFailure(readFailure("fleet", "the machine list", reason, retry));
+      }
+    );
+    const tokensAnswer = tokensOrEmpty().then((list) => setTokens(list));
+    // `rereadAudit` owns the audit read state; its rejection is only one of the reads the banner
+    // names.
+    const auditAnswer = rereadAudit().then(
+      () => clearFailure("audit"),
+      (cause) => reportFailure(readFailure("audit", "the audit", cause, retry))
+    );
+    // The page's callers still await every read, so a boot or a poll settles only when all three
+    // have answered; what changed is WHEN each answer reaches the page.
+    await Promise.all([fleetAnswer, tokensAnswer, auditAnswer]);
   }, [rereadAudit, reportFailure, clearFailure]);
 
   /**
@@ -648,6 +744,10 @@ export function App() {
     setFleetRead({ state: "reading" });
     setVitals({});
     setAudit([]);
+    // A signed-out page has no audit answer, and the next session's first read must not be mistaken
+    // for a poll over this one's.
+    setAuditRead({ state: "reading" });
+    auditAnsweredDevice.current = undefined;
     setTokens([]);
     setActivityRange(null);
     setRangeAnswer(null);
@@ -1145,11 +1245,15 @@ export function App() {
                     ? `${live.lagged} lines were dropped while this tab was behind; rereading`
                     : activityPaused
                       ? "Paused — the stream is still running; Resume shows what arrived."
-                      : live.state === "live"
-                        ? "Following the console's audit as it is written."
-                        : live.state === "offline"
-                          ? "The live stream is down; this is the last read."
-                          : "Opening the live stream."}
+                      : auditRead.state === "failed"
+                        ? "The audit could not be read."
+                        : auditReadingFirst
+                          ? "Reading the audit…"
+                          : live.state === "live"
+                            ? "Following the console's audit as it is written."
+                            : live.state === "offline"
+                              ? "The live stream is down; this is the last read."
+                              : "Opening the live stream."}
                 </p>
               </div>
               <div className="page-actions">
@@ -1162,6 +1266,37 @@ export function App() {
                 </button>
               </div>
             </header>
+            {auditFailedNotice !== null && (
+              // THE HUB'S SENTENCE, ON THE PAGE THAT OWNS THE FILTER. A live-only timeline under a
+              // record the console could not read must say which half it is showing, with the reason
+              // and the read again — audit-38 F6 measured the page silent about it.
+              <div className="notice" role="status">
+                <span>{auditFailedNotice}</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAuditRead({ state: "reading" });
+                    void refreshData().catch(() => {});
+                  }}
+                >
+                  Retry
+                </button>
+              </div>
+            )}
+            {selectedGone && selected !== null && (
+              // HOME AND DEVICE FALL BACK; ACTIVITY MUST NOT KEEP FILTERING. The id is not a
+              // machine (a stale bookmark, or one the fleet row's Remove ended), so the page draws
+              // every machine and says the selection is gone instead of naming it in hex.
+              <div className="notice" role="status">
+                <span>
+                  {shortId(selected)} is not in this console's fleet. The timeline shows every
+                  machine; its past activity is still searchable.
+                </span>
+                <button type="button" onClick={() => choose(null)}>
+                  Clear the selection
+                </button>
+              </div>
+            )}
             <section className="panel">
               <div className="stream-bar">
                 <div className="seg stream-views" role="tablist" aria-label="Activity view">
@@ -1198,7 +1333,9 @@ export function App() {
                   cappedMachine={shownWindowName}
                   windowCounts={shownCounts}
                   loading={auditReadingOther}
+                  loadingFailed={auditScopeReadFailed}
                   loadingMachine={auditReadingName}
+                  unread={auditUnread}
                   source={auditSource}
                   query={activityFilter.tool}
                   onQuery={(tool) => setActivityFilter((current) => ({ ...current, tool }))}
@@ -1211,7 +1348,7 @@ export function App() {
                     // machine"; another machine is the table's device filter, and either way the
                     // read above takes its window from this same device.
                     setActivityScope(
-                      deviceId !== "" && deviceId === selected ? "machine" : "all"
+                      deviceId !== "" && deviceId === activeDevice ? "machine" : "all"
                     );
                   }}
                   nowMs={activityPaused && pausedAt !== null ? pausedAt : undefined}
@@ -1236,11 +1373,13 @@ export function App() {
                   loading={
                     activityRange === null ? auditReadingOther : !rangeInHand && !rangeError
                   }
+                  loadingFailed={activityRange === null && auditScopeReadFailed}
                   loadingMachine={auditReadingName}
+                  unread={auditUnread}
                   source={auditSource}
                   devices={devices}
                   tokens={tokens}
-                  selectedDeviceId={selected}
+                  selectedDeviceId={activeDevice}
                   onOpenRun={openRun}
                   onManageToken={(tokenId) =>
                     setConnect({ section: "tokens", device: chosen, tokenId })
