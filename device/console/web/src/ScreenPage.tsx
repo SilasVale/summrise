@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import type { HostFacts } from "./api";
 import { useRequestGate } from "./requests";
 import { callTool, toolFailure, type Grant } from "./terminal";
 import { BrowserPane } from "./BrowserPane";
@@ -15,7 +16,9 @@ type Shot = { dataUrl: string; width: number; height: number; capturedAt: Date }
  * The picture is not the console's to take: `screen.capture` asks the per-user helper, which captures
  * the logged-in user's session rather than session 0. A helper that is absent, has not registered this
  * boot, or is looking at a locked or disconnected session answers with the device's own refusal — a
- * sentence, not a black frame. There is no timer: a capture is a deliberate read, like every other
+ * sentence, not a black frame. The fleet also reports which session the helper is in and that
+ * session's state, so the page can say a refusal the device has already determined instead of
+ * inviting a click into it. There is no timer: a capture is a deliberate read, like every other
  * device call here.
  */
 export function ScreenPage({
@@ -23,7 +26,9 @@ export function ScreenPage({
   view,
   onViewChange,
   deviceOnline,
-  helperRunning
+  helperRunning,
+  helperSession,
+  sessions
 }: {
   grant: Grant;
   view: "desktop" | "browser";
@@ -38,8 +43,26 @@ export function ScreenPage({
    * device's own refusal stays the authority on whether a capture is possible.
    */
   helperRunning?: boolean;
+  /**
+   * The Windows session the fleet last reported the helper in.
+   *
+   * The helper captures only its own session's desktop; a session whose state is not `active` or
+   * `connected` has no displayed desktop, and the device's answer is Windows' refusal (`os error 5`
+   * when the capture thread cannot attach to the input desktop) rather than a picture. This is the
+   * fact the Machine tab already draws as `Helper session 2` and `#2 disconnected`, said here before
+   * the press. `undefined`/null is "the device did not say", and a state this page does not know is
+   * left to the device's answer: no state is invented.
+   */
+  helperSession?: number | null;
+  /** The device's session rows from the same fleet read; the helper's state is looked up here. */
+  sessions?: HostFacts["sessions"];
 }) {
   const offline = deviceOnline === false;
+  const helper = helperSessionFact(helperSession, sessions);
+  // `helperRunning === false` has its own sentence, and that is the fact the fleet reported; the
+  // session row may be stale behind it, so it does not also gate the button.
+  const blockedHelper =
+    helperRunning !== false && helper !== null && desktopHidden(helper.state) ? helper : null;
   const [shot, setShot] = useState<Shot | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -88,6 +111,8 @@ export function ScreenPage({
     }
   };
 
+  const nextStep = error ? refusalHint(error, helperSession) : null;
+
   return (
     <div>
       <div className="screen-view-head">
@@ -116,8 +141,15 @@ export function ScreenPage({
           <button
             type="button"
             className="screen-capture"
-            disabled={busy || offline}
-            title={offline ? "The machine is offline; its screen can be captured when it reconnects" : undefined}
+            disabled={busy || offline || blockedHelper !== null}
+            title={
+              offline
+                ? "The machine is offline; its screen can be captured when it reconnects"
+                : blockedHelper
+                  ? helperTitle(blockedHelper)
+                  : undefined
+            }
+            aria-describedby={blockedHelper ? "screen-helper-session" : undefined}
             onClick={() => void capture()}
           >
             {busy ? "Capturing…" : "Capture screen"}
@@ -146,14 +178,23 @@ export function ScreenPage({
             </p>
           )}
 
-          {error && <p className="error">{error}</p>}
-          {error && /per-user helper/i.test(error) && (
-            <p className="hint">
-              A screen needs the per-user helper running in the signed-in user's desktop session.
-              The Machine page says whether this device's helper has registered; a service or
-              disconnected session cannot be captured.
+          {/* THE SESSION ROW IS THE OTHER HALF OF THE SAME INVITATION. A helper registered in a
+              disconnected or idle session cannot reach an input desktop, and the device answers
+              with Windows' `os error 5`; the Machine tab's `Helper session 2` and `#2 disconnected`
+              are already the explanation. Say it with the way out, and disable the press: this is
+              not a poll-old hint like registration, it is the session the helper is in. The fleet
+              polls every five seconds, so connecting the session re-enables the button. */}
+          {blockedHelper && (
+            <p className="hint" id="screen-helper-session">
+              The fleet's last report puts this device's per-user helper in session{" "}
+              {blockedHelper.id}, which is {blockedHelper.state}. A capture will be refused until
+              that session is connected and unlocked — sign in at the machine or reconnect its
+              remote session, then capture again.
             </p>
           )}
+
+          {error && <p className="error">{error}</p>}
+          {nextStep && <p className="hint">{nextStep}</p>}
 
           {!shot && !error && !busy && (
             <p className="hint">
@@ -187,5 +228,57 @@ export function ScreenPage({
 function downloadName(at: Date): string {
   const pad = (value: number) => String(value).padStart(2, "0");
   return `summrise-screen-${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())}-${pad(at.getHours())}${pad(at.getMinutes())}${pad(at.getSeconds())}.png`;
+}
+
+/** The device's own row for the helper's session, when the fleet reported both facts. */
+function helperSessionFact(
+  helperSession: number | null | undefined,
+  sessions: HostFacts["sessions"]
+): { id: number; state: string } | null {
+  if (helperSession == null) return null;
+  const row = sessions?.find((session) => session.id === helperSession);
+  return row ? { id: helperSession, state: row.state } : null;
+}
+
+/**
+ * Whether a reported session state is one this page knows has no displayed desktop.
+ *
+ * The device reports Windows' WTS names (`active`, `connected`, `disconnected`, `idle`, …), and
+ * `state-N` for a value it does not recognise. Only a state the page knows may hide the button: an
+ * unknown `state-12` is not read as disconnected, and an absent value is not a state at all.
+ */
+function desktopHidden(state: string): boolean {
+  if (!state || state === "active" || state === "connected") return false;
+  return !/^state-\d+$/.test(state);
+}
+
+/** The disabled button's hover: the same fact, with the way out. */
+function helperTitle(helper: { id: number; state: string }): string {
+  return `The helper is in session ${helper.id}, which is ${helper.state}; a capture needs that session connected and unlocked. Sign in at the machine or reconnect its remote session, then capture again.`;
+}
+
+/**
+ * The device's refusal, followed by what the operator can do about it.
+ *
+ * The device's sentences are specific about the cause — `no per-user helper is running`, `the
+ * session is locked`, or Windows' own `the capture thread could not attach to the input desktop:
+ * … (os error 5)` — but none of them names the way out. This adds only steps that exist: start the
+ * helper by signing in to a desktop session, or connect and unlock the session the helper is in. A
+ * refusal the page cannot explain draws no sentence of its own; the device's own text stays the
+ * error.
+ */
+function refusalHint(error: string, helperSession?: number | null): string | null {
+  if (/per-user helper/i.test(error)) {
+    return "A screen needs the per-user helper running in the signed-in user's desktop session. Sign in at the machine (or reconnect its remote session) so the helper starts there, then capture again.";
+  }
+  if (
+    /input desktop|could not attach|session is locked|not being displayed|os error 5|access is denied|拒绝访问/i.test(
+      error
+    )
+  ) {
+    const where = helperSession != null ? ` in session ${helperSession}` : "";
+    return `The device refused the picture: the helper${where} could not see a displayed desktop. Unlock the machine or connect that session (sign in at the machine or reconnect its remote session), then capture again.`;
+  }
+  return null;
 }
 

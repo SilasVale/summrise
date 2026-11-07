@@ -112,6 +112,14 @@ const DEVICE = {
   // which is what makes the refused answer at NOW - 60 s belong to it (ITEM 5).
   host: {
     os: { name: 'Windows', version: '10.0.26100', arch: 'x86_64' },
+    // The per-user helper registered in session 2, and session 2 is disconnected: the Screen page
+    // must state that before the press instead of inviting the measured `os error 5`.
+    sessions: [
+      { id: 0, state: 'disconnected' },
+      { id: 2, user: 'Administrator', state: 'disconnected' },
+      { id: 5, state: 'connected' }
+    ],
+    helper: { registered: true, pid: 4812, session: 2 },
     restarts: [{ at_ms: NOW - 60 * 60_000, version: '0.3.42', channel: 'stable', pid: 4200 }],
     // The launcher's current generation carries the channel the update line names when the fleet
     // reports one. No other surface in this gate needs the launcher's update block.
@@ -1794,6 +1802,35 @@ try {
   }
   step('the Machine tab names the console link\'s last attempt and the panel\'s local check');
   step('the Machine tab states reachability without a second build line');
+
+  // **THE SCREEN PAGE NAMES THE HELPER'S SESSION BEFORE THE PRESS (audit 37 F3).** The fleet's
+  // helper fact is session 2 and session 2 is disconnected; the measured live page offered the
+  // button and answered the device's `os error 5`. The control now carries the fact and the way
+  // out, disabled: a press the page already knows the answer to is not an invitation.
+  await page
+    .locator('nav.device-tabs')
+    .getByRole('button', { name: 'Screen', exact: true })
+    .click();
+  await page
+    .getByRole('heading', { name: 'Screen', exact: true, level: 1 })
+    .waitFor({ timeout: 10_000 });
+  const helperSessionLine = (await page.locator('#screen-helper-session').innerText()).trim();
+  for (const fact of ['session 2, which is disconnected', 'sign in at the machine']) {
+    if (!helperSessionLine.includes(fact)) {
+      throw new Error(
+        `the Screen helper line read "${helperSessionLine}", missing ${JSON.stringify(fact)}`
+      );
+    }
+  }
+  const captureButton = page.getByRole('button', { name: 'Capture screen', exact: true });
+  if (!(await captureButton.isDisabled())) {
+    throw new Error('Capture screen is enabled while the helper\'s session is disconnected');
+  }
+  if (!((await captureButton.getAttribute('title')) ?? '').includes('session 2')) {
+    throw new Error('the disabled Capture screen does not name the helper\'s session');
+  }
+  step(`the Screen page states "${helperSessionLine}" and disables Capture screen`);
+  await page.screenshot({ path: path.join(OUT, '05b-screen-disconnected.png') });
 
   // **THE MACHINE KEEPS ITS CONNECT DOOR.** The button the audit measured at 1440 (59×28 at the
   // head's right edge) is still the desktop door, named for the sheet it opens. The phone leg below

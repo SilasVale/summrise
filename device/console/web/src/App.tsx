@@ -1145,6 +1145,8 @@ export function App() {
                       onViewChange={setScreenView}
                       deviceOnline={chosen?.online}
                       helperRunning={chosen?.host?.helper?.registered}
+                      helperSession={chosen?.host?.helper?.session}
+                      sessions={chosen?.host?.sessions}
                     />
                   </section>
                 ) : null}

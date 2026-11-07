@@ -76,6 +76,99 @@ describe("ScreenPage", () => {
     expect(screen.queryByText(/has not registered/)).not.toBeInTheDocument();
   });
 
+  it("disables the capture and names the helper's disconnected session before the press", () => {
+    render(
+      <ScreenPage
+        grant={grant}
+        view="desktop"
+        onViewChange={() => undefined}
+        helperRunning
+        helperSession={2}
+        sessions={[
+          { id: 0, state: "disconnected" },
+          { id: 2, user: "Administrator", state: "disconnected" },
+          { id: 5, state: "connected" }
+        ]}
+      />
+    );
+
+    // The Machine tab's two rows, said on the Screen page where the refusal would happen.
+    expect(
+      screen.getByText(/per-user helper in session 2, which is disconnected/)
+    ).toBeInTheDocument();
+    expect(screen.getByText(/sign in at the machine or reconnect its remote session/)).toBeInTheDocument();
+    const capture = screen.getByRole("button", { name: "Capture screen" });
+    expect(capture).toBeDisabled();
+    expect(capture.getAttribute("title")).toMatch(/session 2/);
+    expect(capture.getAttribute("title")).toMatch(/disconnected/);
+  });
+
+  it("leaves a capture the helper's connected session can serve unchanged", () => {
+    render(
+      <ScreenPage
+        grant={grant}
+        view="desktop"
+        onViewChange={() => undefined}
+        helperRunning
+        helperSession={2}
+        sessions={[
+          { id: 2, user: "operator", state: "active" },
+          // Another session's state is not the helper's; it must not disable this button.
+          { id: 5, state: "disconnected" }
+        ]}
+      />
+    );
+
+    expect(screen.queryByText(/per-user helper in session/)).not.toBeInTheDocument();
+    expect(screen.getByText(/No capture yet/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Capture screen" })).toBeEnabled();
+  });
+
+  it("does not invent a refusal from a session state it does not know", () => {
+    render(
+      <ScreenPage
+        grant={grant}
+        view="desktop"
+        onViewChange={() => undefined}
+        helperRunning
+        helperSession={2}
+        sessions={[{ id: 2, state: "state-12" }]}
+      />
+    );
+
+    // The device's fact is `state-12`; the page may not read that as disconnected.
+    expect(screen.queryByText(/per-user helper in session/)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Capture screen" })).toBeEnabled();
+  });
+
+  it("names the next step when the device refuses the desktop", async () => {
+    mocks.callTool.mockRejectedValue(
+      new ToolError(
+        "screen.capture: the capture thread could not attach to the input desktop: 拒绝访问。 (os error 5)",
+        200,
+        null,
+        true
+      )
+    );
+    render(
+      <ScreenPage
+        grant={grant}
+        view="desktop"
+        onViewChange={() => undefined}
+        helperRunning
+        helperSession={2}
+        sessions={[{ id: 2, state: "active" }]}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Capture screen" }));
+
+    expect(await screen.findByText(/input desktop/)).toHaveClass("error");
+    expect(screen.getByText(/helper in session 2 could not see a displayed desktop/)).toBeInTheDocument();
+    expect(screen.getByText(/Unlock the machine or connect that session/)).toBeInTheDocument();
+    expect(screen.queryByRole("img")).not.toBeInTheDocument();
+  });
+
   it("captures the device's screen on demand and offers the picture for download", async () => {
     mocks.callTool.mockResolvedValue(
       JSON.stringify({ format: "png", data: "iVBORw0KGgo=", width: 1280, height: 720 })
