@@ -574,6 +574,55 @@ machine's update story, then the controls.
 
 9. **The first seconds after midnight turn relative fixtures into yesterday.** *(Fixed 2026-11-07, e84cadf: the three HomePage fixtures now pin Date.now() to a fixed local 2026-11-05 14:45 with try/finally; production code and assertions unchanged; a harness clock at 00:00 reproduced 3 failed | 50 passed before and 824/824 at 00:00, 00:30 and 12:00 after; typecheck, 824 tests, gate 58 steps, a11y 0/3, `build-web --check` exit 0, dist unchanged.)*
 
+## P0 — the eighteenth list (opened 2026-11-07, from the audit of 0.3.273-ux92)
+
+Measured 2026-11-07 03:22–05:15 UTC on the live console at 1440×960 and 390×844, Asia/Shanghai, with
+the 84T3LIN 0.3.280 online and the 9VH 0.3.286 / CPH 0.3.285 / 14R 0.3.275 offline; the 9VH's last
+frame is 2026-11-06T22:40:26.841Z. Eight evidence-backed findings; the audit-37 items already carried
+are not repeated.
+
+1. **A pending or failed /fleet reads "No machines yet".** A slow or failed `/fleet` is drawn as
+   `0 machines · 0 online` / `No machines yet` with the enrollment CTA; Dismiss leaves a clean empty
+   page. **Cost:** the setup action is offered to a fleet the console simply could not read.
+   **Fix:** pending says it is reading, failed says it could not read with the reason and a retry;
+   `No machines yet` only for a confirmed empty fleet. **S/M.**
+
+2. **The global error banner reads "The console could not read Failed to fetch".** Raw fetch text,
+   no subject, no retry, and it can duplicate. **Cost:** the operator cannot tell what failed or
+   what to do. **Fix:** name the failed read and offer retry; one banner per failure. **S.**
+
+3. **The offline hub's Retry has no visible effect.** The 9VH hub's Retry refetches but is
+   byte-identical before and after (4,208 chars), with no spinner or result, indistinguishable from
+   the 5 s poll. **Cost:** the one action on an outage page looks dead. **Fix:** show the attempt and
+   its outcome (same result counts). **S.**
+
+4. **The MCP door's 503 and the console's own tool read disagree.** `/mcp` answers 503
+   `retry-after: 1` / `{"error":"device reconnecting","retry_after_ms":1000}` for the 9VH after 5 h,
+   while `/fleet/<id>/tools` says `this machine is not connected; connect it, then try again`.
+   **Cost:** two surfaces describe one state differently; "reconnecting" cannot be true after 5 h.
+   **Fix:** one sentence derived from the device's last frame, with the age. **S/M.**
+
+5. **Missing, bogus and revoked tokens get bare 401s with no message or WWW-Authenticate;** a valid
+   token at `/mcp/deadbeef` gets "another machine's endpoint"; an unknown device's `state.get` gets
+   -32001 "device not permitted by token"; bad operator sign-in shows "401 unauthorized". **Cost:**
+   an AI client cannot tell a wrong door from a revoked secret from a typo. **Fix:** name the door and
+   the reason; keep one shape. **S/M.**
+
+6. **Activity claims it is following a failed audit.** When `/audit` failed, the page still says
+   "Following the console's audit as it is written" (live-only rows, no counts, no hub-style notice);
+   a slow `/audit` labels known machines `unknown machine · <hex>` and drops the selected header.
+   **Cost:** the audit view lies about its source and loses the machine's identity while loading.
+   **Fix:** say when the audit read failed; keep the selected header through the slow read. **S/M.**
+
+7. **The offline Machine tab's last-frame facts read present tense.** The 9VH's Machine tab shows
+   `Sessions … #3 connected` and `Helper not registered this boot` from the 22:40 frame. **Cost:** a
+   five-hour-old frame is read as now. **Fix:** date the fact block with the frame's age. **S.**
+
+8. **An unknown selected id strands Activity.** A selected id not in `/fleet` leaves Activity on
+   `unknown machine · deadbeefdead / No activity on deadbeefdead…` while Home/Device fall back; the
+   fleet row menu's Remove is the real path. **Cost:** the page looks broken until the id is
+   cleared. **Fix:** fall back like Home/Device and say the machine is not in the fleet. **S.**
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
