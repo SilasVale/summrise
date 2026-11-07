@@ -710,7 +710,7 @@ still finds.
    the verdict and the attention rows for the whole fleet, with the selected machine's own summary as a section —
    never a second Activity. **M.**
 
-2. **The console host's repair task is still broken on 0.3.290.** *(Implemented 16d6e98: the repair script/task registration moved before `StopRuntime`/the flat copy; the ordering is tested. The 9VH's stale task needs a real setup run — the channel cannot refresh it; the live proof is the controller's next `/S` on the 84T with 0.3.291.)* DESKTOP-9VH92BJ's `SummriseRepair` is
+2. **The console host's repair task is still broken on 0.3.290.** *(Implemented 16d6e98; **live on 0.3.291/84T**: the relayed `/S` succeeded and `SummriseRepair`'s XML is `<Command>"E:\Program Files\Summrise\repair.cmd"</Command>` (registered 2026-11-08T04:46:13), the service RUNNING and the 84T online 0.3.291. The 9VH's stale task still needs a real setup run — the channel cannot refresh it.)* DESKTOP-9VH92BJ's `SummriseRepair` is
    `C:\Program` + `Files\Summrise\repair.cmd`, last result 0x80070002, every five minutes; the 84T's fixed task
    returns 0. **Fix:** find why the 9VH's 0.3.290 install did not re-register the task (the installer skips the
    re-registration on the "E:\Program Files\Summrise is already present; not written" path?) and repair it.
