@@ -1318,6 +1318,23 @@ try {
   await page.getByRole('heading', { name: 'Overview', exact: true }).waitFor({ timeout: 10_000 });
   step('opened Device → Overview; the machine\'s own live page');
 
+  // **ONE LIST OF ROWS, ONCE.** The state band answers whether the AI is working and how fast; it
+  // draws none of the day's calls, which are the timeline's rows under its one Today heading. The
+  // measured page had the newest five rows twice, once in the band and once as the timeline's first
+  // five (audit-41 F1).
+  await page.locator('.timeline-row').first().waitFor({ state: 'visible', timeout: 10_000 });
+  const bandRows = await page.locator('.live-now .timeline-row, .live-now .live-entry').count();
+  if (bandRows !== 0) {
+    throw new Error(`the Now band drew ${bandRows} call row(s); the timeline owns them`);
+  }
+  const dayHeadings = (await page.locator('.timeline-day-label').allTextContents()).map((text) =>
+    text.trim()
+  );
+  if (dayHeadings.length !== 1 || dayHeadings[0] !== 'Today') {
+    throw new Error(`the timeline's day headings were ${JSON.stringify(dayHeadings)}`);
+  }
+  step('the Now band draws no call rows; the timeline holds them once under its one Today heading');
+
   // THE NOW BAND COUNTS THE AI, NOT THE CONSOLE'S OWN READS. The activity stream above serves one
   // `terminal.list` the console made twenty seconds ago and one client call five minutes ago; a
   // console read under ninety seconds must not make an idle machine read "Active now". The three

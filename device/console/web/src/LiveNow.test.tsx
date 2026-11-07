@@ -1,13 +1,14 @@
-import { act, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { Device } from "./api";
 import type { LiveLine, StartedCall } from "./liveActivity";
 import { LiveNow } from "./LiveNow";
 
 // The band exists to answer one question: is the AI working right now? The console's own reads — the
 // terminal page's ten-second `terminal.list`, the stream's parked `terminal.read` — are lines in the
 // same audit, and counting them made an idle machine read "Active now · 6 calls in the last minute".
-// So the band counts a **client's** calls only; a line with no caller is not one.
+// So the band counts a **client's** calls only; a line with no caller is not one. It reads the state
+// from that window and draws none of its rows: the day's calls are the timeline's, once
+// (audit-41 F1).
 function line(overrides: Partial<LiveLine> = {}): LiveLine {
   return {
     ts_ms: Date.now(),
@@ -18,10 +19,7 @@ function line(overrides: Partial<LiveLine> = {}): LiveLine {
   };
 }
 
-const devices: Device[] = [
-  { id: "device-a-0123456789ab", name: "Alpha", online: true, version: "1.0.0", last_seen_ms: 1 }
-];
-const base = { devices, state: "live" as const, onAll: () => {} };
+const base = { state: "live" as const, onAll: () => {} };
 
 function started(overrides: Partial<StartedCall> = {}): StartedCall {
   return { id: "call-1", tool: "runs.exec", at_ms: Date.now(), caller: "client", ...overrides };
@@ -53,7 +51,25 @@ describe("LiveNow", () => {
 
     expect(screen.getByText("Active now")).toBeInTheDocument();
     expect(screen.getByText("1 call in the last minute")).toBeInTheDocument();
-    expect(screen.getByText("Read a file")).toBeInTheDocument();
+    // The call itself is the timeline's. The band is the state, not a second list of rows.
+    expect(screen.queryByText("Read a file")).not.toBeInTheDocument();
+    expect(document.querySelectorAll(".live-now .live-entry")).toHaveLength(0);
+  });
+
+  it("keeps the Now facts and one door, with no call rows", () => {
+    const onAll = vi.fn();
+    render(<LiveNow lines={[line({ caller: "client" })]} state="live" onAll={onAll} />);
+
+    // The state band's own shape: its heading, its presence word, its rate, the sparkline and the
+    // one door out to the fleet's record. The calls below it are the timeline's.
+    expect(screen.getByRole("heading", { name: "Now", level: 2 })).toBeInTheDocument();
+    expect(screen.getByText("Active now")).toBeInTheDocument();
+    expect(screen.getByText("1 call in the last minute")).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: /Client calls per ten seconds/ })).toBeInTheDocument();
+    expect(document.querySelectorAll(".live-now .live-entry")).toHaveLength(0);
+
+    fireEvent.click(screen.getByRole("button", { name: /All activity/ }));
+    expect(onAll).toHaveBeenCalledTimes(1);
   });
 
   it("treats a line without a caller as unknown, not as a client's", () => {

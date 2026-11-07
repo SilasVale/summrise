@@ -276,7 +276,8 @@ function retryOutcome(retried: LiveToolsRetry | null, offline: boolean): string 
 
 /**
  * The machine's live page: is it running, what is it doing now, what did it do today. One status
- * line, one Connect action, the Now band, this machine's timeline and one counts line. Identity is
+ * line, one Connect action, the Now band, this machine's timeline and one counts line. The band
+ * states presence; the calls are drawn once, in the timeline below (audit-41 F1). Identity is
  * the Device header's (the topbar names the machine); this page does not repeat the destination's
  * h1. The console's endpoint lives in Connect, so this page does not name it; the offline advice
  * names the machine's own panel as a place on the machine, not a door from here.
@@ -555,13 +556,13 @@ export function OverviewPage(props: OverviewPageProps) {
       <LiveNow
         // The band and the timeline are the same machine's day: feeding the band the fleet's
         // newest 200 live lines made it say "Quiet" while the window below held this machine's
-        // calls, and after a reconnect the live list is only the newest forty.
+        // calls, and after a reconnect the live list is only the newest forty. The band reads
+        // presence from that window and draws none of its rows: the timeline below is the one
+        // place the calls appear.
         lines={today.lines}
         running={liveRunning}
-        devices={props.devices}
         state={props.liveState ?? "connecting"}
         onAll={props.onActivity}
-        onWatch={props.onWatchTerminal}
       />
 
       {/* **THE CAPABILITY LINE IS ABOVE THE LOG.** What this machine can do was drawn after the

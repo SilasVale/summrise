@@ -262,6 +262,47 @@ describe("Device overview — the machine's live page", () => {
     expect(rows[0]).toHaveTextContent("terminal.create");
   });
 
+  it("draws the newest calls once, in the day's timeline, under its one Today heading", async () => {
+    const now = new Date(2026, 10, 5, 14, 45, 0).getTime();
+    const clock = vi.spyOn(Date, "now").mockReturnValue(now);
+    try {
+      draw({
+        audit: [
+          call({ ts_ms: now - 10_000, caller: "client", sentence: "Read the run history" }),
+          call({ ts_ms: now - 20_000, caller: "client", sentence: "Ran a command" }),
+          call({ ts_ms: now - 30_000, caller: "client", sentence: "Read the machine's state" })
+        ],
+        liveState: "live"
+      });
+
+      // THE STATE BAND KEEPS ITS OWN SHAPE. The Now facts — presence, rate, the sparkline and the
+      // one door to the fleet's record — are read from the machine's window.
+      expect(await screen.findByText("Active now")).toBeInTheDocument();
+      expect(screen.getByText("3 calls in the last minute")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /All activity/ })).toBeInTheDocument();
+
+      // THE CALLS ARE DRAWN ONCE. The band itself holds no row: no timeline row, no entry.
+      const band = document.querySelector(".live-now");
+      expect(band).not.toBeNull();
+      expect(band?.querySelectorAll(".timeline-row")).toHaveLength(0);
+      expect(band?.querySelectorAll(".live-entry")).toHaveLength(0);
+
+      const timeline = screen.getByRole("region", { name: "This machine's activity" });
+      await waitFor(() => expect(timeline.querySelectorAll(".timeline-row")).toHaveLength(3));
+      for (const sentence of ["Read the run history", "Ran a command", "Read the machine's state"]) {
+        expect(screen.getAllByText(sentence)).toHaveLength(1);
+        expect(within(timeline).getByText(sentence)).toBeInTheDocument();
+      }
+
+      // And one Today heading above them, not a second over a band copy of the same rows.
+      const todayHeadings = screen.getAllByRole("heading", { level: 2, name: "Today" });
+      expect(todayHeadings).toHaveLength(1);
+      expect(timeline).toContainElement(todayHeadings[0]);
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
   it("has no endpoint hero, URL or Copy control", () => {
     draw();
 
@@ -314,7 +355,7 @@ describe("Device overview — the machine's live page", () => {
     expect(within(timeline).getByText("Ran the workshop tests")).toBeInTheDocument();
     expect(within(timeline).getByText("Read a workshop note")).toBeInTheDocument();
     expect(within(timeline).queryByText("Built another machine")).not.toBeInTheDocument();
-    // The Now band is this machine's too; another machine's line must not leak into it.
+    // The page is this machine's: another machine's live line must not leak into its timeline.
     expect(screen.queryByText(/Built another machine/)).not.toBeInTheDocument();
   });
 

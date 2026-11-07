@@ -1,23 +1,13 @@
 import { useEffect, useState } from "react";
-import type { AuditLine, Device } from "./api";
+import type { AuditLine } from "./api";
 import { age as elapsed } from "./age";
-import { age, shortId } from "./format";
 import { runningAt, type StartedCall } from "./liveActivity";
-
-/** How many entries the band shows: enough to read the last few steps, not a second Activity page. */
-const SHOWN = 5;
 
 /** How many ten-second buckets the sparkline draws. */
 const BUCKETS = 30;
 
 /** How long a quiet console says "nothing happened" instead of inventing motion. */
 const PRESENT_MS = 90_000;
-
-function deviceName(devices: Device[], id: string | null | undefined): string | null {
-  if (!id) return null;
-  const device = devices.find((candidate) => candidate.id === id);
-  return device?.name ?? shortId(id);
-}
 
 /** Calls per ten-second bucket over the last five minutes, oldest first. */
 function buckets(lines: readonly AuditLine[], now: number): number[] {
@@ -33,16 +23,19 @@ function buckets(lines: readonly AuditLine[], now: number): number[] {
 }
 
 /**
- * The hub's "Now" band: what the AI is doing, as it does it.
+ * The machine's "Now" band: is the AI working, and how fast — never the day's calls.
  *
  * Everything here is a fact from the console's own audit: the machine's fetched window and the
- * newest live lines merged, the same list the timeline below draws. Using only the fleet's live
- * slice made the band say "Quiet" after a reconnect, when the slice was the newest forty lines of
- * the whole fleet and held none of this machine's. The console's reads are facts in that same
- * record, so they are excluded: the band counts the calls a client made, never the console's own
- * polling. When nothing has happened the band says so — a pulse that kept beating through an idle
- * night would be the one thing this page must not do, because the whole point is knowing whether
- * the machine is working.
+ * newest live lines merged, the same window the timeline below draws. The band reads presence, the
+ * last minute's rate and the five-minute sparkline from it; it draws none of its rows, because those
+ * rows are the timeline's, once, under the day's own heading (audit-41 F1). A running call is the
+ * one line the band keeps: the proxy announces it before the device answers, so it is not an audit
+ * row yet and has no timeline row to be a second copy of.
+ *
+ * The console's own reads are facts in that same record, so they are excluded: the band counts the
+ * calls a client made, never the console's own polling. When nothing has happened the band says so —
+ * a pulse that kept beating through an idle night would be the one thing this page must not do,
+ * because the whole point is knowing whether the machine is working.
  */
 export function LiveNow(props: {
   /**
@@ -57,14 +50,12 @@ export function LiveNow(props: {
    * calls are shown, because the band counts the AI and not the console's own reads.
    */
   running?: StartedCall[];
-  devices: Device[];
   state: "connecting" | "live" | "offline";
+  /** The one door out of the state band: the fleet's record, which owns the older days. */
   onAll: () => void;
-  /** Open a machine's Terminal tab, where an AI's session can be watched. */
-  onWatch?: (deviceId: string) => void;
 }) {
-  // The age column and the sparkline advance on their own clock: a stream of timestamps that never
-  // ticks reads as a screenshot, not as something happening.
+  // The sparkline advances on its own clock: a stream of timestamps that never ticks reads as a
+  // screenshot, not as something happening.
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 1000);
@@ -84,7 +75,6 @@ export function LiveNow(props: {
   const newest = calls[0]?.ts_ms ?? 0;
   const present = running.length > 0 || (newest > 0 && now - newest < PRESENT_MS);
   const lastMinute = calls.filter((line) => now - line.ts_ms < 60_000).length;
-  const shown = calls.slice(0, SHOWN);
   const counts = buckets(calls, now);
   const peak = Math.max(1, ...counts);
 
@@ -154,47 +144,6 @@ export function LiveNow(props: {
           ))}
         </ul>
       )}
-
-      {shown.length > 0 ? (
-        <ol className="live-list">
-          {shown.map((line) => {
-            const machine = deviceName(props.devices, line.device_id);
-            return (
-              <li key={`${line.ts_ms}-${line.tool ?? line.kind}`} className="live-entry">
-                <span
-                  className="live-entry-dot"
-                  data-tone={line.ok === false || line.status >= 400 ? "bad" : "ok"}
-                  aria-hidden="true"
-                />
-                <span className="live-sentence">
-                  {line.sentence}
-                  {machine && <span className="live-machine"> on {machine}</span>}
-                </span>
-                {typeof line.ms === "number" && <span className="live-ms">{line.ms} ms</span>}
-                {line.tool?.startsWith("terminal.") && line.device_id && props.onWatch && (
-                  <button
-                    type="button"
-                    className="live-watch"
-                    title="Open this machine's Terminal and watch the session"
-                    onClick={() => props.onWatch?.(line.device_id as string)}
-                  >
-                    Watch
-                  </button>
-                )}
-                <span className="live-age" title={new Date(line.ts_ms).toLocaleString()}>
-                  {age(line.ts_ms)}
-                </span>
-              </li>
-            );
-          })}
-        </ol>
-      ) : running.length === 0 ? (
-        <p className="hint live-empty">
-          {props.state === "live"
-            ? "No client calls yet. When an AI client calls this console, its work appears here; the console's own reads are not counted."
-            : "The activity stream is not open, so nothing can appear here yet."}
-        </p>
-      ) : null}
     </section>
   );
 }
