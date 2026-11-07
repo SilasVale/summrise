@@ -5,11 +5,12 @@ import { api, type AuditLine, type Device, type Installer } from "./api";
 import { AttemptReason, attemptCount, attemptReason } from "./attempt";
 import { DeviceCard } from "./DeviceCard";
 import { copyText } from "./copy";
-import { clockTime, coverageClause, shortId } from "./format";
+import { clockTime, coverageClause, lastHeardMs, seenAgo, shortId } from "./format";
 import { bytes } from "./runFormat";
 import { listPlugins } from "./pluginApi";
 import { surfaceHash } from "./surface-link";
 import { useLiveTools, type LiveToolsRetry } from "./useLiveTools";
+import { versionBelow } from "./versions";
 import { ActivityTimeline } from "./ActivityTimeline";
 import {
   ACTIVITY_LIMIT,
@@ -39,7 +40,15 @@ export type Enrollment = { code: string; expires_at_ms: number } | null;
 export type FleetRead =
   | { state: "reading" }
   | { state: "failed"; reason: string }
-  | { state: "ready" };
+  | {
+      state: "ready";
+      /**
+       * When the answer landed. Home states the fleet read's age beside "Nothing needs
+       * attention."; absent is a page that was given the list without a clock (tests, older
+       * callers), and then it says "just now" rather than inventing a moment.
+       */
+      at?: number;
+    };
 
 type FleetProps = {
   devices: Device[];
@@ -96,11 +105,13 @@ function useInstaller(): Installer | null {
 }
 
 /**
- * Where to get the device runtime, above the command that assumes it is installed.
+ * Where to get the device runtime: a compact strip under the fleet, not the page's first card.
  *
  * Every value is the `/installer` answer: the filename and version are the console's staged file,
  * the size and short hash are over the bytes the link serves. An unavailable installer is one
- * sentence and no link — the page offers no download it cannot honour.
+ * sentence and no link — the page offers no download it cannot honour. The block sits after the
+ * fleet because the fleet is the page's subject; the installer is the next step once a machine is
+ * missing, and it keeps its sha256 line so the file can be checked after it lands.
  */
 function InstallerBlock(props: { installer: Installer }) {
   if (!props.installer.available) {
@@ -113,7 +124,10 @@ function InstallerBlock(props: { installer: Installer }) {
   }
   const installer = props.installer;
   return (
-    <section className="installer" aria-label="Install the device runtime">
+    <section
+      className="installer installer-strip"
+      aria-label="Install the device runtime"
+    >
       <h2>Install the device runtime</h2>
       <a className="btn primary" href="/installer/download" download>
         Download Windows installer
@@ -126,31 +140,169 @@ function InstallerBlock(props: { installer: Installer }) {
   );
 }
 
+/** One thing on the fleet that wants a person: a machine that is away, or one behind the file. */
+type AttentionProblem = {
+  /** Stable key: one machine can have two problems, and each is its own row. */
+  key: string;
+  device: Device;
+  tone: "offline" | "behind";
+  sentence: string;
+};
+
 /**
- * Home before a machine is selected: the fleet. One row per machine, one accent for the action that
- * adds one, and the enrollment command when it exists. This is the previous Devices page kept because
- * it is the only way in — restyled to the hub's shell, not given a second dashboard.
+ * What needs attention, from the fleet read and the staged installer only.
+ *
+ * The sentences are the brief's own: a machine that is away is dated by the newest evidence the
+ * console has (the row's rule), and a machine behind the staged installer names both versions. A
+ * machine can produce two rows — away and behind at once — because the block counts problems and
+ * each problem has its own door. Nothing here is invented: no evidence means the sentence stops
+ * before "last seen", and no staged installer means no comparison at all.
+ */
+function attentionProblems(
+  devices: readonly Device[],
+  installer: Installer | null
+): AttentionProblem[] {
+  const problems: AttentionProblem[] = [];
+  for (const device of devices) {
+    const label = device.name ?? shortId(device.id);
+    if (!device.online) {
+      const heard = lastHeardMs(device);
+      problems.push({
+        key: `${device.id}:offline`,
+        device,
+        tone: "offline",
+        sentence:
+          heard === null
+            ? `${label} is offline.`
+            : `${label} is offline — last seen ${seenAgo(heard)}.`
+      });
+    }
+    if (installer?.available && versionBelow(device.version, installer.version)) {
+      problems.push({
+        key: `${device.id}:behind`,
+        device,
+        tone: "behind",
+        sentence: `${label} is behind: v${device.version}, the console has ${installer.version}.`
+      });
+    }
+  }
+  return problems;
+}
+
+/**
+ * The page's one sentence about the fleet: online count and how many machines need a person.
+ *
+ * "Needs attention" counts machines, not rows: an offline machine that is also behind is one
+ * machine to fix. A machine behind the staged installer counts even while it is online — it is the
+ * one fact on this page that means an action without a failed connection. When nothing is wrong
+ * the sentence is the operator's calm one: "nothing to do".
+ */
+function verdictSentence(
+  devices: readonly Device[],
+  problems: readonly AttentionProblem[]
+): string {
+  const online = devices.filter((device) => device.online).length;
+  const needing = new Set(problems.map((problem) => problem.device.id)).size;
+  const attention =
+    needing === 0
+      ? "nothing to do"
+      : `${needing} ${needing === 1 ? "needs" : "need"} attention`;
+  return `${online} of ${devices.length} online · ${attention}`;
+}
+
+/** The fleet read's age, as the calm attention block states it. */
+function fleetReadAge(fleet: FleetRead): string {
+  return fleet.state === "ready" && fleet.at !== undefined
+    ? `Fleet read ${seenAgo(fleet.at)}.`
+    : "Fleet read just now.";
+}
+
+/**
+ * Home's first answer: does anything need me?
+ *
+ * Non-empty, the block is one row per problem with a button that opens that machine. Empty, it
+ * says so once and dates the read that proved it, so "nothing to do" is evidence rather than a
+ * blank. It is a named region either way, so a reader who navigates by landmark meets the page's
+ * subject before the table.
+ */
+function AttentionBlock(props: {
+  problems: readonly AttentionProblem[];
+  fleet: FleetRead;
+  onOpen: (id: string) => void;
+}) {
+  if (props.problems.length === 0) {
+    return (
+      <section className="attention attention-clear" aria-label="Needs attention">
+        <p className="attention-clear-line">
+          <span className="dot dot-ok" aria-hidden="true" />
+          Nothing needs attention.
+          <span className="hint"> {fleetReadAge(props.fleet)}</span>
+        </p>
+      </section>
+    );
+  }
+  return (
+    <section className="attention" aria-label="Needs attention">
+      <h2>Needs attention</h2>
+      <ul className="attention-list">
+        {props.problems.map((problem) => {
+          const label = problem.device.name ?? shortId(problem.device.id);
+          return (
+            <li className="attention-row" key={problem.key}>
+              <span
+                className={"dot " + (problem.tone === "offline" ? "dot-off" : "dot-warn")}
+                aria-hidden="true"
+              />
+              <p>{problem.sentence}</p>
+              <button
+                type="button"
+                className="attention-open"
+                aria-label={`Open machine for ${label}`}
+                onClick={() => props.onOpen(problem.device.id)}
+              >
+                Open machine
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+    </section>
+  );
+}
+
+/**
+ * Home before a machine is selected: the verdict, what needs attention, the fleet table, and the
+ * installer. The page answers "what needs me?" before it lists anything; the fleet is a compact
+ * table of four facts, and the per-row client-call counters are gone — that is Activity's noun.
  */
 function FleetHome(props: FleetProps) {
-  const online = props.devices.filter((device) => device.online).length;
   const installer = useInstaller();
   const fleet = props.fleetRead ?? { state: "ready" as const };
   // **A ZERO NEEDS A READ BEHIND IT.** The empty fleet is a fact only when `/fleet` answered with
   // no machines; a page that is still reading, or whose read failed, holds an empty list too, and
   // telling that reader "No machines yet" invites enrollment for a fleet the console cannot see.
   const empty = fleet.state === "ready" && props.devices.length === 0;
+  // The verdict and the attention rows are claims about the fleet now, so they wait for a
+  // successful read. A failed read keeps the last list on screen and states the failure instead.
+  const ready = fleet.state === "ready";
+  const problems = ready ? attentionProblems(props.devices, installer) : [];
+  const verdict =
+    fleet.state === "reading"
+      ? "Reading the machine list…"
+      : fleet.state === "failed"
+        ? "The machine list could not be read."
+        : empty
+          ? "No machines yet"
+          : verdictSentence(props.devices, problems);
   return (
     <div className="page home-page">
       <header className="page-head">
         <div>
           <h1>Machines</h1>
-          <p className="page-sub">
-            {fleet.state === "reading"
-              ? "Reading the machine list…"
-              : fleet.state === "failed"
-                ? "The machine list could not be read."
-                : `${props.devices.length} machine${props.devices.length === 1 ? "" : "s"} · ${online} online`}
+          <p className={"home-verdict" + (problems.length > 0 ? " has-attention" : "")}>
+            {verdict}
           </p>
+          {empty && <p className="page-sub">0 machines · 0 online</p>}
         </div>
         <div className="page-actions">
           <button type="button" onClick={props.onTokens}>
@@ -198,9 +350,57 @@ function FleetHome(props: FleetProps) {
         </div>
       )}
 
-      {/* The installer is the account's, not the read's: `/installer` is a separate answer, and this
-          block is the next step whether the machine list arrived, is still coming, or failed. It is
-          not a substitute for the list's state — that sentence stays above it. */}
+      {/* **WHAT NEEDS ME COMES BEFORE THE LIST.** The block only claims a problem on a successful
+          read: a stale list below a failed read is not proof that a machine is away now. It is
+          drawn with no machines neither — "Nothing needs attention" over an empty fleet would be
+          true but useless, and the empty state below already says what to do. */}
+      {ready && props.devices.length > 0 && (
+        <AttentionBlock problems={problems} fleet={fleet} onOpen={props.onOpen} />
+      )}
+
+      {props.devices.length > 0 ? (
+        // A real table: the four fleet facts line up column-wise, and at 390 the stylesheet turns
+        // each row into a card. The row's own link is its name; the overflow is the management.
+        <div className="fleet-table-wrap">
+          <table className="fleet-table" aria-label="The fleet">
+            <thead>
+              <tr>
+                <th scope="col">Machine</th>
+                <th scope="col">Status</th>
+                <th scope="col">Version</th>
+                <th scope="col">Started</th>
+                <th scope="col">
+                  <span className="sr-only">Actions</span>
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {props.devices.map((device) => (
+                <DeviceCard
+                  key={device.id}
+                  device={device}
+                  selected={props.selectedId === device.id}
+                  onSelect={() => props.onOpen(device.id)}
+                  onRename={() => props.onRename(device)}
+                  onRemove={() => props.onRemove(device)}
+                  onDiagnostics={() => props.onDiagnostics(device)}
+                />
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : empty ? (
+        <section className="empty-state">
+          <p className="hint">
+            A machine appears here after it enrolls with this console. Run the command once on the
+            Windows machine, and it dials out to this console.
+          </p>
+        </section>
+      ) : null}
+
+      {/* The installer is the account's, not the read's: `/installer` is a separate answer, and it
+          is the next step whether the machine list arrived, is still coming, or failed. It is a
+          compact strip after the fleet, not the page's first card. */}
       {installer !== null && <InstallerBlock installer={installer} />}
 
       {props.code && (
@@ -233,33 +433,6 @@ function FleetHome(props: FleetProps) {
           <p className="hint">Expires at {new Date(props.code.expires_at_ms).toLocaleTimeString()}.</p>
         </section>
       )}
-
-      {props.devices.length > 0 ? (
-        <div className="fleet-list">
-          {props.devices.map((device) => (
-            <DeviceCard
-              key={device.id}
-              device={device}
-              selected={props.selectedId === device.id}
-              // The staged installer's version is a fact of the same page: Add-a-machine offers
-              // that file, and each row says when the machine it opens is older than it.
-              installerVersion={installer?.available ? installer.version : null}
-              onSelect={() => props.onOpen(device.id)}
-              onRename={() => props.onRename(device)}
-              onRemove={() => props.onRemove(device)}
-              onDiagnostics={() => props.onDiagnostics(device)}
-            />
-          ))}
-        </div>
-      ) : empty ? (
-        <section className="empty-state">
-          <h2>No machines yet</h2>
-          <p className="hint">
-            A machine appears here after it enrolls with this console. Run the command once on the
-            Windows machine, and it dials out to this console.
-          </p>
-        </section>
-      ) : null}
     </div>
   );
 }

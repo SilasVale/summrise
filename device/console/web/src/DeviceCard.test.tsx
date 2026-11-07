@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { DeviceCard, type Device } from "./DeviceCard";
 import { exactMoment } from "./format";
@@ -31,14 +31,17 @@ const callbacks = {
   onDiagnostics: vi.fn()
 };
 
-function draw(overrides: Partial<Device> = {}, installerVersion: string | null = null) {
+/**
+ * The row is a real table row now: it is rendered inside the table Home draws, so a test sees the
+ * same cells a browser does (a `<tr>` outside `<tbody>` is not a table).
+ */
+function draw(overrides: Partial<Device> = {}) {
   return render(
-    <DeviceCard
-      device={{ ...device, ...overrides }}
-      selected={false}
-      installerVersion={installerVersion}
-      {...callbacks}
-    />
+    <table>
+      <tbody>
+        <DeviceCard device={{ ...device, ...overrides }} selected={false} {...callbacks} />
+      </tbody>
+    </table>
   );
 }
 
@@ -47,13 +50,16 @@ describe("DeviceCard — one row on the fleet", () => {
     const { container } = draw();
 
     expect(screen.getByText("workshop")).toBeInTheDocument();
-    expect(screen.getByText("online", { exact: false })).toBeInTheDocument();
-    expect(screen.getByText(/seen 15s ago/)).toBeInTheDocument();
+    expect(screen.getByText("online · seen 15s ago")).toBeInTheDocument();
     expect(screen.getByText("v0.3.42")).toBeInTheDocument();
     // The version appears once on the row: the chip is the surface's one copy, and nothing in the
     // device's story repeats it.
     expect(container.textContent?.match(/0\.3\.42/g)).toHaveLength(1);
     expect(screen.getByRole("button", { name: "Open workshop" })).toBeInTheDocument();
+    // The status is a coloured dot and a word, in its own cell.
+    const row = screen.getByRole("row");
+    expect(row.querySelector(".fleet-status .dot.dot-ok")).not.toBeNull();
+    expect(row.querySelector(".fleet-status .fleet-state")).toHaveTextContent("online");
 
     // The row is the target; there is no second per-row Connect action competing with the screen's
     // one primary action, and the machine's own facts have one home: Machine.
@@ -76,18 +82,34 @@ describe("DeviceCard — one row on the fleet", () => {
     expect(container.querySelector(".card-details-body")).toBeNull();
   });
 
-  it("names the hour its day starts at when the file rotated", () => {
-    // The day read cannot prove the hours before the rotation; the row says since when it can
-    // instead of letting a partial day read as the whole one.
+  it("is one table row with a cell per column", () => {
+    const { container } = draw();
+
+    const row = container.querySelector("tr.fleet-row");
+    expect(row).not.toBeNull();
+    expect(row?.querySelectorAll("td")).toHaveLength(5);
+    expect(row?.querySelector(".fleet-machine .fleet-name")).toHaveTextContent("workshop");
+    expect(row?.querySelector(".fleet-version .fleet-build")).toHaveTextContent("v0.3.42");
+    // A device that sent no update story has no start to state; the cell says so rather than
+    // borrowing a moment.
+    expect(row?.querySelector(".fleet-started .fleet-empty")).toHaveTextContent("—");
+  });
+
+  it("draws no client-call counters: that is Activity's noun", () => {
+    // The measured old row: `554 client calls · 53 failed · since 03:12`. The new Home states the
+    // fleet and what needs attention; how many calls a machine served belongs to the record.
     const midnight = new Date();
     midnight.setHours(0, 0, 0, 0);
     const since = midnight.getTime() + (3 * 60 + 12) * 60_000;
-    draw({ today: { client_calls: 554, failed: 53, since_ms: since } });
+    const { container } = draw({ today: { client_calls: 554, failed: 53, since_ms: since } });
 
-    expect(screen.getByText("554 client calls · 53 failed · since 03:12")).toBeInTheDocument();
+    expect(container.querySelector(".fleet-work")).toBeNull();
+    expect(screen.queryByText(/client call/)).toBeNull();
+    expect(screen.queryByText(/failed/)).toBeNull();
+    expect(screen.queryByText(/554/)).toBeNull();
   });
 
-  it("does not draw a reconnect sentence: the attempt has no moment of its own", () => {
+  it("draws no reconnect sentence: the attempt has no moment of its own", () => {
     // The measured row: both online machines carried "Reconnected after 1 attempt — the console
     // accepted the channel and then dropped it" with no date, so the 09:41 restart read at 10:07 as
     // if the channel had just dropped. `/fleet` serves `last_attempt` as a count and a reason, with
@@ -103,7 +125,7 @@ describe("DeviceCard — one row on the fleet", () => {
     expect(screen.queryByText(/Reconnected after/)).not.toBeInTheDocument();
     expect(screen.queryByText(/the console accepted the channel/)).not.toBeInTheDocument();
     // What the row does say: the state with its age and the build.
-    expect(screen.getByText(/online · seen 15s ago/)).toBeInTheDocument();
+    expect(screen.getByText("online · seen 15s ago")).toBeInTheDocument();
     expect(screen.getByText("v0.3.42")).toBeInTheDocument();
   });
 
@@ -126,7 +148,8 @@ describe("DeviceCard — one row on the fleet", () => {
       host: null
     });
 
-    expect(screen.getByText(/offline · last seen 3h ago/)).toBeInTheDocument();
+    expect(screen.getByText("offline · last seen 3h ago")).toBeInTheDocument();
+    expect(screen.getByRole("row").querySelector(".fleet-status .dot.dot-off")).not.toBeNull();
   });
 
   it("ages a device with no frame from the close the audit recorded", () => {
@@ -168,7 +191,7 @@ describe("DeviceCard — one row on the fleet", () => {
       host: null
     });
 
-    expect(screen.getByText(/offline · last seen 1m ago/)).toBeInTheDocument();
+    expect(screen.getByText("offline · last seen 1m ago")).toBeInTheDocument();
   });
 
   it("calls a silent channel offline without inventing a reconnect", () => {
@@ -180,7 +203,7 @@ describe("DeviceCard — one row on the fleet", () => {
       last_attempt: { attempts: 3, reason: "the console accepted the channel and then dropped it" }
     });
 
-    expect(screen.getByText(/offline · last seen 7m ago/)).toBeInTheDocument();
+    expect(screen.getByText("offline · last seen 7m ago")).toBeInTheDocument();
     expect(container.querySelector(".fleet-attempt")).toBeNull();
     expect(screen.queryByText(/Reconnected after/)).not.toBeInTheDocument();
   });
@@ -208,7 +231,7 @@ describe("DeviceCard — one row on the fleet", () => {
       }
     });
 
-    expect(screen.getByText(/offline · last seen 7m ago/)).toBeInTheDocument();
+    expect(screen.getByText("offline · last seen 7m ago")).toBeInTheDocument();
     const verdict = container.querySelector(".fleet-verdict");
     expect(verdict).toHaveTextContent("started 0.3.42 · 1d 1h ago");
     expect(verdict).toHaveAttribute("title", exactMoment(BOOT_AT));
@@ -250,15 +273,16 @@ describe("DeviceCard — one row on the fleet", () => {
     const { container } = draw({ online: false, last_frame_ms: Date.now() - 7 * 60_000 });
 
     // A silent older device shows exactly the silence line and nothing new.
-    expect(screen.getByText(/offline · last seen 7m ago/)).toBeInTheDocument();
+    expect(screen.getByText("offline · last seen 7m ago")).toBeInTheDocument();
     expect(container.querySelector(".fleet-verdict")).toBeNull();
     expect(screen.queryByText(/started /)).not.toBeInTheDocument();
     expect(screen.queryByText(/asleep|sleeping/i)).not.toBeInTheDocument();
   });
 
-  it("names the channel its newest restart ran, not only the launcher's", () => {
-    // The measured 84T: `host.update.current` was null, so the Machine line read "channel not
-    // reported" while the restart journal named canary. The row reads the journal first.
+  it("draws no channel line: the channel is the Machine page's fact, not a Home column", () => {
+    // The measured 84T: `host.update.current` was null, so the old Machine line read "channel not
+    // reported" while the restart journal named canary. Home now names what runs, when it started
+    // and whether anything needs a person; the channel has no column and is not repeated.
     const { container } = draw({
       host: {
         restarts: [{ at_ms: BOOT_AT, version: "0.3.42", channel: "canary", pid: 42 }],
@@ -266,12 +290,83 @@ describe("DeviceCard — one row on the fleet", () => {
       }
     });
 
-    const line = container.querySelector(".fleet-channel");
-    expect(line).toHaveTextContent("channel canary");
-    expect(line).toHaveAttribute("title", expect.stringContaining("newest restart"));
+    expect(container.querySelector(".fleet-channel")).toBeNull();
+    expect(screen.queryByText(/channel canary/)).toBeNull();
   });
 
-  it("falls back to the launcher's channel when the journal has none", () => {
+  it("opens the machine from the row's link", () => {
+    const onSelect = vi.fn();
+    render(
+      <table>
+        <tbody>
+          <DeviceCard device={device} selected={false} {...callbacks} onSelect={onSelect} />
+        </tbody>
+      </table>
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Open workshop" }));
+    expect(onSelect).toHaveBeenCalledTimes(1);
+  });
+
+  it("never marks behind on the row: that sentence belongs to Needs attention", () => {
+    // The comparison is still proven in versions.test.ts; Home draws it once, as an attention row
+    // with the action beside it. A second cue in the version chip would say it twice.
+    const { container } = draw({ version: "0.3.280" });
+
+    expect(screen.getByText("v0.3.280")).toBeInTheDocument();
+    expect(container.querySelector(".fleet-build")).toHaveTextContent(/^v0\.3\.280$/);
+    expect(screen.queryByText(/behind/)).toBeNull();
+    expect(within(screen.getByRole("row")).queryByText(/0\.3\.284/)).toBeNull();
+  });
+
+  it("draws no day counts, even when the file's coverage starts after midnight", () => {
+    // The old row's `554 client calls · 53 failed · since 03:12` is exactly the shape Home no
+    // longer draws; the `since` clause was useful only because the counts were there.
+    const midnight = new Date();
+    midnight.setHours(0, 0, 0, 0);
+    draw({
+      today: {
+        client_calls: 554,
+        failed: 53,
+        since_ms: midnight.getTime() + (3 * 60 + 12) * 60_000
+      }
+    });
+
+    expect(screen.queryByText(/client call/)).toBeNull();
+    expect(screen.queryByText(/since 03:12/)).toBeNull();
+    expect(screen.queryByText(/554/)).toBeNull();
+    expect(screen.queryByText(/53 failed/)).toBeNull();
+  });
+
+  it("draws no day counts when the machine has none", () => {
+    draw({ today: null });
+
+    expect(screen.queryByText(/client calls/)).toBeNull();
+    expect(screen.queryByText(/calls/)).toBeNull();
+  });
+
+  it("does not say failed on the row at all", () => {
+    draw({ today: { client_calls: 11, failed: 0 } });
+
+    expect(screen.queryByText("11 client calls")).toBeNull();
+    expect(screen.queryByText(/failed/)).toBeNull();
+  });
+
+  it("keeps the machine's name in its own cell, beside the status cell", () => {
+    // The name is the row's link and the status is its own column; the old structural rule (a
+    // name that could not swallow the counters at 390) now says the dot and word have their home.
+    const { container } = draw();
+    const name = container.querySelector(".fleet-name");
+    const status = container.querySelector(".fleet-status");
+
+    expect(name).toHaveTextContent(/^workshop$/);
+    expect(name?.closest("td")?.className).toBe("fleet-machine");
+    expect(name?.closest(".fleet-status")).toBeNull();
+    expect(status?.closest("td")?.className).toBe("fleet-status");
+    expect(status).toHaveTextContent("online · seen 15s ago");
+  });
+
+  it("draws no channel line when the journal names none and the launcher does", () => {
     const { container } = draw({
       host: {
         restarts: [{ at_ms: BOOT_AT, version: "0.3.42", pid: 42 }],
@@ -279,114 +374,28 @@ describe("DeviceCard — one row on the fleet", () => {
       }
     });
 
-    expect(container.querySelector(".fleet-channel")).toHaveTextContent("channel beta");
+    expect(container.querySelector(".fleet-channel")).toBeNull();
+    expect(screen.queryByText(/channel beta/)).toBeNull();
   });
 
   it("draws no channel line when neither the journal nor the launcher names one", () => {
-    // Never invented: a device with no channel anywhere gets no line at all.
     const { container } = draw({ host: null });
     expect(container.querySelector(".fleet-channel")).toBeNull();
   });
 
-  it("opens the machine from the whole main row", () => {
-    const onSelect = vi.fn();
-    render(
-      <DeviceCard device={device} selected={false} {...callbacks} onSelect={onSelect} />
-    );
-
-    fireEvent.click(screen.getByRole("button", { name: "Open workshop" }));
-    expect(onSelect).toHaveBeenCalledTimes(1);
-  });
-
-  it("states the day's calls and failures on the row", () => {
-    const { container } = draw({ today: { client_calls: 283, failed: 38 } });
-
-    expect(screen.getByText("283 client calls · 38 failed")).toBeInTheDocument();
-    expect(container.querySelector(".fleet-work")).toHaveTextContent(
-      "283 client calls · 38 failed"
-    );
-    // The counts share the row's one muted status cell, inside the one open button: no new
-    // column, no second line.
-    expect(screen.getByRole("button", { name: "Open workshop" })).toHaveTextContent(
-      "283 client calls · 38 failed"
-    );
-    expect(container.querySelectorAll(".fleet-work")).toHaveLength(1);
-  });
-
-  it("says the row's count is the client's calls, not the machine's whole work", () => {
-    // The measured 9VH row read `141 calls · 4 failed` beside the hub's `Today 141 client calls`
-    // and `Console reads · 238`. The row's number is `client_calls` and the console's own reads
-    // are not in it, so the row must name whose calls it counted; a bare `calls` made the hub's
-    // client count look contradictory (audit-37 F5).
-    const { container } = draw({ today: { client_calls: 141, failed: 4 } });
-
-    expect(container.querySelector(".fleet-work")).toHaveTextContent(
-      "141 client calls · 4 failed"
-    );
-    expect(container.querySelector(".fleet-work")).not.toHaveTextContent(/^\d+ calls/);
-  });
-
-  it("omits the failed half at zero", () => {
-    draw({ today: { client_calls: 11, failed: 0 } });
-
-    expect(screen.getByText("11 client calls")).toBeInTheDocument();
-    expect(screen.queryByText(/· 0 failed/)).not.toBeInTheDocument();
-    expect(screen.queryByText(/failed/)).not.toBeInTheDocument();
-  });
-
-  it("draws nothing for a machine the audit window holds no line for", () => {
-    const { container } = draw();
-
-    expect(container.querySelector(".fleet-work")).toBeNull();
-    expect(screen.queryByText(/calls/)).not.toBeInTheDocument();
-  });
-
-  it("keeps the name its own node so the counts can wrap below it at 390", () => {
-    // The <=639 stylesheet gives the status cell a full-width row and the counts their own line.
-    // jsdom has no layout, so the test pins the structure that rule acts on: the name is its own
-    // node and the counts are its sibling, never a suffix inside the name.
-    const { container } = draw({ today: { client_calls: 84, failed: 0 } });
-    const name = container.querySelector(".fleet-name");
-    const work = container.querySelector(".fleet-work");
-
-    expect(name).toHaveTextContent(/^workshop$/);
-    expect(work).not.toBeNull();
-    expect(name).not.toContainElement(work as HTMLElement);
-    expect(work?.closest(".fleet-name")).toBeNull();
-    expect(work?.parentElement?.className).toBe("fleet-now");
-    expect(name?.parentElement).toBe(work?.parentElement?.parentElement);
-  });
-
-  it("marks a machine behind the staged installer beside its build", () => {
-    // The measured fleet: 84T3LIN read v0.3.280 while the same page offered the 0.3.284
-    // installer, and the row gave the operator no way to notice without comparing two surfaces.
-    const { container } = draw({ version: "0.3.280" }, "0.3.284");
-
-    expect(screen.getByText("behind 0.3.284")).toBeInTheDocument();
-    const build = container.querySelector(".fleet-build");
-    expect(build).toHaveTextContent("v0.3.280 · behind 0.3.284");
-  });
-
   it("draws no behind cue when the versions are equal", () => {
-    const { container } = draw({ version: "0.3.284" }, "0.3.284");
-
-    expect(screen.queryByText(/behind/)).not.toBeInTheDocument();
-    expect(container.querySelector(".fleet-build")).toHaveTextContent("v0.3.284");
+    draw({ version: "0.3.42" });
+    expect(screen.queryByText(/behind/)).toBeNull();
   });
 
-  it("draws no behind cue when either version is unknown", () => {
-    // The installer read failed or the device never announced a version: the row cannot compare,
-    // and a cue would be a guess.
-    const noInstaller = draw({ version: "0.3.280" }, null);
-    expect(screen.queryByText(/behind/)).not.toBeInTheDocument();
-    noInstaller.unmount();
-
-    draw({ version: null }, "0.3.284");
-    expect(screen.queryByText(/behind/)).not.toBeInTheDocument();
+  it("draws no behind cue when the version is unknown", () => {
+    draw({ version: null });
+    expect(screen.getByLabelText("No version reported")).toHaveTextContent("—");
+    expect(screen.queryByText(/behind/)).toBeNull();
   });
 
   it("draws no behind cue for a machine newer than the staged installer", () => {
-    draw({ version: "0.3.285" }, "0.3.284");
-    expect(screen.queryByText(/behind/)).not.toBeInTheDocument();
+    draw({ version: "0.3.99" });
+    expect(screen.queryByText(/behind/)).toBeNull();
   });
 });

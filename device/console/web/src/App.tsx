@@ -604,7 +604,7 @@ export function App() {
     const fleetAnswer = api.devices().then(
       (list) => {
         setDevices(list);
-        setFleetRead({ state: "ready" });
+        setFleetRead({ state: "ready", at: Date.now() });
         // The poll is the only sampler; the stored last timestamp enforces the 30 s cadence.
         // Sampling after a successful fleet fetch is what keeps an offline device from adding a
         // stale point.

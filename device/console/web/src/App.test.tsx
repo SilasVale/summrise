@@ -334,7 +334,7 @@ async function bootAndSignIn() {
   fireEvent.change(screen.getByLabelText("Operator token"), { target: { value: "operator-token" } });
   fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
   await screen.findByRole("heading", { name: "Machines", level: 1 });
-  await screen.findByText("2 machines · 2 online");
+  await screen.findByRole("table", { name: "The fleet" });
   return view;
 }
 
@@ -361,12 +361,12 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
-/** Select a machine from its fleet card; Home stays Home, as the hub's first screen. */
+/** Select a machine from its fleet row; Home stays Home, as the hub's first screen. */
 function selectDevice(name: string) {
-  const label = screen.getAllByText(name).find((node) => node.closest("article"));
-  const card = label?.closest("article") ?? null;
-  expect(card).not.toBeNull();
-  fireEvent.click(within(card as HTMLElement).getByRole("button", { name: new RegExp(`^Open `) }));
+  const label = screen.getAllByText(name).find((node) => node.closest("tr.fleet-row"));
+  const row = label?.closest("tr.fleet-row") ?? null;
+  expect(row).not.toBeNull();
+  fireEvent.click(within(row as HTMLElement).getByRole("button", { name: /^Open / }));
 }
 
 /** Open the account menu, where version, console URL, docs and sign out live now. */
@@ -398,7 +398,7 @@ describe("App", () => {
     // THE STATUS STRIP IS DELETED. The fleet count is Home's job now, and there is no bar below the
     // canvas repeating facts that already have a home.
     expect(container.querySelector(".statusbar")).toBeNull();
-    expect(screen.getByText("2 machines · 2 online")).toBeInTheDocument();
+    expect(screen.getByText("2 of 2 online · nothing to do")).toBeInTheDocument();
     // The tab title and the address bar are both effects over the route the page has just drawn.
     await waitFor(() => expect(document.title).toBe("Machines · Summrise console"));
     await waitFor(() => expect(window.location.hash).toBe("#home"));
@@ -764,7 +764,7 @@ describe("App", () => {
     ).toBeInTheDocument();
   });
 
-  it("states the same day on the fleet row that the machine's hub counts", async () => {
+  it("keeps the day's count on the machine's hub, not on Home's fleet row", async () => {
     // The fleet's `today` and the hub's day line are one rule over one window: `/fleet` serves the
     // counts, and the hub reads the machine's lines and counts them itself. The fixture holds the
     // four kinds the rule has to tell apart — a client call, a failed client call, the console's
@@ -824,16 +824,14 @@ describe("App", () => {
 
     const card = screen
       .getAllByText("workshop")
-      .find((node) => node.closest("article"))
-      ?.closest("article");
+      .find((node) => node.closest("tr.fleet-row"))
+      ?.closest("tr.fleet-row");
     expect(card).not.toBeNull();
-    // The row says whose calls it counted, with the hub's own noun: the number is the day's
-    // `client_calls`, and `Console reads · …` beside it counted the console's own reads. A row
-    // that said `2 calls` read as the machine's whole work and made the hub look contradictory
-    // (audit-37 F5).
+    // Home's table states presence, build and start. How many calls the AI made is the day's noun
+    // and belongs to the hub and to Activity; the old row's `2 client calls · 1 failed` left Home.
     expect(
-      within(card as HTMLElement).getByText("2 client calls · 1 failed")
-    ).toBeInTheDocument();
+      within(card as HTMLElement).queryByText(/client calls/)
+    ).toBeNull();
 
     selectDevice("workshop");
     expect(await screen.findByText(/^Today 2 client calls · 1 failed/)).toBeInTheDocument();
@@ -1737,7 +1735,7 @@ describe("App", () => {
     fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
     // A whole sign-in is session, fleet, audit and tokens; the default one second has flaked in a
     // full run before (see the legacy-alias test above).
-    await screen.findByText("2 machines · 1 online", {}, { timeout: 3000 });
+    await screen.findByText("1 of 2 online · 1 needs attention", {}, { timeout: 3000 });
     selectDevice("workshop");
 
     fireEvent.click(screen.getByRole("button", { name: "Device" }));
@@ -1827,7 +1825,7 @@ describe("App", () => {
     expect(mocks.logout).toHaveBeenCalledTimes(1);
     expect(screen.getByRole("heading", { name: "Sign in to the console" })).toBeInTheDocument();
     expect(screen.queryByText("workshop")).not.toBeInTheDocument();
-    expect(screen.queryByText("2 machines · 2 online")).not.toBeInTheDocument();
+    expect(screen.queryByText("2 of 2 online · nothing to do")).not.toBeInTheDocument();
   });
 
   it("signs a proxy identity out of the tab without offering a token it cannot use", async () => {
@@ -1868,7 +1866,7 @@ describe("App", () => {
     expect(mocks.logout).toHaveBeenCalledTimes(1);
     expect(screen.getByRole("heading", { name: "Sign in to the console" })).toBeInTheDocument();
     expect(screen.queryByText("workshop")).not.toBeInTheDocument();
-    expect(screen.queryByText("2 machines · 2 online")).not.toBeInTheDocument();
+    expect(screen.queryByText("2 of 2 online · nothing to do")).not.toBeInTheDocument();
     expect(
       screen.queryByRole("heading", { name: "Grant what the console may do on workshop" })
     ).not.toBeInTheDocument();
@@ -1894,7 +1892,7 @@ describe("App", () => {
     await bootAndSignIn();
 
     // The list is a convenience: losing it leaves the page working and the table on record ids.
-    expect(screen.getAllByRole("article")).toHaveLength(2);
+    expect(screen.getAllByRole("button", { name: /^Open / })).toHaveLength(2);
     fireEvent.click(screen.getByRole("button", { name: "Activity" }));
     // Activity opens on the timeline; the token column is the table's.
     fireEvent.click(screen.getByRole("tab", { name: "Table" }));
@@ -2343,7 +2341,7 @@ describe("App", () => {
     await act(async () => {
       answer.resolve([workshop, attic]);
     });
-    expect(await screen.findByText("2 machines · 2 online")).toBeInTheDocument();
+    expect(await screen.findByText("2 of 2 online · nothing to do")).toBeInTheDocument();
     expect(screen.queryByText("No machines yet")).toBeNull();
     view.unmount();
   });
@@ -2383,7 +2381,7 @@ describe("App", () => {
     // Retry is the page's own read, and its answer puts the fleet back.
     mocks.devices.mockResolvedValue([workshop, attic]);
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));
-    expect(await screen.findByText("2 machines · 2 online")).toBeInTheDocument();
+    expect(await screen.findByText("2 of 2 online · nothing to do")).toBeInTheDocument();
     expect(screen.queryByText(/could not read the machine list/)).toBeNull();
     expect(
       within(screen.getByRole("main")).getByRole("button", { name: "Add a machine" })
@@ -2435,7 +2433,7 @@ describe("App", () => {
       within(banner).getByRole("button", { name: "Retry reading the machine list" })
     );
     await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
-    expect(await screen.findByText("2 machines · 2 online")).toBeInTheDocument();
+    expect(await screen.findByText("2 of 2 online · nothing to do")).toBeInTheDocument();
     view.unmount();
   });
 

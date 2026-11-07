@@ -1244,6 +1244,7 @@ function drawFleet(extra: Record<string, unknown> = {}) {
   const onTokens = vi.fn();
   const onRetryFleet = vi.fn();
   const onAddMachine = vi.fn();
+  const onOpen = vi.fn();
   const fleetProps = {
     device: null,
     devices: [],
@@ -1251,7 +1252,7 @@ function drawFleet(extra: Record<string, unknown> = {}) {
     code: null,
     enrollCommand: "",
     busy: false,
-    onOpen: vi.fn(),
+    onOpen,
     onRename: vi.fn(),
     onRemove: vi.fn(),
     onDiagnostics: vi.fn(),
@@ -1273,8 +1274,21 @@ function drawFleet(extra: Record<string, unknown> = {}) {
     onTokens,
     onRetryFleet,
     onAddMachine,
+    onOpen,
     rerenderFleet: (overrides: Record<string, unknown>) =>
       view.rerender(page({ ...extra, ...overrides }))
+  };
+}
+
+/** One machine in the new fleet's table shape: online and on the staged installer unless it says. */
+function machine(overrides: Partial<Device> = {}): Device {
+  return {
+    id: `dev-${overrides.name ?? "machine"}`,
+    name: "machine",
+    online: true,
+    version: installerFacts.version,
+    last_seen_ms: Date.now() - 5_000,
+    ...overrides
   };
 }
 
@@ -1303,14 +1317,16 @@ describe("Home — the fleet's installer", () => {
     ).toBeTruthy();
   });
 
-  it("marks a fleet row whose version is behind the staged installer", async () => {
-    // The measured fleet's 84T3LIN row: the machine ran v0.3.280 while this same page offered the
-    // 0.3.284 installer, and the row said nothing. The comparison uses the one `/installer` read
-    // the Add-a-machine block already makes.
+  it("sends a machine behind the staged installer to Needs attention", async () => {
+    // The measured fleet: 84T3LIN read v0.3.280 while the same page offered the 0.3.284
+    // installer, and the row gave the operator no way to notice without comparing two surfaces.
     installerApi.installer.mockResolvedValue(installerFacts);
     drawFleet({ devices: [{ ...workshop, version: "0.3.8" }] });
 
-    expect(await screen.findByText("behind 0.3.9")).toBeInTheDocument();
+    expect(
+      await screen.findByText("workshop is behind: v0.3.8, the console has 0.3.9.")
+    ).toBeInTheDocument();
+    expect(screen.queryByText("behind 0.3.9")).toBeNull();
   });
 
   it("draws no fleet cue when the console staged no installer", async () => {
@@ -1381,6 +1397,194 @@ describe("Home — the fleet's installer", () => {
     expect(
       screen.getAllByRole("heading", { name: "Install the device runtime" })
     ).toHaveLength(1);
+  });
+});
+
+/**
+ * THE OPERATOR'S SENTENCE, NOT A SECOND LIST. Home's first fact is whether anything needs a person:
+ * one large verdict from the fleet read, then one row per problem with the door that opens that
+ * machine. The per-row client-call counters are Activity's noun and must not be on this page.
+ */
+describe("Home — the verdict and what needs attention", () => {
+  beforeEach(() => {
+    installerApi.installer.mockResolvedValue(installerFacts);
+  });
+
+  it("says all four online and nothing to do when the fleet is healthy", async () => {
+    drawFleet({
+      devices: [
+        machine({ id: "a", name: "alpha" }),
+        machine({ id: "b", name: "bravo" }),
+        machine({ id: "c", name: "charlie" }),
+        machine({ id: "d", name: "delta" })
+      ],
+      fleetRead: { state: "ready", at: Date.now() }
+    });
+
+    expect(
+      await screen.findByText("4 of 4 online · nothing to do")
+    ).toBeInTheDocument();
+  });
+
+  it("counts one offline machine in the verdict and states when it was last seen", async () => {
+    drawFleet({
+      devices: [
+        machine({ id: "a", name: "alpha" }),
+        machine({ id: "b", name: "bravo" }),
+        machine({ id: "c", name: "charlie" }),
+        machine({
+          id: "r14",
+          name: "DESKTOP-14RJCR8",
+          online: false,
+          last_frame_ms: Date.now() - (2 * 24 + 5) * 3_600_000
+        })
+      ],
+      fleetRead: { state: "ready", at: Date.now() }
+    });
+
+    expect(
+      await screen.findByText("3 of 4 online · 1 needs attention")
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("DESKTOP-14RJCR8 is offline — last seen 2d 5h ago.")
+    ).toBeInTheDocument();
+  });
+
+  it("counts a machine behind the staged installer even while every machine is online", async () => {
+    drawFleet({
+      devices: [
+        machine({ id: "a", name: "alpha" }),
+        machine({ id: "b", name: "bravo" }),
+        machine({ id: "c", name: "charlie" }),
+        machine({ id: "old", name: "old", version: "0.3.8" })
+      ],
+      fleetRead: { state: "ready", at: Date.now() }
+    });
+
+    expect(
+      await screen.findByText("4 of 4 online · 1 needs attention")
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("old is behind: v0.3.8, the console has 0.3.9.")
+    ).toBeInTheDocument();
+  });
+
+  it("draws one row per problem, each with a button that opens its machine", async () => {
+    // The real 14R shape: offline and behind at once. The verdict counts machines (one), the
+    // block counts problems (two rows), and each row has its own door.
+    installerApi.installer.mockResolvedValue({ ...installerFacts, version: "0.3.289" });
+    const { onOpen } = drawFleet({
+      devices: [
+        machine({ id: "a", name: "alpha", version: "0.3.289" }),
+        machine({ id: "b", name: "bravo", version: "0.3.289" }),
+        machine({ id: "c", name: "charlie", version: "0.3.289" }),
+        machine({
+          id: "r14",
+          name: "DESKTOP-14RJCR8",
+          online: false,
+          version: "0.3.275",
+          last_frame_ms: Date.now() - (2 * 24 + 5) * 3_600_000
+        })
+      ],
+      fleetRead: { state: "ready", at: Date.now() }
+    });
+
+    expect(
+      await screen.findByText("3 of 4 online · 1 needs attention")
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("DESKTOP-14RJCR8 is offline — last seen 2d 5h ago.")
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("DESKTOP-14RJCR8 is behind: v0.3.275, the console has 0.3.289.")
+    ).toBeInTheDocument();
+
+    const attention = screen.getByRole("region", { name: "Needs attention" });
+    expect(within(attention).getAllByRole("listitem")).toHaveLength(2);
+    const doors = within(attention).getAllByRole("button", {
+      name: "Open machine for DESKTOP-14RJCR8"
+    });
+    expect(doors).toHaveLength(2);
+    fireEvent.click(doors[0]);
+    expect(onOpen).toHaveBeenCalledWith("r14");
+  });
+
+  it("says nothing needs attention, with the fleet read's age, when the fleet is healthy", async () => {
+    drawFleet({
+      devices: [machine({ id: "a", name: "alpha" })],
+      fleetRead: { state: "ready", at: Date.now() - 12_000 }
+    });
+
+    expect(await screen.findByText("Nothing needs attention.")).toBeInTheDocument();
+    expect(screen.getByText(/^Fleet read \d+s ago\.$/)).toBeInTheDocument();
+    expect(
+      screen.queryByRole("heading", { name: "Needs attention" })
+    ).toBeNull();
+  });
+
+  it("draws no client-call counters on Home", async () => {
+    drawFleet({
+      devices: [
+        machine({
+          id: "a",
+          name: "alpha",
+          today: { client_calls: 283, failed: 38 }
+        }),
+        machine({ id: "b", name: "bravo", today: { client_calls: 84, failed: 2 } })
+      ],
+      fleetRead: { state: "ready", at: Date.now() }
+    });
+
+    await screen.findByText("2 of 2 online · nothing to do");
+    expect(screen.queryByText(/client call/)).toBeNull();
+    expect(screen.queryByText(/failed/)).toBeNull();
+    expect(screen.queryByText("283 client calls · 38 failed")).toBeNull();
+    expect(document.querySelector(".fleet-work")).toBeNull();
+  });
+
+  it("draws the compact Machine / Status / Version / Started table, installer below it", async () => {
+    const booted = Date.now() - 3 * 3_600_000;
+    drawFleet({
+      devices: [
+        machine({
+          id: "a",
+          name: "alpha",
+          version: "0.3.9",
+          update: {
+            current: "0.3.9",
+            verdict: { outcome: "ok", detail: "started 0.3.9" }
+          },
+          host: {
+            restarts: [{ at_ms: booted, version: "0.3.9", channel: "canary", pid: 42 }]
+          }
+        }),
+        machine({ id: "b", name: "bravo", online: false })
+      ],
+      fleetRead: { state: "ready", at: Date.now() }
+    });
+
+    const table = await screen.findByRole("table", { name: "The fleet" });
+    const headers = within(table)
+      .getAllByRole("columnheader")
+      .map((header) => header.textContent?.trim());
+    expect(headers).toEqual(["Machine", "Status", "Version", "Started", "Actions"]);
+    expect(within(table).getAllByRole("row")).toHaveLength(3);
+    expect(within(table).getByRole("button", { name: "Open alpha" })).toBeInTheDocument();
+    expect(within(table).getAllByText("v0.3.9")).toHaveLength(2);
+    expect(within(table).getByText(/^started 0\.3\.9 · 3h/)).toBeInTheDocument();
+    // The coloured dot is beside the status word, not the name.
+    const alphaRow = within(table).getByRole("button", { name: "Open alpha" }).closest("tr");
+    expect(alphaRow?.querySelector(".fleet-status .dot.dot-ok")).not.toBeNull();
+    expect(alphaRow?.querySelector(".fleet-status .fleet-state")).toHaveTextContent("online");
+
+    const installerHeading = await screen.findByRole("heading", {
+      name: "Install the device runtime"
+    });
+    // The installer is the last surface, not the first card: the fleet comes before it.
+    expect(
+      table.compareDocumentPosition(installerHeading) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+    expect(installerHeading.closest(".installer")).toHaveClass("installer-strip");
   });
 });
 

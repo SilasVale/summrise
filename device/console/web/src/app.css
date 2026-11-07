@@ -2985,3 +2985,159 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
 .timeline-stretch-text {
   color: var(--ink-faint); font-size: var(--fs-2xs); letter-spacing: 0.02em; white-space: nowrap;
 }
+
+/* ── Home: the verdict, what needs attention, the fleet table ───────────────────────────────────
+   Home's shape is not Activity's. One large sentence answers "what needs me?", a block names the
+   problems with their doors, and the fleet is a compact four-column table. The type and the space
+   do the work the old 13 px rows did not: 16 px names, a coloured dot with its word, a version
+   chip, one start line, and a wider gap between the page's sections. */
+
+.home-page { gap: 22px; }
+.home-page .page-head h1 { font-size: 30px; }
+.home-verdict {
+  margin: 6px 0 0; max-width: 40ch;
+  color: var(--ink); font-size: 26px; line-height: 1.2;
+  font-weight: var(--fw-semi); letter-spacing: var(--tracking-tight);
+  text-wrap: balance;
+}
+
+/* The attention block is the page's one warning surface: it is read before the table, and each row
+   is one problem with one door. A clear fleet keeps the region but turns it calm and green. */
+.attention {
+  display: grid; gap: 10px;
+  padding: 16px 18px;
+  background: var(--panel);
+  border: 1px solid var(--hairline);
+  border-left: 3px solid var(--warn);
+  border-radius: var(--radius);
+}
+.attention h2 {
+  margin: 0; font-size: var(--fs-2xs); font-weight: var(--fw-semi);
+  text-transform: uppercase; letter-spacing: var(--tracking-label); color: var(--ink-muted);
+}
+.attention-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 0; }
+.attention-row {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  padding: 10px 0; border-top: 1px solid var(--line-soft);
+}
+.attention-row:first-child { padding-top: 0; border-top: 0; }
+.attention-row:last-child { padding-bottom: 0; }
+.attention-row p { flex: 1; min-width: 15rem; max-width: none; margin: 0; font-size: var(--fs-md); }
+.attention-row .dot { width: 8px; height: 8px; }
+.attention-open { flex: none; }
+.attention-clear { border-left-color: var(--ok); padding: 12px 18px; }
+.attention-clear-line {
+  display: flex; align-items: center; gap: 9px; margin: 0;
+  font-size: var(--fs-md); font-weight: var(--fw-medium);
+}
+.attention-clear-line .hint { margin: 0; font-weight: var(--fw-regular); }
+.dot-warn {
+  background: var(--warn);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--warn) 16%, transparent);
+}
+
+/* The fleet is a table, not a stack of cards: the four facts align and the eye compares a column
+   at a time. The first cell is the row's link; the status cell owns the dot and its word. */
+.fleet-table-wrap {
+  background: var(--panel); border: 1px solid var(--hairline);
+  border-radius: var(--radius); overflow: hidden;
+}
+.fleet-table { width: 100%; border-collapse: collapse; table-layout: auto; }
+.fleet-table thead th {
+  padding: 9px 16px; text-align: left;
+  color: var(--ink-muted); background: var(--panel);
+  border-bottom: 1px solid var(--line);
+  font-size: var(--fs-2xs); font-weight: var(--fw-semi);
+  text-transform: uppercase; letter-spacing: var(--tracking-label);
+  white-space: nowrap;
+}
+.fleet-table thead th:nth-child(1) { width: 36%; }
+.fleet-table thead th:nth-child(2) { width: 19%; }
+.fleet-table thead th:nth-child(3) { width: 12%; }
+.fleet-table thead th:nth-child(4) { width: 26%; }
+.fleet-table thead th:nth-child(5) { width: 44px; }
+.fleet-table tbody td {
+  padding: 12px 16px; border-top: 1px solid var(--line-soft);
+  vertical-align: middle; font-size: var(--fs-sm); color: var(--ink-muted);
+}
+.fleet-table tbody tr:first-child td { border-top: 0; }
+.fleet-table .fleet-row { display: table-row; border: 0; background: transparent; }
+.fleet-table .fleet-row:hover { background: var(--panel-2); }
+.fleet-table .fleet-row.is-current {
+  background: color-mix(in srgb, var(--accent) 6%, transparent); box-shadow: none;
+}
+.fleet-machine { width: 34%; }
+.fleet-open {
+  display: flex; align-items: center; gap: 8px;
+  min-height: 0; padding: 0; border: 0; border-radius: var(--radius-xs);
+  background: transparent; color: var(--ink); text-align: left;
+}
+.fleet-open:hover { background: transparent; color: var(--accent); border-color: transparent; }
+.fleet-name {
+  font-size: 16px; font-weight: var(--fw-semi); letter-spacing: var(--tracking-tight);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.fleet-chevron { color: var(--ink-faint); font-size: var(--fs-md); line-height: 1; }
+.fleet-status { display: flex; align-items: center; gap: 8px; white-space: nowrap; }
+.fleet-status .dot { width: 8px; height: 8px; }
+.fleet-state { color: var(--ink-muted); font-size: var(--fs-sm); }
+.fleet-state.ok { color: var(--ink); }
+.fleet-version { white-space: nowrap; }
+.fleet-build {
+  display: inline-block; padding: 2px 8px; border-radius: var(--radius-pill);
+  background: var(--panel-3); color: var(--ink);
+  font-family: var(--font-mono); font-size: var(--fs-2xs); letter-spacing: 0;
+}
+.fleet-started { max-width: 26rem; }
+.fleet-verdict {
+  display: block; color: var(--ink-muted); font-size: var(--fs-sm);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.fleet-empty { color: var(--ink-faint); }
+.fleet-table tbody td.fleet-actions {
+  width: 44px; padding: 12px 12px 12px 0; text-align: right;
+}
+.fleet-actions .row-menu { padding-right: 0; justify-content: flex-end; }
+
+/* The installer's compact strip: one line with the link and the sha256, after the fleet. */
+.installer.installer-strip {
+  display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+  margin: 0; padding: 12px 16px;
+  background: var(--panel); border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+}
+.installer-strip h2 { margin: 0; font-size: var(--fs-md); font-weight: var(--fw-semi); }
+.installer-strip .btn { flex: none; }
+.installer-strip .hint { margin: 0 0 0 auto; font-size: var(--fs-xs); }
+
+@media (max-width: 639px) {
+  .home-page { gap: 18px; }
+  .home-page .page-head h1 { font-size: 26px; }
+  .home-verdict { font-size: 24px; max-width: none; }
+  .attention { padding: 14px; }
+  .attention-row {
+    display: grid; grid-template-columns: auto minmax(0, 1fr); row-gap: 8px;
+  }
+  .attention-row .dot { grid-column: 1; grid-row: 1; margin-top: 7px; }
+  .attention-row p { grid-column: 2; min-width: 0; }
+  .attention-open { grid-column: 2; justify-self: start; }
+  /* The table becomes one card per machine: the name owns the first line, the status and the
+     version share the next, and the start gets the line under them. No sideways scroll. */
+  .fleet-table-wrap { background: transparent; border: 0; border-radius: 0; overflow: visible; }
+  .fleet-table, .fleet-table tbody, .fleet-table tr, .fleet-table td { display: block; }
+  .fleet-table thead { display: none; }
+  .fleet-table .fleet-row {
+    position: relative; display: grid; grid-template-columns: minmax(0, 1fr) auto;
+    gap: 7px 12px; margin: 0 0 8px; padding: 12px 14px;
+    background: var(--panel); border: 1px solid var(--hairline); border-radius: var(--radius-sm);
+  }
+  .fleet-table tbody td { padding: 0; border: 0; }
+  .fleet-table tbody td.fleet-actions { padding: 0; }
+  .fleet-machine { grid-column: 1 / -1; width: auto; padding-right: 34px; }
+  .fleet-status { grid-column: 1 / 2; align-self: center; }
+  .fleet-version { grid-column: 2 / 3; justify-self: end; align-self: center; }
+  .fleet-started { grid-column: 1 / -1; max-width: none; }
+  .fleet-verdict { white-space: normal; overflow: visible; text-overflow: clip; }
+  .fleet-actions { position: absolute; right: 8px; top: 8px; width: auto; }
+  .installer-strip .hint { margin-left: 0; flex-basis: 100%; }
+}

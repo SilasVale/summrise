@@ -974,115 +974,159 @@ try {
 
   // **AN OFFLINE MACHINE'S AGE IS THE NEWEST EVIDENCE.** No frame survived the console restart; the
   // registry's connect time is two hours old, the open close is 1 h 49 m old, and the pair in
-  // `last_outage` is from an earlier absence. The row must read the open close, at the desktop width.
+  // `last_outage` is from an earlier absence. The row must read the open close at the desktop width,
+  // and the attention sentence must state the same age.
   await page.setViewportSize({ width: 1440, height: 960 });
   await page.waitForTimeout(200);
-  const offlineRow1440 = page.getByRole('button', { name: /^Open DESKTOP-14RJCR8/ });
+  const offlineRow1440 = page.locator('tr.fleet-row', {
+    has: page.getByRole('button', { name: /^Open DESKTOP-14RJCR8/ })
+  });
   const offlineState1440 = (await offlineRow1440.locator('.fleet-state').textContent())?.trim();
   if (offlineState1440 !== 'offline · last seen 1h 49m ago') {
     throw new Error(`the offline row read "${offlineState1440}" at 1440`);
   }
   step(`at 1440 the offline row says "${offlineState1440}"`);
-  // **A RECONNECT IS NOT SHOWN AS NOW (C9).** The online row carries the measured `last_attempt` —
-  // one attempt, the console's channel drop — and neither row may draw a sentence about it: both
-  // live rows said "Reconnected after 1 attempt — …" at 10:07 about a 09:41 restart, with no date.
-  if ((await page.locator('article.fleet-row .fleet-attempt').count()) !== 0) {
-    throw new Error('a fleet row drew an undated reconnect sentence');
+
+  // **HOME IS THE VERDICT AND THE NEXT ACTION.** The page's first fact is one large sentence from
+  // the fleet read: three of four machines are online, and every machine needs a person (14R is
+  // away, and all four run behind the staged 0.3.280 file). The block below names each problem in
+  // one row with the door that opens that machine.
+  const verdict1440 = (await page.locator('.home-verdict').textContent())?.trim();
+  if (verdict1440 !== '3 of 4 online · 4 need attention') {
+    throw new Error(`Home's verdict read ${JSON.stringify(verdict1440)} at 1440`);
   }
-  step('the online row carries a last attempt and draws no reconnect sentence');
-  // **THE START IS THE ROW'S NEW FACT, EVEN WHEN ITS VERSION REPEATS THE CHIP.** The journal says
-  // the process started an hour ago; the verdict is "started 0.3.42", the same version the chip
-  // carries. The row must draw the start with its age (and the refusal that belongs to it), not
-  // drop it as a duplicate — the moment is what the chip cannot state. The exact instant is in the
-  // line's title. The chip remains the build's one copy; the device's own sentence repeats the
-  // version because that is the device's sentence.
-  const onlineRow = page.getByRole('button', { name: /^Open DESKTOP-9VH92BJ/ });
-  const onlineRowText = (await onlineRow.textContent()) ?? '';
-  const versionCopies = (onlineRowText.match(/0\.3\.42/g) ?? []).length;
-  if (versionCopies !== 2) {
-    throw new Error(`the online row carried ${versionCopies} copies of its version: "${onlineRowText}"`);
+  const attention1440 = await page.evaluate(() => {
+    const block = document.querySelector('.attention');
+    if (!block) return null;
+    return {
+      heading: block.querySelector('h2')?.textContent?.trim() ?? '',
+      top: Math.round(block.getBoundingClientRect().top),
+      rows: [...block.querySelectorAll('.attention-row')].map((row) => ({
+        sentence: row.querySelector('p')?.textContent?.trim() ?? '',
+        button: row.querySelector('button')?.getAttribute('aria-label') ?? ''
+      }))
+    };
+  });
+  if (attention1440 === null) {
+    throw new Error('Home drew no Needs attention block with four machines that need one');
   }
-  // **THE INSTALLER IS THE FLEET'S OTHER VERSION.** Every gate machine runs 0.3.42 and the staged
-  // file is 0.3.280, so each row must say it is behind that file beside its own build — the
-  // measured fleet had 84T3LIN on 0.3.280 beside the 0.3.284 installer and said nothing.
-  const build = (await onlineRow.locator('.fleet-build').textContent())?.trim();
-  if (build !== 'v0.3.42 · behind 0.3.280') {
-    throw new Error(`the online row's build read "${build}", not its own version and the staged one`);
+  if (attention1440.heading !== 'Needs attention') {
+    throw new Error(`the attention block's heading read ${JSON.stringify(attention1440.heading)}`);
   }
-  step(`the online row's build states "${build}"`);
-  const verdict = (await onlineRow.locator('.fleet-verdict').textContent())?.trim();
-  if (verdict !== 'started 0.3.42 · 1h ago (update to 0.3.43 refused)') {
-    throw new Error(`the online row's start line read "${verdict}"`);
+  const expectedProblems = [
+    'DESKTOP-9VH92BJ is behind: v0.3.42, the console has 0.3.280.',
+    'DESKTOP-14RJCR8 is offline — last seen 1h 49m ago.',
+    'DESKTOP-14RJCR8 is behind: v0.3.42, the console has 0.3.280.',
+    'DESKTOP-CPH4KB2 is behind: v0.3.42, the console has 0.3.280.',
+    'DESKTOP-7QK3MN2 is behind: v0.3.42, the console has 0.3.280.'
+  ];
+  const seenProblems = attention1440.rows.map((row) => row.sentence);
+  if (JSON.stringify(seenProblems) !== JSON.stringify(expectedProblems)) {
+    throw new Error(`the attention rows read ${JSON.stringify(seenProblems)}`);
   }
-  const startInstant = new Date(NOW - 60 * 60_000).toISOString();
-  const startTitle = (await onlineRow.locator('.fleet-verdict').getAttribute('title')) ?? '';
-  if (!startTitle.includes(`(${startInstant})`)) {
-    throw new Error(`the row's start title "${startTitle}" does not carry the exact instant`);
-  }
-  step(`the online row states "${verdict}" with the start's exact instant in its title`);
-  // **THE ROW NAMES THE CHANNEL THE RUNNING PAIR CAME FROM.** The build cell says what runs and what
-  // is staged; it cannot say which release channel the running pair belongs to. The newest restart
-  // entry names it (the launcher's current generation is the fallback), so "channel not reported"
-  // is impossible while a restart entry names one.
-  const rowChannel = (await onlineRow.locator('.fleet-channel').textContent())?.trim();
-  if (rowChannel !== 'channel stable') {
-    throw new Error(`the online row's channel line read "${rowChannel}", not its restart's channel`);
-  }
-  step('the online row names the channel its newest restart ran: "channel stable"');
-  // **THE FLEET COMPARES THE WORK, NOT ONLY THE PRESENCE.** Every row states the day the console's
-  // newest audit window counted: `283 client calls · 38 failed`, the failed half gone at zero, and
-  // nothing for a machine the window never names. The noun is the hub's: the row counts
-  // `client_calls` only, so `calls` read as the machine's whole work beside the hub's
-  // `Console reads · …` chip (audit-37 F5). The counts are on the state's muted line, so a row with
-  // no verdict line keeps the measured 45 px.
-  const fleet1440 = await page.evaluate(() =>
-    [...document.querySelectorAll('article.fleet-row')].map((row) => {
-      const name = row.querySelector('.fleet-name');
-      const state = row.querySelector('.fleet-state');
-      const work = row.querySelector('.fleet-work');
-      const height = Math.round(row.getBoundingClientRect().height);
-      return {
-        name: name?.textContent?.trim() ?? '',
-        state: state?.textContent?.trim() ?? '',
-        work: work?.textContent?.trim() ?? null,
-        height,
-        stateTop: state ? Math.round(state.getBoundingClientRect().top) : null,
-        workTop: work ? Math.round(work.getBoundingClientRect().top) : null
-      };
-    })
-  );
-  const workBy = new Map(fleet1440.map((row) => [row.name, row.work]));
-  const dayCalls = `${TODAY_CLIENT} ${TODAY_CLIENT === 1 ? 'client call' : 'client calls'}`;
-  const expectedWork = new Map([
-    ['DESKTOP-9VH92BJ', dayCalls],
-    ['DESKTOP-14RJCR8', '11 client calls'],
-    ['DESKTOP-CPH4KB2', '84 client calls · 2 failed'],
-    // The measured window's machine: the same 283 client calls its hub draws behind the fold.
-    ['DESKTOP-7QK3MN2', '283 client calls']
-  ]);
-  for (const [name, expected] of expectedWork) {
-    if (workBy.get(name) !== expected) {
-      throw new Error(`the ${name} row read "${workBy.get(name)}" instead of "${expected}"`);
-    }
-  }
-  const plainRows = fleet1440.filter(
-    (row) => row.name === 'DESKTOP-14RJCR8' || row.name === 'DESKTOP-CPH4KB2'
-  );
-  for (const row of plainRows) {
-    // 45 px is the measured row on the live console; a browser whose font metrics round it to 44
-    // still meets the budget — what must not happen is a second line, which `workTop` rules out.
-    if (row.height > 45) {
-      throw new Error(`the ${row.name} row grew to ${row.height} px at 1440; the row is 45 px`);
-    }
-    if (row.workTop !== row.stateTop) {
-      throw new Error(`the ${row.name} row's day is not on its state's line at 1440`);
+  for (const row of attention1440.rows) {
+    if (!/^Open machine for DESKTOP-/.test(row.button)) {
+      throw new Error(`an attention row's door reads ${JSON.stringify(row.button)}`);
     }
   }
   step(
-    `the four fleet rows state their days (${[...expectedWork.values()].join(' | ')}); ` +
-      `the rows without a verdict are ${plainRows.map((row) => `${row.name} ${row.height}px`).join(', ')} ` +
-      `at 1440 (45 px is the measured live row)`
+    `the verdict is "${verdict1440}"; Needs attention lists ${attention1440.rows.length} problems ` +
+      'with one door each'
   );
+
+  // **THE FLEET IS A TABLE, NOT A SECOND ACTIVITY.** Machine / Status / Version / Started are the
+  // four facts; the names are 16 px semibold, the dot sits with its word and the version is a chip.
+  // No row draws `client calls`: that counter is Activity's noun and it made Home read like a copy.
+  const fleet1440 = await page.evaluate(() => {
+    const table = document.querySelector('table.fleet-table');
+    const first = table?.querySelector('.fleet-name');
+    const rows = [...document.querySelectorAll('tr.fleet-row')].map((row) => ({
+      name: row.querySelector('.fleet-name')?.textContent?.trim() ?? '',
+      status: row.querySelector('.fleet-state')?.textContent?.trim() ?? '',
+      version: row.querySelector('.fleet-build')?.textContent?.trim() ?? '',
+      started: row.querySelector('.fleet-verdict')?.textContent?.trim() ?? null,
+      work: row.querySelector('.fleet-work')?.textContent?.trim() ?? null,
+      cells: row.querySelectorAll('td').length,
+      height: Math.round(row.getBoundingClientRect().height),
+      nameSize: first ? Number.parseFloat(getComputedStyle(first).fontSize) : 0,
+      nameWeight: first ? getComputedStyle(first).fontWeight : '',
+      dot: (() => {
+        const dot = row.querySelector('.fleet-status .dot');
+        return dot ? getComputedStyle(dot).backgroundColor : null;
+      })()
+    }));
+    const tableBox = table?.getBoundingClientRect();
+    const installer = document.querySelector('.installer');
+    return {
+      headers: [...(table?.querySelectorAll('thead th') ?? [])].map((th) =>
+        th.textContent?.trim() ?? ''
+      ),
+      rows,
+      text: document.querySelector('.page')?.textContent ?? '',
+      tableTop: tableBox ? Math.round(tableBox.top) : null,
+      tableBottom: tableBox ? Math.round(tableBox.bottom) : null,
+      installerTop: installer ? Math.round(installer.getBoundingClientRect().top) : null
+    };
+  });
+  if (
+    JSON.stringify(fleet1440.headers) !==
+    JSON.stringify(['Machine', 'Status', 'Version', 'Started', 'Actions'])
+  ) {
+    throw new Error(`the fleet table's headers read ${JSON.stringify(fleet1440.headers)}`);
+  }
+  if (fleet1440.rows.length !== 4) {
+    throw new Error(`the fleet drew ${fleet1440.rows.length} rows at 1440`);
+  }
+  if (fleet1440.rows[0].nameSize !== 16 || fleet1440.rows[0].nameWeight !== '600') {
+    throw new Error(
+      `the fleet name read ${fleet1440.rows[0].nameSize}px/${fleet1440.rows[0].nameWeight}, ` +
+        'not 16px/600'
+    );
+  }
+  for (const row of fleet1440.rows) {
+    if (row.cells !== 5) throw new Error(`the ${row.name} row has ${row.cells} cells, not 5`);
+    if (row.work !== null) throw new Error(`the ${row.name} row still draws a client-call counter`);
+    if (row.version !== 'v0.3.42') {
+      throw new Error(`the ${row.name} row's version read "${row.version}"`);
+    }
+    if (!row.status) throw new Error(`the ${row.name} row lost its status`);
+    if (!row.dot) throw new Error(`the ${row.name} row lost its status dot`);
+    if (row.height > 64) throw new Error(`the ${row.name} row grew to ${row.height} px at 1440`);
+  }
+  if (/\bclient calls?\b/.test(fleet1440.text)) {
+    throw new Error('Home still draws a client-call counter');
+  }
+  const onlineRow1440 = fleet1440.rows.find((row) => row.name === 'DESKTOP-9VH92BJ');
+  const startText1440 = onlineRow1440?.started ?? '';
+  if (startText1440 !== 'started 0.3.42 · 1h ago (update to 0.3.43 refused)') {
+    throw new Error(`the online row's start line read "${startText1440}"`);
+  }
+  const startTitle = await page
+    .locator('tr.fleet-row', {
+      has: page.getByRole('button', { name: /^Open DESKTOP-9VH92BJ/ })
+    })
+    .locator('.fleet-verdict')
+    .getAttribute('title');
+  const startInstant = new Date(NOW - 60 * 60_000).toISOString();
+  if (!startTitle?.includes(`(${startInstant})`)) {
+    throw new Error(`the row's start title "${startTitle}" does not carry the exact instant`);
+  }
+  if (
+    fleet1440.installerTop === null ||
+    fleet1440.tableBottom === null ||
+    fleet1440.installerTop < fleet1440.tableBottom
+  ) {
+    throw new Error('the installer is not below the fleet table');
+  }
+  if (attention1440.top > (fleet1440.tableTop ?? 0)) {
+    throw new Error('Needs attention is not above the fleet table');
+  }
+  step(
+    `the fleet is a 4-row table (${fleet1440.rows
+      .map((row) => `${row.name} ${row.height}px`)
+      .join(', ')}), 16 px names, a version chip and a start line; the installer sits below it`
+  );
+
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.waitForTimeout(200);
 
@@ -2143,62 +2187,107 @@ try {
     `at 390 the Device head keeps a ${connectFacts390.width}×${connectFacts390.height} Connect ` +
       `button (right ${connectFacts390.right} px); its click opens this machine's Connect sheet`
   );
-  // The same sentence at 390: the state line takes its own row on the card, but it still states the
-  // silence's age and never drops it at the narrow width. The fleet list is Home with no machine
-  // chosen, so clear the choice through the header's own menu first.
+  // The same sentence at 390: the status, version and start stack inside one card, and the silence's
+  // age is still stated. The fleet list is Home with no machine chosen, so clear the choice through
+  // the header's own menu first.
   await page.locator('details.machine-menu > summary').click();
   await page.getByRole('button', { name: 'All machines' }).click();
   await page.locator('nav.rail button[title="Home"]').click();
   await page.getByRole('heading', { name: 'Machines', exact: true }).waitFor({ timeout: 10_000 });
   await page.getByRole('button', { name: /^Open DESKTOP-14RJCR8/ }).waitFor({ timeout: 10_000 });
   const offlineState390 = (
-    await page.getByRole('button', { name: /^Open DESKTOP-14RJCR8/ }).locator('.fleet-state').textContent()
+    await page
+      .locator('tr.fleet-row', {
+        has: page.getByRole('button', { name: /^Open DESKTOP-14RJCR8/ })
+      })
+      .locator('.fleet-state')
+      .textContent()
   )?.trim();
   if (offlineState390 !== 'offline · last seen 1h 49m ago') {
     throw new Error(`the offline row read "${offlineState390}" at 390`);
   }
   step(`at 390 the offline row says "${offlineState390}"`);
-  // **AT 390 THE COUNTS GET THEIR OWN LINE, NOT THE NAME'S.** The status cell takes the full width
-  // below dot and name, and the day wraps under the state: every name keeps the first line's width,
-  // and the page grows downward instead of sideways.
+  // **AT 390 THE TABLE IS ONE CARD PER MACHINE.** The name owns the first line, status and version
+  // share the next, and the start gets the line under them. No sideways scroll, and every fact the
+  // desktop table states is still on the card.
   const fleet390 = await page.evaluate(() => {
-    const rows = [...document.querySelectorAll('article.fleet-row')].map((row) => {
+    const table = document.querySelector('table.fleet-table');
+    const rows = [...document.querySelectorAll('tr.fleet-row')].map((row) => {
       const name = row.querySelector('.fleet-name');
-      const work = row.querySelector('.fleet-work');
+      const status = row.querySelector('.fleet-status');
+      const version = row.querySelector('.fleet-version');
+      const started = row.querySelector('.fleet-started');
       const nameBox = name?.getBoundingClientRect();
-      const workBox = work?.getBoundingClientRect();
       return {
         name: name?.textContent?.trim() ?? '',
-        work: work?.textContent?.trim() ?? null,
+        status: status?.textContent?.trim() ?? '',
+        version: version?.textContent?.trim() ?? '',
+        started: started?.textContent?.trim() ?? '',
+        width: Math.round(row.getBoundingClientRect().width),
+        height: Math.round(row.getBoundingClientRect().height),
         nameWidth: nameBox ? Math.round(nameBox.width) : 0,
-        nameRight: nameBox ? Math.round(nameBox.right) : 0,
-        nameBottom: nameBox ? Math.round(nameBox.bottom) : 0,
-        workTop: workBox ? Math.round(workBox.top) : null,
-        height: Math.round(row.getBoundingClientRect().height)
+        nameBottom: nameBox ? Math.round(nameBox.bottom) : null,
+        statusTop: status ? Math.round(status.getBoundingClientRect().top) : null,
+        versionTop: version ? Math.round(version.getBoundingClientRect().top) : null,
+        startedTop: started ? Math.round(started.getBoundingClientRect().top) : null
       };
     });
+    const attention = document.querySelector('.attention');
+    const tableBox = table?.getBoundingClientRect();
+    const installer = document.querySelector('.installer');
     return {
       viewport: window.innerWidth,
       scrollWidth: document.documentElement.scrollWidth,
-      rows
+      rows,
+      attentionRows: attention ? attention.querySelectorAll('.attention-row').length : 0,
+      attentionTop: attention ? Math.round(attention.getBoundingClientRect().top) : null,
+      tableTop: tableBox ? Math.round(tableBox.top) : null,
+      tableBottom: tableBox ? Math.round(tableBox.bottom) : null,
+      installerTop: installer ? Math.round(installer.getBoundingClientRect().top) : null
     };
   });
   if (fleet390.rows.length !== 4) {
     throw new Error(`the fleet drew ${fleet390.rows.length} rows at 390`);
   }
   for (const row of fleet390.rows) {
-    if (!row.work) {
-      throw new Error(`the ${row.name} row lost its day at 390`);
+    if (!row.status.includes('online') && !row.status.includes('offline')) {
+      throw new Error(`the ${row.name} row lost its status at 390`);
+    }
+    if (!/^v0\.3\.42$/.test(row.version)) {
+      throw new Error(`the ${row.name} row's version read "${row.version}" at 390`);
+    }
+    if (row.started === '') {
+      throw new Error(`the ${row.name} row lost its start at 390`);
     }
     if (row.nameWidth < 120) {
       throw new Error(`the ${row.name} name is only ${row.nameWidth} px wide at 390`);
     }
-    if (row.nameRight > fleet390.viewport) {
-      throw new Error(`the ${row.name} name is outside the viewport at 390`);
+    if (
+      row.statusTop === null ||
+      row.versionTop === null ||
+      Math.abs(row.statusTop - row.versionTop) > 4
+    ) {
+      throw new Error(`the ${row.name} row's status and version do not share a line at 390`);
     }
-    if (row.workTop === null || row.workTop < row.nameBottom) {
-      throw new Error(`the ${row.name} row's day is not below the name at 390`);
+    if (row.startedTop === null || row.nameBottom === null || row.startedTop < row.nameBottom) {
+      throw new Error(`the ${row.name} row's start is not below its name at 390`);
     }
+    if (row.width > fleet390.viewport) {
+      throw new Error(`the ${row.name} card is ${row.width} px wide at 390`);
+    }
+  }
+  if (fleet390.attentionRows !== 5) {
+    throw new Error(`the attention block drew ${fleet390.attentionRows} rows at 390, not 5`);
+  }
+  if (fleet390.attentionTop === null || fleet390.attentionTop > (fleet390.tableTop ?? 0)) {
+    throw new Error('Needs attention is not above the fleet at 390');
+  }
+  if (
+    fleet390.installerTop === null ||
+    fleet390.tableBottom === null ||
+    fleet390.installerTop < fleet390.tableBottom
+  ) {
+    throw new Error('the installer is not below the fleet at 390');
   }
   if (fleet390.scrollWidth > fleet390.viewport) {
     throw new Error(
@@ -2207,9 +2296,10 @@ try {
   }
   const heights390 = fleet390.rows.map((row) => `${row.name} ${row.height}px`).join(', ');
   step(
-    `at 390 the four rows carry their counts below the name ` +
-      `(${heights390}); no sideways scroll`
+    `at 390 the fleet is four stacked cards (${heights390}) with a ${fleet390.attentionRows}-row ` +
+      'attention block; no sideways scroll'
   );
+
   // **THE CREDENTIAL HAS A DOOR FROM THE FLEET.** Tokens used to live only under Account → Tokens,
   // so the person adding a machine never met the thing a client needs. The fleet header's secondary
   // control must open the console's one credential sheet on its Tokens section, and the sheet must
