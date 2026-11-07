@@ -202,3 +202,78 @@ describe("DevicePageShell's Overview tab", () => {
     expect(screen.queryByRole("status")).toBeNull();
   });
 });
+
+/**
+ * jsdom has no layout, so the strip's and the tab's boxes are supplied: the 390 measurements from
+ * audit-41 F2 (a 358 px strip at 16..374, and `Machine` at 389..461 while the strip is unscrolled).
+ * The tab's box follows `scrollLeft`, as it would in a browser, so a second resize can prove the
+ * strip does not scroll a tab that is already in the band.
+ */
+function tabGeometry() {
+  let bandRight = 1000;
+  const rect = (left: number, width: number): DOMRect => ({
+    x: left,
+    y: 0,
+    top: 0,
+    bottom: 40,
+    left,
+    right: left + width,
+    width,
+    height: 40,
+    toJSON: () => ({})
+  });
+  const original = HTMLElement.prototype.getBoundingClientRect;
+  HTMLElement.prototype.getBoundingClientRect = function (this: HTMLElement): DOMRect {
+    if (this.classList.contains("device-tabs")) return rect(16, bandRight - 16);
+    if (this.getAttribute("aria-current") === "page") {
+      return rect(389 - (this.parentElement?.scrollLeft ?? 0), 72);
+    }
+    return rect(0, 0);
+  };
+  return {
+    phone: () => {
+      bandRight = 374;
+    },
+    restore: () => {
+      HTMLElement.prototype.getBoundingClientRect = original;
+    }
+  };
+}
+
+describe("DevicePageShell's tab strip at 390", () => {
+  it("brings a mid-strip route's tab into the strip", () => {
+    const geometry = tabGeometry();
+    geometry.phone();
+    try {
+      renderShell("machine");
+      const strip = screen.getByRole("navigation", { name: "Device views" });
+      expect(screen.getByRole("button", { name: "Machine" })).toHaveAttribute(
+        "aria-current",
+        "page"
+      );
+      // 389..461 against the strip's 16..374: 87 px of the tab starts past the edge, so the strip
+      // travels exactly that far and the tab's right edge meets the strip's.
+      expect(strip.scrollLeft).toBe(87);
+    } finally {
+      geometry.restore();
+    }
+  });
+
+  it("brings it back when a wide window becomes the phone's, and not again once it is in band", () => {
+    const geometry = tabGeometry();
+    try {
+      renderShell("machine");
+      const strip = screen.getByRole("navigation", { name: "Device views" });
+      // The 1000 px band holds every tab, so the route's selection does not move the strip.
+      expect(strip.scrollLeft).toBe(0);
+      geometry.phone();
+      fireEvent(window, new Event("resize"));
+      expect(strip.scrollLeft).toBe(87);
+      // The tab's box follows the scroll: it is inside the band now, so a second resize is a no-op.
+      fireEvent(window, new Event("resize"));
+      expect(strip.scrollLeft).toBe(87);
+    } finally {
+      geometry.restore();
+    }
+  });
+});

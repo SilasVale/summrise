@@ -81,7 +81,9 @@ const indexHtml = await readFile(DIST_INDEX).catch((error) => {
 
 const NOW = Date.now();
 const DEVICE = {
-  id: 'gate-device-0123456789abcdef',
+  // The live fleet's ids are 64 hex and the Connect sentence carries one in a URL: with a short
+  // fixture id the phone's sheet fitted, and audit-41 F3's clipping could not be measured.
+  id: '4c718d6e44c83388c7e07bd0d811fa0b7cf22e2fced85d35d0021dd26b11f687',
   name: 'DESKTOP-9VH92BJ',
   online: true,
   version: '0.3.42',
@@ -2392,6 +2394,180 @@ try {
   if (machine390.firstLabel !== 'Running') {
     throw new Error(`the update card's first row at 390 was ${JSON.stringify(machine390.firstLabel)}`);
   }
+
+  // **AT 390 THE STRIP SHOWS THE TAB THE ROUTE CHOSE, AND THE CONNECT SHEET FITS (audit-41 F2/F3).**
+  // The seven labels are 447 px inside a 358 px strip, and `#device/machine` used to draw no
+  // selected tab at all: `Machine` sat at 389..461 with `scrollLeft 0`. The same 390 sheet put 440
+  // px of content in a 389 px body — the `Tokens` tab cut to `Toke` and the endpoint sentence cut
+  // mid-word. Both are measured as a person meets them: the strip after the viewport resized, the
+  // strip on a fresh `#device/machine` load, and the sheet opened from that page's own door.
+  const stripFacts = () =>
+    page.evaluate(() => {
+      const strip = document.querySelector('.device-head .device-tabs');
+      const active = strip?.querySelector('[aria-current="page"]');
+      const band = strip?.getBoundingClientRect();
+      const tab = active?.getBoundingClientRect();
+      return {
+        viewport: document.documentElement.clientWidth,
+        pageWidth: document.documentElement.scrollWidth,
+        band: band ? { left: Math.round(band.left), right: Math.round(band.right) } : null,
+        clientWidth: strip?.clientWidth ?? 0,
+        scrollWidth: strip?.scrollWidth ?? 0,
+        scrollLeft: Math.round(strip?.scrollLeft ?? 0),
+        active: active?.textContent?.trim() ?? null,
+        tab: tab ? { left: Math.round(tab.left), right: Math.round(tab.right) } : null
+      };
+    });
+  const stripResized = await stripFacts();
+  // The audit's own page: a fresh load at 390 with `#device/machine` in the fragment. The selection
+  // is in localStorage, so the route and the machine survive the reload.
+  await page.goto(base + '/#device/machine', { waitUntil: 'domcontentloaded', timeout: 30_000 });
+  await page
+    .getByRole('heading', { name: 'Machine', exact: true, level: 1 })
+    .waitFor({ state: 'visible', timeout: 10_000 });
+  await page.locator('.device-head .device-tabs').waitFor({ state: 'visible', timeout: 10_000 });
+  await page.locator('.system-update').waitFor({ state: 'visible', timeout: 10_000 });
+  await page.waitForTimeout(400);
+  const stripLoaded = await stripFacts();
+  await page.locator('.device-connect button').click();
+  const connectPhone = page.getByRole('dialog', { name: 'Connect a client' });
+  await connectPhone.waitFor({ state: 'visible', timeout: 10_000 });
+  await page.waitForTimeout(300);
+  const sheetFacts = await page.evaluate(() => {
+    const box = (element) => {
+      const rect = element?.getBoundingClientRect();
+      return rect
+        ? {
+            left: Math.round(rect.left),
+            right: Math.round(rect.right),
+            width: Math.round(rect.width),
+            height: Math.round(rect.height)
+          }
+        : null;
+    };
+    const sheet = document.querySelector('.sheet');
+    const body = document.querySelector('.sheet-body');
+    const strip = document.querySelector('.connect-sheet .connect-tabs');
+    const tabs = [...document.querySelectorAll('.connect-sheet .connect-tabs button')];
+    const panel = document.querySelector('.connect-sheet [role="tabpanel"]');
+    const door = [...document.querySelectorAll('.connect-sheet p.hint')].find((paragraph) =>
+      (paragraph.textContent ?? '').includes('takes a device token')
+    );
+    return {
+      viewport: document.documentElement.clientWidth,
+      sheet: box(sheet),
+      body: body
+        ? { ...box(body), clientWidth: body.clientWidth, scrollWidth: body.scrollWidth }
+        : null,
+      tabs: tabs.map((tab) => ({ label: tab.textContent?.trim() ?? '', ...box(tab) })),
+      tabStrip: box(strip),
+      panel: box(panel),
+      door: door
+        ? { ...box(door), clientWidth: door.clientWidth, scrollWidth: door.scrollWidth }
+        : null
+    };
+  });
+  await page.keyboard.press('Escape');
+  await connectPhone.waitFor({ state: 'hidden', timeout: 5_000 });
+  await page.waitForTimeout(200);
+
+  const phoneProblems = [];
+  for (const [where, facts] of [
+    ['after the resize', stripResized],
+    ['on a fresh #device/machine load', stripLoaded]
+  ]) {
+    if (facts.active !== 'Machine') {
+      phoneProblems.push(`${where} the strip's active tab read ${JSON.stringify(facts.active)}`);
+    }
+    if (!facts.band || !facts.tab) {
+      phoneProblems.push(`${where} the strip or its active tab has no box`);
+    } else if (facts.tab.left < facts.band.left - 1 || facts.tab.right > facts.band.right + 1) {
+      phoneProblems.push(
+        `${where} Machine sits at ${facts.tab.left}..${facts.tab.right}, outside the strip ` +
+          `${facts.band.left}..${facts.band.right} (scrollLeft ${facts.scrollLeft})`
+      );
+    }
+    if (facts.pageWidth > facts.viewport) {
+      phoneProblems.push(`${where} the Device page scrolls sideways (${facts.viewport}/${facts.pageWidth})`);
+    }
+  }
+  if (stripLoaded.scrollWidth <= stripLoaded.clientWidth) {
+    phoneProblems.push(
+      `the strip does not scroll at 390 (${stripLoaded.clientWidth}/${stripLoaded.scrollWidth}); ` +
+        'the measurement would not prove the active tab was brought back'
+    );
+  }
+  if (!sheetFacts.sheet || !sheetFacts.body) {
+    phoneProblems.push('the 390 Connect sheet or its body has no box');
+  } else {
+    if (Math.abs(sheetFacts.sheet.width - sheetFacts.viewport) > 1) {
+      phoneProblems.push(
+        `the 390 sheet is ${sheetFacts.sheet.width} px wide in a ${sheetFacts.viewport} px viewport`
+      );
+    }
+    if (sheetFacts.body.scrollWidth > sheetFacts.body.clientWidth + 1) {
+      phoneProblems.push(
+        `the sheet body scrolls sideways (` +
+          `${sheetFacts.body.clientWidth}/${sheetFacts.body.scrollWidth})`
+      );
+    }
+    const inner = { left: sheetFacts.body.left, right: sheetFacts.body.right };
+    const insideBody = (element) =>
+      element && element.left >= inner.left - 1 && element.right <= inner.right + 1;
+    if (!insideBody(sheetFacts.tabStrip)) {
+      phoneProblems.push(
+        `the sheet's tab strip is outside the body: ${JSON.stringify(sheetFacts.tabStrip)}`
+      );
+    }
+    if (sheetFacts.tabs.map((tab) => tab.label).join(' · ') !== 'Endpoint · Clients · Tokens') {
+      phoneProblems.push(
+        `the sheet's tabs read ${JSON.stringify(sheetFacts.tabs.map((tab) => tab.label))}`
+      );
+    }
+    for (const tab of sheetFacts.tabs) {
+      if (!insideBody(tab)) {
+        phoneProblems.push(
+          `the ${tab.label} tab is outside the body (${tab.left}..${tab.right} of ` +
+            `${inner.left}..${inner.right})`
+        );
+      }
+    }
+    if (!insideBody(sheetFacts.panel)) {
+      phoneProblems.push(`the Endpoint panel is outside the body: ${JSON.stringify(sheetFacts.panel)}`);
+    }
+    if (!sheetFacts.door) {
+      phoneProblems.push('the endpoint sentence is missing from the 390 sheet');
+    } else {
+      if (!insideBody(sheetFacts.door)) {
+        phoneProblems.push(
+          `the endpoint sentence is outside the body (${sheetFacts.door.left}..${sheetFacts.door.right})`
+        );
+      }
+      if (sheetFacts.door.scrollWidth > sheetFacts.door.clientWidth + 1) {
+        phoneProblems.push(
+          `the endpoint sentence is ${sheetFacts.door.scrollWidth} px in a ` +
+            `${sheetFacts.door.clientWidth} px column`
+        );
+      }
+      if (sheetFacts.door.height < 24) {
+        phoneProblems.push(
+          `the endpoint sentence is one ${sheetFacts.door.height} px line in a 358 px column`
+        );
+      }
+    }
+  }
+  if (phoneProblems.length > 0) {
+    throw new Error(`the 390 Device strip / Connect sheet: ${phoneProblems.join('; ')}`);
+  }
+  console.log(
+    `browser-gate: at 390 #device/machine's strip is ${stripLoaded.clientWidth}/` +
+      `${stripLoaded.scrollWidth}, scrollLeft ${stripLoaded.scrollLeft}, active ` +
+      `${JSON.stringify(stripLoaded.active)} at ${stripLoaded.tab.left}..${stripLoaded.tab.right} ` +
+      `in ${stripLoaded.band.left}..${stripLoaded.band.right}; the Connect sheet is ` +
+      `${sheetFacts.sheet.width} px with a ${sheetFacts.body.clientWidth}/` +
+      `${sheetFacts.body.scrollWidth} body and a ${sheetFacts.door.clientWidth}/` +
+      `${sheetFacts.door.scrollWidth} endpoint sentence`
+  );
   await page.screenshot({ path: path.join(OUT, 'machine-390.png') });
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.waitForTimeout(200);

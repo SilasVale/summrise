@@ -1862,7 +1862,13 @@ span.files-name {
   font-size: var(--fs-sm); line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere;
 }
 /* ── Connect: one sheet, three sections, one credential at a time ─────────────────────────────── */
-.connect-sheet { display: grid; gap: var(--sp-4); min-width: 0; }
+/* **THE SHEET'S GRID DOES NOT SIZE ITSELF FROM ITS LONGEST WORD (audit-41 F3).** At 390 the body is
+   389 px and the endpoint sentence carries a URL. A grid item's automatic minimum is its
+   min-content, so the sentence's unbreakable URL widened the track to 440 px: the sheet scrolled
+   sideways and the third tab was cut to `Toke`. The sheet's own children may shrink, and the
+   sentence — not only the code box — lets the URL break. At 1440 nothing reaches these rules. */
+.connect-sheet, .connect-sheet > * { min-width: 0; }
+.connect-sheet .connect-door { overflow-wrap: anywhere; }
 .connect-sheet .connect-tabs { flex-wrap: wrap; }
 .connect-config p { margin: var(--sp-2) 0 0; }
 .tokens-section { display: grid; gap: var(--sp-4); min-width: 0; }

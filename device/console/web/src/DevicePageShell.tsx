@@ -1,3 +1,4 @@
+import { useLayoutEffect, useRef } from "react";
 import type { Device } from "./api";
 import { lastHeardMs } from "./format";
 import { DEVICE_TABS, DEVICE_TAB_LABELS, type DeviceTab } from "./Rail";
@@ -35,6 +36,29 @@ export function DevicePageShell({
   children: (grant: Grant) => React.ReactNode;
 }) {
   const grant = grantFor(chosen);
+  const tabStrip = useRef<HTMLElement>(null);
+  const activeTab = useRef<HTMLButtonElement>(null);
+
+  // **THE STRIP ALWAYS SHOWS THE TAB THE ROUTE CHOSE (audit-41 F2).** At 390 the seven labels are
+  // 447 px inside a 358 px strip; `#device/machine` selected `Machine` at x=389..461 with
+  // `scrollLeft 0`, so the page showed no selected tab at all. The strip scrolls — that is what a
+  // scrollable tab bar must do — and the selection is brought into the band on mount, on a route
+  // change, and when a resize makes the band narrower. The boxes are measured because the tab's
+  // position already includes the strip's scroll; nothing moves when the tab is inside the band.
+  useLayoutEffect(() => {
+    const strip = tabStrip.current;
+    const current = activeTab.current;
+    if (!strip || !current) return;
+    const bring = () => {
+      const band = strip.getBoundingClientRect();
+      const tab = current.getBoundingClientRect();
+      if (tab.left < band.left) strip.scrollLeft -= band.left - tab.left;
+      else if (tab.right > band.right) strip.scrollLeft += tab.right - band.right;
+    };
+    bring();
+    window.addEventListener("resize", bring);
+    return () => window.removeEventListener("resize", bring);
+  }, [tab, chosen]);
   // The device's own account of its last start, beside — never instead of — the console's account
   // of its silence. It is shown online too: a machine that woke is exactly the one whose start the
   // operator needs to place without a shell on it. The start keeps being drawn when its version
@@ -53,13 +77,14 @@ export function DevicePageShell({
       <header className="page-head device-head">
         <h1>{chosen ? DEVICE_TAB_LABELS[tab] : "Choose a machine"}</h1>
         {chosen && (
-          <nav className="device-tabs" aria-label="Device views">
+          <nav className="device-tabs" aria-label="Device views" ref={tabStrip}>
             {DEVICE_TABS.map((entry) => (
               <button
                 key={entry}
                 type="button"
                 className="device-tab"
                 aria-current={entry === tab ? "page" : undefined}
+                ref={entry === tab ? activeTab : undefined}
                 onClick={() => onTab(entry)}
               >
                 {DEVICE_TAB_LABELS[entry]}

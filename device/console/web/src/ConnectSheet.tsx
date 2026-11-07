@@ -221,7 +221,7 @@ export function ConnectSheet({
               A bearer token is the credential the client sends with every request. It names the
               tools it may call, and revoking it stops the next call.
             </p>
-            <p className="hint">{doorSentence}</p>
+            <p className="hint connect-door">{doorSentence}</p>
             {!device && (
               <p className="hint">
                 This endpoint spans the fleet: every tool takes a required <code>device</code>{" "}
@@ -261,7 +261,7 @@ export function ConnectSheet({
               The token is created in Tokens and shown once; paste it where <code>&lt;token&gt;</code>{" "}
               is.
             </p>
-            <p className="hint">{doorSentence}</p>
+            <p className="hint connect-door">{doorSentence}</p>
             {copiedClient === client ? (
               <p className="plugin-valid" role="status">
                 Copied. It is not shown again.
