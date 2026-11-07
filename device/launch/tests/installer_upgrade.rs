@@ -445,3 +445,155 @@ fn a_failed_installer_upgrade_leaves_the_pointer_alone() {
         "the running version is still on disk"
     );
 }
+
+/// The relay function's text, from its `Function` line to its matching `FunctionEnd`.
+fn relay_function() -> &'static str {
+    let start = NSI
+        .find("Function RelaySupervisedSetup")
+        .expect("the installer has the supervised hand-off");
+    let end = NSI[start..]
+        .find("\nFunctionEnd")
+        .expect("the relay function ends");
+    &NSI[start..start + end]
+}
+
+#[test]
+fn a_supervised_silent_setup_hands_the_stop_to_a_task_before_the_first_write() {
+    let relay = relay_function();
+
+    // The condition is the supervisor's own mark, silent mode, an existing install, and a service
+    // there is something to stop. The marker is read from the environment, not guessed from argv:
+    // the launcher sets it for the app and `runs.exec` commands inherit it (measured 2026-11-07).
+    assert!(
+        relay.contains("${IfNot} ${Silent}"),
+        "an interactive wizard is not handed off"
+    );
+    assert!(relay.contains(r#"ReadEnvStr $0 "SUMMRISE_SUPERVISED""#));
+    assert!(
+        relay.contains(r#"${StrStr} $0 "$CMDLINE" "/RELAYED""#),
+        "the relayed run cannot relay again"
+    );
+    assert!(
+        relay.contains(r#"${If} $R8 == "0""#),
+        "a first install has no SummriseLaunch to stop"
+    );
+    assert!(
+        relay.contains(r#"findstr /I "RUNNING""#),
+        "the hand-off is only for a service the stop would take down"
+    );
+
+    // The task runs the same executable with the silent marker, and the escaped quotes around the
+    // path are what make a root with a space start at all (measured: unquoted stored C:\Program).
+    assert!(relay.contains(
+        r#"schtasks /create /tn ${RELAY_TASK} /tr "$\"$EXEDIR\$EXEFILE$\"$R1" /sc onstart /ru SYSTEM /rl HIGHEST /f"#
+    ));
+    assert!(relay.contains(r#"StrCpy $R1 " /S /RELAYED""#));
+    assert!(
+        relay.contains(r#"StrCpy $R1 "$R1 /CONSOLE=$ConsoleUrl /CODE=$EnrollCode""#),
+        "the operator's enrolment pair travels with the relay"
+    );
+    assert!(relay.contains("schtasks /run /tn ${RELAY_TASK}"));
+    assert!(
+        relay.contains(r#"StrCpy $R3 "-1""#),
+        "a task that cannot be created or started is a failure, not a silent continue"
+    );
+
+    // The call site: the hand-off is before the first file write (the staging copy of the carried
+    // launcher) and before the stop. A relay that ran after either would be too late for the
+    // process the stop kills.
+    let call = NSI
+        .find("Call RelaySupervisedSetup")
+        .expect("the section calls the relay");
+    let staged = NSI
+        .find(r#"File /oname=summrise-launch-${VERSION}.exe"#)
+        .expect("the setup carries the proving launcher");
+    let upgrade = NSI
+        .find("nsExec::ExecToStack '\"$INSTDIR\\summrise-launch-${VERSION}.exe\" --install-version")
+        .expect("the setup proves the candidate");
+    let stop = NSI
+        .find("Call StopRuntime")
+        .expect("the setup stops what is running only in the section");
+    assert!(
+        call < staged && call < upgrade && call < stop,
+        "the relay runs before the first write or stop"
+    );
+    let block_end = NSI[call..]
+        .find("${EndIf}")
+        .expect("the hand-off branch ends");
+    let handoff = &NSI[call..call + block_end];
+    assert!(
+        handoff.contains(r#"${If} $R3 == "1""#),
+        "only the started hand-off exits 3"
+    );
+    assert!(
+        handoff.contains("SetErrorLevel 3") && handoff.contains("Quit"),
+        "the supervised setup quits with the hand-off code"
+    );
+}
+
+#[test]
+fn the_relayed_run_appends_its_log_and_deletes_its_task() {
+    let start = NSI
+        .find("Function .onInit")
+        .expect("the installer has an init");
+    let end = NSI[start..]
+        .find("\nFunctionEnd")
+        .expect("the init function ends");
+    let init = &NSI[start..start + end];
+
+    // One install, two processes: the first run's header explains the hand-off, and the task's run
+    // appends the stop/copy/start. Truncating would erase the reason the first process returned.
+    assert!(init.contains(r#"${StrStr} $R3 "$CMDLINE" "/RELAYED""#));
+    assert!(init.contains(r#"FileOpen $6 "$TEMP\summrise-setup.log" w"#));
+    assert!(init.contains(r#"FileOpen $6 "$TEMP\summrise-setup.log" a"#));
+    assert!(
+        init.contains("relayed=1"),
+        "the log says which process wrote the line"
+    );
+    assert!(
+        init.contains("nsExec::Exec 'schtasks /delete /tn ${RELAY_TASK} /f'"),
+        "the task is one-shot: a boot-time repeat install is not left registered"
+    );
+}
+
+#[test]
+fn every_task_registered_from_a_path_with_a_space_has_the_escaped_quote() {
+    // schtasks splits the task's command at the first space unless the executable is quoted. The
+    // measured 0.3.279 failure: `Command=C:\Program` + `Arguments=Files\Summrise\repair.cmd`,
+    // result 0x80070002, and the repair log was never written. Every create line the setup runs
+    // takes an install-root path, and every one must carry the `\"` form.
+    let creates: Vec<&str> = NSI
+        .lines()
+        .filter(|line| line.contains("schtasks /create"))
+        .collect();
+    assert!(
+        creates.len() >= 3,
+        "the setup registers the repair, the shell start and the relay"
+    );
+    for line in creates {
+        assert!(
+            line.contains(r#"/tr "$\""#),
+            "a task command quotes its executable for schtasks: {line}"
+        );
+    }
+    assert!(NSI.contains(r#"/tn SummriseRepair /tr "$\"$INSTDIR\repair.cmd$\"""#));
+    assert!(NSI.contains(r#"/tn SummriseShellStart /tr "$\"$INSTDIR\start-shell.cmd$\"""#));
+    // The comments above those lines quote the broken form to explain it; only the commands count.
+    let code: String = NSI
+        .lines()
+        .filter(|line| !line.trim_start().starts_with(';'))
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(
+        !code.contains(r#"/tr "$INSTDIR\repair.cmd""#),
+        "the unquoted form is the defect that never ran"
+    );
+    assert!(
+        !code.contains(r#"/tr "$INSTDIR\start-shell.cmd""#),
+        "the same defect on the shell-start task"
+    );
+    assert!(
+        NSI.contains("nsExec::Exec 'schtasks /delete /tn ${RELAY_TASK} /f'"),
+        "the uninstaller takes a hand-off task back"
+    );
+}

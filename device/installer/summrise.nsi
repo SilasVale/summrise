@@ -7,6 +7,18 @@
 ; runtime's install logic: it copies the files and calls `summrise-launch --install-service`, which
 ; seeds the baseline from the signed sidecar, mints the install token, hardens the data directory
 ; and registers the service. One implementation, so an installer and a hand install cannot drift.
+;
+; **WHAT THE EXIT CODES MEAN.**
+;
+;   0  the files are installed and ${SERVICE} is RUNNING (the final check before SectionEnd);
+;   1  the install did not finish; the log in %TEMP%\summrise-setup.log and, in silent mode, the
+;      exit code carry the failure;
+;   3  the setup found itself running under the installed supervisor (`SUMMRISE_SUPERVISED=1`, the
+;      mark the launcher puts on the app, and `runs.exec` commands inherit) and handed the same
+;      silent install to the one-shot ${RELAY_TASK} task instead of stopping the service from a
+;      process whose stop would kill it. The task's run appends to the same log, and the log's
+;      final `service: ${SERVICE} is RUNNING at the end of the install; exit 0` (or its exit-1
+;      counterpart) is the install's real verdict. See RelaySupervisedSetup.
 
 Unicode true
 !include "MUI2.nsh"
@@ -33,6 +45,12 @@ ${Using:StrFunc} UnStrRep
 !endif
 !ifndef SERVICE
   !define SERVICE "SummriseLaunch"
+!endif
+; The one-shot task a supervised silent setup hands itself to. It runs the same setup with
+; `/S /RELAYED`; the Task Scheduler starts it outside the supervisor's job, so the service stop it
+; performs cannot kill it.
+!ifndef RELAY_TASK
+  !define RELAY_TASK "SummriseSetupRelay"
 !endif
 !ifndef CHANNEL
   !define CHANNEL "stable"
@@ -134,6 +152,14 @@ FunctionEnd
 ; staged and proven.
 Function .onInit
   SetRegView 64
+  ; **THE RELAY'S OWN RUN TAKES ITS TRIGGER BACK FIRST.** This process IS the one-shot task; an
+  ; onstart task left registered would run the install again at every boot. It is deleted before
+  ; the root check, because a check that refuses this run must not leave the task behind either.
+  ; A running task can be deleted (measured 2026-11-07: the instance keeps running).
+  ${StrStr} $R3 "$CMDLINE" "/RELAYED"
+  ${If} $R3 != ""
+    nsExec::Exec 'schtasks /delete /tn ${RELAY_TASK} /f'
+  ${EndIf}
   ReadRegStr $R9 HKLM "${UNINST_KEY}" "InstallLocation"
   ${If} $R9 != ""
     ; `InstallDirRegKey` reads the 32-bit view on a 32-bit NSIS and so does not seed a custom root
@@ -147,8 +173,23 @@ Function .onInit
   Call CheckInstallRoot
   ; DIAGNOSTIC: a setup that exits 0 without touching anything is the hardest failure to see from
   ; the outside, so the init path leaves a trace next to the install log.
-  FileOpen $6 "$TEMP\summrise-setup.log" w
-  FileWrite $6 "onInit start (${VERSION}, port ${PORT}) install=$INSTDIR existing=$R9$\r$\n"
+  ;
+  ; **THE RELAYED RUN APPENDS TO THE FIRST RUN'S LOG.** One install, two processes: the supervised
+  ; setup that handed itself off (exit 3) writes the header, and the task's run writes the stop, the
+  ; copy, the start and the verdict. Truncating here would erase the hand-off that explains why the
+  ; first process returned before anything was installed.
+  ${If} $R3 == ""
+    FileOpen $6 "$TEMP\summrise-setup.log" w
+    FileWrite $6 "onInit start (${VERSION}, port ${PORT}) install=$INSTDIR existing=$R9 relayed=0$\r$\n"
+  ${Else}
+    ; The setup that handed itself off is still writing its last line and its caller is still
+    ; collecting the answer: let it exit before this run appends to the same log and before
+    ; anything here can stop the service. The hand-off's two log lines follow its `schtasks /run`,
+    ; so this is milliseconds of real work behind a deliberately generous wait.
+    Sleep 3000
+    FileOpen $6 "$TEMP\summrise-setup.log" a
+    FileWrite $6 "onInit start (${VERSION}, port ${PORT}) install=$INSTDIR existing=$R9 relayed=1$\r$\n"
+  ${EndIf}
   FileClose $6
 FunctionEnd
 
@@ -273,6 +314,101 @@ Function EnsureServiceRunning
   ${Loop}
 FunctionEnd
 
+; **A SETUP THAT RUNS UNDER THE SUPERVISOR MAY NOT STOP IT ITSELF.** The supervisor assigns the app
+; to a kill-on-close job, so every process the app starts is in that job unless the job carries
+; `SILENT_BREAKAWAY_OK`; `sc stop` makes the supervisor exit, closing the job, which terminates the
+; app — and, on a launcher that predates the breakaway flag, the setup waiting in the stop loop with
+; it. The job was created by the launcher that is *already installed*: an upgrade cannot be
+; protected by flags in the launcher the upgrade is installing. Two things follow, and the
+; measurement is unambiguous (DESKTOP-9VH92BJ, 2026-11-07, `SummriseSetup-0.3.288.exe /S` through
+; `runs.exec`): the setup's log stopped at `stop: sc stop: exit 0` and the next line ("launcher
+; waited out") was never written, because the job killed it there; the console's `runs.exec` call
+; answered `{"error":"device disconnected"}` because the same stop kills the app that hosts it; and
+; the service stayed stopped until an operator started it. A setup that does not stop the service
+; cannot be killed by that stop, so a supervised silent upgrade hands the same silent install to a
+; one-shot SYSTEM task — the Task Scheduler starts it outside the job — and returns exit 3.
+;
+; `$R8` must be the install mode (`"0"` is a first install: there is no service to stop and nothing
+; to hand off) and `$6` the open setup log. The verdict is left in `$R3`:
+;
+;   $R3 = "1"   a task was created and started; the caller must exit 3
+;   $R3 = "-1"  the task could not be created or started; nothing has been stopped or written
+;   $R3 = "0"   no relay is needed; continue in this process
+;
+; This clobbers `$0`, `$1`, `$R1` and `$R3`.
+Function RelaySupervisedSetup
+  StrCpy $R3 "0"
+  ; Silent is the case this exists for: `runs.exec` has no window to notice a stopped service, and
+  ; the caller sees only the exit code. An interactive wizard started from the machine's own console
+  ; is not under the supervisor at all; one started inside a device session keeps its old behaviour
+  ; rather than vanishing after the welcome page.
+  ${IfNot} ${Silent}
+    Return
+  ${EndIf}
+  ; The launcher sets this for the app it supervises; a command the app runs inherits the app's
+  ; environment, so a `runs.exec` PowerShell and the setup it starts both carry it (measured
+  ; 2026-11-07: `SUPERVISED=[1]` in a runs.exec child).
+  ReadEnvStr $0 "SUMMRISE_SUPERVISED"
+  ${If} $0 != "1"
+    Return
+  ${EndIf}
+  ; The relayed run is outside the job by construction and must not relay again.
+  ${StrStr} $0 "$CMDLINE" "/RELAYED"
+  ${If} $0 != ""
+    Return
+  ${EndIf}
+  ; A first install has no SummriseLaunch to stop (StopRuntime skips an unregistered service), so
+  ; the stop cannot kill anything and the install continues in this process.
+  ${If} $R8 == "0"
+    Return
+  ${EndIf}
+  ; The relay exists for the stop; a service that is not RUNNING will not be stopped by it. This is
+  ; the same test StopRuntime makes with `sc query`, so the two agree about what there is to stop.
+  nsExec::ExecToStack 'cmd /c sc.exe query ${SERVICE} | findstr /I "RUNNING"'
+  Pop $0
+  Pop $1
+  ${If} $0 != "0"
+    FileWrite $6 "relay: ${SERVICE} is not RUNNING; there is no stop to hand off; continuing in this process$\r$\n"
+    Return
+  ${EndIf}
+  FileWrite $6 "relay: this setup is inside the supervisor's job (SUMMRISE_SUPERVISED=1); handing the stop-based install to ${RELAY_TASK}$\r$\n"
+  ; The same command line the operator gave: silent, the marker, and the enrolment pair when both
+  ; are present (the section makes the same check). There is no `/D=`: the install root comes from
+  ; the uninstall entry's `InstallLocation`, which CheckInstallRoot has already proven equal.
+  StrCpy $R1 " /S /RELAYED"
+  ${If} $ConsoleUrl != ""
+  ${AndIf} $EnrollCode != ""
+    StrCpy $R1 "$R1 /CONSOLE=$ConsoleUrl /CODE=$EnrollCode"
+  ${EndIf}
+  ; **THE ESCAPED QUOTES INSIDE `/tr` ARE NOT COSMETIC.** schtasks splits the task's command at the
+  ; first space unless the executable part is quoted; `/tr "$EXEDIR\$EXEFILE"` with a path that has
+  ; a space is stored as `Command=C:\Program` + `Arguments=Files\...` and fails to start with
+  ; 0x80070002 (measured 2026-11-07; the repair task had exactly this defect and never ran). The
+  ; `\"` form is the one this Windows accepts: it stores `"<path>"` as the command and the rest as
+  ; arguments, and the task starts (measured the same day on an unrelated probe script).
+  nsExec::ExecToStack 'schtasks /create /tn ${RELAY_TASK} /tr "$\"$EXEDIR\$EXEFILE$\"$R1" /sc onstart /ru SYSTEM /rl HIGHEST /f'
+  Pop $0
+  Pop $1
+  FileWrite $6 "relay: schtasks create: exit $0 $1$\r$\n"
+  ${If} $0 != "0"
+    StrCpy $R3 "-1"
+    Return
+  ${EndIf}
+  nsExec::ExecToStack 'schtasks /run /tn ${RELAY_TASK}'
+  Pop $0
+  Pop $1
+  FileWrite $6 "relay: schtasks run: exit $0 $1$\r$\n"
+  ${If} $0 != "0"
+    ; A created but unstarted task would complete the install at the next boot, after this setup
+    ; reported failure; take it back so the report is true.
+    nsExec::Exec 'schtasks /delete /tn ${RELAY_TASK} /f'
+    StrCpy $R3 "-1"
+    Return
+  ${EndIf}
+  StrCpy $R3 "1"
+  FileWrite $6 "relay: ${RELAY_TASK} is running; this setup exits 3 before the first write or stop. Its run appends to this log: the last 'service:' line it writes is the install's verdict$\r$\n"
+FunctionEnd
+
 Section "Summrise runtime" SecRuntime
   ; Optional auto-enrolment: `/CONSOLE=<console-url> /CODE=<one-time-code>` makes the installer register
   ; this machine with the console, so "install" is the whole onboarding. Both are absent by default and
@@ -312,6 +448,25 @@ Section "Summrise runtime" SecRuntime
     StrCpy $R8 "2"
   ${EndIf}
   FileWrite $6 "found: mode $R8 (0 first install, 1 pre-versioned install, 2 versioned install)$\r$\n"
+
+  ; **THE HAND-OFF COMES BEFORE THE FIRST WRITE OR STOP.** A silent setup started under the running
+  ; supervisor cannot stop that supervisor: the stop kills the app that hosts the caller's
+  ; `runs.exec` (its answer is lost) and, on a launcher without the child-job breakaway, this setup
+  ; too (the service is then left stopped). The task it starts is outside the job and appends its
+  ; own install to the same log. Nothing above this line has written a file or touched the service;
+  ; a failed hand-off therefore reports and aborts with the running product untouched.
+  Call RelaySupervisedSetup
+  ${If} $R3 == "1"
+    FileClose $6
+    SetErrorLevel 3
+    Quit
+  ${EndIf}
+  ${If} $R3 == "-1"
+    FileWrite $6 "relay: ${RELAY_TASK} could not be started; no image was written and ${SERVICE} was not stopped$\r$\n"
+    FileClose $6
+    SetErrorLevel 1
+    Abort
+  ${EndIf}
 
   ; **STAGE AND PROVE BEFORE ANY STOP.** An existing install's new generation goes into its own
   ; `versions\<version>\` directory — a new path, so nothing running is touched — and
@@ -451,7 +606,15 @@ Section "Summrise runtime" SecRuntime
   FileWrite $9 "echo %DATE% %TIME% repair exit %RC% >> $\"$INSTDIR\repair-task.log$\"$\r$\n"
   FileWrite $9 "exit /b %RC%$\r$\n"
   FileClose $9
-  nsExec::Exec 'schtasks /create /tn SummriseRepair /tr "$INSTDIR\repair.cmd" /sc minute /mo 5 /ru SYSTEM /rl HIGHEST /f'
+  ; **THE `/tr` VALUE NEEDS ESCAPED QUOTES AROUND THE PATH.** schtasks splits the task's command at
+  ; the first space unless the executable part is quoted; with an install root that has a space
+  ; (`C:\Program Files\Summrise`) the plain `/tr "$INSTDIR\repair.cmd"` is stored as
+  ; `Command=C:\Program` + `Arguments=Files\Summrise\repair.cmd` and the task cannot start. That is
+  ; not a theory: on DESKTOP-9VH92BJ the repair task created by the 0.3.279 install had exactly that
+  ; pair, last result 0x80070002, and `repair-task.log` was never written — the five-minute repair
+  ; that was supposed to start the service after the 2026-11-07 `/S` install never ran. The `\"`
+  ; form stores `"<path>"` as the command and starts (measured the same day with a probe task).
+  nsExec::Exec 'schtasks /create /tn SummriseRepair /tr "$\"$INSTDIR\repair.cmd$\"" /sc minute /mo 5 /ru SYSTEM /rl HIGHEST /f'
   Pop $0
   ; No reopen here: `$6` is the section's log handle, still open. Reopening it overwrote the handle
   ; and the `FileClose` after the line closed the log for the rest of the section, which is why the
@@ -695,7 +858,12 @@ Section "Summrise runtime" SecRuntime
   FileWrite $9 "@echo off$\r$\n"
   FileWrite $9 "$\"$INSTDIR\summrise-launch.exe$\" --start-shell --install $\"$INSTDIR$\"$\r$\n"
   FileClose $9
-  nsExec::ExecToStack 'schtasks /create /tn SummriseShellStart /tr "$INSTDIR\start-shell.cmd" /sc onstart /ru SYSTEM /rl HIGHEST /f'
+  ; The same `/tr` rule as the repair task above: a path with a space needs the escaped quotes, or
+  ; the task is registered as `Command=$INSTDIR` split at the first space (`C:\Program`) and never
+  ; starts. This one is one-shot and deleted below, so a broken registration only cost the tray
+  ; after the upgrade — which the login Run entry covered at the next sign-in — but it is the same
+  ; defect and it is fixed here too.
+  nsExec::ExecToStack 'schtasks /create /tn SummriseShellStart /tr "$\"$INSTDIR\start-shell.cmd$\"" /sc onstart /ru SYSTEM /rl HIGHEST /f'
   Pop $0
   Pop $1
   FileWrite $6 "shell task create: $0$\r$\n$1$\r$\n"
@@ -736,6 +904,9 @@ Section "Uninstall"
   DeleteRegValue HKLM "Software\Microsoft\Windows\CurrentVersion\Run" "SummriseShell"
   ; The repair task would re-register the service the operator just uninstalled.
   nsExec::Exec 'schtasks /delete /tn SummriseRepair /f'
+  ; A supervised silent install hands itself to this task; an uninstall in the gap between the
+  ; hand-off and the task's run must not leave a boot-time install behind.
+  nsExec::Exec 'schtasks /delete /tn ${RELAY_TASK} /f'
   Delete "$INSTDIR\repair.cmd"
   Delete "$INSTDIR\summrise-launch.exe"
   Delete "$INSTDIR\summrise-shell.exe"
