@@ -32,7 +32,7 @@ import { parseRunLink, runLink } from "./run-link";
 import { parseSurfaceHash, surfaceHash } from "./surface-link";
 import { ScreenPage } from "./ScreenPage";
 import { SystemPage } from "./SystemPage";
-import { HomePage } from "./HomePage";
+import { HomePage, type FleetRead } from "./HomePage";
 import { useLiveActivity } from "./useLiveActivity";
 import { ToolsTab } from "./ToolsTab";
 import { DevicePageShell } from "./DevicePageShell";
@@ -64,6 +64,14 @@ function storeSelectedDevice(id: string | null) {
 export function App() {
   const [session, setSession] = useState<Session | null>(null);
   const [devices, setDevices] = useState<Device[]>([]);
+  /**
+   * The latest `/fleet` read: still reading, failed with its reason, or the list it brought.
+   *
+   * `devices` alone cannot say which: an empty array is both "no machines" and "nothing read yet",
+   * and the fleet page must not turn the second into the first (audit-38 F1). A failed read keeps
+   * the last list on screen but marks it stale; only a successful answer sets `ready`.
+   */
+  const [fleetRead, setFleetRead] = useState<FleetRead>({ state: "reading" });
   // The hub rereads its machine's day on this page's clock. Each poll is one tick; the hub turns a
   // new tick into one read of its own window, so the day below the band is never a mount-time memory.
   const [pollTick, setPollTick] = useState(0);
@@ -446,9 +454,14 @@ export function App() {
     ]);
     if (list.status === "fulfilled") {
       setDevices(list.value);
+      setFleetRead({ state: "ready" });
       // The poll is the only sampler; the stored last timestamp enforces the 30 s cadence. Sampling
       // after a successful fleet fetch is what keeps an offline device from adding a stale point.
       setVitals(recordVitals(list.value, Date.now()));
+    } else {
+      // The last list stays on screen: it is still the console's knowledge. The read state is what
+      // keeps it from being drawn as an empty fleet, and the reason is what the page can say.
+      setFleetRead({ state: "failed", reason: describe(list.reason) });
     }
     // `rereadAudit` owns the audit state; its rejection is only one of the reads the banner names.
     if (tokenList.status === "fulfilled") setTokens(tokenList.value);
@@ -472,6 +485,8 @@ export function App() {
     // use it. `via` is the console's own answer, not a guess from the headers.
     if (state.via === "proxy") setProxied(true);
     if (!state.authenticated) return;
+    // A fresh session starts a fresh read: the previous session's failure must not stand over it.
+    setFleetRead({ state: "reading" });
     await refreshData();
     try {
       const health = await api.health();
@@ -543,6 +558,7 @@ export function App() {
       .catch(() => {});
     setSession({ authenticated: false });
     setDevices([]);
+    setFleetRead({ state: "reading" });
     setVitals({});
     setAudit([]);
     setTokens([]);
@@ -937,6 +953,8 @@ export function App() {
           <HomePage
             device={chosen}
             devices={devices}
+            fleetRead={fleetRead}
+            onRetryFleet={() => void load().catch(() => {})}
             selectedId={selected}
             code={code}
             enrollCommand={enrollCommand}

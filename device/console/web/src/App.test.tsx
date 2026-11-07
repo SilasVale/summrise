@@ -336,6 +336,18 @@ async function bootAndSignIn() {
   return view;
 }
 
+/**
+ * Sign in and stop at the fleet's first render, before `/fleet` has answered. The heading is drawn
+ * from the session alone; the machine list below it is the read these tests are about.
+ */
+async function signInWithoutFleet() {
+  const view = await boot();
+  fireEvent.change(screen.getByLabelText("Operator token"), { target: { value: "operator-token" } });
+  fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+  await screen.findByRole("heading", { name: "Machines", level: 1 });
+  return view;
+}
+
 /** A promise whose settlement the test decides, for asserting the state in between. */
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -2084,4 +2096,83 @@ describe("App", () => {
       await screen.findByRole("button", { name: "Resume (1 new)" }, { timeout: 6_000 })
     ).toBeInTheDocument();
   }, 10_000);
+
+  it("says the machine list is being read instead of drawing an empty fleet", async () => {
+    const answer = deferred<Array<typeof workshop>>();
+    mocks.devices.mockReturnValue(answer.promise);
+    const view = await signInWithoutFleet();
+
+    // The fleet has not answered: the page says so. `0 machines · 0 online` and `No machines yet`
+    // were the lie audit-38 measured on a slow link.
+    expect(screen.getByText("Reading the machine list…")).toBeInTheDocument();
+    expect(screen.queryByText("No machines yet")).toBeNull();
+    expect(screen.queryByText("0 machines · 0 online")).toBeNull();
+    // The setup action waits for the read that would tell the operator whether it is needed.
+    expect(
+      within(screen.getByRole("main")).queryByRole("button", { name: "Add a machine" })
+    ).toBeNull();
+
+    await act(async () => {
+      answer.resolve([workshop, attic]);
+    });
+    expect(await screen.findByText("2 machines · 2 online")).toBeInTheDocument();
+    expect(screen.queryByText("No machines yet")).toBeNull();
+    view.unmount();
+  });
+
+  it("keeps a failed machine-list read on the page after the banner is dismissed", async () => {
+    const startPoll = vi.spyOn(window, "setInterval");
+    mocks.devices.mockRejectedValue(new TypeError("Failed to fetch"));
+    const view = await signInWithoutFleet();
+
+    // The console's own words, with the read named: the page does not become a clean empty fleet.
+    expect(
+      await screen.findByText("The console could not read the machine list: Failed to fetch.")
+    ).toBeInTheDocument();
+    expect(screen.getByText("The machine list could not be read.")).toBeInTheDocument();
+    expect(screen.queryByText("No machines yet")).toBeNull();
+    expect(
+      within(screen.getByRole("main")).queryByRole("button", { name: "Add a machine" })
+    ).toBeNull();
+
+    // The next poll fails too, which is what raises the shell's banner. Dismiss is the banner's
+    // control; the read's own sentence is the page's and must survive it.
+    const poll = startPoll.mock.calls.findIndex(([, delay]) => delay === 5000);
+    expect(poll).toBeGreaterThanOrEqual(0);
+    window.clearInterval(startPoll.mock.results[poll].value as number);
+    await act(async () => {
+      (startPoll.mock.calls[poll][0] as () => void)();
+    });
+    const banner = await screen.findByRole("alert");
+    fireEvent.click(within(banner).getByRole("button", { name: "Dismiss" }));
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(
+      screen.getByText("The console could not read the machine list: Failed to fetch.")
+    ).toBeInTheDocument();
+    expect(screen.queryByText("No machines yet")).toBeNull();
+
+    // Retry is the page's own read, and its answer puts the fleet back.
+    mocks.devices.mockResolvedValue([workshop, attic]);
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    expect(await screen.findByText("2 machines · 2 online")).toBeInTheDocument();
+    expect(screen.queryByText(/could not read the machine list/)).toBeNull();
+    expect(
+      within(screen.getByRole("main")).getByRole("button", { name: "Add a machine" })
+    ).toBeInTheDocument();
+    view.unmount();
+  });
+
+  it("draws the empty fleet and its enrollment CTA only when the read answered zero", async () => {
+    mocks.devices.mockResolvedValue([]);
+    const view = await signInWithoutFleet();
+
+    expect(await screen.findByText("0 machines · 0 online")).toBeInTheDocument();
+    expect(screen.getByText("No machines yet")).toBeInTheDocument();
+    expect(
+      within(screen.getByRole("main")).getByRole("button", { name: "Add a machine" })
+    ).toBeInTheDocument();
+    // A confirmed empty read is still a read: it is not the pending sentence.
+    expect(screen.queryByText("Reading the machine list…")).toBeNull();
+    view.unmount();
+  });
 });

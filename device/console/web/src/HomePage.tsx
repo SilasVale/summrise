@@ -29,8 +29,27 @@ import { auditFailed } from "./auditFilter";
 /** A one-time enrollment code and the command that redeems it. */
 export type Enrollment = { code: string; expires_at_ms: number } | null;
 
+/**
+ * What the console knows about the machine list, which is not the same as the list it holds.
+ *
+ * `reading` is before the first answer, `failed` is an answer that did not arrive — with the reason
+ * the console gave — and `ready` is a successful read. Only `ready` can make an empty list mean
+ * "no machines yet": the other two are why the page must not say it.
+ */
+export type FleetRead =
+  | { state: "reading" }
+  | { state: "failed"; reason: string }
+  | { state: "ready" };
+
 type FleetProps = {
   devices: Device[];
+  /**
+   * What the latest `/fleet` read answered. Absent is a confirmed answer for the machines in hand,
+   * which is what a page that was not given a read state has.
+   */
+  fleetRead?: FleetRead;
+  /** Read the machine list again after a failed read: the page's Retry, not the shell's poll. */
+  onRetryFleet?: () => void;
   selectedId: string | null;
   code: Enrollment;
   enrollCommand: string;
@@ -114,26 +133,72 @@ function InstallerBlock(props: { installer: Installer }) {
 function FleetHome(props: FleetProps) {
   const online = props.devices.filter((device) => device.online).length;
   const installer = useInstaller();
+  const fleet = props.fleetRead ?? { state: "ready" as const };
+  // **A ZERO NEEDS A READ BEHIND IT.** The empty fleet is a fact only when `/fleet` answered with
+  // no machines; a page that is still reading, or whose read failed, holds an empty list too, and
+  // telling that reader "No machines yet" invites enrollment for a fleet the console cannot see.
+  const empty = fleet.state === "ready" && props.devices.length === 0;
   return (
     <div className="page home-page">
       <header className="page-head">
         <div>
           <h1>Machines</h1>
           <p className="page-sub">
-            {props.devices.length} machine{props.devices.length === 1 ? "" : "s"} · {online} online
+            {fleet.state === "reading"
+              ? "Reading the machine list…"
+              : fleet.state === "failed"
+                ? "The machine list could not be read."
+                : `${props.devices.length} machine${props.devices.length === 1 ? "" : "s"} · ${online} online`}
           </p>
         </div>
         <div className="page-actions">
           <button type="button" onClick={props.onTokens}>
             Tokens
           </button>
-          <button type="button" className="primary" disabled={props.busy} onClick={props.onAddMachine}>
-            Add a machine
-          </button>
+          {/* The setup action waits for the read that would say whether it is needed. */}
+          {fleet.state === "ready" && (
+            <button
+              type="button"
+              className="primary"
+              disabled={props.busy}
+              onClick={props.onAddMachine}
+            >
+              Add a machine
+            </button>
+          )}
         </div>
       </header>
 
-      {installer !== null && <InstallerBlock installer={installer} />}
+      {fleet.state === "reading" && props.devices.length === 0 && (
+        // The subtitle states it in words; the placeholder is the same fact for a reader who
+        // navigates by region, in the shape the tool and plugin lists already use.
+        <div className="skeleton-list" aria-label="Reading the machine list" role="status">
+          {[0, 1].map((row) => (
+            <div className="skeleton-row" key={row}>
+              <span className="skeleton skeleton-name" />
+              <span className="skeleton skeleton-line" />
+            </div>
+          ))}
+        </div>
+      )}
+
+      {fleet.state === "failed" && (
+        <div className="notice" role="status">
+          <span>
+            The console could not read the machine list: {fleet.reason}.
+            {props.devices.length > 0
+              ? " The machines below are the last list it read."
+              : ""}
+          </span>
+          <button type="button" onClick={() => props.onRetryFleet?.()}>
+            Retry
+          </button>
+        </div>
+      )}
+
+      {/* The installer is a setup action too: offered once the fleet has answered, not as a
+          substitute for an answer that has not arrived. */}
+      {fleet.state === "ready" && installer !== null && <InstallerBlock installer={installer} />}
 
       {props.code && (
         <section className="enroll" aria-label="Enrollment command">
@@ -166,15 +231,7 @@ function FleetHome(props: FleetProps) {
         </section>
       )}
 
-      {props.devices.length === 0 ? (
-        <section className="empty-state">
-          <h2>No machines yet</h2>
-          <p className="hint">
-            A machine appears here after it enrolls with this console. Run the command once on the
-            Windows machine, and it dials out to this console.
-          </p>
-        </section>
-      ) : (
+      {props.devices.length > 0 ? (
         <div className="fleet-list">
           {props.devices.map((device) => (
             <DeviceCard
@@ -191,7 +248,15 @@ function FleetHome(props: FleetProps) {
             />
           ))}
         </div>
-      )}
+      ) : empty ? (
+        <section className="empty-state">
+          <h2>No machines yet</h2>
+          <p className="hint">
+            A machine appears here after it enrolls with this console. Run the command once on the
+            Windows machine, and it dials out to this console.
+          </p>
+        </section>
+      ) : null}
     </div>
   );
 }
