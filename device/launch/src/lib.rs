@@ -20,6 +20,7 @@
 #![forbid(unsafe_code)]
 
 mod paths;
+mod repair_task;
 mod self_check;
 
 pub use paths::{
@@ -30,6 +31,9 @@ pub use paths::{
     BASELINE_DIR, BASELINE_SIDECAR, CONSOLE_FILE, CURRENT_DIR, CURRENT_POINTER, FLAT_SIDECAR,
     LAUNCHER_EXE, PENDING_DIR, PREVIOUS_DIR, PREVIOUS_POINTER, REPAIR_LOG, STAGING_DIR,
     VERSIONS_DIR, VERSION_SIDECAR,
+};
+pub use repair_task::{
+    ensure as ensure_repair_task, Outcome as RepairTaskOutcome, ToolRun as RepairTaskToolRun,
 };
 pub use self_check::{inspect, Check, Report};
 

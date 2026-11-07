@@ -32,6 +32,7 @@ mod mesh;
 mod panel;
 mod plugins;
 mod remote;
+mod repair_task;
 mod restart;
 mod restarts;
 mod store;
@@ -999,6 +1000,13 @@ async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
     if let Err(error) = restarts::record(&config.data, &restart) {
         eprintln!("summrise-device: the boot journal could not be written: {error}");
     }
+    // **THE ONE PROCESS A CHANNEL UPDATE REPLACES REPAIRS THE TASK.** The launcher is stable and is
+    // written only by an installer, so an old installer's split-command registration survives a
+    // channel update. This start is that update's first moment under the new build: a task whose
+    // action is not the quoted `repair.cmd` is re-registered with the installer's five-minute
+    // trigger (the launcher applies the same decision at boot and after an apply). Best effort —
+    // the device serves whether or not the machine lets it rewrite the task.
+    crate::repair_task::ensure(&config.install);
     // C1: a fresh install has no `<data>/workspace`, and no earlier step creates it. The files
     // capability's root is the device's own directory, created here before anything can call it;
     // otherwise every `files.*` call on a new device is `NotFound` with no MCP tool to fix it.

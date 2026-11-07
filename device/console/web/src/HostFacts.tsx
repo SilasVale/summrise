@@ -1,5 +1,5 @@
 import type { HostFacts, UpdateGeneration, UpdateRepair, UpdateSwap } from "./api";
-import { age, exactMoment, seenAgo } from "./format";
+import { age, clockTime, exactMoment, isoDate, seenAgo } from "./format";
 import { VitalsChart } from "./VitalsChart";
 import type { VitalsSample } from "./vitals";
 
@@ -67,6 +67,7 @@ export function HostFactsBlock({
   const update = updateSentence(host.update);
   const lastSwap = swapSentence(host.update?.last_swap);
   const repairs = host.update?.repairs ?? [];
+  const repairTask = host.repair_task;
   return (
     <>
       {readAtMs !== null && (
@@ -124,6 +125,20 @@ export function HostFactsBlock({
             <dd title={repairsTitle(repairs)}>{repairsSentence(repairs)}</dd>
           </div>
         )}
+        {repairTask && (
+          <div>
+            <dt
+              title={
+                "The five-minute task that starts SummriseLaunch when it is stopped and re-registers it when it is missing. The values are the machine's Task Scheduler answer, not a console guess."
+              }
+            >
+              Repair task
+            </dt>
+            <dd className={repairTask.registered ? undefined : "muted"}>
+              {repairTaskSentence(repairTask)}
+            </dd>
+          </div>
+        )}
         <div>
           <dt
             title={
@@ -140,6 +155,35 @@ export function HostFactsBlock({
       <VitalsChart samples={vitals} collecting={collecting} />
     </>
   );
+}
+
+/**
+ * The repair task's value, in the machine's own Task Scheduler facts.
+ *
+ * `not registered` is a fact the machine reported (the task is absent), not a missing answer: an
+ * absent key draws no row at all. `registered` always leads when the task exists; the last run and
+ * its result are stated only when Task Scheduler reported them, and `next` only when the task has a
+ * next run. A zero result is success, and Task Scheduler's other results are written as the audit
+ * writes them (`0x80070002`), because the number is the fact an operator matches to a log.
+ */
+function repairTaskSentence(task: NonNullable<HostFacts["repair_task"]>): string {
+  if (!task.registered) return "not registered";
+  const parts = ["registered"];
+  if (task.last_run_ms != null) parts.push(`last run ${taskMoment(task.last_run_ms)}`);
+  if (task.last_result != null) parts.push(`last result ${taskResult(task.last_result)}`);
+  if (task.next_run_ms != null) parts.push(`next ${taskMoment(task.next_run_ms)}`);
+  return parts.join(" · ");
+}
+
+/** The day and the console's clock, the pair the update card uses to state a moment. */
+function taskMoment(ms: number): string {
+  return `${isoDate(ms)} ${clockTime(ms)}`;
+}
+
+/** A Task Scheduler result: `0` for success, otherwise the zero-padded hexadecimal code. */
+function taskResult(result: number): string {
+  if (result === 0) return "0";
+  return `0x${(result >>> 0).toString(16).toUpperCase().padStart(8, "0")}`;
 }
 
 /**

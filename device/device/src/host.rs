@@ -13,6 +13,10 @@
 //! its repairs — read for display. Nothing here verifies a signature or replays a swap: the launcher
 //! wrote these files, and the facts report what it wrote.
 //!
+//! One fact is not a file: the five-minute `SummriseRepair` task's health (`repair_task`) is the
+//! machine's Task Scheduler answer — whether it is registered, its last run and result, and its next
+//! run. It is what makes a dead safety net visible on the Machine tab.
+//!
 //! The frame's top-level `update` section is the device's own story instead: the version this process
 //! runs, the verdict it reached at its last start, and the updater's last answer, read from
 //! `<data>/state.json`. It is separate from [`facts`]' `update` block on purpose — that one is the
@@ -61,6 +65,12 @@ pub fn facts(data: &std::path::Path) -> serde_json::Value {
         });
     } else {
         document["helper"] = serde_json::json!({ "registered": false });
+    }
+    // The five-minute repair task's health, from the machine's own Task Scheduler: registered, its
+    // last run and result, and its next run. Absent when the machine could not answer; the console
+    // draws no row rather than reading an unread answer as a healthy task.
+    if let Some(task) = crate::repair_task::facts() {
+        document["repair_task"] = task;
     }
     // The install root is where this executable was started from: an installed app lives at
     // `<install>/summrise-device.exe`. An executable that cannot name its directory reports the

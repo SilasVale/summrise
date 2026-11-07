@@ -865,6 +865,46 @@ fn report_pending(handle: &ServiceStatusHandle, checkpoint: u32) {
     }
 }
 
+/// Run `schtasks` without giving it a console window and capture its answer.
+///
+/// The launcher is a service, so a console child would not be seen there; `summrise-launch run` is
+/// also how a human exercises it, and a black window flashing for every boot is not acceptable.
+fn run_schtasks(args: &[String]) -> io::Result<summrise_launch::RepairTaskToolRun> {
+    use std::os::windows::process::CommandExt;
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    let output = Command::new("schtasks")
+        .args(args)
+        .creation_flags(CREATE_NO_WINDOW)
+        .output()?;
+    Ok(summrise_launch::RepairTaskToolRun {
+        success: output.status.success(),
+        stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
+    })
+}
+
+/// Ensure the installer's five-minute `SummriseRepair` task starts this install's `repair.cmd`.
+///
+/// The measured failure this closes: the 9VH carried `Command=C:\Program` +
+/// `Arguments=Files\Summrise\repair.cmd` from the 0.3.279 installer, ran `0x80070002` every five
+/// minutes, and no channel update touched it because the installer is what writes the task. The
+/// action is re-registered only when it is not the quoted script; a task that is merely disabled is
+/// left alone, because disabling it is the documented way to keep a machine down on purpose.
+fn ensure_repair_task(config: &Config) {
+    use summrise_launch::RepairTaskOutcome;
+    match summrise_launch::ensure_repair_task(&config.install, run_schtasks) {
+        RepairTaskOutcome::Registered { stale: true } => eprintln!(
+            "launch: re-registered the SummriseRepair task: its action was not the quoted repair.cmd"
+        ),
+        RepairTaskOutcome::Registered { stale: false } => {
+            eprintln!("launch: registered the missing SummriseRepair task")
+        }
+        RepairTaskOutcome::Failed(reason) => eprintln!(
+            "launch: warning: could not ensure the SummriseRepair task: {reason}"
+        ),
+        RepairTaskOutcome::Current | RepairTaskOutcome::NoScript => {}
+    }
+}
+
 /// The kill-on-close job that owns the supervised app child.
 ///
 /// Despite the name, the job holds **only the app process**, never a process the app starts:
@@ -957,6 +997,13 @@ pub fn supervise(config: &Config, stop: &AtomicBool) -> u32 {
         Err(error) => eprintln!("launch: warning: cannot discard the pending generation: {error}"),
     }
 
+    // THE SAFETY NET IS CHECKED BEFORE THE FIRST CHILD CAN FAIL. A channel update cannot replace
+    // this launcher, so a registration written wrong by an old installer survives every release
+    // that does not run a setup; the launcher repairs it whenever it starts, and the app does the
+    // same after the update that restarted it. Best effort: a machine whose task cannot be
+    // rewritten must still supervise the app it has.
+    ensure_repair_task(config);
+
     // One job for this supervisor's lifetime. See `ChildJob`: closing it kills the app children, so
     // even an abrupt launcher death cannot orphan one and race the next boot for the port.
     let job = ChildJob::create();
@@ -990,6 +1037,9 @@ pub fn supervise(config: &Config, stop: &AtomicBool) -> u32 {
                     // The switch was health-checked by the transaction; the new pointer starts with
                     // a clean failure history, not the previous version's.
                     watch.on_stable();
+                    // A legacy swap is an apply too: the registration the old install carried has
+                    // to start the script beside the version that is now current.
+                    ensure_repair_task(config);
                 }
                 SwapPoll::Stopped => {
                     if let Err(error) = stop_child(&mut child) {
@@ -1826,6 +1876,9 @@ pub fn apply(config: &Config, staged: &Path, sidecar_path: &Path) -> ExitCode {
                     None => String::new(),
                 }
             );
+            // The same apply-time check as `--install-version`: the task is part of the install
+            // the switch just made current, and it must start the script beside this version.
+            ensure_repair_task(config);
             match start_after_apply(config, &service) {
                 Ok(()) => ExitCode::SUCCESS,
                 Err(error) => exit_for(Err(error)),
@@ -1923,6 +1976,11 @@ fn install_version_mode(
                     None => String::new(),
                 }
             );
+            // The apply that this pointer transaction performed is the other moment a registration
+            // can be stale: the machine may have run for months without a reboot since the
+            // installer that wrote it. Check it while the version is being switched, not only when
+            // this launcher next starts.
+            ensure_repair_task(config);
             ExitCode::SUCCESS
         }
         Err(error) => exit_for(Err(error)),

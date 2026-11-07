@@ -78,6 +78,18 @@ export type HostFacts = {
   sessions?: { id: number; user?: string | null; state: string }[];
   helper?: { registered?: boolean; pid?: number | null; session?: number | null };
   /**
+   * The five-minute `SummriseRepair` task, read from the machine's own Task Scheduler: whether the
+   * task is registered, its last run and result, and when it runs next. `registered: false` is the
+   * task being absent; the whole key is absent on a device too old to report it or when the
+   * machine could not answer, so a page draws no row rather than guessing a health.
+   */
+  repair_task?: {
+    registered: boolean;
+    last_run_ms?: number;
+    last_result?: number;
+    next_run_ms?: number;
+  };
+  /**
    * This app's own boot journal, newest first and bounded by the device (ten). The newest entry is
    * the moment the running process started, which is what an updater's answer must follow to belong
    * to this process. Absent on a device that predates the journal, so a page cannot invent a start.

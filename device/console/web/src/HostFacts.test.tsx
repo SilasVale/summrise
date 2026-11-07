@@ -106,4 +106,70 @@ describe("HostFactsBlock — the Machine page's subject", () => {
     expect(screen.getByText("session 2")).toBeInTheDocument();
     expect(screen.queryByText(/not registered/)).not.toBeInTheDocument();
   });
+
+  it("states the repair task's registration, last result and next run", () => {
+    render(
+      <HostFactsBlock
+        host={{
+          repair_task: {
+            registered: true,
+            last_run_ms: NOW - 300_000,
+            last_result: 0,
+            next_run_ms: NOW + 60_000
+          }
+        }}
+        vitals={[]}
+      />
+    );
+
+    expect(screen.getByText("Repair task")).toBeInTheDocument();
+    // The day and clock are the console's own timezone, so the shape is the assertion; the values
+    // are the machine's facts and are not rounded into relative ages.
+    expect(
+      screen.getByText(/^registered · last run .+ · last result 0 · next .+$/)
+    ).toBeInTheDocument();
+  });
+
+  it("writes a failed repair result as the audit writes it", () => {
+    render(
+      <HostFactsBlock
+        host={{
+          repair_task: {
+            registered: true,
+            last_run_ms: NOW - 60_000,
+            last_result: 2_147_942_402,
+            next_run_ms: NOW
+          }
+        }}
+        vitals={[]}
+      />
+    );
+
+    expect(screen.getByText(/last result 0x80070002/)).toBeInTheDocument();
+  });
+
+  it("says a missing repair task is not registered", () => {
+    render(<HostFactsBlock host={{ repair_task: { registered: false } }} vitals={[]} />);
+
+    expect(screen.getByText("not registered")).toBeInTheDocument();
+    expect(screen.queryByText(/last result/)).not.toBeInTheDocument();
+  });
+
+  it("draws no repair task row when the machine did not report one", () => {
+    render(<HostFactsBlock host={host} vitals={[]} />);
+
+    expect(screen.queryByText("Repair task")).not.toBeInTheDocument();
+  });
+
+  it("does not invent a last run for a task that has never run", () => {
+    render(
+      <HostFactsBlock
+        host={{ repair_task: { registered: true, last_result: 0, next_run_ms: NOW } }}
+        vitals={[]}
+      />
+    );
+
+    const value = screen.getByText(/^registered · last result 0 · next .+$/);
+    expect(value.textContent).not.toContain("last run");
+  });
 });
