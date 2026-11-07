@@ -31,3 +31,22 @@ export function compactAge(ms: number): string {
   if (hours < 24) return `${hours}h`;
   return `${Math.floor(hours / 24)}d`;
 }
+
+/**
+ * How long a slice of the record is: `45 s`, `2 m 10 s`, `17 h`.
+ *
+ * The activity timeline braces consecutive rows with it and the Machine tab dates the console's
+ * audit window with it: one spelling for one question, so the two surfaces cannot describe the same
+ * interval two ways. Seconds are stated until the minutes are, and a whole unit drops its zero
+ * remainder (`17 h`, not `17 h 0 m`).
+ */
+export function spanText(spanMs: number): string {
+  const total = Math.round(spanMs / 1000);
+  if (total < 60) return `${total} s`;
+  const minutes = Math.floor(total / 60);
+  const seconds = total % 60;
+  if (minutes < 60) return seconds === 0 ? `${minutes} m` : `${minutes} m ${seconds} s`;
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  return rest === 0 ? `${hours} h` : `${hours} h ${rest} m`;
+}

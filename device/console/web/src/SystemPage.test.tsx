@@ -366,7 +366,8 @@ describe("SystemPage", () => {
   it("falls back to the audit's joins and leaves when no retry note reached the console", async () => {
     // A console that restarted forgets `last_attempt`; the audit file does not. The fallback is the
     // joined/left tally over the same newest window the fleet's absences are read from, stated with
-    // the window so a count cannot read as all time.
+    // the lines it actually read and the span those lines cover, so a count can be read as a rate
+    // and cannot read as all time. The measured window was 1,000 lines over 17 h (task 76).
     device(() => JSON.stringify([]));
     const { container } = render(
       <SystemPage
@@ -377,7 +378,7 @@ describe("SystemPage", () => {
           online: true,
           version: "0.3.280",
           last_frame_ms: 1,
-          channel_activity: { joined: 24, left: 2, window: 2000 },
+          channel_activity: { joined: 24, left: 2, window: 1000, span_ms: 17 * 3_600_000 },
           update: {
             current: "0.3.280",
             verdict: { outcome: "ok", detail: "started 0.3.280" }
@@ -392,11 +393,45 @@ describe("SystemPage", () => {
     await screen.findByText("online");
     const channel = container.querySelector(".system-channel");
     expect(channel).toHaveTextContent(
-      "The console's audit recorded 24 joins and 2 leaves for this machine in its newest 2000 lines."
+      "The console's audit recorded 24 joins and 2 leaves for this machine in its newest 1,000 " +
+        "lines, spanning 17 h."
     );
     expect(channel).toHaveTextContent(
       "A join is the console accepting this machine's channel; a left is the channel closing"
     );
+  });
+
+  it("states the channel window's lines without a duration when its ends carry no moment", async () => {
+    // The ruling's second half: a window whose first or last line has no `ts_ms` has no span to
+    // state, so the sentence keeps the lines it read and invents no duration.
+    device(() => JSON.stringify([]));
+    const { container } = render(
+      <SystemPage
+        grant={GRANT}
+        device={{
+          id: "device-1",
+          name: "workshop",
+          online: true,
+          version: "0.3.280",
+          last_frame_ms: 1,
+          channel_activity: { joined: 2, left: 1, window: 1000 },
+          update: {
+            current: "0.3.280",
+            verdict: { outcome: "ok", detail: "started 0.3.280" }
+          },
+          host: {
+            restarts: [{ at_ms: Date.now() - 7 * 3_600_000, version: "0.3.280", channel: "canary" }]
+          }
+        }}
+      />
+    );
+
+    await screen.findByText("online");
+    const channel = container.querySelector(".system-channel");
+    expect(channel).toHaveTextContent(
+      "The console's audit recorded 2 joins and 1 leave for this machine in its newest 1,000 lines."
+    );
+    expect(channel).not.toHaveTextContent("spanning");
   });
 
   it("says the console has no update facts when the device never sent a story", async () => {

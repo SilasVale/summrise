@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import type { Device } from "./DeviceCard";
-import { clockTime, exactMoment, isoDate, message } from "./format";
+import { spanText } from "./age";
+import { clockTime, exactMoment, grouped, isoDate, message } from "./format";
 import { HostFactsBlock } from "./HostFacts";
 import { Modal } from "./Modal";
 import { useRequestGate } from "./requests";
@@ -180,8 +181,10 @@ function UpdateStoryLine({ device }: { device?: Device | null }) {
  * it, and the device's sentence about why. It lives in this console's memory, so a console restarted
  * since the device last connected has forgotten it; the audit file has not, and `channel_activity`
  * is the joins and leaves it wrote in the same newest window the absence pair is read from. The
- * fallback states its window so a count cannot read as all time, and explains what a join and a
- * left are. Neither facts present says so; nothing here invents a retry.
+ * fallback states the lines that window actually read and the span they cover, so the tally can be
+ * read as a rate and cannot read as all time; a window whose ends carry no moment is stated without
+ * a duration. It then explains what a join and a left are. Neither facts present says so; nothing
+ * here invents a retry.
  */
 function ConsoleLinkLine({ device }: { device?: Device | null }) {
   if (!device) return null;
@@ -207,10 +210,15 @@ function ConsoleLinkLine({ device }: { device?: Device | null }) {
   if (activity) {
     const joins = `${activity.joined} join${activity.joined === 1 ? "" : "s"}`;
     const leaves = `${activity.left} leave${activity.left === 1 ? "" : "s"}`;
+    const lines = `${grouped(activity.window)} line${activity.window === 1 ? "" : "s"}`;
+    // **THE SPAN IS THE WINDOW'S OWN.** The first and last lines the read returned give the
+    // duration; when either carries no moment there is no span to state, so the sentence keeps the
+    // lines and invents nothing.
+    const span = activity.span_ms != null ? `, spanning ${spanText(activity.span_ms)}` : "";
     return (
       <p className="hint system-channel">
         {`The console's audit recorded ${joins} and ${leaves} for this machine in its newest ` +
-          `${activity.window} lines. A join is the console accepting this machine's channel; a ` +
+          `${lines}${span}. A join is the console accepting this machine's channel; a ` +
           "left is the channel closing, and a join after a left is a reconnect."}
       </p>
     );

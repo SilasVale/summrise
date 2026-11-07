@@ -4,6 +4,16 @@ function pad(value: number): string {
   return String(value).padStart(2, "0");
 }
 
+/**
+ * `1,000`: the comma a person reads a count with, without the host's locale deciding it.
+ *
+ * A day's scan bound and the channel trace's window are both counts of audit lines, and one helper
+ * keeps the two sentences from writing the same thousand two ways.
+ */
+export function grouped(count: number): string {
+  return String(count).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+}
+
 /** A clock a person reads on a summary line: HH:MM in the console's own timezone. */
 export function clockTime(ts: number): string {
   const date = new Date(ts);
@@ -57,11 +67,7 @@ export function coverageClause(day: DayCoverage): string {
   const parts: string[] = [];
   if (day.since_ms != null) parts.push(`since ${clockTime(day.since_ms)}`);
   if (day.bounded) {
-    parts.push(
-      day.scan_limit != null
-        ? `first ${String(day.scan_limit).replace(/\B(?=(\d{3})+(?!\d))/g, ",")} lines`
-        : "line bound hit"
-    );
+    parts.push(day.scan_limit != null ? `first ${grouped(day.scan_limit)} lines` : "line bound hit");
   }
   return parts.length === 0 ? "" : ` · ${parts.join(" · ")}`;
 }

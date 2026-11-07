@@ -8,6 +8,7 @@ import {
 } from "./activityMerge";
 import { isChannelBoundary, isClientCall } from "./activitySummary";
 import { auditFailed } from "./auditFilter";
+import { spanText } from "./age";
 import { ageAt, shortId } from "./format";
 import { AuditSourceLine } from "./AuditSourceLine";
 import { ConsoleCaller } from "./CallerMark";
@@ -386,18 +387,6 @@ function dayStretches(lines: readonly AuditLine[]): Stretch[] {
 function stretchText(stretch: Stretch): string {
   const calls = `${stretch.count} ${stretch.count === 1 ? "call" : "calls"}`;
   return stretch.spanMs > 0 ? `${calls} · ${spanText(stretch.spanMs)}` : calls;
-}
-
-/** A duration a person reads: 45 s, 2 m 10 s, 1 h 5 m. */
-function spanText(spanMs: number): string {
-  const total = Math.round(spanMs / 1000);
-  if (total < 60) return `${total} s`;
-  const minutes = Math.floor(total / 60);
-  const seconds = total % 60;
-  if (minutes < 60) return seconds === 0 ? `${minutes} m` : `${minutes} m ${seconds} s`;
-  const hours = Math.floor(minutes / 60);
-  const rest = minutes % 60;
-  return rest === 0 ? `${hours} h` : `${hours} h ${rest} m`;
 }
 
 /** One closed line, or one opened line with its evidence. */

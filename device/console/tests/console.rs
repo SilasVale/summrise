@@ -2562,8 +2562,8 @@ async fn a_device_still_away_serves_the_close_that_started_its_silence() {
 /// carried 14 failed console attempts, but `last_attempt` lives only in the console process, so a
 /// console restarted since the device last connected has forgotten it. The audit file has not: the
 /// newest window's `device.joined` / `device.left` rows are the tally `/fleet` serves, with the
-/// window they cover, so an operator can tell a healthy link from one that keeps being accepted and
-/// dropped. A machine with no boundary in the window gets no count — never a zero.
+/// lines it read and the span they cover, so an operator can tell a healthy link from one that keeps
+/// being accepted and dropped. A machine with no boundary in the window gets no count — never a zero.
 #[tokio::test]
 async fn the_fleet_counts_each_devices_channel_joins_and_leaves_in_its_window() {
     let fixture = Fixture::new("fleet-channel-activity");
@@ -2599,9 +2599,11 @@ async fn the_fleet_counts_each_devices_channel_joins_and_leaves_in_its_window() 
     seed_audit_file(&fixture, "audit.jsonl", &lines);
 
     let listed = fleet_row(fixture.app(), &session, &device_id).await;
+    // The window is the 50 lines this read returned (not the 2,000-line cap), and its newest and
+    // oldest lines are 71 ms apart: the sentence dates the window the counts came from.
     assert_eq!(
         listed["channel_activity"],
-        json!({ "joined": 24, "left": 2, "window": 2000 }),
+        json!({ "joined": 24, "left": 2, "window": 50, "span_ms": 71 }),
         "the window's joins and leaves are the console's own record: {listed}"
     );
     // A machine with no boundary in the window has no count to serve — never a zero. The other
@@ -2610,6 +2612,45 @@ async fn the_fleet_counts_each_devices_channel_joins_and_leaves_in_its_window() 
     assert!(
         quiet.get("channel_activity").is_none(),
         "a machine with no boundary in the window has no count to serve: {quiet}"
+    );
+}
+
+/// **AN UNDATED WINDOW KEEPS ITS COUNT AND STATES NO DURATION.** The audit's writer stamps every
+/// line, but a line written before the field (or a synthetic one) cannot prove the window's ends.
+/// `/fleet` omits `span_ms` rather than serving a duration the trace does not hold, and the page
+/// then says the lines and no duration (task 76's second ruling).
+#[tokio::test]
+async fn a_channel_window_without_moments_on_its_ends_serves_no_span() {
+    let fixture = Fixture::new("fleet-channel-undated");
+    let device_id = register_fixture_device(&fixture, &signing_key(0x80)).await;
+    let session = fixture.authenticate().await;
+    let boundary = |tool: &str, ts_ms: Option<u64>| {
+        let mut line = json!({
+            "kind": "device",
+            "device_id": device_id.as_str(),
+            "status": 200,
+            "tool": tool,
+            "caller": "console",
+        });
+        if let Some(ts_ms) = ts_ms {
+            line["ts_ms"] = json!(ts_ms);
+        }
+        line
+    };
+    // The oldest line carries no moment: the join and the left are counted, but the window's two
+    // ends cannot be subtracted.
+    let lines = vec![
+        boundary("device.joined", None),
+        boundary("device.left", Some(START_MS + 2)),
+        boundary("device.joined", Some(START_MS + 3)),
+    ];
+    seed_audit_file(&fixture, "audit.jsonl", &lines);
+
+    let listed = fleet_row(fixture.app(), &session, &device_id).await;
+    assert_eq!(
+        listed["channel_activity"],
+        json!({ "joined": 1, "left": 1, "window": 3 }),
+        "the lines are counted; no span is served for an undated end: {listed}"
     );
 }
 

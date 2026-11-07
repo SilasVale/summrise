@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { age, compactAge } from "./age";
+import { age, compactAge, spanText } from "./age";
 
 describe("age", () => {
   it("says seconds under a minute", () => {
@@ -41,5 +41,18 @@ describe("compactAge", () => {
 
   it("never says a negative age; a clock that moved backwards is zero", () => {
     expect(compactAge(-5_000)).toBe("0s");
+  });
+});
+
+describe("spanText", () => {
+  it("states a span in the unit it fills: seconds, minutes, hours", () => {
+    expect(spanText(45_000)).toBe("45 s");
+    expect(spanText(130_000)).toBe("2 m 10 s");
+    expect(spanText(65 * 60_000)).toBe("1 h 5 m");
+    expect(spanText(17 * 3_600_000)).toBe("17 h");
+  });
+
+  it("rounds to the nearest second, so a span is a duration and not a floor", () => {
+    expect(spanText(59_600)).toBe("1 m");
   });
 });

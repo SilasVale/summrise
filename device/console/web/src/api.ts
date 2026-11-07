@@ -149,13 +149,17 @@ export type ToolInfo = {
  * The durable half of the console-link story: the device's own retry note reaches this console as
  * `last_attempt`, but only while the process that received it lives. The audit file outlives a
  * console restart, so the same link's flapping is still countable. `window` is how many newest lines
- * the counts cover, served with them so a number cannot read as all time; the field is absent when
- * the window holds no boundary for the machine, never a zero.
+ * the counts cover — the lines the read actually returned, not the cap it asked for — served with
+ * them so a number cannot read as all time; the field is absent when the window holds no boundary
+ * for the machine, never a zero. `span_ms` is the distance between the window's newest and oldest
+ * `ts_ms`, so the tally can be read as a rate; it is absent when either end carries no moment, and
+ * the page then states the lines without a duration.
  */
 export type ChannelActivity = {
   joined: number;
   left: number;
   window: number;
+  span_ms?: number | null;
 };
 
 export type Device = {

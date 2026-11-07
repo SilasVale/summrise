@@ -4728,6 +4728,7 @@ async fn rename_device(
         last_left_ms: window.boundaries.last_lefts.get(&device.id).copied(),
         channel_activity: channel_activity_view(
             window.boundaries.activity.get(&device.id).copied(),
+            window.read,
         ),
         last_frame_ms: app.channels.last_frame(&device.id),
         id: device.id,
@@ -5054,6 +5055,7 @@ async fn device_views(app: &AppState) -> Vec<DeviceView> {
             last_left_ms: window.boundaries.last_lefts.get(&device.id).copied(),
             channel_activity: channel_activity_view(
                 window.boundaries.activity.get(&device.id).copied(),
+                window.read,
             ),
             last_frame_ms: app.channels.last_frame(&device.id),
             // A name given at registration wins; the machine's own name is a fallback for the
@@ -5215,11 +5217,11 @@ struct DeviceView {
     /// derived from the audit, so a console restarted mid-outage still has the pair.
     #[serde(skip_serializing_if = "Option::is_none")]
     last_outage: Option<OutageView>,
-    /// The joins and leaves the audit's newest window holds for this machine, with the window's
-    /// size. `last_attempt` is the device's own retry note, and only this console process has it —
-    /// a console restarted since the device last connected has forgotten it. The audit file has
-    /// not, so this is the durable half of the same link-health story, read from the window the
-    /// absence pair above comes from.
+    /// The joins and leaves the audit's newest window holds for this machine, with the lines it
+    /// read and the span those lines cover. `last_attempt` is the device's own retry note, and only
+    /// this console process has it — a console restarted since the device last connected has
+    /// forgotten it. The audit file has not, so this is the durable half of the same link-health
+    /// story, read from the window the absence pair above comes from.
     #[serde(skip_serializing_if = "Option::is_none")]
     channel_activity: Option<ChannelActivityView>,
     /// The machine facts the device last sent over its channel: the operator reads what the device is,
@@ -5255,27 +5257,36 @@ fn outage_view(absence: Option<Absence>) -> Option<OutageView> {
     })
 }
 
-/// One machine's join/leave tally, and how many newest audit lines it covers.
+/// One machine's join/leave tally, and the window of lines it covers.
 ///
 /// The window is served with the counts because a number without its window would read as all
-/// time: 24 joins is a different link on a 2,000-line window than on a 2,000,000-line file, and the
-/// page must be able to say which one it drew.
+/// time: 24 joins is a different link on a 1,000-line window than on a 2,000,000-line file, and the
+/// page must be able to say which one it drew. `window` is the read's own length — never the cap it
+/// asked for — and `span_ms` is the distance between the window's newest and oldest moments, so the
+/// tally can be read as a rate. A window whose ends carry no moment carries no `span_ms`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
 pub(crate) struct ChannelActivityView {
     pub(crate) joined: u64,
     pub(crate) left: u64,
     pub(crate) window: usize,
+    /// The window's newest-to-oldest span in milliseconds. Omitted when an end carries no `ts_ms`,
+    /// so the page states the lines it read and invents no duration.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) span_ms: Option<u64>,
 }
 
 /// The wire view of [`crate::audit::ChannelActivity`]: `None` for a device the window holds no
-/// boundary for, so a page draws no count rather than a zero.
+/// boundary for, so a page draws no count rather than a zero. `read` is the window the counts came
+/// from, and both its facts travel with them so the sentence cannot pair a count with another read.
 fn channel_activity_view(
     activity: Option<crate::audit::ChannelActivity>,
+    read: crate::audit::WindowFacts,
 ) -> Option<ChannelActivityView> {
     activity.map(|activity| ChannelActivityView {
         joined: activity.joined,
         left: activity.left,
-        window: crate::audit::FLEET_WINDOW,
+        window: read.lines,
+        span_ms: read.span_ms,
     })
 }
 

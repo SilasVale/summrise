@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   callsLine,
   exactMoment,
+  grouped,
   isoDate,
   lastHeardMs,
   message,
@@ -21,6 +22,14 @@ describe("shortId", () => {
 
   it("leaves a short id alone", () => {
     expect(shortId("dev")).toBe("dev");
+  });
+});
+
+describe("grouped", () => {
+  it("groups thousands with a comma, without the host's locale deciding it", () => {
+    expect(grouped(999)).toBe("999");
+    expect(grouped(1000)).toBe("1,000");
+    expect(grouped(50_000)).toBe("50,000");
   });
 });
 

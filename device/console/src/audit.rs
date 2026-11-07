@@ -173,6 +173,40 @@ pub(crate) struct ChannelActivity {
 #[derive(Debug, Default)]
 pub(crate) struct FleetWindow {
     pub(crate) boundaries: Boundaries,
+    /// How many lines the read returned, and the moments their two ends carry.
+    pub(crate) read: WindowFacts,
+}
+
+/// What one window read held: its length and the span between its newest and oldest moments.
+///
+/// **THE COUNT IS THE READ'S OWN LENGTH, NEVER THE CAP.** [`FLEET_WINDOW`] is how many lines the
+/// read asks for, not necessarily how many it returns: a file shorter than the cap is a smaller
+/// window, and serving the cap beside a tally taken from fewer lines made the sentence's window
+/// disagree with its own trace — the measured page said 2,000 lines beside a 1,000-line window
+/// (task 76). The span is `newest_ts_ms - oldest_ts_ms` over the same lines, so a join/leave tally
+/// can be read as a rate; a window whose newest or oldest line carries no `ts_ms` has no span to
+/// state, and the page then says only the lines.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct WindowFacts {
+    /// The lines the read returned, at most [`FLEET_WINDOW`].
+    pub(crate) lines: usize,
+    /// The newest line's moment minus the oldest line's, when both carry one.
+    pub(crate) span_ms: Option<u64>,
+}
+
+impl WindowFacts {
+    /// The facts of one newest-first window read.
+    fn of(lines: &[Value]) -> WindowFacts {
+        let moment = |line: &Value| line.get("ts_ms").and_then(Value::as_u64);
+        let newest = lines.first().and_then(moment);
+        let oldest = lines.last().and_then(moment);
+        WindowFacts {
+            lines: lines.len(),
+            span_ms: newest
+                .zip(oldest)
+                .map(|(newest, oldest)| newest.saturating_sub(oldest)),
+        }
+    }
 }
 
 /// What one calendar day holds, split by who can be proven to have made each line.
@@ -325,7 +359,7 @@ impl Audit {
     }
 
     /// The channel boundaries every fleet row's absence reads, from ONE read of the newest
-    /// [`FLEET_WINDOW`] lines.
+    /// [`FLEET_WINDOW`] lines, plus the lines and span that read actually held.
     ///
     /// The file is the record, not this process's memory: a console restarted while a device was
     /// away reads the close the dead process wrote and the open this one wrote, and the pair is the
@@ -336,6 +370,7 @@ impl Audit {
         let lines = self.file.newest(FLEET_WINDOW).await;
         FleetWindow {
             boundaries: boundaries_of(&lines),
+            read: WindowFacts::of(&lines),
         }
     }
 
@@ -845,6 +880,54 @@ mod tests {
         );
     }
 
+    #[test]
+    fn the_window_reports_the_lines_it_read_and_the_moments_they_span() {
+        // The window's count is its own length, never the `FLEET_WINDOW` cap: a short file was
+        // being called 2,000 lines beside a 1,000-line trace (task 76). The span is the distance
+        // between the newest and oldest moments of the same lines, so the tally can be read as a
+        // rate.
+        let lines = vec![
+            boundary(DEVICE, DEVICE_JOINED, 10_000),
+            serde_json::json!({
+                "ts_ms": 6_000,
+                "kind": "mcp",
+                "device_id": DEVICE,
+                "status": 200,
+            }),
+            boundary(DEVICE, DEVICE_LEFT, 2_000),
+        ];
+        assert_eq!(
+            WindowFacts::of(&lines),
+            WindowFacts {
+                lines: 3,
+                span_ms: Some(8_000),
+            },
+            "the count is the window's length and the span its oldest-to-newest distance"
+        );
+    }
+
+    #[test]
+    fn a_window_whose_ends_carry_no_moment_has_no_span() {
+        // A line without `ts_ms` (written before the field, or synthetic) cannot date the window.
+        // The count stands; the span is absent rather than invented.
+        let lines = vec![
+            boundary(DEVICE, DEVICE_JOINED, 10_000),
+            serde_json::json!({
+                "kind": "mcp",
+                "device_id": DEVICE,
+                "status": 200,
+            }),
+        ];
+        assert_eq!(
+            WindowFacts::of(&lines),
+            WindowFacts {
+                lines: 2,
+                span_ms: None,
+            },
+            "one undated end is not a duration"
+        );
+    }
+
     #[tokio::test]
     async fn only_the_newest_window_of_lines_is_consulted() {
         let dir = TempDir::new("window");
@@ -876,6 +959,16 @@ mod tests {
         assert!(
             audit.fleet_window().await.boundaries.last_lefts.is_empty(),
             "a close older than the newest {FLEET_WINDOW} lines is not read either"
+        );
+        let capped = audit.fleet_window().await;
+        assert_eq!(
+            capped.read.lines, FLEET_WINDOW,
+            "a file longer than the cap reports the lines the read returned"
+        );
+        assert_eq!(
+            capped.read.span_ms,
+            Some(1_999),
+            "the read's 2,000 newest lines run from 1,000 to 2,999 ms"
         );
 
         // Leave the pair exactly inside the window: 2 boundary lines and 1,998 fillers are 2,000.
