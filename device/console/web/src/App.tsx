@@ -1389,7 +1389,9 @@ export function App() {
                   </button>
                 </div>
                 {activityView === "table" && (
-                  <p className="hint stream-note">The audit as rows, with filters and CSV export.</p>
+                  <p className="hint stream-note">
+                    The audit as rows, with filters and CSV or JSON Lines export.
+                  </p>
                 )}
               </div>
               {activityView === "stream" ? (

@@ -1812,6 +1812,78 @@ try {
   await page.getByRole('tab', { name: 'Table' }).click();
   const auditRow = page.locator('.audit-row').filter({ hasText: 'runs.exec' }).first();
   await auditRow.waitFor({ timeout: 10_000 });
+
+  // **ONE FILTER ROW, ONE EXPORT, AND THE TIMELINE'S CLOCK (audit-41 F4).** The measured 1440 card
+  // wrapped eight controls into two rows with `Export JSONL` in the first and `Export CSV` in the
+  // second, and its When column said `8s ago` for the line the Timeline dated `04:45:03`. The row
+  // must be one band (the measured two-row card was 119 px), the export one closed control with
+  // both formats inside it, and the cell a real `<time>` with the clock and the age.
+  const audit1440 = await page.evaluate(() => {
+    const visible = (element) => {
+      if (element.getClientRects().length === 0) return false;
+      if (typeof element.checkVisibility !== 'function') return true;
+      return element.checkVisibility({ checkVisibilityCSS: true, contentVisibilityAuto: true });
+    };
+    const toolbar = document.querySelector('.audit-toolbar');
+    if (!toolbar) return null;
+    const controls = [
+      ...toolbar.querySelectorAll('.audit-field, .seg, .audit-export-summary')
+    ].filter(visible);
+    const menus = toolbar.querySelectorAll('details.audit-export-menu');
+    const menu = menus[0] ?? null;
+    const when = document.querySelector('tr.audit-row td.audit-when');
+    const time = when?.querySelector('time') ?? null;
+    return {
+      toolbarHeight: Math.round(toolbar.getBoundingClientRect().height),
+      controls: controls.length,
+      controlTops: [...new Set(controls.map((entry) => Math.round(entry.getBoundingClientRect().top)))],
+      menus: menus.length,
+      menuClosed: menu ? !menu.open : null,
+      formats: menu ? menu.querySelectorAll('button').length : 0,
+      outsideExport: [...toolbar.querySelectorAll('button')].filter(
+        (button) => !button.closest('.audit-export-menu') && /^Export/.test(button.textContent ?? '')
+      ).length,
+      whenText: when?.textContent?.trim() ?? '',
+      timeText: time?.textContent?.trim() ?? '',
+      dateTime: time?.getAttribute('datetime') ?? null
+    };
+  });
+  console.log(`browser-gate: audit at 1440: ${JSON.stringify(audit1440)}`);
+  if (!audit1440) throw new Error('the Table drew no filter row at 1440');
+  if (audit1440.toolbarHeight > 70) {
+    throw new Error(
+      `the 1440 filter row is ${audit1440.toolbarHeight} px tall; the measured two-row card was ` +
+        '119 px and one band is one row'
+    );
+  }
+  if (audit1440.menus !== 1) {
+    throw new Error(`the 1440 toolbar drew ${audit1440.menus} Export controls, not one`);
+  }
+  if (audit1440.outsideExport !== 0) {
+    throw new Error(
+      `the 1440 toolbar drew ${audit1440.outsideExport} export button(s) outside the one control`
+    );
+  }
+  if (audit1440.menuClosed !== true || audit1440.formats !== 2) {
+    throw new Error(
+      `the 1440 Export menu is closed=${audit1440.menuClosed} with ${audit1440.formats} formats`
+    );
+  }
+  if (!/^\d{2}:\d{2}:\d{2}$/.test(audit1440.timeText)) {
+    throw new Error(`the When cell's time reads ${JSON.stringify(audit1440.timeText)}`);
+  }
+  if (!audit1440.dateTime || Number.isNaN(Date.parse(audit1440.dateTime))) {
+    throw new Error(`the When cell's time carries ${JSON.stringify(audit1440.dateTime)}`);
+  }
+  if (!/(ago|just now)/.test(audit1440.whenText)) {
+    throw new Error(`the When cell lost the age: ${JSON.stringify(audit1440.whenText)}`);
+  }
+  step(
+    `at 1440 the filters are one ${audit1440.toolbarHeight} px row with one closed Export menu ` +
+      `(${audit1440.formats} formats, none outside it); When is ${audit1440.timeText} with ` +
+      `"${audit1440.whenText.replace(audit1440.timeText, '').trim()}" beside it`
+  );
+
   step('opened Activity and its Table view; the run\'s row is the one opened, not the console\'s');
   // The record is disclosed by its own button, so a keyboard reaches it too.
   await auditRow.getByRole('button', { name: /Show the record for/ }).click();
@@ -3184,9 +3256,26 @@ try {
     };
     const rowBox = row?.getBoundingClientRect();
     const deviceBox = deviceCell?.getBoundingClientRect();
+    const rail = document.querySelector('.rail')?.getBoundingClientRect() ?? null;
+    const toolbar = document.querySelector('.audit-toolbar')?.getBoundingClientRect() ?? null;
+    const fold = document.querySelector('details.audit-filter-fold');
+    const visible = (element) => {
+      if (element.getClientRects().length === 0) return false;
+      if (typeof element.checkVisibility !== 'function') return true;
+      return element.checkVisibility({ checkVisibilityCSS: true, contentVisibilityAuto: true });
+    };
+    const toolbarControls = toolbar
+      ? [...document.querySelector('.audit-toolbar').querySelectorAll('summary')].filter(visible)
+      : [];
     return {
       viewport: document.documentElement.clientWidth,
       documentScrollWidth: document.documentElement.scrollWidth,
+      rowTop: Math.round(rowBox?.top ?? 0),
+      rowBottom: Math.round(rowBox?.bottom ?? 0),
+      railTop: Math.round(rail?.top ?? 0),
+      toolbarHeight: Math.round(toolbar?.height ?? 0),
+      toolbarControls: toolbarControls.map((entry) => entry.textContent?.trim() ?? ''),
+      foldOpen: fold ? fold.open : null,
       firstCellHasButton: row?.cells[0]?.contains(button ?? null) ?? false,
       disclosure: button ? rect(button) : null,
       scroller: scroller
@@ -3242,10 +3331,43 @@ try {
     throw new Error('the full machine name is not the device cell\'s accessible name at 390');
   }
   step(
-    `at 390 the device cell draws "${audit390.device.short}" with the full name in its title ` +
-      `and accessible name; the row is ${audit390.device.rowHeight} px ` +
-      `(cell ${audit390.device.cellWidth}×${audit390.device.cellHeight}, was 67×91)`
+    `at 390 one ${audit390.toolbarHeight} px filter row (${audit390.toolbarControls.join(', ')}) ` +
+      `and the first card y=${audit390.rowTop}–${audit390.rowBottom} above the rail at ` +
+      `${audit390.railTop}; the device cell draws "${audit390.device.short}" with the full name ` +
+      `in its title (row ${audit390.device.rowHeight} px, cell ` +
+      `${audit390.device.cellWidth}×${audit390.device.cellHeight}, was 67×91)`
   );
+  // **THE CONTROLS START ABOVE THE FOLD AND THE FIRST ROW IS NOT CUT.** The measured phone put the
+  // first row at y=746 with the rail at 781: one line of the card showed and the rest sat under the
+  // bar. The one filter row (`Filters` + `Export`) is 43 px, and the first card must end above the
+  // rail, not merely start above it.
+  if (audit390.toolbarHeight > 60) {
+    throw new Error(`the 390 filter row is ${audit390.toolbarHeight} px tall, not one row`);
+  }
+  if (
+    audit390.toolbarControls.length !== 2 ||
+    !audit390.toolbarControls.some((text) => text.startsWith('Filters')) ||
+    !audit390.toolbarControls.some((text) => text.startsWith('Export'))
+  ) {
+    throw new Error(
+      `the 390 filter row drew ${JSON.stringify(audit390.toolbarControls)}, not Filters and Export`
+    );
+  }
+  if (audit390.foldOpen !== false) {
+    throw new Error('the 390 filter fields are not folded by default');
+  }
+  if (audit390.rowTop >= audit390.railTop) {
+    throw new Error(
+      `the 390 first audit row starts at y=${audit390.rowTop}, below the rail at ` +
+        `${audit390.railTop}`
+    );
+  }
+  if (audit390.rowBottom > audit390.railTop) {
+    throw new Error(
+      `the 390 first audit row ends at y=${audit390.rowBottom}, under the rail at ` +
+        `${audit390.railTop}`
+    );
+  }
   if (!audit390.firstCellHasButton) {
     throw new Error('the audit disclosure is not in the row\'s first cell at 390');
   }
@@ -3277,6 +3399,10 @@ try {
   // **A PRESET IS A REQUEST, NOT A LOCAL FILTER.** The Time control used to narrow the 1,000-line
   // window in the browser and fire nothing. `Last hour` must ask `/audit?from=&to=`, and the
   // sentence above the rows must name the range and the count the answer actually held.
+  // **THE PHONE FOLDS THE FIELDS, NOT THE FILTERS.** `Filters` is one press away and the count is
+  // on its summary; the range control is inside it (audit-41 F4).
+  await page.locator('.audit-filter-fold > summary').click();
+  await page.getByLabel('Time').waitFor({ state: 'visible', timeout: 5_000 });
   const rangeRequestsBefore = state.rangeRequests;
   await page.getByLabel('Time').selectOption('hour');
   await page.waitForFunction(
@@ -3331,6 +3457,7 @@ try {
     (response) => new URL(response.url()).pathname === '/audit/export',
     { timeout: 10_000 }
   );
+  await page.locator('.audit-export-menu > summary').click();
   await page
     .getByRole('button', { name: /^Export JSONL: the drawn range/ })
     .click();
@@ -3369,6 +3496,7 @@ try {
   // surface with a Dismiss — not the muted hint that outlived the range. Clear resets the range and
   // must take the sentence with it.
   state.refuseExport = true;
+  await page.locator('.audit-export-menu > summary').click();
   await page.getByRole('button', { name: /^Export JSONL: the drawn range/ }).click();
   const refusal = page.locator('.alert-inline[role="alert"]');
   await refusal.waitFor({ state: 'visible', timeout: 10_000 });

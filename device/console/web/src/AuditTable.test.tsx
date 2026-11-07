@@ -90,6 +90,14 @@ function rowOf(text: string): HTMLElement {
   return row as HTMLElement;
 }
 
+/** Open the toolbar's one Export control, then press a format. */
+function openExportMenu(): void {
+  const summary = screen.getByText("Export", { selector: "summary" });
+  const menu = summary.closest("details") as HTMLDetailsElement | null;
+  expect(menu).not.toBeNull();
+  if (!(menu as HTMLDetailsElement).open) fireEvent.click(summary);
+}
+
 /** The row's one control: its disclosure button. */
 function disclosureOf(row: HTMLElement): HTMLElement {
   return within(row).getByRole("button", { name: /the record for/ });
@@ -247,6 +255,83 @@ describe("AuditTable", () => {
     expect(cell.textContent).toMatch(/\d+h ago/);
   });
 
+  it("dates a row the way the timeline does: the clock, with the age beside it", () => {
+    // The measured table said `8s ago` for the line the timeline dated `04:45:03` (audit-41 F4).
+    // The cell now draws the timeline's own clock element; the age is still there, and `dateTime`
+    // still carries the instant for anything that reads the record.
+    const ts = Date.UTC(2026, 9, 26, 8, 45, 3);
+    render(
+      <AuditTable
+        lines={[line({ ts_ms: ts, device_id: alpha, status: 200 })]}
+        devices={devices}
+        tokens={[]}
+      />
+    );
+
+    const at = new Date(ts);
+    const pad = (value: number) => String(value).padStart(2, "0");
+    const clock = `${pad(at.getHours())}:${pad(at.getMinutes())}:${pad(at.getSeconds())}`;
+    const cell = document.querySelector("tr.audit-row td.audit-when") as HTMLElement;
+    const time = cell.querySelector("time");
+    expect(time).not.toBeNull();
+    expect(time).toHaveAttribute("datetime", new Date(ts).toISOString());
+    expect(time?.textContent).toBe(clock);
+    expect(cell).toHaveTextContent(/ago|just now/);
+  });
+
+  it("keeps one Export control, with both formats inside it", () => {
+    // The measured card was eight controls in two rows with `Export JSONL` in one and `Export CSV`
+    // in the other (audit-41 F4). One summary owns the formats now; nothing else says "Export".
+    render(<AuditTable lines={lines} devices={devices} tokens={[]} />);
+
+    const toolbar = document.querySelector(".audit-toolbar") as HTMLElement;
+    const menu = toolbar.querySelector("details.audit-export-menu") as HTMLDetailsElement | null;
+    expect(menu).not.toBeNull();
+    expect((menu as HTMLDetailsElement).open).toBe(false);
+    expect(menu?.querySelector("summary")).toHaveTextContent("Export");
+    expect(
+      within(menu as HTMLElement).getAllByRole("button", { name: /^Export (CSV|JSONL)/ })
+    ).toHaveLength(2);
+    const outside = [...toolbar.querySelectorAll("button")].filter(
+      (button) => !(menu as HTMLElement).contains(button) && /^Export/.test(button.textContent ?? "")
+    );
+    expect(outside.map((button) => button.textContent)).toEqual([]);
+  });
+
+  it("counts the filters on the phone's one disclosure, and names none when none is on", () => {
+    // The phone hides the fields behind one summary; a hidden filter must not be a forgotten one,
+    // so the summary carries the count. The wide view draws the same summary's fields, and jsdom
+    // has no layout: the media query itself is proven by the browser gate and the screenshots.
+    const { rerender } = render(
+      <AuditTable lines={lines} devices={devices} tokens={[]} />
+    );
+    const fold = document.querySelector("details.audit-filter-fold") as HTMLDetailsElement;
+    expect(fold).not.toBeNull();
+    expect(fold.open).toBe(true);
+    expect(fold.querySelector("summary")).toHaveTextContent(/^Filters$/);
+
+    rerender(
+      <AuditTable
+        lines={lines}
+        devices={devices}
+        tokens={[]}
+        filter={{ device: alpha, token: "", tool: "memory", status: "all" }}
+      />
+    );
+    expect(fold.querySelector("summary")).toHaveTextContent("Filters (2)");
+
+    rerender(
+      <AuditTable
+        lines={lines}
+        devices={devices}
+        tokens={[]}
+        filter={{ device: "", token: "", tool: "", status: "failed" }}
+        range={drawnRange}
+      />
+    );
+    expect(fold.querySelector("summary")).toHaveTextContent("Filters (2)");
+  });
+
   it("groups the record by day, with one label for the day's lines", () => {
     render(<AuditTable lines={lines} devices={devices} tokens={[]} />);
 
@@ -255,9 +340,10 @@ describe("AuditTable", () => {
     expect(days[0].textContent).toMatch(/2026|Today|Yesterday/);
   });
 
-  it("exports the filtered view as CSV from the overflow", () => {
+  it("exports the filtered view as CSV from the one Export control", () => {
     render(<AuditTable lines={lines} devices={devices} tokens={[]} />);
 
+    openExportMenu();
     fireEvent.click(screen.getByRole("button", { name: "Export CSV" }));
 
     expect(downloadFile).toHaveBeenCalledTimes(1);
@@ -277,6 +363,7 @@ describe("AuditTable", () => {
     // accessible name still says the file is the window, not the table's narrowed rows.
     expect(button).toHaveTextContent("Export JSONL");
     expect(button).toHaveAccessibleName(/the table's other filters do not apply$/);
+    openExportMenu();
     fireEvent.click(button);
 
     expect(downloadFile).toHaveBeenCalledTimes(1);
@@ -308,7 +395,9 @@ describe("AuditTable", () => {
     expect(jsonl).toBeDisabled();
     expect(csv).toBeDisabled();
 
+    openExportMenu();
     fireEvent.click(jsonl);
+    openExportMenu();
     fireEvent.click(csv);
     expect(fetchMock).not.toHaveBeenCalled();
     expect(downloadFile).not.toHaveBeenCalled();
@@ -344,6 +433,7 @@ describe("AuditTable", () => {
         range={range}
       />
     );
+    openExportMenu();
     fireEvent.click(
       screen.getByRole("button", { name: /^Export JSONL: the drawn range/ })
     );
@@ -367,6 +457,7 @@ describe("AuditTable", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     render(<AuditTable lines={lines} devices={devices} tokens={[]} range={range} />);
+    openExportMenu();
     fireEvent.click(
       screen.getByRole("button", { name: /^Export JSONL: the drawn range/ })
     );
@@ -379,6 +470,7 @@ describe("AuditTable", () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(refusedExport(refusalMessage)));
 
     render(<AuditTable lines={lines} devices={devices} tokens={[]} range={drawnRange} />);
+    openExportMenu();
     fireEvent.click(
       screen.getByRole("button", { name: /^Export JSONL: the drawn range/ })
     );
@@ -403,6 +495,7 @@ describe("AuditTable", () => {
         onRange={onRange}
       />
     );
+    openExportMenu();
     fireEvent.click(
       screen.getByRole("button", { name: /^Export JSONL: the drawn range/ })
     );
@@ -430,6 +523,7 @@ describe("AuditTable", () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(refusedExport(refusalMessage)));
 
     render(<AuditTable lines={lines} devices={devices} tokens={[]} range={drawnRange} />);
+    openExportMenu();
     fireEvent.click(
       screen.getByRole("button", { name: /^Export JSONL: the drawn range/ })
     );
@@ -455,9 +549,11 @@ describe("AuditTable", () => {
     const button = screen.getByRole("button", {
       name: /^Export JSONL: the drawn range/
     });
+    openExportMenu();
     fireEvent.click(button);
     expect(await screen.findByRole("alert")).toHaveTextContent("50,000-line scan bound");
 
+    openExportMenu();
     fireEvent.click(button);
 
     await waitFor(() => expect(downloadFile).toHaveBeenCalledTimes(1));
@@ -481,6 +577,7 @@ describe("AuditTable", () => {
         onRange={onRange}
       />
     );
+    openExportMenu();
     fireEvent.click(
       screen.getByRole("button", { name: /^Export JSONL: the drawn range/ })
     );

@@ -2028,6 +2028,14 @@ span.files-name {
   color: var(--ink-muted); font-size: var(--fs-xs); font-weight: var(--fw-semi);
 }
 .audit-when { white-space: nowrap; }
+/* THE RECORD'S MOMENT IS THE CLOCK, WITH ITS AGE BESIDE IT (audit-41 F4). The table dated a line
+   only as `8s ago` while the Timeline said `04:45:03` for the same record; `.timeline-time` is the
+   shared element now, and the cell only drops the timeline's padding. */
+/* The clock keeps a 4 px gap before its age, which is where the separator's space lives. The
+   table draws the seconds at every width: the cell has the room, and this is the surface where a
+   record is read rather than skimmed. */
+.audit-when .timeline-time { padding-top: 0; margin-right: 4px; white-space: nowrap; }
+.audit-age { color: var(--ink-faint); font-size: var(--fs-xs); white-space: nowrap; }
 .audit-chevron-cell { width: 1%; text-align: right; }
 .audit-chevron { color: var(--ink-faint); }
 .audit-disclosure {
@@ -2046,38 +2054,88 @@ span.files-name {
 .audit-record dt { color: var(--ink-muted); font-size: var(--fs-sm); }
 .audit-record dd { margin: 0; overflow-wrap: anywhere; }
 .audit-record dd .mini, .evidence-facts dd .mini { margin-left: var(--sp-2); }
-/* THE RECORD FITS THE PHONE. At <=639 px the chevron column is not rendered (the component puts
-   the same button in the row's first cell), and the five remaining columns share the card's width
-   instead of the table's old 44 rem minimum. Fixed columns are the promise: the row opens with no
-   sideways swipe, and the cells wrap rather than widen the page. */
+/* THE PHONE'S RECORD IS A CARD, NOT A 320 PX FIVE-COLUMN GRID (audit-41 F4). The measured grid
+   gave the sentence 96 px and the token 48 px for a dash; every cell wrapped, a long token name
+   turned a row into five lines, and the page was 87,476 px tall. Below 640 px each line is one card:
+   the clock and its age, the machine and the token on the first line, the sentence across the
+   card's width. The column headers stay in the accessibility tree — a table with no headers is a
+   wall of cells to a screen reader — but not on the screen, where they only repeat the labels the
+   card's own facts give. */
 @media (max-width: 639px) {
-  .audit-table { min-width: 0; width: 100%; table-layout: fixed; }
-  .audit-table th, .audit-table td { padding: var(--sp-1-5) var(--sp-1); }
-  .audit-table th:nth-child(1), .audit-table td:nth-child(1) { width: 20%; }
-  .audit-table th:nth-child(2), .audit-table td:nth-child(2) { width: 21%; }
-  .audit-table th:nth-child(3), .audit-table td:nth-child(3) { width: 15%; }
-  .audit-table th:nth-child(4), .audit-table td:nth-child(4) { width: 30%; }
-  .audit-table th:nth-child(5), .audit-table td:nth-child(5) { width: 14%; }
-  .audit-when { white-space: normal; }
-  .audit-row td { overflow-wrap: anywhere; }
-  .audit-when .audit-disclosure { margin-right: 2px; vertical-align: middle; }
-  .audit-record-row td { padding: var(--sp-2); }
+  .audit-table { display: block; min-width: 0; width: 100%; }
+  .audit-table thead {
+    position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+    overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; border: 0;
+  }
+  .audit-table tbody { display: grid; gap: var(--sp-2); }
+  .audit-table tr.audit-day { display: block; }
+  .audit-day th { display: block; padding: var(--sp-1) 2px; border: 0; background: transparent; }
+  .audit-table tr.audit-row {
+    position: relative;
+    display: grid;
+    grid-template-columns: auto auto minmax(0, 1fr) auto;
+    grid-template-areas:
+      "when device token status"
+      "what what what what";
+    align-items: center;
+    gap: 2px var(--sp-2);
+    /* The disclosure is the card's own chevron, centred on its left edge: in the first line it made
+       every card 24 px tall before the sentence was drawn (the measured row was 71 px). */
+    padding: var(--sp-1-5) var(--sp-2-5) var(--sp-1-5) 2.25rem;
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius-sm2);
+    background: var(--panel);
+  }
+  .audit-row td { padding: 0; border: 0; min-width: 0; }
+  .audit-when {
+    grid-area: when; display: flex; align-items: baseline; gap: 0;
+    white-space: nowrap;
+  }
+  .audit-when .audit-disclosure {
+    position: absolute; left: 4px; top: 50%; transform: translateY(-50%);
+    margin: 0;
+  }
+  .audit-row td:nth-child(2) { grid-area: device; white-space: nowrap; }
+  .audit-row td:nth-child(3) {
+    grid-area: token; color: var(--ink-muted);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  /* A console line names no token; a dash in the metadata line would be a fact about nothing. */
+  .audit-row td:nth-child(3).is-empty { display: none; }
+  .audit-row td:nth-child(4) { grid-area: what; overflow-wrap: anywhere; }
+  .audit-row td:nth-child(5) { grid-area: status; justify-self: end; }
+  .audit-record-row { display: block; padding-top: 0; }
+  .audit-record-row td { display: block; padding: var(--sp-2); background: transparent; }
   .audit-record { grid-template-columns: 5rem minmax(0, 1fr); gap: var(--sp-1) var(--sp-2); }
 }
-/* 360 is the narrowest phone the harness renders; the same five columns need two more points for
-   the machine name and the sentence, taken from the when and token cells (which already wrap). */
-@media (max-width: 379px) {
-  .audit-table th:nth-child(1), .audit-table td:nth-child(1) { width: 18%; }
-  .audit-table th:nth-child(2), .audit-table td:nth-child(2) { width: 23%; }
-  .audit-table th:nth-child(3), .audit-table td:nth-child(3) { width: 13%; }
-  .audit-table th:nth-child(4), .audit-table td:nth-child(4) { width: 32%; }
-  .audit-table th:nth-child(5), .audit-table td:nth-child(5) { width: 14%; }
-}
+
 .audit-empty { display: grid; gap: var(--sp-2); justify-items: start; padding: var(--sp-3) 0; }
-/* The record's export sits beside Time, where the bounds are chosen; the view's CSV stays at the
-   far end of the filter row. */
-.audit-export { margin-left: auto; }
-.audit-export-range { margin-left: 0; }
+/* THE EXPORT IS ONE CONTROL AT THE FILTER ROW'S END (audit-41 F4). It used to be two buttons in
+   two rows — `Export JSONL` beside Time, `Export CSV` at the far end — so the row said "Export"
+   twice and the formats lived in two places. The menu is the one control; its items are files. */
+.audit-export-menu { position: relative; flex: none; margin-left: auto; }
+.audit-export-summary {
+  display: inline-flex; align-items: center; gap: var(--sp-1);
+  min-height: 30px; padding: 0 var(--sp-3);
+  border: 1px solid var(--line-strong); border-radius: var(--radius-sm2);
+  background: var(--surface); color: var(--ink); font-size: var(--fs-sm);
+  cursor: pointer; list-style: none;
+}
+.audit-export-summary::-webkit-details-marker { display: none; }
+.audit-export-summary::after { content: "▾"; color: var(--ink-faint); font-size: var(--fs-2xs); }
+.audit-export-menu[open] > .audit-export-summary { border-color: var(--line-strong); background: var(--control-bg); }
+.audit-export-formats {
+  position: absolute; right: 0; top: calc(100% + 4px); z-index: 30;
+  display: grid; gap: 2px; min-width: 15rem; padding: var(--sp-1);
+  background: var(--surface); border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm); box-shadow: var(--shadow-lg);
+}
+.audit-export-formats .audit-export {
+  width: 100%; margin: 0; padding: var(--sp-1-5) var(--sp-2);
+  border: 0; border-radius: var(--radius-xs); background: transparent;
+  color: var(--ink); font: inherit; font-size: var(--fs-sm); text-align: left;
+}
+.audit-export-formats .audit-export:hover:not(:disabled) { background: var(--surface-chip); }
 
 .screen-shot { max-width: 100%; border: 1px solid var(--line); border-radius: var(--radius); }
 
@@ -2480,11 +2538,59 @@ input:not([type="checkbox"]):not([type="radio"]):focus, select:focus, textarea:f
 }
 
 /* The audit filter row: labels sit on their field, the fields share a baseline, and the row is one
-   band above the table rather than a scatter of floating captions. */
+   band above the table rather than a scatter of floating captions. **ONE ROW** (audit-41 F4): the
+   measured eight controls wrapped into two rows at 1440. The fields are one flex band with capped
+   selects, and the one Export menu closes the band; at 390 the band folds behind a counted summary
+   so the first record is on the first screen. */
 .audit-toolbar {
-  align-items: flex-end; gap: var(--sp-3);
+  display: flex; align-items: flex-end; flex-wrap: wrap; gap: var(--sp-2);
   margin: 0 0 var(--sp-3); padding-bottom: var(--sp-3);
   border-bottom: 1px solid var(--hairline);
+}
+.audit-filter-fold { flex: 1 1 auto; min-width: 0; }
+/* The fold is a phone control only: above 640 its summary is absent and the fields are the band. */
+.audit-filter-fold > summary { display: none; }
+/* A closed disclosure's content is not laid out: the panels' own display must not outrank the UA's
+   closed-details rule (Chromium keeps the boxes and hides the slot, which leaves the rects behind). */
+.audit-filter-fold:not([open]) > .audit-filter-fields,
+.audit-export-menu:not([open]) > .audit-export-formats { display: none; }
+.audit-filter-fields {
+  display: flex; align-items: flex-end; flex-wrap: wrap; gap: var(--sp-2);
+  min-width: 0;
+}
+.audit-field { min-width: 0; }
+.audit-field select { max-width: 11rem; }
+.audit-field.tool { flex: 1 1 10rem; min-width: 8rem; }
+/* The desktop width where eight controls plus their one Export fit on one band. Below it the band
+   wraps, which is not the measured 1440 failure; above it the row is never allowed to become two. */
+@media (min-width: 1280px) {
+  .audit-filter-fields { flex-wrap: nowrap; }
+  .audit-field select { max-width: 9.5rem; }
+}
+/* The phone: one row — the counted Filters disclosure and the one Export — and the fields fold
+   underneath it in two columns. The measured form spent 296 px of the first screen on eight
+   stacked controls; the first record started at y=746 and the rail cut it at 784. */
+@media (max-width: 639px) {
+  .audit-toolbar { align-items: flex-start; flex-wrap: nowrap; }
+  .audit-filter-fold > summary {
+    display: inline-flex; align-items: center; gap: var(--sp-1);
+    min-height: 30px; padding: 0 var(--sp-3);
+    border: 1px solid var(--line-strong); border-radius: var(--radius-sm2);
+    background: var(--surface); color: var(--ink); font-size: var(--fs-sm);
+    cursor: pointer; list-style: none;
+  }
+  .audit-filter-fold > summary::-webkit-details-marker { display: none; }
+  .audit-filter-fold > summary::before { content: "▸"; color: var(--ink-faint); font-size: var(--fs-2xs); }
+  .audit-filter-fold[open] > summary::before { content: "▾"; }
+  .audit-filter-fields {
+    display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--sp-2); margin-top: var(--sp-2);
+  }
+  .audit-filter-fields .seg { grid-column: 1 / -1; width: 100%; }
+  .audit-filter-fields .seg button { flex: 1; }
+  .audit-filter-fields .audit-field.tool { grid-column: 1 / -1; }
+  .audit-filter-fields .audit-field select { max-width: none; width: 100%; }
+  .audit-filter-fields > button { justify-self: start; }
 }
 .audit-field > span { padding-left: 2px; font-size: var(--fs-2xs); color: var(--ink-muted); }
 .audit-field select, .audit-field input { min-height: 28px; border-radius: var(--radius-sm2); }

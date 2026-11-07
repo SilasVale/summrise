@@ -20,6 +20,7 @@ import {
 import { auditCsv, auditCsvName, auditJsonl, auditJsonlName } from "./audit-export";
 import { downloadFile } from "./download";
 import { age, shortDeviceName, shortId } from "./format";
+import { clock } from "./ActivityTimeline";
 import { AuditSourceLine } from "./AuditSourceLine";
 import { ConsoleCaller } from "./CallerMark";
 import { tokenFact, tokenLabel } from "./tokenFact";
@@ -333,6 +334,22 @@ export function AuditTable({
   // 44 rem table made opening one record cost a sideways swipe; below 640 px the disclosure is the
   // When cell and the chevron column is not rendered at all. The desktop table is unchanged.
   const wide = useMediaQuery("(min-width: 640px)");
+  // The phone folds the filters behind one disclosure (audit-41 F4): the measured form spent 296 px
+  // of the first screen on eight controls and put the first record at y=746, under the rail. `narrow`
+  // is its own query, not `!wide`: an environment without `matchMedia` answers false here and keeps
+  // the desktop placement, exactly as `useMediaQuery` documents.
+  const narrow = useMediaQuery("(max-width: 639px)");
+  // The one Export control is a menu; a menu is a layer, not a section, so a press elsewhere closes it.
+  const exportRef = useRef<HTMLDetailsElement>(null);
+  useEffect(() => {
+    const onDown = (event: MouseEvent) => {
+      if (exportRef.current && !exportRef.current.contains(event.target as Node)) {
+        exportRef.current.removeAttribute("open");
+      }
+    };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, []);
   const retired = Array.from(
     new Set(
       lines
@@ -341,12 +358,16 @@ export function AuditTable({
     )
   ).sort();
 
-  const hasFilter =
-    filter.device !== "" ||
-    filter.token !== "" ||
-    filter.tool.trim() !== "" ||
-    filter.status !== "all" ||
-    range !== null;
+  // How many of the table's own filters are narrowing it: the disclosure at 390 says the count,
+  // because a filter the operator cannot see must not be a filter they forget. The scope is not in
+  // it (on a machine page it is the default, not a choice) and neither is a hidden Device control.
+  const filterCount =
+    (filter.device !== "" ? 1 : 0) +
+    (filter.token !== "" ? 1 : 0) +
+    (filter.tool.trim() !== "" ? 1 : 0) +
+    (filter.status !== "all" ? 1 : 0) +
+    (range !== null ? 1 : 0);
+  const hasFilter = filterCount > 0;
 
   const clear = () => {
     setFilter(EMPTY);
@@ -399,6 +420,9 @@ export function AuditTable({
     const preset = value as AuditPreset;
     applyRange(presetRange(preset), preset);
   };
+
+  /** Put the one Export menu away: it is a layer, not a section of the form. */
+  const closeExport = () => exportRef.current?.removeAttribute("open");
 
   const exportCsv = () => {
     if (shown.length === 0) return;
@@ -500,168 +524,201 @@ export function AuditTable({
   return (
     <div>
       <div className="audit-toolbar">
-        <div className="seg" role="group" aria-label="Audit scope">
-          <button
-            type="button"
-            aria-pressed={scope === "machine"}
-            disabled={!selectedDeviceId}
-            onClick={() => setScope("machine")}
+        {/* **ONE ROW, ONE EXPORT (audit-41 F4).** The measured form was eight controls in two rows,
+            `Export JSONL` in the first and `Export CSV` in the second, and its own sentence named one
+            format. Above the phone the fields share one band and the export is the one control at its
+            end; at 390 the fields fold behind a counted `Filters` summary so the first record is on
+            the first screen. The count is the filters the table is actually applying, not the
+            controls it happens to draw: a hidden Device field is not a filter. */}
+        <details className="audit-filter-fold" open={!narrow}>
+          <summary className="audit-filter-summary">
+            Filters{filterCount > 0 && ` (${filterCount})`}
+          </summary>
+          <div className="audit-filter-fields">
+            <div className="seg" role="group" aria-label="Audit scope">
+              <button
+                type="button"
+                aria-pressed={scope === "machine"}
+                disabled={!selectedDeviceId}
+                onClick={() => setScope("machine")}
+              >
+                This machine
+              </button>
+              <button type="button" aria-pressed={scope === "all"} onClick={() => setScope("all")}>
+                All machines
+              </button>
+            </div>
+            <label className="audit-field">
+              <span>Time</span>
+              <select value={timeMode} onChange={(event) => chooseTime(event.target.value)}>
+                {/* **THE WINDOW SAYS WHAT IT IS.** "All time" named the newest 1,000 lines as the
+                    whole record; the page has always drawn the newest window, and now the words do. */}
+                <option value="window">Newest window</option>
+                {RANGE_PRESETS.map((preset) => (
+                  <option key={preset.value} value={preset.value}>
+                    {preset.label}
+                  </option>
+                ))}
+                <option value="custom">Custom…</option>
+              </select>
+            </label>
+            {timeMode === "custom" && (
+              <>
+                <label className="audit-field">
+                  <span>From</span>
+                  <input
+                    type="datetime-local"
+                    value={customFrom}
+                    onChange={(event) => setCustomFrom(event.target.value)}
+                  />
+                </label>
+                <label className="audit-field">
+                  <span>To</span>
+                  <input
+                    type="datetime-local"
+                    value={customTo}
+                    onChange={(event) => setCustomTo(event.target.value)}
+                  />
+                </label>
+                <button
+                  type="button"
+                  disabled={customRange() === null}
+                  onClick={() => {
+                    const chosen = customRange();
+                    if (chosen !== null) applyRange(chosen, "custom");
+                  }}
+                >
+                  Apply
+                </button>
+              </>
+            )}
+            {scope === "all" && (
+              <label className="audit-field">
+                <span>Device</span>
+                <select
+                  value={filter.device}
+                  onChange={(event) => setFilter({ ...filter, device: event.target.value })}
+                >
+                  <option value="">All devices</option>
+                  {devices.map((device) => (
+                    <option key={device.id} value={device.id}>
+                      {device.name ?? shortId(device.id)}
+                    </option>
+                  ))}
+                  {retired.map((id) => (
+                    <option key={id} value={id}>
+                      {shortId(id)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+            {tokenOptions.length > 0 && (
+              <label className="audit-field">
+                <span>Token</span>
+                <select
+                  value={filter.token}
+                  onChange={(event) => setFilter({ ...filter, token: event.target.value })}
+                >
+                  <option value="">All tokens</option>
+                  {tokenOptions.map((option) => (
+                    <option key={option.id} value={option.id}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+            <label className="audit-field tool">
+              <span>Tool or detail</span>
+              <input
+                type="search"
+                value={filter.tool}
+                placeholder="filter by tool or detail"
+                onChange={(event) => setFilter({ ...filter, tool: event.target.value })}
+              />
+            </label>
+            <label className="audit-field">
+              <span>Status</span>
+              <select
+                value={filter.status}
+                onChange={(event) =>
+                  setFilter({ ...filter, status: event.target.value as AuditFilter["status"] })
+                }
+              >
+                <option value="all">All</option>
+                <option value="ok">Succeeded</option>
+                <option value="failed">Failed</option>
+              </select>
+            </label>
+            {hasFilter && (
+              <button type="button" onClick={clear}>
+                Clear
+              </button>
+            )}
+          </div>
+        </details>
+        {/* **ONE EXPORT CONTROL, BOTH FORMATS.** The measured card put `Export JSONL` beside Time
+            and `Export CSV` at the row's far end, with the formats in two places (audit-41 F4). The
+            summary is the one control; the menu holds the two files and their own names say what
+            each one is: the CSV is the rows on screen, the JSON Lines is the window in hand (or the
+            drawn range), oldest first, and the table's other filters do not apply to it. */}
+        <details className="audit-export-menu" ref={exportRef}>
+          <summary
+            className="audit-export-summary"
+            title="Download the rows on screen as CSV, or the window in hand (or the drawn range) as JSON Lines"
           >
-            This machine
-          </button>
-          <button type="button" aria-pressed={scope === "all"} onClick={() => setScope("all")}>
-            All machines
-          </button>
-        </div>
-        <label className="audit-field">
-          <span>Time</span>
-          <select value={timeMode} onChange={(event) => chooseTime(event.target.value)}>
-            {/* **THE WINDOW SAYS WHAT IT IS.** "All time" named the newest 1,000 lines as the
-                whole record; the page has always drawn the newest window, and now the words do. */}
-            <option value="window">Newest window</option>
-            {RANGE_PRESETS.map((preset) => (
-              <option key={preset.value} value={preset.value}>
-                {preset.label}
-              </option>
-            ))}
-            <option value="custom">Custom…</option>
-          </select>
-        </label>
-        {/* **THE RANGE THE OPERATOR CHOSE IS THE RANGE THAT LEAVES.** Beside Time, where the
-            choice is made; its accessible name says the file is the range, not the rows the
-            table's other filters hide. **A RANGE THAT DREW NOTHING LEAVES NOTHING.** Both exports
-            are disabled when the range's own answer held no lines: the CSV has no rows to write,
-            and the route would answer this one with an empty body — a zero-byte file with a name
-            and no sentence. The count is the range's answer, not the filters' rows, because this
-            file ignores those filters. */}
-        <button
-          type="button"
-          className="audit-export audit-export-range"
-          disabled={loading || rangeError || lines.length === 0}
-          onClick={() => void exportFile()}
-          title={
-            range === null
-              ? `Export JSONL: the newest window in hand — ${lines.length} ${
-                  lines.length === 1 ? "line" : "lines"
-                }, oldest first; the table's other filters do not apply`
-              : `Export JSONL: the drawn range ${rangeText(range)}, oldest first; the table's other filters do not apply`
-          }
-          aria-label={
-            range === null
-              ? `Export JSONL: the newest window in hand — ${lines.length} ${
-                  lines.length === 1 ? "line" : "lines"
-                }, oldest first; the table's other filters do not apply`
-              : `Export JSONL: the drawn range ${rangeText(range)}, oldest first; the table's other filters do not apply`
-          }
-        >
-          Export JSONL
-        </button>
-        {timeMode === "custom" && (
-          <>
-            <label className="audit-field">
-              <span>From</span>
-              <input
-                type="datetime-local"
-                value={customFrom}
-                onChange={(event) => setCustomFrom(event.target.value)}
-              />
-            </label>
-            <label className="audit-field">
-              <span>To</span>
-              <input
-                type="datetime-local"
-                value={customTo}
-                onChange={(event) => setCustomTo(event.target.value)}
-              />
-            </label>
+            Export
+          </summary>
+          <div className="audit-export-formats">
+            {/* **THE RANGE THE OPERATOR CHOSE IS THE RANGE THAT LEAVES.** A chosen time range is the
+                console's own file — its filename, its bounds headers, its refusal when the scan
+                bound cannot prove it. The newest window has no bounds to ask for, so the lines in
+                hand are written here. A range that drew nothing leaves nothing: disabled when the
+                range's own answer held no lines, because the route would answer with a zero-byte
+                file and no sentence. The count is the range's answer, not the filters' rows. */}
             <button
               type="button"
-              disabled={customRange() === null}
+              className="audit-export"
+              disabled={loading || rangeError || lines.length === 0}
               onClick={() => {
-                const chosen = customRange();
-                if (chosen !== null) applyRange(chosen, "custom");
+                closeExport();
+                void exportFile();
               }}
+              title={
+                range === null
+                  ? `Export JSONL: the newest window in hand — ${lines.length} ${
+                      lines.length === 1 ? "line" : "lines"
+                    }, oldest first; the table's other filters do not apply`
+                  : `Export JSONL: the drawn range ${rangeText(range)}, oldest first; the table's other filters do not apply`
+              }
+              aria-label={
+                range === null
+                  ? `Export JSONL: the newest window in hand — ${lines.length} ${
+                      lines.length === 1 ? "line" : "lines"
+                    }, oldest first; the table's other filters do not apply`
+                  : `Export JSONL: the drawn range ${rangeText(range)}, oldest first; the table's other filters do not apply`
+              }
             >
-              Apply
+              Export JSONL
             </button>
-          </>
-        )}
-        {scope === "all" && (
-          <label className="audit-field">
-            <span>Device</span>
-            <select
-              value={filter.device}
-              onChange={(event) => setFilter({ ...filter, device: event.target.value })}
+            {/* **A MENU WITH ONE ITEM HIDES THE FEATURE.** "Export CSV" was behind an unlabelled
+                "⋯" whose only content it was: a discovery problem for the one action here that
+                leaves the page with data. It is a labelled item in the one Export menu. */}
+            <button
+              type="button"
+              className="audit-export"
+              disabled={shown.length === 0}
+              onClick={() => {
+                closeExport();
+                exportCsv();
+              }}
+              title="Download the rows on screen as CSV"
             >
-              <option value="">All devices</option>
-              {devices.map((device) => (
-                <option key={device.id} value={device.id}>
-                  {device.name ?? shortId(device.id)}
-                </option>
-              ))}
-              {retired.map((id) => (
-                <option key={id} value={id}>
-                  {shortId(id)}
-                </option>
-              ))}
-            </select>
-          </label>
-        )}
-        {tokenOptions.length > 0 && (
-          <label className="audit-field">
-            <span>Token</span>
-            <select
-              value={filter.token}
-              onChange={(event) => setFilter({ ...filter, token: event.target.value })}
-            >
-              <option value="">All tokens</option>
-              {tokenOptions.map((option) => (
-                <option key={option.id} value={option.id}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </label>
-        )}
-        <label className="audit-field tool">
-          <span>Tool or detail</span>
-          <input
-            type="search"
-            value={filter.tool}
-            placeholder="filter by tool or detail"
-            onChange={(event) => setFilter({ ...filter, tool: event.target.value })}
-          />
-        </label>
-        <label className="audit-field">
-          <span>Status</span>
-          <select
-            value={filter.status}
-            onChange={(event) =>
-              setFilter({ ...filter, status: event.target.value as AuditFilter["status"] })
-            }
-          >
-            <option value="all">All</option>
-            <option value="ok">Succeeded</option>
-            <option value="failed">Failed</option>
-          </select>
-        </label>
-        {hasFilter && (
-          <button type="button" onClick={clear}>
-            Clear
-          </button>
-        )}
-        {/* **A MENU WITH ONE ITEM HIDES THE FEATURE.** "Export CSV" was behind an unlabelled "⋯"
-            whose only content it was: two clicks and a discovery problem for the one action here that
-            leaves the page with data. It is a button. */}
-        <button
-          type="button"
-          className="audit-export"
-          disabled={shown.length === 0}
-          onClick={exportCsv}
-          title="Download the rows on screen as CSV"
-        >
-          Export CSV
-        </button>
+              Export CSV
+            </button>
+          </div>
+        </details>
       </div>
 
       {exportNotice !== null && exportNotice.rangeKey === rangeKey && (
@@ -750,7 +807,19 @@ export function AuditTable({
                       <tr className="audit-row">
                         <td className="audit-when" title={new Date(line.ts_ms).toISOString()}>
                           {!wide && disclosure(key, isOpen, line)}
-                          {age(line.ts_ms)}
+                          {/* **THE TABLE DATED ITS OWN RECORD ONLY AS AN AGE.** The Timeline said
+                              `04:45:03` for the line the Table called `8s ago` (audit-41 F4); the
+                              clock is the timeline's own `clock()` now, and the age stays beside it.
+                              The 1,000-row table draws the time as one text node, not the timeline's
+                              two spans: the phone's cell has room for the seconds, and the table is
+                              the one surface that draws a thousand of these. */}
+                          <time
+                            className="timeline-time"
+                            dateTime={new Date(line.ts_ms).toISOString()}
+                          >
+                            {clock(line.ts_ms)}
+                          </time>
+                          <span className="audit-age">· {age(line.ts_ms)}</span>
                         </td>
                         <td title={line.device_id ? `${deviceName} (${line.device_id})` : deviceName}>
                           {wide ? (
@@ -777,7 +846,7 @@ export function AuditTable({
                             </>
                           )}
                         </td>
-                        <td>
+                        <td className={line.token_id ? "audit-token" : "audit-token is-empty"}>
                           {line.token_id ? (
                             <span title={line.token_id}>{tokenLabel(line.token_id, tokenNames)}</span>
                           ) : (
