@@ -776,31 +776,31 @@ Measured 2026-11-07 20:47–21:22Z on live 0.3.273-ux100 at 1440 and 390; the 9V
    the host by a real setup run (or make the launcher repair a stale task on boot), and show the task's
    health on the Machine tab. **M.**
 
-6. **The 84T's update card says "Last check not recorded"** while the 9VH's shows the check six seconds
+6. **The 84T's update card says "Last check not recorded"** *(Implemented 3815230: no launcher-written check exists for that apply, so the card scopes the absence as "not recorded before this update", dates the 9VH's real check/apply to the second, and drops the duplicate `Last outcome applied` row.)* while the 9VH's shows the check six seconds
    before its apply (20:55:43Z vs 20:55:49Z); "Last outcome applied" also repeats "Applied 0.3.291".
    **Fix:** read the check the launcher writes, and drop the duplicate clause. **S/M.**
 
-7. **Every updated machine states one age twice:** `started 0.3.291 · 7m ago (updated 7m ago)` on Home and
+7. **Every updated machine states one age twice:** *(Implemented 3815230: one age.)* `started 0.3.291 · 7m ago (updated 7m ago)` on Home and
    every device tab except Machine; `last_update.at_ms == restarts[0].at_ms` on both online machines.
    **Fix:** say it once. **S.**
 
-8. **The offline Overview's advice contradicts its own card.** It says to open `Device → Machine` "for
+8. **The offline Overview's advice contradicts its own card.** *(Implemented 3815230: the absence is dated via `/health` `uptime_s`.)* It says to open `Device → Machine` "for
    the machine's last facts", and that card says "The console has no machine facts from this device yet"
    (14R/CPH) — true only of the console process, restarted ~20:40Z. **Fix:** date the absence, or keep the
    last frame. **S/M.**
 
-9. **Activity's "Today: 18 client calls" sits above "486 rows in this window"** (a 24h37m window whose span
+9. **Activity's "Today: 18 client calls" sits above "486 rows in this window"** *(Implemented 3815230: the window's span is labelled.)* (a 24h37m window whose span
    is stated nowhere) — 27× apart, same noun. **Fix:** label the window's span, or count the same window.
    **S.**
 
-10. **The empty console says "Run the command" before the installer**, shows the command last in an
+10. **The empty console says "Run the command" before the installer** *(Implemented 3815230: one zero state, the first-run/enrollment doors labelled and first.)*, shows the command last in an
     unlabeled panel, and says `No machines yet` + `0 machines · 0 online`. **Fix:** the enrollment/installer
     doors read as the next step, labelled; the zero state reads as one sentence. **S.**
 
-11. **At 390 the Files "Filter this folder" floats on its own row at x=101** while every other control
+11. **At 390 the Files "Filter this folder" floats on its own row at x=101** *(Implemented 3815230: aligned with the other controls.)* while every other control
     starts at x=33. **Fix:** align the control. **S.**
 
-12. **Screen offers an enabled Capture screen on a machine whose helper it says has not registered** and
+12. **Screen offers an enabled Capture screen on a machine whose helper it says has not registered** *(Implemented 3815230: Capture is disabled with the reason.)* and
     "a capture will be refused". **Fix:** disable it with the reason (as the 84T's disconnected-session case
     already does). **S.**
 
