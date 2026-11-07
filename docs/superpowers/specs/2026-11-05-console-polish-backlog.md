@@ -547,15 +547,14 @@ machine's update story, then the controls.
 
 2. **The 84T's update story says "channel not reported" and never names its verdict or 14 console retries.** *(Implemented 2026-11-07, b8bad5d: `updateChannel()` reads `host.restarts[0].channel` (falling back to `update.current.channel`), the Machine line says `verdict ok · started 0.3.280 · 41m ago` when `last_update` is absent, the device's `console_attempt` (last_attempt) is drawn and `/fleet` serves `channel_activity {joined,left,window}` from the audit as the fallback, and the Machine tab names the panel's `Check for updates now` as the local check. 806 tests, gate 55 steps, a11y 0/3, `build-web --check`, console Rust tests. The live check is deferred: the console deploy is blocked by the 9VH's outage (item 7).)*
 
-3. **Screen capture is refused by the helper's disconnected session, but the page predicts only
-   "locked and disconnected" in general.** The helper is registered in session 2; #2 is
+3. **Screen capture is refused by the helper's disconnected session, but the page predicts only "locked and disconnected" in general.** *(Live 2026-11-07 on the 84T: the helper's session 2 is disconnected, Capture screen is disabled, and the sentence names session 2 and the way out. Implemented 4a84d46.)* The helper is registered in session 2; #2 is
    disconnected; `Capture screen` is live and answers `screen.capture: the capture thread could not
    attach to the input desktop: 拒绝访问。 (os error 5)`. The facts are on the Machine tab as
    `Helper session 2` and `#2 disconnected`. **Cost:** a daily action is invited into a refusal the
    page already knows; the error has no next step. **Fix:** pass the helper's session/state and say
    it before the press; disable or annotate the button. **S/M.**
 
-4. **The Terminal session card says "No keystroke recorded" after a reload.** At 390 the card reads
+4. **The Terminal session card says "No keystroke recorded" after a reload.** *(Live 0.3.273-ux93 with a fresh pty: a typed `echo audit40-terminal` draws `Last input echo audit40-terminal 3s ago` (the split joined whole), and a reload says `No keystroke recorded since this page opened.` — the scoped sentence. Implemented 5605033.)* At 390 the card reads
    `session-3 / opened 9m 14s ago / No keystroke recorded for this session yet`, while the xterm
    shows `echo audit37-terminal`; at 1440 the card's LAST INPUT is the one-character-short fragment
    `cho audit37-terminal`. The card reads only the live 200-line feed. **Cost:** the first block on
