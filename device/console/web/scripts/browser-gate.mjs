@@ -2652,6 +2652,40 @@ try {
       `(${reason390.width} px), not one clipped line`
   );
 
+  // **THE OFFLINE ADVICE NAMES THE DOOR THAT WORKS FROM HERE (audit 37 F6).** The sentence used to
+  // send the operator to a loopback panel the console cannot open and did not address. It now links
+  // the console's own Device → Machine view and names the machine's panel as local text, not a link.
+  const advice = page.locator('.notice');
+  const machineDoor = advice.getByRole('link', { name: 'Device → Machine' });
+  if ((await machineDoor.count()) !== 1) {
+    throw new Error('the offline hub offers no Device → Machine link');
+  }
+  const doorHref = await machineDoor.getAttribute('href');
+  if (doorHref !== '#device/machine') {
+    throw new Error(`the offline door links ${JSON.stringify(doorHref)}`);
+  }
+  const doorBox = await machineDoor.boundingBox();
+  if (!doorBox || doorBox.x < 0 || doorBox.x + doorBox.width > 390) {
+    throw new Error(`the Device → Machine link is outside the 390 viewport: ${JSON.stringify(doorBox)}`);
+  }
+  const adviceText = await advice.innerText();
+  if (
+    !adviceText.includes('http://127.0.0.1:18090/') ||
+    !adviceText.includes('opens only at the machine')
+  ) {
+    throw new Error(
+      `the offline advice does not name the local panel as local: ${JSON.stringify(adviceText)}`
+    );
+  }
+  if ((await advice.locator('a[href*="127.0.0.1"], a[href*="18090"]').count()) !== 0) {
+    throw new Error('the offline advice draws the machine-local panel as a link');
+  }
+  await machineDoor.click();
+  await page.getByRole('heading', { name: 'Machine', exact: true }).waitFor({ timeout: 10_000 });
+  step('at 390 the offline advice links Device → Machine and names the machine-local panel as local');
+  await page.locator('nav.rail button[title="Home"]').click();
+  await page.getByRole('heading', { name: 'Home', exact: true }).waitFor({ timeout: 10_000 });
+
   // **THE OFFLINE TOKEN FORM DOES NOT CLAIM THE CONSOLE'S COUNT.** `/fleet/<id>/tools` is 503 for
   // this machine, so the count comes from `/tools`. The form must name that catalogue, cover the
   // machine with the row's own silence, and draw the static-fallback note on the default preset —

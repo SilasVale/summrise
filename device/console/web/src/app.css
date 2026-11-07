@@ -408,6 +408,10 @@ main.terminal-main { display: grid; grid-template-rows: auto minmax(0, 1fr); ali
 }
 /* The direct child is the sentence the notice states; a reason inside it is not a second flex item. */
 .notice > span { flex: 1; min-width: 12rem; }
+/* The advice's one link is the console's own door. The browser's default blue is unreadable on the
+   panel's surface in either theme, and the accent is what the console uses for its other links. It
+   stays whole across a wrap: "Device →" on one line and "Machine" on the next reads as two things. */
+.notice a { color: var(--accent); white-space: nowrap; }
 .home-timeline { display: grid; gap: var(--sp-3); min-width: 0; }
 /* The hub's one count of the day: a sentence above the rows it counts. It is not a second list
    header and not a control, so it takes the muted summary type and no rule of its own. */

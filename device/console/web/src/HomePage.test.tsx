@@ -658,7 +658,7 @@ describe("Home — the hub", () => {
     expect(onTools).toHaveBeenCalledTimes(1);
   });
 
-  it("renders an offline machine without fake counts, a door or a Copy control", () => {
+  it("renders an offline machine without fake counts, an endpoint door or a Copy control", () => {
     live.value = {
       tools: [],
       stale: false,
@@ -670,16 +670,60 @@ describe("Home — the hub", () => {
     draw({ device: { ...workshop, online: false } });
 
     expect(screen.getByText("Offline")).toBeInTheDocument();
-    expect(
-      screen.getByText(
-        "workshop is not connected. The console keeps trying; open the machine's panel if it stays offline."
-      )
-    ).toBeInTheDocument();
+    const notice = screen.getByRole("status");
+    expect(notice).toHaveTextContent(
+      "workshop is not connected. The console keeps trying; Retry works from here."
+    );
+    expect(notice).toHaveTextContent(
+      "If it stays offline, open Device → Machine in the console for the machine's last facts."
+    );
+    expect(notice).toHaveTextContent(
+      "The machine's local panel is http://127.0.0.1:18090/ — it opens only at the machine."
+    );
     expect(screen.queryByRole("button", { name: "Copy" })).not.toBeInTheDocument();
     expect(screen.queryByText(/\/mcp\//)).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Connect a client" })).toBeEnabled();
     expect(screen.getByText("Tool counts are unavailable while the machine is offline.")).toBeInTheDocument();
     expect(screen.queryByText(/0 tools/)).not.toBeInTheDocument();
+  });
+
+  it("links the console's Device → Machine view from the offline sentence", () => {
+    live.value = {
+      tools: [],
+      stale: false,
+      error: "this machine is not connected; connect it, then try again",
+      offline: true,
+      loading: false,
+      retry: vi.fn()
+    };
+    draw({ device: { ...workshop, online: false } });
+
+    // The console's own view of the machine is the door that works from here; its fragment is the
+    // address the app already parses, so the link survives a reload like every other surface link.
+    const link = screen.getByRole("link", { name: "Device → Machine" });
+    expect(link).toHaveAttribute("href", "#device/machine");
+    expect(link.closest('[role="status"]')).not.toBeNull();
+  });
+
+  it("names the machine's local panel as local, not as a door this console opens", () => {
+    live.value = {
+      tools: [],
+      stale: false,
+      error: "this machine is not connected; connect it, then try again",
+      offline: true,
+      loading: false,
+      retry: vi.fn()
+    };
+    draw({ device: { ...workshop, online: false } });
+
+    // The panel is loopback-only, so its address is a fact about the machine, not a link the
+    // console can promise to open. It must be named, and named as local.
+    const notice = screen.getByRole("status");
+    expect(notice).toHaveTextContent(
+      "The machine's local panel is http://127.0.0.1:18090/ — it opens only at the machine."
+    );
+    expect(notice.querySelector("a[href*='127.0.0.1']")).toBeNull();
+    expect(screen.queryByRole("link", { name: /127\.0\.0\.1/ })).toBeNull();
   });
 
   it("says the count and the reason when the console's last attempt failed", () => {
@@ -703,6 +747,9 @@ describe("Home — the hub", () => {
     const sentence = screen.getByText(/is not connected after 5 attempts/);
     expect(sentence).toHaveTextContent("timed out waiting for the channel hello");
     expect(screen.getByTitle("timed out waiting for the channel hello")).toBeInTheDocument();
+    // The advice follows the reason rather than replacing it: both doors are still named.
+    expect(screen.getByRole("link", { name: "Device → Machine" })).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent("http://127.0.0.1:18090/");
   });
 
   it("leaves the offline sentence alone when the fleet carried no reason", () => {
@@ -718,11 +765,10 @@ describe("Home — the hub", () => {
       device: { ...workshop, online: false, last_attempt: { attempts: 5, reason: "" } }
     });
 
-    expect(
-      screen.getByText(
-        "workshop is not connected. The console keeps trying; open the machine's panel if it stays offline."
-      )
-    ).toBeInTheDocument();
+    const notice = screen.getByRole("status");
+    expect(notice).toHaveTextContent(
+      "workshop is not connected. The console keeps trying; Retry works from here."
+    );
     expect(screen.queryByText(/after 5 attempts/)).not.toBeInTheDocument();
   });
 

@@ -8,6 +8,7 @@ import { copyText } from "./copy";
 import { clockTime, coverageClause, shortId } from "./format";
 import { bytes } from "./runFormat";
 import { listPlugins } from "./pluginApi";
+import { surfaceHash } from "./surface-link";
 import { useLiveTools } from "./useLiveTools";
 import { ActivityTimeline } from "./ActivityTimeline";
 import {
@@ -384,10 +385,30 @@ function WindowRead(props: { readAt: number | null; fetchedNewest: number; liveN
 }
 
 /**
+ * The offline hub's one recovery sentence, with its two doors named by where they work.
+ *
+ * `Retry` is the console's own attempt at the stream. The Device → Machine view is the console's
+ * read of the machine's last facts, and its address is the surface fragment every other navigation
+ * uses. The device's panel listens on that machine's loopback only, so its URL is text — a place on
+ * the machine, not a link this console can promise to open.
+ */
+function OfflineAdvice() {
+  return (
+    <>
+      The console keeps trying; Retry works from here. If it stays offline, open{" "}
+      <a href={surfaceHash({ page: "device", tab: "machine" })}>Device → Machine</a> in the console
+      for the machine's last facts. The machine's local panel is{" "}
+      <code className="mono">http://127.0.0.1:18090/</code> — it opens only at the machine.
+    </>
+  );
+}
+
+/**
  * The hub, once a machine is chosen: is it running, what is it doing now, what did it do today.
  * One status line, one Connect action, the Now band, this machine's timeline and one counts line.
  * Identity is the header's; this page does not repeat it, and the catalogue is the Tools tab's job,
- * not a tile grid. The endpoint lives in Connect, so this page never names the URL.
+ * not a tile grid. The console's endpoint lives in Connect, so this page does not name it; the
+ * offline advice names the machine's own panel as a place on the machine, not a door from here.
  */
 function HubHome(
   props: FleetProps & {
@@ -628,11 +649,14 @@ function HubHome(
       ? (
           <>
             {name} is not connected after {attemptCount(failedAttempts)} —{" "}
-            <AttemptReason reason={failedReason} />. The console keeps trying; open the machine's
-            panel if it stays offline.
+            <AttemptReason reason={failedReason} />. <OfflineAdvice />
           </>
         )
-      : `${name} is not connected. The console keeps trying; open the machine's panel if it stays offline.`
+      : (
+          <>
+            {name} is not connected. <OfflineAdvice />
+          </>
+        )
     : live.error
       ? "The machine is running. The console could not read its tool list, so these counts may be stale."
       : null;
