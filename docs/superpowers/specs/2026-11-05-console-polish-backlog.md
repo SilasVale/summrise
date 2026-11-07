@@ -543,14 +543,7 @@ machine's update story, then the controls.
 
 1. **The last start is dropped when it repeats the header's version.** *(Implemented 2026-11-06, 5315dea: `startedStory()` dates a start verdict from `host.restarts[0].at_ms` even when the version repeats the chip; the fleet row and the Machine tab draw `started 0.3.286 · 24m ago` with the exact title, and a `last_update` older than the start is labelled `last recorded outcome before this start`. 798 tests, gate 53 steps, a11y 0/3, `build-web --check`. The live check is blocked: `console-deploy.sh` fetches and swaps the console binary through `runs.exec` on the host device (the 9VH), and that device is offline, so ux93 cannot reach the console until the operator restarts `SummriseLaunch`; the code is committed and the console is ux92. Recorded as item 7 below.)*
 
-2. **The 84T's update story says "channel not reported" and never names its verdict or 14 console
-   retries.** The console's Machine line is four absences; the device's panel names `Channel
-   canary`, 14 failed console-channel attempts ("the console accepted the channel and then dropped
-   it") and a start verdict at 22:22:19. The console's audit has 24 joins/2 leaves in its newest
-   1000 lines; the fleet says `online`. **Cost:** the only online machine is seven versions behind,
-   and the console cannot say why its link flaps or whether its updater ran. **Fix:** read the
-   channel from `restarts[0].channel`, draw the verdict/start, and surface `console_attempt` (or the
-   join/leave count); name the local panel's check if no tool exists. **M.**
+2. **The 84T's update story says "channel not reported" and never names its verdict or 14 console retries.** *(Implemented 2026-11-07, b8bad5d: `updateChannel()` reads `host.restarts[0].channel` (falling back to `update.current.channel`), the Machine line says `verdict ok · started 0.3.280 · 41m ago` when `last_update` is absent, the device's `console_attempt` (last_attempt) is drawn and `/fleet` serves `channel_activity {joined,left,window}` from the audit as the fallback, and the Machine tab names the panel's `Check for updates now` as the local check. 806 tests, gate 55 steps, a11y 0/3, `build-web --check`, console Rust tests. The live check is deferred: the console deploy is blocked by the 9VH's outage (item 7).)*
 
 3. **Screen capture is refused by the helper's disconnected session, but the page predicts only
    "locked and disconnected" in general.** The helper is registered in session 2; #2 is
@@ -576,7 +569,9 @@ machine's update story, then the controls.
 6. **The offline hub tells the operator to open the machine's panel, which it neither links nor
    addresses.**
 
-7. **The console's own deploy needs its host device's shell.** *(Measured 2026-11-06: `console-deploy.sh` fetches the new binary and swaps it through `runs.exec` on the host device (the 9VH), so with that device's service down no console version can be deployed; the console app itself (ux92) keeps serving and the script's only symptom is `the console did not answer: HTTP Error 503`. **Fix:** give the console's host a local/service update path, or have the script name the device dependency up front. **S/M.** (console ops.)* `…open the machine's panel if it stays offline.` with only `Retry`; the panel is
+7. **The console's own deploy needs its host device's shell.**
+
+8. **The hour after midnight breaks the last-hour window.** *(Observed 2026-11-07 00:50–00:56 UTC: three existing web checks failed at the first hour after midnight — the last-hour range crosses the date and the todayCalls fixture sits at 01:00; they pass after 01:00. The console's last-hour/today ranges need the date boundary handled. **Fix:** compute the range by the instant, not the date; add a fixture at 00:30. **S.** (web; the clock window.)* *(Measured 2026-11-06: `console-deploy.sh` fetches the new binary and swaps it through `runs.exec` on the host device (the 9VH), so with that device's service down no console version can be deployed; the console app itself (ux92) keeps serving and the script's only symptom is `the console did not answer: HTTP Error 503`. **Fix:** give the console's host a local/service update path, or have the script name the device dependency up front. **S/M.** (console ops.)* `…open the machine's panel if it stays offline.` with only `Retry`; the panel is
    `127.0.0.1:18090` and loopback-only, and the console's Connect sheet names only its `/mcp`
    endpoint. **Cost:** the outage's one "what next" is a dead end from the console. **Fix:** link
    the Device → Machine view and name the local panel URL as local. **S.**
