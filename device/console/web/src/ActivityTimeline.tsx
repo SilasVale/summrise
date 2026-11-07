@@ -13,6 +13,7 @@ import { ageAt, shortId } from "./format";
 import { AuditSourceLine } from "./AuditSourceLine";
 import { ConsoleCaller } from "./CallerMark";
 import { tokenFact } from "./tokenFact";
+import { useMediaQuery } from "./useMediaQuery";
 
 /**
  * The activity as a record: what happened, when, on which machine.
@@ -670,6 +671,11 @@ export function ActivityTimeline(props: {
   const [ownQuery, setOwnQuery] = useState("");
   const [ownDevice, setOwnDevice] = useState("");
   const filterable = props.showFilters !== false;
+  // **THE PHONE KEEPS THE LIVE MACHINES, NOT THE FLEET'S HISTORY.** A retired id is already an
+  // option in the Table's Device filter, and at 390 the two dated chips took two full rows between
+  // the page's head and the first record. They are dropped at 390 — unless one IS the active scope,
+  // which must stay visible and clearable — so the record starts above the fold (audit-40 F5).
+  const phone = useMediaQuery("(max-width: 639px)");
   const query = filterable ? (props.query ?? ownQuery) : "";
   const setQuery = props.onQuery ?? setOwnQuery;
   const device = filterable ? (props.device ?? ownDevice) : "";
@@ -732,6 +738,10 @@ export function ActivityTimeline(props: {
     [matching, clientsOnly]
   );
   const clientCalls = useMemo(() => matching.filter(isClientCall).length, [matching]);
+  // The active scope is never hidden: a filter the page is applying but not showing is a trap.
+  const shownMachines = phone
+    ? machines.filter((machine) => machine.known || machine.id === scope)
+    : machines;
   const days = groupDays(filtered, at);
   const filtering = needle !== "" || scope !== "" || clientsOnly;
   const deviceLabel = scope !== "" ? (machineName(props.devices, scope) ?? scope) : "";
@@ -787,7 +797,7 @@ export function ActivityTimeline(props: {
               >
                 All machines
               </button>
-              {machines.map((machine) => (
+              {shownMachines.map((machine) => (
                 <button
                   key={machine.id}
                   type="button"

@@ -11,6 +11,11 @@ import { processStartMs, startedStory } from "./updateStory";
  * `h1` (the tab's name) and the tab bar in the same head; the machine identity lives in the header
  * control above, so no page inside states it again. The fragment names the tab, which is why a reload
  * and an old `#files` bookmark both land on the same view.
+ *
+ * WITH NO MACHINE THE PAGE IS THE PICKER. The tabs describe surfaces that cannot run until a machine
+ * is chosen, so drawing them made the page claim to be `Terminal` while its real question — which
+ * machine? — sat below the strip (audit-40 F7). The `h1` names the question and the strip and Connect
+ * wait for an answer.
  */
 export function DevicePageShell({
   tab,
@@ -43,33 +48,38 @@ export function DevicePageShell({
   return (
     <div className="page device-page">
       <header className="page-head device-head">
-        <h1>{DEVICE_TAB_LABELS[tab]}</h1>
-        <nav className="device-tabs" aria-label="Device views">
-          {DEVICE_TABS.map((entry) => (
-            <button
-              key={entry}
-              type="button"
-              className="device-tab"
-              aria-current={entry === tab ? "page" : undefined}
-              onClick={() => onTab(entry)}
-            >
-              {DEVICE_TAB_LABELS[entry]}
-            </button>
-          ))}
-        </nav>
+        <h1>{chosen ? DEVICE_TAB_LABELS[tab] : "Choose a machine"}</h1>
+        {chosen && (
+          <nav className="device-tabs" aria-label="Device views">
+            {DEVICE_TABS.map((entry) => (
+              <button
+                key={entry}
+                type="button"
+                className="device-tab"
+                aria-current={entry === tab ? "page" : undefined}
+                onClick={() => onTab(entry)}
+              >
+                {DEVICE_TAB_LABELS[entry]}
+              </button>
+            ))}
+          </nav>
+        )}
         {/* The machine's one local door. The sheet is the same one Home and the account menu open;
             below 640 px this same button stays in the head's first row, with the short visible
-            label and the sheet's full name for assistive technology. */}
-        <div className="page-actions device-connect">
-          <button
-            type="button"
-            className="mini"
-            aria-label="Connect a client"
-            onClick={onConnect}
-          >
-            Connect
-          </button>
-        </div>
+            label and the sheet's full name for assistive technology. With no machine there is no
+            client to connect, so the door waits for the choice. */}
+        {chosen && (
+          <div className="page-actions device-connect">
+            <button
+              type="button"
+              className="mini"
+              aria-label="Connect a client"
+              onClick={onConnect}
+            >
+              Connect
+            </button>
+          </div>
+        )}
       </header>
 
       {/* THE MACHINE'S STATE BELONGS TO EVERY TAB, not only the one that was written first.
@@ -96,7 +106,6 @@ export function DevicePageShell({
         children(grant)
       ) : (
         <section className="empty-state">
-          <h2>Choose a machine</h2>
           <DevicePicker devices={devices} onChoose={onChoose} />
         </section>
       )}

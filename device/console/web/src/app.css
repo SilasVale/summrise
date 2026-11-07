@@ -295,6 +295,15 @@ main.terminal-main { display: grid; grid-template-rows: auto minmax(0, 1fr); ali
 }
 .login-actions { display: flex; gap: var(--sp-2); }
 .login button { justify-self: start; margin-top: var(--sp-1); }
+/* The already-signed-in card keeps the credential form behind one disclosure: the safe action
+   (Back) leads, and nothing that replaces the session is on screen until it is asked for (audit-40
+   F8). A summary is the browser's own control, so the keyboard toggles it without help. */
+.login .token-disclosure { margin-top: var(--sp-1); }
+.login .token-disclosure > summary {
+  cursor: pointer; justify-self: start;
+  font-size: var(--fs-sm); color: var(--accent);
+}
+.login .token-disclosure[open] > summary { margin-bottom: var(--sp-1); }
 .error { color: var(--error); font-size: var(--fs-sm); }
 .lede { color: var(--ink-muted); margin: 0; }
 
@@ -3055,7 +3064,8 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
 }
 
 /* The attention block is the page's one warning surface: it is read before the table, and each row
-   is one problem with one door. A clear fleet keeps the region but turns it calm and green. */
+   is one MACHINE with its problems listed under its name and one door. The machine count in the
+   verdict is the row count here, so four problems over two machines are two rows (audit-40 F6). */
 .attention {
   display: grid; gap: 10px;
   padding: 16px 18px;
@@ -3075,8 +3085,16 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
 }
 .attention-row:first-child { padding-top: 0; border-top: 0; }
 .attention-row:last-child { padding-bottom: 0; }
-.attention-row p { flex: 1; min-width: 15rem; max-width: none; margin: 0; font-size: var(--fs-md); }
-.attention-row .dot { width: 8px; height: 8px; }
+.attention-body { flex: 1; min-width: 15rem; display: grid; gap: 3px; }
+.attention-machine {
+  margin: 0; font-size: var(--fs-md); font-weight: var(--fw-semi);
+  overflow-wrap: anywhere;
+}
+.attention-problems { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.attention-problems li { font-size: var(--fs-md); line-height: 1.4; color: var(--ink-muted); }
+/* The dot marks the machine's NAME, not the middle of a row that now holds its problems: the
+   row's rule centers items, and a centered dot sat beside the first problem instead. */
+.attention-row .dot { width: 8px; height: 8px; align-self: flex-start; margin-top: 6px; }
 .attention-open { flex: none; }
 .attention-clear { border-left-color: var(--ok); padding: 12px 18px; }
 .attention-clear-line {
@@ -3171,8 +3189,8 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
   .attention-row {
     display: grid; grid-template-columns: auto minmax(0, 1fr); row-gap: 8px;
   }
-  .attention-row .dot { grid-column: 1; grid-row: 1; margin-top: 7px; }
-  .attention-row p { grid-column: 2; min-width: 0; }
+  .attention-row .dot { grid-column: 1; grid-row: 1; margin-top: 6px; }
+  .attention-body { grid-column: 2; min-width: 0; }
   .attention-open { grid-column: 2; justify-self: start; }
   /* The table becomes one card per machine: the name owns the first line, the status and the
      version share the next, and the start gets the line under them. No sideways scroll. */

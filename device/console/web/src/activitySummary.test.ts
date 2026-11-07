@@ -157,7 +157,7 @@ describe("activityCounts", () => {
       unattributedFailed: 0
     });
     expect(activityCountSentence(counts)).toBe(
-      "Today: 2 client calls, 1 failed — 1 from the console; 2 poll failures."
+      "Today: 2 client calls, 1 failed — 1 console failure; 2 poll failures."
     );
   });
 });
@@ -179,7 +179,7 @@ describe("activityCountSentence", () => {
     // not the AI's (15 console, 2 unattributed). The number after "client calls" is now the AI's
     // failures only, and the console's are named for what they are.
     expect(activityCountSentence(counts)).toBe(
-      "Today: 301 client calls, 37 failed — 15 from the console; 21 unattributed (2 failed)."
+      "Today: 301 client calls, 37 failed — 15 console failures; 21 unattributed (2 failed)."
     );
   });
 
@@ -189,6 +189,27 @@ describe("activityCountSentence", () => {
     expect(activityCountSentence(counts)).not.toContain("55 failed");
     expect(activityCountSentence({ ...counts, consoleFailed: 0 })).toBe(
       "Today: 301 client calls, 37 failed — 21 unattributed (2 failed)."
+    );
+  });
+
+  it("gives the console's failures their noun instead of a bare number after the dash", () => {
+    // The measured header read `Today: 1 client call — 2 from the console.` while the day held 59
+    // console reads: the 2 are the console's failures, and the sentence never said so (audit-40
+    // F9). The number and its noun are the same fact, singular or plural.
+    const one = {
+      client: 1,
+      clientFailed: 0,
+      console: 59,
+      consoleFailed: 2,
+      poll: 0,
+      pollFailed: 0,
+      unattributed: 0,
+      unattributedFailed: 0
+    };
+    expect(activityCountSentence(one)).toBe("Today: 1 client call — 2 console failures.");
+    expect(activityCountSentence(one)).not.toContain("from the console");
+    expect(activityCountSentence({ ...one, consoleFailed: 1 })).toBe(
+      "Today: 1 client call — 1 console failure."
     );
   });
 
@@ -206,7 +227,7 @@ describe("activityCountSentence", () => {
         unattributed: 0,
         unattributedFailed: 0
       })
-    ).toBe("Today: 495 client calls, 29 failed — 27 from the console.");
+    ).toBe("Today: 495 client calls, 29 failed — 27 console failures.");
   });
 
   it("reads the day header for the measured shape: three client failures, two console, 41 poll", () => {
@@ -225,7 +246,7 @@ describe("activityCountSentence", () => {
         unattributedFailed: 0
       })
     ).toBe(
-      "Today: 3 client calls, 3 failed — 2 from the console; 41 poll failures."
+      "Today: 3 client calls, 3 failed — 2 console failures; 41 poll failures."
     );
   });
 
@@ -258,7 +279,7 @@ describe("activityCountSentence", () => {
       unattributedFailed: 0
     };
     expect(activityCountSentence(day)).toBe(
-      "Today: 495 client calls, 29 failed — 27 from the console; 34 unattributed."
+      "Today: 495 client calls, 29 failed — 27 console failures; 34 unattributed."
     );
     expect(activityCountSentence(day)).not.toMatch(/poll/i);
   });
@@ -279,10 +300,10 @@ describe("activityCountSentence", () => {
     };
     const sentence = activityCountSentence(measured);
     expect(sentence).toBe(
-      "Today: 495 client calls, 29 failed — 27 from the console; 1 poll failure; 34 unattributed."
+      "Today: 495 client calls, 29 failed — 27 console failures; 1 poll failure; 34 unattributed."
     );
     expect(sentence.match(/client calls?/g)).toHaveLength(1);
-    expect(sentence.startsWith("Today: 495 client calls, 29 failed — 27 from the console")).toBe(
+    expect(sentence.startsWith("Today: 495 client calls, 29 failed — 27 console failures")).toBe(
       true
     );
   });
@@ -332,7 +353,7 @@ describe("activityCountSentence", () => {
       unattributed_failed: 1
     };
     expect(activityDaySentence(day)).toBe(
-      "Today: 649 client calls, 74 failed — 2 from the console; 41 poll failures; " +
+      "Today: 649 client calls, 74 failed — 2 console failures; 41 poll failures; " +
         "3 unattributed (1 failed)."
     );
     // The filter no longer changes this sentence: it is the day's, and the filter's own count is

@@ -76,26 +76,24 @@ function storeSelectedDevice(id: string | null) {
  * `detail` is evidence, never the sentence: the browser's own `Failed to fetch`, or the console's
  * status and code. It is the entry's title, where a curious operator can read it and a sentence
  * cannot present it as the console's words.
+ *
+ * THE BANNER HAS NO RETRY. The page that owns the failed read draws the one control that reads it
+ * again (`The machine list is not shown.` + Retry, `This timeline shows only calls that arrive
+ * live.` + Retry); a second Retry in the banner made one failure offer two identical buttons
+ * (audit-40 F4).
  */
 type BannerFailure = {
   key: string;
   sentence: string;
   detail?: string;
-  retry?: { label: string; run: () => void };
 };
 
-/** A failed read's entry: the subject is the sentence, the cause is the title, the retry is offered. */
-function readFailure(
-  key: string,
-  subject: string,
-  cause: unknown,
-  run: () => void
-): BannerFailure {
+/** A failed read's entry: the subject is the sentence and the cause is the title. */
+function readFailure(key: string, subject: string, cause: unknown): BannerFailure {
   return {
     key,
     sentence: `The console could not read ${subject}.`,
-    detail: describe(cause),
-    retry: { label: `Retry reading ${subject}`, run }
+    detail: describe(cause)
   };
 }
 
@@ -384,7 +382,7 @@ export function App() {
    *
    * THE OLD STATE WAS ONE STRING OF RAW CAUSES: `The console could not read Failed to fetch`, and
    * two failed reads joined with `; ` (audit-38 F2). A failure now carries its subject, the
-   * browser's text only as the entry's title, and the retry that reads again.
+   * browser's text only as the entry's title; the page's notice owns the one Retry.
    */
   const [failures, setFailures] = useState<BannerFailure[]>([]);
   const [busy, setBusy] = useState(false);
@@ -527,8 +525,8 @@ export function App() {
     auditDevice === auditScopeDevice;
   /**
    * What the page can show while the audit is unread: the useful clause only. The failure itself is
-   * the shell banner's one sentence, and the cause is the header line's title — the page said it
-   * three times, the last time in the browser's words (audit-39 F4).
+   * the shell banner's one sentence — the page said it three times, the last time in the browser's
+   * words (audit-39 F4) — and this notice owns the one Retry, so the banner needs no second.
    */
   const auditFailedNotice =
     auditRead.state === "failed"
@@ -542,6 +540,26 @@ export function App() {
   // first read is the one that has no other loading surface.
   const auditReadingFirst =
     auditRead.state === "reading" && auditUnread && !auditReadingOther;
+  /**
+   * The header's line, or none. A failed read has no state sentence of its own: the banner names
+   * the failure and the notice says what the page can still show, so `The audit could not be read.`
+   * was the banner's sentence in another voice (audit-40 F4). A pause or a dropped-lines warning is
+   * still the page's own fact and keeps its line.
+   */
+  const activityStatus: string | null =
+    live.lagged > 0
+      ? `${live.lagged} lines were dropped while this tab was behind; rereading`
+      : activityPaused
+        ? "Paused — the stream is still running; Resume shows what arrived."
+        : auditRead.state === "failed"
+          ? null
+          : auditReadingFirst
+            ? "Reading the audit…"
+            : live.state === "live"
+              ? "Following the console's audit as it is written."
+              : live.state === "offline"
+                ? "The live stream is down; this is the last read."
+                : "Opening the live stream.";
 
   /**
    * Record a failure by its read. A repeat replaces the read's entry in place, so an outage's many
@@ -602,10 +620,9 @@ export function App() {
   const refreshData = useCallback(async () => {
     // EACH STREAM ANSWERS FOR ITSELF, AND LANDS WHEN IT ANSWERS. A failed /audit must not turn the
     // fleet into "0 devices" or Activity into "no calls": the last known values stay, and each failed
-    // read keeps its own named banner with the same reader as its retry. Nor may a SLOW /audit hold
-    // /fleet back: audit-38 F6 measured known machines drawn as "unknown machine · <hex>" and the
-    // selected header missing because the page waited for every read before drawing any of them.
-    const retry = () => void refreshData();
+    // read keeps its own named banner. Nor may a SLOW /audit hold /fleet back: audit-38 F6 measured
+    // known machines drawn as "unknown machine · <hex>" and the selected header missing because the
+    // page waited for every read before drawing any of them.
     const fleetAnswer = api.devices().then(
       (list) => {
         setDevices(list);
@@ -620,9 +637,9 @@ export function App() {
         // The last list stays on screen: it is still the console's knowledge. The read state is what
         // keeps it from being drawn as an empty fleet, and the reason is what the page can say.
         setFleetRead({ state: "failed", reason: describe(reason) });
-        // The page's own notice carries the reason; the shell's banner names the read, offers the
-        // retry, and keeps the browser's text in the title rather than in the sentence.
-        reportFailure(readFailure("fleet", "the machine list", reason, retry));
+        // The page's own notice carries what is missing and the one Retry; the shell's banner
+        // names the read and keeps the browser's text in the title rather than in the sentence.
+        reportFailure(readFailure("fleet", "the machine list", reason));
       }
     );
     const tokensAnswer = tokensOrEmpty().then((list) => setTokens(list));
@@ -630,7 +647,7 @@ export function App() {
     // names.
     const auditAnswer = rereadAudit().then(
       () => clearFailure("audit"),
-      (cause) => reportFailure(readFailure("audit", "the audit", cause, retry))
+      (cause) => reportFailure(readFailure("audit", "the audit", cause))
     );
     // The page's callers still await every read, so a boot or a poll settles only when all three
     // have answered; what changed is WHEN each answer reaches the page.
@@ -642,14 +659,14 @@ export function App() {
    * poll and the lag catch-up use, with the scope's device. `auditReadDevice` is the read already in
    * hand or in flight; when it already names this scope there is nothing to fetch.
    *
-   * It is declared after `refreshData` because the banner's Retry is that reader: a retry answers
+   * It is declared after `refreshData` because the notice's Retry is that reader: a retry answers
    * both reads and clears each banner its answer settles.
    */
   useEffect(() => {
     if (!session?.authenticated) return;
     if (auditReadDevice === auditScopeDevice) return;
     rereadAudit().catch((cause) => {
-      reportFailure(readFailure("audit", "the audit", cause, () => void refreshData()));
+      reportFailure(readFailure("audit", "the audit", cause));
     });
   }, [
     session?.authenticated,
@@ -863,9 +880,13 @@ export function App() {
   // the signed-out tab should not claim a machine page it is not showing.
   useEffect(() => {
     // The fleet's one h1 is its noun: Machines. Home is the hub state, once a machine is chosen.
+    // Device without a machine is the picker, and the tab title says that rather than a tab that
+    // is not drawn (audit-40 F7).
     const current =
       page === "device"
-        ? DEVICE_TAB_LABELS[tab]
+        ? chosen === null
+          ? "Choose a machine"
+          : DEVICE_TAB_LABELS[tab]
         : page === "home" && chosen === null
           ? "Machines"
           : PAGE_LABELS[page];
@@ -1053,22 +1074,58 @@ export function App() {
   // person told "the sign-in page" has somewhere to go without first signing out (audit-39 F6).
   if (!session.authenticated || signInRoute) {
     const alreadySignedIn = session.authenticated;
+    /**
+     * The token form, wherever the panel offers it: the signed-out card's way in, the proxied
+     * card's alternative, and — while signed in — the disclosed way to replace the session.
+     */
+    const tokenForm = (
+      <>
+        <label htmlFor="token">Operator token</label>
+        <input
+          id="token"
+          type="password"
+          autoComplete="off"
+          spellCheck={false}
+          value={tokenInput}
+          onChange={(event) => setTokenInput(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" && tokenInput.trim()) void signIn();
+          }}
+          placeholder="64 hex characters"
+        />
+        <button className="primary" type="button" disabled={busy || tokenInput.trim().length === 0} onClick={() => void signIn()}>
+          {busy ? "Checking…" : "Sign in"}
+        </button>
+      </>
+    );
     return (
       <div className="login-wrap">
         <section className="panel login">
           <img src={logoUrl} alt="" width={40} height={40} />
           {alreadySignedIn ? (
             <>
-              <h1>Sign in to the console</h1>
+              {/* **THE TITLE AGREES WITH THE SENTENCE, AND THE SAFE ACTION IS FIRST.** The panel used
+                  to be headed `Sign in to the console` while its sentence said this tab was signed
+                  in, with the credential-replacing form as the primary. Now the page names the
+                  state, Back leads, and the form is one disclosure away (audit-40 F8). */}
+              <h1>You are signed in</h1>
               <p className="hint">
-                This tab is already signed in. Entering an operator token replaces the sign-in it
-                holds; nothing on the console changes until it is accepted.
+                This tab is already signed in. Back returns to the console without changing that;
+                a different token replaces the sign-in only when the console accepts it.
               </p>
               <div className="login-actions">
-                <button type="button" onClick={() => setSignInRoute(false)}>
+                <button
+                  type="button"
+                  className="primary"
+                  onClick={() => setSignInRoute(false)}
+                >
                   Back to the console
                 </button>
               </div>
+              <details className="token-disclosure">
+                <summary>Use a different token</summary>
+                {tokenForm}
+              </details>
             </>
           ) : proxied ? (
             <>
@@ -1124,22 +1181,7 @@ export function App() {
               )}
             </>
           )}
-          <label htmlFor="token">Operator token</label>
-          <input
-            id="token"
-            type="password"
-            autoComplete="off"
-            spellCheck={false}
-            value={tokenInput}
-            onChange={(event) => setTokenInput(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" && tokenInput.trim()) void signIn();
-            }}
-            placeholder="64 hex characters"
-          />
-          <button className="primary" type="button" disabled={busy || tokenInput.trim().length === 0} onClick={() => void signIn()}>
-            {busy ? "Checking…" : "Sign in"}
-          </button>
+          {!alreadySignedIn && tokenForm}
           {failures.length > 0 && (
             // A REFUSED SIGN-IN IS AN ALERT. The shell's banner already announces other failures;
             // the panel's sentence is the console's answer to the press and is announced the same
@@ -1192,15 +1234,6 @@ export function App() {
           {failures.map((failure) => (
             <div className="alert-banner" role="alert" key={failure.key}>
               <span title={failure.detail}>{failure.sentence}</span>
-              {failure.retry && (
-                <button
-                  type="button"
-                  aria-label={failure.retry.label}
-                  onClick={failure.retry.run}
-                >
-                  Retry
-                </button>
-              )}
               <button type="button" onClick={() => clearFailure(failure.key)}>
                 Dismiss
               </button>
@@ -1292,27 +1325,12 @@ export function App() {
                 {activityCount !== null && activityRange === null && (
                   <p className="page-sub activity-today">{activityCount}</p>
                 )}
-                {/* **THE PAGE'S LINE, WITH THE CAUSE IN ITS TITLE.** The shell banner carries the
-                    named failure once; this line says what the page cannot show, and the browser's
-                    own text is evidence rather than a sentence (audit-39 F4). */}
-                <p
-                  className="page-sub activity-status"
-                  title={auditRead.state === "failed" ? auditRead.reason : undefined}
-                >
-                  {live.lagged > 0
-                    ? `${live.lagged} lines were dropped while this tab was behind; rereading`
-                    : activityPaused
-                      ? "Paused — the stream is still running; Resume shows what arrived."
-                      : auditRead.state === "failed"
-                        ? "The audit could not be read."
-                        : auditReadingFirst
-                          ? "Reading the audit…"
-                          : live.state === "live"
-                            ? "Following the console's audit as it is written."
-                            : live.state === "offline"
-                              ? "The live stream is down; this is the last read."
-                              : "Opening the live stream."}
-                </p>
+                {/* **THE FAILED READ HAS ONE SENTENCE, AND IT IS THE BANNER'S.** This line is
+                    the page's state (following, reading, paused, lagging) and is absent when the
+                    only thing to say would be the failure again (audit-40 F4). */}
+                {activityStatus !== null && (
+                  <p className="page-sub activity-status">{activityStatus}</p>
+                )}
               </div>
               <div className="page-actions">
                 <span className={"live-state" + (live.state === "live" && !activityPaused ? " is-active" : "")}>

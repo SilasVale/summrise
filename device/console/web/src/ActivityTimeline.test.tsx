@@ -1,7 +1,8 @@
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AuditLine, AuditSource, Device, TokenMeta } from "./api";
 import { ActivityTimeline } from "./ActivityTimeline";
+import { restoreGlobal } from "./test/dom";
 
 // The timeline is the proof, not the summary: a row that opens must show the call as it was sent and
 // what came back. A row fetched from the audit file has no such body and must say why rather than
@@ -1098,5 +1099,70 @@ describe("ActivityTimeline's labelled filter and record footer", () => {
       "Showing the newest 1000 lines — the window's limit."
     );
     expect(footer?.querySelector(".audit-source")).toHaveTextContent(/^Reading audit\.jsonl/);
+  });
+});
+
+/**
+ * THE PHONE'S FILTER BLOCK IS THE RECORD'S FOE. At 390 the two dated `old id` chips took two full
+ * rows above the first record, which started at y=600 — below the fold of the page's own head and
+ * filters (audit-40 F5). They are already options in the Table's Device filter, so the phone keeps
+ * the live machines and the ACTIVE scope; the desktop keeps every dated chip.
+ */
+describe("ActivityTimeline on a phone", () => {
+  const matchMediaDescriptor = Object.getOwnPropertyDescriptor(window, "matchMedia");
+
+  beforeEach(() => {
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: vi.fn(() => ({
+        matches: true,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn()
+      }))
+    });
+  });
+
+  afterEach(() => {
+    restoreGlobal(window, "matchMedia", matchMediaDescriptor);
+  });
+
+  it("drops the retired ids from the machine chips, keeping the live machines", () => {
+    const ghost = line({
+      ts_ms: Date.UTC(2026, 10, 5, 9, 5, 0),
+      device_id: retiredHex,
+      sentence: "Listed the plugins",
+      tool: "plugins.list"
+    });
+    render(
+      <ActivityTimeline
+        lines={[ghost, fromAlpha]}
+        devices={devices}
+        nowMs={Date.UTC(2026, 10, 5, 9, 10, 0)}
+      />
+    );
+
+    const group = screen.getByRole("group", { name: "Filter by machine" });
+    expect(within(group).getByRole("button", { name: "All machines" })).toBeInTheDocument();
+    expect(within(group).getByRole("button", { name: "Alpha" })).toBeInTheDocument();
+    expect(within(group).getByRole("button", { name: "Beta" })).toBeInTheDocument();
+    expect(within(group).queryByText(/old id/)).toBeNull();
+    // The row is still the record; only its scope chip is gone (the Table's Device filter has it).
+    expect(screen.getByText("Listed the plugins")).toBeInTheDocument();
+  });
+
+  it("keeps an active retired scope visible, because a hidden filter is a trap", () => {
+    render(
+      <ActivityTimeline
+        lines={[fromAlpha]}
+        devices={devices}
+        device={retiredHex}
+        nowMs={Date.UTC(2026, 10, 5, 9, 10, 0)}
+      />
+    );
+
+    const group = screen.getByRole("group", { name: "Filter by machine" });
+    const chip = within(group).getByRole("button", { name: "old id · fe209fc2c119…" });
+    expect(chip).toHaveAttribute("aria-pressed", "true");
+    expect(within(group).queryByRole("button", { name: "Alpha" })).toBeInTheDocument();
   });
 });

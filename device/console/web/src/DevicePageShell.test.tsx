@@ -156,3 +156,35 @@ describe("DevicePageShell offline notice", () => {
     expect(screen.getByText("refused: nothing was installed")).toBeInTheDocument();
   });
 });
+
+describe("DevicePageShell without a machine", () => {
+  it("is the picker: its title is the question, and no tab strip or Connect is drawn", () => {
+    // audit-40 F7: the page was headed `Terminal` with the full tab strip above `Choose a machine`,
+    // inviting five surfaces that cannot run until a machine is chosen. The picker is the page now.
+    const onTab = vi.fn();
+    const onChoose = vi.fn();
+    render(
+      <DevicePageShell
+        tab="terminal"
+        onTab={onTab}
+        devices={[MACHINE]}
+        chosen={null}
+        onChoose={onChoose}
+        onConnect={() => undefined}
+      >
+        {() => <p>page contents</p>}
+      </DevicePageShell>
+    );
+
+    expect(
+      screen.getByRole("heading", { name: "Choose a machine", level: 1 })
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Terminal" })).toBeNull();
+    expect(screen.queryByRole("navigation", { name: "Device views" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Connect a client" })).toBeNull();
+    // The picker itself is still the page's action.
+    fireEvent.click(screen.getByRole("button", { name: "Use workshop" }));
+    expect(onChoose).toHaveBeenCalledWith(MACHINE.id);
+    expect(screen.queryByText("page contents")).toBeNull();
+  });
+});

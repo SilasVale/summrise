@@ -1245,6 +1245,9 @@ function drawFleet(extra: Record<string, unknown> = {}) {
   const onRetryFleet = vi.fn();
   const onAddMachine = vi.fn();
   const onOpen = vi.fn();
+  const onConnect = vi.fn();
+  const onTools = vi.fn();
+  const onActivity = vi.fn();
   const fleetProps = {
     device: null,
     devices: [],
@@ -1260,9 +1263,9 @@ function drawFleet(extra: Record<string, unknown> = {}) {
     onTokens,
     onDismissCode: vi.fn(),
     onNotice: vi.fn(),
-    onConnect: vi.fn(),
-    onTools: vi.fn(),
-    onActivity: vi.fn(),
+    onConnect,
+    onTools,
+    onActivity,
     onRetryFleet
   };
   const page = (overrides: Record<string, unknown> = {}) => (
@@ -1275,6 +1278,9 @@ function drawFleet(extra: Record<string, unknown> = {}) {
     onRetryFleet,
     onAddMachine,
     onOpen,
+    onConnect,
+    onTools,
+    onActivity,
     rerenderFleet: (overrides: Record<string, unknown>) =>
       view.rerender(page({ ...extra, ...overrides }))
   };
@@ -1324,8 +1330,11 @@ describe("Home — the fleet's installer", () => {
     drawFleet({ devices: [{ ...workshop, version: "0.3.8" }] });
 
     expect(
-      await screen.findByText("workshop is behind: v0.3.8, the console has 0.3.9.")
+      await screen.findByText("Behind: v0.3.8, the release is 0.3.9.")
     ).toBeInTheDocument();
+    // The staged installer is the RELEASE; the console's own build is another version scheme and
+    // the page may not call both "the console" (audit-40 F10).
+    expect(screen.queryByText(/the console has/)).toBeNull();
     expect(screen.queryByText("behind 0.3.9")).toBeNull();
   });
 
@@ -1445,8 +1454,13 @@ describe("Home — the verdict and what needs attention", () => {
     expect(
       await screen.findByText("3 of 4 online · 1 needs attention")
     ).toBeInTheDocument();
+    // The row's heading is the machine and the problem is a line under it (audit-40 F6).
+    const attention = screen.getByRole("region", { name: "Needs attention" });
     expect(
-      screen.getByText("DESKTOP-14RJCR8 is offline — last seen 2d 5h ago.")
+      within(attention).getByRole("heading", { name: "DESKTOP-14RJCR8", level: 3 })
+    ).toBeInTheDocument();
+    expect(
+      within(attention).getByText("Offline — last seen 2d 5h ago.")
     ).toBeInTheDocument();
   });
 
@@ -1464,14 +1478,17 @@ describe("Home — the verdict and what needs attention", () => {
     expect(
       await screen.findByText("4 of 4 online · 1 needs attention")
     ).toBeInTheDocument();
+    const attention = screen.getByRole("region", { name: "Needs attention" });
+    expect(within(attention).getByRole("heading", { name: "old", level: 3 })).toBeInTheDocument();
     expect(
-      screen.getByText("old is behind: v0.3.8, the console has 0.3.9.")
+      within(attention).getByText("Behind: v0.3.8, the release is 0.3.9.")
     ).toBeInTheDocument();
   });
 
-  it("draws one row per problem, each with a button that opens its machine", async () => {
-    // The real 14R shape: offline and behind at once. The verdict counts machines (one), the
-    // block counts problems (two rows), and each row has its own door.
+  it("draws one row per machine, its problems listed, with one button that opens it", async () => {
+    // The real 14R shape: offline and behind at once. The verdict counts machines (one), so the
+    // block draws one row with both problems listed and ONE door — four rows and four identical
+    // buttons over two machines made the count and the block disagree (audit-40 F6).
     installerApi.installer.mockResolvedValue({ ...installerFacts, version: "0.3.289" });
     const { onOpen } = drawFleet({
       devices: [
@@ -1492,21 +1509,75 @@ describe("Home — the verdict and what needs attention", () => {
     expect(
       await screen.findByText("3 of 4 online · 1 needs attention")
     ).toBeInTheDocument();
-    expect(
-      screen.getByText("DESKTOP-14RJCR8 is offline — last seen 2d 5h ago.")
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText("DESKTOP-14RJCR8 is behind: v0.3.275, the console has 0.3.289.")
-    ).toBeInTheDocument();
-
     const attention = screen.getByRole("region", { name: "Needs attention" });
-    expect(within(attention).getAllByRole("listitem")).toHaveLength(2);
+    expect(attention.querySelectorAll(".attention-row")).toHaveLength(1);
+    expect(
+      within(attention).getByRole("heading", { name: "DESKTOP-14RJCR8", level: 3 })
+    ).toBeInTheDocument();
+    const problems = attention.querySelectorAll(".attention-problems li");
+    expect(Array.from(problems, (problem) => problem.textContent)).toEqual([
+      "Offline — last seen 2d 5h ago.",
+      "Behind: v0.3.275, the release is 0.3.289."
+    ]);
+    // One door for one machine; the name appears once, not in every problem line.
     const doors = within(attention).getAllByRole("button", {
       name: "Open machine for DESKTOP-14RJCR8"
     });
-    expect(doors).toHaveLength(2);
+    expect(doors).toHaveLength(1);
+    expect(within(attention).getAllByText(/DESKTOP-14RJCR8/)).toHaveLength(1);
     fireEvent.click(doors[0]);
     expect(onOpen).toHaveBeenCalledWith("r14");
+  });
+
+  it("folds two machines' four problems into two rows, each with its own door", async () => {
+    // The measured 390 page: 14R and CPH each away and behind, four problems and four buttons in
+    // four rows. The block keeps every fact and loses the duplicate door: two rows, two doors
+    // (audit-40 F6).
+    installerApi.installer.mockResolvedValue({ ...installerFacts, version: "0.3.290" });
+    const { onOpen } = drawFleet({
+      devices: [
+        machine({
+          id: "r14",
+          name: "DESKTOP-14RJCR8",
+          online: false,
+          version: "0.3.275",
+          last_frame_ms: Date.now() - (2 * 24 + 11) * 3_600_000
+        }),
+        machine({
+          id: "cph",
+          name: "DESKTOP-CPH4KB2",
+          online: false,
+          version: "0.3.289",
+          last_frame_ms: Date.now() - (9 * 60 + 29) * 60_000
+        })
+      ],
+      fleetRead: { state: "ready", at: Date.now() }
+    });
+
+    expect(
+      await screen.findByText("0 of 2 online · 2 need attention")
+    ).toBeInTheDocument();
+    const attention = screen.getByRole("region", { name: "Needs attention" });
+    const rows = Array.from(attention.querySelectorAll(".attention-row"));
+    expect(rows).toHaveLength(2);
+    expect(rows.map((row) => row.querySelector(".attention-machine")?.textContent)).toEqual([
+      "DESKTOP-14RJCR8",
+      "DESKTOP-CPH4KB2"
+    ]);
+    expect(rows.map((row) => row.querySelectorAll(".attention-problems li").length)).toEqual([
+      2, 2
+    ]);
+    // One door per machine, named for that machine — the four identical buttons are gone.
+    expect(
+      within(attention).getAllByRole("button", { name: "Open machine for DESKTOP-14RJCR8" })
+    ).toHaveLength(1);
+    expect(
+      within(attention).getAllByRole("button", { name: "Open machine for DESKTOP-CPH4KB2" })
+    ).toHaveLength(1);
+    fireEvent.click(
+      within(attention).getByRole("button", { name: "Open machine for DESKTOP-CPH4KB2" })
+    );
+    expect(onOpen).toHaveBeenCalledWith("cph");
   });
 
   it("says nothing needs attention, with the fleet read's age, when the fleet is healthy", async () => {
@@ -1697,10 +1768,12 @@ describe("Home — the fleet's read", () => {
       fleetRead: { state: "failed", reason: "Failed to fetch" }
     });
 
-    // ONE FAILURE, ONE SENTENCE (audit-39 F4): the page says what it cannot show, the cause is the
-    // line's title, and the browser's words are never the page's sentence.
-    expect(screen.getByText("The machine list could not be read.")).toBeInTheDocument();
+    // ONE FAILURE, ONE SENTENCE (audit-40 F4): the shell's banner names the failure, this page says
+    // only what it cannot show, and the cause is the line's title — never a second failure sentence
+    // and never the browser's words.
     expect(screen.getByText("The machine list is not shown.")).toBeInTheDocument();
+    expect(screen.queryByText("The machine list could not be read.")).toBeNull();
+    expect(screen.queryByText(/could not be read/)).toBeNull();
     expect(screen.getByTitle("Failed to fetch")).toBeInTheDocument();
     expect(document.body.textContent).not.toContain("Failed to fetch");
     expect(screen.queryByText("No machines yet")).toBeNull();
@@ -1721,11 +1794,11 @@ describe("Home — the fleet's read", () => {
       fleetRead: { state: "failed", reason: "503 device_unavailable" }
     });
 
-    expect(screen.getByText("The machine list could not be read.")).toBeInTheDocument();
     expect(
       screen.getByText(/The machines below are the last list it read\./)
     ).toBeInTheDocument();
     // The stale clause replaces the failure sentence; the console's status is the title's.
+    expect(screen.queryByText("The machine list could not be read.")).toBeNull();
     expect(screen.getByTitle("503 device_unavailable")).toBeInTheDocument();
     expect(document.body.textContent).not.toContain("503 device_unavailable");
     expect(screen.getByText("workshop")).toBeInTheDocument();
@@ -1762,7 +1835,7 @@ describe("Home — the fleet's read", () => {
       fleetRead: { state: "failed", reason: "Failed to fetch" }
     });
 
-    // The failure and its Retry stay; the doors are the next step below the stated failure.
+    // The missing list and its one Retry stay; the doors are the next step beside them.
     expect(screen.getByText("The machine list is not shown.")).toBeInTheDocument();
     expect(document.body.textContent).not.toContain("Failed to fetch");
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));

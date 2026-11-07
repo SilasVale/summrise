@@ -7,6 +7,7 @@ import { rangeText } from "./auditTime";
 import type { AuditLine } from "./api";
 import { VITALS_KEY_PREFIX, type VitalsSample } from "./vitals";
 import { resetLiveToolsCache } from "./useLiveTools";
+import { runLink } from "./run-link";
 
 // The shell is driven against a mocked HTTP surface: no request leaves jsdom, and the sign-in state is a
 // flag here rather than a server. `api.signIn` flips it, so the following `api.session` reports the
@@ -467,14 +468,30 @@ describe("App", () => {
       window.history.replaceState(null, "", "#signin");
       window.dispatchEvent(new Event("hashchange"));
     });
+    // **THE TITLE AGREES WITH THE SENTENCE (audit-40 F8).** The signed-in panel names the state; it
+    // is not a second "Sign in to the console" under a paragraph saying you already are.
     expect(
-      await screen.findByRole("heading", { name: "Sign in to the console" })
+      await screen.findByRole("heading", { name: "You are signed in" })
     ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("heading", { name: "Sign in to the console" })
+    ).not.toBeInTheDocument();
     expect(window.location.hash).toBe("#signin");
     expect(document.title).toBe("Sign in · Summrise console");
     expect(screen.getByText(/already signed in/)).toBeInTheDocument();
+    // Back leads and is the primary action; the credential form is behind one disclosure, not the
+    // first thing the page asks a signed-in operator to do.
+    const back = screen.getByRole("button", { name: "Back to the console" });
+    expect(back).toHaveClass("primary");
+    const disclosure = screen.getByText("Use a different token").closest("details");
+    expect(disclosure).not.toBeNull();
+    expect(disclosure).not.toHaveAttribute("open");
+    expect(back.compareDocumentPosition(disclosure as Node) & Node.DOCUMENT_POSITION_FOLLOWING)
+      .toBeTruthy();
+    const token = screen.getByLabelText("Operator token");
+    expect(token.closest("details")).toBe(disclosure);
 
-    fireEvent.click(screen.getByRole("button", { name: "Back to the console" }));
+    fireEvent.click(back);
     expect(await screen.findByRole("heading", { name: "Machines", level: 1 })).toBeInTheDocument();
     await waitFor(() => expect(window.location.hash).toBe("#home"));
     // No logout was made by looking at the panel.
@@ -490,16 +507,24 @@ describe("App", () => {
     // Three seconds, not the default one: the suite runs 42 files across workers, and this test waits
     // for a whole sign-in — session, fleet, audit and tokens — before the surface named in the URL
     // can render. It flaked once in a full run and never alone; a load-induced timeout is the shape.
+    // The tab is honoured and remembered, but the page's first question is the machine: no machine
+    // is selected, so the picker is the page and the Files surface waits for one (audit-40 F7).
     expect(
-      await screen.findByRole("heading", { name: "Files", level: 1 }, { timeout: 3000 })
+      await screen.findByRole("heading", { name: "Choose a machine", level: 1 }, {
+        timeout: 3000
+      })
     ).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Files", level: 1 })).toBeNull();
     // The address bar is rewritten by an effect after the route renders; a synchronous read raced it.
     await waitFor(() => expect(window.location.hash).toBe("#device/files"));
     window.history.replaceState(null, "", window.location.pathname);
   });
 
   it("opens Runs on boot when the URL names a run", async () => {
-    window.history.replaceState(null, "", "#run/workshop/r-1");
+    // The link carries the machine's fleet id, as the one Activity writes does; it selects that
+    // machine, so the Device shell draws the Runs tab rather than the picker.
+    const link = runLink(workshop.id, "r-1");
+    window.history.replaceState(null, "", link);
     await boot();
     fireEvent.change(screen.getByLabelText("Operator token"), { target: { value: "operator-token" } });
     fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
@@ -507,7 +532,7 @@ describe("App", () => {
     expect(
       await screen.findByRole("heading", { name: "Runs", level: 1 }, { timeout: 3000 })
     ).toBeInTheDocument();
-    await waitFor(() => expect(window.location.hash).toBe("#run/workshop/r-1"));
+    await waitFor(() => expect(window.location.hash).toBe(link));
     window.history.replaceState(null, "", window.location.pathname);
   });
 
@@ -596,7 +621,7 @@ describe("App", () => {
     fireEvent.click(screen.getByRole("button", { name: "Activity" }));
 
     const sentence =
-      "Today: 2 client calls, 1 failed — 1 from the console; 2 unattributed (1 failed).";
+      "Today: 2 client calls, 1 failed — 1 console failure; 2 unattributed (1 failed).";
     expect(await screen.findByText(sentence)).toBeInTheDocument();
 
     // Activity is the audit: every caller is drawn by default, and the hub's console-reads fold is
@@ -688,7 +713,7 @@ describe("App", () => {
     fireEvent.click(screen.getByRole("button", { name: "Activity" }));
 
     expect(
-      await screen.findByText("Today: 649 client calls, 74 failed — 2 from the console.")
+      await screen.findByText("Today: 649 client calls, 74 failed — 2 console failures.")
     ).toBeInTheDocument();
     expect(
       screen.getByText(
@@ -941,7 +966,7 @@ describe("App", () => {
 
     expect(
       await screen.findByText(
-        "Today: 3 client calls, 3 failed — 2 from the console; 41 poll failures."
+        "Today: 3 client calls, 3 failed — 2 console failures; 41 poll failures."
       )
     ).toBeInTheDocument();
 
@@ -962,6 +987,9 @@ describe("App", () => {
   it("follows the fragment when the address bar changes, not only at first render", async () => {
     await bootAndSignIn();
     expect(screen.getByRole("heading", { name: "Machines", level: 1 })).toBeInTheDocument();
+    // A Device tab draws its surface only with a machine; the fragment test is about the address,
+    // so choose one first and let the link move the tab (audit-40 F7).
+    selectDevice("workshop");
 
     // A hash change is what Back, Forward and a pasted link produce. Nothing fired a click here.
     window.history.replaceState(null, "", "#device/files");
@@ -986,7 +1014,12 @@ describe("App", () => {
     await screen.findByRole("heading", { name: "Activity", level: 1 });
     await waitFor(() => expect(document.title).toBe("Activity · Summrise console"));
 
+    // Device without a machine is the picker, and the tab names it rather than a tab that is not
+    // drawn (audit-40 F7).
     fireEvent.click(screen.getByRole("button", { name: "Device" }));
+    await waitFor(() => expect(document.title).toBe("Choose a machine · Summrise console"));
+
+    fireEvent.click(screen.getByRole("button", { name: "Use workshop" }));
     await waitFor(() => expect(document.title).toBe("Terminal · Summrise console"));
 
     fireEvent.click(screen.getByRole("button", { name: "Tools" }));
@@ -1582,8 +1615,23 @@ describe("App", () => {
     ).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Device" }));
-    expect(screen.getByRole("heading", { name: "Terminal", level: 1 })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Choose a machine" })).toBeInTheDocument();
+    // **THERE IS NO TERMINAL WITHOUT A MACHINE (audit-40 F7).** The picker is the page: its title
+    // is the question, the tab strip is not drawn, and Connect waits with it.
+    expect(
+      screen.getByRole("heading", { name: "Choose a machine", level: 1 })
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Terminal", level: 1 })).toBeNull();
+    expect(screen.queryByRole("navigation", { name: "Device views" })).toBeNull();
+    expect(
+      within(screen.getByRole("main")).queryByRole("button", { name: "Connect a client" })
+    ).toBeNull();
+    expect(screen.queryByRole("button", { name: "Screen" })).toBeNull();
+
+    // Choosing a machine opens the tabs on the stored tab (Terminal from the rail's entry).
+    fireEvent.click(screen.getByRole("button", { name: "Use workshop" }));
+    expect(
+      screen.getByRole("heading", { name: "Terminal", level: 1 })
+    ).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Screen" }));
     expect(screen.getByRole("heading", { name: "Screen", level: 1 })).toBeInTheDocument();
     expect(screen.queryByText("No calls yet.")).not.toBeInTheDocument();
@@ -2189,8 +2237,8 @@ describe("App", () => {
   it("says the audit read failed, with its reason and a retry, instead of following it", async () => {
     // audit-38 F6: the audit was unread, but Activity still said it was following the record; the
     // counts and the source line were gone with no sentence saying why, so a live-only list read as
-    // the whole day's work. audit-39 F4: the banner names the failure once; the page keeps only what
-    // it cannot show, and the browser's cause is a title.
+    // the whole day's work. audit-40 F4: the banner names the failure once — the page's head has no
+    // second copy of it — and the notice says what the timeline can still show, with the one Retry.
     mocks.audit.mockRejectedValue(new TypeError("Failed to fetch"));
     const view = await bootAndSignIn();
     fireEvent.click(screen.getByRole("button", { name: "Activity" }));
@@ -2205,9 +2253,11 @@ describe("App", () => {
     expect(screen.queryByText(/Following the console's audit/)).toBeNull();
     const banner = await screen.findByRole("alert");
     expect(banner).toHaveTextContent("The console could not read the audit.");
-    expect(screen.getByText("The audit could not be read.")).toBeInTheDocument();
-    const status = screen.getByText("The audit could not be read.");
-    expect(status).toHaveAttribute("title", "Failed to fetch");
+    expect(within(banner).getByTitle("Failed to fetch")).toBeInTheDocument();
+    // The page says what is missing, not the failure again, and has no status line to carry a
+    // second copy of it (audit-40 F4).
+    expect(screen.queryByText("The audit could not be read.")).toBeNull();
+    expect(document.querySelector(".activity-status")).toBeNull();
     const notice = screen
       .getByText("This timeline shows only calls that arrive live.")
       .closest(".notice");
@@ -2217,10 +2267,12 @@ describe("App", () => {
     expect(
       within(notice as HTMLElement).getByRole("button", { name: "Retry" })
     ).toBeInTheDocument();
-    // The failure is said once in the shell's words; the raw cause is nowhere but a title.
+    // One failure sentence, one Retry, one copy of the cause: the banner holds both the sentence
+    // and the title, and the page's notice holds the control.
     expect(screen.getAllByText("The console could not read the audit.")).toHaveLength(1);
     expect(document.body.textContent).not.toContain("Failed to fetch");
-    expect(screen.getAllByTitle("Failed to fetch")).toHaveLength(2);
+    expect(screen.getAllByTitle("Failed to fetch")).toHaveLength(1);
+    expect(screen.getAllByRole("button", { name: "Retry" })).toHaveLength(1);
     // A record that was not read is not "nothing happened".
     expect(screen.queryByText(/No activity yet/)).toBeNull();
 
@@ -2305,11 +2357,12 @@ describe("App", () => {
     await act(async () => {
       answer.reject(new TypeError("Failed to fetch"));
     });
-    expect(screen.getByText("The audit could not be read.")).toBeInTheDocument();
-    // The banner names the read; the page states what it can show, and the cause is a title.
+    // The banner names the read; the page states what it can show, not the failure again.
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "The console could not read the audit."
     );
+    expect(screen.queryByText("The audit could not be read.")).toBeNull();
+    expect(document.querySelector(".activity-status")).toBeNull();
     expect(
       await screen.findByText("This timeline shows only calls that arrive live.")
     ).toBeInTheDocument();
@@ -2423,14 +2476,17 @@ describe("App", () => {
     mocks.devices.mockRejectedValue(new TypeError("Failed to fetch"));
     const view = await signInWithoutFleet();
 
-    // ONE FAILURE, ONE SENTENCE (audit-39 F4): the banner names the read in the console's words and
-    // keeps the browser's text in its title; the page says only what it cannot show.
+    // ONE FAILURE, ONE SENTENCE (audit-40 F4): the banner names the read in the console's words and
+    // keeps the browser's text in its title; the page says only what it cannot show, and its notice
+    // owns the one Retry — the banner has none.
     const banner = await screen.findByRole("alert");
     expect(banner).toHaveTextContent("The console could not read the machine list.");
     expect(banner).not.toHaveTextContent("Failed to fetch");
     expect(within(banner).getByTitle("Failed to fetch")).toBeInTheDocument();
-    expect(screen.getByText("The machine list could not be read.")).toBeInTheDocument();
+    expect(within(banner).queryByRole("button", { name: /Retry/ })).toBeNull();
     expect(screen.getByText("The machine list is not shown.")).toBeInTheDocument();
+    expect(screen.queryByText("The machine list could not be read.")).toBeNull();
+    expect(screen.getAllByRole("button", { name: "Retry" })).toHaveLength(1);
     expect(document.body.textContent).not.toContain("Failed to fetch");
     expect(screen.queryByText("No machines yet")).toBeNull();
     // The failed read is stated; the next step is still reachable.
@@ -2439,7 +2495,7 @@ describe("App", () => {
     ).toBeInTheDocument();
 
     // A failed poll repeats the shell banner's named failure. Dismiss is the banner's control; the
-    // read's own sentence is the page's and must survive it.
+    // page's line and its one Retry survive it.
     const poll = startPoll.mock.calls.findIndex(([, delay]) => delay === 5000);
     expect(poll).toBeGreaterThanOrEqual(0);
     window.clearInterval(startPoll.mock.results[poll].value as number);
@@ -2449,10 +2505,10 @@ describe("App", () => {
     const repeat = await screen.findByRole("alert");
     fireEvent.click(within(repeat).getByRole("button", { name: "Dismiss" }));
     expect(screen.queryByRole("alert")).toBeNull();
-    expect(screen.getByText("The machine list could not be read.")).toBeInTheDocument();
     expect(screen.getByText("The machine list is not shown.")).toBeInTheDocument();
     // The page's line still carries the evidence, now that the banner is gone.
     expect(screen.getAllByTitle("Failed to fetch")).toHaveLength(1);
+    expect(screen.getAllByRole("button", { name: "Retry" })).toHaveLength(1);
     expect(screen.queryByText("No machines yet")).toBeNull();
 
     // Retry is the page's own read, and its answer puts the fleet back.
@@ -2489,7 +2545,7 @@ describe("App", () => {
     view.unmount();
   });
 
-  it("names a failed read and offers its retry instead of the browser's words", async () => {
+  it("names a failed read without the browser's words, and its one Retry reads it again", async () => {
     mocks.devices.mockRejectedValue(new TypeError("Failed to fetch"));
     const view = await signInWithoutFleet();
 
@@ -2502,11 +2558,10 @@ describe("App", () => {
     expect(banner).not.toHaveTextContent("Failed to fetch");
     expect(within(banner).getByTitle("Failed to fetch")).toBeInTheDocument();
 
-    // The banner's Retry is the read again: the answer puts the fleet back and the banner away.
+    // The page's one Retry is the read again: the answer puts the fleet back and the banner away.
+    // The banner offers no second button for the same read (audit-40 F4).
     mocks.devices.mockResolvedValue([workshop, attic]);
-    fireEvent.click(
-      within(banner).getByRole("button", { name: "Retry reading the machine list" })
-    );
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
     await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
     expect(await screen.findByText("2 of 2 online · nothing to do")).toBeInTheDocument();
     view.unmount();
@@ -2549,9 +2604,12 @@ describe("App", () => {
       within(banners[1]).getByText("The console could not read the audit.")
     ).toBeInTheDocument();
     expect(banners.map((banner) => banner.textContent).join(" ")).not.toContain("Failed to fetch");
+    // The banner is the sentence and Dismiss; the page that owns a failed read carries its one
+    // Retry. On Home only the fleet's notice is drawn, so the page has exactly one Retry button.
     for (const banner of banners) {
-      expect(within(banner).getByRole("button", { name: /^Retry reading/ })).toBeInTheDocument();
+      expect(within(banner).queryByRole("button", { name: /Retry/ })).toBeNull();
     }
+    expect(screen.getAllByRole("button", { name: "Retry" })).toHaveLength(1);
     view.unmount();
   });
 

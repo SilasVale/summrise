@@ -999,6 +999,103 @@ try {
   );
   await page.screenshot({ path: path.join(OUT, '02-machines.png') });
 
+  // **NO MACHINE SELECTED: THE PICKER IS THE PAGE (audit-40 F7).** The rail's Device entry used
+  // to open a page headed `Terminal` with the full tab strip above `Choose a machine`, inviting five
+  // surfaces that cannot run until a machine is chosen. The title is the question now; the tabs and
+  // Connect wait for the answer.
+  await page.locator('nav.rail button[title="Device"]').click();
+  await page
+    .getByRole('heading', { name: 'Choose a machine', exact: true, level: 1 })
+    .waitFor({ timeout: 10_000 });
+  const pickerFacts = await page.evaluate(() => ({
+    h1: document.querySelector('.device-page h1')?.textContent?.trim() ?? '',
+    tabs: document.querySelectorAll('.device-tabs').length,
+    visibleConnect: [...document.querySelectorAll('button')].filter(
+      (button) =>
+        button.getAttribute('aria-label') === 'Connect a client' &&
+        button.getBoundingClientRect().width > 0
+    ).length,
+    rows: document.querySelectorAll('.picker li').length,
+    uses: [...document.querySelectorAll('.picker button')].map((button) =>
+      button.getAttribute('aria-label') ?? ''
+    )
+  }));
+  if (pickerFacts.h1 !== 'Choose a machine') {
+    throw new Error(`Device without a machine is headed ${JSON.stringify(pickerFacts.h1)}`);
+  }
+  if (pickerFacts.tabs !== 0) {
+    throw new Error(`Device without a machine drew ${pickerFacts.tabs} tab strip(s)`);
+  }
+  if (pickerFacts.visibleConnect !== 0) {
+    throw new Error(
+      `Device without a machine drew ${pickerFacts.visibleConnect} Connect button(s)`
+    );
+  }
+  if (pickerFacts.rows !== 4 || pickerFacts.uses.length !== 4) {
+    throw new Error(
+      `the picker drew ${pickerFacts.rows} rows and ${pickerFacts.uses.length} Use buttons, not 4`
+    );
+  }
+  step(
+    `Device with no machine is headed "${pickerFacts.h1}", with no tab strip and no Connect; ` +
+      `the picker lists ${pickerFacts.rows} machines`
+  );
+  await page.screenshot({ path: path.join(OUT, '02b-device-picker.png') });
+  await page.locator('nav.rail button[title="Home"]').click();
+  await page.getByRole('heading', { name: 'Machines', exact: true }).waitFor({ timeout: 10_000 });
+
+  // **#signin WHILE SIGNED IN LEADS WITH BACK (audit-40 F8).** The panel was headed `Sign in to the
+  // console` while its sentence said the tab already was, and the credential form was the primary.
+  // The title names the state, Back is the primary action, and the token form is behind one
+  // disclosure.
+  await page.evaluate(() => {
+    window.location.hash = '#signin';
+  });
+  await page
+    .getByRole('heading', { name: 'You are signed in', exact: true })
+    .waitFor({ timeout: 10_000 });
+  const signInPanel = await page.evaluate(() => {
+    const heading = document.querySelector('.login h1')?.textContent?.trim() ?? '';
+    const back = [...document.querySelectorAll('.login button')].find(
+      (button) => button.textContent?.trim() === 'Back to the console'
+    );
+    const disclosure = document.querySelector('.login details');
+    const token = document.querySelector('.login #token');
+    return {
+      heading,
+      backPrimary: back?.classList.contains('primary') ?? false,
+      disclosureOpen: disclosure?.hasAttribute('open') ?? true,
+      hasDisclosure: disclosure !== null,
+      tokenInsideDisclosure: token !== null && disclosure?.contains(token) === true,
+      signInTitle: document.title
+    };
+  });
+  if (signInPanel.heading !== 'You are signed in') {
+    throw new Error(`#signin while signed in is headed ${JSON.stringify(signInPanel.heading)}`);
+  }
+  if (!signInPanel.backPrimary) {
+    throw new Error('#signin while signed in does not lead with a primary Back to the console');
+  }
+  if (
+    !signInPanel.hasDisclosure ||
+    signInPanel.disclosureOpen ||
+    !signInPanel.tokenInsideDisclosure
+  ) {
+    throw new Error(
+      '#signin while signed in does not keep the token form behind a closed disclosure'
+    );
+  }
+  if (signInPanel.signInTitle !== 'Sign in · Summrise console') {
+    throw new Error(`#signin's tab title read ${JSON.stringify(signInPanel.signInTitle)}`);
+  }
+  step(
+    '#signin while signed in is headed "You are signed in", leads with a primary Back and keeps ' +
+      'the token form behind a closed disclosure'
+  );
+  await page.screenshot({ path: path.join(OUT, '02c-signin-signed-in.png') });
+  await page.getByRole('button', { name: 'Back to the console' }).click();
+  await page.getByRole('heading', { name: 'Machines', exact: true }).waitFor({ timeout: 10_000 });
+
   // **AN OFFLINE MACHINE'S AGE IS THE NEWEST EVIDENCE.** No frame survived the console restart; the
   // registry's connect time is two hours old, the open close is 1 h 49 m old, and the pair in
   // `last_outage` is from an earlier absence. The row must read the open close at the desktop width,
@@ -1029,8 +1126,12 @@ try {
       heading: block.querySelector('h2')?.textContent?.trim() ?? '',
       top: Math.round(block.getBoundingClientRect().top),
       rows: [...block.querySelectorAll('.attention-row')].map((row) => ({
-        sentence: row.querySelector('p')?.textContent?.trim() ?? '',
-        button: row.querySelector('button')?.getAttribute('aria-label') ?? ''
+        name: row.querySelector('.attention-machine')?.textContent?.trim() ?? '',
+        problems: [...row.querySelectorAll('.attention-problems li')].map((problem) =>
+          problem.textContent?.trim() ?? ''
+        ),
+        door: row.querySelector('button')?.getAttribute('aria-label') ?? '',
+        doors: row.querySelectorAll('button').length
       }))
     };
   });
@@ -1040,25 +1141,59 @@ try {
   if (attention1440.heading !== 'Needs attention') {
     throw new Error(`the attention block's heading read ${JSON.stringify(attention1440.heading)}`);
   }
-  const expectedProblems = [
-    'DESKTOP-9VH92BJ is behind: v0.3.42, the console has 0.3.280.',
-    'DESKTOP-14RJCR8 is offline — last seen 1h 49m ago.',
-    'DESKTOP-14RJCR8 is behind: v0.3.42, the console has 0.3.280.',
-    'DESKTOP-CPH4KB2 is behind: v0.3.42, the console has 0.3.280.',
-    'DESKTOP-7QK3MN2 is behind: v0.3.42, the console has 0.3.280.'
+  // **ONE ROW PER MACHINE, ITS PROBLEMS UNDER IT, ONE DOOR (audit-40 F6).** The verdict counts
+  // machines, so four machines with five problems are four rows; the two-door 14R and the four
+  // identical buttons were the measured defect.
+  const expectedMachines = [
+    {
+      name: 'DESKTOP-9VH92BJ',
+      problems: ['Behind: v0.3.42, the release is 0.3.280.']
+    },
+    {
+      name: 'DESKTOP-14RJCR8',
+      problems: [
+        'Offline — last seen 1h 49m ago.',
+        'Behind: v0.3.42, the release is 0.3.280.'
+      ]
+    },
+    {
+      name: 'DESKTOP-CPH4KB2',
+      problems: ['Behind: v0.3.42, the release is 0.3.280.']
+    },
+    {
+      name: 'DESKTOP-7QK3MN2',
+      problems: ['Behind: v0.3.42, the release is 0.3.280.']
+    }
   ];
-  const seenProblems = attention1440.rows.map((row) => row.sentence);
-  if (JSON.stringify(seenProblems) !== JSON.stringify(expectedProblems)) {
-    throw new Error(`the attention rows read ${JSON.stringify(seenProblems)}`);
+  const seenMachines = attention1440.rows.map((row) => ({
+    name: row.name,
+    problems: row.problems
+  }));
+  if (JSON.stringify(seenMachines) !== JSON.stringify(expectedMachines)) {
+    throw new Error(`the attention rows read ${JSON.stringify(seenMachines)}`);
   }
   for (const row of attention1440.rows) {
-    if (!/^Open machine for DESKTOP-/.test(row.button)) {
-      throw new Error(`an attention row's door reads ${JSON.stringify(row.button)}`);
+    if (row.door !== `Open machine for ${row.name}`) {
+      throw new Error(
+        `the ${row.name} row's door reads ${JSON.stringify(row.door)}, expected one for that machine`
+      );
+    }
+    if (row.doors !== 1) {
+      throw new Error(`the ${row.name} row drew ${row.doors} doors, not one`);
     }
   }
+  // The release is the installer's version; the console's own build is another scheme (audit-40
+  // F10), so no row may call the staged 0.3.280 "the console".
+  const attentionText1440 = attention1440.rows
+    .flatMap((row) => [row.name, ...row.problems])
+    .join(' ');
+  if (/the console has/i.test(attentionText1440)) {
+    throw new Error(`an attention row calls the release the console: "${attentionText1440}"`);
+  }
   step(
-    `the verdict is "${verdict1440}"; Needs attention lists ${attention1440.rows.length} problems ` +
-      'with one door each'
+    `the verdict is "${verdict1440}"; Needs attention lists ${attention1440.rows.length} machines ` +
+      `with ${attention1440.rows.reduce((sum, row) => sum + row.problems.length, 0)} problems and ` +
+      'one door each'
   );
 
   // **THE FLEET IS A TABLE, NOT A SECOND ACTIVITY.** Machine / Status / Version / Started are the
@@ -1577,15 +1712,38 @@ try {
   // the same scale token (14 px).
   await page.setViewportSize({ width: 390, height: 844 });
   await page.waitForTimeout(300);
-  const activity390 = await page.evaluate(() => ({
-    viewport: document.documentElement.clientWidth,
-    scrollWidth: document.documentElement.scrollWidth,
-    verb: parseFloat(getComputedStyle(document.querySelector('.timeline-sentence')).fontSize),
-    age: getComputedStyle(document.querySelector('.timeline-age')).display
-  }));
+  const activity390 = await page.evaluate(() => {
+    const rail = document.querySelector('.rail')?.getBoundingClientRect() ?? null;
+    const firstRow = document.querySelector('.timeline-row')?.getBoundingClientRect() ?? null;
+    return {
+      viewport: document.documentElement.clientWidth,
+      scrollWidth: document.documentElement.scrollWidth,
+      verb: parseFloat(getComputedStyle(document.querySelector('.timeline-sentence')).fontSize),
+      age: getComputedStyle(document.querySelector('.timeline-age')).display,
+      oldChips: document.querySelectorAll('.timeline-machines .chip.is-old').length,
+      machineChips: document.querySelectorAll('.timeline-machines .chip').length,
+      firstRowTop: firstRow ? Math.round(firstRow.top) : null,
+      railTop: rail ? Math.round(rail.top) : null
+    };
+  });
   if (activity390.scrollWidth > activity390.viewport) {
     throw new Error(
       `Activity at 390 scrolls sideways: ${activity390.viewport}/${activity390.scrollWidth}`
+    );
+  }
+  // **THE RETIRED IDS DO NOT SPEND THE PHONE'S FIRST SCREEN (audit-40 F5).** The two dated
+  // `old id` chips are already options in the Table's Device filter; at 390 they took two full rows
+  // above the record. The first record must start above the bottom rail.
+  if (activity390.oldChips !== 0) {
+    throw new Error(`Activity kept ${activity390.oldChips} retired-id chip(s) at 390`);
+  }
+  if (activity390.firstRowTop === null || activity390.railTop === null) {
+    throw new Error('Activity at 390 drew no record or no rail to measure against');
+  }
+  if (activity390.firstRowTop >= activity390.railTop) {
+    throw new Error(
+      `Activity's first record starts at y=${activity390.firstRowTop}, below the rail at ` +
+        `y=${activity390.railTop} — the filter chrome spent the first screen`
     );
   }
   if (activity390.verb !== 14) {
@@ -1600,7 +1758,9 @@ try {
   await page.waitForTimeout(300);
   step(
     `Activity at 390 has no sideways scroll (${activity390.viewport}/${activity390.scrollWidth}), ` +
-      `keeps the 14px verb and the age`
+      `keeps the 14px verb and the age, draws ${activity390.machineChips} live machine chips and no ` +
+      `retired id, and its first record starts at y=${activity390.firstRowTop} above the rail at ` +
+      `y=${activity390.railTop}`
   );
 
   step(
@@ -2405,6 +2565,16 @@ try {
       scrollWidth: document.documentElement.scrollWidth,
       rows,
       attentionRows: attention ? attention.querySelectorAll('.attention-row').length : 0,
+      attentionNames: attention
+        ? [...attention.querySelectorAll('.attention-machine')].map((name) =>
+            name.textContent?.trim() ?? ''
+          )
+        : [],
+      attentionDoors: attention
+        ? [...attention.querySelectorAll('.attention-row')].map(
+            (row) => row.querySelectorAll('button').length
+          )
+        : [],
       attentionTop: attention ? Math.round(attention.getBoundingClientRect().top) : null,
       tableTop: tableBox ? Math.round(tableBox.top) : null,
       tableBottom: tableBox ? Math.round(tableBox.bottom) : null,
@@ -2441,8 +2611,20 @@ try {
       throw new Error(`the ${row.name} card is ${row.width} px wide at 390`);
     }
   }
-  if (fleet390.attentionRows !== 5) {
-    throw new Error(`the attention block drew ${fleet390.attentionRows} rows at 390, not 5`);
+  // **THE PHONE SHOWS MACHINES, NOT PROBLEMS.** Four machines and five problems are four rows at
+  // 390; one door each, so the same machine's action is not offered twice (audit-40 F6).
+  if (fleet390.attentionRows !== 4) {
+    throw new Error(`the attention block drew ${fleet390.attentionRows} rows at 390, not 4`);
+  }
+  if (new Set(fleet390.attentionNames).size !== fleet390.attentionNames.length) {
+    throw new Error(
+      `the attention block drew one machine twice at 390: ${JSON.stringify(fleet390.attentionNames)}`
+    );
+  }
+  if (fleet390.attentionDoors.some((doors) => doors !== 1)) {
+    throw new Error(
+      `an attention row drew ${JSON.stringify(fleet390.attentionDoors)} doors at 390, not one each`
+    );
   }
   if (fleet390.attentionTop === null || fleet390.attentionTop > (fleet390.tableTop ?? 0)) {
     throw new Error('Needs attention is not above the fleet at 390');
@@ -3205,9 +3387,10 @@ try {
 
   // **THE SIGN-IN PANEL HAS AN ADDRESS.** A cold boot at `#signin` draws the panel even with the
   // gate's session in force — no sign-out gesture first — and Back returns to the console still
-  // signed in (audit-39 F6).
+  // signed in (audit-39 F6). The signed-in panel is headed by its state, not by a second invitation
+  // to sign in (audit-40 F8).
   await page.goto(base + '/#signin', { waitUntil: 'domcontentloaded' });
-  await page.getByRole('heading', { name: 'Sign in to the console' }).waitFor({ timeout: 10_000 });
+  await page.getByRole('heading', { name: 'You are signed in' }).waitFor({ timeout: 10_000 });
   if (new URL(page.url()).hash !== '#signin') {
     throw new Error(`#signin was rewritten to ${new URL(page.url()).hash}`);
   }

@@ -142,21 +142,33 @@ function InstallerBlock(props: { installer: Installer }) {
 
 /** One thing on the fleet that wants a person: a machine that is away, or one behind the file. */
 type AttentionProblem = {
-  /** Stable key: one machine can have two problems, and each is its own row. */
+  /** Stable key: one machine can have two problems, and both are listed under its one row. */
   key: string;
   device: Device;
   tone: "offline" | "behind";
-  sentence: string;
+  /**
+   * The problem without its machine's name: the row's heading is the name, so repeating it in every
+   * line would make one machine's two problems read as two machines (audit-40 F6).
+   */
+  clause: string;
+};
+
+/** One machine's problems, as the block draws them: a heading, its lines, one door. */
+type AttentionMachine = {
+  device: Device;
+  /** The row's dot: away outranks behind when a machine has both. */
+  tone: "offline" | "behind";
+  problems: AttentionProblem[];
 };
 
 /**
  * What needs attention, from the fleet read and the staged installer only.
  *
- * The sentences are the brief's own: a machine that is away is dated by the newest evidence the
+ * The clauses are the brief's own: a machine that is away is dated by the newest evidence the
  * console has (the row's rule), and a machine behind the staged installer names both versions. A
- * machine can produce two rows — away and behind at once — because the block counts problems and
- * each problem has its own door. Nothing here is invented: no evidence means the sentence stops
- * before "last seen", and no staged installer means no comparison at all.
+ * machine can produce two problems — away and behind at once — and both are listed under that
+ * machine's one row. Nothing here is invented: no evidence means the clause stops before "last
+ * seen", and no staged installer means no comparison at all.
  */
 function attentionProblems(
   devices: readonly Device[],
@@ -164,17 +176,13 @@ function attentionProblems(
 ): AttentionProblem[] {
   const problems: AttentionProblem[] = [];
   for (const device of devices) {
-    const label = device.name ?? shortId(device.id);
     if (!device.online) {
       const heard = lastHeardMs(device);
       problems.push({
         key: `${device.id}:offline`,
         device,
         tone: "offline",
-        sentence:
-          heard === null
-            ? `${label} is offline.`
-            : `${label} is offline — last seen ${seenAgo(heard)}.`
+        clause: heard === null ? "Offline." : `Offline — last seen ${seenAgo(heard)}.`
       });
     }
     if (installer?.available && versionBelow(device.version, installer.version)) {
@@ -182,11 +190,31 @@ function attentionProblems(
         key: `${device.id}:behind`,
         device,
         tone: "behind",
-        sentence: `${label} is behind: v${device.version}, the console has ${installer.version}.`
+        // THE INSTALLER'S VERSION IS THE RELEASE, NOT THE CONSOLE'S BUILD. The fleet's chip and the
+        // Account menu name the console (`0.3.273-ux99`); this number is the staged
+        // `SummriseSetup-0.3.290.exe`. Calling it "the console has 0.3.290" made one word mean two
+        // versions on one screen (audit-40 F10).
+        clause: `Behind: v${device.version}, the release is ${installer.version}.`
       });
     }
   }
   return problems;
+}
+
+/** The problems folded under the machine they belong to, in the fleet's own order. */
+function attentionMachines(problems: readonly AttentionProblem[]): AttentionMachine[] {
+  const groups = new Map<string, AttentionMachine>();
+  for (const problem of problems) {
+    let group = groups.get(problem.device.id);
+    if (!group) {
+      group = { device: problem.device, tone: problem.tone, problems: [] };
+      groups.set(problem.device.id, group);
+    }
+    // A machine that is away and behind gets the away dot: the silence is the stronger fact.
+    if (problem.tone === "offline") group.tone = "offline";
+    group.problems.push(problem);
+  }
+  return [...groups.values()];
 }
 
 /**
@@ -220,8 +248,10 @@ function fleetReadAge(fleet: FleetRead): string {
 /**
  * Home's first answer: does anything need me?
  *
- * Non-empty, the block is one row per problem with a button that opens that machine. Empty, it
- * says so once and dates the read that proved it, so "nothing to do" is evidence rather than a
+ * Non-empty, the block is one row per MACHINE: its name, every problem it has as a line under it,
+ * and one door to open it. The verdict counts machines, so the rows must too — four rows and four
+ * identical buttons over two machines made the count and the block disagree (audit-40 F6). Empty,
+ * it says so once and dates the read that proved it, so "nothing to do" is evidence rather than a
  * blank. It is a named region either way, so a reader who navigates by landmark meets the page's
  * subject before the table.
  */
@@ -245,20 +275,27 @@ function AttentionBlock(props: {
     <section className="attention" aria-label="Needs attention">
       <h2>Needs attention</h2>
       <ul className="attention-list">
-        {props.problems.map((problem) => {
-          const label = problem.device.name ?? shortId(problem.device.id);
+        {attentionMachines(props.problems).map((machine) => {
+          const label = machine.device.name ?? shortId(machine.device.id);
           return (
-            <li className="attention-row" key={problem.key}>
+            <li className="attention-row" key={machine.device.id}>
               <span
-                className={"dot " + (problem.tone === "offline" ? "dot-off" : "dot-warn")}
+                className={"dot " + (machine.tone === "offline" ? "dot-off" : "dot-warn")}
                 aria-hidden="true"
               />
-              <p>{problem.sentence}</p>
+              <div className="attention-body">
+                <h3 className="attention-machine">{label}</h3>
+                <ul className="attention-problems">
+                  {machine.problems.map((problem) => (
+                    <li key={problem.key}>{problem.clause}</li>
+                  ))}
+                </ul>
+              </div>
               <button
                 type="button"
                 className="attention-open"
                 aria-label={`Open machine for ${label}`}
-                onClick={() => props.onOpen(problem.device.id)}
+                onClick={() => props.onOpen(machine.device.id)}
               >
                 Open machine
               </button>
@@ -286,11 +323,15 @@ function FleetHome(props: FleetProps) {
   // successful read. A failed read keeps the last list on screen and states the failure instead.
   const ready = fleet.state === "ready";
   const problems = ready ? attentionProblems(props.devices, installer) : [];
+  // **THE BANNER NAMES THE FAILURE; THIS LINE ONLY SAYS WHAT IS MISSING.** When the read failed
+  // there is no verdict to give, so the header draws none and the notice below states what the page
+  // can show. A second failure sentence here made the page say one failure three times (audit-40
+  // F4); the banner's title still carries the browser's cause.
   const verdict =
     fleet.state === "reading"
       ? "Reading the machine list…"
       : fleet.state === "failed"
-        ? "The machine list could not be read."
+        ? null
         : empty
           ? "No machines yet"
           : verdictSentence(props.devices, problems);
@@ -299,14 +340,11 @@ function FleetHome(props: FleetProps) {
       <header className="page-head">
         <div>
           <h1>Machines</h1>
-          {/* **THE FAILURE IS SAID ONCE, BY THE BANNER.** This line says what the page cannot show;
-              the browser's cause is evidence, and evidence sits in a title (audit-39 F4). */}
-          <p
-            className={"home-verdict" + (problems.length > 0 ? " has-attention" : "")}
-            title={fleet.state === "failed" ? fleet.reason : undefined}
-          >
-            {verdict}
-          </p>
+          {verdict !== null && (
+            <p className={"home-verdict" + (problems.length > 0 ? " has-attention" : "")}>
+              {verdict}
+            </p>
+          )}
           {empty && <p className="page-sub">0 machines · 0 online</p>}
         </div>
         <div className="page-actions">
@@ -342,12 +380,12 @@ function FleetHome(props: FleetProps) {
       )}
 
       {fleet.state === "failed" && (
-        // ONE FAILURE, ONE SENTENCE. The shell's banner names the read and keeps `Failed to fetch`
-        // in its title; this notice says only what the page can and cannot show, and offers the
-        // page's own read again. It used to repeat the failure with the browser's words, so the
-        // measured page said the same thing three times (audit-39 F4).
+        // ONE FAILURE, ONE SENTENCE, ONE RETRY. The shell's banner names the read and keeps the
+        // browser's cause in its title; this notice says only what the page can and cannot show and
+        // is the one control that reads it again (audit-40 F4). The cause stays a title here too,
+        // so the evidence survives the banner's Dismiss.
         <div className="notice" role="status">
-          <span>
+          <span title={fleet.reason}>
             {props.devices.length > 0
               ? "The machines below are the last list it read."
               : "The machine list is not shown."}

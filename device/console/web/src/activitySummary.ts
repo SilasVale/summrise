@@ -162,15 +162,21 @@ export function activityCounts(lines: readonly AuditLine[], now = Date.now()): A
  * it must never be written beside this noun as a second claim about it (nineteenth item 5).
  *
  * The punctuation is the sentence's shape: a comma for the failures, one em dash for the
- * consequences, and semicolons between buckets. `from the console` keeps the console's failures
- * out of the number beside "client calls" without needing a second "failures" noun.
+ * consequences, and semicolons between buckets. The console's clause carries its own noun —
+ * `console failures` — because `2 from the console` left the number without a subject: the day's
+ * 59 console reads could be read as the 2, and the 2 are the console's failures, not its calls
+ * (audit-40 F9).
  */
 function activitySentenceBody(counts: ActivityCounts): string {
   const calls = counts.client === 1 ? "client call" : "client calls";
   let sentence = `Today: ${counts.client} ${calls}`;
   if (counts.clientFailed > 0) sentence += `, ${counts.clientFailed} failed`;
   const clauses: string[] = [];
-  if (counts.consoleFailed > 0) clauses.push(`${counts.consoleFailed} from the console`);
+  if (counts.consoleFailed > 0) {
+    clauses.push(
+      `${counts.consoleFailed} console ${counts.consoleFailed === 1 ? "failure" : "failures"}`
+    );
+  }
   if (counts.pollFailed > 0) {
     clauses.push(
       `${counts.pollFailed} poll ${counts.pollFailed === 1 ? "failure" : "failures"}`
