@@ -1,5 +1,5 @@
 import type { DeviceUpdate, HostFacts } from "./api";
-import { clockTime, exactMoment, isoDate } from "./format";
+import { clockTimeSeconds, exactMoment, isoDate } from "./format";
 import { processStartMs, startedLine, updateChannel } from "./updateStory";
 import { versionEqual } from "./versions";
 
@@ -80,7 +80,9 @@ export function updateRows(device: UpdatePageDevice, nowMs = Date.now()): Update
   const rows: UpdateRow[] = [];
 
   if (last) {
-    if (applied !== null && running !== null && versionEqual(applied, running)) {
+    const appliedRow =
+      applied !== null && running !== null && versionEqual(applied, running);
+    if (appliedRow) {
       // THE APPLIED VERSION IS THE ONE RUNNING: the answer leads, and it is the only row that states
       // this version. `Running` and `Last target` would each repeat it. The row spells the running
       // version, because that is the field the header's chip shows and the two must not look like
@@ -92,11 +94,17 @@ export function updateRows(device: UpdatePageDevice, nowMs = Date.now()): Update
       }
       if (target !== null) rows.push({ key: "target", label: "Last target", text: target });
     }
-    rows.push({
-      key: "outcome",
-      label: "Last outcome",
-      text: outcomeWord(last.outcome) + (beforeStart ? " · before this start" : "")
-    });
+    // **AN APPLIED ROW THAT LEADS ALREADY SAYS THE OUTCOME.** `Last outcome applied` directly under
+    // `Applied 0.3.291` repeated the same word for the same swap; the row is kept only when it
+    // carries something the leading row does not — another outcome, or this answer's place before
+    // the running start.
+    if (!(appliedRow && last.outcome === "applied" && !beforeStart)) {
+      rows.push({
+        key: "outcome",
+        label: "Last outcome",
+        text: outcomeWord(last.outcome) + (beforeStart ? " · before this start" : "")
+      });
+    }
     if (rolledBack !== null) {
       rows.push({ key: "rolled_back_to", label: "Rolled back to", text: rolledBack });
     }
@@ -123,7 +131,7 @@ export function updateRows(device: UpdatePageDevice, nowMs = Date.now()): Update
     rows.push({ key: "result", label: "Last result", text: "not recorded", absent: true });
   }
 
-  rows.push(momentRow("check", "Last check", update?.last_check?.at_ms));
+  rows.push(checkRow(update?.last_check?.at_ms, last?.at_ms));
   const channel = updateChannel(device);
   rows.push({
     key: "channel",
@@ -140,11 +148,34 @@ function momentRow(key: string, label: string, atMs: number | null | undefined):
     return {
       key,
       label,
-      text: `${isoDate(atMs)} ${clockTime(atMs)}`,
+      text: `${isoDate(atMs)} ${clockTimeSeconds(atMs)}`,
       exact: exactMoment(atMs)
     };
   }
   return { key, label, text: "not recorded", absent: true };
+}
+
+/**
+ * The check row, with the one qualification a missing record needs.
+ *
+ * **A CHECK THE DEVICE DID NOT RECORD IS NOT A MACHINE THAT NEVER CHECKED.** The measured 84T had
+ * an applied 0.3.291 and `lastCheck: null`: the installer/launcher path that put the release on
+ * the machine wrote no check. Beside that apply, a bare `not recorded` read as "never looked", so
+ * the row names the order the device does prove — the record is absent before this update. With no
+ * result to bound it, the row keeps the page's plain absent words.
+ */
+function checkRow(checkAtMs: number | null | undefined, resultAtMs: number | null | undefined): UpdateRow {
+  const row = momentRow("check", "Last check", checkAtMs);
+  if (!row.absent) return row;
+  if (typeof resultAtMs === "number" && Number.isFinite(resultAtMs) && resultAtMs > 0) {
+    return {
+      key: "check",
+      label: "Last check",
+      text: "not recorded before this update",
+      absent: true
+    };
+  }
+  return row;
 }
 
 /** The device's outcome word, with `rolled_back` spelled the way the page reads it. */

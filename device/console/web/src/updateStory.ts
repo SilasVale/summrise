@@ -199,6 +199,11 @@ function updateClause(
     case "refused":
       return last.to ? `update to ${last.to} refused` : "update refused";
     case "applied":
+      // **AN APPLY THAT IS THE START IS SAID ONCE.** The measured 9VH and 84T both carry
+      // `last_update.at_ms == restarts[0].at_ms`: the process began when the release took over.
+      // `(updated 2h ago)` beside `started 2h ago` is one moment written twice, so the start alone
+      // is the fact. An answer that arrived inside a longer-lived process is still its own age.
+      if (last.at_ms === startMoment(context.startedAtMs)) return null;
       return `updated ${seenAgo(last.at_ms, context.nowMs)}`;
     case "rolled_back":
       if (last.to) {

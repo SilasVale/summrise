@@ -671,6 +671,9 @@ describe("Home — the fleet's Tokens door", () => {
     });
 
     const panel = screen.getByRole("region", { name: "Enrollment command" });
+    expect(
+      within(panel).getByRole("heading", { name: "Enrollment command" })
+    ).toBeInTheDocument();
     fireEvent.click(within(panel).getByRole("button", { name: "Tokens" }));
     expect(onTokens).toHaveBeenCalledTimes(1);
   });
@@ -802,11 +805,35 @@ describe("Home — the fleet's read", () => {
   it("offers enrollment only when a successful read returned no machines", async () => {
     drawFleet({ fleetRead: { state: "ready" } });
 
-    expect(screen.getByText("0 machines · 0 online")).toBeInTheDocument();
+    // THE ZERO STATE IS ONE SENTENCE. `No machines yet` and `0 machines · 0 online` said the same
+    // thing twice; the fleet's size is the sentence, not a second line.
     expect(screen.getByText("No machines yet")).toBeInTheDocument();
+    expect(screen.queryByText("0 machines · 0 online")).toBeNull();
     expect(screen.getByRole("button", { name: "Add a machine" })).toBeInTheDocument();
+    // THE DOORS ARE THE NEXT STEP, LABELLED, IN THE ORDER THEY ARE USED. The old empty paragraph
+    // told the reader to run the command before the installer had been offered, and the command's
+    // panel had no visible name.
+    expect(screen.getByRole("heading", { name: "Add your first machine" })).toBeInTheDocument();
+    expect(screen.queryByText(/Run the command/)).toBeNull();
+    const install = await screen.findByRole("heading", { name: "Install the device runtime" });
+    const firstRun = screen.getByRole("heading", { name: "Add your first machine" });
     expect(
-      await screen.findByRole("heading", { name: "Install the device runtime" })
-    ).toBeInTheDocument();
+      firstRun.compareDocumentPosition(install) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+  });
+
+  it("puts the installer before the labelled enrollment command", async () => {
+    drawFleet({
+      fleetRead: { state: "ready" },
+      code: { code: "code-1", expires_at_ms: Date.now() + 15 * 60_000 },
+      enrollCommand:
+        "summrise-device.exe --enroll https://console.test code-1 --data C:\\ProgramData\\Summrise"
+    });
+
+    const install = await screen.findByRole("heading", { name: "Install the device runtime" });
+    const enroll = screen.getByRole("heading", { name: "Enrollment command" });
+    expect(
+      install.compareDocumentPosition(enroll) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
   });
 });

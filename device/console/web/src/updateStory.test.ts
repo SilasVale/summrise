@@ -71,6 +71,22 @@ describe("startedLine — the device's last start, and an update that belongs to
     ).toBe("started 0.3.277 · 2h ago (updated 12m ago)");
   });
 
+  it("says the start once when the update is the start", () => {
+    // The measured 9VH and 84T shape: `last_update.at_ms == restarts[0].at_ms`. The process began
+    // when the update landed, so `(updated 2h ago)` beside `started 2h ago` is one moment written
+    // twice. The start alone is the fact.
+    expect(
+      startedLine(
+        {
+          current: "0.3.277",
+          verdict: { outcome: "ok", detail: "started 0.3.277" },
+          last_update: { to: "0.3.277", outcome: "applied", at_ms: START }
+        },
+        context
+      )
+    ).toBe("started 0.3.277 · 2h ago");
+  });
+
   it("keeps drawing the start when its version is the one the surface already shows", () => {
     // The version repeats the chip, but the moment does not: the start's age is exactly what the
     // chip cannot state, so the line is drawn instead of dropped as a duplicate.

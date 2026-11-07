@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   callsLine,
+  clockTimeSeconds,
   exactMoment,
   grouped,
   isoDate,
@@ -77,6 +78,16 @@ describe("the console's absolute date", () => {
 
   it("puts the exact local clock and the audit's UTC instant in the title", () => {
     expect(exactMoment(at)).toBe(`2026-11-04 09:41:05 (${new Date(at).toISOString()})`);
+  });
+});
+
+describe("clockTimeSeconds", () => {
+  it("keeps the seconds that tell two nearly equal moments apart", () => {
+    // The measured update card: the check started at 20:55:43 and the apply landed at 20:55:49.
+    const check = new Date(2026, 10, 7, 20, 55, 43).getTime();
+    const applied = new Date(2026, 10, 7, 20, 55, 49).getTime();
+    expect(clockTimeSeconds(check)).toBe("20:55:43");
+    expect(clockTimeSeconds(applied)).toBe("20:55:49");
   });
 });
 

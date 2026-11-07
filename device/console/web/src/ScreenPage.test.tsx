@@ -59,9 +59,14 @@ describe("ScreenPage", () => {
       />
     );
 
-    // The fleet already knows; the page should not present the click as if it could succeed.
+    // The fleet already knows; the page must not present the click as if it could succeed. A
+    // disabled button whose description names the missing helper is the honest shape, not an
+    // enabled press followed by the device's refusal.
     expect(screen.getByText(/has not registered, so a capture will be refused/)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Capture screen" })).toBeEnabled();
+    const capture = screen.getByRole("button", { name: "Capture screen" });
+    expect(capture).toBeDisabled();
+    expect(capture).toHaveAccessibleDescription(/has not registered/);
+    expect(capture.getAttribute("title")).toMatch(/has not registered/);
   });
 
   it("stays quiet when the device did not say or the helper is registered", () => {

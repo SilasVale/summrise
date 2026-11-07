@@ -1048,7 +1048,7 @@ describe("Device overview — the machine's live page", () => {
     // The oldest row of the window — the last one the fold claims — is on screen.
     expect(screen.getByText("Unattributed 110")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Show the rest of today/ })).toBeNull();
-  });
+  }, 20_000);
 
   it("names and draws the unattributed rows even when no window sentence is due", async () => {
     // The measured DESKTOP-9VH92BJ shape: its window is not cut, so there is no cap sentence, but

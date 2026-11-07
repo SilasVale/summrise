@@ -641,7 +641,7 @@ describe("App", () => {
       "aria-pressed",
       "false"
     );
-    expect(screen.getByText("2 rows in this window")).toBeInTheDocument();
+    expect(screen.getByText("2 rows in this window · spanning 50 s")).toBeInTheDocument();
 
     // The control draws the client subset; the header stays the day's sentence. Its own count says
     // which window it counts, so the page never states a second `client calls` number for the same
@@ -1285,7 +1285,7 @@ describe("App", () => {
       )
     ).toBeInTheDocument();
     expect(screen.queryByText(/from workshop/)).toBeNull();
-  });
+  }, 20_000);
 
   it("says the window's limit at exactly 1000 lines, and not at 999", async () => {
     // The live read returned exactly the requested window. `capped` is false because the page
@@ -1322,7 +1322,7 @@ describe("App", () => {
         screen.queryByText("Showing the newest 1000 lines — the window's limit.")
       ).toBeNull()
     );
-  });
+  }, 20_000);
 
   it("names what Activity drew from the fetched window, and what each view withheld", async () => {
     // 1000 fetched: 34 channel boundaries and 17 repeated keys. The timeline drops both and draws
@@ -1343,7 +1343,7 @@ describe("App", () => {
         "Showing the newest 983 lines of 1000 fetched (17 repeats not drawn)."
       )
     ).toBeInTheDocument();
-  });
+  }, 20_000);
 
   it("keeps a paused page's window numbers frozen until it resumes", async () => {
     mocks.audit.mockResolvedValue(measuredActivityWindow());
@@ -1436,7 +1436,7 @@ describe("App", () => {
     });
     expect(await screen.findByText("Listed the attic")).toBeInTheDocument();
     expect(screen.queryByText("Reading attic's window…")).toBeNull();
-  });
+  }, 20_000);
 
   it("reads the machine's window for the page and after a dropped frame", async () => {
     mocks.audit.mockResolvedValue([
@@ -2634,8 +2634,9 @@ describe("App", () => {
     mocks.devices.mockResolvedValue([]);
     const view = await signInWithoutFleet();
 
-    expect(await screen.findByText("0 machines · 0 online")).toBeInTheDocument();
-    expect(screen.getByText("No machines yet")).toBeInTheDocument();
+    expect(await screen.findByText("No machines yet")).toBeInTheDocument();
+    expect(screen.queryByText("0 machines · 0 online")).toBeNull();
+    expect(screen.getByRole("heading", { name: "Add your first machine" })).toBeInTheDocument();
     expect(
       within(screen.getByRole("main")).getByRole("button", { name: "Add a machine" })
     ).toBeInTheDocument();

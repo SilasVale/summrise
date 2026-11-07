@@ -21,6 +21,18 @@ export function clockTime(ts: number): string {
 }
 
 /**
+ * A clock for two moments that must be told apart: HH:MM:SS in the console's own timezone.
+ *
+ * The update card reads a check and an apply that can be six seconds apart. At `clockTime`'s
+ * minute precision both printed `20:55`, so two different facts looked like one; the second is what
+ * the operator needs when asking which came first.
+ */
+export function clockTimeSeconds(ts: number): string {
+  const date = new Date(ts);
+  return `${clockTime(ts)}:${pad(date.getSeconds())}`;
+}
+
+/**
  * `2026-11-04`: the console's one absolute date, in the operator's own timezone.
  *
  * `toLocaleDateString()` put the browser's order in the token sheet — `11/4/2026` in en-US, and a

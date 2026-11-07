@@ -782,6 +782,24 @@ function apiReply(request, url) {
         result: { content: [{ type: 'text', text: JSON.stringify({ data: '', cursor: state.cursor }) }] }
       });
     }
+    if (name === 'files.list') {
+      // A root with a folder, a file and a name the filter can narrow. The Files leg measures the
+      // filter's place at 390, so the listing must be non-empty (the control is drawn with it).
+      return json({
+        result: {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify([
+                { name: 'docs', kind: 'directory', len: 0 },
+                { name: 'audit.jsonl', kind: 'file', len: 2048 },
+                { name: 'notes.txt', kind: 'file', len: 12 }
+              ])
+            }
+          ]
+        }
+      });
+    }
     if (name === 'plugins.list') {
       return json({ result: { content: [{ type: 'text', text: JSON.stringify([PLUGIN]) }] } });
     }
@@ -1607,10 +1625,28 @@ try {
     );
   }
   const filterCount = page.locator('#timeline-clients-window');
+  // The count's first render can be the live rows alone: the fetched window arrives on its own
+  // read, and a one-line window has no span to state. Wait for the whole record so this assertion
+  // measures the window the page ends with, not the empty list it started from.
+  await page.waitForFunction(
+    () =>
+      (document.querySelector('#timeline-clients-window')?.textContent ?? '').includes(
+        'spanning'
+      ),
+    undefined,
+    { timeout: 10_000 }
+  );
   const filterCountText = (await filterCount.textContent())?.trim() ?? '';
-  if (filterCountText !== `${ALL_CLIENT} rows in this window`) {
+  // The count names the fetched window's span as well as its rows: the measured page put the day's
+  // `18 client calls` over `486 rows in this window` and stated the 24 h 37 m nowhere. The span's
+  // exact value depends on live rows this run adds, so the gate proves the label is there and is a
+  // duration; the unit suite pins the arithmetic.
+  if (
+    !filterCountText.startsWith(`${ALL_CLIENT} rows in this window · spanning `) ||
+    !/^\d+ rows in this window · spanning \d+ (s|m|h)( \d+ (s|m))?$/.test(filterCountText)
+  ) {
     throw new Error(
-      `the Clients only control counted "${filterCountText}", expected "${ALL_CLIENT} rows in this window"`
+      `the Clients only control stated "${filterCountText}", expected "${ALL_CLIENT} rows in this window · spanning <span>"`
     );
   }
   // THE SOURCE LINE, ONCE, BESIDE THE WINDOW SENTENCE. It says what is read, not what is drawn:
@@ -1664,7 +1700,10 @@ try {
     );
   }
   const narrowedCountLabel = (await filterCount.textContent())?.trim() ?? '';
-  if (narrowedCountLabel !== `${ALL_CLIENT} rows in this window`) {
+  if (
+    !narrowedCountLabel.startsWith(`${ALL_CLIENT} rows in this window · spanning `) ||
+    !/^\d+ rows in this window · spanning \d+ (s|m|h)( \d+ (s|m))?$/.test(narrowedCountLabel)
+  ) {
     throw new Error(
       `the Clients only control lost its window count while pressed: "${narrowedCountLabel}"`
     );
@@ -2676,6 +2715,104 @@ try {
   }
   step(`the Screen page states "${helperSessionLine}" and disables Capture screen`);
   await page.screenshot({ path: path.join(OUT, '05b-screen-disconnected.png') });
+
+  // **A HELPER THE FLEET SAYS IS NOT REGISTERED IS NOT AN INVITATION.** The session fact above
+  // disables the press because the helper is registered in a dead session; this leg removes the
+  // registration itself and proves the button is off for that stronger fact too. The fleet polls
+  // every five seconds, so the page reaches the new answer without a reload.
+  const registeredHelper = DEVICE.host.helper;
+  DEVICE.host.helper = { registered: false, pid: null, session: null };
+  try {
+    await page.waitForFunction(
+      () => {
+        const button = document.querySelector('.screen-capture');
+        return (
+          document.querySelector('#screen-helper-missing') !== null &&
+          button instanceof HTMLButtonElement &&
+          button.disabled
+        );
+      },
+      undefined,
+      { timeout: 15_000 }
+    );
+    const helperMissing = await page.evaluate(() => {
+      const button = document.querySelector('.screen-capture');
+      const note = document.querySelector('#screen-helper-missing');
+      return {
+        disabled: button instanceof HTMLButtonElement ? button.disabled : false,
+        title: button?.getAttribute('title') ?? '',
+        note: note?.textContent?.trim() ?? ''
+      };
+    });
+    if (!helperMissing.note.includes('has not registered')) {
+      throw new Error(
+        `the Screen helper-missing line read ${JSON.stringify(helperMissing.note)}`
+      );
+    }
+    if (!helperMissing.title.includes('has not registered')) {
+      throw new Error('the disabled Capture screen does not name the unregistered helper');
+    }
+    await page.screenshot({ path: path.join(OUT, '05c-screen-helper-missing.png') });
+    step('the Screen page disables Capture screen when the fleet says the helper has not registered');
+  } finally {
+    DEVICE.host.helper = registeredHelper;
+  }
+
+  // **THE FILES FILTER STARTS WITH THE LIST ON A PHONE.** The measured 390 page wrapped the filter
+  // onto its own line but `margin-left: auto` pushed it to x=101 while New folder and Upload began
+  // at x=33. It is a full-width line aligned with the other controls now. The listing comes from
+  // the gate's `files.list` stub, so the filter (drawn only with entries) is on the page.
+  await page
+    .locator('nav.device-tabs')
+    .getByRole('button', { name: 'Files', exact: true })
+    .click();
+  await page.getByRole('heading', { name: 'Files', exact: true, level: 1 }).waitFor({
+    timeout: 10_000
+  });
+  await page.locator('.files-filter input').waitFor({ timeout: 10_000 });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.waitForTimeout(300);
+  const files390 = await page.evaluate(() => {
+    const tools = document.querySelector('.files-tools');
+    const filter = document.querySelector('.files-filter');
+    const newFolder = document.querySelector('.files-new');
+    const box = (element) => {
+      const at = element?.getBoundingClientRect();
+      return at ? { left: Math.round(at.left), width: Math.round(at.width) } : null;
+    };
+    return {
+      viewport: document.documentElement.clientWidth,
+      scrollWidth: document.documentElement.scrollWidth,
+      tools: box(tools),
+      filter: box(filter),
+      newFolder: box(newFolder)
+    };
+  });
+  console.log(`browser-gate: Files at 390: ${JSON.stringify(files390)}`);
+  if (files390.scrollWidth > files390.viewport) {
+    throw new Error(
+      `the Files page at 390 scrolls sideways: ${files390.viewport}/${files390.scrollWidth}`
+    );
+  }
+  if (!files390.filter || !files390.newFolder || !files390.tools) {
+    throw new Error('the Files toolbar, filter or New folder has no box at 390');
+  }
+  if (files390.filter.left !== files390.newFolder.left) {
+    throw new Error(
+      `the Files filter starts at x=${files390.filter.left}, not with the other controls at ` +
+        `x=${files390.newFolder.left}`
+    );
+  }
+  if (files390.filter.width < files390.tools.width - 2) {
+    throw new Error(
+      `the Files filter is ${files390.filter.width} px wide in a ${files390.tools.width} px toolbar`
+    );
+  }
+  await page.screenshot({ path: path.join(OUT, '05d-files-390.png') });
+  step(
+    `at 390 the Files filter starts at x=${files390.filter.left} with the other controls and spans ` +
+      `the ${files390.tools.width} px toolbar`
+  );
 
   // **THE MACHINE KEEPS ITS CONNECT DOOR.** The button the audit measured at 1440 (59×28 at the
   // head's right edge) is still the desktop door, named for the sheet it opens. The phone leg below

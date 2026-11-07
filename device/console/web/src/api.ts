@@ -513,7 +513,10 @@ export const api = {
   installer: () => call<Installer>("/installer"),
   // The refusal log is a separate file with the audit line's shape: same route rules, same limit, and
   // no token id because the caller never authenticated.
-  health: () => call<{ version: string; devices: number }>("/health"),
+  // The console's own identity and age. `uptime_s` is the one moment that lets the Machine tab date
+  // its missing machine facts by when this process started (the facts live in this process's
+  // memory), rather than claiming a device never sent them.
+  health: () => call<{ version: string; devices: number; uptime_s?: number }>("/health"),
   // The static registry, with each tool's destructive flag. The console reads it for the grant
   // form: the fleet scope has no selected machine, so this is the only catalogue it can count.
   tools: () => call<ToolInfo[]>("/tools"),

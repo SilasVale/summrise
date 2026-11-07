@@ -409,7 +409,6 @@ function FleetHome(props: HomePageProps) {
               {verdict}
             </p>
           )}
-          {empty && <p className="page-sub">0 machines · 0 online</p>}
         </div>
         <div className="page-actions">
           <button type="button" onClick={props.onTokens}>
@@ -513,10 +512,15 @@ function FleetHome(props: HomePageProps) {
           </table>
         </div>
       ) : empty ? (
-        <section className="empty-state">
+        // **THE ZERO STATE IS ONE SENTENCE, AND THE DOORS ARE THE NEXT STEP.** `No machines yet`
+        // already says the size, so `0 machines · 0 online` was the same fact twice. The old
+        // paragraph sent the reader to "run the command" before the installer had been offered, and
+        // the command's panel had no visible name; this block names the order (install, then add)
+        // and both doors carry their own headings.
+        <section className="empty-state first-run" aria-labelledby="first-run-title">
+          <h2 id="first-run-title">Add your first machine</h2>
           <p className="hint">
-            A machine appears here after it enrolls with this console. Run the command once on the
-            Windows machine, and it dials out to this console.
+            Start with the installer below, then press Add a machine for the enrollment command.
           </p>
         </section>
       ) : null}
@@ -527,7 +531,8 @@ function FleetHome(props: HomePageProps) {
       {installer !== null && <InstallerBlock installer={installer} />}
 
       {props.code && (
-        <section className="enroll" aria-label="Enrollment command">
+        <section className="enroll" aria-labelledby="enroll-title">
+          <h2 id="enroll-title">Enrollment command</h2>
           <p className="hint">
             This code works once, for 15 minutes. On the Windows machine, open an elevated Command
             Prompt in the folder you chose on the installer's directory page (the default is{" "}

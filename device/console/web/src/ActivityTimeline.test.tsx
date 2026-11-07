@@ -795,7 +795,7 @@ describe("ActivityTimeline", () => {
 
     const chip = screen.getByRole("button", { name: "Clients only" });
     expect(chip).toHaveAttribute("aria-pressed", "false");
-    expect(chip).toHaveAccessibleDescription("2 rows in this window");
+    expect(chip).toHaveAccessibleDescription("2 rows in this window · spanning 3 m");
     // Unpressed the whole record is drawn: two of these rows are not the AI's calls.
     expect(document.querySelectorAll(".timeline-row")).toHaveLength(4);
 
@@ -1062,13 +1062,38 @@ describe("ActivityTimeline's labelled filter and record footer", () => {
     const chip = screen.getByRole("button", { name: "Clients only" });
     expect(chip).toHaveTextContent(/^Clients only$/);
     expect(chip).not.toHaveTextContent(/client calls/i);
-    expect(chip).toHaveAccessibleDescription("2 rows in this window");
+    expect(chip).toHaveAccessibleDescription("2 rows in this window · spanning 1 m");
 
     // The count follows the machine filter: it is the subset the control would draw from this
     // machine's window, not the whole fetched window's number.
     fireEvent.click(within(machines).getByRole("button", { name: "Beta" }));
     expect(screen.getByRole("button", { name: "Clients only" })).toHaveAccessibleDescription(
-      "1 row in this window"
+      "1 row in this window · spanning 1 m"
+    );
+  });
+
+  it("names the fetched window's span beside the rows it counts", () => {
+    // The measured Activity page put `Today: 18 client calls` over `486 rows in this window`; the
+    // window was 24 h 37 m and the span was stated nowhere, so the two counts read as a
+    // contradiction. The filter's own count now names the window it counted.
+    const newest = line({
+      ts_ms: Date.UTC(2026, 10, 5, 9, 0, 0),
+      device_id: alpha,
+      sentence: "Read notes.txt",
+      tool: "files.read",
+      caller: "client"
+    });
+    const oldest = line({
+      ts_ms: Date.UTC(2026, 10, 4, 8, 23, 0),
+      device_id: alpha,
+      sentence: "Listed the terminal sessions",
+      tool: "terminal.list",
+      caller: "console"
+    });
+    render(<ActivityTimeline lines={[newest, oldest]} devices={devices} />);
+
+    expect(screen.getByRole("button", { name: "Clients only" })).toHaveAccessibleDescription(
+      "1 row in this window · spanning 24 h 37 m"
     );
   });
 

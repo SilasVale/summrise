@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import type { Device } from "./DeviceCard";
 import { spanText } from "./age";
-import { grouped, message } from "./format";
+import { clockTime, grouped, isoDate, message } from "./format";
 import { HostFactsBlock } from "./HostFacts";
 import { Modal } from "./Modal";
 import { useRequestGate } from "./requests";
@@ -224,6 +224,7 @@ export function SystemPage({
   grant,
   device,
   deviceOnline,
+  consoleStartedAt,
   vitals = []
 }: {
   grant: Grant;
@@ -231,6 +232,13 @@ export function SystemPage({
   device?: Device | null;
   /** The fleet's reachability, as the other device pages take it; `false` is the only fact. */
   deviceOnline?: boolean;
+  /**
+   * When the console process began, from `/health`'s uptime. The machine facts live in this
+   * process's memory, so an empty This-machine section is a fact about THIS process's memory, not
+   * about the device: the sentence dates the boundary instead of saying the device never sent any.
+   * Absent when `/health` could not state it; the sentence then names the boundary without a time.
+   */
+  consoleStartedAt?: number | null;
   vitals?: VitalsSample[];
 }) {
   const offline = deviceOnline === false;
@@ -515,9 +523,12 @@ export function SystemPage({
           />
         ) : (
           <p className="hint">
-            The console has no machine facts from this device yet. They travel with the fleet read,
-            which the console repeats every few seconds; a device that does not report them leaves
-            this section with none.
+            {`The console has no machine facts from this device since this console started${
+              consoleStartedAt != null
+                ? ` at ${isoDate(consoleStartedAt)} ${clockTime(consoleStartedAt)}`
+                : ""
+            }. They travel with the fleet read, which the console repeats every few seconds; a ` +
+              "device that does not report them leaves this section with none."}
           </p>
         )}
         {device && (

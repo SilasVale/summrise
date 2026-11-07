@@ -406,6 +406,8 @@ export function App() {
   /** True when the console refused a call on the session in force, so the recovery panel is offered above the live tabs. */
   const [grantStale, setGrantStale] = useState(false);
   const [consoleVersion, setConsoleVersion] = useState<string | null>(null);
+  /** When this console process began, from `/health`'s uptime; null until the answer lands. */
+  const [consoleStartedAt, setConsoleStartedAt] = useState<number | null>(null);
   const [accessNote, setAccessNote] = useState<string | null>(null);
   const phone = useMediaQuery("(max-width: 639px)");
   const chosen = devices.find((device) => device.id === selected) ?? null;
@@ -697,6 +699,9 @@ export function App() {
     try {
       const health = await api.health();
       setConsoleVersion(health.version);
+      if (typeof health.uptime_s === "number" && Number.isFinite(health.uptime_s)) {
+        setConsoleStartedAt(Date.now() - health.uptime_s * 1000);
+      }
     } catch {
       /* the version label stays "…" — the page is not blocked on a cosmetic fact */
     }
@@ -1575,6 +1580,7 @@ export function App() {
                       grant={grant}
                       device={chosen}
                       deviceOnline={chosen?.online}
+                      consoleStartedAt={consoleStartedAt}
                       vitals={chosen ? vitals[chosen.id] ?? [] : []}
                     />
                   </section>

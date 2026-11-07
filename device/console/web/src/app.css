@@ -3354,4 +3354,9 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
   .machine-summary-head h2 { white-space: normal; overflow: visible; }
   .machine-summary-actions .primary { flex: 1 1 auto; }
   .overview-page { gap: 18px; }
+  /* **THE FILTER BELONGS WITH THE LIST ON A PHONE.** `margin-left: auto` pushed the wrapped filter
+     to the row's right edge (measured x=101) while every other control started at the panel's left
+     (x=33). It is full width on its own line, aligned with New folder and Upload. */
+  .files-filter { margin-left: 0; width: 100%; }
+  .files-filter input { width: 100%; }
 }

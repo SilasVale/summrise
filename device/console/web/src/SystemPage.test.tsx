@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { SystemPage } from "./SystemPage";
 import { callTool, ToolError, type Grant } from "./terminal";
-import { clockTime, exactMoment, isoDate } from "./format";
+import { clockTimeSeconds, exactMoment, isoDate } from "./format";
 
 // The page's whole device surface is `callTool`; the real `ToolError` stays so a refusal is the class
 // the page actually receives from `./terminal`.
@@ -59,7 +59,36 @@ describe("SystemPage", () => {
     expect(screen.getByRole("button", { name: "Test" })).toBeDisabled();
   });
 
-  it("says the console has no machine facts yet instead of drawing an empty fact list", async () => {
+  it("dates the console's missing machine facts instead of claiming the device never sent any", async () => {
+    // The measured offline Overview pointed at Machine "for the machine's last facts"; the card
+    // said the console had none "yet" — a claim about the device that was true only of a console
+    // process restarted at ~20:40Z. The absence is dated by when this console started, so a
+    // reader knows the facts may exist and this process has not seen them.
+    device((name) => {
+      if (name !== "system.process_list") {
+        throw new Error(`the test did not expect a ${name} call`);
+      }
+      return JSON.stringify([]);
+    });
+    const consoleStartedAt = new Date(2026, 10, 7, 20, 40, 0).getTime();
+    render(
+      <SystemPage
+        grant={GRANT}
+        consoleStartedAt={consoleStartedAt}
+        device={{ id: "device-1", name: "workshop", online: true, version: "0.3.1", last_frame_ms: 1 }}
+      />
+    );
+
+    expect(
+      await screen.findByText(
+        /The console has no machine facts from this device since this console started at 2026-11-07 20:40/
+      )
+    ).toBeInTheDocument();
+    expect(screen.getByText(/repeats every few seconds/)).toBeInTheDocument();
+    expect(screen.queryByText(/from this device yet/)).toBeNull();
+  });
+
+  it("names the console-process boundary even when its start was not reported", async () => {
     device((name) => {
       if (name !== "system.process_list") {
         throw new Error(`the test did not expect a ${name} call`);
@@ -74,9 +103,9 @@ describe("SystemPage", () => {
     );
 
     expect(
-      await screen.findByText(/The console has no machine facts from this device yet/)
+      await screen.findByText(/The console has no machine facts from this device since this console started\./)
     ).toBeInTheDocument();
-    expect(screen.getByText(/repeats every few seconds/)).toBeInTheDocument();
+    expect(screen.queryByText(/from this device yet/)).toBeNull();
   });
 
   it("dates an offline machine's facts with the age of its last frame", async () => {
@@ -229,8 +258,8 @@ describe("SystemPage", () => {
     expect(rows[0].value).toBe("0.3.284");
     expect(rows[1].value).toBe("0.3.273");
     expect(rows[2].value).toBe("applied");
-    expect(rows[3].value).toBe(`${isoDate(resultAt)} ${clockTime(resultAt)}`);
-    expect(rows[4].value).toBe(`${isoDate(checkAt)} ${clockTime(checkAt)}`);
+    expect(rows[3].value).toBe(`${isoDate(resultAt)} ${clockTimeSeconds(resultAt)}`);
+    expect(rows[4].value).toBe(`${isoDate(checkAt)} ${clockTimeSeconds(checkAt)}`);
     expect(rows[4].title).toBe(exactMoment(checkAt));
     expect(rows[5].value).toBe("canary");
   });
@@ -267,7 +296,6 @@ describe("SystemPage", () => {
     const rows = gridRows(container);
     expect(rows.map((row) => row.label)).toEqual([
       "Applied",
-      "Last outcome",
       "Last result",
       "Last check",
       "Channel"
@@ -359,7 +387,7 @@ describe("SystemPage", () => {
       label: "Last outcome",
       value: "applied · before this start"
     });
-    expect(rows[3].value).toBe(`${isoDate(appliedAt)} ${clockTime(appliedAt)}`);
+    expect(rows[3].value).toBe(`${isoDate(appliedAt)} ${clockTimeSeconds(appliedAt)}`);
   });
 
   it("keeps an applied outcome current when it followed this start", async () => {

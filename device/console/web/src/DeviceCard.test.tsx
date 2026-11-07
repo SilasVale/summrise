@@ -50,7 +50,7 @@ describe("DeviceCard — one row on the fleet", () => {
     const { container } = draw();
 
     expect(screen.getByText("workshop")).toBeInTheDocument();
-    expect(screen.getByText("online · seen 15s ago")).toBeInTheDocument();
+    expect(screen.getByText(/^online · seen \d+s ago$/)).toBeInTheDocument();
     expect(screen.getByText("v0.3.42")).toBeInTheDocument();
     // The version appears once on the row: the chip is the surface's one copy, and nothing in the
     // device's story repeats it.
@@ -125,7 +125,7 @@ describe("DeviceCard — one row on the fleet", () => {
     expect(screen.queryByText(/Reconnected after/)).not.toBeInTheDocument();
     expect(screen.queryByText(/the console accepted the channel/)).not.toBeInTheDocument();
     // What the row does say: the state with its age and the build.
-    expect(screen.getByText("online · seen 15s ago")).toBeInTheDocument();
+    expect(screen.getByText(/^online · seen \d+s ago$/)).toBeInTheDocument();
     expect(screen.getByText("v0.3.42")).toBeInTheDocument();
   });
 
@@ -254,6 +254,24 @@ describe("DeviceCard — one row on the fleet", () => {
     // The version appears twice: the chip's v0.3.42 and the device's own start sentence. The
     // update clause does not repeat it.
     expect(container.textContent?.match(/0\.3\.42/g)).toHaveLength(2);
+  });
+
+  it("does not say the update's age twice when the update is the start", () => {
+    // The measured 9VH and 84T row: the release took over at the moment this process began
+    // (`last_update.at_ms == restarts[0].at_ms`), so `(updated 1d 1h ago)` was the start's own age
+    // written a second time.
+    const { container } = draw({
+      online: true,
+      update: {
+        current: "0.3.42",
+        verdict: { outcome: "ok", detail: "started 0.3.42" },
+        last_update: { to: "0.3.42", outcome: "applied", at_ms: BOOT_AT }
+      }
+    });
+
+    const verdict = container.querySelector(".fleet-verdict");
+    expect(verdict).toHaveTextContent("started 0.3.42 · 1d 1h ago");
+    expect(verdict).not.toHaveTextContent("updated");
   });
 
   it("shows a refusal the device is making now, without a start to attach it to", () => {

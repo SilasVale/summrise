@@ -59,10 +59,15 @@ export function ScreenPage({
 }) {
   const offline = deviceOnline === false;
   const helper = helperSessionFact(helperSession, sessions);
-  // `helperRunning === false` has its own sentence, and that is the fact the fleet reported; the
-  // session row may be stale behind it, so it does not also gate the button.
+  // `helperRunning === false` is a fleet fact the page must not invite a click against. It used to
+  // keep the button enabled because the fact is a poll old; the screen then offered a capture it
+  // had just said would be refused. The device's refusal stays the authority when the fleet did not
+  // say (`undefined`), and the poll re-enables the button when the helper registers.
+  const helperMissing = helperRunning === false;
+  // The session row may be stale behind an unregistered helper, so it does not also gate the button
+  // when the stronger fact is already there.
   const blockedHelper =
-    helperRunning !== false && helper !== null && desktopHidden(helper.state) ? helper : null;
+    !helperMissing && helper !== null && desktopHidden(helper.state) ? helper : null;
   const [shot, setShot] = useState<Shot | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -141,15 +146,23 @@ export function ScreenPage({
           <button
             type="button"
             className="screen-capture"
-            disabled={busy || offline || blockedHelper !== null}
+            disabled={busy || offline || helperMissing || blockedHelper !== null}
             title={
               offline
                 ? "The machine is offline; its screen can be captured when it reconnects"
+                : helperMissing
+                  ? "The fleet says this device's per-user helper has not registered; a capture needs it running in the signed-in user's desktop session"
+                  : blockedHelper
+                    ? helperTitle(blockedHelper)
+                    : undefined
+            }
+            aria-describedby={
+              helperMissing
+                ? "screen-helper-missing"
                 : blockedHelper
-                  ? helperTitle(blockedHelper)
+                  ? "screen-helper-session"
                   : undefined
             }
-            aria-describedby={blockedHelper ? "screen-helper-session" : undefined}
             onClick={() => void capture()}
           >
             {busy ? "Capturing…" : "Capture screen"}
@@ -167,14 +180,14 @@ export function ScreenPage({
           </p>
 
           {/* AN INVITATION THE CONSOLE CAN ALREADY SEE WILL FAIL IS NOT AN INVITATION. The fleet
-              carries the helper's registration, so say it before the click rather than after the
-              refusal; the button stays enabled because the fact is a poll old and the device's
-              answer is what decides. */}
+              carries the helper's registration, so say it before the click and take the button off:
+              an enabled press whose own page says it will be refused is the measured defect. The
+              fact is a poll old, so the next fleet read puts the button back when it registers. */}
           {helperRunning === false && (
-            <p className="hint">
+            <p className="hint" id="screen-helper-missing">
               The fleet says this device's per-user helper has not registered, so a capture will be
-              refused. The helper runs inside the signed-in user's desktop session; the Machine tab
-              shows its state.
+              refused and the button is off until it does. The helper runs inside the signed-in
+              user's desktop session; the Machine tab shows its state.
             </p>
           )}
 

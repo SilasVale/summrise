@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { exactMoment, isoDate, clockTime } from "./format";
+import { exactMoment, isoDate, clockTimeSeconds } from "./format";
 import { updateRows } from "./updateCard";
 
 /**
@@ -40,26 +40,72 @@ describe("updateRows — the panel's UPDATES grid, one version per row", () => {
 
     expect(rows.map((row) => row.label)).toEqual([
       "Applied",
-      "Last outcome",
       "Last result",
       "Last check",
       "Channel"
     ]);
     expect(rows[0]).toMatchObject({ key: "applied", text: "0.3.290" });
-    expect(rows[1].text).toBe("applied");
-    expect(rows[2]).toMatchObject({
-      text: `${isoDate(RESULT_AT)} ${clockTime(RESULT_AT)}`,
+    expect(rows[1]).toMatchObject({
+      text: `${isoDate(RESULT_AT)} ${clockTimeSeconds(RESULT_AT)}`,
       exact: exactMoment(RESULT_AT)
     });
-    expect(rows[3]).toMatchObject({
-      text: `${isoDate(CHECK_AT)} ${clockTime(CHECK_AT)}`,
+    expect(rows[2]).toMatchObject({
+      text: `${isoDate(CHECK_AT)} ${clockTimeSeconds(CHECK_AT)}`,
       exact: exactMoment(CHECK_AT)
     });
-    expect(rows[4]).toMatchObject({ text: "canary" });
+    expect(rows[3]).toMatchObject({ text: "canary" });
     // ONE VERSION PER ROW, AND THIS VERSION ON ONE ROW: no `Running`/`Last target` row repeats it.
     expect(rows.filter((row) => row.text.includes("0.3.290"))).toHaveLength(1);
     expect(rows.map((row) => row.label)).not.toContain("Running");
     expect(rows.map((row) => row.label)).not.toContain("Last target");
+    // `Last outcome applied` under `Applied 0.3.290` adds nothing: the applied row says it, and
+    // this one is inside the start that the update made.
+    expect(rows.map((row) => row.label)).not.toContain("Last outcome");
+  });
+
+  it("scopes a missing check to the update instead of saying the machine never looked", () => {
+    // The measured 84T: the release was applied by a path that recorded no check (`lastCheck:
+    // null`), so there is no moment to show. The card must not read as "never checked" beside an
+    // apply: it says the record is absent before this update, which is the fact the device holds.
+    const rows = updateRows({
+      version: "0.3.291",
+      update: {
+        current: "0.3.291",
+        verdict: { outcome: "ok", detail: "started 0.3.291" },
+        last_update: { to: "0.3.291", outcome: "applied", at_ms: RESULT_AT }
+      },
+      host: { restarts: [{ at_ms: RESULT_AT, version: "0.3.291" }] }
+    });
+
+    const check = rows.find((row) => row.key === "check");
+    expect(check?.text).toBe("not recorded before this update");
+    expect(check?.absent).toBe(true);
+    expect(rows.map((row) => row.label)).not.toContain("Last outcome");
+  });
+
+  it("tells the check and the apply apart when they are seconds within one minute", () => {
+    // The measured 9VH: the check started at 20:55:43 and the launcher's apply landed at 20:55:49.
+    // Minute precision printed both as 20:55, so two different facts looked like one.
+    const checkAt = RESULT_AT - 6_000;
+    const rows = updateRows({
+      version: "0.3.291",
+      update: {
+        current: "0.3.291",
+        last_update: { to: "0.3.291", outcome: "applied", at_ms: RESULT_AT },
+        last_check: { at_ms: checkAt, trigger: "channel" }
+      },
+      host: { restarts: [{ at_ms: RESULT_AT, version: "0.3.291" }] }
+    });
+
+    expect(rows.find((row) => row.key === "check")?.text).toBe(
+      `${isoDate(checkAt)} ${clockTimeSeconds(checkAt)}`
+    );
+    expect(rows.find((row) => row.key === "result")?.text).toBe(
+      `${isoDate(RESULT_AT)} ${clockTimeSeconds(RESULT_AT)}`
+    );
+    expect(rows.find((row) => row.key === "check")?.text).not.toBe(
+      rows.find((row) => row.key === "result")?.text
+    );
   });
 
   it("puts the running version and the target on their own rows when the machine is behind", () => {
@@ -130,7 +176,7 @@ describe("updateRows — the panel's UPDATES grid, one version per row", () => {
     );
   });
 
-  it("keeps an applied answer inside this start as the current outcome", () => {
+  it("does not repeat an applied answer the Applied row already states", () => {
     const rows = updateRows({
       version: "0.3.277",
       update: {
@@ -141,7 +187,7 @@ describe("updateRows — the panel's UPDATES grid, one version per row", () => {
     });
 
     expect(rows.map((row) => row.label)).toContain("Applied");
-    expect(rows.find((row) => row.key === "outcome")?.text).toBe("applied");
+    expect(rows.map((row) => row.label)).not.toContain("Last outcome");
   });
 
   it("names the version a rollback returned to, and does not repeat it as what runs", () => {
@@ -244,7 +290,7 @@ describe("updateRows — the panel's UPDATES grid, one version per row", () => {
     ]);
     expect(rows[0]).toMatchObject({ text: "not recorded", absent: true });
     expect(rows[3]).toMatchObject({
-      text: `${isoDate(CHECK_AT)} ${clockTime(CHECK_AT)}`
+      text: `${isoDate(CHECK_AT)} ${clockTimeSeconds(CHECK_AT)}`
     });
   });
 });

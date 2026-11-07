@@ -742,6 +742,21 @@ export function ActivityTimeline(props: {
     [matching, clientsOnly]
   );
   const clientCalls = useMemo(() => matching.filter(isClientCall).length, [matching]);
+  // **THE WINDOW'S SPAN IS WHAT MAKES ITS COUNT READABLE.** The measured page put the day's `18
+  // client calls` over `486 rows in this window`; the fetched window covered 24 h 37 m and nothing
+  // said so, so two true counts looked contradictory. The span is the fetched lines' own first and
+  // last moment — not the filter's subset — because "this window" is the read, not the control's
+  // selection. One line has no span to state.
+  const windowSpanMs = useMemo(() => {
+    let oldest: number | null = null;
+    let newest: number | null = null;
+    for (const line of props.lines) {
+      if (!Number.isFinite(line.ts_ms)) continue;
+      if (oldest === null || line.ts_ms < oldest) oldest = line.ts_ms;
+      if (newest === null || line.ts_ms > newest) newest = line.ts_ms;
+    }
+    return oldest !== null && newest !== null ? newest - oldest : 0;
+  }, [props.lines]);
   // The active scope is never hidden: a filter the page is applying but not showing is a trap.
   const shownMachines = phone
     ? machines.filter((machine) => machine.known || machine.id === scope)
@@ -836,6 +851,7 @@ export function ActivityTimeline(props: {
               </button>
               <span className="filter-count" id="timeline-clients-window">
                 {clientCalls} {clientCalls === 1 ? "row" : "rows"} in this window
+                {windowSpanMs > 0 ? ` · spanning ${spanText(windowSpanMs)}` : ""}
               </span>
             </div>
           </div>
