@@ -4417,6 +4417,9 @@ async fn rename_device(
         today: day_view(day.devices.get(&device.id), day.since_ms, day.bounded),
         last_outage: outage_view(window.boundaries.last_outages.get(&device.id).copied()),
         last_left_ms: window.boundaries.last_lefts.get(&device.id).copied(),
+        channel_activity: channel_activity_view(
+            window.boundaries.activity.get(&device.id).copied(),
+        ),
         last_frame_ms: app.channels.last_frame(&device.id),
         id: device.id,
         public_key: device.public_key,
@@ -4732,6 +4735,9 @@ async fn device_views(app: &AppState) -> Vec<DeviceView> {
             today: day_view(day.devices.get(&device.id), day.since_ms, day.bounded),
             last_outage: outage_view(window.boundaries.last_outages.get(&device.id).copied()),
             last_left_ms: window.boundaries.last_lefts.get(&device.id).copied(),
+            channel_activity: channel_activity_view(
+                window.boundaries.activity.get(&device.id).copied(),
+            ),
             last_frame_ms: app.channels.last_frame(&device.id),
             // A name given at registration wins; the machine's own name is a fallback for the
             // devices that never gave one, which is all of them so far.
@@ -4892,6 +4898,13 @@ struct DeviceView {
     /// derived from the audit, so a console restarted mid-outage still has the pair.
     #[serde(skip_serializing_if = "Option::is_none")]
     last_outage: Option<OutageView>,
+    /// The joins and leaves the audit's newest window holds for this machine, with the window's
+    /// size. `last_attempt` is the device's own retry note, and only this console process has it —
+    /// a console restarted since the device last connected has forgotten it. The audit file has
+    /// not, so this is the durable half of the same link-health story, read from the window the
+    /// absence pair above comes from.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    channel_activity: Option<ChannelActivityView>,
     /// The machine facts the device last sent over its channel: the operator reads what the device is,
     /// including which sessions are disconnected, without minting a grant to ask.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -4922,6 +4935,30 @@ fn outage_view(absence: Option<Absence>) -> Option<OutageView> {
     absence.map(|absence| OutageView {
         away_ms: absence.away_ms,
         back_at_ms: absence.back_at_ms,
+    })
+}
+
+/// One machine's join/leave tally, and how many newest audit lines it covers.
+///
+/// The window is served with the counts because a number without its window would read as all
+/// time: 24 joins is a different link on a 2,000-line window than on a 2,000,000-line file, and the
+/// page must be able to say which one it drew.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
+pub(crate) struct ChannelActivityView {
+    pub(crate) joined: u64,
+    pub(crate) left: u64,
+    pub(crate) window: usize,
+}
+
+/// The wire view of [`crate::audit::ChannelActivity`]: `None` for a device the window holds no
+/// boundary for, so a page draws no count rather than a zero.
+fn channel_activity_view(
+    activity: Option<crate::audit::ChannelActivity>,
+) -> Option<ChannelActivityView> {
+    activity.map(|activity| ChannelActivityView {
+        joined: activity.joined,
+        left: activity.left,
+        window: crate::audit::FLEET_WINDOW,
     })
 }
 

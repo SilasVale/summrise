@@ -226,6 +226,98 @@ describe("SystemPage", () => {
     expect(line).toHaveTextContent("channel not reported");
     expect(line).toHaveTextContent("no last check reported");
     expect(line).toHaveTextContent("no update result reported");
+    // The console-link line and the check line keep saying what is absent rather than inventing a
+    // join, a retry or a console check.
+    expect(container.querySelector(".system-channel")).toHaveTextContent(
+      "no record of this machine's channel attempts"
+    );
+    expect(container.querySelector(".system-check")).toHaveTextContent(
+      'a check runs on the machine\'s own panel ("Check for updates now")'
+    );
+  });
+
+  it("names the restart's channel, the device's verdict and its console retries", async () => {
+    // The measured 84T: `host.update.current` was null, so the line said "channel not reported"
+    // while the restart journal said canary and the verdict said `started 0.3.280`. The device's own
+    // console attempt (14 failures) reached the console as `last_attempt`; the Machine tab is where
+    // the sentence that explains it belongs.
+    device(() => JSON.stringify([]));
+    const startedAt = Date.now() - 7 * 3_600_000;
+    const { container } = render(
+      <SystemPage
+        grant={GRANT}
+        device={{
+          id: "device-1",
+          name: "workshop",
+          online: true,
+          version: "0.3.280",
+          last_frame_ms: 1,
+          last_attempt: {
+            attempts: 14,
+            reason: "the console accepted the channel and then dropped it"
+          },
+          update: {
+            current: "0.3.280",
+            verdict: { outcome: "ok", detail: "started 0.3.280" }
+          },
+          host: {
+            update: { current: null, previous: null, pending: null, last_swap: null },
+            restarts: [{ at_ms: startedAt, version: "0.3.280", channel: "canary" }]
+          }
+        }}
+      />
+    );
+
+    await screen.findByText("online");
+    const line = container.querySelector(".system-update");
+    expect(line).toHaveTextContent("running v0.3.280");
+    expect(line).toHaveTextContent("channel canary");
+    expect(line).not.toHaveTextContent("channel not reported");
+    expect(line).toHaveTextContent("verdict ok");
+    expect(line).toHaveTextContent(/started 0\.3\.280 · 7h ago/);
+    expect(line).not.toHaveTextContent("no update result reported");
+
+    const channel = container.querySelector(".system-channel");
+    expect(channel).toHaveTextContent(
+      "The device's last console attempt: retried after 14 failed attempts — " +
+        "the console accepted the channel and then dropped it."
+    );
+  });
+
+  it("falls back to the audit's joins and leaves when no retry note reached the console", async () => {
+    // A console that restarted forgets `last_attempt`; the audit file does not. The fallback is the
+    // joined/left tally over the same newest window the fleet's absences are read from, stated with
+    // the window so a count cannot read as all time.
+    device(() => JSON.stringify([]));
+    const { container } = render(
+      <SystemPage
+        grant={GRANT}
+        device={{
+          id: "device-1",
+          name: "workshop",
+          online: true,
+          version: "0.3.280",
+          last_frame_ms: 1,
+          channel_activity: { joined: 24, left: 2, window: 2000 },
+          update: {
+            current: "0.3.280",
+            verdict: { outcome: "ok", detail: "started 0.3.280" }
+          },
+          host: {
+            restarts: [{ at_ms: Date.now() - 7 * 3_600_000, version: "0.3.280", channel: "canary" }]
+          }
+        }}
+      />
+    );
+
+    await screen.findByText("online");
+    const channel = container.querySelector(".system-channel");
+    expect(channel).toHaveTextContent(
+      "The console's audit recorded 24 joins and 2 leaves for this machine in its newest 2000 lines."
+    );
+    expect(channel).toHaveTextContent(
+      "A join is the console accepting this machine's channel; a left is the channel closing"
+    );
   });
 
   it("says the console has no update facts when the device never sent a story", async () => {

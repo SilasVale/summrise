@@ -1,4 +1,4 @@
-import type { DeviceUpdate } from "./api";
+import type { DeviceUpdate, HostFacts } from "./api";
 import { exactMoment, seenAgo } from "./format";
 
 /**
@@ -31,6 +31,11 @@ import { exactMoment, seenAgo } from "./format";
  * proves it took — so the start line says nothing about it. The Machine tab still shows the answer,
  * labelled as before this start (`UpdateStoryLine`). Without either moment the console cannot prove
  * the answer belongs to this start, and says nothing about the update rather than guess.
+ *
+ * THE SAME JOURNAL NAMES THE CHANNEL. The newest restart records the release the running process
+ * started from; the launcher's current generation is the fallback for a device whose journal
+ * predates the field. `updateChannel` is that one rule for both surfaces, so the fleet row and the
+ * Machine line cannot disagree about which channel the "behind" comparison is about.
  */
 export type StartStoryContext = {
   /** When the running process started, from the host frame's newest restart entry. */
@@ -99,6 +104,32 @@ export function startedLine(
   context: StartStoryContext = {}
 ): string | null {
   return startedStory(update, context)?.text ?? null;
+}
+
+/**
+ * The channel the running process started from, or null when neither fact names one.
+ *
+ * THE JOURNAL IS THE CLOSER FACT. `host.restarts[0]` is this process's own entry: it says the
+ * release the running app started from, which is the channel the "running v…" half of the update
+ * line describes. The launcher's `host.update.current.channel` is the generation it trusts on disk,
+ * and it is the fallback only because a build whose journal predates the channel field still has the
+ * sidecar. On the measured 84T the sidecar was null and the journal said `canary`; the console read
+ * only the sidecar and printed "channel not reported" about a machine whose own panel said
+ * `Channel canary`.
+ *
+ * A blank string is not a channel: a field the device wrote empty is a field it did not report.
+ */
+export function updateChannel(device: {
+  host?: Pick<HostFacts, "restarts" | "update"> | null;
+}): string | null {
+  return (
+    namedChannel(device.host?.restarts?.[0]?.channel) ??
+    namedChannel(device.host?.update?.current?.channel)
+  );
+}
+
+function namedChannel(value: unknown): string | null {
+  return typeof value === "string" && value.trim() !== "" ? value.trim() : null;
 }
 
 /**

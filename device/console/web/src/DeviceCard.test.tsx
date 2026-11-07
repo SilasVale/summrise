@@ -256,6 +256,38 @@ describe("DeviceCard — one row on the fleet", () => {
     expect(screen.queryByText(/asleep|sleeping/i)).not.toBeInTheDocument();
   });
 
+  it("names the channel its newest restart ran, not only the launcher's", () => {
+    // The measured 84T: `host.update.current` was null, so the Machine line read "channel not
+    // reported" while the restart journal named canary. The row reads the journal first.
+    const { container } = draw({
+      host: {
+        restarts: [{ at_ms: BOOT_AT, version: "0.3.42", channel: "canary", pid: 42 }],
+        update: { current: null, previous: null, pending: null, last_swap: null }
+      }
+    });
+
+    const line = container.querySelector(".fleet-channel");
+    expect(line).toHaveTextContent("channel canary");
+    expect(line).toHaveAttribute("title", expect.stringContaining("newest restart"));
+  });
+
+  it("falls back to the launcher's channel when the journal has none", () => {
+    const { container } = draw({
+      host: {
+        restarts: [{ at_ms: BOOT_AT, version: "0.3.42", pid: 42 }],
+        update: { current: { version: "0.3.42", channel: "beta" } }
+      }
+    });
+
+    expect(container.querySelector(".fleet-channel")).toHaveTextContent("channel beta");
+  });
+
+  it("draws no channel line when neither the journal nor the launcher names one", () => {
+    // Never invented: a device with no channel anywhere gets no line at all.
+    const { container } = draw({ host: null });
+    expect(container.querySelector(".fleet-channel")).toBeNull();
+  });
+
   it("opens the machine from the whole main row", () => {
     const onSelect = vi.fn();
     render(

@@ -5,7 +5,7 @@ import { HostFactsBlock } from "./HostFacts";
 import { Modal } from "./Modal";
 import { useRequestGate } from "./requests";
 import { callTool, ToolError, type Grant } from "./terminal";
-import { processStartMs } from "./updateStory";
+import { processStartMs, startedStory, updateChannel } from "./updateStory";
 import type { VitalsSample } from "./vitals";
 
 /**
@@ -110,7 +110,7 @@ function UpdateStoryLine({ device }: { device?: Device | null }) {
       </p>
     );
   }
-  const channel = device?.host?.update?.current?.channel;
+  const channel = device ? updateChannel(device) : null;
   const version = update.current ? `running v${update.current}` : "running version not reported";
   const channelLine = channel ? `channel ${channel}` : "channel not reported";
   const check = update.last_check ? moment(update.last_check.at_ms) : null;
@@ -120,6 +120,14 @@ function UpdateStoryLine({ device }: { device?: Device | null }) {
   // It stays on the line — it is the device's own record — but labelled as before this start, so the
   // 9VH's two-day-old apply cannot read as what the machine just did.
   const startedAtMs = device ? processStartMs(device) : null;
+  // **THE VERDICT IS THE RESULT WHEN NO SWAP ANSWER WAS FOLDED IN.** The measured 84T's only update
+  // result was its last start's verdict (`started 0.3.280`), and the line said "no update result
+  // reported" while the fleet carried that sentence. The verdict is drawn as the device wrote it,
+  // aged only when the journal proves when the start was; without a journal moment the sentence is
+  // kept verbatim and no time is invented.
+  const verdict = update.verdict;
+  const verdictDetail = verdict?.detail?.trim() ?? "";
+  const start = startedStory(update, { startedAtMs, shownVersion: device?.version });
   const beforeStart =
     startedAtMs !== null &&
     update.last_update != null &&
@@ -153,9 +161,80 @@ function UpdateStoryLine({ device }: { device?: Device | null }) {
         ) : (
           "last outcome time not readable"
         )
+      ) : verdict && verdictDetail ? (
+        <>
+          verdict {verdict.outcome} · {start?.text ?? verdictDetail}
+        </>
       ) : (
         "no update result reported"
       )}
+    </p>
+  );
+}
+
+/**
+ * The console link's own story, under the update line.
+ *
+ * **THE DEVICE'S RETRY NOTE IF IT REACHED THIS CONSOLE, ELSE THE AUDIT'S TALLY.** `last_attempt` is
+ * the device's own `console_attempt` — the count of failed attempts before the channel that carried
+ * it, and the device's sentence about why. It lives in this console's memory, so a console restarted
+ * since the device last connected has forgotten it; the audit file has not, and `channel_activity`
+ * is the joins and leaves it wrote in the same newest window the absence pair is read from. The
+ * fallback states its window so a count cannot read as all time, and explains what a join and a
+ * left are. Neither facts present says so; nothing here invents a retry.
+ */
+function ConsoleLinkLine({ device }: { device?: Device | null }) {
+  if (!device) return null;
+  const attempt = device.last_attempt;
+  const attempts = attempt?.attempts ?? 0;
+  const reason = attempt?.reason?.trim() ?? "";
+  if (attempt && (attempts > 0 || reason !== "")) {
+    const failed = `${attempts} failed attempt${attempts === 1 ? "" : "s"}`;
+    if (attempts > 0) {
+      return (
+        <p className="hint system-channel">
+          {`The device's last console attempt: retried after ${failed}${
+            reason ? ` — ${reason}` : ""
+          }.`}
+        </p>
+      );
+    }
+    return (
+      <p className="hint system-channel">{`The device's last console attempt: ${reason}.`}</p>
+    );
+  }
+  const activity = device.channel_activity;
+  if (activity) {
+    const joins = `${activity.joined} join${activity.joined === 1 ? "" : "s"}`;
+    const leaves = `${activity.left} leave${activity.left === 1 ? "" : "s"}`;
+    return (
+      <p className="hint system-channel">
+        {`The console's audit recorded ${joins} and ${leaves} for this machine in its newest ` +
+          `${activity.window} lines. A join is the console accepting this machine's channel; a ` +
+          "left is the channel closing, and a join after a left is a reconnect."}
+      </p>
+    );
+  }
+  return (
+    <p className="hint system-channel">
+      The console has no record of this machine's channel attempts: its newest audit window holds no
+      join or leave, and this console holds no retry note from it.
+    </p>
+  );
+}
+
+/**
+ * The local door to an update check, since the console has none.
+ *
+ * The device's own panel carries "Check for updates now" and the console's tool registry has no
+ * update-check tool, so the page names the check it cannot run rather than offering a button that
+ * would be a lie (or an address that resolves on the operator's machine, not the device's).
+ */
+function UpdateCheckLine() {
+  return (
+    <p className="hint system-check">
+      The console has no update-check tool: a check runs on the machine's own panel ("Check for
+      updates now").
     </p>
   );
 }
@@ -478,6 +557,12 @@ export function SystemPage({
       <section className="system-section" aria-labelledby="system-device-app">
         <h3 id="system-device-app">Device app</h3>
         <UpdateStoryLine device={device} />
+        {device && (
+          <>
+            <ConsoleLinkLine device={device} />
+            <UpdateCheckLine />
+          </>
+        )}
         <p className="hint">
           The app the launcher supervises. Restarting it ends every open terminal, browser tab and
           run on the device, and takes the device offline briefly while the launcher starts it again.

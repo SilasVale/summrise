@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { exactMoment } from "./format";
-import { startedLine, startedStory } from "./updateStory";
+import { startedLine, startedStory, updateChannel } from "./updateStory";
 
 /**
  * THE DEVICE'S OWN SENTENCE, AND THE START IT KEEPS.
@@ -243,5 +243,52 @@ describe("startedLine — the device's last start, and an update that belongs to
         context
       )
     ).toBe("started 0.3.277 · 2h ago");
+  });
+});
+
+/**
+ * THE CHANNEL IS THE RESTART JOURNAL'S, NOT ONLY THE LAUNCHER'S.
+ *
+ * The measured 84T: `host.update.current` was null, so the update line read "channel not reported"
+ * while `host.restarts[0].channel` said `canary` and the device's own panel said `Channel canary`.
+ * The journal's newest entry is the release the running process actually started from — the one the
+ * "running v…" half of the line describes — so it wins over the launcher's baseline sidecar, which
+ * is the fallback for a build whose journal predates the channel field.
+ */
+describe("updateChannel — the channel the running process started from", () => {
+  it("reads the newest restart's channel and prefers it to the launcher's generation", () => {
+    expect(
+      updateChannel({
+        host: {
+          restarts: [{ at_ms: START, version: "0.3.280", channel: "canary" }],
+          update: { current: { version: "0.3.280", channel: "stable" } }
+        }
+      })
+    ).toBe("canary");
+  });
+
+  it("falls back to the launcher's current generation when the journal names no channel", () => {
+    expect(
+      updateChannel({
+        host: {
+          restarts: [{ at_ms: START, version: "0.3.280" }],
+          update: { current: { version: "0.3.280", channel: "beta" } }
+        }
+      })
+    ).toBe("beta");
+  });
+
+  it("is null when neither fact names a channel, and a blank field is not one", () => {
+    expect(updateChannel({})).toBeNull();
+    expect(updateChannel({ host: null })).toBeNull();
+    expect(updateChannel({ host: { restarts: [] } })).toBeNull();
+    expect(
+      updateChannel({
+        host: {
+          restarts: [{ at_ms: START, channel: "   " }],
+          update: { current: { channel: "" } }
+        }
+      })
+    ).toBeNull();
   });
 });

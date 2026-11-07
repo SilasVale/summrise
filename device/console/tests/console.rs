@@ -2546,6 +2546,61 @@ async fn a_device_still_away_serves_the_close_that_started_its_silence() {
     );
 }
 
+/// **THE CONSOLE'S ATTEMPTS SURVIVE ITS OWN RESTART IN THE AUDIT.** The measured 84T: its panel
+/// carried 14 failed console attempts, but `last_attempt` lives only in the console process, so a
+/// console restarted since the device last connected has forgotten it. The audit file has not: the
+/// newest window's `device.joined` / `device.left` rows are the tally `/fleet` serves, with the
+/// window they cover, so an operator can tell a healthy link from one that keeps being accepted and
+/// dropped. A machine with no boundary in the window gets no count — never a zero.
+#[tokio::test]
+async fn the_fleet_counts_each_devices_channel_joins_and_leaves_in_its_window() {
+    let fixture = Fixture::new("fleet-channel-activity");
+    let device_id = register_fixture_device(&fixture, &signing_key(0x7e)).await;
+    let quiet_id = register_fixture_device(&fixture, &signing_key(0x7f)).await;
+    let session = fixture.authenticate().await;
+    let other = "ef".repeat(32);
+    let boundary = |device: &str, tool: &str, ts_ms: u64| {
+        json!({
+            "ts_ms": ts_ms,
+            "kind": "device",
+            "device_id": device,
+            "status": 200,
+            "tool": tool,
+            "caller": "console",
+        })
+    };
+
+    // 24 joins and 2 leaves for the machine, interleaved with another machine's joins and a call,
+    // oldest first as the writer appends them.
+    let mut lines = Vec::new();
+    for index in 0..24u64 {
+        lines.push(boundary(&device_id, "device.joined", START_MS + index * 3));
+        if index < 2 {
+            lines.push(boundary(
+                &device_id,
+                "device.left",
+                START_MS + index * 3 + 1,
+            ));
+        }
+        lines.push(boundary(&other, "device.joined", START_MS + index * 3 + 2));
+    }
+    seed_audit_file(&fixture, "audit.jsonl", &lines);
+
+    let listed = fleet_row(fixture.app(), &session, &device_id).await;
+    assert_eq!(
+        listed["channel_activity"],
+        json!({ "joined": 24, "left": 2, "window": 2000 }),
+        "the window's joins and leaves are the console's own record: {listed}"
+    );
+    // A machine with no boundary in the window has no count to serve — never a zero. The other
+    // machine's boundaries are its own (the unit test pins the per-device split).
+    let quiet = fleet_row(fixture.app(), &session, &quiet_id).await;
+    assert!(
+        quiet.get("channel_activity").is_none(),
+        "a machine with no boundary in the window has no count to serve: {quiet}"
+    );
+}
+
 #[tokio::test]
 async fn a_grant_shorter_than_a_minute_is_400_and_a_minute_is_fine() {
     let fixture = Fixture::new("grant-minimum-expiry");

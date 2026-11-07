@@ -949,6 +949,15 @@ try {
     throw new Error(`the row's start title "${startTitle}" does not carry the exact instant`);
   }
   step(`the online row states "${verdict}" with the start's exact instant in its title`);
+  // **THE ROW NAMES THE CHANNEL THE RUNNING PAIR CAME FROM.** The build cell says what runs and what
+  // is staged; it cannot say which release channel the running pair belongs to. The newest restart
+  // entry names it (the launcher's current generation is the fallback), so "channel not reported"
+  // is impossible while a restart entry names one.
+  const rowChannel = (await onlineRow.locator('.fleet-channel').textContent())?.trim();
+  if (rowChannel !== 'channel stable') {
+    throw new Error(`the online row's channel line read "${rowChannel}", not its restart's channel`);
+  }
+  step('the online row names the channel its newest restart ran: "channel stable"');
   // **THE FLEET COMPARES THE WORK, NOT ONLY THE PRESENCE.** Every row states the day the console's
   // newest audit window counted: `283 calls · 38 failed`, the failed half gone at zero, and nothing
   // for a machine the window never names. The counts are on the state's muted line, so a row with no
@@ -1766,6 +1775,24 @@ try {
     throw new Error(`the Machine start title "${machineStartTitle}" does not carry the exact instant`);
   }
   step(`the Machine tab states "${machineStart}" with its exact instant in the title`);
+  // **THE CONSOLE LINK'S ATTEMPT AND THE LOCAL CHECK ARE NAMED.** The device's own retry note
+  // reached the console, so the Machine tab draws its count and the device's reason; and because the
+  // console has no update-check tool, the page names the panel's own control instead of offering one.
+  const machineChannel = (await page.locator('.system-channel').innerText()).trim();
+  const attemptSentence =
+    "The device's last console attempt: retried after 1 failed attempt — " +
+    'the console accepted the channel and then dropped it.';
+  if (machineChannel !== attemptSentence) {
+    throw new Error(`the Machine tab's console-link line read "${machineChannel}"`);
+  }
+  const machineCheck = (await page.locator('.system-check').innerText()).trim();
+  if (
+    !machineCheck.includes('no update-check tool') ||
+    !machineCheck.includes('"Check for updates now"')
+  ) {
+    throw new Error(`the Machine tab's check line read "${machineCheck}"`);
+  }
+  step('the Machine tab names the console link\'s last attempt and the panel\'s local check');
   step('the Machine tab states reachability without a second build line');
 
   // **THE MACHINE KEEPS ITS CONNECT DOOR.** The button the audit measured at 1440 (59×28 at the

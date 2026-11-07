@@ -143,6 +143,21 @@ export type ToolInfo = {
   description?: string;
 };
 
+/**
+ * The joins and leaves the console's newest audit window holds for one machine.
+ *
+ * The durable half of the console-link story: the device's own retry note reaches this console as
+ * `last_attempt`, but only while the process that received it lives. The audit file outlives a
+ * console restart, so the same link's flapping is still countable. `window` is how many newest lines
+ * the counts cover, served with them so a number cannot read as all time; the field is absent when
+ * the window holds no boundary for the machine, never a zero.
+ */
+export type ChannelActivity = {
+  joined: number;
+  left: number;
+  window: number;
+};
+
 export type Device = {
   id: string;
   name: string | null;
@@ -190,6 +205,11 @@ export type Device = {
    * only dropped has no completed absence). A page must not read a missing outage as a zero one.
    */
   last_outage?: { away_ms: number; back_at_ms: number } | null;
+  /**
+   * The audit's join/leave tally over the window the absence pair above is read from. Omitted for a
+   * machine with no boundary in that window: the page draws no count rather than a zero.
+   */
+  channel_activity?: ChannelActivity | null;
   host?: HostFacts | null;
   /**
    * The device's own update story from its newest host frame. Absent for a device that never sent

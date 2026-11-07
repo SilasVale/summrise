@@ -139,7 +139,8 @@ pub(crate) struct Absence {
 ///
 /// `last_outages` is the absence that ended; `last_lefts` is the silence that has not. The two are
 /// read from the same window in one file read, so a fleet response cannot pair a return from one
-/// generation with a close from another.
+/// generation with a close from another. `activity` is the same window's join/leave tally, so a
+/// count and the absence it sits beside cannot come from two different reads either.
 #[derive(Debug, Default)]
 pub(crate) struct Boundaries {
     /// Each device's newest completed absence.
@@ -147,6 +148,21 @@ pub(crate) struct Boundaries {
     /// Each device's newest `device.left` that no `device.joined` has closed: the start of the
     /// silence it is still in. Omitted for a device whose newest boundary is a join.
     pub(crate) last_lefts: HashMap<String, u64>,
+    /// How many joins and leaves each device had in this window.
+    pub(crate) activity: HashMap<String, ChannelActivity>,
+}
+
+/// How many channel boundaries one device had in the fleet's newest window.
+///
+/// `joined` counts every `device.joined` and `left` every `device.left` in the same lines the
+/// absence pair is derived from: the console's own record of how often it accepted the channel and
+/// how often it wrote the close. A retry the console accepted is a join even when no left was
+/// written (the live socket was replaced), so the two numbers are a tally of boundaries, not a
+/// drop count. A device with no boundary in the window is absent from the map, never a zero.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct ChannelActivity {
+    pub(crate) joined: u64,
+    pub(crate) left: u64,
 }
 
 /// What one read of the newest audit window proves about the fleet: the channel boundaries.
@@ -439,7 +455,29 @@ fn boundaries_of(lines: &[Value]) -> Boundaries {
     Boundaries {
         last_outages: outages_from(lines),
         last_lefts: open_lefts_from(lines),
+        activity: activity_from(lines),
     }
+}
+
+/// Each device's join/leave tally in `lines`.
+///
+/// [`boundary_events`] is the same parse the absences use, so a count cannot include a line the
+/// absence read would not; a device with no boundary is absent from the map rather than present
+/// with a zero the window cannot prove.
+fn activity_from(lines: &[Value]) -> HashMap<String, ChannelActivity> {
+    let mut activity = HashMap::new();
+    for (device, events) in boundary_events(lines) {
+        let mut counts = ChannelActivity::default();
+        for (_, joined, _) in events {
+            if joined {
+                counts.joined += 1;
+            } else {
+                counts.left += 1;
+            }
+        }
+        activity.insert(device.to_owned(), counts);
+    }
+    activity
 }
 
 /// The boundary events per device: `(ts_ms, joined, index in lines)`, newest first.
@@ -766,6 +804,44 @@ mod tests {
             absences.get(DEVICE),
             None,
             "this device has no left in the window"
+        );
+    }
+
+    #[test]
+    fn the_window_counts_each_devices_joins_and_leaves() {
+        // The counted lines are the same `device.joined` / `device.left` rows the outages are
+        // derived from: a retry that was accepted is a join even when no left was written, so the
+        // tally is the console's own record of its attempts.
+        let other = "cd".repeat(32);
+        let lines = vec![
+            boundary(DEVICE, DEVICE_LEFT, 900),
+            boundary(&other, DEVICE_JOINED, 800),
+            boundary(DEVICE, DEVICE_JOINED, 700),
+            boundary(DEVICE, DEVICE_JOINED, 600),
+            boundary(DEVICE, DEVICE_LEFT, 500),
+            boundary(DEVICE, DEVICE_JOINED, 400),
+            serde_json::json!({
+                "ts_ms": 300,
+                "kind": "mcp",
+                "device_id": DEVICE,
+                "tool": "runs.exec",
+                "status": 200,
+            }),
+        ];
+
+        let activity = activity_from(&lines);
+        assert_eq!(
+            activity.get(DEVICE),
+            Some(&ChannelActivity { joined: 3, left: 2 })
+        );
+        assert_eq!(
+            activity.get(&other),
+            Some(&ChannelActivity { joined: 1, left: 0 })
+        );
+        assert_eq!(
+            activity.len(),
+            2,
+            "a call is not a channel boundary: {activity:?}"
         );
     }
 

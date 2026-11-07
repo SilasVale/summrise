@@ -358,6 +358,13 @@ main.terminal-main { display: grid; grid-template-rows: auto minmax(0, 1fr); ali
   grid-column: 2 / -1; min-width: 0; color: var(--ink-muted); font-size: var(--fs-xs);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
+.fleet-channel {
+  /* THE RELEASE'S CHANNEL, under the start it belongs to. The build chip cannot say which channel
+     the running pair came from; this line can, when the device named one. Faint and one line: it is
+     a fact about the build, not a second state. */
+  grid-column: 2 / -1; min-width: 0; color: var(--ink-faint); font-size: var(--fs-xs);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
 .fleet-attempt {
   grid-column: 2 / -1; min-width: 0; color: var(--ink-muted); font-size: var(--fs-xs);
   /* ONE LINE, CUT NOT WRAPPED. The reason is the device's whole sentence; the row's second line grows
@@ -449,6 +456,7 @@ button.link:hover { background: transparent; color: var(--accent); border-color:
   .fleet-build { order: 4; }
   .fleet-chevron { display: none; }
   .fleet-verdict { order: 5; flex-basis: 100%; }
+  .fleet-channel { order: 6; flex-basis: 100%; }
   .fleet-attempt { order: 6; flex-basis: 100%; }
 }
 

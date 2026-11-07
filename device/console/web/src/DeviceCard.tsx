@@ -1,7 +1,7 @@
-import type { DeviceUpdate, HostFacts } from "./api";
+import type { ChannelActivity, DeviceUpdate, HostFacts } from "./api";
 import type { LastAttempt } from "./attempt";
 import { callsLine, lastHeardMs, seenAgo, shortId } from "./format";
-import { startedStory, processStartMs } from "./updateStory";
+import { startedStory, processStartMs, updateChannel } from "./updateStory";
 import { versionBelow } from "./versions";
 
 export type Device = {
@@ -35,6 +35,13 @@ export type Device = {
    * because the page passes the fleet's row unchanged, and a test pins that the row ignores it.
    */
   last_attempt?: LastAttempt | null;
+  /**
+   * The audit's join/leave tally for this machine's channel, over the window the absence read uses.
+   * The row does not draw it — the same C9 rule as `last_attempt`: a count with no moment of its own
+   * reads as a fault happening now, and the Machine tab is where the sentence that explains it
+   * belongs. The field stays because the page passes the fleet's row unchanged.
+   */
+  channel_activity?: ChannelActivity | null;
   host?: HostFacts | null;
   /** The device's own update story, absent when it never sent one. */
   update?: DeviceUpdate | null;
@@ -100,6 +107,12 @@ export function DeviceCard({
     startedAtMs: processStartMs(device),
     shownVersion: device.version
   });
+  // **THE CHANNEL THE "BEHIND" COMPARISON IS ABOUT.** The build chip says what runs and what the
+  // console has staged; it cannot say which release channel the running pair came from. The newest
+  // restart entry names it, and the launcher's current generation is the fallback for a journal that
+  // predates the field. A missing channel draws no line: the row never borrows the launcher's
+  // version or invents a name.
+  const channel = updateChannel(device);
   // **THE ROW COMPARES THE WORK, NOT ONLY THE PRESENCE.** The day is the fleet read's own count
   // from the local calendar day the hub counts: no request, no page, and nothing for a machine the
   // day never names. When the audit file starts after midnight the line says `since`, so a partial
@@ -138,6 +151,17 @@ export function DeviceCard({
         {started && (
           <span className="fleet-verdict" title={started.title ?? started.text}>
             {started.text}
+          </span>
+        )}
+        {channel && (
+          <span
+            className="fleet-channel"
+            title={
+              "The channel this machine's running release came from, from its newest restart " +
+              "entry; the launcher's current generation is the fallback when the journal has none."
+            }
+          >
+            channel {channel}
           </span>
         )}
       </button>
