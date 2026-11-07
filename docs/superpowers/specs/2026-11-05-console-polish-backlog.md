@@ -751,25 +751,25 @@ Measured 2026-11-07 20:47–21:22Z on live 0.3.273-ux100 at 1440 and 390; the 9V
 20:55:49Z during the tour, the 84T is 0.3.291, CPH 0.3.289 offline 11h09m, 14R 0.3.275 offline
 2d12h. The twentieth list's items are live except its two residuals (this list's 5 and 6).
 
-1. **Device → Overview is Activity a second time.** Its Now band's newest five calls are the first five
+1. **Device → Overview is Activity a second time.** *(Implemented c149319; the band is 95 px with no rows, the timeline holds the calls once.)* Its Now band's newest five calls are the first five
    rows of its own Today timeline — the same ActivityTimeline rows under the same Today heading. **Fix:**
    Overview keeps the machine's state and its one next action; the calls live only in the timeline below.
    **M.**
 
-2. **At 390 the Device tab strip hides Machine.** clientWidth 358 vs scrollWidth 447; the active
+2. **At 390 the Device tab strip hides Machine.** *(Implemented 0e3fd6b: the strip is 358/447, scrollLeft 87, active Machine at 302..374 in 16..374.)* clientWidth 358 vs scrollWidth 447; the active
    `Machine` sits at x=389–461 with scrollLeft 0, so `#device/machine` shows no selected tab. **Fix:** the
    strip scrolls to the active tab (or wraps) so the selected tab is always visible. **M.**
 
-3. **At 390 the Connect sheet clips its instructions.** Body 389 wide, content 440–596; the Tokens tab is
+3. **At 390 the Connect sheet clips its instructions.** *(Implemented 0e3fd6b: the sheet is 390 px, body 389/389, endpoint sentence 349/349.)* Body 389 wide, content 440–596; the Tokens tab is
    cut to "Toke", the endpoint paragraph cut mid-sentence. **Fix:** the sheet fits 390 with no sideways
    clipping. **S.**
 
-4. **Activity → Table is an 8-control filter form.** At 1440 there are two Export buttons in two rows and
+4. **Activity → Table is an 8-control filter form.** *(Implemented 49164b7: one 60 px band with one Export menu; `When` is the timeline's clock + age; at 390 a 43 px filter row and the first card above the rail; the 87k px page is gone.)* At 1440 there are two Export buttons in two rows and
    a relative-only `When` against the Timeline's clock; at 390 it is a 5-column grid in 320 px with its
    first row at y=746 cut by the tab bar (page 87,476 px). **Fix:** one filter row, one Export, the same
    time vocabulary as the timeline, a 390 layout that starts above the fold. **M.**
 
-5. **The 9VH's repair task is still the old split-command registration on 0.3.291.** `SummriseRepair` is
+5. **The 9VH's repair task is still the old split-command registration on 0.3.291.** *(Live 2026-11-08: the 9VH took 0.3.292 by channel and the app re-registered the task at start; `schtasks /Query /TN SummriseRepair /XML` now reads `<Command>"C:\Program Files\Summrise\repair.cmd"</Command>`. Implemented cc09af7.)* `SummriseRepair` is
    `C:\Program` + `Files\Summrise\repair.cmd`, lastResult 0x80070002 at 21:15:01Z, every five minutes,
    registered 2026-11-06T01:45:52 — the machine took 0.3.291 by channel, which never runs the setup, so
    the task was never re-registered. The console shows no row for the task. **Fix:** re-register it on
