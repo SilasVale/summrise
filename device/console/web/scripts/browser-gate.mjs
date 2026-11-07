@@ -2372,13 +2372,38 @@ try {
   await page.getByRole('button', { name: 'Machine', exact: true }).click();
   await page.getByRole('heading', { name: 'Machine', exact: true }).waitFor({ timeout: 10_000 });
   const machinePageText = await page.locator('.system-page').innerText();
-  if (machinePageText.includes('build ')) {
+  // THE OLD SENTENCE, NOT ANY "BUILD". `build 0.3.42 · online` was the repeated status; the repair
+  // task row below names the build as the one that did not report a fact (audit-42 F7), which is a
+  // different claim and is asserted on its own row.
+  if (/build \d+\.\d+\.\d+/.test(machinePageText)) {
     throw new Error('the Machine tab repeated the build the header already shows');
   }
   const statusLine = (await page.locator('.system-status').innerText()).trim();
   if (statusLine !== 'Status · online') {
     throw new Error(`the Machine tab's status line read "${statusLine}"`);
   }
+  // **AN ABSENT REPAIR TASK IS NOT AN ABSENT TASK (audit-42 F7).** The fixture's online machine
+  // carries no `repair_task` fact — the measured 84T on 0.3.291 shape — so the row must say the
+  // build did not report it, name the running version, and never say `not registered` for an
+  // answer the console did not read.
+  const repairTaskRow = await page.evaluate(() => {
+    const row = [...document.querySelectorAll('.facts.host > div')].find(
+      (entry) => entry.querySelector('dt')?.textContent?.trim() === 'Repair task'
+    );
+    if (!row) return null;
+    const value = row.querySelector('dd');
+    return { text: value?.textContent?.trim() ?? '', muted: value?.classList.contains('muted') ?? false };
+  });
+  if (!repairTaskRow) {
+    throw new Error('the Machine tab drew no Repair task row for an online machine without the fact');
+  }
+  if (repairTaskRow.text !== 'not reported by this build (v0.3.42)') {
+    throw new Error(`the Machine tab's Repair task row read ${JSON.stringify(repairTaskRow.text)}`);
+  }
+  if (!repairTaskRow.muted) {
+    throw new Error('the Machine tab did not mark the absent Repair task row as absent');
+  }
+  step(`the Repair task row says "${repairTaskRow.text}" for the fixture's online build`);
   // **THE DEVICE'S OWN UPDATE STORY IS THE PANEL'S GRID, NOT A GREY PARAGRAPH (audit-40 F3).** The
   // card states one fact per labelled row — the panel's `Last target` / `Last outcome` / `Last
   // result` / `Last check` vocabulary — with the running version on its own row. The fixture's

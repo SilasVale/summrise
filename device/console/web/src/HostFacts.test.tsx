@@ -107,7 +107,9 @@ describe("HostFactsBlock — the Machine page's subject", () => {
     expect(screen.queryByText(/not registered/)).not.toBeInTheDocument();
   });
 
-  it("states the repair task's registration, last result and next run", () => {
+  it("states the 9VH's registered repair task and never the absent-build sentence", () => {
+    // The 9VH on 0.3.292: the fleet's host facts carry `{registered: true, last_result: 0}` (plus
+    // the run moments). The present fact keeps the row's shapes, whatever the build reports.
     render(
       <HostFactsBlock
         host={{
@@ -119,6 +121,8 @@ describe("HostFactsBlock — the Machine page's subject", () => {
           }
         }}
         vitals={[]}
+        online
+        runningVersion="0.3.292"
       />
     );
 
@@ -128,6 +132,7 @@ describe("HostFactsBlock — the Machine page's subject", () => {
     expect(
       screen.getByText(/^registered · last run .+ · last result 0 · next .+$/)
     ).toBeInTheDocument();
+    expect(screen.queryByText(/not reported by this build/)).not.toBeInTheDocument();
   });
 
   it("writes a failed repair result as the audit writes it", () => {
@@ -148,17 +153,65 @@ describe("HostFactsBlock — the Machine page's subject", () => {
     expect(screen.getByText(/last result 0x80070002/)).toBeInTheDocument();
   });
 
-  it("says a missing repair task is not registered", () => {
-    render(<HostFactsBlock host={{ repair_task: { registered: false } }} vitals={[]} />);
+  it("says a missing repair task is not registered, not that the build withheld it", () => {
+    // `registered: false` is the machine's Task Scheduler answer: the task is absent. The row must
+    // keep that word even when the build reports the fact, and never borrow the absent-build
+    // sentence for a fact the machine did report.
+    render(
+      <HostFactsBlock
+        host={{ repair_task: { registered: false } }}
+        vitals={[]}
+        online
+        runningVersion="0.3.292"
+      />
+    );
 
     expect(screen.getByText("not registered")).toBeInTheDocument();
+    expect(screen.queryByText(/not reported by this build/)).not.toBeInTheDocument();
     expect(screen.queryByText(/last result/)).not.toBeInTheDocument();
   });
 
-  it("draws no repair task row when the machine did not report one", () => {
-    render(<HostFactsBlock host={host} vitals={[]} />);
+  it("names the 84T's running build when its facts carry no repair task", () => {
+    // The measured 84T on 0.3.291: online, and its `/fleet` host object has no `repair_task` key.
+    // The row used to vanish, which read as a machine with no repair path; it now says what the
+    // frame shows and names the build whose frame it is, so the absence cannot pass for health.
+    render(
+      <HostFactsBlock
+        host={{
+          memory: { total_bytes: 16 * GIB, available_bytes: 5 * GIB },
+          sessions: [{ id: 5, state: "connected" }],
+          helper: { registered: false }
+        }}
+        vitals={[]}
+        online
+        runningVersion="0.3.291"
+      />
+    );
+
+    expect(screen.getByText("Repair task")).toBeInTheDocument();
+    expect(screen.getByText("not reported by this build (v0.3.291)")).toBeInTheDocument();
+    // The silence is not the machine's `registered: false`: the console never read a Task Scheduler
+    // answer, so it must not claim the task is absent.
+    expect(screen.queryByText("not registered")).not.toBeInTheDocument();
+  });
+
+  it("draws no repair task row for an offline machine's dated facts", () => {
+    // The row is for a live machine: an offline block says when its frame was, and its absent
+    // facts stay silent rather than naming a running build the console cannot read them from.
+    render(
+      <HostFactsBlock host={host} vitals={[]} readAtMs={NOW - 3_600_000} online={false} />
+    );
 
     expect(screen.queryByText("Repair task")).not.toBeInTheDocument();
+  });
+
+  it("does not invent a version for an online build that announced none", () => {
+    render(
+      <HostFactsBlock host={{}} vitals={[]} online runningVersion={null} />
+    );
+
+    expect(screen.getByText("not reported by this build")).toBeInTheDocument();
+    expect(screen.queryByText(/\(v/)).not.toBeInTheDocument();
   });
 
   it("does not invent a last run for a task that has never run", () => {

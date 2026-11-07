@@ -81,7 +81,9 @@ export type HostFacts = {
    * The five-minute `SummriseRepair` task, read from the machine's own Task Scheduler: whether the
    * task is registered, its last run and result, and when it runs next. `registered: false` is the
    * task being absent; the whole key is absent on a device too old to report it or when the
-   * machine could not answer, so a page draws no row rather than guessing a health.
+   * machine could not answer. The Machine tab draws the absent key for an online machine as
+   * `not reported by this build` (naming the running version) rather than reading its silence as a
+   * health, and draws no row for an offline machine's dated facts.
    */
   repair_task?: {
     registered: boolean;

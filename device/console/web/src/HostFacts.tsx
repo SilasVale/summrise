@@ -6,6 +6,21 @@ import type { VitalsSample } from "./vitals";
 /** The device reports at most this many repairs, so a full list means "at least this many". */
 const REPAIR_LIMIT = 5;
 
+/** The repair task's definition, carried by the row whether or not its facts arrived. */
+const REPAIR_TASK_TITLE =
+  "The five-minute task that starts SummriseLaunch when it is stopped and re-registers it when it is missing. The values are the machine's Task Scheduler answer, not a console guess.";
+
+/**
+ * What an absent repair-task fact means, in the hover.
+ *
+ * The visible words can only say the frame carried no fact. Why it carried none is not something
+ * the console can prove: a build older than the fact sends nothing, and a current build whose Task
+ * Scheduler did not answer sends nothing either. So the hover names both and claims neither that
+ * the task is healthy nor that it is missing.
+ */
+const REPAIR_TASK_ABSENT_TITLE =
+  "The machine's host frame carried no repair task fact. A build older than the fact sends none, and a Task Scheduler that did not answer sends none either; the console cannot tell which, so this says neither healthy nor missing.";
+
 /**
  * What the machine is, as the device last reported it — THE MACHINE PAGE'S SUBJECT.
  *
@@ -31,6 +46,13 @@ const REPAIR_LIMIT = 5;
  * long ago it happened. The repairs row counts them and names the generation only when it was not the
  * baseline. A record the launcher did not write is absent, and an absent record draws no row.
  *
+ * The repair task row is the machine's own Task Scheduler answer, and its absence is not one of
+ * those. A build older than the fact sends no `repair_task`, so an online machine whose frame lacks
+ * it draws the row with the page's absent words and the running version: a silent gap reads as
+ * "there is no repair task" or "it is healthy", and neither is what the console knows. An offline
+ * block keeps the dated-absence shape and draws no row: only a live machine's missing fact is a
+ * statement about the build it runs.
+ *
  * The vitals chart is not a device fact: it is this browser's own sample of the two rows above it,
  * drawn after them because the live numbers are the current truth and the line is the history.
  */
@@ -39,7 +61,9 @@ export function HostFactsBlock({
   vitals,
   collecting = true,
   readAtMs = null,
-  readFrom = "frame"
+  readFrom = "frame",
+  online = false,
+  runningVersion = null
 }: {
   host: HostFacts;
   vitals: VitalsSample[];
@@ -61,6 +85,17 @@ export function HostFactsBlock({
    * source, because "last frame 5h ago" and "last seen 5h ago" are different claims about the facts.
    */
   readFrom?: "frame" | "seen";
+  /**
+   * The fleet's reachability for this machine. Only a live machine's absent repair-task fact draws
+   * the "not reported by this build" row: an offline block's facts are its last frame and already
+   * dated, so the row would name a running build whose facts the console cannot read.
+   */
+  online?: boolean;
+  /**
+   * The version the fleet says the machine runs, named by the repair task row when the frame carries
+   * no fact for it. Null draws the sentence without a version rather than inventing one.
+   */
+  runningVersion?: string | null;
 }) {
   const memory = host.memory;
   const sessions = host.sessions ?? [];
@@ -125,18 +160,24 @@ export function HostFactsBlock({
             <dd title={repairsTitle(repairs)}>{repairsSentence(repairs)}</dd>
           </div>
         )}
-        {repairTask && (
+        {(repairTask || online) && (
           <div>
-            <dt
-              title={
-                "The five-minute task that starts SummriseLaunch when it is stopped and re-registers it when it is missing. The values are the machine's Task Scheduler answer, not a console guess."
-              }
-            >
+            <dt title={REPAIR_TASK_TITLE}>
               Repair task
             </dt>
-            <dd className={repairTask.registered ? undefined : "muted"}>
-              {repairTaskSentence(repairTask)}
-            </dd>
+            {repairTask ? (
+              <dd className={repairTask.registered ? undefined : "muted"}>
+                {repairTaskSentence(repairTask)}
+              </dd>
+            ) : (
+              // **AN ONLINE MACHINE'S SILENT FACT IS NOT "NO TASK".** The measured 84T on 0.3.291 has
+              // no `repair_task` key: the row used to vanish, which read as a machine with no repair
+              // path. The row now states what the frame shows and names the build whose frame it is;
+              // `not registered` stays the device's own `registered: false`, never this absence.
+              <dd className="muted" title={REPAIR_TASK_ABSENT_TITLE}>
+                {absentRepairTaskSentence(runningVersion)}
+              </dd>
+            )}
           </div>
         )}
         <div>
@@ -160,11 +201,12 @@ export function HostFactsBlock({
 /**
  * The repair task's value, in the machine's own Task Scheduler facts.
  *
- * `not registered` is a fact the machine reported (the task is absent), not a missing answer: an
- * absent key draws no row at all. `registered` always leads when the task exists; the last run and
- * its result are stated only when Task Scheduler reported them, and `next` only when the task has a
- * next run. A zero result is success, and Task Scheduler's other results are written as the audit
- * writes them (`0x80070002`), because the number is the fact an operator matches to a log.
+ * `not registered` is a fact the machine reported (the task is absent), not a missing answer: the
+ * missing answer is `absentRepairTaskSentence` below. `registered` always leads when the task
+ * exists; the last run and its result are stated only when Task Scheduler reported them, and `next`
+ * only when the task has a next run. A zero result is success, and Task Scheduler's other results
+ * are written as the audit writes them (`0x80070002`), because the number is the fact an operator
+ * matches to a log.
  */
 function repairTaskSentence(task: NonNullable<HostFacts["repair_task"]>): string {
   if (!task.registered) return "not registered";
@@ -173,6 +215,19 @@ function repairTaskSentence(task: NonNullable<HostFacts["repair_task"]>): string
   if (task.last_result != null) parts.push(`last result ${taskResult(task.last_result)}`);
   if (task.next_run_ms != null) parts.push(`next ${taskMoment(task.next_run_ms)}`);
   return parts.join(" · ");
+}
+
+/**
+ * The repair task's value when the frame carries no fact for it, naming the build that sent it.
+ *
+ * This is a statement about the frame, not about the task: the build predates the fact or the
+ * machine could not answer, and the console cannot tell which (so the hover says both). The version
+ * comes from the fleet's running-version field and is drawn only when it exists — an online machine
+ * that announced no build keeps the sentence and gains no invented parenthesis.
+ */
+function absentRepairTaskSentence(version: string | null | undefined): string {
+  const build = typeof version === "string" ? version.trim() : "";
+  return build === "" ? "not reported by this build" : `not reported by this build (v${build})`;
 }
 
 /** The day and the console's clock, the pair the update card uses to state a moment. */

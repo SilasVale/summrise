@@ -143,6 +143,9 @@ describe("SystemPage", () => {
     // The facts themselves are still the frame's, not re-read: the age says which moment they are.
     expect(screen.getByText("4.0 GiB free of 8.0 GiB")).toBeInTheDocument();
     expect(screen.getByText("#3 connected")).toBeInTheDocument();
+    // The host frame carries no repair task, but this is an offline block: the dated-absence shape
+    // draws no row, so the running version is not handed to a frame it may not have written.
+    expect(screen.queryByText("Repair task")).toBeNull();
   });
 
   it("dates an offline machine the console never saw a frame from by its last seen moment", async () => {
@@ -209,6 +212,41 @@ describe("SystemPage", () => {
     expect(screen.getByText("Status").parentElement).toHaveTextContent("Status · online");
     expect(screen.queryByText(/build/)).toBeNull();
     expect(screen.queryByText(/0\.3\.1/)).toBeNull();
+  });
+
+  it("says an online machine's build does not report the repair task, and names it", async () => {
+    // audit-42 F7: the measured 84T on 0.3.291 is online and its `/fleet` host object has no
+    // `repair_task` key, so the Machine tab showed no row at all — which read as "no task". The
+    // page hands the block the fleet's own reachability and running version, so the row can say
+    // which build's frame this silence belongs to.
+    device((name) => {
+      if (name !== "system.process_list") {
+        throw new Error(`the test did not expect a ${name} call`);
+      }
+      return JSON.stringify([]);
+    });
+    render(
+      <SystemPage
+        grant={GRANT}
+        deviceOnline
+        device={{
+          id: "device-84t",
+          name: "DESKTOP-84T3LIN",
+          online: true,
+          version: "0.3.291",
+          last_frame_ms: Date.now(),
+          host: {
+            memory: { total_bytes: 16 * 1024 ** 3, available_bytes: 5 * 1024 ** 3 },
+            sessions: [{ id: 5, state: "connected" }],
+            helper: { registered: false }
+          }
+        }}
+      />
+    );
+
+    expect(await screen.findByText("Repair task")).toBeInTheDocument();
+    expect(screen.getByText("not reported by this build (v0.3.291)")).toBeInTheDocument();
+    expect(screen.queryByText("not registered")).toBeNull();
   });
 
   it("states the device's own update facts, including the last check", async () => {

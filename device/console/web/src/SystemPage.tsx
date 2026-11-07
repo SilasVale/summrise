@@ -520,6 +520,8 @@ export function SystemPage({
             collecting={!offline}
             readAtMs={factsReadAt}
             readFrom={factsReadFrom}
+            online={device.online}
+            runningVersion={device.version}
           />
         ) : (
           <p className="hint">
