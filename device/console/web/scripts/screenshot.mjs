@@ -720,6 +720,25 @@ function replyFor(request, url) {
 
   if (method === 'GET' && pathname === '/session') return json(SESSION);
   if (method === 'GET' && pathname === '/health') return json(HEALTH);
+  // **THE SHELL READS THESE AT BOOT.** They are companion facts (the day's counts and the file the
+  // window reads); without an answer the whole audit read rejects and every page wears the failure
+  // banner, which covers the machine menu the gallery clicks. Home draws neither, so the fixture's
+  // values are the empty day and an unnamed source, not invented rows.
+  if (method === 'GET' && pathname === '/audit/day') {
+    return json({
+      client_calls: 0,
+      failed: 0,
+      console: 0,
+      console_failed: 0,
+      poll: 0,
+      poll_failed: 0,
+      unattributed: 0,
+      unattributed_failed: 0
+    });
+  }
+  if (method === 'GET' && pathname === '/audit/source') {
+    return json({ file: 'audit.jsonl', size_bytes: 0, newest_ts_ms: NOW, oldest_ts_ms: NOW });
+  }
   if (method === 'GET' && pathname === '/audit') {
     // `/audit` honours `limit` the way the console does: missing is 20, above 1000 is clamped. The
     // activity-1000 scenario can therefore show its 1000 rows only because the page asked for 1000;
@@ -1012,6 +1031,13 @@ const PAGES = [
     label: 'Home',
     heading: 'Machines',
     state: 'the fleet zero state: each machine\'s build, reachability and the way in'
+  },
+  {
+    id: 'overview',
+    label: 'Device',
+    tab: 'Overview',
+    heading: 'Overview',
+    state: 'the machine at a glance: its status, the Now band, its counts and today'
   },
   {
     id: 'tools',
@@ -1437,20 +1463,20 @@ async function capturePage(page, state, meta, pass) {
   }
 
   if (meta.id === 'home') {
-    // Home is two states: the fleet (zero machines chosen) and the hub. Open the first machine once,
-    // then photograph the hub; the rest of the pass continues with that machine selected.
+    // Home is two states: the fleet (no machine in context) and the fleet with the selected
+    // machine's summary. The machine's own live page is Device → Overview, captured as its own page.
     await page.locator('.fleet-open').first().click();
-    await page.getByRole('heading', { name: 'Home', exact: true, level: 1 }).waitFor({ state: 'visible', timeout: 5_000 });
+    await page.locator('.machine-summary').waitFor({ state: 'visible', timeout: 5_000 });
     await settle(page, state, 350);
-    const hubFile = `home-hub${pass.suffix}.png`;
-    await page.screenshot({ path: path.join(OUT, hubFile), animations: 'disabled', fullPage: false });
+    const selectedFile = `home-selected${pass.suffix}.png`;
+    await page.screenshot({ path: path.join(OUT, selectedFile), animations: 'disabled', fullPage: false });
     captures.push({
       pass: pass.key,
-      page: 'home-hub',
-      file: hubFile,
-      note: 'the hub: one status line, the endpoint with Copy, one accent, counts, the last three calls'
+      page: 'home-selected',
+      file: selectedFile,
+      note: 'the fleet with a machine selected: verdict, attention, the machine summary, the table'
     });
-    console.log(`  ${pass.key.padEnd(6)} ${hubFile}`);
+    console.log(`  ${pass.key.padEnd(6)} ${selectedFile}`);
 
     // Connect is a sheet: the endpoint first, then the token job in the same sheet.
     await page.getByRole('button', { name: 'Connect a client' }).click();
@@ -1483,13 +1509,12 @@ async function capturePage(page, state, meta, pass) {
     await connect.waitFor({ state: 'hidden', timeout: 5_000 }).catch(() => undefined);
 
     await chooseMachine(page, state, 'studio');
-    // The offline device's fixture carries `last_attempt` with a reason, so the hub's sentence names
-    // the count and the reason now; the wait follows the new sentence and its titled reason.
-    await page
-      .getByText(/studio is not connected after 5 attempts/)
-      .waitFor({ state: 'visible', timeout: 5_000 });
-    await page
-      .getByTitle('timed out waiting for the channel hello')
+    // The offline machine's summary says its state and its own last-seen age; the counts are not
+    // invented. Its own page (Device → Overview) is where the Retry and the advice live.
+    const offlineSummary = page.locator('.machine-summary');
+    await offlineSummary.getByText(/^Offline/).waitFor({ state: 'visible', timeout: 5_000 });
+    await offlineSummary
+      .getByText('Tool counts are unavailable while the machine is offline.')
       .waitFor({ state: 'visible', timeout: 5_000 });
     const offlineFile = `home-offline${pass.suffix}.png`;
     await page.screenshot({ path: path.join(OUT, offlineFile), animations: 'disabled', fullPage: false });
@@ -1497,13 +1522,14 @@ async function capturePage(page, state, meta, pass) {
       pass: pass.key,
       page: 'home-offline',
       file: offlineFile,
-      note: 'Home with an offline machine: the door dimmed, Copy disabled, one banner'
+      note: 'Home with an offline machine selected: its summary says so and invents no counts'
     });
     console.log(`  ${pass.key.padEnd(6)} ${offlineFile}`);
 
     await chooseMachine(page, state, 'stale');
     await page
-      .getByText('The machine is running. The console could not read its tool list, so these counts may be stale.')
+      .locator('.machine-summary')
+      .getByText("Tool counts are unavailable until the console can read the machine's list.")
       .waitFor({ state: 'visible', timeout: 5_000 });
     const staleFile = `home-stale${pass.suffix}.png`;
     await page.screenshot({ path: path.join(OUT, staleFile), animations: 'disabled', fullPage: false });
@@ -1511,16 +1537,12 @@ async function capturePage(page, state, meta, pass) {
       pass: pass.key,
       page: 'home-stale',
       file: staleFile,
-      note: 'Home with a catalogue it could not read: the counts are labelled, not invented'
+      note: 'Home with a catalogue it could not read: the summary labels the counts, never zero'
     });
     console.log(`  ${pass.key.padEnd(6)} ${staleFile}`);
 
     await chooseMachine(page, state, 'workshop');
-    // The hub's door card is what says "a machine is chosen and its page is up"; the old anchor was
-    // The anchor must be something the hub actually renders on every capture: `.status-line` and
-    // then `.home-hero` both stopped existing, and each time every home capture timed out. The Now
-    // band is the page's first real subject now, and it is always there (empty or not).
-    await page.locator('main .live-now, main .page-head').first().waitFor({ state: 'visible', timeout: 5_000 });
+    await page.locator('.machine-summary').waitFor({ state: 'visible', timeout: 5_000 });
   }
 
   if (meta.id === 'activity') {

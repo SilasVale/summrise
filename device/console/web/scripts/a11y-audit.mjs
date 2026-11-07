@@ -1214,13 +1214,20 @@ try {
   await boot(page, origin);
   await measure(page, 'home-fleet');
 
+  // A selected machine is a section of Home, not a second page: the fleet stays and the summary
+  // is measured with it. The machine's own live page is Device → Overview, measured next.
   await page.locator('.fleet-open').first().click();
-  await page.getByRole('heading', { name: 'Home', exact: true, level: 1 }).waitFor({
+  await page.locator('.machine-summary').waitFor({ state: 'visible', timeout: 5_000 });
+  await settle(page, 400);
+  await measure(page, 'home-selected');
+
+  await page.getByRole('button', { name: 'Open Device', exact: true }).click();
+  await page.getByRole('heading', { name: 'Overview', exact: true, level: 1 }).waitFor({
     state: 'visible',
     timeout: 5_000
   });
   await settle(page, 400);
-  await measure(page, 'home-hub');
+  await measure(page, 'device-overview');
 
   // Activity: the timeline is the default view, and one row is opened so the evidence panel and
   // its own controls are part of the measurement.

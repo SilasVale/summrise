@@ -189,3 +189,16 @@ describe("DevicePageShell without a machine", () => {
     expect(screen.queryByText("page contents")).toBeNull();
   });
 });
+
+describe("DevicePageShell's Overview tab", () => {
+  it("leaves the machine head, its Connect door and its offline notice to the Overview page", () => {
+    renderShell("overview", MACHINE);
+
+    // The page inside owns the machine's name, status and one Connect door; the shell would draw
+    // the same sheet twice. The offline notice is the page's too, because its Retry is the live
+    // read's, not the shell's tab notice.
+    expect(screen.getByRole("heading", { name: "Overview", level: 1 })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Connect a client" })).toBeNull();
+    expect(screen.queryByRole("status")).toBeNull();
+  });
+});

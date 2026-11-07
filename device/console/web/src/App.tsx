@@ -33,6 +33,7 @@ import { parseSurfaceHash, surfaceHash } from "./surface-link";
 import { ScreenPage } from "./ScreenPage";
 import { SystemPage } from "./SystemPage";
 import { HomePage, type FleetRead } from "./HomePage";
+import { OverviewPage } from "./OverviewPage";
 import { useLiveActivity } from "./useLiveActivity";
 import { ToolsTab } from "./ToolsTab";
 import { DevicePageShell } from "./DevicePageShell";
@@ -879,15 +880,14 @@ export function App() {
   // The tab is part of the surface: a window full of consoles should say which one this is, and
   // the signed-out tab should not claim a machine page it is not showing.
   useEffect(() => {
-    // The fleet's one h1 is its noun: Machines. Home is the hub state, once a machine is chosen.
-    // Device without a machine is the picker, and the tab title says that rather than a tab that
-    // is not drawn (audit-40 F7).
+    // Home's one h1 is its noun: Machines, whichever machine is selected. Device without a machine
+    // is the picker, and the tab title says that rather than a tab that is not drawn (audit-40 F7).
     const current =
       page === "device"
         ? chosen === null
           ? "Choose a machine"
           : DEVICE_TAB_LABELS[tab]
-        : page === "home" && chosen === null
+        : page === "home"
           ? "Machines"
           : PAGE_LABELS[page];
     document.title = session?.authenticated && !signInRoute
@@ -1292,20 +1292,13 @@ export function App() {
             onDismissCode={() => setCode(null)}
             onNotice={setNotice}
             onConnect={() => setConnect({ section: "endpoint", device: chosen })}
+            onDevice={() => {
+              setPage("device");
+              setTab("overview");
+            }}
             onTools={() => {
               setPage("device");
               setTab("tools");
-            }}
-            onActivity={() => setPage("activity")}
-            liveLines={live.lines}
-            liveRunning={live.running}
-            liveState={live.state}
-            tick={pollTick}
-            liveRecoveries={live.recoveries}
-            onWatchTerminal={(deviceId) => {
-              choose(deviceId);
-              setPage("device");
-              setTab("terminal");
             }}
           />
         )}
@@ -1510,6 +1503,24 @@ export function App() {
                     </button>
                   </section>
                 )}
+                {tab === "overview" && chosen ? (
+                  <OverviewPage
+                    device={chosen}
+                    devices={devices}
+                    onConnect={() => setConnect({ section: "endpoint", device: chosen })}
+                    onTools={() => setTab("tools")}
+                    onActivity={() => setPage("activity")}
+                    liveLines={live.lines}
+                    liveRunning={live.running}
+                    liveState={live.state}
+                    tick={pollTick}
+                    liveRecoveries={live.recoveries}
+                    onWatchTerminal={(deviceId) => {
+                      choose(deviceId);
+                      setTab("terminal");
+                    }}
+                  />
+                ) : null}
                 {tab === "screen" && grant ? (
                   <section className="panel">
                     <ScreenPage

@@ -6,7 +6,8 @@ import { clockTime } from "./format";
 /**
  * The integration `HomePage.test.tsx` cannot write: that file replaces `useLiveTools` with a value,
  * so its Retry fixtures describe a state rather than prove the button reaches the hook. This file
- * renders the hub with the real hook (only the HTTP calls are mocked) and presses the button.
+ * renders the machine's Overview page with the real hook (only the HTTP calls are mocked) and
+ * presses the button.
  *
  * It exists because commit 2bd4fc3 passed both suites — the hook's own tests and the button's
  * fixtures — while the deployed page's press looked like the poll: nothing tied the click to the
@@ -35,7 +36,7 @@ vi.mock("./api", async (importOriginal) => {
 const plugins = vi.hoisted(() => ({ list: vi.fn() }));
 vi.mock("./pluginApi", () => ({ listPlugins: plugins.list }));
 
-import { HomePage } from "./HomePage";
+import { OverviewPage } from "./OverviewPage";
 import { resetLiveToolsCache } from "./useLiveTools";
 
 /** An answer the test decides when to give. */
@@ -64,21 +65,9 @@ const OFFLINE: Device = {
 
 function hub() {
   return render(
-    <HomePage
+    <OverviewPage
       device={OFFLINE}
       devices={[OFFLINE]}
-      selectedId={OFFLINE.id}
-      code={null}
-      enrollCommand=""
-      busy={false}
-      onOpen={vi.fn()}
-      onRename={vi.fn()}
-      onRemove={vi.fn()}
-      onDiagnostics={vi.fn()}
-      onAddMachine={vi.fn()}
-      onTokens={vi.fn()}
-      onDismissCode={vi.fn()}
-      onNotice={vi.fn()}
       onConnect={vi.fn()}
       onTools={vi.fn()}
       onActivity={vi.fn()}
@@ -107,7 +96,7 @@ beforeEach(() => {
   plugins.list.mockResolvedValue([]);
 });
 
-describe("Home — the Retry button drives useLiveTools", () => {
+describe("Overview — the Retry button drives useLiveTools", () => {
   it("shows the press's own read in flight, then the same offline result with its moment", async () => {
     const mount = deferred<{ tools: LiveTool[] }>();
     mocks.liveTools.mockReturnValueOnce(mount.promise);

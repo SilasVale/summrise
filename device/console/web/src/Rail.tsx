@@ -7,7 +7,14 @@
 export type Page = "home" | "activity" | "device";
 
 /** The one workspace's tabs. The fragment names the tab: `#device/terminal`. */
-export type DeviceTab = "terminal" | "screen" | "files" | "runs" | "tools" | "machine";
+export type DeviceTab =
+  | "overview"
+  | "terminal"
+  | "screen"
+  | "files"
+  | "runs"
+  | "tools"
+  | "machine";
 
 /// What each destination is called in the rail, the document title and each page's one `h1`.
 export const PAGE_LABELS: Record<Page, string> = {
@@ -17,6 +24,7 @@ export const PAGE_LABELS: Record<Page, string> = {
 };
 
 export const DEVICE_TAB_LABELS: Record<DeviceTab, string> = {
+  overview: "Overview",
   terminal: "Terminal",
   screen: "Screen",
   files: "Files",
@@ -25,10 +33,12 @@ export const DEVICE_TAB_LABELS: Record<DeviceTab, string> = {
   machine: "Machine"
 };
 
-/// The tabs in the order the workspace offers them. Terminal is first because it is the most direct
-/// way to take the keyboard back; Tools follows Runs because it answers what the machine can do, and
-/// Machine is the last word on what it is running.
+/// The tabs in the order the workspace offers them. Overview is first because it is the
+/// machine at a glance; Terminal follows because it is the most direct way to take the keyboard
+/// back; Tools follows Runs because it answers what the machine can do, and Machine is the last
+/// word on what it is running.
 export const DEVICE_TABS: readonly DeviceTab[] = [
+  "overview",
   "terminal",
   "screen",
   "files",

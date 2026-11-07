@@ -1294,8 +1294,29 @@ try {
   await page.waitForTimeout(200);
 
   await page.locator('.fleet-open').first().click();
-  await page.getByRole('heading', { name: 'Home' }).waitFor({ timeout: 10_000 });
-  step('opened DESKTOP-9VH92BJ; Home states the hub');
+  // **THE SELECTION IS A SECTION OF HOME, NOT A SECOND HOME.** The row opens the machine in the
+  // topbar while Home keeps the fleet's one answer: the verdict, the attention rows and the table
+  // are still there, and the machine adds a summary section of its own. The machine's live page is
+  // Device → Overview, reached from the summary's door.
+  await page.locator('.machine-summary').waitFor({ state: 'visible', timeout: 10_000 });
+  if ((await page.locator('.home-verdict').count()) !== 1) {
+    throw new Error('opening a machine hid Home\'s verdict');
+  }
+  if ((await page.locator('.attention').count()) === 0) {
+    throw new Error('opening a machine hid Home\'s Needs attention block');
+  }
+  if ((await page.locator('tr.fleet-row').count()) !== 4) {
+    throw new Error('opening a machine hid the fleet table');
+  }
+  const summaryName = (await page.locator('.machine-summary h2').textContent())?.trim();
+  if (summaryName !== 'DESKTOP-9VH92BJ') {
+    throw new Error(`the selected machine's summary named "${summaryName}"`);
+  }
+  step('opened DESKTOP-9VH92BJ; Home keeps its verdict, attention rows and table, and adds its summary');
+
+  await page.getByRole('button', { name: 'Open Device' }).click();
+  await page.getByRole('heading', { name: 'Overview', exact: true }).waitFor({ timeout: 10_000 });
+  step('opened Device → Overview; the machine\'s own live page');
 
   // THE NOW BAND COUNTS THE AI, NOT THE CONSOLE'S OWN READS. The activity stream above serves one
   // `terminal.list` the console made twenty seconds ago and one client call five minutes ago; a
@@ -1439,7 +1460,7 @@ try {
     .waitFor({ state: 'detached', timeout: 10_000 });
   step('the finished frame clears the running line');
 
-  await page.getByRole('button', { name: 'Device' }).click();
+  await page.getByRole('button', { name: 'Terminal', exact: true }).click();
   await page.getByRole('heading', { name: 'Terminal', exact: true }).waitFor({ timeout: 10_000 });
   step('opened Device → Terminal with a session-scoped grant');
 
@@ -3185,7 +3206,9 @@ try {
   // above knows that refusal belongs to this leg.
   state.offlineToolsFails = true;
   await page.getByRole('button', { name: /^Open DESKTOP-14RJCR8/ }).click();
-  await page.getByRole('heading', { name: 'Home', exact: true }).waitFor({ timeout: 10_000 });
+  await page.locator('.machine-summary').waitFor({ state: 'visible', timeout: 10_000 });
+  await page.getByRole('button', { name: 'Open Device' }).click();
+  await page.getByRole('heading', { name: 'Overview', exact: true }).waitFor({ timeout: 10_000 });
   const reason390 = await page.evaluate(() => {
     const element = document.querySelector('.attempt-reason');
     if (!element) return null;
@@ -3300,7 +3323,7 @@ try {
   await page.getByRole('heading', { name: 'Machine', exact: true }).waitFor({ timeout: 10_000 });
   step('at 390 the offline advice links Device → Machine and names the machine-local panel as local');
   await page.locator('nav.rail button[title="Home"]').click();
-  await page.getByRole('heading', { name: 'Home', exact: true }).waitFor({ timeout: 10_000 });
+  await page.getByRole('heading', { name: 'Machines', exact: true }).waitFor({ timeout: 10_000 });
 
   // **THE OFFLINE TOKEN FORM DOES NOT CLAIM THE CONSOLE'S COUNT.** `/fleet/<id>/tools` is 503 for
   // this machine, so the count comes from `/tools`. The form must name that catalogue, cover the
@@ -3351,7 +3374,9 @@ try {
   await page.locator('details.machine-menu > summary').click();
   await page.getByRole('button', { name: 'All machines' }).click();
   await page.getByRole('button', { name: /^Open DESKTOP-7QK3MN2/ }).click();
-  await page.getByRole('heading', { name: 'Home', exact: true }).waitFor({ timeout: 10_000 });
+  await page.locator('.machine-summary').waitFor({ state: 'visible', timeout: 10_000 });
+  await page.getByRole('button', { name: 'Open Device' }).click();
+  await page.getByRole('heading', { name: 'Overview', exact: true }).waitFor({ timeout: 10_000 });
   const bigSentence390 = await page.locator('.timeline-capped').textContent();
   const expectedBigSentence = (shown) =>
     `Showing ${shown === BIG_DRAWABLE ? 'all' : `the newest ${shown} of`} ${BIG_DRAWABLE} lines ` +

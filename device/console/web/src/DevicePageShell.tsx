@@ -70,8 +70,10 @@ export function DevicePageShell({
         {/* The machine's one local door. The sheet is the same one Home and the account menu open;
             below 640 px this same button stays in the head's first row, with the short visible
             label and the sheet's full name for assistive technology. With no machine there is no
-            client to connect, so the door waits for the choice. */}
-        {chosen && (
+            client to connect, so the door waits for the choice. **THE OVERVIEW TAB CARRIES ITS OWN
+            MACHINE HEAD AND CONNECT DOOR**, so the shell's button would be the same sheet twice on
+            one screen; every other tab keeps the shell's one. */}
+        {chosen && tab !== "overview" && (
           <div className="page-actions device-connect">
             <button
               type="button"
@@ -88,7 +90,7 @@ export function DevicePageShell({
       {/* THE MACHINE'S STATE BELONGS TO EVERY TAB, not only the one that was written first.
           Terminal lives outside this shell (it stays mounted across destinations), so it carries its
           own notice; rendering this one there too would stack two copies of the same sentence. */}
-      {chosen && !chosen.online && tab !== "terminal" && (
+      {chosen && !chosen.online && tab !== "overview" && tab !== "terminal" && (
         <OfflineNotice
           lastSeenMs={lastHeardMs(chosen)}
           detail="Nothing on this page can reach it until it reconnects; the console keeps trying on its own."

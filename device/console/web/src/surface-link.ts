@@ -20,7 +20,7 @@ export type Surface = {
 };
 
 const PAGES: readonly Page[] = ["home", "activity", "device"];
-const TABS: readonly DeviceTab[] = ["terminal", "screen", "files", "runs", "tools", "machine"];
+const TABS: readonly DeviceTab[] = ["overview", "terminal", "screen", "files", "runs", "tools", "machine"];
 
 /**
  * The fragments the previous shell shipped. A bookmark, a runbook link or a browser history entry

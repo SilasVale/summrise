@@ -11,7 +11,7 @@ describe("surface links", () => {
       page: "device",
       tab: "terminal"
     });
-    for (const tab of ["terminal", "screen", "files", "runs", "tools", "machine"] as const) {
+    for (const tab of ["overview", "terminal", "screen", "files", "runs", "tools", "machine"] as const) {
       expect(parseSurfaceHash(surfaceHash({ page: "device", tab }))).toEqual({
         page: "device",
         tab

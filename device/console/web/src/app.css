@@ -3181,6 +3181,45 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
 .installer-strip .btn { flex: none; }
 .installer-strip .hint { margin: 0 0 0 auto; font-size: var(--fs-xs); }
 
+/* ── Home: the selected machine is a section, not the page ─────────────────────────────────────
+   The fleet's verdict, attention rows and table stay Home's; the machine's own live page is
+   Device → Overview. The section names the machine, says whether it runs and what it can do, and
+   hands off — it draws no day timeline, because that is Activity's noun. */
+.machine-summary {
+  display: grid; gap: 10px;
+  padding: 14px 18px;
+  background: var(--panel); border: 1px solid var(--hairline);
+  border-left: 3px solid var(--accent); border-radius: var(--radius);
+}
+.machine-summary-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; min-width: 0; }
+.machine-summary-head h2 {
+  margin: 0; font-size: var(--fs-lg); font-weight: var(--fw-semi);
+  letter-spacing: var(--tracking-tight);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.machine-summary-state {
+  display: inline-flex; align-items: center; gap: 8px;
+  color: var(--ink-muted); font-size: var(--fs-sm);
+}
+.machine-summary-state .dot { width: 8px; height: 8px; }
+.machine-summary-counts { margin: 0; }
+.machine-summary-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+
+/* ── Device → Overview: the machine's own live page ────────────────────────────────────────────
+   The shell owns the destination's one h1 and the tab strip; this page opens with the machine's
+   name and its status, then the Now band and the day. The pieces are the old hub's, put where the
+   machine's own page is. */
+.overview-page { display: grid; gap: 22px; min-width: 0; }
+.overview-head {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  gap: 12px; flex-wrap: wrap; min-width: 0;
+}
+.overview-head h2 {
+  margin: 0; font-size: var(--fs-lg); font-weight: var(--fw-semi);
+  letter-spacing: var(--tracking-tight);
+}
+.overview-head .page-sub { margin-top: 4px; }
+
 @media (max-width: 639px) {
   .home-page { gap: 18px; }
   .home-page .page-head h1 { font-size: var(--fs-xl); }
@@ -3211,4 +3250,8 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
   .fleet-verdict { white-space: normal; overflow: visible; text-overflow: clip; }
   .fleet-actions { position: absolute; right: 8px; top: 8px; width: auto; }
   .installer-strip .hint { margin-left: 0; flex-basis: 100%; }
+  .machine-summary { padding: 12px 14px; }
+  .machine-summary-head h2 { white-space: normal; overflow: visible; }
+  .machine-summary-actions .primary { flex: 1 1 auto; }
+  .overview-page { gap: 18px; }
 }

@@ -362,12 +362,21 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
-/** Select a machine from its fleet row; Home stays Home, as the hub's first screen. */
+/** Select a machine from its fleet row; Home stays the fleet page and adds its summary. */
 function selectDevice(name: string) {
   const label = screen.getAllByText(name).find((node) => node.closest("tr.fleet-row"));
   const row = label?.closest("tr.fleet-row") ?? null;
   expect(row).not.toBeNull();
   fireEvent.click(within(row as HTMLElement).getByRole("button", { name: /^Open / }));
+}
+
+/** Open the selected machine's own page from Home's summary: Device → Overview. */
+async function openOverview() {
+  fireEvent.click(screen.getByRole("button", { name: "Open Device" }));
+  expect(
+    await screen.findByRole("heading", { name: "Overview", level: 1 })
+  ).toBeInTheDocument();
+  await waitFor(() => expect(document.title).toBe("Overview · Summrise console"));
 }
 
 /** Open the account menu, where version, console URL, docs and sign out live now. */
@@ -778,6 +787,7 @@ describe("App", () => {
     });
     await bootAndSignIn();
     selectDevice("workshop");
+    await openOverview();
 
     expect(
       await screen.findByText(/^Today 10 client calls · 1 failed · last \d\d:\d\d · since 03:12$/)
@@ -834,6 +844,7 @@ describe("App", () => {
     });
     await bootAndSignIn();
     selectDevice("workshop");
+    await openOverview();
 
     expect(
       await screen.findByText(/^Today 10 client calls · 1 failed · last /)
@@ -915,6 +926,8 @@ describe("App", () => {
     ).toBeNull();
 
     selectDevice("workshop");
+    // The day's count left Home with the hub: it is the machine's own page now.
+    await openOverview();
     expect(await screen.findByText(/^Today 2 client calls · 1 failed/)).toBeInTheDocument();
   });
 
@@ -1095,7 +1108,7 @@ describe("App", () => {
     });
     await bootAndSignIn();
     selectDevice("workshop");
-    await screen.findByRole("heading", { name: "Home", level: 1 });
+    await screen.findByRole("region", { name: "Selected machine workshop" });
 
     // The header's own menu, opened on the selected machine.
     fireEvent.click(screen.getByLabelText("Machine: workshop"));
@@ -1148,7 +1161,7 @@ describe("App", () => {
     await bootAndSignIn();
     // A catalogue belongs to a machine, so pick one the way a person does.
     fireEvent.click(screen.getAllByRole("button", { name: /workshop/ })[0]);
-    await screen.findByRole("heading", { name: "Home", level: 1 });
+    await screen.findByRole("region", { name: "Selected machine workshop" });
 
     // The late path: no reload, no click — the fragment changes on a page that is already mounted.
     window.history.replaceState(null, "", "#capabilities/files.read");
@@ -1679,10 +1692,13 @@ describe("App", () => {
 
     selectDevice("workshop");
 
-    // Selecting stores the machine and stays on Home, which becomes the hub; the header is where
-    // the machine is now in context, as one control.
-    expect(screen.getByRole("heading", { name: "Home", level: 1 })).toBeInTheDocument();
-    expect(within(screen.getByRole("main")).getByText("Running")).toBeInTheDocument();
+    // Selecting stores the machine and stays on Home: the fleet keeps its verdict and its table,
+    // and the machine is a summary section. The machine's own page is Device.
+    expect(screen.getByRole("heading", { name: "Machines", level: 1 })).toBeInTheDocument();
+    const summary = screen.getByRole("region", { name: "Selected machine workshop" });
+    expect(summary).toHaveTextContent("Running");
+    // One rail item, one title: the selection does not rename the destination.
+    await waitFor(() => expect(document.title).toBe("Machines · Summrise console"));
     expect(screen.getByLabelText("Machine: workshop")).toBeInTheDocument();
     expect(localStorage.getItem("summrise.selected.device")).toBe(workshop.id);
     await waitFor(() => expect(window.location.hash).toBe("#home"));
@@ -1705,7 +1721,7 @@ describe("App", () => {
     fireEvent.click(screen.getByRole("button", { name: "Device" }));
 
     expect(screen.getByLabelText("Machine: workshop")).toBeInTheDocument();
-    for (const tab of ["Files", "Screen", "Runs", "Tools", "Machine", "Terminal"]) {
+    for (const tab of ["Overview", "Files", "Screen", "Runs", "Tools", "Machine", "Terminal"]) {
       fireEvent.click(screen.getByRole("button", { name: tab }));
       expect(screen.getByLabelText("Machine: workshop")).toBeInTheDocument();
       expect(screen.getByRole("heading", { name: tab, level: 1 })).toBeInTheDocument();
@@ -1754,6 +1770,7 @@ describe("App", () => {
     pluginMocks.list.mockResolvedValue([helloPlugin]);
     await bootAndSignIn();
     selectDevice("workshop");
+    await openOverview();
 
     const counts = await screen.findByRole("button", {
       name: /2 tools · 2 capabilities · 1 plugin/
