@@ -49,6 +49,68 @@ describe("useLiveTools", () => {
     expect(mocks.liveTools).toHaveBeenCalledTimes(1);
   });
 
+  it("shows an operator retry while it is in flight, then its same result with the moment", async () => {
+    mocks.liveTools.mockResolvedValue({ tools: TOOLS });
+    const view = renderHook(() => useLiveTools("dev-1"));
+    await waitFor(() => expect(view.result.current.tools).toHaveLength(2));
+    // The mount read is the page's silent read: it leaves no press and no outcome.
+    expect(view.result.current.retrying).toBe(false);
+    expect(view.result.current.retried).toBeNull();
+
+    let refuse!: (cause: unknown) => void;
+    mocks.liveTools.mockImplementation(
+      () =>
+        new Promise<{ tools: LiveTool[] }>((_resolve, reject) => {
+          refuse = reject;
+        })
+    );
+    act(() => view.result.current.retry());
+    await waitFor(() => expect(view.result.current.retrying).toBe(true));
+    expect(view.result.current.retried).toBeNull();
+    expect(mocks.liveTools).toHaveBeenCalledTimes(2);
+
+    const at = new Date(2026, 10, 7, 12, 1, 0).getTime();
+    const clock = vi.spyOn(Date, "now").mockReturnValue(at);
+    try {
+      await act(async () => {
+        refuse(
+          new HttpError(
+            503,
+            "device_offline",
+            "this machine is not connected; connect it, then try again"
+          )
+        );
+        // Let the read's catch/finally chain settle inside the act, not after the clock is gone.
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+    } finally {
+      clock.mockRestore();
+    }
+
+    expect(view.result.current.retrying).toBe(false);
+    expect(view.result.current.retried).toEqual({
+      ok: false,
+      at,
+      error: "this machine is not connected; connect it, then try again"
+    });
+    // The same answer counts: the last good catalogue stays, labelled stale and offline.
+    expect(view.result.current.tools).toHaveLength(2);
+    expect(view.result.current.stale).toBe(true);
+    expect(view.result.current.offline).toBe(true);
+  });
+
+  it("records a retry that reached the machine", async () => {
+    mocks.liveTools.mockResolvedValue({ tools: TOOLS });
+    const view = renderHook(() => useLiveTools("dev-1"));
+    await waitFor(() => expect(view.result.current.tools).toHaveLength(2));
+
+    act(() => view.result.current.retry());
+    await waitFor(() => expect(view.result.current.retrying).toBe(false));
+    expect(view.result.current.retried?.ok).toBe(true);
+    expect(view.result.current.retried?.error).toBeNull();
+    expect(view.result.current.retried?.at).toEqual(expect.any(Number));
+  });
+
   it("keeps the last good catalogue and marks it stale when the read fails", async () => {
     mocks.liveTools.mockResolvedValue({ tools: TOOLS });
     const view = renderHook(() => useLiveTools("dev-1"));

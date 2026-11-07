@@ -448,9 +448,13 @@ const state = {
   refuseExport: false,
   /**
    * Whether the offline machine's `/fleet/<id>/tools` is answered 503, the measured console's
-   * answer for 14R. Armed for the offline leg, where the token form reads it on purpose.
+   * answer for 14R. Armed for the offline leg, where the token form reads it on purpose. The
+   * request count and the held answer are for the Retry leg: one press must be one read, and the
+   * hold is how the working button is photographed before its 503 lands.
    */
   offlineToolsFails: false,
+  offlineToolsRequests: 0,
+  offlineToolsDelayMs: 0,
   /** Whether the console's deployment staged an installer, and how often the page asked. */
   installerAvailable: true,
   installerRequests: 0
@@ -590,7 +594,11 @@ function apiReply(request, url) {
     // The measured console with 14R away: `/fleet/<id>/tools` answers 503 for an offline machine,
     // while `/tools` still serves the registry. The offline token-form leg below reads this.
     if (state.offlineToolsFails && pathname.split('/')[2] === OFFLINE_DEVICE.id) {
-      return json({ error: 'device reconnecting', retry_after_ms: 1000 }, 503);
+      state.offlineToolsRequests += 1;
+      const reply = json({ error: 'device reconnecting', retry_after_ms: 1000 }, 503);
+      return state.offlineToolsDelayMs
+        ? { ...reply, delayMs: state.offlineToolsDelayMs }
+        : reply;
     }
     return json({
       tools: TOOL_NAMES.map((name) => ({
@@ -2717,6 +2725,45 @@ try {
   if ((await advice.locator('a[href*="127.0.0.1"], a[href*="18090"]').count()) !== 0) {
     throw new Error('the offline advice draws the machine-local panel as a link');
   }
+
+  // **A PRESS IS NOT THE POLL (audit-38 F3).** The measured Retry refetched `/fleet/<id>/tools`
+  // and left a byte-identical 4,208-character page: no spinner, no outcome, no timestamp, so the
+  // operator could not tell their press from the five-second poll. Hold the 503 so the working
+  // button can be seen, then require the same offline result to be said again with the moment the
+  // press settled. The held answer also proves the press made one read of its own.
+  await page.waitForTimeout(500); // the hub's mount read has landed; the press is the next read
+  const retryToolsBefore = state.offlineToolsRequests;
+  const retryBefore = (await advice.innerText()).trim();
+  state.offlineToolsDelayMs = 1200;
+  await advice.getByRole('button', { name: 'Retry', exact: true }).click();
+  const retryPending = advice.getByRole('button', { name: 'Retrying…', exact: true });
+  await retryPending.waitFor({ state: 'visible', timeout: 2_000 });
+  if (!(await retryPending.isDisabled())) {
+    throw new Error('the offline Retry stayed enabled while its read was in flight');
+  }
+  const retryPendingText = (await advice.innerText()).trim();
+  await page.screenshot({ path: path.join(OUT, '07c-offline-retry-pending-390.png') });
+  const retryOutcome = advice.locator('.retry-outcome');
+  await retryOutcome.waitFor({ state: 'visible', timeout: 10_000 });
+  const retryOutcomeText = (await retryOutcome.innerText()).trim();
+  if (!/^Still offline · last checked \d{2}:\d{2}\.$/.test(retryOutcomeText)) {
+    throw new Error(`the retry outcome read ${JSON.stringify(retryOutcomeText)}`);
+  }
+  if (await advice.getByRole('button', { name: 'Retry', exact: true }).isDisabled()) {
+    throw new Error('the offline Retry stayed disabled after its read settled');
+  }
+  if (state.offlineToolsRequests !== retryToolsBefore + 1) {
+    throw new Error(
+      `the offline Retry made ${state.offlineToolsRequests - retryToolsBefore} tools reads, not one`
+    );
+  }
+  const retryAfter = (await advice.innerText()).trim();
+  await page.screenshot({ path: path.join(OUT, '07d-offline-retry-390.png') });
+  state.offlineToolsDelayMs = 0;
+  console.log(
+    `browser-gate: offline Retry ${JSON.stringify({ before: retryBefore, pending: retryPendingText, after: retryAfter })}`
+  );
+  step(`the offline Retry is disabled as "Retrying…", then says "${retryOutcomeText}"`);
   await machineDoor.click();
   await page.getByRole('heading', { name: 'Machine', exact: true }).waitFor({ timeout: 10_000 });
   step('at 390 the offline advice links Device → Machine and names the machine-local panel as local');

@@ -412,6 +412,9 @@ main.terminal-main { display: grid; grid-template-rows: auto minmax(0, 1fr); ali
    panel's surface in either theme, and the accent is what the console uses for its other links. It
    stays whole across a wrap: "Device →" on one line and "Machine" on the next reads as two things. */
 .notice a { color: var(--accent); white-space: nowrap; }
+/* The operator's Retry reports its own outcome. A press is not the silent five-second poll, so the
+   result and its clock get a line of their own rather than trailing the advice sentence. */
+.notice .retry-outcome { display: block; margin-top: var(--sp-1); }
 .home-timeline { display: grid; gap: var(--sp-3); min-width: 0; }
 /* The hub's one count of the day: a sentence above the rows it counts. It is not a second list
    header and not a control, so it takes the muted summary type and no rule of its own. */

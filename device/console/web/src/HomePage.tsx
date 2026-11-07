@@ -9,7 +9,7 @@ import { clockTime, coverageClause, shortId } from "./format";
 import { bytes } from "./runFormat";
 import { listPlugins } from "./pluginApi";
 import { surfaceHash } from "./surface-link";
-import { useLiveTools } from "./useLiveTools";
+import { useLiveTools, type LiveToolsRetry } from "./useLiveTools";
 import { ActivityTimeline } from "./ActivityTimeline";
 import {
   ACTIVITY_LIMIT,
@@ -469,6 +469,22 @@ function OfflineAdvice() {
 }
 
 /**
+ * The operator's press, in words, once its read settled.
+ *
+ * The five-second poll keeps reading the same routes; it is deliberately silent, because a sentence
+ * that appeared on every tick would be noise. A person who pressed Retry is owed the opposite: the
+ * moment their attempt finished and what it found, even when the answer is the same one already on
+ * screen. Without it the press and the poll were the same 4,208-character page (audit-38 F3).
+ */
+function retryOutcome(retried: LiveToolsRetry | null, offline: boolean): string | null {
+  if (retried === null) return null;
+  if (retried.ok) return `The console reached the machine · checked ${clockTime(retried.at)}.`;
+  return offline
+    ? `Still offline · last checked ${clockTime(retried.at)}.`
+    : `Still failing · last checked ${clockTime(retried.at)}.`;
+}
+
+/**
  * The hub, once a machine is chosen: is it running, what is it doing now, what did it do today.
  * One status line, one Connect action, the Now band, this machine's timeline and one counts line.
  * Identity is the header's; this page does not repeat it, and the catalogue is the Tools tab's job,
@@ -697,6 +713,8 @@ function HubHome(
             "its work appears here; Connect a client sets one up.";
 
   const offline = !device.online || live.offline;
+  // The last operator press, not the poll: null until Retry has settled once on this machine.
+  const retryNote = retryOutcome(live.retried ?? null, offline);
   // **ONE PLACE FOR EACH BUILD.** The subtitle used to be "Running · console v0.3.273-ux43", while
   // the Account menu already prints "Console 0.3.273-ux43"; at 390 the header chip drops the
   // device's own "v0.3.274", which made the console's the page's only build — the menu's fact said
@@ -742,9 +760,22 @@ function HubHome(
 
       {notice && (
         <div className="notice" role="status">
-          <span>{notice}</span>
-          <button type="button" onClick={() => live.retry()}>
-            Retry
+          <span>
+            {notice}
+            {retryNote !== null && (
+              <>
+                {" "}
+                <span
+                  className="hint retry-outcome"
+                  title={live.retried?.error ?? undefined}
+                >
+                  {retryNote}
+                </span>
+              </>
+            )}
+          </span>
+          <button type="button" disabled={live.retrying} onClick={() => live.retry()}>
+            {live.retrying ? "Retrying…" : "Retry"}
           </button>
         </div>
       )}

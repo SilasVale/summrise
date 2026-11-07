@@ -18,6 +18,16 @@ export function resetLiveToolsCache() {
   inFlight.clear();
 }
 
+/** The operator's last Retry, once the read it asked for settled. */
+export type LiveToolsRetry = {
+  /// Whether the retry reached the machine and read its catalogue.
+  ok: boolean;
+  /// When the read settled, in the console's own clock.
+  at: number;
+  /// The console's sentence for a failed read; null when it landed.
+  error: string | null;
+};
+
 export type LiveToolsState = {
   tools: LiveTool[];
   /// A catalogue older than the cache window, or the last good one after a failed read.
@@ -27,6 +37,17 @@ export type LiveToolsState = {
   /// True when the device itself is not connected, as opposed to a console or device tool error.
   offline: boolean;
   loading: boolean;
+  /**
+   * True only while the operator's Retry is in flight. The page's silent reads — mount, the five-
+   * second poll, a recovered stream — never set it, so the button's working state is the press's.
+   */
+  retrying: boolean;
+  /**
+   * The operator's last Retry, after the read settled; null before the first press and after a
+   * machine change. A failed retry names its outcome so the page can say "still offline" rather
+   * than leave the press looking like the poll.
+   */
+  retried: LiveToolsRetry | null;
   retry: () => void;
 };
 
@@ -70,10 +91,23 @@ export function useLiveTools(deviceId: string | null): LiveToolsState {
   const [offline, setOffline] = useState(false);
   const [loading, setLoading] = useState(false);
   const [attempt, setAttempt] = useState(0);
+  const [retrying, setRetrying] = useState(false);
+  const [retried, setRetried] = useState<LiveToolsRetry | null>(null);
   const idRef = useRef<string | null>(deviceId);
   idRef.current = deviceId;
+  // The machine whose operator pressed Retry. The read effect claims it once, so a machine change
+  // that happens between the press and the effect cannot turn another machine's load into a retry.
+  const operatorAttempt = useRef<string | null>(null);
+
+  // A different machine is a different page: the last machine's press has no outcome here.
+  useEffect(() => {
+    setRetrying(false);
+    setRetried(null);
+  }, [deviceId]);
 
   useEffect(() => {
+    const operator = deviceId !== null && operatorAttempt.current === deviceId;
+    operatorAttempt.current = null;
     if (deviceId === null) {
       setTools([]);
       setStale(false);
@@ -106,14 +140,23 @@ export function useLiveTools(deviceId: string | null): LiveToolsState {
         setStale(false);
         setError(null);
         setOffline(false);
+        if (operator) {
+          setRetried({ ok: true, at: Date.now(), error: null });
+          setRetrying(false);
+        }
       })
       .catch((cause) => {
         if (!live || idRef.current !== deviceId) return;
         // The last good catalogue stays on screen, labelled stale. A failed read never renders as an
         // empty catalogue.
-        setError(sentence(cause));
+        const sentenceForCause = sentence(cause);
+        setError(sentenceForCause);
         setOffline(isOffline(cause));
         setStale(cache.has(deviceId));
+        if (operator) {
+          setRetried({ ok: false, at: Date.now(), error: sentenceForCause });
+          setRetrying(false);
+        }
       })
       .finally(() => {
         if (live && idRef.current === deviceId) setLoading(false);
@@ -123,6 +166,15 @@ export function useLiveTools(deviceId: string | null): LiveToolsState {
     };
   }, [deviceId, attempt]);
 
-  const retry = useCallback(() => setAttempt((value) => value + 1), []);
-  return { tools, stale, error, offline, loading, retry };
+  const retry = useCallback(() => {
+    const id = idRef.current;
+    if (id === null) return;
+    // The press is shown in the same render as the click: the button is disabled before the read
+    // effect runs, so a fast second press cannot start a second attempt.
+    operatorAttempt.current = id;
+    setRetried(null);
+    setRetrying(true);
+    setAttempt((value) => value + 1);
+  }, []);
+  return { tools, stale, error, offline, loading, retrying, retried, retry };
 }

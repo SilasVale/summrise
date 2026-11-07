@@ -799,6 +799,72 @@ describe("Home — the hub", () => {
     expect(screen.queryByText(/after 5 attempts/)).not.toBeInTheDocument();
   });
 
+  it("shows the operator's Retry while it is in flight, disabled", () => {
+    live.value = {
+      tools: [],
+      stale: false,
+      error: "this machine is not connected; connect it, then try again",
+      offline: true,
+      loading: false,
+      retrying: true,
+      retried: null,
+      retry: vi.fn()
+    };
+    draw({ device: { ...workshop, online: false } });
+
+    const retry = screen.getByRole("button", { name: "Retrying…" });
+    expect(retry).toBeDisabled();
+    // The working state is the press's, not the poll's: no outcome exists until the read settles.
+    expect(screen.queryByText(/last checked/)).toBeNull();
+  });
+
+  it("says the retry's same offline result with the time it settled", () => {
+    const at = new Date(2026, 10, 7, 14, 5, 0).getTime();
+    live.value = {
+      tools: [],
+      stale: false,
+      error: "this machine is not connected; connect it, then try again",
+      offline: true,
+      loading: false,
+      retrying: false,
+      retried: {
+        ok: false,
+        at,
+        error: "this machine is not connected; connect it, then try again"
+      },
+      retry: vi.fn()
+    };
+    draw({ device: { ...workshop, online: false } });
+
+    // The result is the same one already on screen, and that is the point: it is said again, with
+    // the moment the operator's own attempt finished, so the press cannot be mistaken for a poll.
+    const notice = screen.getByRole("status");
+    expect(notice).toHaveTextContent("Still offline · last checked 14:05.");
+    expect(screen.getByText("Still offline · last checked 14:05.")).toBeInTheDocument();
+    expect(within(notice).getByRole("button", { name: "Retry" })).toBeEnabled();
+  });
+
+  it("keeps the retry note silent when only the poll has read", () => {
+    live.value = {
+      tools: [],
+      stale: false,
+      error: "this machine is not connected; connect it, then try again",
+      offline: true,
+      loading: false,
+      retrying: false,
+      retried: null,
+      retry: vi.fn()
+    };
+    const offline = { ...workshop, online: false };
+    const { rerenderHub } = draw({ device: offline, tick: 1 });
+    expect(screen.getByRole("button", { name: "Retry" })).toBeEnabled();
+
+    // The five-second tick rereads the page; it must not announce a press nobody made.
+    rerenderHub({ device: offline, tick: 2 });
+    expect(screen.queryByText(/last checked/)).toBeNull();
+    expect(screen.getByRole("button", { name: "Retry" })).toBeEnabled();
+  });
+
   it("labels a stale catalogue and retries it", async () => {
     const retry = vi.fn();
     live.value = {
