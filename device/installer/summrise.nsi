@@ -453,12 +453,80 @@ Section "Summrise runtime" SecRuntime
   ${EndIf}
   FileWrite $6 "found: mode $R8 (0 first install, 1 pre-versioned install, 2 versioned install)$\r$\n"
 
-  ; **THE HAND-OFF COMES BEFORE THE FIRST WRITE OR STOP.** A silent setup started under the running
-  ; supervisor cannot stop that supervisor: the stop kills the app that hosts the caller's
-  ; `runs.exec` (its answer is lost) and, on a launcher without the child-job breakaway, this setup
-  ; too (the service is then left stopped). The task it starts is outside the job and appends its
-  ; own install to the same log. Nothing above this line has written a file or touched the service;
-  ; a failed hand-off therefore reports and aborts with the running product untouched.
+  ; **A PERIODIC REPAIR, because losing the service is a state nothing inside the machine can leave:
+  ; the process that would rebuild it IS the service.** Two incidents made this: a failed install
+  ; removed it once and left the device unreachable until someone walked to it (DESKTOP-CPH4KB2,
+  ; 2026-10-28), and on 2026-10-29 the service sat stopped for four hours while the console answered
+  ; `device reconnecting` — Windows restarts a service that FAILS three times and then stops trying,
+  ; and a service that stopped without failing is not restarted at all. The task runs every five
+  ; minutes: it starts the service when it is registered but not running, and re-registers it when
+  ; it is gone.
+  ;
+  ; **IT IS REGISTERED BEFORE ANYTHING THAT CAN END THIS SETUP, AND THAT ORDER IS THE FIX.** The
+  ; registration used to sit after the copy and the uninstall entry. An existing install whose setup
+  ; ended earlier therefore kept its previous registration: the 9VH's 0.3.288 `/S` log ends at
+  ; `stop: sc stop: exit 0` (the supervised stop killed the setup before its next line), and the
+  ; 0.3.279 registration — `Command=C:\Program` + `Arguments=Files\Summrise\repair.cmd`, last
+  ; result 0x80070002 — survived two releases on DESKTOP-9VH92BJ. **A REPAIR TASK THAT CANNOT START
+  ; IS WORSE THAN NONE**: it is the safety net the five-minute repair exists for, so it has to be
+  ; right the moment the stop begins, not after the last step that might not run. The script and
+  ; the task now precede the hand-off, the stop and every abort those can take; a relayed run
+  ; registers it twice, which `schtasks /f` makes harmless.
+  ;
+  ; THE COST IS STATED WHERE IT IS FELT: a deliberate stop is undone within five minutes. Someone
+  ; taking the machine down on purpose disables the task first —
+  ; `schtasks /change /tn SummriseRepair /disable` — and re-enables it afterwards.
+  ;
+  ; `FileOpen` does not create its directory, and a first install has no `$INSTDIR` yet. Creating it
+  ; here writes nothing a running product owns; the images are copied later, after the stop.
+  CreateDirectory "$INSTDIR"
+  FileOpen $9 "$INSTDIR\repair.cmd" w
+  FileWrite $9 "@echo off$\r$\n"
+  FileWrite $9 "rem Created by the Summrise installer: keep the ${SERVICE} service registered and running.$\r$\n"
+  FileWrite $9 "rem Runs every five minutes. A deliberate stop is undone by it: disable the task first$\r$\n"
+  FileWrite $9 "rem (schtasks /change /tn SummriseRepair /disable) to keep this machine down on purpose.$\r$\n"
+  FileWrite $9 "sc query ${SERVICE} | find $\"RUNNING$\" >nul 2>&1$\r$\n"
+  FileWrite $9 "if not errorlevel 1 exit /b 0$\r$\n"
+  FileWrite $9 "sc query ${SERVICE} >nul 2>&1$\r$\n"
+  FileWrite $9 "if errorlevel 1 goto missing$\r$\n"
+  ; ITS OWN LOG, NOT `repair.log`: the launcher writes that file as a JSON repair journal of the
+  ; generations it restored, and appending human lines to it corrupts a record an operator reads.
+  FileWrite $9 "echo %DATE% %TIME% the ${SERVICE} service is not running; starting it >> $\"$INSTDIR\repair-task.log$\"$\r$\n"
+  FileWrite $9 "sc start ${SERVICE} >> $\"$INSTDIR\repair-task.log$\" 2>&1$\r$\n"
+  FileWrite $9 "set RC=%ERRORLEVEL%$\r$\n"
+  FileWrite $9 "echo %DATE% %TIME% start exit %RC% >> $\"$INSTDIR\repair-task.log$\"$\r$\n"
+  FileWrite $9 "exit /b %RC%$\r$\n"
+  FileWrite $9 ":missing$\r$\n"
+  FileWrite $9 "echo %DATE% %TIME% the ${SERVICE} service is missing; re-registering >> $\"$INSTDIR\repair-task.log$\"$\r$\n"
+  FileWrite $9 "$\"$INSTDIR\summrise-launch.exe$\" --install-service --install $\"$INSTDIR$\" --data $\"${DATA_DIR}$\" --seed-sidecar $\"$INSTDIR\summrise-device.sidecar.json$\" --port ${PORT} >> $\"$INSTDIR\repair-task.log$\" 2>&1$\r$\n"
+  FileWrite $9 "set RC=%ERRORLEVEL%$\r$\n"
+  FileWrite $9 "echo %DATE% %TIME% repair exit %RC% >> $\"$INSTDIR\repair-task.log$\"$\r$\n"
+  FileWrite $9 "exit /b %RC%$\r$\n"
+  FileClose $9
+  ; **THE `/tr` VALUE NEEDS ESCAPED QUOTES AROUND THE PATH.** schtasks splits the task's command at
+  ; the first space unless the executable part is quoted; with an install root that has a space
+  ; (`E:\Program Files\Summrise` on the 84T) the plain `/tr "$INSTDIR\repair.cmd"` is stored as
+  ; `Command=E:\Program` + `Arguments=Files\Summrise\repair.cmd` and the task cannot start. That is
+  ; not a theory: on DESKTOP-9VH92BJ the repair task created by the 0.3.279 install had exactly that
+  ; pair, last result 0x80070002, and `repair-task.log` was never written — the five-minute repair
+  ; that was supposed to start the service after the 2026-11-07 `/S` install never ran. The value
+  ; schtasks must receive is `"<path>"`; NSIS emits the required `\"` from `\$\"`, not from `"$\"`
+  ; (which gives `""<path>""` and is rejected outright). The `"\$\"<path>\$\""` form stores
+  ; `"<path>"` as the command and starts (measured 2026-11-07 with a probe task).
+  nsExec::Exec 'schtasks /create /tn SummriseRepair /tr "\$\"$INSTDIR\repair.cmd\$\"" /sc minute /mo 5 /ru SYSTEM /rl HIGHEST /f'
+  Pop $0
+  ; No reopen here: `$6` is the section's log handle, still open. Reopening it overwrote the handle
+  ; and the `FileClose` after the line closed the log for the rest of the section, which is why the
+  ; install-service, install-version and health lines below never reached the file an operator reads.
+  FileWrite $6 "repair task: exit $0$\r$\n"
+
+  ; **THE HAND-OFF COMES BEFORE THE FIRST IMAGE REPLACEMENT OR STOP.** A silent setup started under
+  ; the running supervisor cannot stop that supervisor: the stop kills the app that hosts the
+  ; caller's `runs.exec` (its answer is lost) and, on a launcher without the child-job breakaway,
+  ; this setup too (the service is then left stopped). The task it starts is outside the job and
+  ; appends its own install to the same log. Apart from the new `repair.cmd` written above (a file
+  ; no running process holds), nothing above this line has replaced an image or touched the
+  ; service; a failed hand-off therefore reports and aborts with the running product untouched.
   Call RelaySupervisedSetup
   ${If} $R3 == "1"
     FileClose $6
@@ -574,58 +642,6 @@ Section "Summrise runtime" SecRuntime
   ; The runtime is a headless service; the tray is the visible half. HKLM Run starts it in the
   ; logged-in user's session at every login, with no elevation and no second credential.
   WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Run" "SummriseShell" '"$INSTDIR\summrise-shell.exe"' 
-
-  ; A PERIODIC REPAIR, because losing the service is a state nothing inside the machine can leave:
-  ; the process that would rebuild it IS the service. Two incidents made this: a failed install
-  ; removed it once and left the device unreachable until someone walked to it (DESKTOP-CPH4KB2,
-  ; 2026-10-28), and on 2026-10-29 the service sat stopped for four hours while the console answered
-  ; `device reconnecting` — Windows restarts a service that FAILS three times and then stops trying,
-  ; and a service that stopped without failing is not restarted at all. The task runs every five
-  ; minutes: it starts the service when it is registered but not running, and re-registers it when
-  ; it is gone.
-  ;
-  ; THE COST IS STATED WHERE IT IS FELT: a deliberate stop is undone within five minutes. Someone
-  ; taking the machine down on purpose disables the task first —
-  ; `schtasks /change /tn SummriseRepair /disable` — and re-enables it afterwards.
-  FileOpen $9 "$INSTDIR\repair.cmd" w
-  FileWrite $9 "@echo off$\r$\n"
-  FileWrite $9 "rem Created by the Summrise installer: keep the ${SERVICE} service registered and running.$\r$\n"
-  FileWrite $9 "rem Runs every five minutes. A deliberate stop is undone by it: disable the task first$\r$\n"
-  FileWrite $9 "rem (schtasks /change /tn SummriseRepair /disable) to keep this machine down on purpose.$\r$\n"
-  FileWrite $9 "sc query ${SERVICE} | find $\"RUNNING$\" >nul 2>&1$\r$\n"
-  FileWrite $9 "if not errorlevel 1 exit /b 0$\r$\n"
-  FileWrite $9 "sc query ${SERVICE} >nul 2>&1$\r$\n"
-  FileWrite $9 "if errorlevel 1 goto missing$\r$\n"
-  ; ITS OWN LOG, NOT `repair.log`: the launcher writes that file as a JSON repair journal of the
-  ; generations it restored, and appending human lines to it corrupts a record an operator reads.
-  FileWrite $9 "echo %DATE% %TIME% the ${SERVICE} service is not running; starting it >> $\"$INSTDIR\repair-task.log$\"$\r$\n"
-  FileWrite $9 "sc start ${SERVICE} >> $\"$INSTDIR\repair-task.log$\" 2>&1$\r$\n"
-  FileWrite $9 "set RC=%ERRORLEVEL%$\r$\n"
-  FileWrite $9 "echo %DATE% %TIME% start exit %RC% >> $\"$INSTDIR\repair-task.log$\"$\r$\n"
-  FileWrite $9 "exit /b %RC%$\r$\n"
-  FileWrite $9 ":missing$\r$\n"
-  FileWrite $9 "echo %DATE% %TIME% the ${SERVICE} service is missing; re-registering >> $\"$INSTDIR\repair-task.log$\"$\r$\n"
-  FileWrite $9 "$\"$INSTDIR\summrise-launch.exe$\" --install-service --install $\"$INSTDIR$\" --data $\"${DATA_DIR}$\" --seed-sidecar $\"$INSTDIR\summrise-device.sidecar.json$\" --port ${PORT} >> $\"$INSTDIR\repair-task.log$\" 2>&1$\r\n"
-  FileWrite $9 "set RC=%ERRORLEVEL%$\r$\n"
-  FileWrite $9 "echo %DATE% %TIME% repair exit %RC% >> $\"$INSTDIR\repair-task.log$\"$\r$\n"
-  FileWrite $9 "exit /b %RC%$\r$\n"
-  FileClose $9
-  ; **THE `/tr` VALUE NEEDS ESCAPED QUOTES AROUND THE PATH.** schtasks splits the task's command at
-  ; the first space unless the executable part is quoted; with an install root that has a space
-  ; (`E:\Program Files\Summrise` on the 84T) the plain `/tr "$INSTDIR\repair.cmd"` is stored as
-  ; `Command=E:\Program` + `Arguments=Files\Summrise\repair.cmd` and the task cannot start. That is
-  ; not a theory: on DESKTOP-9VH92BJ the repair task created by the 0.3.279 install had exactly that
-  ; pair, last result 0x80070002, and `repair-task.log` was never written — the five-minute repair
-  ; that was supposed to start the service after the 2026-11-07 `/S` install never ran. The value
-  ; schtasks must receive is `"<path>"`; NSIS emits the required `\"` from `\$\"`, not from `"$\"`
-  ; (which gives `""<path>""` and is rejected outright). The `"\$\"<path>\$\""` form stores
-  ; `"<path>"` as the command and starts (measured 2026-11-07 with a probe task).
-  nsExec::Exec 'schtasks /create /tn SummriseRepair /tr "\$\"$INSTDIR\repair.cmd\$\"" /sc minute /mo 5 /ru SYSTEM /rl HIGHEST /f'
-  Pop $0
-  ; No reopen here: `$6` is the section's log handle, still open. Reopening it overwrote the handle
-  ; and the `FileClose` after the line closed the log for the rest of the section, which is why the
-  ; install-service, install-version and health lines below never reached the file an operator reads.
-  FileWrite $6 "repair task: exit $0$\r$\n"
 
   WriteRegStr HKLM "${UNINST_KEY}" "DisplayName" "${PRODUCT}"
   WriteRegStr HKLM "${UNINST_KEY}" "DisplayVersion" "${VERSION}"

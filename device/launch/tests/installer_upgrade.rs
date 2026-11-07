@@ -458,7 +458,7 @@ fn relay_function() -> &'static str {
 }
 
 #[test]
-fn a_supervised_silent_setup_hands_the_stop_to_a_task_before_the_first_write() {
+fn a_supervised_silent_setup_hands_the_stop_to_a_task_before_the_upgrade_or_stop() {
     let relay = relay_function();
 
     // The condition is the supervisor's own mark, silent mode, an existing install, and a service
@@ -499,9 +499,10 @@ fn a_supervised_silent_setup_hands_the_stop_to_a_task_before_the_first_write() {
         "a task that cannot be created or started is a failure, not a silent continue"
     );
 
-    // The call site: the hand-off is before the first file write (the staging copy of the carried
-    // launcher) and before the stop. A relay that ran after either would be too late for the
-    // process the stop kills.
+    // The call site: the hand-off is before the staging copy of the carried proving launcher,
+    // before its `--install-version` call and before the stop. A relay that ran after any of them
+    // would be too late for the process the stop kills. (The repair script written above the call
+    // is not a running image: no process holds `repair.cmd`.)
     let call = NSI
         .find("Call RelaySupervisedSetup")
         .expect("the section calls the relay");
@@ -702,5 +703,51 @@ fn every_task_registered_from_a_path_with_a_space_has_the_escaped_quote() {
     assert!(
         NSI.contains("nsExec::Exec 'schtasks /delete /tn ${RELAY_TASK} /f'"),
         "the uninstaller takes a hand-off task back"
+    );
+}
+
+/// **A SETUP THAT ENDS AT THE STOP HAS ALREADY RE-REGISTERED THE REPAIR TASK.** The 9VH's 0.3.288
+/// `/S` log ends at `stop: sc stop: exit 0` — the supervised stop killed the setup before its next
+/// line — and the registration that sat after the copy and the stop never ran. The 0.3.279 task
+/// (`Command=C:\Program` + `Arguments=Files\Summrise\repair.cmd`, last result 0x80070002) survived
+/// two releases because of it. The script and the task now precede the hand-off, the stop and the
+/// copy, so no step that can end the setup can leave a repair task that cannot start.
+#[test]
+fn the_repair_task_is_registered_before_the_steps_that_can_end_the_setup() {
+    let script = NSI
+        .find(r#"FileOpen $9 "$INSTDIR\repair.cmd" w"#)
+        .expect("the setup writes the repair script");
+    let create = NSI
+        .find("schtasks /create /tn SummriseRepair")
+        .expect("the setup registers the repair task");
+    assert!(
+        script < create,
+        "the script exists before the task that runs it"
+    );
+
+    // Every step between the old site and the section's start that can abort or kill the setup:
+    // the hand-off, the proving launcher's copy and `--install-version` call, the stop, and the
+    // flat-image copy that follows it.
+    for later in [
+        "Call RelaySupervisedSetup",
+        r#"File /oname=summrise-launch-${VERSION}.exe"#,
+        "Call StopRuntime",
+        r#"File /oname=summrise-launch.exe"#,
+    ] {
+        let position = NSI
+            .find(later)
+            .unwrap_or_else(|| panic!("the setup has {later}"));
+        assert!(
+            create < position,
+            "the repair task registration must precede `{later}`: a setup that ends there would skip it"
+        );
+    }
+
+    // The old, late site is gone: one write of the script, and it is the one checked above.
+    assert_eq!(
+        NSI.matches(r#"FileOpen $9 "$INSTDIR\repair.cmd" w"#)
+            .count(),
+        1,
+        "the repair script is written once, and not again after the copy"
     );
 }
