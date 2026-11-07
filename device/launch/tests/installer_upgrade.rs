@@ -482,10 +482,11 @@ fn a_supervised_silent_setup_hands_the_stop_to_a_task_before_the_first_write() {
         "the hand-off is only for a service the stop would take down"
     );
 
-    // The task runs the same executable with the silent marker, and the escaped quotes around the
-    // path are what make a root with a space start at all (measured: unquoted stored C:\Program).
+    // The task runs the same executable with the silent marker. `\$\"` is what makes NSIS emit
+    // the `\"` schtasks needs; with a root that has a space the unquoted form stored `C:\Program`,
+    // and the over-quoted 0.3.289 form stored nothing at all.
     assert!(relay.contains(
-        r#"schtasks /create /tn ${RELAY_TASK} /tr "$\"$EXEDIR\$EXEFILE$\"$R1" /sc onstart /ru SYSTEM /rl HIGHEST /f"#
+        r#"schtasks /create /tn ${RELAY_TASK} /tr "\$\"$EXEDIR\$EXEFILE\$\"$R1" /sc onstart /ru SYSTEM /rl HIGHEST /f"#
     ));
     assert!(relay.contains(r#"StrCpy $R1 " /S /RELAYED""#));
     assert!(
@@ -556,12 +557,74 @@ fn the_relayed_run_appends_its_log_and_deletes_its_task() {
     );
 }
 
+/// Expand the NSIS escapes and variables the registration lines carry. The install root has a
+/// space on purpose: that is the input that broke the registration twice — once unquoted, once
+/// over-quoted.
+fn expand_registration(line: &str) -> String {
+    line.replace("$\\\"", "\"")
+        .replace("${RELAY_TASK}", "SummriseSetupRelay")
+        .replace(
+            "$EXEDIR\\$EXEFILE",
+            r"C:\Windows\Temp\SummriseSetup-0.3.999.exe",
+        )
+        .replace("$INSTDIR", r"E:\Program Files\Summrise")
+        .replace("$R1", " /S /RELAYED")
+}
+
+/// Split a Windows command line the way `CommandLineToArgvW` does for the shapes the installer
+/// sends: backslashes are literal unless they precede a double quote; `\"` is a literal quote and
+/// a bare `"` toggles the quoted state. A `/tr` value that arrives split at a space fails here for
+/// the same reason it failed on the device.
+fn windows_argv(command: &str) -> Vec<String> {
+    let mut args = Vec::new();
+    let mut current = String::new();
+    let mut quoted = false;
+    let mut backslashes = 0usize;
+    let mut started = false;
+    for character in command.chars() {
+        match character {
+            '\\' => backslashes += 1,
+            '"' => {
+                current.push_str(&"\\".repeat(backslashes / 2));
+                if backslashes.is_multiple_of(2) {
+                    quoted = !quoted;
+                } else {
+                    current.push('"');
+                }
+                backslashes = 0;
+                started = true;
+            }
+            character if character.is_whitespace() && !quoted => {
+                current.push_str(&"\\".repeat(backslashes));
+                backslashes = 0;
+                if started {
+                    args.push(std::mem::take(&mut current));
+                    started = false;
+                }
+            }
+            character => {
+                current.push_str(&"\\".repeat(backslashes));
+                backslashes = 0;
+                current.push(character);
+                started = true;
+            }
+        }
+    }
+    current.push_str(&"\\".repeat(backslashes));
+    if started {
+        args.push(current);
+    }
+    args
+}
+
 #[test]
 fn every_task_registered_from_a_path_with_a_space_has_the_escaped_quote() {
-    // schtasks splits the task's command at the first space unless the executable is quoted. The
-    // measured 0.3.279 failure: `Command=C:\Program` + `Arguments=Files\Summrise\repair.cmd`,
-    // result 0x80070002, and the repair log was never written. Every create line the setup runs
-    // takes an install-root path, and every one must carry the `\"` form.
+    // Two measured failures, one line each. The 0.3.279 form `/tr "$INSTDIR\repair.cmd"` stored
+    // `Command=E:\Program` + `Arguments=Files\Summrise\repair.cmd` and last result 0x80070002. The
+    // 0.3.289 form `"$\"...$\""` expanded to `""<path>""`, which schtasks rejected with "invalid
+    // argument/option" and created no task at all (`shell task create: -2147467259` on the 84T's
+    // relayed `/S`). The value schtasks must receive is one argument: `"<path>"`, or
+    // `"<path>" <args>` for the relay.
     let creates: Vec<&str> = NSI
         .lines()
         .filter(|line| line.contains("schtasks /create"))
@@ -570,28 +633,72 @@ fn every_task_registered_from_a_path_with_a_space_has_the_escaped_quote() {
         creates.len() >= 3,
         "the setup registers the repair, the shell start and the relay"
     );
-    for line in creates {
+
+    let expected: [(&str, &str, &str); 3] = [
+        (
+            "SummriseRepair",
+            r#""E:\Program Files\Summrise\repair.cmd""#,
+            "",
+        ),
+        (
+            "SummriseShellStart",
+            r#""E:\Program Files\Summrise\start-shell.cmd""#,
+            "",
+        ),
+        (
+            "SummriseSetupRelay",
+            r#""C:\Windows\Temp\SummriseSetup-0.3.999.exe""#,
+            " /S /RELAYED",
+        ),
+    ];
+
+    let registrations: Vec<String> = creates
+        .iter()
+        .map(|line| expand_registration(line))
+        .collect();
+    for (name, _, _) in expected {
         assert!(
-            line.contains(r#"/tr "$\""#),
-            "a task command quotes its executable for schtasks: {line}"
+            registrations
+                .iter()
+                .any(|line| line.contains(&format!(" /tn {name} "))),
+            "the setup registers {name}"
         );
     }
-    assert!(NSI.contains(r#"/tn SummriseRepair /tr "$\"$INSTDIR\repair.cmd$\"""#));
-    assert!(NSI.contains(r#"/tn SummriseShellStart /tr "$\"$INSTDIR\start-shell.cmd$\"""#));
-    // The comments above those lines quote the broken form to explain it; only the commands count.
-    let code: String = NSI
-        .lines()
-        .filter(|line| !line.trim_start().starts_with(';'))
-        .collect::<Vec<_>>()
-        .join("\n");
-    assert!(
-        !code.contains(r#"/tr "$INSTDIR\repair.cmd""#),
-        "the unquoted form is the defect that never ran"
-    );
-    assert!(
-        !code.contains(r#"/tr "$INSTDIR\start-shell.cmd""#),
-        "the same defect on the shell-start task"
-    );
+
+    for line in &creates {
+        assert!(
+            !line.contains(r#""$\""#),
+            "the over-quoted form expands to `\"\"<path>\"\"`, which schtasks rejects: {line}"
+        );
+        let argv = windows_argv(&expand_registration(line));
+        let task = &argv[argv
+            .iter()
+            .position(|argument| argument == "/tn")
+            .expect("a create line names its task")
+            + 1];
+        let value = &argv[argv
+            .iter()
+            .position(|argument| argument == "/tr")
+            .expect("a create line carries /tr")
+            + 1];
+        let (_, command, arguments) = expected
+            .iter()
+            .find(|(name, _, _)| name == task)
+            .unwrap_or_else(|| panic!("unexpected task {task}"));
+        assert!(
+            value.starts_with(command),
+            "schtasks must receive the quoted executable as one value, not a path split at its space: {value:?}"
+        );
+        assert_eq!(
+            &value[command.len()..],
+            *arguments,
+            "the relayed arguments must survive after the quoted executable: {value:?}"
+        );
+    }
+
+    // A failed create leaves no task to start; the old code still called `/run` and logged a
+    // second, misleading "cannot find the file" instead of surfacing the create line.
+    assert!(NSI.contains("shell task not created; the tray waits for the login Run entry"));
     assert!(
         NSI.contains("nsExec::Exec 'schtasks /delete /tn ${RELAY_TASK} /f'"),
         "the uninstaller takes a hand-off task back"

@@ -380,13 +380,17 @@ Function RelaySupervisedSetup
   ${AndIf} $EnrollCode != ""
     StrCpy $R1 "$R1 /CONSOLE=$ConsoleUrl /CODE=$EnrollCode"
   ${EndIf}
-  ; **THE ESCAPED QUOTES INSIDE `/tr` ARE NOT COSMETIC.** schtasks splits the task's command at the
-  ; first space unless the executable part is quoted; `/tr "$EXEDIR\$EXEFILE"` with a path that has
-  ; a space is stored as `Command=C:\Program` + `Arguments=Files\...` and fails to start with
-  ; 0x80070002 (measured 2026-11-07; the repair task had exactly this defect and never ran). The
-  ; `\"` form is the one this Windows accepts: it stores `"<path>"` as the command and the rest as
-  ; arguments, and the task starts (measured the same day on an unrelated probe script).
-  nsExec::ExecToStack 'schtasks /create /tn ${RELAY_TASK} /tr "$\"$EXEDIR\$EXEFILE$\"$R1" /sc onstart /ru SYSTEM /rl HIGHEST /f'
+  ; **THE `/tr` VALUE NEEDS A LITERAL `\"` AROUND THE EXECUTABLE, AND NSIS NEEDS `\$\"` TO EMIT
+  ; IT.** schtasks splits the task's command at the first space unless the executable part is
+  ; quoted *inside* the `/tr` value; `/tr "$EXEDIR\$EXEFILE"` with a path that has a space is
+  ; stored as `Command=C:\Program` + `Arguments=Files\...` and fails to start with 0x80070002
+  ; (measured 2026-11-07). The value schtasks must receive is `"<path>" <args>`, so this command
+  ; line must carry `\"<path>\" <args>`: NSIS turns `$\"` into one quote and `\$\"` into backslash
+  ; + quote. The 0.3.289 script wrote `"$\"...$\""`, which expands to `""<path>""`; schtasks
+  ; rejects that with "invalid argument/option" and no task is created (measured on the 84T's
+  ; relayed `/S`: `repair task: exit -2147467259`, `shell task create: -2147467259`). This line
+  ; survived only because the setup's `$EXEDIR` has no space, which made the extra quotes harmless.
+  nsExec::ExecToStack 'schtasks /create /tn ${RELAY_TASK} /tr "\$\"$EXEDIR\$EXEFILE\$\"$R1" /sc onstart /ru SYSTEM /rl HIGHEST /f'
   Pop $0
   Pop $1
   FileWrite $6 "relay: schtasks create: exit $0 $1$\r$\n"
@@ -608,13 +612,15 @@ Section "Summrise runtime" SecRuntime
   FileClose $9
   ; **THE `/tr` VALUE NEEDS ESCAPED QUOTES AROUND THE PATH.** schtasks splits the task's command at
   ; the first space unless the executable part is quoted; with an install root that has a space
-  ; (`C:\Program Files\Summrise`) the plain `/tr "$INSTDIR\repair.cmd"` is stored as
-  ; `Command=C:\Program` + `Arguments=Files\Summrise\repair.cmd` and the task cannot start. That is
+  ; (`E:\Program Files\Summrise` on the 84T) the plain `/tr "$INSTDIR\repair.cmd"` is stored as
+  ; `Command=E:\Program` + `Arguments=Files\Summrise\repair.cmd` and the task cannot start. That is
   ; not a theory: on DESKTOP-9VH92BJ the repair task created by the 0.3.279 install had exactly that
   ; pair, last result 0x80070002, and `repair-task.log` was never written — the five-minute repair
-  ; that was supposed to start the service after the 2026-11-07 `/S` install never ran. The `\"`
-  ; form stores `"<path>"` as the command and starts (measured the same day with a probe task).
-  nsExec::Exec 'schtasks /create /tn SummriseRepair /tr "$\"$INSTDIR\repair.cmd$\"" /sc minute /mo 5 /ru SYSTEM /rl HIGHEST /f'
+  ; that was supposed to start the service after the 2026-11-07 `/S` install never ran. The value
+  ; schtasks must receive is `"<path>"`; NSIS emits the required `\"` from `\$\"`, not from `"$\"`
+  ; (which gives `""<path>""` and is rejected outright). The `"\$\"<path>\$\""` form stores
+  ; `"<path>"` as the command and starts (measured 2026-11-07 with a probe task).
+  nsExec::Exec 'schtasks /create /tn SummriseRepair /tr "\$\"$INSTDIR\repair.cmd\$\"" /sc minute /mo 5 /ru SYSTEM /rl HIGHEST /f'
   Pop $0
   ; No reopen here: `$6` is the section's log handle, still open. Reopening it overwrote the handle
   ; and the `FileClose` after the line closed the log for the rest of the section, which is why the
@@ -858,21 +864,30 @@ Section "Summrise runtime" SecRuntime
   FileWrite $9 "@echo off$\r$\n"
   FileWrite $9 "$\"$INSTDIR\summrise-launch.exe$\" --start-shell --install $\"$INSTDIR$\"$\r$\n"
   FileClose $9
-  ; The same `/tr` rule as the repair task above: a path with a space needs the escaped quotes, or
-  ; the task is registered as `Command=$INSTDIR` split at the first space (`C:\Program`) and never
-  ; starts. This one is one-shot and deleted below, so a broken registration only cost the tray
-  ; after the upgrade — which the login Run entry covered at the next sign-in — but it is the same
-  ; defect and it is fixed here too.
-  nsExec::ExecToStack 'schtasks /create /tn SummriseShellStart /tr "$\"$INSTDIR\start-shell.cmd$\"" /sc onstart /ru SYSTEM /rl HIGHEST /f'
+  ; The same `/tr` rule as the repair task above: a path with a space needs the escaped quotes
+  ; inside the `/tr` value, or the task is registered as `Command=$INSTDIR` split at the first
+  ; space (`E:\Program`) and never starts. `\$\"` is what emits that `\"`; the 0.3.289 form
+  ; `"$\"...$\""` emitted `""<path>""`, which schtasks rejected before creating any task (measured
+  ; on the 84T's relayed `/S`: `shell task create: -2147467259`, then the misleading
+  ; `shell task run: 1` / "cannot find the file" of a `/run` with no task). This one is one-shot and
+  ; deleted below, so a broken registration only costs the tray after the upgrade — which the login
+  ; Run entry covers at the next sign-in — but it is the same defect and it is fixed here too.
+  nsExec::ExecToStack 'schtasks /create /tn SummriseShellStart /tr "\$\"$INSTDIR\start-shell.cmd\$\"" /sc onstart /ru SYSTEM /rl HIGHEST /f'
   Pop $0
   Pop $1
   FileWrite $6 "shell task create: $0$\r$\n$1$\r$\n"
-  nsExec::ExecToStack 'schtasks /run /tn SummriseShellStart'
-  Pop $0
-  Pop $1
-  FileWrite $6 "shell task run: $0$\r$\n$1$\r$\n"
-  Sleep 5000
-  nsExec::Exec 'schtasks /delete /tn SummriseShellStart /f'
+  ${If} $0 == "0"
+    nsExec::ExecToStack 'schtasks /run /tn SummriseShellStart'
+    Pop $0
+    Pop $1
+    FileWrite $6 "shell task run: $0$\r$\n$1$\r$\n"
+    Sleep 5000
+    nsExec::Exec 'schtasks /delete /tn SummriseShellStart /f'
+  ${Else}
+    ; A failed create leaves no task to run; calling `/run` anyway logged a second, misleading
+    ; "cannot find the file" instead of surfacing this create line as the cause.
+    FileWrite $6 "shell task not created; the tray waits for the login Run entry$\r$\n"
+  ${EndIf}
 
   ; **THE EXIT CODE IS THE SERVICE'S STATE.** The health check proves the device answered; this
   ; proves the thing the setup stopped, replaced and restarted is still there at the end. Exit 0
