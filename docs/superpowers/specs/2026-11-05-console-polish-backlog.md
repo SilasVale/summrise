@@ -541,13 +541,7 @@ DESKTOP-84T3LIN (0.3.280) for the device pages, with the 9VH 0.3.286 offline and
 and the 84T's panel at 127.0.0.1:18090. Ranked by the outage's timeline first, then the only online
 machine's update story, then the controls.
 
-1. **The last start is dropped when it repeats the header's version.** The 9VH started 0.3.286 at
-   06:16:08, checked 06:30:32 and vanished at 06:40:26; the fleet row and Machine tab show no start,
-   and the Machine tab's only update fact is `applied to 0.3.273 on 2026-11-05 03:11`. The 84T
-   started 22:22:19 and its line has no start either. **Cost:** the outage cannot be placed against
-   the last check; the start is the fact that separates a sleep from a failed install. **Fix:** draw
-   `started vX 24m ago` from the restart journal even when the version repeats, and label an
-   outcome older than this start. **S/M.**
+1. **The last start is dropped when it repeats the header's version.** *(Implemented 2026-11-06, 5315dea: `startedStory()` dates a start verdict from `host.restarts[0].at_ms` even when the version repeats the chip; the fleet row and the Machine tab draw `started 0.3.286 · 24m ago` with the exact title, and a `last_update` older than the start is labelled `last recorded outcome before this start`. 798 tests, gate 53 steps, a11y 0/3, `build-web --check`. The live check is blocked: `console-deploy.sh` fetches and swaps the console binary through `runs.exec` on the host device (the 9VH), and that device is offline, so ux93 cannot reach the console until the operator restarts `SummriseLaunch`; the code is committed and the console is ux92. Recorded as item 7 below.)*
 
 2. **The 84T's update story says "channel not reported" and never names its verdict or 14 console
    retries.** The console's Machine line is four absences; the device's panel names `Channel
@@ -580,7 +574,9 @@ machine's update story, then the controls.
    calls`. **S.**
 
 6. **The offline hub tells the operator to open the machine's panel, which it neither links nor
-   addresses.** `…open the machine's panel if it stays offline.` with only `Retry`; the panel is
+   addresses.**
+
+7. **The console's own deploy needs its host device's shell.** *(Measured 2026-11-06: `console-deploy.sh` fetches the new binary and swaps it through `runs.exec` on the host device (the 9VH), so with that device's service down no console version can be deployed; the console app itself (ux92) keeps serving and the script's only symptom is `the console did not answer: HTTP Error 503`. **Fix:** give the console's host a local/service update path, or have the script name the device dependency up front. **S/M.** (console ops.)* `…open the machine's panel if it stays offline.` with only `Retry`; the panel is
    `127.0.0.1:18090` and loopback-only, and the console's Connect sheet names only its `/mcp`
    endpoint. **Cost:** the outage's one "what next" is a dead end from the console. **Fix:** link
    the Device → Machine view and name the local panel URL as local. **S.**
