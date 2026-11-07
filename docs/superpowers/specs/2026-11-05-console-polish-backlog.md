@@ -630,6 +630,28 @@ are not repeated.
 
 10. **Activity's line-derived chips label old ids as unknown machines.** *(Live 0.3.273-ux96: the chips read `All machines / DESKTOP-9VH92BJ / DESKTOP-14RJCR8 / DESKTOP-CPH4KB2 / DESKTOP-84T3LIN / old id · deadbeefdead… · 5h ago / old id · fe209fc2d86a… · 10h ago`; `unknown machine` is gone. Implemented 1a9f24f.)* *(Live 0.3.273-ux95: with the selected id deadbeefdead, the timeline's chips draw `unknown machine · deadbeefdead` and `unknown machine · fe209fc2d86a`; machineOptions' goneId skips only the selected id, and every line-named id the fleet no longer lists is drawn as "unknown machine". The audit's F8 wanted known machines not labelled unknown; the line-derived chip needs a history shape (a dated old id, not a claim of unknown machine). **Fix:** for line-derived ids not in the fleet, label them as retired/old (with the age of their newest line) or drop them from the chips; the selected gone id gets none. **S.** (web; Activity.)*
 
+## P0 — the operator's direction (2026-11-07): 直观清晰一目了然
+
+The operator, looking at the live ux96 console: **"改了这么久我怎么感觉页面没有什么变化啊，Home和Activity两个长得差不多啊"**
+and **"我喜欢页面直观清晰一目了然"**. Measured on the live page the same day: Home is `Machines` + "4 machines ·
+3 online" + an installer card + four tall rows whose right side is `199 client calls · 11 failed`; Activity is
+`Activity` + five counters in one line + the same machine chips + search + a timeline. Both are gray page, white
+card, 13 px text, a list of machines and a string of counters — the shape is the same, and neither answers "what
+needs me?" before the eye reads four rows.
+
+This outranks the copy items below. The two pages must become two different tools:
+
+1. **Home is the verdict and the next action.** One large sentence at the top (e.g. "3 of 4 online · 1 needs
+   attention"), a `Needs attention` block with one row per problem (offline since when, behind which version)
+   and its action, then the fleet as a compact table (machine, status, version, started). The per-row `client
+   calls · failed` counters leave Home — that is Activity's noun. The installer stops being the first card.
+2. **Activity is the record.** One readable sentence for the day's counters (not five), the machine filter
+   labelled as a filter, bigger day headings, a timeline rail that reads as time. No installer, no verdict.
+3. **The visible shape must change, not just the words.** Type scale, spacing, status colour and section order
+   are part of the fix; the live check shows the before/after screenshots to the operator.
+
+**S.** (web; Home first, then Activity.)
+
 ## P0 — the nineteenth list (opened 2026-11-07, from the audit of 0.3.273-ux96)
 
 Measured 2026-11-07 on the live console and the 0.3.289 devices (9VH moved to 0.3.289 at 10:04,
