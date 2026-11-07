@@ -705,44 +705,44 @@ Measured 2026-11-07 17:52–19:27 UTC on live 0.3.273-ux99; fleet 9VH 0.3.290, 8
 offline, 14R 0.3.275 offline. The nineteenth list is live; these are the shape problems the operator's eye
 still finds.
 
-1. **Home has two identities.** With a machine selected, Home drops the verdict / Needs attention / table and
+1. **Home has two identities.** *(Live 0.3.273-ux100 with a machine selected: Home keeps `2 of 4 online · 2 need attention`, the grouped attention rows, its `machine-summary` section and the table; the old hub moved to `Device → Overview`. Implemented 139d7a1.)* With a machine selected, Home drops the verdict / Needs attention / table and
    becomes the old live timeline that still looks like Activity; the 14R/CPH problems vanish. **Fix:** Home keeps
    the verdict and the attention rows for the whole fleet, with the selected machine's own summary as a section —
    never a second Activity. **M.**
 
-2. **The console host's repair task is still broken on 0.3.290.** DESKTOP-9VH92BJ's `SummriseRepair` is
+2. **The console host's repair task is still broken on 0.3.290.** *(Implemented 16d6e98: the repair script/task registration moved before `StopRuntime`/the flat copy; the ordering is tested. The 9VH's stale task needs a real setup run — the channel cannot refresh it; the live proof is the controller's next `/S` on the 84T with 0.3.291.)* DESKTOP-9VH92BJ's `SummriseRepair` is
    `C:\Program` + `Files\Summrise\repair.cmd`, last result 0x80070002, every five minutes; the 84T's fixed task
    returns 0. **Fix:** find why the 9VH's 0.3.290 install did not re-register the task (the installer skips the
    re-registration on the "E:\Program Files\Summrise is already present; not written" path?) and repair it.
    **M.**
 
-3. **The Machine tab's update story is a 12 px grey paragraph after the facts.** The version is repeated three
+3. **The Machine tab's update story is a 12 px grey paragraph after the facts.** *(Live 0.3.273-ux100: the `Updates` card reads Applied 0.3.290 · Last outcome applied · Last result 2026-11-07 16:22 · Last check 2026-11-07 20:40 · Channel canary. Implemented c5e7359.)* The version is repeated three
    times, the applied clause is last, and the bare `online` is an orphan; the device panel's UPDATES grid is the
    clearer model. **Fix:** the UPDATES card's shape — target, result, when, applied — with one version per line.
    **M.**
 
-4. **A failed read is still repeated.** Machines says it three times (banner, list stub, retry block) and Activity
+4. **A failed read is still repeated.** *(Implemented 01d448e: one failure sentence with one Retry per failed read; the banner lost its Retry; the verdict no longer repeats it.)* Machines says it three times (banner, list stub, retry block) and Activity
    twice, with two Retry buttons; the raw `Failed to fetch` is gone, the repetition is not. **Fix:** one sentence
    and one Retry per failure. **S.**
 
-5. **At 390 Activity's chrome pushes the first record to y=600.** The filter chrome plus two old-id chips take two
+5. **At 390 Activity's chrome pushes the first record to y=600.** *(Implemented 01d448e: retired-id chips collapse below 640 px except an active scope; 390 first record y=536.)* The filter chrome plus two old-id chips take two
    rows; the retired ids are already in the Table's device filter. **Fix:** at 390 the old-id chips collapse into
    the device filter; the first record starts above the fold. **S.**
 
-6. **At 390 Home's attention rows push the table to y=644.** Four rows for two machines, four identical
+6. **At 390 Home's attention rows push the table to y=644.** *(Implemented 01d448e: attention grouped per machine with one door; 390 fixture fleet card y=489.)* Four rows for two machines, four identical
    `Open machine` buttons. **Fix:** group by machine (one row per machine, its problems listed) and compact the
    actions. **S.**
 
-7. **Device with no machine is headed `Terminal`** and shows the tab strip above `Choose a machine`. **Fix:** title
+7. **Device with no machine is headed `Terminal`** *(Implemented 01d448e: `Choose a machine`, no tab strip, no Connect, title follows.)* and shows the tab strip above `Choose a machine`. **Fix:** title
    the picker, hide the tabs until a machine is chosen. **S.**
 
-8. **`#signin` while signed in leads with the token form** although the sentence says "already signed in". **Fix:**
+8. **`#signin` while signed in leads with the token form** *(Implemented 01d448e: `You are signed in`, primary Back, token form behind a closed disclosure.)* although the sentence says "already signed in". **Fix:**
    lead with Back, put the token form behind a disclosure. **S.**
 
-9. **`— 2 from the console` has no noun.** The 2 is console failures, not the 59 console calls. **Fix:** name it.
+9. **`— 2 from the console` has no noun.** *(Implemented 01d448e: `2 console failures`.)* The 2 is console failures, not the 59 console calls. **Fix:** name it.
    **S.**
 
-10. **`the console has 0.3.290` names the installer/release as the console** (the console build is 0.3.273-ux99).
+10. **`the console has 0.3.290` names the installer/release as the console** *(Implemented 01d448e: `the release is 0.3.290`.)* (the console build is 0.3.273-ux99).
     **Fix:** say the release, not the console. **S.**
 
 ## How a round goes
