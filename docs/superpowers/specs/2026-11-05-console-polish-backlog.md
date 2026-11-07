@@ -699,6 +699,52 @@ t:** the sentence is unannounced and unfindable. **Fix:** a sentence, `role=aler
    its newest 2000 lines` while the 1,000-line window spans 17 h. **Cost:** the rate is unreadable.
    **Fix:** state the window's span (and the lines actually read). **S.**
 
+## P0 — the twentieth list (opened 2026-11-07, from the audit of ux99)
+
+Measured 2026-11-07 17:52–19:27 UTC on live 0.3.273-ux99; fleet 9VH 0.3.290, 84T 0.3.290, CPH 0.3.289
+offline, 14R 0.3.275 offline. The nineteenth list is live; these are the shape problems the operator's eye
+still finds.
+
+1. **Home has two identities.** With a machine selected, Home drops the verdict / Needs attention / table and
+   becomes the old live timeline that still looks like Activity; the 14R/CPH problems vanish. **Fix:** Home keeps
+   the verdict and the attention rows for the whole fleet, with the selected machine's own summary as a section —
+   never a second Activity. **M.**
+
+2. **The console host's repair task is still broken on 0.3.290.** DESKTOP-9VH92BJ's `SummriseRepair` is
+   `C:\Program` + `Files\Summrise\repair.cmd`, last result 0x80070002, every five minutes; the 84T's fixed task
+   returns 0. **Fix:** find why the 9VH's 0.3.290 install did not re-register the task (the installer skips the
+   re-registration on the "E:\Program Files\Summrise is already present; not written" path?) and repair it.
+   **M.**
+
+3. **The Machine tab's update story is a 12 px grey paragraph after the facts.** The version is repeated three
+   times, the applied clause is last, and the bare `online` is an orphan; the device panel's UPDATES grid is the
+   clearer model. **Fix:** the UPDATES card's shape — target, result, when, applied — with one version per line.
+   **M.**
+
+4. **A failed read is still repeated.** Machines says it three times (banner, list stub, retry block) and Activity
+   twice, with two Retry buttons; the raw `Failed to fetch` is gone, the repetition is not. **Fix:** one sentence
+   and one Retry per failure. **S.**
+
+5. **At 390 Activity's chrome pushes the first record to y=600.** The filter chrome plus two old-id chips take two
+   rows; the retired ids are already in the Table's device filter. **Fix:** at 390 the old-id chips collapse into
+   the device filter; the first record starts above the fold. **S.**
+
+6. **At 390 Home's attention rows push the table to y=644.** Four rows for two machines, four identical
+   `Open machine` buttons. **Fix:** group by machine (one row per machine, its problems listed) and compact the
+   actions. **S.**
+
+7. **Device with no machine is headed `Terminal`** and shows the tab strip above `Choose a machine`. **Fix:** title
+   the picker, hide the tabs until a machine is chosen. **S.**
+
+8. **`#signin` while signed in leads with the token form** although the sentence says "already signed in". **Fix:**
+   lead with Back, put the token form behind a disclosure. **S.**
+
+9. **`— 2 from the console` has no noun.** The 2 is console failures, not the 59 console calls. **Fix:** name it.
+   **S.**
+
+10. **`the console has 0.3.290` names the installer/release as the console** (the console build is 0.3.273-ux99).
+    **Fix:** say the release, not the console. **S.**
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
