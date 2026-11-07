@@ -429,12 +429,15 @@ function Row(props: {
         <span className="timeline-sentence">{line.sentence ?? line.tool ?? line.kind}</span>
         <span className="timeline-facts">
           {machine && <span className="timeline-machine">{machine}</span>}
+          {machine && (
+            <span className="timeline-sep" aria-hidden="true">
+              ·
+            </span>
+          )}
+          <span className="timeline-age">{ageAt(line.ts_ms, props.nowMs)}</span>
           {/* The console's own calls stay in the record; the quiet word is how a reader tells them
               from the AI's without opening the evidence. */}
           {line.caller === "console" && <ConsoleCaller className="timeline-caller" />}
-          {typeof line.ms === "number" && line.ms > 0 && (
-            <span className="timeline-ms">{line.ms} ms</span>
-          )}
           {/* The outcome is a word, not the HTTP code: a device's JSON-RPC refusal is a failed call
               that crossed the console as 200, and "200" read as success. The code and the detail are
               still the evidence panel's facts for anyone who needs them. */}
@@ -443,7 +446,9 @@ function Row(props: {
               {kind === "bad" ? "failed" : "error"}
             </span>
           )}
-          <span className="timeline-age">{ageAt(line.ts_ms, props.nowMs)}</span>
+          {typeof line.ms === "number" && line.ms > 0 && (
+            <span className="timeline-ms">{line.ms} ms</span>
+          )}
         </span>
       </span>
       {openable && (
@@ -591,8 +596,9 @@ export function ActivityTimeline(props: {
    */
   goneId?: string | null;
   /**
-   * The "Clients only" chip, shared with the page so its header can state the same subset the rows
-   * show. Uncontrolled when the timeline is rendered on its own.
+   * The "Clients only" control, shared with the page so the choice survives a view switch. Its count
+   * is the fetched window's, labelled beside the control; the page header stays the day's sentence.
+   * Uncontrolled when the timeline is rendered on its own.
    */
   clientsOnly?: boolean;
   onClientsOnly?: (next: boolean) => void;
@@ -686,7 +692,8 @@ export function ActivityTimeline(props: {
   // **THE PAGE'S SUBJECT IS THE AI'S WORK.** One chip narrows the timeline to the calls a client can
   // be proven to have made (its caller, or a token on a row with no console mark), using the same
   // rule as the header's day count. It is a view control, not a scope: the window stays the one the
-  // machine chips read, and the count on the chip is how many rows it will draw from that window.
+  // machine chips read, and the control's own count is how many rows it would draw from that
+  // window. The header's `client calls` number is the day's and never this one.
   const [ownClientsOnly, setOwnClientsOnly] = useState(false);
   const clientsOnly = filterable && (props.clientsOnly ?? ownClientsOnly);
   const setClientsOnly = (next: boolean) => {
@@ -700,7 +707,6 @@ export function ActivityTimeline(props: {
     () => props.lines.filter((line) => !isChannelBoundary(line)),
     [props.lines]
   );
-  const clientCalls = useMemo(() => rows.filter(isClientCall).length, [rows]);
   const paused = props.nowMs !== undefined;
   useEffect(() => {
     if (paused) return;
@@ -718,10 +724,12 @@ export function ActivityTimeline(props: {
     () => machineOptions(rows, props.devices, scope, props.goneId ?? null, at),
     [rows, props.devices, scope, props.goneId, at]
   );
-  const filtered = useMemo(() => {
-    if (needle === "" && scope === "" && !clientsOnly) return rows;
+  // The rows the machine and search filters keep, before the caller filter. The "Clients only"
+  // control counts this same set: its number is the rows it would draw in the fetched window, not
+  // the day's client-call number above (nineteenth item 5's two windows).
+  const matching = useMemo(() => {
+    if (needle === "" && scope === "") return rows;
     return rows.filter((line) => {
-      if (clientsOnly && !isClientCall(line)) return false;
       if (scope !== "" && machineKey(props.devices, line.device_id) !== scope) return false;
       if (needle === "") return true;
       const machine = line.device_id ? machineName(props.devices, line.device_id) : null;
@@ -729,7 +737,12 @@ export function ActivityTimeline(props: {
         .filter((value): value is string => typeof value === "string")
         .some((value) => value.toLowerCase().includes(needle));
     });
-  }, [rows, props.devices, scope, needle, clientsOnly]);
+  }, [rows, props.devices, scope, needle]);
+  const filtered = useMemo(
+    () => (clientsOnly ? matching.filter(isClientCall) : matching),
+    [matching, clientsOnly]
+  );
+  const clientCalls = useMemo(() => matching.filter(isClientCall).length, [matching]);
   const days = groupDays(filtered, at);
   const filtering = needle !== "" || scope !== "" || clientsOnly;
   const deviceLabel = scope !== "" ? (machineName(props.devices, scope) ?? scope) : "";
@@ -772,38 +785,56 @@ export function ActivityTimeline(props: {
       )}
       {filterable && (
         <div className="timeline-filters">
-          <div className="chips timeline-machines" role="group" aria-label="Filter by machine">
-            <button
-              type="button"
-              className="chip"
-              aria-pressed={device === ""}
-              onClick={() => setDevice("")}
-            >
-              All machines
-            </button>
-            {machines.map((machine) => (
+          <div className="filter-block">
+            <span className="filter-label" id="timeline-machines-label">
+              Machines
+            </span>
+            <div className="chips timeline-machines" role="group" aria-label="Filter by machine">
               <button
-                key={machine.id}
                 type="button"
-                className={machine.known ? "chip" : "chip is-old"}
-                title={machine.title}
-                aria-pressed={scope === machine.id}
-                onClick={() => setDevice(machine.id)}
+                className="chip"
+                aria-pressed={device === ""}
+                onClick={() => setDevice("")}
               >
-                {machine.name}
+                All machines
               </button>
-            ))}
+              {machines.map((machine) => (
+                <button
+                  key={machine.id}
+                  type="button"
+                  className={machine.known ? "chip" : "chip is-old"}
+                  title={machine.title}
+                  aria-pressed={scope === machine.id}
+                  onClick={() => setDevice(machine.id)}
+                >
+                  {machine.name}
+                </button>
+              ))}
+            </div>
           </div>
-          <div className="chips timeline-callers">
-            <button
-              type="button"
-              className="chip"
-              aria-pressed={clientsOnly}
-              title="Only calls a client made: the caller says so, or the row carries a token"
-              onClick={() => setClientsOnly(!clientsOnly)}
+          <div className="filter-block filter-block-callers">
+            <span className="filter-label" id="timeline-callers-label">
+              Callers
+            </span>
+            <div
+              className="chips timeline-callers"
+              role="group"
+              aria-labelledby="timeline-callers-label"
             >
-              Clients only · {clientCalls}
-            </button>
+              <button
+                type="button"
+                className="chip"
+                aria-pressed={clientsOnly}
+                aria-describedby="timeline-clients-window"
+                title="Only calls a client made: the caller says so, or the row carries a token"
+                onClick={() => setClientsOnly(!clientsOnly)}
+              >
+                Clients only
+              </button>
+              <span className="filter-count" id="timeline-clients-window">
+                {clientCalls} {clientCalls === 1 ? "row" : "rows"} in this window
+              </span>
+            </div>
           </div>
           <label className="audit-field timeline-search">
             <span>Search activity</span>
@@ -821,24 +852,6 @@ export function ActivityTimeline(props: {
           {windowLoadingSentence(props.loadingMachine ?? null)}
         </p>
       )}
-      {!props.loading && (props.windowSentence != null || props.capped || props.atLimit) && (
-        // The fetched window and the live lines can add up to more than the console's cap. Dropping
-        // the oldest is right; doing it silently would hide rows. The sentence names the window only:
-        // the cut rows can be yesterday's, so "of today" would be false on a list that spans days.
-        // A full request that dropped nothing is the other fact: the same helper says the window
-        // hit its limit without pretending to know what is behind it. The hub passes its own
-        // sentence because its fold and chips draw a different set from the one capSentence counts.
-        <p className="hint timeline-capped">
-          {props.windowSentence ??
-            capSentence(
-              ACTIVITY_LIMIT,
-              props.cappedMachine ?? null,
-              props.capped ? "capped" : "at-limit",
-              props.windowCounts ?? null
-            )}
-        </p>
-      )}
-      {!props.loading && <AuditSourceLine source={props.source} />}
       {!props.loading && (days.length === 0 ? (
         props.unread ? null : filtering ? (
           // A filter that hides every row is not "nothing happened": the page names what narrowed
@@ -940,6 +953,29 @@ export function ActivityTimeline(props: {
           })}
         </div>
       ))}
+      {/* The technical hints are the record's footer, not its preface: what was drawn and what was
+          read are facts to consult after the day, not a banner above it. They stay quiet and last. */}
+      {!props.loading && (
+        <footer className="timeline-footer">
+          {(props.windowSentence != null || props.capped || props.atLimit) && (
+            // The fetched window and the live lines can add up to more than the console's cap.
+            // Dropping the oldest is right; doing it silently would hide rows. The sentence names
+            // the window only: the cut rows can be yesterday's, so "of today" would be false on a
+            // list that spans days. A full request that dropped nothing is the other fact: the same
+            // helper says the window hit its limit without pretending to know what is behind it.
+            <p className="hint timeline-capped">
+              {props.windowSentence ??
+                capSentence(
+                  ACTIVITY_LIMIT,
+                  props.cappedMachine ?? null,
+                  props.capped ? "capped" : "at-limit",
+                  props.windowCounts ?? null
+                )}
+            </p>
+          )}
+          <AuditSourceLine source={props.source} />
+        </footer>
+      )}
     </div>
   );
 }

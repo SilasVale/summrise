@@ -363,7 +363,10 @@ describe("DeviceCard — one row on the fleet", () => {
     expect(name?.closest("td")?.className).toBe("fleet-machine");
     expect(name?.closest(".fleet-status")).toBeNull();
     expect(status?.closest("td")?.className).toBe("fleet-status");
-    expect(status).toHaveTextContent("online · seen 15s ago");
+    // The fixture is 15 s old, but a loaded full suite can spend the half-second that rounds it to
+    // 16 s between building the fixture and rendering it. Both are the same fact; the exact second
+    // is not this test's subject.
+    expect(status).toHaveTextContent(/online · seen 1[56]s ago/);
   });
 
   it("draws no channel line when the journal names none and the launcher does", () => {

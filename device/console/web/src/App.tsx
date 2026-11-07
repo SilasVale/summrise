@@ -229,8 +229,9 @@ export function App() {
   const [activityView, setActivityView] = useState<"stream" | "table">(
     linkedRange ? "table" : "stream"
   );
-  // The "Clients only" chip belongs to the page, not only to the timeline: the header must state
-  // the same subset the rows show, and the choice survives a switch to the table and back.
+  // The "Clients only" control belongs to the page, not only to the timeline: the choice survives a
+  // switch to the table and back. The header stays the day's sentence; the control counts its own
+  // fetched window and says so, so the page never makes a second `client calls` claim.
   const [activityClientsOnly, setActivityClientsOnly] = useState(false);
   // The filters live above both views: the timeline's search is the table's tool field and its
   // machine chip is the table's device filter, so switching views cannot drop either of them.
@@ -501,10 +502,7 @@ export function App() {
       : null;
   const activityCount =
     shownDay !== null && !auditReadingOther
-      ? activityDaySentence(
-          shownDay.day,
-          activityView === "stream" && activityClientsOnly
-        )
+      ? activityDaySentence(shownDay.day)
       : null;
   /**
    * Whether a successful window for the current scope is in hand. The day answer and the rows
@@ -1234,7 +1232,7 @@ export function App() {
         )}
 
         {page === "activity" && (
-          <div className="page">
+          <div className="page activity-page">
             <header className="page-head">
               <div>
                 <h1>Activity</h1>
@@ -1248,7 +1246,7 @@ export function App() {
                 {activityCount !== null && activityRange === null && (
                   <p className="page-sub activity-today">{activityCount}</p>
                 )}
-                <p className="page-sub">
+                <p className="page-sub activity-status">
                   {live.lagged > 0
                     ? `${live.lagged} lines were dropped while this tab was behind; rereading`
                     : activityPaused
@@ -1305,7 +1303,7 @@ export function App() {
                 </button>
               </div>
             )}
-            <section className="panel">
+            <section className={activityView === "stream" ? "panel activity-panel is-record" : "panel activity-panel"}>
               <div className="stream-bar">
                 <div className="seg stream-views" role="tablist" aria-label="Activity view">
                   <button

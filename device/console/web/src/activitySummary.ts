@@ -149,40 +149,45 @@ export function activityCounts(lines: readonly AuditLine[], now = Date.now()): A
 }
 
 /**
- * The header's one sentence.
+ * The header's one readable sentence.
  *
  * It leads with the AI's calls and the AI's failures, so the number beside "client calls" is the
- * hub's number and not every caller's. The console's own failures follow as their own clause,
- * because they used to be folded into that first number (15 of the measured 55). The unattributed
- * bucket is a count of rows, and the failures among them are stated in a parenthetical only when
- * there are any — otherwise the line would suggest the unknown rows were all successful.
+ * day's number and not every caller's. The console's own failures follow as their own clause,
+ * because they used to be folded into that first number (15 of the measured 55). A failed poll and
+ * the unattributed rows are named after it, each only when its count is not zero: a zero is not a
+ * fact the operator needs, and printing one made the old five-counter line read as a dashboard.
  *
- * With `clientOnly` (the "Clients only" chip) the sentence is the hub's own shape: the client call
- * count and the client failure count, and nothing the chip has hidden from the list.
+ * The noun phrase `client calls` appears once, with the day as its only window. The fetched
+ * window's client count belongs to the "Clients only" filter, whose label names its own window;
+ * it must never be written beside this noun as a second claim about it (nineteenth item 5).
+ *
+ * The punctuation is the sentence's shape: a comma for the failures, one em dash for the
+ * consequences, and semicolons between buckets. `from the console` keeps the console's failures
+ * out of the number beside "client calls" without needing a second "failures" noun.
  */
-export function activityCountSentence(counts: ActivityCounts, clientOnly = false): string {
+function activitySentenceBody(counts: ActivityCounts): string {
   const calls = counts.client === 1 ? "client call" : "client calls";
-  const ai = `Today ${counts.client} ${calls} · ${counts.clientFailed} failed`;
-  if (clientOnly) return ai;
-  const consoleClause =
-    counts.consoleFailed === 0
-      ? ""
-      : ` · ${counts.consoleFailed} console ${
-          counts.consoleFailed === 1 ? "failure" : "failures"
-        }`;
-  // The measured day's 41 reconnect-window failures were a sleeping machine's retries and read as
-  // the AI's. They are named after the console's failures, and the clause is absent when zero.
-  const pollClause =
-    counts.pollFailed === 0
-      ? ""
-      : ` · ${counts.pollFailed} poll ${
-          counts.pollFailed === 1 ? "failure" : "failures"
-        }`;
-  const unknownClause =
-    counts.unattributedFailed === 0
-      ? `${counts.unattributed} unattributed`
-      : `${counts.unattributed} unattributed (${counts.unattributedFailed} failed)`;
-  return `${ai}${consoleClause}${pollClause} · ${unknownClause}`;
+  let sentence = `Today: ${counts.client} ${calls}`;
+  if (counts.clientFailed > 0) sentence += `, ${counts.clientFailed} failed`;
+  const clauses: string[] = [];
+  if (counts.consoleFailed > 0) clauses.push(`${counts.consoleFailed} from the console`);
+  if (counts.pollFailed > 0) {
+    clauses.push(
+      `${counts.pollFailed} poll ${counts.pollFailed === 1 ? "failure" : "failures"}`
+    );
+  }
+  if (counts.unattributed > 0) {
+    const failed =
+      counts.unattributedFailed > 0 ? ` (${counts.unattributedFailed} failed)` : "";
+    clauses.push(`${counts.unattributed} unattributed${failed}`);
+  }
+  if (clauses.length > 0) sentence += ` — ${clauses.join("; ")}`;
+  return sentence;
+}
+
+/** The header's sentence, from counts the page already has. */
+export function activityCountSentence(counts: ActivityCounts): string {
+  return `${activitySentenceBody(counts)}.`;
 }
 
 /**
@@ -193,7 +198,7 @@ export function activityCountSentence(counts: ActivityCounts, clientOnly = false
  * forward. This sentence takes `/audit/day`'s counts (the hub's rule and the fleet's `today`), and
  * appends `since` when the file starts after midnight instead of calling a partial day whole.
  */
-export function activityDaySentence(day: AuditDay, clientOnly = false): string {
+export function activityDaySentence(day: AuditDay): string {
   const counts: ActivityCounts = {
     client: day.client_calls,
     clientFailed: day.failed,
@@ -204,14 +209,10 @@ export function activityDaySentence(day: AuditDay, clientOnly = false): string {
     unattributed: day.unattributed,
     unattributedFailed: day.unattributed_failed
   };
-  return activityCountSentence(counts, clientOnly) + coverageClause(day);
+  return `${activitySentenceBody(counts)}${coverageClause(day)}.`;
 }
 
-/** The sentence from a window and the moment it is read; `clientOnly` mirrors the chip. */
-export function activityCountLine(
-  lines: readonly AuditLine[],
-  now = Date.now(),
-  clientOnly = false
-): string {
-  return activityCountSentence(activityCounts(lines, now), clientOnly);
+/** The sentence from a window and the moment it is read. */
+export function activityCountLine(lines: readonly AuditLine[], now = Date.now()): string {
+  return activityCountSentence(activityCounts(lines, now));
 }

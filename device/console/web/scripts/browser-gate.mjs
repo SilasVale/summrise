@@ -1374,15 +1374,41 @@ try {
   await page.getByRole('button', { name: 'Activity' }).click();
   await page.getByRole('heading', { name: 'Activity' }).waitFor({ timeout: 10_000 });
 
-  // THE DAY'S COUNT, AND ONE CHIP TO SEE THE AI ALONE. Activity is the audit: every caller is drawn
-  // by default — all 77 rows — and the hub's console-reads chip must not appear here. Its own
-  // "Clients only" chip is the way to narrow, and the header then states the subset it drew.
-  const expectedCount = `Today ${TODAY_CLIENT} client ${
+  // THE DAY'S SENTENCE, AND ONE CONTROL TO SEE THE AI ALONE. Activity is the audit: every caller is
+  // drawn by default — all 77 rows — and the hub's console-reads chip must not appear here. Its own
+  // "Clients only" control is the way to narrow. The sentence is the day's and keeps its one
+  // `client calls` noun; the control's count names its own fetched window.
+  const expectedCount = `Today: ${TODAY_CLIENT} client ${
     TODAY_CLIENT === 1 ? 'call' : 'calls'
-  } · 0 failed · 0 unattributed`;
+  }.`;
   const countText = (await page.locator('.activity-today').textContent())?.trim();
   if (countText !== expectedCount) {
     throw new Error(`the Activity header stated "${countText}", expected "${expectedCount}"`);
+  }
+  if ((countText.match(/client calls?/g) ?? []).length !== 1) {
+    throw new Error(`the Activity header did not keep one client-calls noun: "${countText}"`);
+  }
+  const filterLabels = await page.evaluate(() => ({
+    machines: document.querySelector('#timeline-machines-label')?.textContent?.trim() ?? '',
+    callers: document.querySelector('#timeline-callers-label')?.textContent?.trim() ?? '',
+    callersText: document.querySelector('.timeline-callers')?.textContent?.trim() ?? ''
+  }));
+  if (filterLabels.machines !== 'Machines' || filterLabels.callers !== 'Callers') {
+    throw new Error(
+      `the Activity filters are not labelled: ${JSON.stringify(filterLabels)}`
+    );
+  }
+  if (/client calls/i.test(filterLabels.callersText)) {
+    throw new Error(
+      `the Clients only control repeated the day's noun: "${filterLabels.callersText}"`
+    );
+  }
+  const filterCount = page.locator('#timeline-clients-window');
+  const filterCountText = (await filterCount.textContent())?.trim() ?? '';
+  if (filterCountText !== `${ALL_CLIENT} rows in this window`) {
+    throw new Error(
+      `the Clients only control counted "${filterCountText}", expected "${ALL_CLIENT} rows in this window"`
+    );
   }
   // THE SOURCE LINE, ONCE, BESIDE THE WINDOW SENTENCE. It says what is read, not what is drawn:
   // the file's size must be the server's, and a rotation the page was told about must be stated.
@@ -1409,9 +1435,12 @@ try {
   if ((await page.locator('.timeline-console-reads').count()) !== 0) {
     throw new Error('Activity drew the hub\'s console-reads chip');
   }
-  const clientsChip = page.getByRole('button', { name: `Clients only · ${ALL_CLIENT}` });
+  const clientsChip = page.getByRole('button', { name: 'Clients only' });
   if ((await clientsChip.getAttribute('aria-pressed')) !== 'false') {
-    throw new Error('the Clients only chip was pressed before it was chosen');
+    throw new Error('the Clients only control was pressed before it was chosen');
+  }
+  if ((await clientsChip.getAttribute('aria-describedby')) !== 'timeline-clients-window') {
+    throw new Error('the Clients only control does not point at its window count');
   }
   await clientsChip.click();
   await page.waitForFunction(
@@ -1422,15 +1451,20 @@ try {
   if ((await clientsChip.getAttribute('aria-pressed')) !== 'true') {
     throw new Error('the Clients only chip did not report its pressed state');
   }
-  // THE HEADER FOLLOWS THE CHIP. The chip hides the console's and the unknown rows, so the count
-  // beside it must be the client subset the list draws — not the whole window's sentence over two
-  // rows. This is the item's contract in the browser, not only in jsdom.
+  // THE HEADER DOES NOT FOLLOW THE CONTROL. It is the day's sentence; the control's own count is
+  // the fetched window's subset, labelled as such. A second `client calls` number here is the
+  // nineteenth item's defect, so the sentence must be unchanged while the rows narrow.
   const narrowedCount = (await page.locator('.activity-today').textContent())?.trim();
-  const expectedNarrowed = `Today ${TODAY_CLIENT} client ${
-    TODAY_CLIENT === 1 ? 'call' : 'calls'
-  } · 0 failed`;
-  if (narrowedCount !== expectedNarrowed) {
-    throw new Error(`the chip-on header stated "${narrowedCount}", expected "${expectedNarrowed}"`);
+  if (narrowedCount !== expectedCount) {
+    throw new Error(
+      `the Clients only control changed the day's sentence to "${narrowedCount}"`
+    );
+  }
+  const narrowedCountLabel = (await filterCount.textContent())?.trim() ?? '';
+  if (narrowedCountLabel !== `${ALL_CLIENT} rows in this window`) {
+    throw new Error(
+      `the Clients only control lost its window count while pressed: "${narrowedCountLabel}"`
+    );
   }
   const narrowed = (await page.locator('.timeline-row').first().textContent()) ?? '';
   if (!narrowed.includes(FIRST_CLIENT.tool)) {
@@ -1442,6 +1476,102 @@ try {
     allActivityRows,
     { timeout: 10_000 }
   );
+  // THE RECORD'S SHAPE, MEASURED. The day is a heading, the verb is 15–16 px, the machine and age
+  // are on a second line, and the technical hints are the footer after the timeline. The page is
+  // not Home's card: no installer, no verdict block.
+  const activityDesign = await page.evaluate(() => {
+    const sentence = document.querySelector('.activity-today');
+    const day = document.querySelector('.timeline-day-label');
+    const verb = document.querySelector('.timeline-sentence');
+    const row = document.querySelector('.timeline-row');
+    const timeline = document.querySelector('.timeline');
+    const footer = document.querySelector('.timeline-footer');
+    const facts = document.querySelector('.timeline-facts');
+    const age = document.querySelector('.timeline-age');
+    const machine = document.querySelector('.timeline-machine');
+    const box = (el) => (el ? el.getBoundingClientRect() : null);
+    const size = (el) => (el ? parseFloat(getComputedStyle(el).fontSize) : 0);
+    return {
+      sentence: size(sentence),
+      day: size(day),
+      verb: size(verb),
+      rowHeight: box(row)?.height ?? 0,
+      ageSize: size(age),
+      ageDisplay: age ? getComputedStyle(age).display : '',
+      machineAgeOnSecondLine:
+        Boolean(facts) &&
+        Boolean(age) &&
+        Boolean(machine) &&
+        (box(age)?.top ?? 0) > (box(verb)?.top ?? 0),
+      footerAfterTimeline:
+        Boolean(timeline) &&
+        Boolean(footer) &&
+        Boolean(timeline.compareDocumentPosition(footer) & Node.DOCUMENT_POSITION_FOLLOWING),
+      footerText: footer?.textContent?.trim() ?? '',
+      installer: document.querySelectorAll('.installer').length,
+      verdict: document.querySelectorAll('.home-verdict, .attention').length
+    };
+  });
+  if (activityDesign.sentence < 18) {
+    throw new Error(`the day's sentence is ${activityDesign.sentence}px, not a readable 18px`);
+  }
+  if (activityDesign.day < 18) {
+    throw new Error(`the day heading is ${activityDesign.day}px, not a heading`);
+  }
+  if (activityDesign.verb < 15 || activityDesign.verb > 16) {
+    throw new Error(`the row's verb is ${activityDesign.verb}px, not 15–16px`);
+  }
+  if (activityDesign.rowHeight < 60) {
+    throw new Error(`the row is ${activityDesign.rowHeight}px tall, not a record row`);
+  }
+  if (!activityDesign.machineAgeOnSecondLine) {
+    throw new Error('the machine and age are not on the row\'s second line');
+  }
+  if (!activityDesign.footerAfterTimeline) {
+    throw new Error('the window/source hints are not after the timeline');
+  }
+  if (!activityDesign.footerText.includes('Reading audit.jsonl')) {
+    throw new Error(`the footer does not carry the source line: "${activityDesign.footerText}"`);
+  }
+  if (activityDesign.installer !== 0 || activityDesign.verdict !== 0) {
+    throw new Error(
+      `Activity drew Home's block: ${activityDesign.installer} installer(s), ${activityDesign.verdict} verdict(s)`
+    );
+  }
+  step(
+    `Activity's sentence is ${activityDesign.sentence}px, its day ${activityDesign.day}px, ` +
+      `its verbs ${activityDesign.verb}px, its rows ${Math.round(activityDesign.rowHeight)}px; ` +
+      `the hints are below the timeline and Home's block is absent`
+  );
+
+  // The phone keeps the record: no sideways scroll, the age still on the second line, the verb at
+  // the same 15 px.
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.waitForTimeout(300);
+  const activity390 = await page.evaluate(() => ({
+    viewport: document.documentElement.clientWidth,
+    scrollWidth: document.documentElement.scrollWidth,
+    verb: parseFloat(getComputedStyle(document.querySelector('.timeline-sentence')).fontSize),
+    age: getComputedStyle(document.querySelector('.timeline-age')).display
+  }));
+  if (activity390.scrollWidth > activity390.viewport) {
+    throw new Error(
+      `Activity at 390 scrolls sideways: ${activity390.viewport}/${activity390.scrollWidth}`
+    );
+  }
+  if (activity390.verb < 15) {
+    throw new Error(`Activity at 390 dropped its verb to ${activity390.verb}px`);
+  }
+  if (activity390.age === 'none') {
+    throw new Error('Activity at 390 hid the age from the second line');
+  }
+  await page.setViewportSize({ width: 1440, height: 960 });
+  await page.waitForTimeout(300);
+  step(
+    `Activity at 390 has no sideways scroll (${activity390.viewport}/${activity390.scrollWidth}), ` +
+      `keeps the 15px verb and the age`
+  );
+
   step(
     `the header counted ${TODAY_CLIENT} client calls, Activity kept all ${allActivityRows} rows ` +
       `and Clients only narrowed them to ${ALL_CLIENT}`

@@ -547,30 +547,42 @@ describe("App", () => {
     await bootAndSignIn();
     fireEvent.click(screen.getByRole("button", { name: "Activity" }));
 
-    expect(
-      await screen.findByText(
-        "Today 2 client calls · 1 failed · 1 console failure · 2 unattributed (1 failed)"
-      )
-    ).toBeInTheDocument();
+    const sentence =
+      "Today: 2 client calls, 1 failed — 1 from the console; 2 unattributed (1 failed).";
+    expect(await screen.findByText(sentence)).toBeInTheDocument();
 
     // Activity is the audit: every caller is drawn by default, and the hub's console-reads fold is
-    // not offered here — its Clients only chip is the way to narrow, and only when chosen.
+    // not offered here — its Clients only control is the way to narrow, and only when chosen.
     await waitFor(() => expect(document.querySelectorAll(".timeline-row")).toHaveLength(6));
     expect(screen.queryByRole("button", { name: /^Console reads ·/ })).toBeNull();
-    expect(screen.getByRole("button", { name: "Clients only · 2" })).toHaveAttribute(
+    expect(screen.getByRole("button", { name: "Clients only" })).toHaveAttribute(
       "aria-pressed",
       "false"
     );
+    expect(screen.getByText("2 rows in this window")).toBeInTheDocument();
 
-    // The chip draws the client subset; the header then reads the same subset the rows show — the
-    // hub's sentence, with no console failure and no unknown caller in it.
-    fireEvent.click(screen.getByRole("button", { name: "Clients only · 2" }));
-    expect(await screen.findByText("Today 2 client calls · 1 failed")).toBeInTheDocument();
+    // The control draws the client subset; the header stays the day's sentence. Its own count says
+    // which window it counts, so the page never states a second `client calls` number for the same
+    // noun (nineteenth item 5).
+    fireEvent.click(screen.getByRole("button", { name: "Clients only" }));
+    expect(screen.getByText(sentence)).toBeInTheDocument();
     await waitFor(() => expect(document.querySelectorAll(".timeline-row")).toHaveLength(2));
     expect(screen.getByText("Read a file")).toBeInTheDocument();
     expect(screen.getByText("Ran a command")).toBeInTheDocument();
     expect(screen.queryByText("Listed the terminal sessions")).toBeNull();
     expect(screen.queryByText("Moved a file")).toBeNull();
+  });
+
+  it("draws no installer and no verdict block on Activity", async () => {
+    // Home owns the installer and the fleet verdict. Activity is the record: a page that grew
+    // either would be a second Home, which is the shape the operator asked us to separate.
+    await bootAndSignIn();
+    fireEvent.click(screen.getByRole("button", { name: "Activity" }));
+    await screen.findByRole("heading", { name: "Activity", level: 1 });
+    expect(document.querySelector(".installer")).toBeNull();
+    expect(document.querySelector(".home-verdict")).toBeNull();
+    expect(document.querySelector(".attention")).toBeNull();
+    expect(screen.queryByText(/Download Windows installer/)).toBeNull();
   });
 
   it("counts the day from the file, not the newest window on the page", async () => {
@@ -604,9 +616,7 @@ describe("App", () => {
     await bootAndSignIn();
     fireEvent.click(screen.getByRole("button", { name: "Activity" }));
 
-    expect(
-      await screen.findByText("Today 10 client calls · 1 failed · 0 unattributed")
-    ).toBeInTheDocument();
+    expect(await screen.findByText("Today: 10 client calls, 1 failed.")).toBeInTheDocument();
     // The window still holds three rows; the header's ten is the day, and the cap sentence (absent
     // here because the window is not cut) remains the only place a window count is named.
     await waitFor(() => expect(document.querySelectorAll(".timeline-row")).toHaveLength(3));
@@ -630,7 +640,7 @@ describe("App", () => {
     fireEvent.click(screen.getByRole("button", { name: "Activity" }));
 
     expect(
-      await screen.findByText("Today 649 client calls · 74 failed · 2 console failures · 0 unattributed")
+      await screen.findByText("Today: 649 client calls, 74 failed — 2 from the console.")
     ).toBeInTheDocument();
     expect(
       screen.getByText(
@@ -658,9 +668,7 @@ describe("App", () => {
     fireEvent.click(screen.getByRole("button", { name: "Activity" }));
 
     expect(
-      await screen.findByText(
-        "Today 10 client calls · 1 failed · 0 unattributed · since 03:12"
-      )
+      await screen.findByText("Today: 10 client calls, 1 failed · since 03:12.")
     ).toBeInTheDocument();
   });
 
@@ -885,7 +893,7 @@ describe("App", () => {
 
     expect(
       await screen.findByText(
-        "Today 3 client calls · 3 failed · 2 console failures · 41 poll failures · 0 unattributed"
+        "Today: 3 client calls, 3 failed — 2 from the console; 41 poll failures."
       )
     ).toBeInTheDocument();
 

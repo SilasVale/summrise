@@ -792,8 +792,9 @@ describe("ActivityTimeline", () => {
       />
     );
 
-    const chip = screen.getByRole("button", { name: "Clients only · 2" });
+    const chip = screen.getByRole("button", { name: "Clients only" });
     expect(chip).toHaveAttribute("aria-pressed", "false");
+    expect(chip).toHaveAccessibleDescription("2 rows in this window");
     // Unpressed the whole record is drawn: two of these rows are not the AI's calls.
     expect(document.querySelectorAll(".timeline-row")).toHaveLength(4);
 
@@ -1027,5 +1028,75 @@ describe("ActivityTimeline", () => {
   it("names the fleet when the window being read is the fleet's", () => {
     render(<ActivityTimeline lines={[fromAlpha]} devices={devices} loading />);
     expect(screen.getByText("Reading the fleet's window…")).toBeInTheDocument();
+  });
+});
+
+describe("ActivityTimeline's labelled filter and record footer", () => {
+  const clientAlpha = line({
+    ts_ms: Date.UTC(2026, 10, 5, 9, 0, 0),
+    device_id: alpha,
+    sentence: "Read notes.txt",
+    tool: "files.read",
+    caller: "client"
+  });
+  const clientBeta = line({
+    ts_ms: Date.UTC(2026, 10, 5, 9, 1, 0),
+    device_id: beta,
+    sentence: "Ran a command",
+    tool: "runs.exec",
+    caller: "client"
+  });
+
+  it("labels the machine chips and the caller control, and counts the filter's own window", () => {
+    // The filter's count is the rows it would draw from the fetched window, not the day's
+    // `client calls` number. The noun phrase on the page's header stays the only one with a window.
+    render(<ActivityTimeline lines={[clientAlpha, clientBeta]} devices={devices} />);
+
+    expect(screen.getByText("Machines")).toBeInTheDocument();
+    expect(screen.getByText("Callers")).toBeInTheDocument();
+    const machines = screen.getByRole("group", { name: "Filter by machine" });
+    expect(within(machines).getByRole("button", { name: "Alpha" })).toBeInTheDocument();
+    expect(within(machines).getByRole("button", { name: "All machines" })).toBeInTheDocument();
+
+    const chip = screen.getByRole("button", { name: "Clients only" });
+    expect(chip).toHaveTextContent(/^Clients only$/);
+    expect(chip).not.toHaveTextContent(/client calls/i);
+    expect(chip).toHaveAccessibleDescription("2 rows in this window");
+
+    // The count follows the machine filter: it is the subset the control would draw from this
+    // machine's window, not the whole fetched window's number.
+    fireEvent.click(within(machines).getByRole("button", { name: "Beta" }));
+    expect(screen.getByRole("button", { name: "Clients only" })).toHaveAccessibleDescription(
+      "1 row in this window"
+    );
+  });
+
+  it("puts the window and source hints after the timeline, not above it", () => {
+    // The measured page put two gray technical lines between the filters and the day. The record
+    // now ends with them: a reader meets the day first, and consults what was drawn/read after it.
+    const source: AuditSource = {
+      file: "audit.jsonl",
+      bytes: 5_872_026,
+      oldest_ts_ms: Date.UTC(2026, 9, 22, 10, 55),
+      newest_ts_ms: Date.UTC(2026, 10, 5, 9, 0),
+      max_bytes: 8_388_608,
+      rotations: 0
+    };
+    render(<ActivityTimeline lines={[clientAlpha]} devices={devices} atLimit source={source} />);
+
+    const timeline = document.querySelector<HTMLElement>(".timeline");
+    const footer = document.querySelector<HTMLElement>(".timeline-footer");
+    expect(timeline).not.toBeNull();
+    expect(footer).not.toBeNull();
+    expect(
+      (timeline as HTMLElement).compareDocumentPosition(footer as HTMLElement) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+    expect(timeline?.querySelector(".timeline-capped")).toBeNull();
+    expect(timeline?.querySelector(".audit-source")).toBeNull();
+    expect(footer?.querySelector(".timeline-capped")).toHaveTextContent(
+      "Showing the newest 1000 lines — the window's limit."
+    );
+    expect(footer?.querySelector(".audit-source")).toHaveTextContent(/^Reading audit\.jsonl/);
   });
 });

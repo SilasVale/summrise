@@ -2793,6 +2793,25 @@ main::-webkit-scrollbar-track, .sheet-body::-webkit-scrollbar-track, .scroll::-w
 
 /* ── The activity's two readings: the timeline, and the audit as rows ───────────────────────────── */
 
+/* ── Activity is the record, not Home's dashboard ─────────────────────────────────────────────
+   The day is the page: one readable sentence at the top, then an open record on the canvas. The
+   white card belongs to Home's fleet table; Activity drops it so the two pages cannot read as the
+   same shape at a glance. */
+.activity-page { gap: 16px; }
+.activity-page .page-head h1 { font-size: 26px; }
+.activity-today {
+  margin: 8px 0 0; max-width: 80ch;
+  font-size: 18px; line-height: 1.45; font-weight: var(--fw-medium);
+  color: var(--ink); font-variant-numeric: tabular-nums; text-wrap: pretty;
+}
+.activity-status { margin-top: 4px; font-size: var(--fs-sm); color: var(--ink-muted); }
+.activity-panel.is-record {
+  background: transparent; border: 0; border-radius: 0; box-shadow: none; padding: 0;
+}
+.activity-panel.is-record .stream-bar {
+  margin: 0 0 14px; padding-top: 14px; border-top: 1px solid var(--line);
+}
+
 .stream-bar { display: flex; align-items: center; gap: var(--sp-2); margin: 0 0 var(--sp-3); }
 .stream-views { width: 160px; }
 .stream-note { margin: 0; }
@@ -2800,14 +2819,22 @@ main::-webkit-scrollbar-track, .sheet-body::-webkit-scrollbar-track, .scroll::-w
 /* The timeline filters with what a row actually carries: the machine that wrote it, and one search
    over the sentence, tool, machine and detail. The table's column filters stay with the table. */
 .timeline-filters {
-  display: flex; align-items: flex-end; flex-wrap: wrap; gap: var(--sp-3);
-  margin: 0 0 var(--sp-3); padding-bottom: var(--sp-3);
-  border-bottom: 1px solid var(--hairline);
+  display: flex; align-items: flex-end; flex-wrap: wrap; gap: 14px 24px;
+  margin: 0 0 18px; padding-bottom: 14px;
+  border-bottom: 1px solid var(--line);
 }
+.filter-block { display: grid; gap: 6px; min-width: 0; }
+.filter-label {
+  font-size: var(--fs-2xs); font-weight: var(--fw-semi);
+  text-transform: uppercase; letter-spacing: var(--tracking-label);
+  color: var(--ink-muted);
+}
+.filter-block-callers { align-items: start; }
+.filter-count { align-self: center; font-size: var(--fs-sm); color: var(--ink-faint); white-space: nowrap; }
 .timeline-machines { align-items: center; flex: 0 1 auto; }
 .timeline-machines .chip { border: 0; cursor: pointer; }
 .timeline-machines .chip[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); }
-/* One caller chip beside the machine chips: the AI's calls, not a second filter row. */
+/* One caller control beside the machine chips: the AI's calls, with its own window count. */
 .timeline-callers { align-items: center; }
 .timeline-callers .chip { border: 0; cursor: pointer; }
 .timeline-callers .chip[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); }
@@ -2819,6 +2846,11 @@ main::-webkit-scrollbar-track, .sheet-body::-webkit-scrollbar-track, .scroll::-w
 .timeline-search { margin-left: auto; }
 .timeline-search input { width: 18rem; max-width: 100%; }
 @media (max-width: 639px) {
+  .activity-page .page-head h1 { font-size: 24px; }
+  .activity-today { font-size: 16px; }
+  .activity-panel.is-record .stream-bar { padding-top: 12px; }
+  .timeline-filters { gap: 12px; }
+  .filter-block { width: 100%; }
   .timeline-search { margin-left: 0; width: 100%; }
   .timeline-search input { width: 100%; }
 }
@@ -2826,67 +2858,70 @@ main::-webkit-scrollbar-track, .sheet-body::-webkit-scrollbar-track, .scroll::-w
 /* ── The timeline: time on the left, one dot per action, one sentence each ─────────────────────────
    Outside: one line per action. Click: the evidence for that one call. */
 
-.timeline { display: grid; gap: var(--sp-4); }
+.timeline { display: grid; gap: 30px; }
 .timeline-capped { margin: 0 0 var(--sp-3); }
 /* The cap sentence's companion: what was read, beside what was drawn. */
 .audit-source { margin: 0 0 var(--sp-3); }
 /* One line while a changed scope's window is read: no stale rows, no cap sentence about them. */
 .timeline-loading, .audit-loading { margin: var(--sp-3) 0; }
 .timeline-day-label {
-  margin: 0; padding: 0 0 var(--sp-2); font-size: var(--fs-xs); font-weight: var(--fw-semi);
-  color: var(--ink-faint); letter-spacing: 0.02em;
+  margin: 0; padding: 0 0 10px;
+  font-size: 20px; line-height: 1.2; font-weight: var(--fw-semi);
+  color: var(--ink); letter-spacing: var(--tracking-tight);
 }
 /* The timeline scrolls inside `main`, not with the page, so the day's name sticks to that
    container's top while its rows pass under it. The panel's surface is painted behind the label
    because rows would otherwise be visible through it. */
 .timeline-day-label.is-sticky {
   position: sticky; top: 0; z-index: 1;
-  background: var(--surface);
+  background: var(--canvas);
 }
 .timeline-rows { list-style: none; margin: 0; padding: 0; }
 .timeline-row { border-top: 1px solid var(--hairline); }
 .timeline-row:first-child { border-top: 0; }
-.timeline-row.is-stretch { border-top: 1px solid var(--hairline); margin-top: var(--sp-3); }
+.timeline-row.is-stretch { border-top: 1px solid var(--hairline); margin-top: 18px; }
 .timeline-line {
-  display: grid; grid-template-columns: 64px 18px minmax(0, 1fr) 14px;
-  gap: var(--sp-2); align-items: start; padding: 9px 0 9px 2px;
+  display: grid; grid-template-columns: 68px 20px minmax(0, 1fr) 18px;
+  gap: 12px; align-items: start; padding: 15px 8px 15px 2px; min-height: 64px;
   border-radius: 6px;
 }
 /* A row that opens is a real button, reset to the line so the grid and the type stay the page's. */
 button.timeline-line {
-  width: 100%; min-height: 0; text-align: left; background: none; border: 0;
-  font: inherit; padding: 9px 0 9px 2px; color: inherit; cursor: pointer;
+  width: 100%; min-height: 64px; text-align: left; background: none; border: 0;
+  font: inherit; padding: 15px 8px 15px 2px; color: inherit; cursor: pointer;
 }
 button.timeline-line:hover { background: var(--row-hover); }
 /* `--ring` is already a shadow; wrapping it in a second one drew the wrong box. */
 button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
 .timeline-time {
-  font-family: var(--mono); font-size: var(--fs-2xs); color: var(--ink-faint);
-  font-variant-numeric: tabular-nums; padding-top: 2px; white-space: nowrap;
+  font-family: var(--mono); font-size: var(--fs-xs); color: var(--ink-faint);
+  font-variant-numeric: tabular-nums; padding-top: 4px; white-space: nowrap;
 }
-.timeline-rail { position: relative; display: block; min-height: 24px; height: 100%; }
+.timeline-rail { position: relative; display: block; min-height: 34px; height: 100%; }
 .timeline-rail::before {
-  content: ""; position: absolute; left: 50%; top: -10px; bottom: -10px; width: 1px;
-  background: var(--hairline); transform: translateX(-50%);
+  content: ""; position: absolute; left: 50%; top: -16px; bottom: -16px; width: 2px;
+  background: var(--line-strong); transform: translateX(-50%);
 }
-.timeline-row:first-child .timeline-rail::before { top: 4px; }
-.timeline-rows > li:last-child .timeline-rail::before { bottom: auto; height: 13px; }
+.timeline-row:first-child .timeline-rail::before { top: 10px; }
+.timeline-rows > li:last-child .timeline-rail::before { bottom: auto; height: 19px; }
 .timeline-dot {
-  position: absolute; left: 50%; top: 5px; width: 7px; height: 7px; border-radius: 999px;
+  position: absolute; left: 50%; top: 7px; width: 9px; height: 9px; border-radius: 999px;
   background: var(--ok); transform: translateX(-50%);
-  box-shadow: 0 0 0 3px var(--panel);
+  box-shadow: 0 0 0 4px var(--canvas);
 }
 .timeline-dot[data-tone="bad"] { background: var(--error); }
 .timeline-dot[data-tone="warn"] { background: var(--warn); }
-.timeline-words { min-width: 0; display: grid; gap: 2px; }
+.timeline-words { min-width: 0; display: grid; gap: 5px; }
 .timeline-sentence {
-  font-size: var(--fs-sm); color: var(--ink);
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 15px; line-height: 1.4; font-weight: var(--fw-medium); color: var(--ink);
+  overflow: visible; text-overflow: clip; white-space: normal;
 }
-.timeline-facts { display: flex; align-items: baseline; gap: var(--sp-2); flex-wrap: wrap; }
+.timeline-facts { display: flex; align-items: baseline; gap: 7px; flex-wrap: wrap; }
 .timeline-machine, .timeline-ms, .timeline-age, .timeline-outcome {
-  font-size: var(--fs-2xs); color: var(--ink-faint);
+  font-size: var(--fs-sm); color: var(--ink-faint);
 }
+.timeline-machine { color: var(--ink-muted); font-weight: var(--fw-medium); }
+.timeline-sep { color: var(--ink-faint); }
 .timeline-outcome.is-bad { color: var(--error); }
 .timeline-outcome.is-warn { color: var(--warn); }
 /* The console's own reads are rows like any other; this quiet word is what tells them from the AI's
@@ -2912,8 +2947,13 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
    carries it), while the sentence, the machine and the outcome dot stay. The time column narrows
    to the minute it now draws, and never wraps onto a second line. */
 @media (max-width: 480px) {
-  .timeline-line { grid-template-columns: 40px 18px minmax(0, 1fr) 14px; }
-  .timeline-clock-seconds, .timeline-age { display: none; }
+  .timeline-line, button.timeline-line {
+    grid-template-columns: 44px 18px minmax(0, 1fr) 16px;
+    gap: 8px; padding: 14px 4px 14px 0; min-height: 60px;
+  }
+  .timeline-clock-seconds { display: none; }
+  /* The age stays: the second line is where a record says how old the call is. */
+  .timeline-age { display: inline; }
 }
 
 /* The evidence panel: what the call carried, and what it returned. */
@@ -2983,8 +3023,21 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
 .timeline-stretch.is-header::before { display: none; }
 .timeline-stretch.is-header .timeline-stretch-text { color: var(--ink-muted); }
 .timeline-stretch-text {
-  color: var(--ink-faint); font-size: var(--fs-2xs); letter-spacing: 0.02em; white-space: nowrap;
+  color: var(--ink-faint); font-size: var(--fs-xs); letter-spacing: 0.02em; white-space: nowrap;
 }
+
+/* The record's footer: what the window drew and what file it read. It sits below the day, quiet,
+   because it is a fact to consult after the record, not a banner over it. */
+.timeline-footer {
+  display: grid; gap: 4px;
+  margin-top: 30px; padding-top: 14px; border-top: 1px solid var(--line);
+}
+.timeline-footer .timeline-capped,
+.timeline-footer .audit-source {
+  margin: 0; max-width: 78ch;
+  color: var(--ink-faint); font-size: var(--fs-xs); line-height: 1.5;
+}
+.timeline-footer:empty { display: none; }
 
 /* ── Home: the verdict, what needs attention, the fleet table ───────────────────────────────────
    Home's shape is not Activity's. One large sentence answers "what needs me?", a block names the

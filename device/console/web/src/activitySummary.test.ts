@@ -157,7 +157,7 @@ describe("activityCounts", () => {
       unattributedFailed: 0
     });
     expect(activityCountSentence(counts)).toBe(
-      "Today 2 client calls · 1 failed · 1 console failure · 2 poll failures · 0 unattributed"
+      "Today: 2 client calls, 1 failed — 1 from the console; 2 poll failures."
     );
   });
 });
@@ -179,17 +179,34 @@ describe("activityCountSentence", () => {
     // not the AI's (15 console, 2 unattributed). The number after "client calls" is now the AI's
     // failures only, and the console's are named for what they are.
     expect(activityCountSentence(counts)).toBe(
-      "Today 301 client calls · 37 failed · 15 console failures · 21 unattributed (2 failed)"
+      "Today: 301 client calls, 37 failed — 15 from the console; 21 unattributed (2 failed)."
     );
   });
 
   it("names the console's failures apart, so the primary count cannot be read as every caller's", () => {
-    // The hub's own sentence is client-only ("301 client calls · 37 failed"); the extra clause is
+    // The hub's own sentence is client-only ("301 client calls, 37 failed"); the extra clause is
     // the console's, and it is not folded into the number beside the client calls.
     expect(activityCountSentence(counts)).not.toContain("55 failed");
     expect(activityCountSentence({ ...counts, consoleFailed: 0 })).toBe(
-      "Today 301 client calls · 37 failed · 21 unattributed (2 failed)"
+      "Today: 301 client calls, 37 failed — 21 unattributed (2 failed)."
     );
+  });
+
+  it("reads the operator's measured sentence when the other buckets are zero", () => {
+    // The brief's example: client calls, failed, console failures, and nothing else. A zero poll
+    // and zero unattributed rows must not become clauses; the sentence ends after the console.
+    expect(
+      activityCountSentence({
+        client: 495,
+        clientFailed: 29,
+        console: 627,
+        consoleFailed: 27,
+        poll: 20,
+        pollFailed: 0,
+        unattributed: 0,
+        unattributedFailed: 0
+      })
+    ).toBe("Today: 495 client calls, 29 failed — 27 from the console.");
   });
 
   it("reads the day header for the measured shape: three client failures, two console, 41 poll", () => {
@@ -208,40 +225,97 @@ describe("activityCountSentence", () => {
         unattributedFailed: 0
       })
     ).toBe(
-      "Today 3 client calls · 3 failed · 2 console failures · 41 poll failures · 0 unattributed"
+      "Today: 3 client calls, 3 failed — 2 from the console; 41 poll failures."
     );
   });
 
-  it("shows the client subset, and nothing the chip hides, when the chip is on", () => {
-    // "Clients only" draws the AI's rows; its header is then the hub's sentence: no console clause,
-    // no unattributed count, and the same failure number the visible rows carry.
-    expect(activityCountSentence(counts, true)).toBe("Today 301 client calls · 37 failed");
-    expect(activityCountSentence({ ...counts, clientFailed: 0 }, true)).toBe(
-      "Today 301 client calls · 0 failed"
-    );
-  });
-
-  it("says one client call, not one client calls", () => {
+  it("drops the zero clauses instead of printing a counter for them", () => {
+    // The old line always ended `0 unattributed` and always printed `0 failed`. A zero is not a
+    // fact the operator needs; the sentence keeps the day's work and the failures that exist.
     expect(
-      activityCountSentence(
-        {
-          client: 1,
-          clientFailed: 0,
-          console: 0,
-          consoleFailed: 0,
-          poll: 0,
-          pollFailed: 0,
-          unattributed: 0,
-          unattributedFailed: 0
-        }
-      )
-    ).toBe("Today 1 client call · 0 failed · 0 unattributed");
+      activityCountSentence({
+        client: 10,
+        clientFailed: 0,
+        console: 0,
+        consoleFailed: 0,
+        poll: 0,
+        pollFailed: 0,
+        unattributed: 0,
+        unattributedFailed: 0
+      })
+    ).toBe("Today: 10 client calls.");
+  });
+
+  it("omits the poll clause when no poll failed", () => {
+    const day = {
+      client: 495,
+      clientFailed: 29,
+      console: 627,
+      consoleFailed: 27,
+      poll: 20,
+      pollFailed: 0,
+      unattributed: 34,
+      unattributedFailed: 0
+    };
+    expect(activityCountSentence(day)).toBe(
+      "Today: 495 client calls, 29 failed — 27 from the console; 34 unattributed."
+    );
+    expect(activityCountSentence(day)).not.toMatch(/poll/i);
+  });
+
+  it("keeps every nonzero bucket in the measured day, and one `client calls` noun", () => {
+    // The measured ux97 day. The example sentence's core is the first three clauses; the failed
+    // poll and the unattributed rows are still numbers the page reads, so they stay in the same
+    // sentence. The noun phrase appears exactly once, with today as its only window.
+    const measured = {
+      client: 495,
+      clientFailed: 29,
+      console: 627,
+      consoleFailed: 27,
+      poll: 20,
+      pollFailed: 1,
+      unattributed: 34,
+      unattributedFailed: 0
+    };
+    const sentence = activityCountSentence(measured);
+    expect(sentence).toBe(
+      "Today: 495 client calls, 29 failed — 27 from the console; 1 poll failure; 34 unattributed."
+    );
+    expect(sentence.match(/client calls?/g)).toHaveLength(1);
+    expect(sentence.startsWith("Today: 495 client calls, 29 failed — 27 from the console")).toBe(
+      true
+    );
+  });
+
+  it("says one client call and one poll failure, not the plurals", () => {
+    expect(
+      activityCountSentence({
+        client: 1,
+        clientFailed: 0,
+        console: 0,
+        consoleFailed: 0,
+        poll: 0,
+        pollFailed: 0,
+        unattributed: 0,
+        unattributedFailed: 0
+      })
+    ).toBe("Today: 1 client call.");
+    expect(
+      activityCountSentence({
+        client: 2,
+        clientFailed: 1,
+        console: 0,
+        consoleFailed: 0,
+        poll: 0,
+        pollFailed: 1,
+        unattributed: 0,
+        unattributedFailed: 0
+      })
+    ).toBe("Today: 2 client calls, 1 failed — 1 poll failure.");
   });
 
   it("reads its sentence from the window and the clock", () => {
-    expect(activityCountLine([line({ caller: "client" })], NOW)).toBe(
-      "Today 1 client call · 0 failed · 0 unattributed"
-    );
+    expect(activityCountLine([line({ caller: "client" })], NOW)).toBe("Today: 1 client call.");
   });
 
   it("states the day's route counts, even when its window holds fewer", () => {
@@ -258,10 +332,15 @@ describe("activityCountSentence", () => {
       unattributed_failed: 1
     };
     expect(activityDaySentence(day)).toBe(
-      "Today 649 client calls · 74 failed · 2 console failures · 41 poll failures · " +
-        "3 unattributed (1 failed)"
+      "Today: 649 client calls, 74 failed — 2 from the console; 41 poll failures; " +
+        "3 unattributed (1 failed)."
     );
-    expect(activityDaySentence(day, true)).toBe("Today 649 client calls · 74 failed");
+    // The filter no longer changes this sentence: it is the day's, and the filter's own count is
+    // labelled with its own window. A day with no console failure is the same shape minus that
+    // clause.
+    expect(activityDaySentence({ ...day, console_failed: 0 })).toBe(
+      "Today: 649 client calls, 74 failed — 41 poll failures; 3 unattributed (1 failed)."
+    );
   });
 
   it("says since when the day's file starts after midnight", () => {
@@ -278,11 +357,11 @@ describe("activityCountSentence", () => {
       since_ms: since
     };
     expect(activityDaySentence(day)).toBe(
-      "Today 10 client calls · 1 failed · 0 unattributed · since 03:12"
+      "Today: 10 client calls, 1 failed · since 03:12."
     );
     // The bound is a second way a day is partial, and it is stated with its name.
     expect(activityDaySentence({ ...day, bounded: true, scan_limit: 50_000 })).toBe(
-      "Today 10 client calls · 1 failed · 0 unattributed · since 03:12 · first 50,000 lines"
+      "Today: 10 client calls, 1 failed · since 03:12 · first 50,000 lines."
     );
   });
 });
