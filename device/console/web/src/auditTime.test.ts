@@ -99,6 +99,17 @@ describe("the range sentence", () => {
     );
   });
 
+  it("counts the filter's matches when a filter narrows the range's rows", () => {
+    // The measured 390 shape: `29 lines` above `No calls match … failed calls`. The range still
+    // held 29 lines; the filter kept none of them, and the sentence says both numbers.
+    expect(rangeSentence(range, 29, null, { matched: 0, drawn: 29 })).toBe(
+      "Showing 09:00–17:00 of 11-05, 29 lines; 0 of the 29 lines match the filters"
+    );
+    expect(rangeSentence(range, 29, null, { matched: 29, drawn: 29 })).toBe(
+      "Showing 09:00–17:00 of 11-05, 29 lines"
+    );
+  });
+
   it("states both bounds at once without hiding either", () => {
     const sentence = rangeSentence(range, 1_000, {
       since_ms: local(2026, 10, 22, 10, 55),

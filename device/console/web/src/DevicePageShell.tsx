@@ -92,21 +92,15 @@ export function DevicePageShell({
             ))}
           </nav>
         )}
-        {/* The machine's one local door. The sheet is the same one Home and the account menu open;
-            below 640 px this same button stays in the head's first row, with the short visible
-            label and the sheet's full name for assistive technology. With no machine there is no
-            client to connect, so the door waits for the choice. **THE OVERVIEW TAB CARRIES ITS OWN
-            MACHINE HEAD AND CONNECT DOOR**, so the shell's button would be the same sheet twice on
-            one screen; every other tab keeps the shell's one. */}
-        {chosen && tab !== "overview" && (
+        {/* **ONE ACTION, ONE NAME, ONE HOME.** The six tabs said `Connect` here while Overview
+            drew `Connect a client` in its own content: the same sheet, two names and two places.
+            The page head is the one place on every tab, and its visible label is the sheet's own
+            name. Below 640 px the same button stays in the head's first row. With no machine there
+            is no client to connect, so the door waits for the choice. */}
+        {chosen && (
           <div className="page-actions device-connect">
-            <button
-              type="button"
-              className="mini"
-              aria-label="Connect a client"
-              onClick={onConnect}
-            >
-              Connect
+            <button type="button" className="mini" onClick={onConnect}>
+              Connect a client
             </button>
           </div>
         )}

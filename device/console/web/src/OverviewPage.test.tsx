@@ -205,14 +205,12 @@ function draw(overrides: Record<string, unknown> = {}) {
   ];
   if (auditError) auditApi.audit.mockRejectedValue(new Error("the audit could not be read"));
   else auditApi.audit.mockResolvedValue(audit ?? calls);
-  const onConnect = vi.fn();
   const onTools = vi.fn();
   const onActivity = vi.fn();
   const page = (extra: Record<string, unknown> = {}) => (
     <OverviewPage
       device={workshop}
       devices={[workshop]}
-      onConnect={onConnect}
       onTools={onTools}
       onActivity={onActivity}
       {...props}
@@ -224,7 +222,6 @@ function draw(overrides: Record<string, unknown> = {}) {
     ...view,
     /** Redraw the same page with new props: a tick, a recovery, or another snapshot. */
     rerenderHub: (extra: Record<string, unknown>) => view.rerender(page(extra)),
-    onConnect,
     onTools,
     onActivity
   };
@@ -313,17 +310,16 @@ describe("Device overview — the machine's live page", () => {
     expect(document.querySelector(".home-recent")).toBeNull();
   });
 
-  it("offers one secondary Connect action and says when the machine has no calls", async () => {
-    const { onConnect } = draw({ audit: [] });
+  it("leaves the one Connect door to the shell and says when the machine has no calls", async () => {
+    // **ONE ACTION, ONE HOME.** The page used to draw `Connect a client` in its own machine head
+    // while the shell drew the same sheet on the other six tabs; the shell's header is now the one
+    // place, on every tab. This page only keeps the sentence that names what the door is for.
+    draw({ audit: [] });
 
     expect(await screen.findByText(/No calls from workshop today/)).toBeInTheDocument();
     expect(screen.getByText(/Connect a client sets one up/)).toBeInTheDocument();
-    expect(screen.getAllByRole("button", { name: "Connect a client" })).toHaveLength(1);
-    expect(screen.getAllByRole("button", { name: /Connect/ })).toHaveLength(1);
-    const connect = screen.getByRole("button", { name: "Connect a client" });
-    expect(connect).not.toHaveClass("primary");
-    fireEvent.click(connect);
-    expect(onConnect).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("button", { name: "Connect a client" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Connect/ })).not.toBeInTheDocument();
   });
 
   it("keeps one All activity link that opens the Activity page", () => {
@@ -735,7 +731,6 @@ describe("Device overview — the machine's live page", () => {
     );
     expect(screen.queryByRole("button", { name: "Copy" })).not.toBeInTheDocument();
     expect(screen.queryByText(/\/mcp\//)).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Connect a client" })).toBeEnabled();
     expect(screen.getByText("Tool counts are unavailable while the machine is offline.")).toBeInTheDocument();
     expect(screen.queryByText(/0 tools/)).not.toBeInTheDocument();
   });

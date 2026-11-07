@@ -495,6 +495,14 @@ export function AuditTable({
     filter.tool.trim() !== "" ||
     filter.status !== "all" ||
     range !== null;
+  // **THE SCOPE IS THE REQUEST, NOT A FILTER.** A machine scope is what the window was fetched
+  // for, so its count already describes it; these are the controls that narrow the rows in hand.
+  const filterActive =
+    filter.token !== "" ||
+    filter.tool.trim() !== "" ||
+    filter.status !== "all" ||
+    (filter.device !== "" && (scope !== "machine" || selectedDeviceId === null));
+  const match = filterActive ? { matched: shown.length, drawn: lines.length } : null;
   const emptySentence = narrowed
     ? (emptyFiltered ??
       filterSentence({
@@ -740,7 +748,7 @@ export function AuditTable({
         <p className="hint audit-cap">
           {rangeError
             ? "The console could not read this range."
-            : rangeSentence(range, lines.length, rangeFacts)}
+            : rangeSentence(range, lines.length, rangeFacts, match)}
         </p>
       )}
       {range !== null && rangeError ? null : loading ? (
@@ -768,7 +776,8 @@ export function AuditTable({
                 AUDIT_WINDOW,
                 cappedMachine,
                 capped ? "capped" : "at-limit",
-                windowCounts ?? null
+                windowCounts ?? null,
+                match
               )}
             </p>
           )}

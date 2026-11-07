@@ -36,7 +36,6 @@ import { auditFailed } from "./auditFilter";
 export type OverviewPageProps = {
   device: Device;
   devices: Device[];
-  onConnect: () => void;
   onTools: () => void;
   onActivity: () => void;
   /** The live activity stream, newest first. Absent in tests and before the stream opens. */
@@ -529,11 +528,6 @@ export function OverviewPage(props: OverviewPageProps) {
         <div>
           <h2>{name}</h2>
           <p className="page-sub">{statusLine}</p>
-        </div>
-        <div className="page-actions">
-          <button type="button" onClick={props.onConnect}>
-            Connect a client
-          </button>
         </div>
       </header>
 

@@ -319,7 +319,10 @@ describe("updateChannel — the channel the running process started from", () =>
  * contradiction is a fact the card does not carry.
  */
 describe("startedLine — a page that draws the update card", () => {
-  it("leaves the repeated version and the applied clause to the card", () => {
+  it("keeps the running version in the start line and leaves the applied clause to the card", () => {
+    // **THE START LINE STILL NAMES WHAT RUNS.** The card states the updater's answer, but the line
+    // above it is the one sentence on every tab that places the running build in time; hiding its
+    // version made Machine the only tab whose body did not state what the machine runs.
     expect(
       startedLine(
         {
@@ -329,7 +332,7 @@ describe("startedLine — a page that draws the update card", () => {
         },
         { ...context, updateShown: true }
       )
-    ).toBe("started 2h ago");
+    ).toBe("started 0.3.277 · 2h ago");
   });
 
   it("keeps a start version the chip does not show, because the card cannot state it", () => {
@@ -367,5 +370,50 @@ describe("startedLine — a page that draws the update card", () => {
         { ...context, updateShown: true }
       )
     ).toBe("refused: nothing was installed");
+  });
+});
+/**
+ * A SURFACE WHOSE OWN COLUMN OR BADGE STATES THE VERSION.
+ *
+ * Home's fleet row has a Version cell; the start sentence sits in Started beside it. Repeating the
+ * version there made the same build appear twice on one row, so the row's start states only when.
+ * A start naming a different version is the contradiction the row must keep.
+ */
+describe("startedLine — a surface whose own column states the version", () => {
+  it("leaves the version the surface already shows out of the start", () => {
+    expect(
+      startedLine(
+        {
+          current: "0.3.277",
+          verdict: { outcome: "ok", detail: "started 0.3.277" }
+        },
+        { ...context, versionElsewhere: true }
+      )
+    ).toBe("2h ago");
+  });
+
+  it("keeps the update's age beside the start", () => {
+    expect(
+      startedLine(
+        {
+          current: "0.3.277",
+          verdict: { outcome: "ok", detail: "started 0.3.277" },
+          last_update: { to: "0.3.277", outcome: "applied", at_ms: NOW - 12 * 60_000 }
+        },
+        { ...context, versionElsewhere: true }
+      )
+    ).toBe("2h ago (updated 12m ago)");
+  });
+
+  it("keeps a start that names a version the column does not show", () => {
+    expect(
+      startedLine(
+        {
+          current: "0.3.275",
+          verdict: { outcome: "ok", detail: "started 0.3.275" }
+        },
+        { ...context, versionElsewhere: true, shownVersion: "0.3.42" }
+      )
+    ).toBe("started 0.3.275 · 2h ago");
   });
 });

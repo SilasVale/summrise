@@ -1011,6 +1011,16 @@ try {
       `the installer line read ${JSON.stringify(installerLine)}, expected ${JSON.stringify(expectedInstallerLine)}`
     );
   }
+  // **THE SHORT HASH IS A PREFIX, AND THE FULL DIGEST IS ONE GESTURE AWAY.** The strip showed only
+  // `sha256 26d39c12…` with no title and no copy; the 64 hex characters are the title now and a
+  // labelled control copies them.
+  const installerDigest = await page.locator('.installer .hint span[title]').first().getAttribute('title');
+  if (installerDigest !== INSTALLER.sha256) {
+    throw new Error(`the installer digest title read ${JSON.stringify(installerDigest)}`);
+  }
+  if ((await page.getByRole('button', { name: 'Copy digest' }).count()) !== 1) {
+    throw new Error('the installer strip has no Copy digest control');
+  }
   if (state.installerRequests !== 1) {
     throw new Error(`the fleet read /installer ${state.installerRequests} times, not once`);
   }
@@ -1038,6 +1048,14 @@ try {
     rows: document.querySelectorAll('.picker li').length,
     uses: [...document.querySelectorAll('.picker button')].map((button) =>
       button.getAttribute('aria-label') ?? ''
+    ),
+    states: [...document.querySelectorAll('.picker-state')].map((state) => ({
+      text: state.textContent?.trim() ?? '',
+      title: state.getAttribute('title') ?? '',
+      visible: state.getClientRects().length > 0
+    })),
+    versions: [...document.querySelectorAll('.picker .chip')].map((chip) =>
+      chip.textContent?.trim() ?? ''
     )
   }));
   if (pickerFacts.h1 !== 'Choose a machine') {
@@ -1055,6 +1073,22 @@ try {
     throw new Error(
       `the picker drew ${pickerFacts.rows} rows and ${pickerFacts.uses.length} Use buttons, not 4`
     );
+  }
+  // **THE STATE IS A WORD, NOT A COLOUR, AND THE VERSION KEEPS ITS V.** The words were `.sr-only`
+  // under an `aria-hidden` dot, and the chip dropped the `v` Home's column carries.
+  if (pickerFacts.states.length !== 4) {
+    throw new Error(`the picker drew ${pickerFacts.states.length} state words, not 4`);
+  }
+  for (const state of pickerFacts.states) {
+    if (!state.visible || (state.text !== 'online' && state.text !== 'offline')) {
+      throw new Error(`the picker's state word reads ${JSON.stringify(state)}`);
+    }
+    if (state.text === 'online' && !/^online · seen .+ ago$/.test(state.title)) {
+      throw new Error(`the online state's title reads ${JSON.stringify(state.title)}`);
+    }
+  }
+  if (pickerFacts.versions.length !== 4 || pickerFacts.versions.some((v) => !/^v\d/.test(v))) {
+    throw new Error(`the picker's versions read ${JSON.stringify(pickerFacts.versions)}`);
   }
   step(
     `Device with no machine is headed "${pickerFacts.h1}", with no tab strip and no Connect; ` +
@@ -1105,12 +1139,12 @@ try {
       '#signin while signed in does not keep the token form behind a closed disclosure'
     );
   }
-  if (signInPanel.signInTitle !== 'Sign in · Summrise console') {
+  if (signInPanel.signInTitle !== 'Signed in · Summrise console') {
     throw new Error(`#signin's tab title read ${JSON.stringify(signInPanel.signInTitle)}`);
   }
   step(
-    '#signin while signed in is headed "You are signed in", leads with a primary Back and keeps ' +
-      'the token form behind a closed disclosure'
+    '#signin while signed in is headed "You are signed in", titled "Signed in", leads with a ' +
+      'primary Back and keeps the token form behind a closed disclosure'
   );
   await page.screenshot({ path: path.join(OUT, '02c-signin-signed-in.png') });
   await page.getByRole('button', { name: 'Back to the console' }).click();
@@ -1281,8 +1315,14 @@ try {
   }
   const onlineRow1440 = fleet1440.rows.find((row) => row.name === 'DESKTOP-9VH92BJ');
   const startText1440 = onlineRow1440?.started ?? '';
-  if (startText1440 !== 'started 0.3.42 · 1h ago (update to 0.3.43 refused)') {
+  // **STARTED IS THE AGE; THE VERSION COLUMN OWNS THE VERSION.** The row used to read
+  // `v0.3.42` and `started 0.3.42 · 1h ago` in adjacent cells; the start keeps its update answer
+  // and states only when.
+  if (startText1440 !== '1h ago (update to 0.3.43 refused)') {
     throw new Error(`the online row's start line read "${startText1440}"`);
+  }
+  if (startText1440.includes('0.3.42')) {
+    throw new Error(`the row's Started cell repeats the Version cell: "${startText1440}"`);
   }
   const startTitle = await page
     .locator('tr.fleet-row', {
@@ -1961,7 +2001,18 @@ try {
       commandWidth: Math.round(buttonBox?.width ?? 0),
       commandHeight: Math.round(buttonBox?.height ?? 0),
       rowHeight: Math.round(rowBox?.height ?? 0),
-      documentScrollWidth: document.documentElement.scrollWidth
+      documentScrollWidth: document.documentElement.scrollWidth,
+      started: (() => {
+        const cell = row?.querySelectorAll('td.runs-fact')[2];
+        const time = cell?.querySelector('time');
+        const box = time?.getBoundingClientRect();
+        return {
+          text: time?.textContent?.trim() ?? null,
+          title: time?.getAttribute('title') ?? null,
+          datetime: time?.getAttribute('datetime') ?? null,
+          visible: time !== null && time !== undefined && (box?.width ?? 0) > 0
+        };
+      })()
     };
   });
   console.log(`browser-gate: runs at 1440: ${JSON.stringify(runs1440)}`);
@@ -1981,6 +2032,16 @@ try {
     throw new Error(
       `the 1440 Runs page scrolls sideways: ${runs1440.documentScrollWidth} > ${runs1440.viewport}`
     );
+  }
+  // **A RUN IS PLACED IN TIME ON THE PAGE THAT INSPECTS IT.** The history said `31m 11s ago` with
+  // no title; the Table dates the same class of run with a clock + age and the instant in a title.
+  if (
+    !runs1440.started.visible ||
+    !/^\d{2}:\d{2}:\d{2}$/.test(runs1440.started.text ?? '') ||
+    !/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} \(/.test(runs1440.started.title ?? '') ||
+    !/\.\d{3}Z$/.test(runs1440.started.datetime ?? '')
+  ) {
+    throw new Error(`the 1440 Runs Started reads ${JSON.stringify(runs1440.started)}`);
   }
   step(
     `at 1440 the Runs history keeps its table: header ${runs1440.headerWidth} px, command ` +
@@ -2020,7 +2081,9 @@ try {
         })),
         factTops: [...row.querySelectorAll('td.runs-fact')].map((cell) =>
           Math.round(cell.getBoundingClientRect().top)
-        )
+        ),
+        startedText: row.querySelectorAll('td.runs-fact')[2]?.querySelector('time')
+          ?.textContent?.trim() ?? null
       };
     });
     return {
@@ -2075,6 +2138,11 @@ try {
     }
     if (card.labels.some((label) => !label.visible)) {
       throw new Error(`a 390 fact label is not visible: ${JSON.stringify(card.labels)}`);
+    }
+    // The same clock and age the desktop table draws: the card is the same DOM, not a second
+    // vocabulary.
+    if (!/^\d{2}:\d{2}:\d{2}$/.test(card.startedText ?? '')) {
+      throw new Error(`the 390 card's Started reads ${JSON.stringify(card.startedText)}`);
     }
     if (card.factTops.length !== 4 || card.factTops.some((top) => top < card.commandBottom)) {
       throw new Error(
@@ -2451,11 +2519,12 @@ try {
       .map((row) => `${row.label} ${row.value}`)
       .join(' · ')}`
   );
-  // **THE START SAYS WHEN, NOT WHICH BUILD.** The card states the running version and the update
-  // answer; the header chip states what runs, so the start line keeps only the moment — and the card
-  // carries the refused answer the line used to repeat. The exact instant stays in the title.
+  // **THE MACHINE TAB'S BODY STATES WHAT RUNS.** The start line used to drop its version here
+  // because the update card was drawn beside it, so Machine was the one tab whose body did not name
+  // the running build. The line above the card carries the running version on every tab now, and
+  // the update answer — the refused target — stays on the card. The exact instant stays in the title.
   const machineStart = (await page.locator('.started-line').innerText()).trim();
-  if (machineStart !== 'started 1h ago') {
+  if (machineStart !== 'started 0.3.42 · 1h ago') {
     throw new Error(`the Machine tab's start line read "${machineStart}"`);
   }
   const machineStartTitle = (await page.locator('.started-line').getAttribute('title')) ?? '';
@@ -2481,7 +2550,7 @@ try {
     throw new Error(`the Machine tab's check line read "${machineCheck}"`);
   }
   step('the Machine tab names the console link\'s last attempt and the panel\'s local check');
-  step('the Machine tab states reachability as Status · online, without a second build line');
+  step('the Machine tab states reachability as Status · online, and its start line names the build');
 
   // **THE CARD AT BOTH WIDTHS, AND THE PHONE KEEPS IT IN THE VIEWPORT.** The panel's grid is one
   // label/value row per fact; at 390 the rows wrap rather than pushing the page sideways. These are
@@ -2989,6 +3058,28 @@ try {
   await page.waitForTimeout(250);
   await page.setViewportSize({ width: 390, height: 844 });
   await page.waitForTimeout(400);
+  // **THE PHONE KEEPS THE BUILD.** The topbar used to hide its whole meta span below 640 px, so an
+  // offline Device page at 390 named its version nowhere (the 14R's `v0.3.275` existed only on
+  // Home). The version has its own element now; the status word is what the phone drops.
+  const topbarBuild390 = await page.evaluate(() => {
+    const version = document.querySelector('.machine-menu-version');
+    const box = version?.getBoundingClientRect();
+    return {
+      text: version?.textContent?.trim() ?? null,
+      visible: version !== null && version.getClientRects().length > 0,
+      right: Math.round(box?.right ?? 0),
+      viewport: document.documentElement.clientWidth
+    };
+  });
+  if (!topbarBuild390.visible || !/^· v\d/.test(topbarBuild390.text ?? '')) {
+    throw new Error(`the 390 topbar's build reads ${JSON.stringify(topbarBuild390)}`);
+  }
+  if (topbarBuild390.right > topbarBuild390.viewport) {
+    throw new Error(`the 390 topbar's build is outside the viewport: ${topbarBuild390.right}`);
+  }
+  step(
+    `at 390 the topbar keeps the build (${topbarBuild390.text}) beside the machine, as 1440 does`
+  );
   // **THE PHONE KEEPS THE MACHINE'S CONNECT DOOR (audit 25 F6).** At 390 the old rule removed the
   // button outright (`display: none`, `offsetParent === null`). The same button now sits on the
   // title's row, named "Connect a client"; its click opens the same sheet on this machine, the tab
@@ -3611,6 +3702,42 @@ try {
     `at 390 "Last hour" asked /audit?from=&to= and stated ${JSON.stringify(rangeSentence390)} ` +
       `over ${rangeRows} rows; the range is in the fragment`
   );
+
+  // **THE COUNT NAMES THE FILTER, NOT ONLY THE WINDOW.** The measured 390 page drew 0 rows and said
+  // `29 lines` above `No calls match`: the count was the range's, not the filter's. With `Failed`
+  // chosen and no failure in this range, the sentence still counts the range's lines and names the
+  // filter's zero, and the empty state says the filter found nothing.
+  const rangeCount = state.lastRange.count;
+  await page.getByLabel('Status').selectOption('failed');
+  await page.waitForFunction(
+    (count) =>
+      (document.querySelector('.audit-cap')?.textContent ?? '').includes(
+        `0 of the ${count} lines match the filters`
+      ),
+    rangeCount,
+    { timeout: 10_000 }
+  );
+  const filteredCap = (await page.locator('.audit-cap').textContent())?.trim() ?? '';
+  if (
+    !new RegExp(
+      `^Showing .+, ${rangeCount} lines?; 0 of the ${rangeCount} lines? match the filters$`
+    ).test(filteredCap)
+  ) {
+    throw new Error(`the filtered range sentence read ${JSON.stringify(filteredCap)}`);
+  }
+  if ((await page.locator('.audit-row').count()) !== 0) {
+    throw new Error('the Failed filter drew rows in a range with no failed line');
+  }
+  const filteredEmpty = (await page.locator('.audit-empty').innerText()).trim();
+  if (!/^No calls match /.test(filteredEmpty)) {
+    throw new Error(`the filtered empty state read ${JSON.stringify(filteredEmpty)}`);
+  }
+  await page.screenshot({ path: path.join(OUT, '07e-filtered-range-390.png') });
+  step(
+    `at 390 the filtered range says ${JSON.stringify(filteredCap)} over 0 rows, and the empty ` +
+      'state names the filter'
+  );
+  await page.getByLabel('Status').selectOption('all');
 
   // **THE RANGE THAT WAS DRAWN IS THE RANGE THAT LEAVES.** Export is beside Time and asks the
   // console's own route for the same two bounds; it must not save a different window or filter.

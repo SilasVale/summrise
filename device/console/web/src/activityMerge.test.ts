@@ -256,4 +256,38 @@ describe("the hub's window sentence", () => {
       "Showing the newest 1 of 3 lines (1 client call, 1 console read, 1 unattributed; 1 poll, 1 channel event, 1 repeat not drawn); older ones are not on this page."
     );
   });
+
+  it("counts the rows a table filter kept, beside the window it kept them from", () => {
+    // The measured Table: 44 failed rows under a sentence that stayed at 993. The window is still
+    // 993; the filter is the reason only 44 are drawn, and the sentence says both.
+    expect(
+      capSentence(
+        1000,
+        "workshop",
+        "capped",
+        { fetched: 1040, drawn: 993, boundaries: 0, repeats: 47 },
+        { matched: 44, drawn: 993 }
+      )
+    ).toBe(
+      "Showing the newest 993 lines of 1040 fetched from workshop (47 repeats not drawn); " +
+        "older ones are not on this page. 44 of the 993 lines match the filters."
+    );
+  });
+
+  it("says nothing extra when the filter kept every line", () => {
+    expect(
+      capSentence(1000, null, "at-limit", null, { matched: 1000, drawn: 1000 })
+    ).toBe("Showing the newest 1000 lines — the window's limit.");
+  });
+
+  it("names a filter that kept none of the window's lines", () => {
+    // At 390 the measured page drew 0 rows and said `29 lines`; the line now says the window and
+    // the empty state says no call matched.
+    expect(
+      capSentence(1000, null, "capped", null, { matched: 0, drawn: 29 })
+    ).toBe(
+      "Showing the newest 1000 lines; older ones are not on this page. " +
+        "0 of the 29 lines match the filters."
+    );
+  });
 });

@@ -233,7 +233,10 @@ describe("DeviceCard — one row on the fleet", () => {
 
     expect(screen.getByText("offline · last seen 7m ago")).toBeInTheDocument();
     const verdict = container.querySelector(".fleet-verdict");
-    expect(verdict).toHaveTextContent("started 0.3.42 · 1d 1h ago");
+    // THE VERSION COLUMN OWNS THE BUILD. The row already says v0.3.42; the start states the
+    // device's own account of when, and only the age belongs in Started.
+    expect(verdict).toHaveTextContent("1d 1h ago");
+    expect(verdict).not.toHaveTextContent("started");
     expect(verdict).toHaveAttribute("title", exactMoment(BOOT_AT));
     expect(screen.queryByText(/updated/)).not.toBeInTheDocument();
   });
@@ -249,11 +252,11 @@ describe("DeviceCard — one row on the fleet", () => {
     });
 
     const verdict = container.querySelector(".fleet-verdict");
-    expect(verdict).toHaveTextContent("started 0.3.42 · 1d 1h ago (updated 12m ago)");
+    expect(verdict).toHaveTextContent("1d 1h ago (updated 12m ago)");
     expect(verdict).toHaveAttribute("title", exactMoment(BOOT_AT));
-    // The version appears twice: the chip's v0.3.42 and the device's own start sentence. The
-    // update clause does not repeat it.
-    expect(container.textContent?.match(/0\.3\.42/g)).toHaveLength(2);
+    // The version appears once: the row's Version cell owns it, and neither the start nor the
+    // update clause repeats it.
+    expect(container.textContent?.match(/0\.3\.42/g)).toHaveLength(1);
   });
 
   it("does not say the update's age twice when the update is the start", () => {
@@ -270,7 +273,7 @@ describe("DeviceCard — one row on the fleet", () => {
     });
 
     const verdict = container.querySelector(".fleet-verdict");
-    expect(verdict).toHaveTextContent("started 0.3.42 · 1d 1h ago");
+    expect(verdict).toHaveTextContent("1d 1h ago");
     expect(verdict).not.toHaveTextContent("updated");
   });
 

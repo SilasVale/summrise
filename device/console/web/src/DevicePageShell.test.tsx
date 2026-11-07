@@ -91,7 +91,7 @@ describe("DevicePageShell offline notice", () => {
     expect(screen.queryByRole("status")).not.toBeInTheDocument();
   });
 
-  it("draws the start on the Machine tab without the version or the clause the card states", () => {
+  it("draws the running version in the Machine tab's start line, and leaves the update answer to the card", () => {
     renderShell("machine", {
       ...MACHINE,
       update: {
@@ -101,10 +101,10 @@ describe("DevicePageShell offline notice", () => {
       }
     });
 
-    // The Machine tab draws the update card beside this line: the card states the running version
-    // and the updater's last answer, so the line keeps the moment a chip cannot state. A start that
-    // named another version would still be drawn; the exact instant stays in the title.
-    const line = screen.getByText("started 1d 1h ago");
+    // **THE MACHINE TAB'S BODY STATES WHAT RUNS.** The update card carries the updater's answer;
+    // the start line above it carries the running build and the moment a chip cannot state, the
+    // same sentence every other tab draws. The card's `(updated …)` stays on the card.
+    const line = screen.getByText("started 0.3.42 · 1d 1h ago");
     expect(line).toHaveAttribute("title", exactMoment(BOOT_AT));
     expect(screen.queryByText(/updated/)).not.toBeInTheDocument();
   });
@@ -190,15 +190,25 @@ describe("DevicePageShell without a machine", () => {
   });
 });
 
-describe("DevicePageShell's Overview tab", () => {
-  it("leaves the machine head, its Connect door and its offline notice to the Overview page", () => {
+describe("DevicePageShell's one Connect door", () => {
+  it("draws the same named door on every Device tab, Overview included", () => {
+    // **ONE LABEL, ONE HOME.** The six tabs used to say `Connect` in the shell header while
+    // Overview said `Connect a client` in its content; the shell's head is the one place on every
+    // tab now, and its visible label is the sheet's own name.
+    for (const tab of ["overview", "machine", "terminal", "screen", "files", "runs", "tools"] as const) {
+      const { unmount } = renderShell(tab, MACHINE);
+      const door = screen.getByRole("button", { name: "Connect a client" });
+      expect(door).toHaveTextContent("Connect a client");
+      unmount();
+    }
+  });
+
+  it("keeps the Overview offline notice on the page, whose Retry is the live read's", () => {
     renderShell("overview", MACHINE);
 
-    // The page inside owns the machine's name, status and one Connect door; the shell would draw
-    // the same sheet twice. The offline notice is the page's too, because its Retry is the live
-    // read's, not the shell's tab notice.
+    // The page inside owns the machine's name and status, and its offline notice: the notice's
+    // Retry is the live read's, not the shell's tab notice.
     expect(screen.getByRole("heading", { name: "Overview", level: 1 })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Connect a client" })).toBeNull();
     expect(screen.queryByRole("status")).toBeNull();
   });
 });

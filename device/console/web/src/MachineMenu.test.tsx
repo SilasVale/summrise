@@ -182,3 +182,37 @@ describe("MachineMenu", () => {
     expect(screen.getByRole("button", { name: /^bare/ })).not.toHaveTextContent("calls");
   });
 });
+/**
+ * THE TOPBAR STATES THE BUILD AT EVERY WIDTH. The phone used to hide the whole meta span, so an
+ * offline Device page at 390 named no version anywhere; the version keeps its own element now, and
+ * the phone's stylesheet hides only the status word (the dot already carries it).
+ */
+describe("MachineMenu — the chosen machine's version", () => {
+  it("keeps the version's v and its own element beside the status", () => {
+    const { container } = render(
+      <MachineMenu
+        devices={[device()]}
+        chosen={device()}
+        onChoose={() => {}}
+        onAddMachine={() => {}}
+      />
+    );
+
+    const meta = container.querySelector(".machine-menu-meta");
+    expect(meta).not.toBeNull();
+    expect(meta?.querySelector(".machine-menu-state")).toHaveTextContent("Running");
+    expect(meta?.querySelector(".machine-menu-version")).toHaveTextContent("· v0.3.42");
+    // The version is a fact, not a colour: it stays a `v`-prefixed word, as Home's column does.
+    expect(meta).toHaveTextContent("Running · v0.3.42");
+  });
+
+  it("names an offline machine's build too", () => {
+    const offline = device({ online: false, version: "0.3.275" });
+    const { container } = render(
+      <MachineMenu devices={[offline]} chosen={offline} onChoose={() => {}} onAddMachine={() => {}} />
+    );
+
+    expect(container.querySelector(".machine-menu-state")).toHaveTextContent("Offline");
+    expect(container.querySelector(".machine-menu-version")).toHaveTextContent("v0.3.275");
+  });
+});

@@ -102,7 +102,10 @@ export function DeviceCard({
   // this start is aged beside it; an answer from before the start is left as history elsewhere.
   const started = startedStory(device.update, {
     startedAtMs: processStartMs(device),
-    shownVersion: device.version
+    shownVersion: device.version,
+    // The row's Version cell already states the build, so Started states only when. A start naming
+    // a different version is still drawn as the contradiction it is.
+    versionElsewhere: true
   });
   return (
     <tr className={"fleet-row" + (selected ? " is-current" : "")}>

@@ -486,7 +486,9 @@ describe("App", () => {
       screen.queryByRole("heading", { name: "Sign in to the console" })
     ).not.toBeInTheDocument();
     expect(window.location.hash).toBe("#signin");
-    expect(document.title).toBe("Sign in · Summrise console");
+    // **THE TAB TITLE AGREES WITH THE PANEL TOO.** The h1 says `You are signed in`; the title said
+    // `Sign in · Summrise console`, so a tab in a row of tabs named the opposite of its page.
+    expect(document.title).toBe("Signed in · Summrise console");
     expect(screen.getByText(/already signed in/)).toBeInTheDocument();
     // Back leads and is the primary action; the credential form is behind one disclosure, not the
     // first thing the page asks a signed-in operator to do.
@@ -1387,8 +1389,9 @@ describe("App", () => {
         "Showing the newest 950 lines of 1001 fetched (34 channel events, 17 repeats not drawn)."
       )
     ).toBeInTheDocument();
-    // Two full windows (949 rows, then 950) in jsdom: the default five seconds cannot hold both.
-  }, 15_000);
+    // Two full windows (949 rows, then 950) in jsdom: the default five seconds cannot hold both,
+    // and the full parallel suite has put this pair over 20 s while sibling builds share the box.
+  }, 40_000);
 
   it("reads a chip's own window instead of filtering another machine's, and says it is reading", async () => {
     const atticLine = {

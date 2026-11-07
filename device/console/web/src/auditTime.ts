@@ -120,6 +120,24 @@ function lines(count: number): string {
   return `${grouped(count)} ${count === 1 ? "line" : "lines"}`;
 }
 
+/** How many of the drawn lines a table filter kept, and how many were drawn before it. */
+export type MatchCounts = { matched: number; drawn: number };
+
+/**
+ * THE FILTER'S OWN COUNT, SAID BESIDE THE WINDOW'S.
+ *
+ * The Table's sentence named the fetched window only: `Showing the newest 993 lines …` stayed 993
+ * with 44 failed rows drawn, and a range said `29 lines` above `No calls match`. The operator could
+ * not tell a working filter from a failed one. When a filter narrows the drawn rows the sentence
+ * now says so — `44 of the 993 lines match the filters` — and says nothing extra when every drawn
+ * line matches, because that is not a fact worth restating.
+ */
+export function matchClause(match: MatchCounts | null): string | null {
+  if (match === null || match.matched === match.drawn) return null;
+  const noun = match.drawn === 1 ? "line matches" : "lines match";
+  return `${grouped(match.matched)} of the ${grouped(match.drawn)} ${noun} the filters`;
+}
+
 /**
  * The one sentence a range draws: the range, how many lines the answer held, and the two honest
  * bounds the server reported — where its coverage starts, and where its scan bound stopped it.
@@ -132,18 +150,24 @@ function lines(count: number): string {
 export function rangeSentence(
   range: AuditRange,
   count: number,
-  facts: RangeFacts | null = null
+  facts: RangeFacts | null = null,
+  match: MatchCounts | null = null
 ): string {
   const atLimit = facts?.at_limit === true;
   const head = atLimit
     ? `Showing the newest ${lines(count)} of ${rangeText(range)} — the window's limit`
     : `Showing ${rangeText(range)}, ${lines(count)}`;
-  const bounds: string[] = [];
-  if (facts?.since_ms != null) bounds.push(`since ${monthDayTime(facts.since_ms)}`);
+  const clauses: string[] = [];
+  if (facts?.since_ms != null) clauses.push(`since ${monthDayTime(facts.since_ms)}`);
   if (facts?.bounded === true) {
-    bounds.push(`the ${grouped(facts.scan_limit ?? 50_000)}-line scan bound cut it`);
+    clauses.push(`the ${grouped(facts.scan_limit ?? 50_000)}-line scan bound cut it`);
   }
-  return bounds.length === 0 ? head : `${head}; ${bounds.join("; ")}`;
+  // **THE RANGE SAYS HOW MANY OF ITS LINES THE FILTER KEPT.** The measured 390 shape read
+  // `29 lines` over `No calls match …`; the count is the range's answer, and the filter's own
+  // count is the second number the operator needs to see the filter work.
+  const kept = matchClause(match);
+  if (kept !== null) clauses.push(kept);
+  return clauses.length === 0 ? head : `${head}; ${clauses.join("; ")}`;
 }
 
 /**

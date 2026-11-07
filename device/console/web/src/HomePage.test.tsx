@@ -63,6 +63,7 @@ function drawFleet(extra: Record<string, unknown> = {}) {
   const onOpen = vi.fn();
   const onConnect = vi.fn();
   const onTools = vi.fn();
+  const onNotice = vi.fn();
   const onActivity = vi.fn();
   const onDevice = vi.fn();
   const fleetProps = {
@@ -79,7 +80,7 @@ function drawFleet(extra: Record<string, unknown> = {}) {
     onAddMachine,
     onTokens,
     onDismissCode: vi.fn(),
-    onNotice: vi.fn(),
+    onNotice,
     onConnect,
     onTools,
     onActivity,
@@ -98,6 +99,7 @@ function drawFleet(extra: Record<string, unknown> = {}) {
     onOpen,
     onConnect,
     onTools,
+    onNotice,
     onActivity,
     onDevice,
     rerenderFleet: (overrides: Record<string, unknown>) =>
@@ -134,12 +136,38 @@ describe("Home — the fleet's installer", () => {
     expect(link).toHaveAttribute("download");
     // Every value on the muted line is the /installer answer: the filename, the size at the scale
     // runFormat states it, and the first eight hex characters of the hash it computed.
+    // The digest sits in its own element so it can carry the full value in a title; the line is
+    // still one sentence, asserted whole rather than by its separate text nodes.
     expect(
-      screen.getByText("SummriseSetup-0.3.9.exe · 6.3 MB · sha256 26d39c12…")
+      screen.getByText(
+        (_, node) =>
+          node?.tagName === "P" &&
+          node.textContent === "SummriseSetup-0.3.9.exe · 6.3 MB · sha256 26d39c12…"
+      )
     ).toBeInTheDocument();
     expect(
       heading.compareDocumentPosition(link) & Node.DOCUMENT_POSITION_FOLLOWING
     ).toBeTruthy();
+  });
+
+  it("keeps the full digest one gesture from the short hash, with a copy control", async () => {
+    installerApi.installer.mockResolvedValue(installerFacts);
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText },
+      configurable: true
+    });
+    const { onNotice } = drawFleet();
+
+    // **THE STRIP'S SHORT HASH IS A PREFIX, NOT THE WHOLE CHECK.** `/installer` carries the 64 hex
+    // characters; the page shows the first eight and keeps the full value in the title and on one
+    // press, so a 6.6 MB download can be checked without knowing the JSON endpoint.
+    const short = await screen.findByText("sha256 26d39c12…");
+    expect(short).toHaveAttribute("title", installerFacts.sha256);
+
+    fireEvent.click(screen.getByRole("button", { name: "Copy digest" }));
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith(installerFacts.sha256));
+    expect(onNotice).toHaveBeenCalledWith("Digest copied.");
   });
 
   it("sends a machine behind the staged installer to Needs attention", async () => {
@@ -461,7 +489,7 @@ describe("Home — the verdict and what needs attention", () => {
     expect(within(table).getAllByRole("row")).toHaveLength(3);
     expect(within(table).getByRole("button", { name: "Open alpha" })).toBeInTheDocument();
     expect(within(table).getAllByText("v0.3.9")).toHaveLength(2);
-    expect(within(table).getByText(/^started 0\.3\.9 · 3h/)).toBeInTheDocument();
+    expect(within(table).getByText(/^3h ago$/)).toBeInTheDocument();
     // The coloured dot is beside the status word, not the name.
     const alphaRow = within(table).getByRole("button", { name: "Open alpha" }).closest("tr");
     expect(alphaRow?.querySelector(".fleet-status .dot.dot-ok")).not.toBeNull();

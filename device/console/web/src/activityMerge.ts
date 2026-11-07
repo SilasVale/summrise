@@ -1,4 +1,5 @@
 import type { AuditLine } from "./api";
+import { matchClause, type MatchCounts } from "./auditTime";
 import type { LiveLine } from "./liveActivity";
 import { isChannelBoundary } from "./activitySummary";
 
@@ -112,17 +113,24 @@ export function capSentence(
   limit = ACTIVITY_LIMIT,
   machine: string | null = null,
   fact: "capped" | "at-limit" = "capped",
-  counts: WindowCounts | null = null
+  counts: WindowCounts | null = null,
+  match: MatchCounts | null = null
 ): string {
+  const kept = matchClause(match);
+  const withKept = (sentence: string) => (kept === null ? sentence : `${sentence} ${kept}.`);
   const withheld = withheldClause(counts);
   if (counts !== null && withheld !== null) {
     const from = machine === null ? "" : ` from ${machine}`;
     const tail = fact === "capped" ? "; older ones are not on this page." : ".";
-    return `Showing the newest ${counts.drawn} lines of ${counts.fetched} fetched${from} (${withheld})${tail}`;
+    return withKept(
+      `Showing the newest ${counts.drawn} lines of ${counts.fetched} fetched${from} (${withheld})${tail}`
+    );
   }
-  if (fact === "at-limit") return `Showing the newest ${limit} lines — the window's limit.`;
+  if (fact === "at-limit") {
+    return withKept(`Showing the newest ${limit} lines — the window's limit.`);
+  }
   const from = machine === null ? "" : ` from ${machine}`;
-  return `Showing the newest ${limit} lines${from}; older ones are not on this page.`;
+  return withKept(`Showing the newest ${limit} lines${from}; older ones are not on this page.`);
 }
 
 /**

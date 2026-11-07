@@ -42,6 +42,12 @@ export type StartStoryContext = {
   startedAtMs?: number | null;
   /** The version the surface shows beside this line, so the line does not repeat it for nothing. */
   shownVersion?: string | null;
+  /**
+   * True when the surface has its own version column or badge beside this sentence (Home's fleet
+   * row). The row then states only when the start was; a start naming a different version is still
+   * the contradiction that must be kept.
+   */
+  versionElsewhere?: boolean;
   /** The clock the age is read against; the components leave it to `Date.now()`. */
   nowMs?: number;
   /**
@@ -49,9 +55,8 @@ export type StartStoryContext = {
    *
    * **THE CARD OWNS THE UPDATE ANSWER THERE.** The card states the applied version first when it is
    * the running one, and it dates the updater's last answer; a parenthetical `(updated 12m ago)`
-   * beside the start would say the same thing twice, and the version would repeat the chip's and
-   * the card's. So on that page the line states only when the start was — and keeps a start version
-   * the chip does not show, because that contradiction is a fact the card does not carry.
+   * beside the start would say the same thing twice. So on that page the line states the running
+   * version and when the start was — the update answer itself stays on the card.
    */
   updateShown?: boolean;
 };
@@ -95,19 +100,21 @@ export function startedStory(
   const clause = context.updateShown
     ? null
     : updateClause(last, update?.rolled_back_to, context);
+  // The version the surface's own column or badge already states; a start with no version at all
+  // is the same "nothing to add here" for a surface that has its own copy.
+  const repeatsSurface =
+    startVersion === "" || startVersion === (context.shownVersion ?? null);
   let base: string | null;
   if (startedAt !== null) {
-    // The version is dropped when the update card beside the line states it and the chip already
-    // shows it; a start naming another version is still drawn as the device's sentence.
-    const repeated =
-      context.updateShown === true &&
-      startVersion !== "" &&
-      startVersion === (context.shownVersion ?? null);
-    const label = startVersion === "" || repeated ? "started" : `started ${startVersion}`;
+    const age = seenAgo(startedAt, context.nowMs);
+    // **ONE VERSION PER ROW, AND ONE PER TAB.** A surface with its own version column (Home) states
+    // the build there and only the age here; the Device shell has no such column, so its start line
+    // carries the version on every tab — including Machine, where the update card draws the
+    // updater's answer and the line above it is the only sentence that places what runs in time.
     base =
-      label === "started"
-        ? `started ${seenAgo(startedAt, context.nowMs)}`
-        : `${label} · ${seenAgo(startedAt, context.nowMs)}`;
+      context.versionElsewhere === true && repeatsSurface
+        ? age
+        : `started ${startVersion === "" ? age : `${startVersion} · ${age}`}`;
   } else {
     // No journal: never borrow another moment for this start. A differing version is still the
     // device's sentence; a repeat of the chip has nothing new to say.

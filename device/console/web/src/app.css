@@ -249,8 +249,10 @@ main.terminal-main { display: grid; grid-template-rows: auto minmax(0, 1fr); ali
   .brand { display: none; }
   .account-label { display: none; }
   .machine-menu { min-width: 0; }
-  .machine-menu > summary { max-width: 12rem; padding: var(--sp-1) var(--sp-2); }
-  .machine-menu-meta { display: none; }
+  .machine-menu > summary { max-width: 16rem; padding: var(--sp-1) var(--sp-2); }
+  /* The machine's build survives the phone: the dot states presence and the version is the fact
+     that had no other home on an offline Device page at 390. */
+  .machine-menu-state { display: none; }
   .machine-pop { width: min(20rem, calc(100vw - 2 * var(--sp-4))); }
   .topbar-actions .account-pop { left: auto; right: 0; top: calc(100% + var(--sp-2)); bottom: auto; }
   .rail {
@@ -893,6 +895,10 @@ tr:last-child td { border-bottom: 0; }
 .picker li strong {
   flex: 1;
 }
+/* The picker's state is a word beside its dot, in Home's vocabulary; the age behind a last-seen
+   moment stays the title rather than widening the row at 390. */
+.picker-state { color: var(--ink-muted); font-size: var(--fs-sm); white-space: nowrap; }
+.picker-state.ok { color: var(--ink); }
 
 /* Tabs over one terminal history: the workspace's shape, borrowed from the legacy panel. */
 /* THE TERMINAL IS THE PAGE, NOT A BOX IN IT. The panel is the grid's 1fr row, the workspace is a

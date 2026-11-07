@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { copyText } from "./copy";
-import { clockTime, exactMoment, isoDate, message } from "./format";
+import { clockTime, clockTimeSeconds, exactMoment, isoDate, message } from "./format";
 import { useRequestGate } from "./requests";
 import { age } from "./age";
 import { callTool, type Grant } from "./terminal";
@@ -350,7 +350,18 @@ export function RunsPage({
                   </td>
                   <td className="runs-fact">
                     <span className="runs-fact-label">Started</span>
-                    <span>{age(Date.now() - row.started_at_ms)} ago</span>
+                    {/* **THE START IS AN INSTANT ON THE HISTORY TOO.** The row used to show only
+                        `31m 11s ago`, so a run could not be placed in time on the page that
+                        exists to inspect it, while the Activity Table dated the same class of run
+                        `06:59:29 · 7s ago`. The clock, the age and the exact moment are one
+                        vocabulary now, and the phone card gets the same because it is this DOM. */}
+                    <time
+                      dateTime={new Date(row.started_at_ms).toISOString()}
+                      title={exactMoment(row.started_at_ms)}
+                    >
+                      {clockTimeSeconds(row.started_at_ms)}
+                    </time>{" "}
+                    <span className="hint">· {age(Date.now() - row.started_at_ms)} ago</span>
                   </td>
                   <td className="runs-fact">
                     <span className="runs-fact-label">stdout / stderr</span>

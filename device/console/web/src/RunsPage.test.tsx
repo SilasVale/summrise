@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { RunsPage } from "./RunsPage";
 import { copyText } from "./copy";
 import { age } from "./age";
-import { clockTime, exactMoment, isoDate } from "./format";
+import { clockTime, clockTimeSeconds, exactMoment, isoDate } from "./format";
 import { commandLine, shortCommand } from "./runFormat";
 import { callTool, type Grant } from "./terminal";
 
@@ -175,6 +175,29 @@ describe("RunsPage", () => {
         'button, a[href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
       );
       expect(Array.from(focusable)).toEqual([command]);
+    }
+  });
+
+  it("dates a history row's Started with the table's clock, age and exact title", async () => {
+    // **THE SAME TIME VOCABULARY AS THE ACTIVITY TABLE.** The history said `31m 11s ago` with no
+    // title while the Table, one view away, dated the same class of run `06:59:29 · 7s ago` with
+    // the instant in a `<time>`. A run is placed in time on both.
+    const startedAt = new Date(2026, 10, 4, 9, 41, 5).getTime();
+    const now = new Date(2026, 10, 4, 10, 0, 0).getTime();
+    const record: RunRecord = { ...HELLO, started_at_ms: startedAt };
+    mocked.mockResolvedValue(JSON.stringify([record]));
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(now);
+    try {
+      render(<RunsPage grant={GRANT} />);
+      const cell = (await screen.findByText("echo hello")).closest("tr")?.querySelector("td.runs-fact:nth-of-type(4)") as HTMLElement;
+      const time = cell.querySelector("time") as HTMLTimeElement;
+      expect(time).not.toBeNull();
+      expect(time).toHaveTextContent(clockTimeSeconds(startedAt));
+      expect(time).toHaveAttribute("title", exactMoment(startedAt));
+      expect(time).toHaveAttribute("dateTime", new Date(startedAt).toISOString());
+      expect(cell).toHaveTextContent(`· ${age(now - startedAt)} ago`);
+    } finally {
+      nowSpy.mockRestore();
     }
   });
 

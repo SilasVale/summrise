@@ -68,7 +68,6 @@ function hub() {
     <OverviewPage
       device={OFFLINE}
       devices={[OFFLINE]}
-      onConnect={vi.fn()}
       onTools={vi.fn()}
       onActivity={vi.fn()}
     />

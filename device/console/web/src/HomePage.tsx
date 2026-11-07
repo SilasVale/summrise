@@ -93,7 +93,7 @@ function useInstaller(): Installer | null {
  * fleet because the fleet is the page's subject; the installer is the next step once a machine is
  * missing, and it keeps its sha256 line so the file can be checked after it lands.
  */
-function InstallerBlock(props: { installer: Installer }) {
+function InstallerBlock(props: { installer: Installer; onNotice: (sentence: string) => void }) {
   if (!props.installer.available) {
     return (
       <p className="hint installer-missing">
@@ -113,9 +113,26 @@ function InstallerBlock(props: { installer: Installer }) {
         Download Windows installer
       </a>
       <p className="hint">
-        {installer.filename} · {bytes(installer.size_bytes)} · sha256{" "}
-        {installer.sha256.slice(0, 8)}…
+        {installer.filename} · {bytes(installer.size_bytes)} ·{" "}
+        {/* **THE DISPLAYED HASH IS A PREFIX; THE CHECK IS THE FULL DIGEST.** The strip showed
+            `sha256 0adcbd7c…` with no title and no copy, so the one executable the console hands
+            out could not be verified from the page. The full 64 hex is the title and one press
+            away; `/installer` is no longer knowledge the operator has to have. */}
+        <span className="mono" title={installer.sha256}>
+          sha256 {installer.sha256.slice(0, 8)}…
+        </span>
       </p>
+      <button
+        type="button"
+        className="mini installer-digest"
+        onClick={() =>
+          void copyText(installer.sha256).then((ok) =>
+            props.onNotice(ok ? "Digest copied." : "Could not copy the digest.")
+          )
+        }
+      >
+        Copy digest
+      </button>
     </section>
   );
 }
@@ -528,7 +545,9 @@ function FleetHome(props: HomePageProps) {
       {/* The installer is the account's, not the read's: `/installer` is a separate answer, and it
           is the next step whether the machine list arrived, is still coming, or failed. It is a
           compact strip after the fleet, not the page's first card. */}
-      {installer !== null && <InstallerBlock installer={installer} />}
+      {installer !== null && (
+        <InstallerBlock installer={installer} onNotice={props.onNotice} />
+      )}
 
       {props.code && (
         <section className="enroll" aria-labelledby="enroll-title">

@@ -176,6 +176,57 @@ it("counts the rows the table draws, which include the channel boundaries the ti
   ).toBeInTheDocument();
 });
 
+it("counts the rows a filter kept, not only the window it kept them from", () => {
+  // The measured failure: `Status: Failed` drew 44 rows under a sentence that stayed at 993, and
+  // at 390 the range said `29 lines` above `No calls match`. The count now names the filter.
+  render(
+    <AuditTable
+      lines={lines}
+      devices={devices}
+      tokens={[]}
+      capped
+      windowCounts={{ fetched: 1000, drawn: 3, boundaries: 0, repeats: 47 }}
+    />
+  );
+
+  expect(
+    screen.getByText("Showing the newest 3 lines of 1000 fetched (47 repeats not drawn); older ones are not on this page.")
+  ).toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText("Status"), { target: { value: "failed" } });
+  expect(
+    screen.getByText(
+      "Showing the newest 3 lines of 1000 fetched (47 repeats not drawn); older ones are not " +
+        "on this page. 1 of the 3 lines match the filters."
+    )
+  ).toBeInTheDocument();
+  expect(auditRows()).toHaveLength(1);
+});
+
+it("counts a range's matching rows when the filter hides them all", () => {
+  const range = {
+    from: new Date(2026, 10, 5, 9, 0, 0, 0).getTime(),
+    to: new Date(2026, 10, 5, 17, 0, 0, 0).getTime()
+  };
+  render(<AuditTable lines={lines} devices={devices} tokens={[]} range={range} />);
+
+  fireEvent.change(screen.getByLabelText("Status"), { target: { value: "failed" } });
+
+  // One failed line of the three, then a filter that keeps none of the three: the first assertion
+  // is the count with a match, the second is the measured `29 lines` / no-match disagreement.
+  expect(
+    screen.getByText("Showing 09:00–17:00 of 11-05, 3 lines; 1 of the 3 lines match the filters")
+  ).toBeInTheDocument();
+
+  fireEvent.change(screen.getByLabelText("Status"), { target: { value: "ok" } });
+  fireEvent.change(screen.getByLabelText("Tool or detail"), { target: { value: "no-such-tool" } });
+  expect(
+    screen.getByText("Showing 09:00–17:00 of 11-05, 3 lines; 0 of the 3 lines match the filters")
+  ).toBeInTheDocument();
+  expect(
+    screen.getByText(/^No calls match the search “no-such-tool”, succeeded calls and the range/)
+  ).toBeInTheDocument();
+});
+
 it("reads the new window in one line instead of drawing the old window's rows", () => {
   render(
     <AuditTable

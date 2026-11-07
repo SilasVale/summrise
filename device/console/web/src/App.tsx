@@ -895,9 +895,15 @@ export function App() {
         : page === "home"
           ? "Machines"
           : PAGE_LABELS[page];
-    document.title = session?.authenticated && !signInRoute
-      ? `${current} · Summrise console`
-      : "Sign in · Summrise console";
+    // **THE TITLE FOLLOWS THE PANEL.** `#signin` while the tab is signed in draws `You are signed
+    // in`, and the title said `Sign in · Summrise console`: a tab in a row of tabs named the
+    // opposite of its page. The signed-in panel gets its own title; every other state keeps the
+    // one the destination names, and a signed-out panel keeps `Sign in`.
+    document.title = !session?.authenticated
+      ? "Sign in · Summrise console"
+      : signInRoute
+        ? "Signed in · Summrise console"
+        : `${current} · Summrise console`;
   }, [page, tab, chosen, session?.authenticated, signInRoute]);
 
   const signIn = async () => {
@@ -1514,7 +1520,6 @@ export function App() {
                   <OverviewPage
                     device={chosen}
                     devices={devices}
-                    onConnect={() => setConnect({ section: "endpoint", device: chosen })}
                     onTools={() => setTab("tools")}
                     onActivity={() => setPage("activity")}
                     liveLines={live.lines}

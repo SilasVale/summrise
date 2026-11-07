@@ -55,9 +55,14 @@ export function MachineMenu({
         )}
         <span className="machine-menu-label">{label}</span>
         {chosen && (
+          // **THE BUILD KEEPS ITS OWN ELEMENT BECAUSE THE PHONE KEEPS THE BUILD.** Below 640 px the
+          // status word is hidden (the dot already carries it) while the version stays: an offline
+          // Device page at 390 used to name no build anywhere, because this whole span was hidden.
           <span className="machine-menu-meta">
-            {chosen.online ? "Running" : "Offline"}
-            {chosen.version ? ` · v${chosen.version}` : ""}
+            <span className="machine-menu-state">{chosen.online ? "Running" : "Offline"}</span>
+            {chosen.version ? (
+              <span className="machine-menu-version">{` · v${chosen.version}`}</span>
+            ) : null}
           </span>
         )}
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
