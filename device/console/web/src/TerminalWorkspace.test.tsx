@@ -2010,6 +2010,70 @@ describe("TerminalWorkspace session card", () => {
     expect(within(card).getByText("npm test")).toBeInTheDocument();
   });
 
+  it("shows the feed's evidence for a session that predates this card, with its time", async () => {
+    // A reload's card is newer than the session's command. When the feed carries the write — the
+    // evidence is live-only; the audit file has neither the session nor the input — the card reads
+    // it, time and all, rather than calling itself empty.
+    const typedAt = Date.now() - (9 * 60 + 14) * 1_000;
+    const card = await cardFor([inputLine("echo audit37-terminal", typedAt)]);
+    const shown = card.querySelector(".session-card-input");
+    expect(shown?.textContent).toBe("echo audit37-terminal");
+    expect(within(card).getByText(/9m 1[3-5]s ago/)).toBeInTheDocument();
+    expect(within(card).queryByText(/no keystroke recorded/i)).not.toBeInTheDocument();
+  });
+
+  it("joins the writes that form one line instead of showing the newest batch", async () => {
+    // The measured 1440 shape: the first character left in its own write 923 ms before the rest,
+    // and the card drew only `cho audit37-terminal`.
+    const now = Date.now();
+    const card = await cardFor([
+      inputLine("cho audit37-terminal", now - 1_000),
+      inputLine("e", now - 1_923)
+    ]);
+    const shown = card.querySelector(".session-card-input");
+    expect(shown?.textContent).toBe("echo audit37-terminal");
+  });
+
+  it("keeps the space the console's excerpt trimmed to nothing", async () => {
+    // Per-keystroke writes flatten a space to `""`; joining must not run the words together.
+    const now = Date.now();
+    const card = await cardFor([
+      inputLine("audit37-terminal", now - 1_000),
+      inputLine("", now - 1_100),
+      inputLine("echo", now - 1_200)
+    ]);
+    const shown = card.querySelector(".session-card-input");
+    expect(shown?.textContent).toBe("echo audit37-terminal");
+  });
+
+  it("does not join the command that came before a pause", async () => {
+    const now = Date.now();
+    const card = await cardFor([
+      inputLine("echo two", now - 1_000),
+      inputLine("echo one", now - 5_000)
+    ]);
+    const shown = card.querySelector(".session-card-input");
+    expect(shown?.textContent).toBe("echo two");
+  });
+
+  it("counts a write that arrives twice once", async () => {
+    // The `/events` snapshot reads the file after subscribing, so a write published in between is
+    // in both the snapshot and the stream. One write is one keystroke, not two.
+    const line = inputLine("echo audit37-terminal", Date.now() - 1_000);
+    const card = await cardFor([line, line]);
+    const shown = card.querySelector(".session-card-input");
+    expect(shown?.textContent).toBe("echo audit37-terminal");
+  });
+
+  it("says no keystroke since this page opened for a session with no evidence", async () => {
+    const card = await cardFor([]);
+    expect(
+      within(card).getByText("No keystroke recorded since this page opened.")
+    ).toBeInTheDocument();
+    expect(within(card).queryByText(/for this session yet/i)).not.toBeInTheDocument();
+    expect(card.querySelector(".session-card-input")).toBeNull();
+  });
+
   it("says no session once and offers the page's one New session action", async () => {
     render(<TerminalWorkspace grant={GRANT} deviceName="workshop" />);
 

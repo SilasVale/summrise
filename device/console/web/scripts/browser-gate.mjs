@@ -427,6 +427,8 @@ const state = {
   streamOpened: false,
   /** How many ptys the page opened, so the retained-start session has an id of its own. */
   created: 0,
+  /** How many `terminal.write` calls the page made; the session card joins their evidence. */
+  writeCalls: 0,
   /** What the stream has already echoed, so a reconnecting client is not told twice. */
   streamEchoed: false,
   /** How many times the retained-start stream refused a cursor as older than its ring. */
@@ -680,7 +682,28 @@ function apiReply(request, url) {
     if (name === 'terminal.write') {
       state.writes += String(args.data ?? '');
       if (state.writes.includes(MARKER)) state.echoed = true;
-      return json({ result: { content: [{ type: 'text', text: '{}' }] } });
+      state.writeCalls += 1;
+      // **THE CONSOLE PUBLISHES ONE ACTIVITY LINE PER WRITE.** Its `terminal.write` evidence is the
+      // session and the input; the page's session card reads exactly that. Without it the card has
+      // no last input, so the card's line is a fact of the live stream, not of the MCP answer.
+      pushEvent('activity', {
+        ts_ms: Date.now(),
+        kind: 'mcp',
+        device_id: DEVICE.id,
+        status: 200,
+        tool: 'terminal.write',
+        caller: 'console',
+        live: true,
+        sentence: 'Typed into a terminal',
+        evidence: { session: String(args.id ?? ''), input: String(args.data ?? '') }
+      });
+      // **HOLD THE FIRST REPLY SO THE PAGE'S OWN BATCHER SPLITS THE LINE.** The first chunk goes out
+      // at once and the rest wait behind it; the measured 84T split `echo audit37-terminal` into two
+      // writes 923 ms apart. The card must join them, not draw the newest batch (the measured
+      // `cho audit37-terminal`). A run that sent one write cannot prove the join, so the leg below
+      // refuses it.
+      const answer = { result: { content: [{ type: 'text', text: '{}' }] } };
+      return state.writeCalls === 1 ? { ...json(answer), delayMs: 400 } : json(answer);
     }
     if (name === 'terminal.read') {
       // **THE PAGED CATCH-UP.** The second pty's ring no longer holds the page's cursor, so its
@@ -852,6 +875,9 @@ await page.route('**/*', async (route) => {
   if (url.pathname === '/events') return route.continue();
   if (streamRoute.test(url.pathname)) return route.continue();
   const reply = apiReply(route.request(), url);
+  // A held reply is how the page's own write batcher is made to split one typed line (see the
+  // `terminal.write` branch): the delay is on the answer, not on the pass-through.
+  if (reply.delayMs) await new Promise((resolve) => setTimeout(resolve, reply.delayMs));
   const headers = { 'cache-control': 'no-store' };
   if (reply.status === 204) return route.fulfill({ status: 204, headers });
   return route.fulfill({
@@ -1179,6 +1205,9 @@ try {
   await page.locator('.term-host .xterm').waitFor({ state: 'visible', timeout: 10_000 });
   step('opened one pty; xterm mounted');
 
+  // The card reads the console's live activity. A page that never opened `/events` would make the
+  // evidence leg below pass on nothing, so the stream is a precondition, not a detail.
+  if (eventStreams.size === 0) throw new Error('the page never opened its activity stream');
   await page.locator('.term-host .xterm').click();
   await page.keyboard.type(MARKER, { delay: 15 });
   await page.waitForFunction(
@@ -1189,6 +1218,33 @@ try {
   if (!state.writes.includes(MARKER)) throw new Error('the marker never reached terminal.write');
   if (!state.streamOpened) throw new Error('the page never subscribed to the terminal stream');
   step('typed a marker; it reached terminal.write and returned down the open stream');
+
+  // **THE CARD JOINS ONE LINE'S WRITES.** The first write's reply was held, so the page's batcher
+  // split the marker into two calls; each call published its own evidence. The card must draw the
+  // line, not the newest batch — the measured 1440 card read `cho audit37-terminal` for the same
+  // split. One write would prove nothing, so it is a refusal, not a pass.
+  if (state.writeCalls < 2) {
+    throw new Error(
+      `the page sent ${state.writeCalls} write(s); the split line this leg reads was not produced`
+    );
+  }
+  try {
+    await page.waitForFunction(
+      (marker) => document.querySelector('.session-card-input')?.textContent === marker,
+      MARKER,
+      { timeout: 5_000 }
+    );
+  } catch {
+    const shown = await page
+      .locator('.session-card-input')
+      .textContent()
+      .catch(() => null);
+    throw new Error(
+      `the session card showed ${JSON.stringify(shown)} for a line typed in ` +
+        `${state.writeCalls} writes, not ${JSON.stringify(MARKER)}`
+    );
+  }
+  step('the session card joined the line’s writes instead of showing the newest batch');
   await page.screenshot({ path: path.join(OUT, '03-terminal-marker.png') });
 
   // **A CURSOR TOO OLD PAGES IN A REAL BROWSER.** The gate's stream for the second pty refuses its
@@ -1260,9 +1316,13 @@ try {
   }
   step(`the window states the file it reads: ${sourceText}`);
   const allActivityRows = await page.locator('.timeline-row').count();
-  if (allActivityRows !== FIXTURE_LINES.length) {
+  // **THE PAGE'S OWN WRITES ARE AUDIT ROWS.** The console records every call, so the two
+  // `terminal.write` lines the session-card leg typed are drawn beside the fetched window. The
+  // fixture is that window; the live rows this run added are the difference.
+  const expectedActivityRows = FIXTURE_LINES.length + state.writeCalls;
+  if (allActivityRows !== expectedActivityRows) {
     throw new Error(
-      `Activity drew ${allActivityRows} rows; the audit's default is all ${FIXTURE_LINES.length}`
+      `Activity drew ${allActivityRows} rows; the audit's default is all ${expectedActivityRows}`
     );
   }
   if ((await page.locator('.timeline-console-reads').count()) !== 0) {

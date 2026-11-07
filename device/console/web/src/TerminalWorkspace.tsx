@@ -482,42 +482,88 @@ function typedText(input: string): string | null {
 }
 
 /**
- * The last keystroke the console saw reach a session, from the live activity.
+ * How far apart two writes may be and still belong to one typed line.
+ *
+ * **ONE KEYSTROKE IS NOT ONE WRITE.** xterm sends each keystroke through `onData`; the write batcher
+ * sends the first chunk immediately and holds what arrives while that call is on the wire, so a line
+ * typed faster than the console's round trip leaves as two or more writes. Measured 2026-11-06 on
+ * the 84T: `echo audit37-terminal` reached the audit as two writes 923 ms apart, and the card drew
+ * only the second, `cho audit37-terminal` — the first character was the previous write.
+ *
+ * Two seconds covers a slow round trip and is still shorter than the pause before a person starts
+ * the next command. The evidence carries no control bytes (the console's excerpt flattens and trims
+ * them), so an Enter and a Backspace are both an `input`-less write and cannot be told apart here;
+ * splitting at every one would show the tail after a Backspace as a fragment, which is the failure
+ * this bound exists to prevent.
+ */
+const WRITE_BURST_MS = 2_000;
+
+/**
+ * The last line a person typed, from the writes the console's live activity recorded.
  *
  * A session's evidence is carried by every call about it (`terminal.read`, `resize`, `close`), so
  * the newest line with this session is usually a read, not a write. The card wants what a person
  * typed, which only `terminal.write` records as `evidence.input`; a matching line without one is
  * not a keystroke and must not hide the last real one. A write that is only escape or control bytes
  * is not a keystroke either — xterm's focus reports (`ESC[I`/`ESC[O`) arrive this way through
- * `onData` — and the terminal still receives them; only the card's fact ignores them. Newest wins
- * by `ts_ms`, so a feed handed over in any order gives the same answer, and no line means null —
- * the card never invents an input.
+ * `onData` — and the terminal still receives them; only the card's fact ignores them.
+ *
+ * The writes that form one line are joined by their times, not cut at the newest batch: that is what
+ * keeps a split line whole. The console's `excerpt` trims each write, so a whitespace-only write
+ * arrives as `""`; that is a space keystroke, not a missing one. A line can arrive twice (the
+ * `/events` snapshot reads the file after subscribing, so a write published in between is in both);
+ * the same instant and text is one write, not two keys. Newest wins by `ts_ms`, so a feed handed
+ * over in any order gives the same answer, and no line means null — the card never invents an input.
  */
-function lastTypedInput(
+function lastTypedLine(
   lines: readonly LiveLine[],
   deviceId: string,
   session: string
 ): { input: string; tsMs: number } | null {
-  let newest: { input: string; tsMs: number } | null = null;
+  const typed: { input: string; tsMs: number }[] = [];
+  const seen = new Set<string>();
   for (const line of lines) {
     if (line.device_id !== deviceId) continue;
     const evidence = line.evidence;
     if (!evidence || evidence.session !== session) continue;
     const input = evidence.input;
     if (typeof input !== "string") continue;
-    const typed = typedText(input);
-    if (typed === null) continue;
-    if (!newest || line.ts_ms > newest.tsMs) newest = { input: typed, tsMs: line.ts_ms };
+    const text = input === "" ? " " : typedText(input);
+    if (text === null) continue;
+    // An exact duplicate of one write, not two keystrokes that happened to share a millisecond.
+    const key = `${line.ts_ms}\u0000${input}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    typed.push({ input: text, tsMs: line.ts_ms });
   }
-  return newest;
+  if (typed.length === 0) return null;
+  typed.sort((left, right) => left.tsMs - right.tsMs);
+  const newest = typed[typed.length - 1];
+  let oldestTs = newest.tsMs;
+  let start = typed.length - 1;
+  for (let index = typed.length - 2; index >= 0; index -= 1) {
+    if (oldestTs - typed[index].tsMs > WRITE_BURST_MS) break;
+    oldestTs = typed[index].tsMs;
+    start = index;
+  }
+  return {
+    input: typed.slice(start).map((part) => part.input).join(""),
+    tsMs: newest.tsMs
+  };
 }
 
 /**
- * The session card: the machine, the attached session, its age and the last keystroke it received.
+ * The session card: the machine, the attached session, its age and the last line it received.
  *
  * It is the first block on the Terminal page, above the toolbar and the screen. A person opening
  * the page meets the session rather than a black rectangle, and the card is outside the xterm's
  * scrollback, so the facts stay put while the terminal scrolls.
+ *
+ * **AFTER A RELOAD IT SAYS WHAT IT KNOWS, NOT MORE.** The console's audit file keeps the session
+ * and the outcome, never the arguments (evidence lives in the live event), and it does not name the
+ * session on a `terminal.write` line. A page that opens after the keystroke therefore cannot read
+ * its text: the old `No keystroke recorded for this session yet` was a claim about the session the
+ * page could not support. The empty state is scoped to this page's own record instead.
  */
 function SessionCard({
   machine,
@@ -530,7 +576,7 @@ function SessionCard({
   liveLines: readonly LiveLine[];
   deviceId: string;
 }) {
-  const last = lastTypedInput(liveLines, deviceId, tab.session);
+  const last = lastTypedLine(liveLines, deviceId, tab.session);
   return (
     <section className="card session-card" aria-label="Session">
       <header>
@@ -555,7 +601,10 @@ function SessionCard({
             </time>
           </>
         ) : (
-          <span className="hint">No keystroke recorded for this session yet.</span>
+          // The page's record starts when its feed does. A session that predates this page has a
+          // history the card cannot read, so the sentence names the record it can support instead
+          // of claiming the session never received a key.
+          <span className="hint">No keystroke recorded since this page opened.</span>
         )}
       </p>
     </section>
@@ -589,7 +638,7 @@ export function TerminalWorkspace({
   /**
    * The console's live activity, newest first. Optional because the workspace also renders without a
    * feed (a test, or a page before the stream opens); the card then says no keystroke is recorded
-   * rather than showing one it does not have.
+   * since this page opened rather than showing one it does not have.
    */
   liveLines?: readonly LiveLine[];
   onGrantRefused?: () => void;
