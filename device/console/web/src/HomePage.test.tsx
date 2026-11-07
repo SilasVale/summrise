@@ -76,18 +76,22 @@ function liveCall(overrides: Partial<LiveLine> = {}): LiveLine {
 }
 
 /**
- * `count` calls today, newest first: the hub's day when a test needs more rows than one screen.
- * The times sit in today's first hour, so the day filter keeps every row whatever the wall clock.
+ * `count` calls today, newest first, in the part of the local day that has already happened: the
+ * newest sits just before `now`, and the block is compressed toward midnight so the oldest stays on
+ * this side of it. The times therefore never sit on a boundary — a fixed 01:00 block is in the
+ * future until 01:00, and on the first hour after midnight a live row is older than it and is
+ * pushed out of the newest 60.
  * They are the AI's calls: the hub draws client-proven rows, so a fixture without a caller would
  * be hidden by the very rule these tests exercise.
  */
 function todayCalls(count: number): AuditLine[] {
-  const start = new Date();
+  const now = Date.now();
+  const start = new Date(now);
   start.setHours(0, 0, 0, 0);
-  const base = start.getTime() + 3_600_000;
+  const gap = Math.min(1_000, (now - start.getTime()) / (count + 1));
   return Array.from({ length: count }, (_, index) =>
     call({
-      ts_ms: base - index * 1000,
+      ts_ms: Math.floor(now - (index + 1) * gap),
       caller: "client",
       tool: `tool.${index}`,
       sentence: `Call ${index}`

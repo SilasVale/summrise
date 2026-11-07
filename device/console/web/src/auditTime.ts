@@ -45,8 +45,10 @@ function startOfLocalDay(now: number): number {
  * The preset's range at `now`.
  *
  * `Today` and `Yesterday` are local calendar days, because the page's day labels are; `Last hour`
- * and `Last week` are rolling windows, because their words are. `Yesterday` ends at today's
- * midnight: its last moment is the one before it, which `[from, to)` already means.
+ * and `Last week` are rolling windows, because their words are. An hour is 3,600,000 ms of instant,
+ * not a slice of one calendar day: at 00:30 it starts at 23:30 yesterday and keeps the previous
+ * day's tail. `Yesterday` ends at today's midnight: its last moment is the one before it, which
+ * `[from, to)` already means.
  */
 export function presetRange(preset: AuditPreset, now = Date.now()): AuditRange {
   switch (preset) {

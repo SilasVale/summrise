@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
 import { HttpError } from "./api";
 import { auditFailed } from "./auditFilter";
+import { rangeText } from "./auditTime";
 import type { AuditLine } from "./api";
 import { VITALS_KEY_PREFIX, type VitalsSample } from "./vitals";
 import { resetLiveToolsCache } from "./useLiveTools";
@@ -1385,7 +1386,9 @@ describe("App", () => {
     expect(range.to - range.from).toBe(60 * 60_000);
     expect(device).toBeUndefined();
     expect(limit).toBe(1000);
-    await screen.findByText(/^Showing \d\d:\d\d–\d\d:\d\d of \d\d-\d\d, 1 line$/);
+    // The sentence names the range the page asked for, in the range's own words: at 00:30 that is
+    // "23:30–00:30" across two local days, and the page must not pretend the hour stayed on one.
+    await screen.findByText(`Showing ${rangeText(range)}, 1 line`);
     await waitFor(() =>
       expect(window.location.hash).toBe(`#activity?from=${range.from}&to=${range.to}`)
     );

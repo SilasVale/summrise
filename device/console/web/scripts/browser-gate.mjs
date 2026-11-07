@@ -500,6 +500,35 @@ function dayCounts(lines) {
   return day;
 }
 
+/**
+ * The page's range words for two instants: `09:00–17:00 of 11-05`, or both ends when the range
+ * crosses a local midnight (`11-06 23:30 – 11-07 00:30`).
+ *
+ * The range is the request's two moments, so the gate names those instead of assuming one date. At
+ * 00:30 `Last hour` is an hour wide across two local days; in the first hour after midnight a
+ * single-date shape would reject a sentence the page is right to draw.
+ */
+function rangeText(from, to) {
+  const pad = (value) => String(value).padStart(2, '0');
+  const clock = (ms) => {
+    const at = new Date(ms);
+    return `${pad(at.getHours())}:${pad(at.getMinutes())}`;
+  };
+  const day = (ms) => {
+    const at = new Date(ms);
+    return `${pad(at.getMonth() + 1)}-${pad(at.getDate())}`;
+  };
+  const first = new Date(from);
+  const last = new Date(to);
+  const sameDay =
+    first.getFullYear() === last.getFullYear() &&
+    first.getMonth() === last.getMonth() &&
+    first.getDate() === last.getDate();
+  return sameDay
+    ? `${clock(from)}–${clock(to)} of ${day(from)}`
+    : `${day(from)} ${clock(from)} – ${day(to)} ${clock(to)}`;
+}
+
 /** The one route that is a stream: the page subscribes to it and the device's bytes arrive on it. */
 const streamRoute = /^\/terminal\/[^/]+\/[^/]+\/stream$/;
 
@@ -2510,16 +2539,24 @@ try {
     throw new Error(`the preset asked for ${JSON.stringify(state.lastRange)}, not one hour`);
   }
   const rangeSentence390 = (await page.locator('.audit-cap').textContent())?.trim() ?? '';
-  const rangeMatch = /^Showing \d{2}:\d{2}–\d{2}:\d{2} of \d{2}-\d{2}, (\d+) lines?$/.exec(
-    rangeSentence390
-  );
+  const rangeMatch = /^Showing (.+), (\d+) lines?$/.exec(rangeSentence390);
   if (!rangeMatch) {
     throw new Error(`the range sentence read ${JSON.stringify(rangeSentence390)}`);
   }
-  const rangeRows = await page.locator('.audit-row').count();
-  if (Number(rangeMatch[1]) !== state.lastRange.count || rangeRows !== state.lastRange.count) {
+  // **THE SENTENCE NAMES THE RANGE THE REQUEST ASKED FOR.** At 00:30 "Last hour" spans two local
+  // days, and the sentence says `11-06 23:30 – 11-07 00:30`; checking a single-date shape would
+  // call that correct sentence a failure until 01:00.
+  const namedRange = rangeText(state.lastRange.from, state.lastRange.to);
+  if (rangeMatch[1] !== namedRange) {
     throw new Error(
-      `the sentence and rows counted ${rangeMatch[1]}/${rangeRows}, the answer held ` +
+      `the range sentence named ${JSON.stringify(rangeMatch[1])}, ` +
+        `the answer's range was ${JSON.stringify(namedRange)}`
+    );
+  }
+  const rangeRows = await page.locator('.audit-row').count();
+  if (Number(rangeMatch[2]) !== state.lastRange.count || rangeRows !== state.lastRange.count) {
+    throw new Error(
+      `the sentence and rows counted ${rangeMatch[2]}/${rangeRows}, the answer held ` +
         `${state.lastRange.count}`
     );
   }

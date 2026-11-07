@@ -37,6 +37,31 @@ describe("the Activity page's time presets", () => {
     expect(presetRange("hour", now)).toEqual({ from: now - 60 * 60_000, to: now });
     expect(presetRange("week", now)).toEqual({ from: now - 7 * 24 * 60 * 60_000, to: now });
   });
+
+  it("keeps Last hour one instant long when it crosses midnight", () => {
+    // At 00:30 the last hour is 23:30–00:30: it is an instant's width, not "today so far". A range
+    // that started at the local midnight would silently lose the previous day's tail.
+    const now = local(2026, 11, 5, 0, 30);
+    const range = presetRange("hour", now);
+    expect(range).toEqual({ from: local(2026, 11, 4, 23, 30), to: now });
+    expect(rangeText(range)).toBe("11-04 23:30 – 11-05 00:30");
+    // Today is still its own midnight, not the hour's start.
+    expect(presetRange("today", now)).toEqual({ from: local(2026, 11, 5, 0), to: now });
+  });
+
+  it("leaves a midday Last hour unchanged", () => {
+    const now = local(2026, 11, 5, 12, 0);
+    const range = presetRange("hour", now);
+    expect(range).toEqual({ from: local(2026, 11, 5, 11), to: now });
+    expect(rangeText(range)).toBe("11:00–12:00 of 11-05");
+  });
+
+  it("holds Today's midnight boundary at 00:00", () => {
+    const midnight = local(2026, 11, 5, 0, 0);
+    expect(presetRange("today", midnight)).toEqual({ from: midnight, to: midnight });
+    // A tick after midnight it is still the same local midnight, not yesterday's or the range's.
+    expect(presetRange("today", midnight + 1)).toEqual({ from: midnight, to: midnight + 1 });
+  });
 });
 
 describe("the range sentence", () => {
