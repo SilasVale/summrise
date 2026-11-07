@@ -745,6 +745,65 @@ still finds.
 10. **`the console has 0.3.290` names the installer/release as the console** *(Implemented 01d448e: `the release is 0.3.290`.)* (the console build is 0.3.273-ux99).
     **Fix:** say the release, not the console. **S.**
 
+## P0 — the twenty-first list (opened 2026-11-07, from the audit of ux100)
+
+Measured 2026-11-07 20:47–21:22Z on live 0.3.273-ux100 at 1440 and 390; the 9VH applied 0.3.291 at
+20:55:49Z during the tour, the 84T is 0.3.291, CPH 0.3.289 offline 11h09m, 14R 0.3.275 offline
+2d12h. The twentieth list's items are live except its two residuals (this list's 5 and 6).
+
+1. **Device → Overview is Activity a second time.** Its Now band's newest five calls are the first five
+   rows of its own Today timeline — the same ActivityTimeline rows under the same Today heading. **Fix:**
+   Overview keeps the machine's state and its one next action; the calls live only in the timeline below.
+   **M.**
+
+2. **At 390 the Device tab strip hides Machine.** clientWidth 358 vs scrollWidth 447; the active
+   `Machine` sits at x=389–461 with scrollLeft 0, so `#device/machine` shows no selected tab. **Fix:** the
+   strip scrolls to the active tab (or wraps) so the selected tab is always visible. **M.**
+
+3. **At 390 the Connect sheet clips its instructions.** Body 389 wide, content 440–596; the Tokens tab is
+   cut to "Toke", the endpoint paragraph cut mid-sentence. **Fix:** the sheet fits 390 with no sideways
+   clipping. **S.**
+
+4. **Activity → Table is an 8-control filter form.** At 1440 there are two Export buttons in two rows and
+   a relative-only `When` against the Timeline's clock; at 390 it is a 5-column grid in 320 px with its
+   first row at y=746 cut by the tab bar (page 87,476 px). **Fix:** one filter row, one Export, the same
+   time vocabulary as the timeline, a 390 layout that starts above the fold. **M.**
+
+5. **The 9VH's repair task is still the old split-command registration on 0.3.291.** `SummriseRepair` is
+   `C:\Program` + `Files\Summrise\repair.cmd`, lastResult 0x80070002 at 21:15:01Z, every five minutes,
+   registered 2026-11-06T01:45:52 — the machine took 0.3.291 by channel, which never runs the setup, so
+   the task was never re-registered. The console shows no row for the task. **Fix:** re-register it on
+   the host by a real setup run (or make the launcher repair a stale task on boot), and show the task's
+   health on the Machine tab. **M.**
+
+6. **The 84T's update card says "Last check not recorded"** while the 9VH's shows the check six seconds
+   before its apply (20:55:43Z vs 20:55:49Z); "Last outcome applied" also repeats "Applied 0.3.291".
+   **Fix:** read the check the launcher writes, and drop the duplicate clause. **S/M.**
+
+7. **Every updated machine states one age twice:** `started 0.3.291 · 7m ago (updated 7m ago)` on Home and
+   every device tab except Machine; `last_update.at_ms == restarts[0].at_ms` on both online machines.
+   **Fix:** say it once. **S.**
+
+8. **The offline Overview's advice contradicts its own card.** It says to open `Device → Machine` "for
+   the machine's last facts", and that card says "The console has no machine facts from this device yet"
+   (14R/CPH) — true only of the console process, restarted ~20:40Z. **Fix:** date the absence, or keep the
+   last frame. **S/M.**
+
+9. **Activity's "Today: 18 client calls" sits above "486 rows in this window"** (a 24h37m window whose span
+   is stated nowhere) — 27× apart, same noun. **Fix:** label the window's span, or count the same window.
+   **S.**
+
+10. **The empty console says "Run the command" before the installer**, shows the command last in an
+    unlabeled panel, and says `No machines yet` + `0 machines · 0 online`. **Fix:** the enrollment/installer
+    doors read as the next step, labelled; the zero state reads as one sentence. **S.**
+
+11. **At 390 the Files "Filter this folder" floats on its own row at x=101** while every other control
+    starts at x=33. **Fix:** align the control. **S.**
+
+12. **Screen offers an enabled Capture screen on a machine whose helper it says has not registered** and
+    "a capture will be refused". **Fix:** disable it with the reason (as the 84T's disconnected-session case
+    already does). **S.**
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
