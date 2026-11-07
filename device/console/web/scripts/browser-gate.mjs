@@ -419,6 +419,8 @@ const DESTRUCTIVE_TOOLS = new Set(['terminal.create', 'terminal.write']);
 // page wrote, and whether the echo has been handed back.
 const state = {
   signedIn: false,
+  /** Whether the page is expected to draw a refused sign-in: its 401 is under test, not a fault. */
+  refuseSignIn: false,
   opened: false,
   writes: '',
   echoed: false,
@@ -898,6 +900,9 @@ page.on('console', (message) => {
   // The same for the offline machine's tools read: its 503 is the measured answer the offline
   // token-form leg exists to show, not a fault of the page.
   if (state.offlineToolsFails && message.text().includes('503')) return;
+  // And for the deliberately refused sign-in: the browser logs `/auth`'s 401 as a resource error,
+  // while the panel's alert is what that leg measures.
+  if (state.refuseSignIn && message.text().includes('401')) return;
   errors.push(message.text());
 });
 page.on('pageerror', (error) => errors.push('pageerror: ' + error.message));
@@ -939,6 +944,28 @@ try {
   await page.getByRole('heading', { name: 'Sign in to the console' }).waitFor({ timeout: 10_000 });
   step('login form rendered from an unauthenticated /session');
   await page.screenshot({ path: path.join(OUT, '01-login.png') });
+
+  // **A REFUSED SIGN-IN IS AN ANNOUNCED SENTENCE.** The stub refuses `wrong-token`; the panel draws
+  // the console's generic sentence as a role=alert, with the machine code in the title, and starts
+  // it with a capital (audit-39 F6). The real token is typed right after.
+  await page.getByLabel('Operator token').fill('wrong-token');
+  state.refuseSignIn = true;
+  await page.getByRole('button', { name: 'Sign in' }).click();
+  const signInAlert = page.getByRole('alert');
+  await signInAlert.waitFor({ timeout: 10_000 });
+  const signInText = (await signInAlert.textContent())?.trim();
+  if (signInText !== 'The console could not sign you in.') {
+    throw new Error(`the refused sign-in read ${JSON.stringify(signInText)}`);
+  }
+  const signInCause = await signInAlert.getAttribute('title');
+  if (signInCause !== '401 invalid_token') {
+    throw new Error(`the refusal's cause was ${JSON.stringify(signInCause)}`);
+  }
+  // The browser's own resource-error line for the 401 arrives with the response, a beat later.
+  await page.waitForTimeout(300);
+  state.refuseSignIn = false;
+  step('a refused sign-in is an alert, its sentence capitalized, its cause in the title');
+  await page.screenshot({ path: path.join(OUT, '01b-login-refused.png') });
 
   await page.getByLabel('Operator token').fill(TOKEN);
   await page.getByRole('button', { name: 'Sign in' }).click();
@@ -1035,7 +1062,8 @@ try {
   );
 
   // **THE FLEET IS A TABLE, NOT A SECOND ACTIVITY.** Machine / Status / Version / Started are the
-  // four facts; the names are 16 px semibold, the dot sits with its word and the version is a chip.
+  // four facts; the names are the scale's 17 px semibold, the dot sits with its word and the version
+  // is a chip.
   // No row draws `client calls`: that counter is Activity's noun and it made Home read like a copy.
   const fleet1440 = await page.evaluate(() => {
     const table = document.querySelector('table.fleet-table');
@@ -1077,10 +1105,10 @@ try {
   if (fleet1440.rows.length !== 4) {
     throw new Error(`the fleet drew ${fleet1440.rows.length} rows at 1440`);
   }
-  if (fleet1440.rows[0].nameSize !== 16 || fleet1440.rows[0].nameWeight !== '600') {
+  if (fleet1440.rows[0].nameSize !== 17 || fleet1440.rows[0].nameWeight !== '600') {
     throw new Error(
       `the fleet name read ${fleet1440.rows[0].nameSize}px/${fleet1440.rows[0].nameWeight}, ` +
-        'not 16px/600'
+        "not the scale's 17px/600"
     );
   }
   for (const row of fleet1440.rows) {
@@ -1124,7 +1152,7 @@ try {
   step(
     `the fleet is a 4-row table (${fleet1440.rows
       .map((row) => `${row.name} ${row.height}px`)
-      .join(', ')}), 16 px names, a version chip and a start line; the installer sits below it`
+      .join(', ')}), 17 px names, a version chip and a start line; the installer sits below it`
   );
 
   await page.setViewportSize({ width: 1280, height: 900 });
@@ -1476,9 +1504,10 @@ try {
     allActivityRows,
     { timeout: 10_000 }
   );
-  // THE RECORD'S SHAPE, MEASURED. The day is a heading, the verb is 15–16 px, the machine and age
-  // are on a second line, and the technical hints are the footer after the timeline. The page is
-  // not Home's card: no installer, no verdict block.
+  // THE RECORD'S SHAPE, MEASURED. The day is a heading, the verb is the scale's 14 px, the machine
+  // and age are on a second line, and the technical hints are the footer after the timeline. The
+  // page is not Home's card: no installer, no verdict block. The sizes are the seven-step scale's
+  // tokens (`--fs-lg` 17, `--fs-xl` 22, `--fs-md` 14), not raw pixels (312da21).
   const activityDesign = await page.evaluate(() => {
     const sentence = document.querySelector('.activity-today');
     const day = document.querySelector('.timeline-day-label');
@@ -1512,14 +1541,14 @@ try {
       verdict: document.querySelectorAll('.home-verdict, .attention').length
     };
   });
-  if (activityDesign.sentence < 18) {
-    throw new Error(`the day's sentence is ${activityDesign.sentence}px, not a readable 18px`);
+  if (activityDesign.sentence !== 17) {
+    throw new Error(`the day's sentence is ${activityDesign.sentence}px, not the scale's 17px`);
   }
-  if (activityDesign.day < 18) {
-    throw new Error(`the day heading is ${activityDesign.day}px, not a heading`);
+  if (activityDesign.day !== 22) {
+    throw new Error(`the day heading is ${activityDesign.day}px, not the scale's 22px`);
   }
-  if (activityDesign.verb < 15 || activityDesign.verb > 16) {
-    throw new Error(`the row's verb is ${activityDesign.verb}px, not 15–16px`);
+  if (activityDesign.verb !== 14) {
+    throw new Error(`the row's verb is ${activityDesign.verb}px, not the scale's 14px`);
   }
   if (activityDesign.rowHeight < 60) {
     throw new Error(`the row is ${activityDesign.rowHeight}px tall, not a record row`);
@@ -1545,7 +1574,7 @@ try {
   );
 
   // The phone keeps the record: no sideways scroll, the age still on the second line, the verb at
-  // the same 15 px.
+  // the same scale token (14 px).
   await page.setViewportSize({ width: 390, height: 844 });
   await page.waitForTimeout(300);
   const activity390 = await page.evaluate(() => ({
@@ -1559,8 +1588,10 @@ try {
       `Activity at 390 scrolls sideways: ${activity390.viewport}/${activity390.scrollWidth}`
     );
   }
-  if (activity390.verb < 15) {
-    throw new Error(`Activity at 390 dropped its verb to ${activity390.verb}px`);
+  if (activity390.verb !== 14) {
+    throw new Error(
+      `Activity at 390 dropped its verb to ${activity390.verb}px, not the scale's 14px`
+    );
   }
   if (activity390.age === 'none') {
     throw new Error('Activity at 390 hid the age from the second line');
@@ -1569,7 +1600,7 @@ try {
   await page.waitForTimeout(300);
   step(
     `Activity at 390 has no sideways scroll (${activity390.viewport}/${activity390.scrollWidth}), ` +
-      `keeps the 15px verb and the age`
+      `keeps the 14px verb and the age`
   );
 
   step(
@@ -2325,6 +2356,10 @@ try {
   await page.locator('nav.rail button[title="Home"]').click();
   await page.getByRole('heading', { name: 'Machines', exact: true }).waitFor({ timeout: 10_000 });
   await page.getByRole('button', { name: /^Open DESKTOP-14RJCR8/ }).waitFor({ timeout: 10_000 });
+  // The attention rows and the installer strip are two reads of one page: `/fleet` can answer
+  // before `/installer`, and measuring the block then sees only the offline machine. The strip is
+  // asserted below, so wait for the read that makes the measured 5 rows the settled page's.
+  await page.locator('.installer').waitFor({ timeout: 10_000 });
   const offlineState390 = (
     await page
       .locator('tr.fleet-row', {
@@ -3167,6 +3202,20 @@ try {
     throw new Error('the unavailable installer still drew a download link');
   }
   step('with no installer staged the fleet states the sentence and draws no link');
+
+  // **THE SIGN-IN PANEL HAS AN ADDRESS.** A cold boot at `#signin` draws the panel even with the
+  // gate's session in force — no sign-out gesture first — and Back returns to the console still
+  // signed in (audit-39 F6).
+  await page.goto(base + '/#signin', { waitUntil: 'domcontentloaded' });
+  await page.getByRole('heading', { name: 'Sign in to the console' }).waitFor({ timeout: 10_000 });
+  if (new URL(page.url()).hash !== '#signin') {
+    throw new Error(`#signin was rewritten to ${new URL(page.url()).hash}`);
+  }
+  await page.getByText('This tab is already signed in.').waitFor({ timeout: 10_000 });
+  await page.getByRole('button', { name: 'Back to the console' }).click();
+  await page.getByRole('heading', { name: 'Machines', exact: true }).waitFor({ timeout: 10_000 });
+  await page.waitForFunction(() => window.location.hash === '#home', null, { timeout: 10_000 });
+  step('the sign-in panel answers at #signin, and Back returns to the console still signed in');
 
   if (errors.length > 0) throw new Error('console errors: ' + errors.join(' ;; '));
   console.log(

@@ -299,7 +299,12 @@ function FleetHome(props: FleetProps) {
       <header className="page-head">
         <div>
           <h1>Machines</h1>
-          <p className={"home-verdict" + (problems.length > 0 ? " has-attention" : "")}>
+          {/* **THE FAILURE IS SAID ONCE, BY THE BANNER.** This line says what the page cannot show;
+              the browser's cause is evidence, and evidence sits in a title (audit-39 F4). */}
+          <p
+            className={"home-verdict" + (problems.length > 0 ? " has-attention" : "")}
+            title={fleet.state === "failed" ? fleet.reason : undefined}
+          >
             {verdict}
           </p>
           {empty && <p className="page-sub">0 machines · 0 online</p>}
@@ -337,12 +342,15 @@ function FleetHome(props: FleetProps) {
       )}
 
       {fleet.state === "failed" && (
+        // ONE FAILURE, ONE SENTENCE. The shell's banner names the read and keeps `Failed to fetch`
+        // in its title; this notice says only what the page can and cannot show, and offers the
+        // page's own read again. It used to repeat the failure with the browser's words, so the
+        // measured page said the same thing three times (audit-39 F4).
         <div className="notice" role="status">
           <span>
-            The console could not read the machine list: {fleet.reason}.
             {props.devices.length > 0
-              ? " The machines below are the last list it read."
-              : ""}
+              ? "The machines below are the last list it read."
+              : "The machine list is not shown."}
           </span>
           <button type="button" onClick={() => props.onRetryFleet?.()}>
             Retry

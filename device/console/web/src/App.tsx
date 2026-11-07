@@ -44,6 +44,11 @@ import { useMediaQuery } from "./useMediaQuery";
 /// device-specific surface without one lands on the picker instead.
 const SELECTED_KEY = "summrise.selected.device";
 
+/// The sign-in panel's address. The panel used to be reachable only through Account → Sign out, so a
+/// reader told "the sign-in page" had no URL to try; `#signin` draws it (and the sign-out gesture
+/// leaves this address behind, audit-39 F6).
+const SIGN_IN_HASH = "#signin";
+
 function readSelectedDevice(): string | null {
   try {
     return localStorage.getItem(SELECTED_KEY);
@@ -368,6 +373,13 @@ export function App() {
   // A run id handed from Activity to Runs; RunsPage consumes it once and clears it.
   const [runsFocus, setRunsFocus] = useState<string | null>(initialRun?.runId ?? null);
   /**
+   * Whether the address names the sign-in panel. It is a view of its own, not a fourth destination:
+   * the rail still has three, and a successful sign-in returns to the surface the page was on.
+   */
+  const [signInRoute, setSignInRoute] = useState(
+    () => window.location.hash === SIGN_IN_HASH
+  );
+  /**
    * The shell's named failures, one entry per read and replaced by that read's next failure.
    *
    * THE OLD STATE WAS ONE STRING OF RAW CAUSES: `The console could not read Failed to fetch`, and
@@ -513,21 +525,16 @@ export function App() {
     daySummary !== null &&
     daySummary.device === auditScopeDevice &&
     auditDevice === auditScopeDevice;
-  /** The audit the page is supposed to be drawing, as a sentence's subject. */
-  const auditSubject =
-    auditScopeDevice === null
-      ? "the fleet's audit"
-      : `${auditReadingName ?? "the machine"}'s audit`;
   /**
-   * The page's own notice, in the hub's voice: the reason the read failed, what the timeline is
-   * therefore showing, and the control that reads again. A failed read with no window is the
-   * measured F6 state; one over a window already in hand keeps that window and says so.
+   * What the page can show while the audit is unread: the useful clause only. The failure itself is
+   * the shell banner's one sentence, and the cause is the header line's title — the page said it
+   * three times, the last time in the browser's words (audit-39 F4).
    */
   const auditFailedNotice =
     auditRead.state === "failed"
       ? auditHaveWindow
-        ? `The console could not read ${auditSubject}: ${auditRead.reason}. The rows below are the last read; calls that arrive live are added to them.`
-        : `The console could not read ${auditSubject}: ${auditRead.reason}. This timeline shows only calls that arrive live.`
+        ? "The rows below are the last read; calls that arrive live are added to them."
+        : "This timeline shows only calls that arrive live."
       : null;
   /** No window is in hand: the page's subtitle says so, and the list may not claim emptiness. */
   const auditUnread = auditRead.state !== "ready" && !auditHaveWindow;
@@ -760,9 +767,10 @@ export function App() {
     setOpenTool(null);
     setConnect(null);
     setCode(null);
-    if (window.location.hash) {
-      window.history.replaceState(null, "", window.location.pathname + window.location.search);
-    }
+    // THE WAY OUT LEAVES THE PANEL'S ADDRESS. The signed-out card is a page with a URL, not a state
+    // a reader can only reach by pressing this button (audit-39 F6).
+    setSignInRoute(true);
+    window.history.replaceState(null, "", SIGN_IN_HASH);
   };
 
   /** Pick a machine (or All machines) and remember the choice, staying on the current destination. */
@@ -791,6 +799,8 @@ export function App() {
   // instead of leaving a stale run in the URL.
   useEffect(() => {
     if (!session?.authenticated) return;
+    // `#signin` is a view the address asks for, not a surface this effect may overwrite with #home.
+    if (signInRoute) return;
     const run = parseRunLink(window.location.hash);
     if (run && page === "device" && tab === "runs" && runsFocus) return;
     const wanted = surfaceHash({
@@ -803,7 +813,7 @@ export function App() {
       range: page === "activity" ? activityRange ?? undefined : undefined
     });
     if (window.location.hash !== wanted) window.history.replaceState(null, "", wanted);
-  }, [page, tab, screenView, openTool, runsFocus, session?.authenticated, activityRange]);
+  }, [page, tab, screenView, openTool, runsFocus, session?.authenticated, activityRange, signInRoute]);
 
   // **THE ADDRESS BAR IS PART OF THE SURFACE, NOT ONLY A RECORD OF IT.** Every navigation wrote the
   // fragment and nothing read it back: Back and Forward moved the URL and left the view where it was,
@@ -811,6 +821,13 @@ export function App() {
   // uses apply every fragment change, so a hash the app cannot read leaves the screen alone.
   useEffect(() => {
     const apply = () => {
+      // THE SIGN-IN PANEL IS AN ADDRESS, NOT A GESTURE'S SIDE EFFECT. Reachable signed in or out,
+      // and never rewritten to #home by the surface effect while the hash names it.
+      if (window.location.hash === SIGN_IN_HASH) {
+        setSignInRoute(true);
+        return;
+      }
+      setSignInRoute(false);
       const run = parseRunLink(window.location.hash);
       if (run) {
         setSelected(run.deviceId);
@@ -852,10 +869,10 @@ export function App() {
         : page === "home" && chosen === null
           ? "Machines"
           : PAGE_LABELS[page];
-    document.title = session?.authenticated
+    document.title = session?.authenticated && !signInRoute
       ? `${current} · Summrise console`
       : "Sign in · Summrise console";
-  }, [page, tab, chosen, session?.authenticated]);
+  }, [page, tab, chosen, session?.authenticated, signInRoute]);
 
   const signIn = async () => {
     setBusy(true);
@@ -864,15 +881,20 @@ export function App() {
       // which now carries the cookie, so the fleet appears without a token in this tab.
       await api.signIn({ token: tokenInput.trim() });
       setTokenInput("");
-      await load();
+      // A successful sign-in leaves the panel: `#signin` is its address, not a place to stay after
+      // the credential is accepted.
+      setSignInRoute(false);
+      if (session?.authenticated) await probe();
+      else await load();
     } catch (cause) {
       // THE REFUSAL'S OWN SENTENCE IS THE ACTION. The Rust `/auth` 401 names the value to type and
       // the flag whose file holds it; the generic apology is only for a refusal that said nothing.
       // `HttpError.message` falls back to the machine code, so a bare `unauthorized` is not a
-      // sentence: only a message distinct from the code is the console's own words.
+      // sentence: only a message distinct from the code is the console's own words. The console
+      // writes a fragment; on the page it is a sentence, so it starts with a capital (audit-39 F6).
       const refusal =
         cause instanceof HttpError && cause.message && cause.message !== cause.code
-          ? cause.message
+          ? asSentence(cause.message)
           : null;
       reportFailure({
         key: "sign-in",
@@ -1027,12 +1049,28 @@ export function App() {
     );
   }
 
-  if (!session.authenticated) {
+  // THE PANEL HAS AN ADDRESS. `#signin` draws it whether or not this tab holds a session, so a
+  // person told "the sign-in page" has somewhere to go without first signing out (audit-39 F6).
+  if (!session.authenticated || signInRoute) {
+    const alreadySignedIn = session.authenticated;
     return (
       <div className="login-wrap">
         <section className="panel login">
           <img src={logoUrl} alt="" width={40} height={40} />
-          {proxied ? (
+          {alreadySignedIn ? (
+            <>
+              <h1>Sign in to the console</h1>
+              <p className="hint">
+                This tab is already signed in. Entering an operator token replaces the sign-in it
+                holds; nothing on the console changes until it is accepted.
+              </p>
+              <div className="login-actions">
+                <button type="button" onClick={() => setSignInRoute(false)}>
+                  Back to the console
+                </button>
+              </div>
+            </>
+          ) : proxied ? (
             <>
               {/* SIGNING OUT IS A TAB'S GESTURE, NOT THE IDENTITY'S. The console was reached through
                   a proxy that stamps the tailnet login on every request, so a local sign-out cannot
@@ -1048,7 +1086,11 @@ export function App() {
                 <button
                   type="button"
                   className="primary"
-                  onClick={() => window.location.reload()}
+                  // Drop `#signin` before reloading: the address is the panel, and a proxied identity
+                  // that reloads there would be shown the panel again rather than the console.
+                  onClick={() =>
+                    window.location.assign(window.location.pathname + window.location.search)
+                  }
                 >
                   Load the console again
                 </button>
@@ -1099,8 +1141,12 @@ export function App() {
             {busy ? "Checking…" : "Sign in"}
           </button>
           {failures.length > 0 && (
+            // A REFUSED SIGN-IN IS AN ALERT. The shell's banner already announces other failures;
+            // the panel's sentence is the console's answer to the press and is announced the same
+            // way (audit-39 F6), with the browser's cause in the title.
             <p
               className="error"
+              role="alert"
               title={
                 failures
                   .map((failure) => failure.detail)
@@ -1246,7 +1292,13 @@ export function App() {
                 {activityCount !== null && activityRange === null && (
                   <p className="page-sub activity-today">{activityCount}</p>
                 )}
-                <p className="page-sub activity-status">
+                {/* **THE PAGE'S LINE, WITH THE CAUSE IN ITS TITLE.** The shell banner carries the
+                    named failure once; this line says what the page cannot show, and the browser's
+                    own text is evidence rather than a sentence (audit-39 F4). */}
+                <p
+                  className="page-sub activity-status"
+                  title={auditRead.state === "failed" ? auditRead.reason : undefined}
+                >
                   {live.lagged > 0
                     ? `${live.lagged} lines were dropped while this tab was behind; rereading`
                     : activityPaused
@@ -1274,8 +1326,8 @@ export function App() {
             </header>
             {auditFailedNotice !== null && (
               // THE HUB'S SENTENCE, ON THE PAGE THAT OWNS THE FILTER. A live-only timeline under a
-              // record the console could not read must say which half it is showing, with the reason
-              // and the read again — audit-38 F6 measured the page silent about it.
+              // record the console could not read says which half it is showing — the failure itself
+              // is the banner's, not a second sentence here (audit-39 F4).
               <div className="notice" role="status">
                 <span>{auditFailedNotice}</span>
                 <button
@@ -1593,6 +1645,18 @@ function tokensOrEmpty(): Promise<TokenMeta[]> {
 function describe(cause: unknown): string {
   if (cause instanceof HttpError) return `${cause.status} ${cause.code}`;
   return cause instanceof Error ? cause.message : String(cause);
+}
+
+/**
+ * The console's sentence on the page begins with a capital.
+ *
+ * `/auth`'s refusal is written lowercase because it is also a JSON field ("that token was not
+ * accepted; …"); drawn in the panel it is the console speaking to the operator, so it opens like
+ * the page's other sentences. Only the first character moves: the flag name and the number are
+ * the server's words (audit-39 F6).
+ */
+function asSentence(text: string): string {
+  return text.length === 0 ? text : text[0].toUpperCase() + text.slice(1);
 }
 
 /// Whether this page may reload itself once to re-enter Cloudflare Access.

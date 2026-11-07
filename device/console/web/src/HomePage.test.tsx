@@ -1697,10 +1697,12 @@ describe("Home — the fleet's read", () => {
       fleetRead: { state: "failed", reason: "Failed to fetch" }
     });
 
+    // ONE FAILURE, ONE SENTENCE (audit-39 F4): the page says what it cannot show, the cause is the
+    // line's title, and the browser's words are never the page's sentence.
     expect(screen.getByText("The machine list could not be read.")).toBeInTheDocument();
-    expect(
-      screen.getByText("The console could not read the machine list: Failed to fetch.")
-    ).toBeInTheDocument();
+    expect(screen.getByText("The machine list is not shown.")).toBeInTheDocument();
+    expect(screen.getByTitle("Failed to fetch")).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain("Failed to fetch");
     expect(screen.queryByText("No machines yet")).toBeNull();
     // The failed read states its own failure; it does not take away the next step.
     expect(screen.getByRole("button", { name: "Add a machine" })).toBeInTheDocument();
@@ -1719,9 +1721,13 @@ describe("Home — the fleet's read", () => {
       fleetRead: { state: "failed", reason: "503 device_unavailable" }
     });
 
+    expect(screen.getByText("The machine list could not be read.")).toBeInTheDocument();
     expect(
       screen.getByText(/The machines below are the last list it read\./)
     ).toBeInTheDocument();
+    // The stale clause replaces the failure sentence; the console's status is the title's.
+    expect(screen.getByTitle("503 device_unavailable")).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain("503 device_unavailable");
     expect(screen.getByText("workshop")).toBeInTheDocument();
     expect(screen.queryByText("No machines yet")).toBeNull();
     // A stale list is still not a clean page: the door to add another machine is there.
@@ -1757,9 +1763,8 @@ describe("Home — the fleet's read", () => {
     });
 
     // The failure and its Retry stay; the doors are the next step below the stated failure.
-    expect(
-      screen.getByText("The console could not read the machine list: Failed to fetch.")
-    ).toBeInTheDocument();
+    expect(screen.getByText("The machine list is not shown.")).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain("Failed to fetch");
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));
     expect(onRetryFleet).toHaveBeenCalledTimes(1);
     fireEvent.click(screen.getByRole("button", { name: "Add a machine" }));

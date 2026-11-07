@@ -406,16 +406,23 @@ describe("App", () => {
 
   it("shows the console's own 401 sentence in the sign-in panel", async () => {
     // The Rust `/auth` refusal names the actionable thing — the 64 hex characters and the flag
-    // whose file holds them — and the panel must draw that sentence, not a generic apology.
+    // whose file holds them — and the panel must draw that sentence, not a generic apology. The
+    // server writes it lowercase as a JSON field; on the page it is a sentence (audit-39 F6).
     const refusal =
       "that token was not accepted; the operator token is the 64 hex characters in the file " +
+      "named by --operator-token-file";
+    const shown =
+      "That token was not accepted; the operator token is the 64 hex characters in the file " +
       "named by --operator-token-file";
     mocks.signIn.mockRejectedValueOnce(new HttpError(401, "unauthorized", refusal));
     await boot();
     fireEvent.change(screen.getByLabelText("Operator token"), { target: { value: "wrong-token" } });
     fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
 
-    expect(await screen.findByText(refusal)).toBeInTheDocument();
+    // A refused sign-in is announced: the panel's sentence wears the shell banner's role.
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(shown);
+    expect(screen.queryByText(/^that token was not accepted/)).toBeNull();
     expect(screen.queryByText("The console could not sign you in.")).toBeNull();
     // The cause stays in the title, where the banner's own rule puts evidence.
     expect(screen.getByTitle("401 unauthorized")).toBeInTheDocument();
@@ -429,8 +436,49 @@ describe("App", () => {
     fireEvent.change(screen.getByLabelText("Operator token"), { target: { value: "wrong-token" } });
     fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
 
-    expect(await screen.findByText("The console could not sign you in.")).toBeInTheDocument();
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "The console could not sign you in."
+    );
     expect(screen.queryByText("unauthorized")).toBeNull();
+  });
+
+  it("serves the sign-in panel at #signin on a cold load", async () => {
+    // The address is part of the surface: a reader told "the sign-in page" can paste it, and the
+    // panel's own address is not rewritten to #home (audit-39 F6).
+    window.history.replaceState(null, "", "#signin");
+    await boot();
+
+    expect(window.location.hash).toBe("#signin");
+    expect(document.title).toBe("Sign in · Summrise console");
+
+    fireEvent.change(screen.getByLabelText("Operator token"), { target: { value: "operator-token" } });
+    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+    expect(await screen.findByRole("heading", { name: "Machines", level: 1 })).toBeInTheDocument();
+    // A successful sign-in leaves the panel; the console's own surface takes the address back.
+    await waitFor(() => expect(window.location.hash).toBe("#home"));
+  });
+
+  it("serves the sign-in panel at #signin without signing out first", async () => {
+    await bootAndSignIn();
+
+    // The panel is not behind the sign-out gesture: the address alone draws it, and Back returns
+    // to the console with the session still in force.
+    act(() => {
+      window.history.replaceState(null, "", "#signin");
+      window.dispatchEvent(new Event("hashchange"));
+    });
+    expect(
+      await screen.findByRole("heading", { name: "Sign in to the console" })
+    ).toBeInTheDocument();
+    expect(window.location.hash).toBe("#signin");
+    expect(document.title).toBe("Sign in · Summrise console");
+    expect(screen.getByText(/already signed in/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Back to the console" }));
+    expect(await screen.findByRole("heading", { name: "Machines", level: 1 })).toBeInTheDocument();
+    await waitFor(() => expect(window.location.hash).toBe("#home"));
+    // No logout was made by looking at the panel.
+    expect(mocks.logout).not.toHaveBeenCalled();
   });
 
   it("opens the Device surface named in the URL after sign-in, through the legacy alias", async () => {
@@ -1832,6 +1880,10 @@ describe("App", () => {
 
     expect(mocks.logout).toHaveBeenCalledTimes(1);
     expect(screen.getByRole("heading", { name: "Sign in to the console" })).toBeInTheDocument();
+    // The gesture leaves the panel's address behind, so the page a person is looking at can be
+    // linked to (audit-39 F6).
+    expect(window.location.hash).toBe("#signin");
+    expect(document.title).toBe("Sign in · Summrise console");
     expect(screen.queryByText("workshop")).not.toBeInTheDocument();
     expect(screen.queryByText("2 of 2 online · nothing to do")).not.toBeInTheDocument();
   });
@@ -2137,7 +2189,8 @@ describe("App", () => {
   it("says the audit read failed, with its reason and a retry, instead of following it", async () => {
     // audit-38 F6: the audit was unread, but Activity still said it was following the record; the
     // counts and the source line were gone with no sentence saying why, so a live-only list read as
-    // the whole day's work.
+    // the whole day's work. audit-39 F4: the banner names the failure once; the page keeps only what
+    // it cannot show, and the browser's cause is a title.
     mocks.audit.mockRejectedValue(new TypeError("Failed to fetch"));
     const view = await bootAndSignIn();
     fireEvent.click(screen.getByRole("button", { name: "Activity" }));
@@ -2150,16 +2203,24 @@ describe("App", () => {
     });
 
     expect(screen.queryByText(/Following the console's audit/)).toBeNull();
+    const banner = await screen.findByRole("alert");
+    expect(banner).toHaveTextContent("The console could not read the audit.");
     expect(screen.getByText("The audit could not be read.")).toBeInTheDocument();
+    const status = screen.getByText("The audit could not be read.");
+    expect(status).toHaveAttribute("title", "Failed to fetch");
     const notice = screen
-      .getByText(
-        "The console could not read the fleet's audit: Failed to fetch. This timeline shows only calls that arrive live."
-      )
+      .getByText("This timeline shows only calls that arrive live.")
       .closest(".notice");
     expect(notice).not.toBeNull();
+    expect(notice).not.toHaveTextContent("Failed to fetch");
+    expect(notice).not.toHaveTextContent("could not read");
     expect(
       within(notice as HTMLElement).getByRole("button", { name: "Retry" })
     ).toBeInTheDocument();
+    // The failure is said once in the shell's words; the raw cause is nowhere but a title.
+    expect(screen.getAllByText("The console could not read the audit.")).toHaveLength(1);
+    expect(document.body.textContent).not.toContain("Failed to fetch");
+    expect(screen.getAllByTitle("Failed to fetch")).toHaveLength(2);
     // A record that was not read is not "nothing happened".
     expect(screen.queryByText(/No activity yet/)).toBeNull();
 
@@ -2245,11 +2306,14 @@ describe("App", () => {
       answer.reject(new TypeError("Failed to fetch"));
     });
     expect(screen.getByText("The audit could not be read.")).toBeInTheDocument();
+    // The banner names the read; the page states what it can show, and the cause is a title.
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "The console could not read the audit."
+    );
     expect(
-      await screen.findByText(
-        "The console could not read attic's audit: Failed to fetch. This timeline shows only calls that arrive live."
-      )
+      await screen.findByText("This timeline shows only calls that arrive live.")
     ).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain("Failed to fetch");
     expect(screen.queryByText("Reading attic's window…")).toBeNull();
     expect(screen.queryByText("Read the workshop's notes")).toBeNull();
   });
@@ -2359,11 +2423,15 @@ describe("App", () => {
     mocks.devices.mockRejectedValue(new TypeError("Failed to fetch"));
     const view = await signInWithoutFleet();
 
-    // The console's own words, with the read named: the page does not become a clean empty fleet.
-    expect(
-      await screen.findByText("The console could not read the machine list: Failed to fetch.")
-    ).toBeInTheDocument();
+    // ONE FAILURE, ONE SENTENCE (audit-39 F4): the banner names the read in the console's words and
+    // keeps the browser's text in its title; the page says only what it cannot show.
+    const banner = await screen.findByRole("alert");
+    expect(banner).toHaveTextContent("The console could not read the machine list.");
+    expect(banner).not.toHaveTextContent("Failed to fetch");
+    expect(within(banner).getByTitle("Failed to fetch")).toBeInTheDocument();
     expect(screen.getByText("The machine list could not be read.")).toBeInTheDocument();
+    expect(screen.getByText("The machine list is not shown.")).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain("Failed to fetch");
     expect(screen.queryByText("No machines yet")).toBeNull();
     // The failed read is stated; the next step is still reachable.
     expect(
@@ -2378,12 +2446,13 @@ describe("App", () => {
     await act(async () => {
       (startPoll.mock.calls[poll][0] as () => void)();
     });
-    const banner = await screen.findByRole("alert");
-    fireEvent.click(within(banner).getByRole("button", { name: "Dismiss" }));
+    const repeat = await screen.findByRole("alert");
+    fireEvent.click(within(repeat).getByRole("button", { name: "Dismiss" }));
     expect(screen.queryByRole("alert")).toBeNull();
-    expect(
-      screen.getByText("The console could not read the machine list: Failed to fetch.")
-    ).toBeInTheDocument();
+    expect(screen.getByText("The machine list could not be read.")).toBeInTheDocument();
+    expect(screen.getByText("The machine list is not shown.")).toBeInTheDocument();
+    // The page's line still carries the evidence, now that the banner is gone.
+    expect(screen.getAllByTitle("Failed to fetch")).toHaveLength(1);
     expect(screen.queryByText("No machines yet")).toBeNull();
 
     // Retry is the page's own read, and its answer puts the fleet back.
@@ -2407,7 +2476,7 @@ describe("App", () => {
     const view = await signInWithoutFleet();
 
     // The read's failure is on the page; the enrollment door is the next step and still works.
-    await screen.findByText("The console could not read the machine list: Failed to fetch.");
+    await screen.findByText("The machine list is not shown.");
     fireEvent.click(
       within(screen.getByRole("main")).getByRole("button", { name: "Add a machine" })
     );
@@ -2416,9 +2485,7 @@ describe("App", () => {
     expect(panel).toHaveTextContent(minted);
     expect(mocks.enroll).toHaveBeenCalledTimes(1);
     // Minting did not paper over the read's failure.
-    expect(
-      screen.getByText("The console could not read the machine list: Failed to fetch.")
-    ).toBeInTheDocument();
+    expect(screen.getByText("The machine list is not shown.")).toBeInTheDocument();
     view.unmount();
   });
 
