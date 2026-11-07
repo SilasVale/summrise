@@ -566,15 +566,13 @@ machine's update story, then the controls.
    the machine's work and makes the hub's client count look contradictory. **Fix:** `141 client
    calls`. **S.**
 
-6. **The offline hub tells the operator to open the machine's panel, which it neither links nor
-   addresses.**
+6. **The offline hub tells the operator to open the machine's panel, which it neither links nor addresses.** *(Implemented 2026-11-07, ab7db34: the offline notice says `The console keeps trying; Retry works from here. If it stays offline, open Device → Machine in the console for the machine's last facts. The machine's local panel is http://127.0.0.1:18090/ — it opens only at the machine.`; Device → Machine is a real `#device/machine` anchor (the gate clicks it and lands on the Machine tab), the panel URL is code text, and both branches carry the advice. 821 tests, gate 58 steps, a11y 0/3, `build-web --check` exit 0 after the commit. The live check waits for the 9VH.)*
 
 7. **The console's own deploy needs its host device's shell.**
 
-8. **The hour after midnight breaks the last-hour window.** *(Observed 2026-11-07 00:50–00:56 UTC: three existing web checks failed at the first hour after midnight — the last-hour range crosses the date and the todayCalls fixture sits at 01:00; they pass after 01:00. The console's last-hour/today ranges need the date boundary handled. **Fix:** compute the range by the instant, not the date; add a fixture at 00:30. **S.** (web; the clock window.)* *(Measured 2026-11-06: `console-deploy.sh` fetches the new binary and swaps it through `runs.exec` on the host device (the 9VH), so with that device's service down no console version can be deployed; the console app itself (ux92) keeps serving and the script's only symptom is `the console did not answer: HTTP Error 503`. **Fix:** give the console's host a local/service update path, or have the script name the device dependency up front. **S/M.** (console ops.)* `…open the machine's panel if it stays offline.` with only `Retry`; the panel is
-   `127.0.0.1:18090` and loopback-only, and the console's Connect sheet names only its `/mcp`
-   endpoint. **Cost:** the outage's one "what next" is a dead end from the console. **Fix:** link
-   the Device → Machine view and name the local panel URL as local. **S.**
+8. **The hour after midnight breaks the last-hour window.** *(Fixed 2026-11-07, bc6b92a: the production `presetRange("hour")` was already instant-based (6e37747); the three failures were the checks/fixture — the App test and the gate asserted a single-date sentence, and the HomePage `todayCalls` fixture sat at 01:00 (in the future until then). The checks now assert the requested range (the gate mirrors `rangeText`), the fixture is anchored to `now` and compressed toward midnight, and `auditTime.test.ts` pins 00:30 (23:30–00:30 spans both days), 12:00 and Today's 00:00 boundary. 824 tests, gate 58 steps, a11y 0/3, `build-web --check` exit 0; a 00:30 harness run passes App+HomePage (114 tests) and the gate.)*
+
+9. **The first seconds after midnight turn relative fixtures into yesterday.** *(Observed 2026-11-07 00:00: a full suite run shows 3 pre-existing HomePage fixture failures because tests using `now-10s`/`now-3h` are "yesterday" in the first seconds after midnight; untouched by item 8's commit. **Fix:** anchor those fixtures to `now` and keep them off the date boundary. **S.** (tests/fixtures.)*
 
 ## How a round goes
 
