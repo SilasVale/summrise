@@ -164,7 +164,7 @@ describe("MachineMenu", () => {
     ]);
 
     expect(screen.getByRole("button", { name: /^workshop/ })).toHaveTextContent(
-      "C: 312 GiB free · 283 calls · 38 failed"
+      "C: 312 GiB free · 283 client calls · 38 failed"
     );
   });
 
@@ -177,7 +177,7 @@ describe("MachineMenu", () => {
     ]);
 
     const quiet = screen.getByRole("button", { name: /^quiet/ });
-    expect(quiet).toHaveTextContent("11 calls");
+    expect(quiet).toHaveTextContent("11 client calls");
     expect(quiet).not.toHaveTextContent("failed");
     expect(screen.getByRole("button", { name: /^bare/ })).not.toHaveTextContent("calls");
   });

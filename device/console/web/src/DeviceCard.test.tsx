@@ -84,7 +84,7 @@ describe("DeviceCard — one row on the fleet", () => {
     const since = midnight.getTime() + (3 * 60 + 12) * 60_000;
     draw({ today: { client_calls: 554, failed: 53, since_ms: since } });
 
-    expect(screen.getByText("554 calls · 53 failed · since 03:12")).toBeInTheDocument();
+    expect(screen.getByText("554 client calls · 53 failed · since 03:12")).toBeInTheDocument();
   });
 
   it("does not draw a reconnect sentence: the attempt has no moment of its own", () => {
@@ -301,20 +301,35 @@ describe("DeviceCard — one row on the fleet", () => {
   it("states the day's calls and failures on the row", () => {
     const { container } = draw({ today: { client_calls: 283, failed: 38 } });
 
-    expect(screen.getByText("283 calls · 38 failed")).toBeInTheDocument();
-    expect(container.querySelector(".fleet-work")).toHaveTextContent("283 calls · 38 failed");
+    expect(screen.getByText("283 client calls · 38 failed")).toBeInTheDocument();
+    expect(container.querySelector(".fleet-work")).toHaveTextContent(
+      "283 client calls · 38 failed"
+    );
     // The counts share the row's one muted status cell, inside the one open button: no new
     // column, no second line.
     expect(screen.getByRole("button", { name: "Open workshop" })).toHaveTextContent(
-      "283 calls · 38 failed"
+      "283 client calls · 38 failed"
     );
     expect(container.querySelectorAll(".fleet-work")).toHaveLength(1);
+  });
+
+  it("says the row's count is the client's calls, not the machine's whole work", () => {
+    // The measured 9VH row read `141 calls · 4 failed` beside the hub's `Today 141 client calls`
+    // and `Console reads · 238`. The row's number is `client_calls` and the console's own reads
+    // are not in it, so the row must name whose calls it counted; a bare `calls` made the hub's
+    // client count look contradictory (audit-37 F5).
+    const { container } = draw({ today: { client_calls: 141, failed: 4 } });
+
+    expect(container.querySelector(".fleet-work")).toHaveTextContent(
+      "141 client calls · 4 failed"
+    );
+    expect(container.querySelector(".fleet-work")).not.toHaveTextContent(/^\d+ calls/);
   });
 
   it("omits the failed half at zero", () => {
     draw({ today: { client_calls: 11, failed: 0 } });
 
-    expect(screen.getByText("11 calls")).toBeInTheDocument();
+    expect(screen.getByText("11 client calls")).toBeInTheDocument();
     expect(screen.queryByText(/· 0 failed/)).not.toBeInTheDocument();
     expect(screen.queryByText(/failed/)).not.toBeInTheDocument();
   });

@@ -783,7 +783,13 @@ describe("App", () => {
       .find((node) => node.closest("article"))
       ?.closest("article");
     expect(card).not.toBeNull();
-    expect(within(card as HTMLElement).getByText("2 calls · 1 failed")).toBeInTheDocument();
+    // The row says whose calls it counted, with the hub's own noun: the number is the day's
+    // `client_calls`, and `Console reads · …` beside it counted the console's own reads. A row
+    // that said `2 calls` read as the machine's whole work and made the hub look contradictory
+    // (audit-37 F5).
+    expect(
+      within(card as HTMLElement).getByText("2 client calls · 1 failed")
+    ).toBeInTheDocument();
 
     selectDevice("workshop");
     expect(await screen.findByText(/^Today 2 client calls · 1 failed/)).toBeInTheDocument();

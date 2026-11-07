@@ -67,13 +67,16 @@ export function coverageClause(day: DayCoverage): string {
 }
 
 /**
- * The fleet's one sentence about a machine's day: `283 calls · 38 failed`.
+ * The fleet's one sentence about a machine's day: `283 client calls · 38 failed`.
  *
- * The failed half is omitted at zero, so a healthy machine reads as its work and not as a
- * reassurance; a machine the day's read names nowhere has no day at all, and returns null so the
- * row draws nothing rather than a zero. The counts are the day's, and the hub's day line reads the
- * same field by the same rule; when the file cannot prove the whole day, `since` (and a bounded
- * scan) is stated rather than swallowed.
+ * The count is the AI's (`device.today.client_calls`) and never the console's own reads. It sits
+ * beside the hub's `Console reads · …` chip, so the bare `calls` it used to say read as the
+ * machine's whole work and made the hub's `Today … client calls` look contradictory (audit-37 F5);
+ * the noun is the hub's. The failed half is omitted at zero, so a healthy machine reads as its work
+ * and not as a reassurance; a machine the day's read names nowhere has no day at all, and returns
+ * null so the row draws nothing rather than a zero. The counts are the day's, and the hub's day
+ * line reads the same field by the same rule; when the file cannot prove the whole day, `since`
+ * (and a bounded scan) is stated rather than swallowed.
  */
 export function callsLine(
   day:
@@ -82,7 +85,9 @@ export function callsLine(
     | undefined
 ): string | null {
   if (!day) return null;
-  const calls = `${day.client_calls} ${day.client_calls === 1 ? "call" : "calls"}`;
+  const calls = `${day.client_calls} ${
+    day.client_calls === 1 ? "client call" : "client calls"
+  }`;
   return (day.failed > 0 ? `${calls} · ${day.failed} failed` : calls) + coverageClause(day);
 }
 

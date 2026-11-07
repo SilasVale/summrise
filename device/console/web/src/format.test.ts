@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  callsLine,
   exactMoment,
   isoDate,
   lastHeardMs,
@@ -34,6 +35,20 @@ describe("message", () => {
 
   it("is anything else as a string", () => {
     expect(message(42)).toBe("42");
+  });
+});
+
+describe("callsLine", () => {
+  it("names the count as the client's calls, the noun the hub's day line uses", () => {
+    // The 9VH's row read `141 calls · 4 failed` beside the hub's `Today 141 client calls` and
+    // `Console reads · 238`. The row's number is `device.today.client_calls`; it never held the
+    // console's reads, so a bare `calls` made the row read as the machine's whole work and made
+    // the hub's count look contradictory (audit-37 F5).
+    expect(callsLine({ client_calls: 141, failed: 4 })).toBe("141 client calls · 4 failed");
+  });
+
+  it("keeps the singular for one call", () => {
+    expect(callsLine({ client_calls: 1, failed: 0 })).toBe("1 client call");
   });
 });
 

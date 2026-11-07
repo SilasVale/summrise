@@ -116,9 +116,9 @@ export function DeviceCard({
   // **THE ROW COMPARES THE WORK, NOT ONLY THE PRESENCE.** The day is the fleet read's own count
   // from the local calendar day the hub counts: no request, no page, and nothing for a machine the
   // day never names. When the audit file starts after midnight the line says `since`, so a partial
-  // day's 554 calls cannot read as the day's whole 649. It shares the state's muted line so the row
-  // stays one row at 1440; at 390 the status cell takes its own line and the counts wrap below the
-  // state.
+  // day's 554 client calls cannot read as the day's whole 649. It shares the state's muted line so
+  // the row stays one row at 1440; at 390 the status cell takes its own line and the counts wrap
+  // below the state.
   const work = callsLine(device.today);
   // **THE INSTALLER IS THE SURFACE'S OTHER VERSION.** The chip says what the machine runs; the
   // Add-a-machine block says what the console offers. A machine older than that file is the one

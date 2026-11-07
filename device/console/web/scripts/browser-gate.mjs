@@ -967,9 +967,11 @@ try {
   }
   step('the online row names the channel its newest restart ran: "channel stable"');
   // **THE FLEET COMPARES THE WORK, NOT ONLY THE PRESENCE.** Every row states the day the console's
-  // newest audit window counted: `283 calls · 38 failed`, the failed half gone at zero, and nothing
-  // for a machine the window never names. The counts are on the state's muted line, so a row with no
-  // verdict line keeps the measured 45 px.
+  // newest audit window counted: `283 client calls · 38 failed`, the failed half gone at zero, and
+  // nothing for a machine the window never names. The noun is the hub's: the row counts
+  // `client_calls` only, so `calls` read as the machine's whole work beside the hub's
+  // `Console reads · …` chip (audit-37 F5). The counts are on the state's muted line, so a row with
+  // no verdict line keeps the measured 45 px.
   const fleet1440 = await page.evaluate(() =>
     [...document.querySelectorAll('article.fleet-row')].map((row) => {
       const name = row.querySelector('.fleet-name');
@@ -987,13 +989,13 @@ try {
     })
   );
   const workBy = new Map(fleet1440.map((row) => [row.name, row.work]));
-  const dayCalls = `${TODAY_CLIENT} ${TODAY_CLIENT === 1 ? 'call' : 'calls'}`;
+  const dayCalls = `${TODAY_CLIENT} ${TODAY_CLIENT === 1 ? 'client call' : 'client calls'}`;
   const expectedWork = new Map([
     ['DESKTOP-9VH92BJ', dayCalls],
-    ['DESKTOP-14RJCR8', '11 calls'],
-    ['DESKTOP-CPH4KB2', '84 calls · 2 failed'],
+    ['DESKTOP-14RJCR8', '11 client calls'],
+    ['DESKTOP-CPH4KB2', '84 client calls · 2 failed'],
     // The measured window's machine: the same 283 client calls its hub draws behind the fold.
-    ['DESKTOP-7QK3MN2', '283 calls']
+    ['DESKTOP-7QK3MN2', '283 client calls']
   ]);
   for (const [name, expected] of expectedWork) {
     if (workBy.get(name) !== expected) {
