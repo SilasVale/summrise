@@ -334,20 +334,28 @@ describe("Home — the hub", () => {
   });
 
   it("feeds the Now band from this machine's window, not the fleet's live slice", async () => {
-    const now = Date.now();
-    draw({
-      audit: [
-        call({ ts_ms: now - 10_000, caller: "client", tool: "terminal.create" }),
-        call({ ts_ms: now - 20_000, caller: "client", tool: "files.read" })
-      ],
-      // The fleet's newest 200 live lines held nothing for this machine. The machine's own window
-      // does, and the band must describe the machine the timeline is showing.
-      liveLines: [],
-      liveState: "live"
-    });
+    // A fixed local afternoon, not the wall clock: at 00:00 `now - 10s` is yesterday, and the
+    // hub's day list correctly drops it before the band can count it. The fixture moves; the rule
+    // that the band is fed from this machine's window is what the test proves.
+    const now = new Date(2026, 10, 5, 14, 45, 0).getTime();
+    const clock = vi.spyOn(Date, "now").mockReturnValue(now);
+    try {
+      draw({
+        audit: [
+          call({ ts_ms: now - 10_000, caller: "client", tool: "terminal.create" }),
+          call({ ts_ms: now - 20_000, caller: "client", tool: "files.read" })
+        ],
+        // The fleet's newest 200 live lines held nothing for this machine. The machine's own window
+        // does, and the band must describe the machine the timeline is showing.
+        liveLines: [],
+        liveState: "live"
+      });
 
-    expect(await screen.findByText("Active now")).toBeInTheDocument();
-    expect(screen.getByText("2 calls in the last minute")).toBeInTheDocument();
+      expect(await screen.findByText("Active now")).toBeInTheDocument();
+      expect(screen.getByText("2 calls in the last minute")).toBeInTheDocument();
+    } finally {
+      clock.mockRestore();
+    }
   });
 
   it("shows this machine's running client call in the band, and no other machine's", async () => {
@@ -379,28 +387,35 @@ describe("Home — the hub", () => {
   });
 
   it("rereads the machine's window on a reconnect, and the fresh window feeds the band", async () => {
-    const now = Date.now();
-    // The page loaded three hours ago: the day below is a memory with a hole after it.
-    auditApi.audit.mockResolvedValueOnce([call({ ts_ms: now - 3 * 3_600_000, caller: "client" })]);
-    const { rerenderHub } = draw({ liveState: "offline" });
-    await waitFor(() => expect(auditApi.audit).toHaveBeenCalledTimes(1));
+    // A fixed local afternoon: three hours back and five seconds back are both today at any wall
+    // clock, where just after midnight either one would be yesterday's line.
+    const now = new Date(2026, 10, 5, 14, 45, 0).getTime();
+    const clock = vi.spyOn(Date, "now").mockReturnValue(now);
+    try {
+      // The page loaded three hours ago: the day below is a memory with a hole after it.
+      auditApi.audit.mockResolvedValueOnce([call({ ts_ms: now - 3 * 3_600_000, caller: "client" })]);
+      const { rerenderHub } = draw({ liveState: "offline" });
+      await waitFor(() => expect(auditApi.audit).toHaveBeenCalledTimes(1));
 
-    const reread = deferred<AuditLine[]>();
-    auditApi.audit.mockReturnValueOnce(reread.promise);
-    // The snapshot and a tick land in the same moment: the recovery's reread is the request, and
-    // the tick must not stack another one on top of it.
-    rerenderHub({ liveState: "live", liveRecoveries: 1, tick: 1 });
-    await waitFor(() => expect(auditApi.audit).toHaveBeenCalledTimes(2));
-    rerenderHub({ liveState: "live", liveRecoveries: 1, tick: 2 });
-    await act(async () => {});
-    expect(auditApi.audit).toHaveBeenCalledTimes(2);
+      const reread = deferred<AuditLine[]>();
+      auditApi.audit.mockReturnValueOnce(reread.promise);
+      // The snapshot and a tick land in the same moment: the recovery's reread is the request, and
+      // the tick must not stack another one on top of it.
+      rerenderHub({ liveState: "live", liveRecoveries: 1, tick: 1 });
+      await waitFor(() => expect(auditApi.audit).toHaveBeenCalledTimes(2));
+      rerenderHub({ liveState: "live", liveRecoveries: 1, tick: 2 });
+      await act(async () => {});
+      expect(auditApi.audit).toHaveBeenCalledTimes(2);
 
-    await act(async () => {
-      reread.resolve([call({ ts_ms: Date.now() - 5_000, caller: "client", tool: "runs.exec" })]);
-    });
-    expect(auditApi.audit).toHaveBeenLastCalledWith(1000, workshop.id);
-    expect(await screen.findByText("Active now")).toBeInTheDocument();
-    expect(screen.getByText("1 call in the last minute")).toBeInTheDocument();
+      await act(async () => {
+        reread.resolve([call({ ts_ms: Date.now() - 5_000, caller: "client", tool: "runs.exec" })]);
+      });
+      expect(auditApi.audit).toHaveBeenLastCalledWith(1000, workshop.id);
+      expect(await screen.findByText("Active now")).toBeInTheDocument();
+      expect(screen.getByText("1 call in the last minute")).toBeInTheDocument();
+    } finally {
+      clock.mockRestore();
+    }
   });
 
   it("rereads once per tick, never twice for the same tick or while a read is open", async () => {
@@ -649,11 +664,19 @@ describe("Home — the hub", () => {
     // A caller-less, token-less row is not the AI's proven work. The hub must not draw it, and the
     // empty state must not claim calls were made or that console reads are hidden when there are
     // none. Activity still has the row: the hub is the AI's page, not the audit.
-    draw({ audit: [call({ ts_ms: Date.now() - 10_000 })] });
+    // Fixed local afternoon: ten seconds before a real midnight is yesterday, which the day list
+    // (correctly) drops before the empty state can be read.
+    const now = new Date(2026, 10, 5, 14, 45, 0).getTime();
+    const clock = vi.spyOn(Date, "now").mockReturnValue(now);
+    try {
+      draw({ audit: [call({ ts_ms: now - 10_000 })] });
 
-    expect(await screen.findByText("No client calls from workshop today.")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Console reads · 0" })).toBeInTheDocument();
-    expect(screen.queryByRole("listitem")).toBeNull();
+      expect(await screen.findByText("No client calls from workshop today.")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Console reads · 0" })).toBeInTheDocument();
+      expect(screen.queryByRole("listitem")).toBeNull();
+    } finally {
+      clock.mockRestore();
+    }
   });
 
   it("opens the machine's Tools tab from the counts line", async () => {
