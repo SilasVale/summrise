@@ -810,43 +810,43 @@ Measured 2026-11-07 22:27–23:07Z on live 0.3.273-ux101 at 1440 and 390; 9VH 0.
 0.3.289 offline since 11-07T09:53Z, 14R 0.3.275 offline since 11-05T08:06Z. All twelve twenty-first-list
 items verified live.
 
-1. **Overview still draws Activity's day record.** Under its Today heading it repeats the same rows
+1. **Overview still draws Activity's day record.** *(Live 0.3.273-ux102: one `Today 29 client calls · 1 failed` day line + `All activity →`; 0 call rows. Implemented 76876e4.)* Under its Today heading it repeats the same rows
    (05:44:54 / 05:44:37 / `2 calls · 17 s`) the Activity timeline already holds; a 29-row card. **Fix:** one
    day line plus an All-activity link; the rows live in Activity. **M.**
 
-2. **The version is printed twice on Home and missing where it matters.** Home shows `VERSION v0.3.292` and
+2. **The version is printed twice on Home and missing where it matters.** *(Implemented 9592d54: Home's STARTED is the age only; the Machine start line is `started 0.3.292 · 2h ago`; the 390 topbar keeps the version.)* Home shows `VERSION v0.3.292` and
    `started 0.3.292 · 46m ago`; the Machine tab's start line has no version; at 390 the offline 14R/CPH Device
    pages have no version anywhere (the topbar collapses to the name). **Fix:** one version per page, present at
    390 and on the Machine tab. **S.**
 
-3. **The same Connect action has two names and two places.** `Connect` on the six Device tabs, `Connect a
+3. **The same Connect action has two names and two places.** *(Implemented 9592d54: one `Connect a client` in the shell head on every tab.)* `Connect` on the six Device tabs, `Connect a
    client` on Overview and the Account menu, and it moves from the content to the shell header. **Fix:** one
    name, one home. **S.**
 
-4. **The Table's line count is the window's, not the filter's.** `Showing the newest 993 lines` stays 993 with
+4. **The Table's line count is the window's, not the filter's.** *(Implemented 9592d54: the range sentence appends `N of the M lines match the filters`.)* `Showing the newest 993 lines` stays 993 with
    44 failed rows, and `29 lines` sits directly above `No calls match` at 390. **Fix:** say what the count
    counts, and that the filter found nothing. **S.**
 
-5. **The tools read has no pending state.** A fresh 84T Overview shows `0 tools · 0 capabilities` for a
+5. **The tools read has no pending state.** *(Implemented 69c0eaf: reading / failed (one notice, one Retry) / ready in Overview, Tools and Connect; no zero from an unanswered read.)* A fresh 84T Overview shows `0 tools · 0 capabilities` for a
    46-tool machine; a failed read is two identical notices with two Retries on Tools, and Overview says
    `counts may be stale` while drawing none. **Fix:** reading / failed / ready states, one notice, one Retry.
    **S/M.**
 
-6. **The installer strip's sha256 is truncated with no title or copy.** `sha256 0adcbd7c…`; the full digest is
+6. **The installer strip's sha256 is truncated with no title or copy.** *(Implemented 9592d54: the full digest in the title + `Copy digest`.)* `sha256 0adcbd7c…`; the full digest is
    only at `/installer` (the downloaded file's sha matches it). **Fix:** a title with the full digest, or copy.
    **S.**
 
-7. **The 84T has no Repair task row and no "not reported".** The 9VH (0.3.292) shows it healthy; the 84T
+7. **The 84T has no Repair task row and no "not reported".** *(Implemented 7e1b0ca: `not reported by this build (v0.3.291)` for an online machine whose frame has no fact.)* The 9VH (0.3.292) shows it healthy; the 84T
    (0.3.291) shows nothing, which reads as no task rather than an older build that does not report. **Fix:** say
    the build does not report it. **S.**
 
-8. **Runs' Started is relative-only.** `31m 11s ago` with no title, while the Table uses clock + age for the
+8. **Runs' Started is relative-only.** *(Implemented 9592d54: `<time>` HH:MM:SS + age with the exact moment in the title.)* `31m 11s ago` with no title, while the Table uses clock + age for the
    same class of run. **Fix:** the same vocabulary. **S.**
 
-9. **The Device picker's presence is colour-only.** Online/offline are a coloured dot with the words
+9. **The Device picker's presence is colour-only.** *(Implemented 9592d54: the word visible, the version `v`-prefixed.)* Online/offline are a coloured dot with the words
    `.sr-only`; its version lacks the `v`. **Fix:** the word visible, the `v` kept. **S.**
 
-10. **#signin's tab title says "Sign in" while the panel says "You are signed in".** **Fix:** the title follows
+10. **#signin's tab title says "Sign in" while the panel says "You are signed in".** *(Implemented 9592d54: `Signed in · Summrise console`.)* **Fix:** the title follows
     the panel. **S.**
 
 ## How a round goes
