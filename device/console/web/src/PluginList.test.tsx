@@ -158,9 +158,12 @@ describe("PluginList", () => {
       })
     });
 
+    // The plugin section points at the tools notice rather than restating the failure; the one
+    // Retry is up there, and this section adds no second one (audit-43 F9).
+    expect(screen.getByText("Plugins need the tool list; Retry above.")).toBeInTheDocument();
     expect(
-      screen.getByText("Plugins are unavailable until the console can read the tool list.")
-    ).toBeInTheDocument();
+      screen.queryByText("Plugins are unavailable until the console can read the tool list.")
+    ).toBeNull();
     expect(screen.queryByText(/The console could not read this machine's tools/)).toBeNull();
     expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
     expect(

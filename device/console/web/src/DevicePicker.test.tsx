@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { Device } from "./api";
 import { DevicePicker } from "./DevicePicker";
@@ -31,5 +31,53 @@ describe("DevicePicker", () => {
     render(<DevicePicker devices={devices} onChoose={vi.fn()} />);
     expect(screen.getByText("v1.2.3")).toBeInTheDocument();
     expect(screen.queryByText("1.2.3")).not.toBeInTheDocument();
+  });
+
+  it("says the machine list is being read instead of calling the fleet empty", () => {
+    // audit-43 F4: `/fleet` takes up to 15 s, and the Device destination said `No devices are
+    // enrolled yet.` for every one of them. An empty list is a fact only when a read answered.
+    render(<DevicePicker devices={[]} onChoose={vi.fn()} fleetRead={{ state: "reading" }} />);
+
+    expect(screen.getByRole("status")).toHaveTextContent("Reading the machine list…");
+    expect(screen.queryByText(/No devices are enrolled yet/)).toBeNull();
+  });
+
+  it("states a failed machine-list read and offers the one Retry", () => {
+    const onRetry = vi.fn();
+    render(
+      <DevicePicker
+        devices={[]}
+        onChoose={vi.fn()}
+        fleetRead={{ state: "failed", reason: "Failed to fetch" }}
+        onRetry={onRetry}
+      />
+    );
+
+    expect(screen.getByRole("status")).toHaveTextContent("The machine list could not be read.");
+    // The browser's own cause stays evidence, in the title, as Home's failed notice keeps it.
+    expect(screen.getByTitle("Failed to fetch")).toBeInTheDocument();
+    expect(screen.queryByText(/No devices are enrolled yet/)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    expect(onRetry).toHaveBeenCalledTimes(1);
+  });
+
+  it("states the enrollment sentence only when a successful read brought no machines", () => {
+    render(<DevicePicker devices={[]} onChoose={vi.fn()} fleetRead={{ state: "ready" }} />);
+
+    expect(screen.getByText("No devices are enrolled yet. Add one from Home.")).toBeInTheDocument();
+    expect(screen.queryByRole("status")).toBeNull();
+  });
+
+  it("keeps a last known list on the page while the read is pending or failed", () => {
+    // A stale list is still the console's knowledge; the page's question is which machine, and the
+    // shell's banner owns the failure. Only a zero list may be stated by the read's state.
+    for (const fleetRead of [{ state: "reading" }, { state: "failed", reason: "boom" }] as const) {
+      const { unmount } = render(
+        <DevicePicker devices={devices} onChoose={vi.fn()} fleetRead={fleetRead} />
+      );
+      expect(screen.getByRole("button", { name: "Use Alpha" })).toBeInTheDocument();
+      expect(screen.queryByText(/No devices are enrolled yet/)).toBeNull();
+      unmount();
+    }
   });
 });

@@ -127,6 +127,11 @@ export function DeviceCard({
         )}
       </td>
       <td className="fleet-started">
+        {/* **THE PHONE'S CARD HAS NO HEADER TO LABEL THIS AGE.** Below 640 px the table becomes a
+            card and `thead` is `display:none`, so the cell read as a second bare `… ago` under the
+            status age (audit-43 F3). The word is the header the phone does not draw; the desktop
+            table hides it, because its `Started` column header already labels the cell. */}
+        <span className="fleet-started-label">Started</span>
         {started ? (
           <span className="fleet-verdict" title={started.title ?? started.text}>
             {started.text}

@@ -1495,6 +1495,8 @@ export function App() {
             chosen={chosen}
             onChoose={(id) => choose(id)}
             onConnect={() => setConnect({ section: "endpoint", device: chosen })}
+            fleetRead={fleetRead}
+            onRetryFleet={() => void load().catch(() => {})}
           >
             {() => (
               <>

@@ -353,17 +353,19 @@ describe("ConnectSheet", () => {
     expect(screen.getByRole("button", { name: "this machine" })).toBeDisabled();
   });
 
-  it("names the token kind the sheet's endpoint takes, and the other door's URL", () => {
+  it("names the token kind the sheet's endpoint takes, and the other door's path once", () => {
     draw();
 
     const endpointCopy = screen.getByText(/takes a device token minted for workshop/);
     expect(endpointCopy).toHaveTextContent(
-      "This endpoint, http://localhost:3000/mcp/dev-workshop, takes a device token minted for " +
-        "workshop."
+      "This endpoint takes a device token minted for workshop."
     );
-    expect(endpointCopy).toHaveTextContent(
-      "A fleet token is accepted only at http://localhost:3000/mcp/all."
-    );
+    expect(endpointCopy).toHaveTextContent("A fleet token is accepted only at /mcp/all.");
+    // audit-43 F11: the 90-character endpoint is written in the code box and nowhere else. The
+    // other door is named by its path, so the two addresses cannot be compared line by line.
+    expect(screen.getAllByText("http://localhost:3000/mcp/dev-workshop")).toHaveLength(1);
+    expect(endpointCopy).not.toHaveTextContent("http://localhost:3000/mcp/dev-workshop");
+    expect(endpointCopy).not.toHaveTextContent("http://localhost:3000/mcp/all");
 
     fireEvent.click(screen.getByRole("tab", { name: "Clients" }));
     expect(
@@ -371,15 +373,17 @@ describe("ConnectSheet", () => {
     ).toBeInTheDocument();
   });
 
-  it("names /mcp/all as the fleet sheet's door and says where a device token goes", () => {
+  it("names /mcp/all as the fleet sheet's door without printing the URL twice", () => {
     draw({ device: null });
 
-    expect(screen.getByText(/takes a fleet token/)).toHaveTextContent(
-      "This endpoint, http://localhost:3000/mcp/all, takes a fleet token."
-    );
-    expect(screen.getByText(/takes a fleet token/)).toHaveTextContent(
+    const endpointCopy = screen.getByText(/takes a fleet token/);
+    expect(endpointCopy).toHaveTextContent("This endpoint takes a fleet token.");
+    expect(endpointCopy).toHaveTextContent(
       "A device token is accepted only at its own machine's URL, whose path is /mcp/<device id>."
     );
+    // The box is the one place the address is written; the paragraph does not repeat it.
+    expect(screen.getAllByText("http://localhost:3000/mcp/all")).toHaveLength(1);
+    expect(endpointCopy).not.toHaveTextContent("http://localhost:3000/mcp/all");
 
     fireEvent.click(screen.getByRole("tab", { name: "Clients" }));
     expect(screen.getByText(/takes a fleet token/)).toBeInTheDocument();

@@ -1,6 +1,7 @@
 import { useLayoutEffect, useRef } from "react";
 import type { Device } from "./api";
 import { lastHeardMs } from "./format";
+import type { FleetRead } from "./HomePage";
 import { DEVICE_TABS, DEVICE_TAB_LABELS, type DeviceTab } from "./Rail";
 import { DevicePicker } from "./DevicePicker";
 import { OfflineNotice } from "./OfflineNotice";
@@ -25,6 +26,8 @@ export function DevicePageShell({
   chosen,
   onChoose,
   onConnect,
+  fleetRead,
+  onRetryFleet,
   children
 }: {
   tab: DeviceTab;
@@ -33,6 +36,10 @@ export function DevicePageShell({
   chosen: Device | null;
   onChoose: (id: string) => void;
   onConnect: () => void;
+  /** The fleet read's state, so the picker can tell reading, failed and empty apart. */
+  fleetRead?: FleetRead;
+  /** The page's one fleet Retry, shared with Home's notice. */
+  onRetryFleet?: () => void;
   children: (grant: Grant) => React.ReactNode;
 }) {
   const grant = grantFor(chosen);
@@ -130,7 +137,12 @@ export function DevicePageShell({
         children(grant)
       ) : (
         <section className="empty-state">
-          <DevicePicker devices={devices} onChoose={onChoose} />
+          <DevicePicker
+            devices={devices}
+            onChoose={onChoose}
+            fleetRead={fleetRead}
+            onRetry={onRetryFleet}
+          />
         </section>
       )}
     </div>

@@ -3,7 +3,7 @@ import { LiveNow } from "./LiveNow";
 import type { LiveLine, StartedCall } from "./liveActivity";
 import { api, type AuditLine, type Device } from "./api";
 import { AttemptReason, attemptCount, attemptReason } from "./attempt";
-import { clockTime, coverageClause, shortId } from "./format";
+import { clockTime, coverageClause, lastHeardMs, seenAgo, shortId } from "./format";
 import { listPlugins } from "./pluginApi";
 import { surfaceHash } from "./surface-link";
 import { toolsReadState } from "./toolsRead";
@@ -362,6 +362,12 @@ export function OverviewPage(props: OverviewPageProps) {
         : null;
 
   const offline = !device.online || live.offline;
+  // **THE OFFLINE PAGE IS DATED, LIKE EVERY OTHER MACHINE SURFACE.** The Machine tab, Home's rows
+  // and the shell's notice all say how long the machine has been away; this page said only that it
+  // was away and then drew a Now band claiming a quiet present (audit-43 F5). The notice states the
+  // newest evidence the console has, the same moment `lastHeardMs` gives every other surface.
+  const heard = lastHeardMs(device);
+  const lastSeen = heard === null ? "" : ` Last seen ${seenAgo(heard)}.`;
   // The last operator press, not the poll: null until Retry has settled once on this machine.
   const retryNote = retryOutcome(live.retried ?? null, offline);
   // **ONE PLACE FOR EACH BUILD.** The subtitle used to be "Running · console v0.3.273-ux43", while
@@ -377,18 +383,20 @@ export function OverviewPage(props: OverviewPageProps) {
   const failedReason = attemptReason(device.last_attempt);
   const failedAttempts = device.last_attempt?.attempts ?? 0;
   const notice: ReactNode = offline
-    ? failedReason !== ""
-      ? (
-          <>
-            {name} is not connected after {attemptCount(failedAttempts)} —{" "}
-            <AttemptReason reason={failedReason} />. <OfflineAdvice />
-          </>
-        )
-      : (
-          <>
-            {name} is not connected. <OfflineAdvice />
-          </>
-        )
+    ? (
+        <>
+          This machine is offline.{lastSeen}{" "}
+          {failedReason !== ""
+            ? (
+                <>
+                  {attemptCount(failedAttempts)} so far, the last failed —{" "}
+                  <AttemptReason reason={failedReason} />.{" "}
+                </>
+              )
+            : null}
+          <OfflineAdvice />
+        </>
+      )
     : live.error
       ? live.tools.length === 0
         ? "The machine is running. The console could not read its tool list, so the counts are not shown."
@@ -405,7 +413,7 @@ export function OverviewPage(props: OverviewPageProps) {
       </header>
 
       {notice && (
-        <div className="notice" role="status">
+        <div className="notice" role="status" title={live.error ?? undefined}>
           <span>
             {notice}
             {retryNote !== null && (
@@ -426,15 +434,21 @@ export function OverviewPage(props: OverviewPageProps) {
         </div>
       )}
 
-      <LiveNow
-        // The band and the day line are the same machine's day: feeding the band the fleet's
-        // newest 200 live lines made it say "Quiet" while the window held this machine's calls,
-        // and after a reconnect the live list is only the newest forty. The band reads presence
-        // from that window and draws none of its rows: the calls themselves live in Activity.
-        lines={dayLines}
-        running={liveRunning}
-        state={props.liveState ?? "connecting"}
-      />
+      {/* **A BAND THAT ASKS "NOW" IS NOT DRAWN FOR A MACHINE THAT IS AWAY.** It said `Quiet` and
+          `no calls in the last minute` for a machine the console could not hear: absence of
+          evidence read as evidence of idleness (audit-43 F5). The dated notice above is the
+          machine's state; the day line below is its last record. */}
+      {!offline && (
+        <LiveNow
+          // The band and the day line are the same machine's day: feeding the band the fleet's
+          // newest 200 live lines made it say "Quiet" while the window held this machine's calls,
+          // and after a reconnect the live list is only the newest forty. The band reads presence
+          // from that window and draws none of its rows: the calls themselves live in Activity.
+          lines={dayLines}
+          running={liveRunning}
+          state={props.liveState ?? "connecting"}
+        />
+      )}
 
       {/* **THE CAPABILITY LINE IS ABOVE THE DAY.** The line answers "what can this machine do
           now", so it sits with the Now band, not after the day it describes. */}
@@ -448,7 +462,10 @@ export function OverviewPage(props: OverviewPageProps) {
           Reading the tool list…
         </p>
       ) : read === "failed" ? (
-        <p className="hint">Tool counts are unavailable until the console can read the machine's list.</p>
+        // **THE NOTICE ABOVE IS THE FAILURE'S ONE STATEMENT (audit-43 F9).** The line that used to
+        // say `Tool counts are unavailable…` repeated it 40 px lower; the notice already says the
+        // counts are not shown, and it carries the one Retry.
+        null
       ) : (
         <button type="button" className="counts-line" onClick={props.onTools}>
           {plural(live.tools.length, "tool")} · {plural(capabilities, "capability", "capabilities")}

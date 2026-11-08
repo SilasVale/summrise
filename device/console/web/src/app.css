@@ -3271,6 +3271,9 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
   font-family: var(--font-mono); font-size: var(--fs-2xs); letter-spacing: 0;
 }
 .fleet-started { max-width: 26rem; }
+/* The header labels the age at every width the table is a table; the phone's card has no header
+   to draw, so the label is hidden here and shown in the card layout below (audit-43 F3). */
+.fleet-started-label { display: none; }
 .fleet-verdict {
   display: block; color: var(--ink-muted); font-size: var(--fs-sm);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
@@ -3358,7 +3361,15 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
   .fleet-status { grid-column: 1 / 2; align-self: center; }
   .fleet-version { grid-column: 2 / 3; justify-self: end; align-self: center; }
   .fleet-started { grid-column: 1 / -1; max-width: none; }
-  .fleet-verdict { white-space: normal; overflow: visible; text-overflow: clip; }
+  /* THE PHONE'S CARD HAS NO `STARTED` HEADER. `thead` is `display:none` at this width, so the age
+     sat bare under the status age and the two read as the same fact. The visible word is the
+     header the card does not draw; the desktop table keeps the age alone. It stays on the age's
+     line, because the card's third line is one fact. */
+  .fleet-started-label {
+    display: inline; margin-right: 6px; color: var(--ink-faint); font-size: var(--fs-2xs);
+    text-transform: uppercase; letter-spacing: var(--tracking-label);
+  }
+  .fleet-verdict { display: inline; white-space: normal; overflow: visible; text-overflow: clip; }
   .fleet-actions { position: absolute; right: 8px; top: 8px; width: auto; }
   .installer-strip .hint { margin-left: 0; flex-basis: 100%; }
   .machine-summary { padding: 12px 14px; }

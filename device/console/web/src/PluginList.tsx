@@ -154,10 +154,10 @@ export function PluginList({
       ) : offline && remote.plugins.length === 0 ? (
         <p className="hint">The console has no plugin list from this machine yet.</p>
       ) : live.error !== null && remote.plugins.length === 0 ? (
-        // THE TOOLS READ OWNS THE ONE RETRY. Its failure is one notice under `Tools on this
-        // machine`; this section inherits that state as one sentence, because a second Retry here
-        // asked the same read twice (audit-42 F5).
-        <p className="hint">Plugins are unavailable until the console can read the tool list.</p>
+        // THE TOOLS READ OWNS THE ONE RETRY AND THE ONE FAILURE SENTENCE. This section names only
+        // what the failure costs here and points at that notice, rather than restating the failure
+        // in a second sentence (audit-43 F9).
+        <p className="hint">Plugins need the tool list; Retry above.</p>
       ) : known && !supported ? (
         <section className="empty-state">
           <h3>Older build</h3>

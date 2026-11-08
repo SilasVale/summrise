@@ -2492,6 +2492,24 @@ describe("App", () => {
     view.unmount();
   });
 
+  it("carries the fleet read's state to the Device picker, not just an empty list", async () => {
+    // audit-43 F4: `/fleet` can take 15 s, and the Device destination said `No devices are enrolled
+    // yet.` for all of it. The shell knows the read; the picker must be told.
+    const answer = deferred<Array<typeof workshop>>();
+    mocks.devices.mockReturnValue(answer.promise);
+    const view = await signInWithoutFleet();
+
+    fireEvent.click(screen.getByRole("button", { name: "Device" }));
+    expect(screen.getByText("Reading the machine list…")).toBeInTheDocument();
+    expect(screen.queryByText(/No devices are enrolled yet/)).toBeNull();
+
+    await act(async () => {
+      answer.resolve([workshop]);
+    });
+    expect(await screen.findByRole("button", { name: "Use workshop" })).toBeInTheDocument();
+    view.unmount();
+  });
+
   it("keeps a failed machine-list read on the page after the banner is dismissed", async () => {
     const startPoll = vi.spyOn(window, "setInterval");
     mocks.devices.mockRejectedValue(new TypeError("Failed to fetch"));

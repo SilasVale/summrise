@@ -148,14 +148,15 @@ export function ConnectSheet({
   const live = useLiveTools(device?.id ?? null);
   const registry = useToolCatalogue();
   const endpoint = device ? `${location.origin}/mcp/${device.id}` : `${location.origin}/mcp/all`;
-  // The token kind this sheet's URL takes. The URL above is one door; a token of the other kind is
-  // refused there, so the copy says which credential belongs here and where the other one is used.
+  // The token kind this sheet's URL takes. **THE BOX IS THE ONE PLACE THE ADDRESS IS WRITTEN**
+  // (audit-43 F11): the paragraph used to repeat the full URL — twice over on a phone — so the
+  // reader had to compare two 90-character strings to learn they were one address. The sentence
+  // names the other door by its path, and says which credential belongs here.
   const doorSentence = device
-    ? `This endpoint, ${endpoint}, takes a device token minted for ` +
-      `${device.name || shortId(device.id)}. A fleet token is accepted only at ` +
-      `${location.origin}/mcp/all.`
-    : `This endpoint, ${endpoint}, takes a fleet token. A device token is accepted only at its ` +
-      "own machine's URL, whose path is /mcp/<device id>.";
+    ? `This endpoint takes a device token minted for ${device.name || shortId(device.id)}. ` +
+      "A fleet token is accepted only at /mcp/all."
+    : "This endpoint takes a fleet token. A device token is accepted only at its own machine's " +
+      "URL, whose path is /mcp/<device id>.";
   const title = initialSection === "tokens" ? "Tokens" : "Connect a client";
   const offline = device?.online === false;
 

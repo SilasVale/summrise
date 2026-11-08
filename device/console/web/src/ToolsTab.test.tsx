@@ -202,22 +202,27 @@ describe("ToolsTab", () => {
     renderTools();
 
     // The measured failure said the same sentence twice, under Tools and under Plugins, with two
-    // Retry buttons for one read.
-    expect(screen.getAllByText(/The console could not read this machine's tools/)).toHaveLength(1);
+    // Retry buttons for one read; the catalogue's subtitle said it a third time (audit-43 F9).
+    const notice = screen.getByRole("status");
+    expect(notice).toHaveTextContent("The console could not read this machine's tools.");
+    expect(notice).toHaveAttribute("title", "the console could not read this machine's tools");
+    expect(screen.queryByText("No tool list from this machine.")).toBeNull();
     const retries = screen.getAllByRole("button", { name: "Retry" });
     expect(retries).toHaveLength(1);
     fireEvent.click(retries[0]);
     expect(retry).toHaveBeenCalledTimes(1);
 
+    // The plugin section points at the one notice instead of restating the failure.
+    expect(screen.getByText("Plugins need the tool list; Retry above.")).toBeInTheDocument();
     expect(
-      screen.getByText("Plugins are unavailable until the console can read the tool list.")
-    ).toBeInTheDocument();
+      screen.queryByText("Plugins are unavailable until the console can read the tool list.")
+    ).toBeNull();
     expect(
       screen.queryByText("No plugins yet. Add one when a built-in cannot do the job.")
     ).toBeNull();
   });
 
-  it("draws one Retry for an offline tools read, not one per section", () => {
+  it("draws no Retry for an offline tools read, because it could not work", () => {
     live.value = {
       tools: [],
       stale: false,
@@ -230,7 +235,12 @@ describe("ToolsTab", () => {
     };
     renderTools({ deviceOnline: false, device: { ...workshop, online: false } });
 
-    expect(screen.getAllByRole("button", { name: "Retry" })).toHaveLength(1);
+    // The shell's one offline notice is above both sections; neither section adds a press that
+    // cannot read anything until the machine returns.
+    expect(screen.queryAllByRole("button", { name: "Retry" })).toHaveLength(0);
+    expect(
+      screen.getByText("The console has no tool list from this machine yet.")
+    ).toBeInTheDocument();
     expect(
       screen.getByText("The console has no plugin list from this machine yet.")
     ).toBeInTheDocument();

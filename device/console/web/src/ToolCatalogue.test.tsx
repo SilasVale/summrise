@@ -147,13 +147,15 @@ describe("ToolCatalogue", () => {
     });
 
     expect(screen.queryByText("Reading the tool list…")).not.toBeInTheDocument();
-    expect(screen.getByText("No tool list from this machine; it is offline.")).toBeInTheDocument();
+    // ONE SENTENCE, AND NO SUBTITLE REPEATING IT (audit-43 F9). The shell above already states
+    // the machine is offline and dates it; the catalogue states only what it has, once.
     expect(
       screen.getByText("The console has no tool list from this machine yet.")
     ).toBeInTheDocument();
+    expect(screen.queryByText("No tool list from this machine; it is offline.")).toBeNull();
   });
 
-  it("does not repeat the machine's offline state inside the catalogue", () => {
+  it("draws no Retry an offline machine cannot use", () => {
     const retry = vi.fn();
     draw({
       live: state({
@@ -168,8 +170,9 @@ describe("ToolCatalogue", () => {
     expect(screen.getByText("The console has no tool list from this machine yet.")).toBeInTheDocument();
     expect(screen.queryByText(/not connected/)).toBeNull();
     expect(screen.queryByText("No tools")).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
-    expect(retry).toHaveBeenCalledTimes(1);
+    // The shell's offline notice is the one statement, and a press here could not read anything.
+    expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
+    expect(retry).not.toHaveBeenCalled();
   });
 
   it("draws one notice and one Retry for a failed online read", () => {
@@ -182,9 +185,11 @@ describe("ToolCatalogue", () => {
       })
     });
 
-    expect(
-      screen.getByText("The console could not read this machine's tools: the tools read failed")
-    ).toBeInTheDocument();
+    const notice = screen.getByRole("status");
+    expect(notice).toHaveTextContent("The console could not read this machine's tools.");
+    // The raw envelope sentence is evidence, not the page's sentence.
+    expect(notice).toHaveAttribute("title", "the tools read failed");
+    expect(screen.queryByText("No tool list from this machine.")).toBeNull();
     const retries = screen.getAllByRole("button", { name: "Retry" });
     expect(retries).toHaveLength(1);
     fireEvent.click(retries[0]);

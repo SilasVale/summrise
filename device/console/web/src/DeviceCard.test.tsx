@@ -241,6 +241,33 @@ describe("DeviceCard — one row on the fleet", () => {
     expect(screen.queryByText(/updated/)).not.toBeInTheDocument();
   });
 
+  it("labels the start age on the phone card, where the table's header is hidden", () => {
+    // audit-43 F3: below 640 px the table becomes a card and `thead` is `display:none`, so the
+    // STARTED column lost its only label and the cell read as a second bare age under the status
+    // age. The visible word is the header the phone does not draw; the desktop table keeps the age
+    // alone because its header labels the column.
+    const { container } = draw({
+      update: {
+        current: "0.3.42",
+        verdict: { outcome: "ok", detail: "started 0.3.42" }
+      }
+    });
+
+    const cell = container.querySelector(".fleet-started");
+    expect(cell?.querySelector(".fleet-started-label")).toHaveTextContent("Started");
+    // The label sits with the age, not inside it: the age keeps its own title and the version
+    // column still owns the build.
+    expect(cell?.querySelector(".fleet-verdict")).toHaveTextContent("1d 1h ago");
+  });
+
+  it("labels the empty start cell too, so the phone's dash is not an unexplained mark", () => {
+    const { container } = draw();
+
+    const cell = container.querySelector(".fleet-started");
+    expect(cell?.querySelector(".fleet-started-label")).toHaveTextContent("Started");
+    expect(cell?.querySelector(".fleet-empty")).toHaveTextContent("—");
+  });
+
   it("states the update's age beside the start when it belongs to this start", () => {
     const { container } = draw({
       online: true,

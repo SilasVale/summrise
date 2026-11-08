@@ -563,13 +563,15 @@ describe("Device overview — the machine's live page", () => {
       loading: false,
       retry: vi.fn()
     };
-    draw({ device: { ...workshop, online: false } });
+    draw({
+      device: { ...workshop, online: false, last_frame_ms: Date.now() - 7 * 60_000 }
+    });
 
     expect(screen.getByText("Offline")).toBeInTheDocument();
     const notice = screen.getByRole("status");
-    expect(notice).toHaveTextContent(
-      "workshop is not connected. The console keeps trying; Retry works from here."
-    );
+    expect(notice).toHaveTextContent("This machine is offline.");
+    expect(notice).toHaveTextContent("Last seen 7m ago.");
+    expect(notice).toHaveTextContent("The console keeps trying; Retry works from here.");
     expect(notice).toHaveTextContent(
       "If it stays offline, open Device → Machine in the console for the machine's last facts."
     );
@@ -580,6 +582,29 @@ describe("Device overview — the machine's live page", () => {
     expect(screen.queryByText(/\/mcp\//)).not.toBeInTheDocument();
     expect(screen.getByText("Tool counts are unavailable while the machine is offline.")).toBeInTheDocument();
     expect(screen.queryByText(/0 tools/)).not.toBeInTheDocument();
+  });
+
+  it("does not draw a Now band for a machine that is away", () => {
+    // audit-43 F5: the offline Overview said `Now · Quiet · no calls in the last minute` — a
+    // positive claim about a present the console cannot see — while the Machine tab dated the same
+    // silence. The band's question is live, so it is not drawn; the notice above dates the machine.
+    live.value = {
+      tools: [],
+      stale: false,
+      error: "this machine is not connected; connect it, then try again",
+      offline: true,
+      loading: false,
+      retry: vi.fn()
+    };
+    draw({
+      device: { ...workshop, online: false, last_frame_ms: Date.now() - (14 * 60 + 31) * 60_000 }
+    });
+
+    expect(screen.getByRole("status")).toHaveTextContent("Last seen 14h 31m ago.");
+    expect(screen.queryByRole("heading", { name: "Now" })).toBeNull();
+    expect(screen.queryByText("Quiet")).toBeNull();
+    expect(screen.queryByText("Reconnecting")).toBeNull();
+    expect(screen.queryByText(/no calls in the last minute/)).toBeNull();
   });
 
   it("links the console's Device → Machine view from the offline sentence", () => {
@@ -639,7 +664,7 @@ describe("Device overview — the machine's live page", () => {
     });
 
     // The count is the fleet's own, and the reason is the device's sentence exactly as it arrived.
-    const sentence = screen.getByText(/is not connected after 5 attempts/);
+    const sentence = screen.getByText(/5 attempts so far, the last failed/);
     expect(sentence).toHaveTextContent("timed out waiting for the channel hello");
     expect(screen.getByTitle("timed out waiting for the channel hello")).toBeInTheDocument();
     // The advice follows the reason rather than replacing it: both doors are still named.
@@ -661,10 +686,9 @@ describe("Device overview — the machine's live page", () => {
     });
 
     const notice = screen.getByRole("status");
-    expect(notice).toHaveTextContent(
-      "workshop is not connected. The console keeps trying; Retry works from here."
-    );
-    expect(screen.queryByText(/after 5 attempts/)).not.toBeInTheDocument();
+    expect(notice).toHaveTextContent("This machine is offline.");
+    expect(notice).toHaveTextContent("The console keeps trying; Retry works from here.");
+    expect(screen.queryByText(/attempts? so far/)).not.toBeInTheDocument();
   });
 
   it("shows the operator's Retry while it is in flight, disabled", () => {
@@ -757,7 +781,7 @@ describe("Device overview — the machine's live page", () => {
     expect(retry).toHaveBeenCalledTimes(1);
   });
 
-  it("does not print zero tools when the catalogue was never read", () => {
+  it("states a failed tools read once, with the raw error as evidence", () => {
     live.value = {
       tools: [],
       stale: false,
@@ -768,10 +792,17 @@ describe("Device overview — the machine's live page", () => {
     };
     draw();
 
-    expect(screen.getByText("Running")).toBeInTheDocument();
+    // audit-43 F9: the notice and the line where the counts would be said the same failure twice.
+    // One notice now, and the envelope's raw sentence survives as its title rather than in the page.
+    const notices = screen.getAllByRole("status");
+    expect(notices).toHaveLength(1);
+    expect(notices[0]).toHaveTextContent(
+      "The machine is running. The console could not read its tool list, so the counts are not shown."
+    );
+    expect(notices[0]).toHaveAttribute("title", "the console could not read this machine's tools");
     expect(
-      screen.getByText("Tool counts are unavailable until the console can read the machine's list.")
-    ).toBeInTheDocument();
+      screen.queryByText("Tool counts are unavailable until the console can read the machine's list.")
+    ).toBeNull();
     expect(screen.queryByText(/^0 tools/)).not.toBeInTheDocument();
   });
 
@@ -809,6 +840,7 @@ describe("Device overview — the machine's live page", () => {
       )
     ).toBeInTheDocument();
     expect(screen.queryByText(/may be stale/)).toBeNull();
+    expect(screen.queryByText(/Tool counts are unavailable/)).toBeNull();
     expect(
       within(screen.getByRole("status")).getByRole("button", { name: "Retry" })
     ).toBeInTheDocument();

@@ -188,6 +188,31 @@ describe("DevicePageShell without a machine", () => {
     expect(onChoose).toHaveBeenCalledWith(MACHINE.id);
     expect(screen.queryByText("page contents")).toBeNull();
   });
+
+  it("hands the picker the fleet read's state, not only the list it holds", () => {
+    // audit-43 F4: with `/fleet` pending or failed the destination said `No devices are enrolled
+    // yet.` because the picker only knew `devices`. The shell is the one place that knows the read.
+    const onRetryFleet = vi.fn();
+    render(
+      <DevicePageShell
+        tab="terminal"
+        onTab={() => undefined}
+        devices={[]}
+        chosen={null}
+        onChoose={() => undefined}
+        onConnect={() => undefined}
+        fleetRead={{ state: "failed", reason: "Failed to fetch" }}
+        onRetryFleet={onRetryFleet}
+      >
+        {() => <p>page contents</p>}
+      </DevicePageShell>
+    );
+
+    expect(screen.getByRole("status")).toHaveTextContent("The machine list could not be read.");
+    expect(screen.queryByText(/No devices are enrolled yet/)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    expect(onRetryFleet).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("DevicePageShell's one Connect door", () => {

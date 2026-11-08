@@ -1,12 +1,50 @@
 import type { Device } from "./api";
 import { lastHeardMs, seenAgo, shortId } from "./format";
+import type { FleetRead } from "./HomePage";
 
 /**
  * A device list for a page that needs one: the rail can be the first thing an operator clicks, and
  * "no device selected" is a dead end when the list is one panel away.
+ *
+ * **AN EMPTY LIST IS NOT AN EMPTY FLEET.** `/fleet` can be on the wire for fifteen seconds or fail,
+ * and the page held an empty list in both states; it said `No devices are enrolled yet.` for all of
+ * them (audit-43 F4). The read's state is what separates "none enrolled" from "not read yet" and
+ * "could not be read", so it is a prop here and only a confirmed empty read draws the enrollment
+ * sentence. A list already in hand stays useful while a reread is pending or failed: it is the last
+ * thing the console knew, and the shell's banner owns the failure.
  */
-export function DevicePicker({ devices, onChoose }: { devices: Device[]; onChoose: (id: string) => void }) {
+export function DevicePicker({
+  devices,
+  onChoose,
+  fleetRead,
+  onRetry
+}: {
+  devices: Device[];
+  onChoose: (id: string) => void;
+  /** What the latest `/fleet` read answered. Absent is a confirmed answer for the list in hand. */
+  fleetRead?: FleetRead;
+  /** Read `/fleet` again after a failed read: the page's Retry, not the shell's poll. */
+  onRetry?: () => void;
+}) {
+  const fleet = fleetRead ?? { state: "ready" as const };
   if (devices.length === 0) {
+    if (fleet.state === "reading") {
+      return (
+        <p className="hint" role="status">
+          Reading the machine list…
+        </p>
+      );
+    }
+    if (fleet.state === "failed") {
+      return (
+        <div className="notice" role="status">
+          <span title={fleet.reason}>The machine list could not be read.</span>
+          <button type="button" onClick={() => onRetry?.()}>
+            Retry
+          </button>
+        </div>
+      );
+    }
     return <p className="hint">No devices are enrolled yet. Add one from Home.</p>;
   }
   return (

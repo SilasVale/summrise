@@ -45,19 +45,23 @@ export function ToolCatalogue({
   // drawn as a finished empty catalogue.
   const read = toolsReadState(live);
   const missingTool = tool !== null && read !== "reading" && live.tools.length > 0 && !openTool;
+  // **THE NOTICE BELOW IS THE FAILURE'S ONE STATEMENT (audit-43 F9).** The subtitle used to say
+  // `No tool list from this machine.` above a notice that said the same thing, and an offline
+  // machine got `…it is offline.` above a body sentence that repeated it. When there is no list,
+  // the read's state is the notice's or the body's subject; the subtitle is silent.
   const subtitle =
     live.tools.length > 0
       ? `${live.tools.length} tools · ${capabilities} capabilit${capabilities === 1 ? "y" : "ies"}`
       : read === "reading"
         ? "Reading the tool list…"
-        : offline
-          ? "No tool list from this machine; it is offline."
+        : read === "failed" || offline
+          ? null
           : "No tool list from this machine.";
 
   return (
     <>
       <div className="tools-section-head">
-        <p className="page-sub">{subtitle}</p>
+        {subtitle !== null && <p className="page-sub">{subtitle}</p>}
         <label className="search-field">
           <span className="sr-only">Search tools</span>
           <input
@@ -80,15 +84,17 @@ export function ToolCatalogue({
           ))}
         </div>
       ) : offline && live.tools.length === 0 ? (
+        // **NO RETRY AN OFFLINE MACHINE CANNOT USE (audit-43 F9).** The shell above already says
+        // the machine is away and dates it; a press here could not read anything until it returns,
+        // and the next read after it does is the page's own mount or the operator's next visit.
         <section className="empty-state">
           <p className="hint">The console has no tool list from this machine yet.</p>
-          <button type="button" onClick={() => live.retry()}>
-            Retry
-          </button>
         </section>
       ) : read === "failed" ? (
-        <div className="notice" role="status">
-          <span>The console could not read this machine's tools: {live.error}</span>
+        <div className="notice" role="status" title={live.error ?? undefined}>
+          {/* The envelope's raw sentence is evidence, not the page's sentence: it stays the
+              notice's title, where the one Retry sits beside a consequence the operator can read. */}
+          <span>The console could not read this machine's tools.</span>
           <button type="button" onClick={() => live.retry()}>
             Retry
           </button>
