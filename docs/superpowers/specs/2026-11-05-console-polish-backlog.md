@@ -854,49 +854,49 @@ items verified live.
 Measured 2026-11-08 00:15–00:57Z on live 0.3.273-ux102 at 1440/390. The twenty-second list is live; its
 residuals are this list's 6, 7 and 8.
 
-1. **`Open machine` only selects; the page stays Home.** Home's attention `Open machine`, every fleet row's
+1. **`Open machine` only selects; the page stays Home.** *(Live 0.3.273-ux103: the attention door opens `#device/machine`, the fleet row opens `#device/overview`. Implemented 1ddaa30.)* Home's attention `Open machine`, every fleet row's
    `Open DESKTOP-…` and the machine-menu rows only select — the page stays `#home` at both widths; the only
    working door is the summary's `Open Device` → `#device/overview`. **Fix:** every door opens the machine.
    **S.**
 
-2. **Home draws the selected machine three or four times with three vocabularies.** Topbar, attention,
+2. **Home draws the selected machine three or four times with three vocabularies.** *(Implemented 1ddaa30: one presence phrase, the selected row highlighted, the summary repeats no identity.)* Topbar, attention,
    summary and fleet row; `Running` vs `online`; three age casings (`Offline — last seen`, `Offline · last
    seen`, `offline · last seen`); `0.3.291` appears four times on the page. **Fix:** one row per machine, one
    vocabulary, the selected machine highlighted not repeated. **M.**
 
-3. **At 390 the fleet card's STARTED age has no label.** The thead is `display:none`, so `online · seen 10s
+3. **At 390 the fleet card's STARTED age has no label.** *(Implemented e0dd21e: a visible `.fleet-started-label`.)* The thead is `display:none`, so `online · seen 10s
    ago` and `2h 32m ago` stack 26 px apart as two bare ages — a regression of the twenty-second list's
    age-only change. **Fix:** a visible label at 390. **S.**
 
-4. **Device with no selection says "No devices are enrolled yet. Add one from Home." while /fleet is still
+4. **Device with no selection says "No devices are enrolled yet. Add one from Home." while /fleet is still *(Implemented e0dd21e: reading / failed / empty states.)*
    reading or has failed.** A false empty fleet. **Fix:** reading / failed / empty states. **S.**
 
-5. **The offline Overview says `Now · Quiet · no calls in the last minute` and gives no last-seen age**, while
+5. **The offline Overview says `Now · Quiet · no calls in the last minute` and gives no last-seen age**, *(Implemented e0dd21e: the offline Overview is offline and dated.)* while
    the same machine's Machine tab says `This machine is offline. Last seen 14h 31m ago.` **Fix:** the offline
    Overview is offline, dated. **S.**
 
-6. **Activity counts one 9VH window three ways.** `353 rows in this window` (client-call rows), `891 lines of
+6. **Activity counts one 9VH window three ways.** *(Implemented bc54d64: one count/noun per window.)* `353 rows in this window` (client-call rows), `891 lines of
    1040` (timeline footer), `994 lines of 1040` (Table, one tab away). **Fix:** one noun and one count, or say
    what each counts. **S/M.**
 
-7. **Machine prints the version three times and never says whether it is current.** Topbar chip, start line,
+7. **Machine prints the version three times and never says whether it is current.** *(Implemented bc54d64: one version + `behind the release 0.3.280` / current.)* Topbar chip, start line,
    `Applied`; the 84T at the release 0.3.291 looks the same as the 9VH one ahead. **Fix:** one version + a
    current/behind/up-to-date answer. **S/M.**
 
-8. **The clock is three clocks.** Table `08:46:18· 8s ago` with no space and no `title`; Timeline `08:14` at
+8. **The clock is three clocks.** *(Implemented d06fcad: `Clock`/`Moment`, one spacing, titles everywhere, the Runs phone value cell.)* Table `08:46:18· 8s ago` with no space and no `title`; Timeline `08:14` at
    390 with no `title`; Runs `· 32m 39s ago` falls into the label column at 390 and `ago` strands at 1440 —
    the twenty-second list's own fix broke the phone grid. **Fix:** one clock format, one spacing, titles
    everywhere, the phone grid fixed. **M.**
 
-9. **A tools failure is stated twice on Overview and three times on Tools.** Notice + line on Overview;
+9. **A tools failure is stated twice on Overview and three times on Tools.** *(Implemented e0dd21e: one notice, one Retry where it can work.)* Notice + line on Overview;
    `No tool list`, notice with the raw error `boom`, and the Plugins line on Tools; offline Tools adds a Retry
    it cannot use. **Fix:** one notice, one Retry only where it can work. **S.**
 
-10. **The topbar machine menu is a second fleet table.** It carries Activity's `29 client calls · 1 failed` and
+10. **The topbar machine menu is a second fleet table.** *(Implemented bc54d64: a switcher — name, state, build.)* It carries Activity's `29 client calls · 1 failed` and
     an unlabelled drive (`I: 23.9 GiB free`) where Home's rows dropped the counters and say `online`. **Fix:** a
     switcher, not a board. **S/M.**
 
-11. **The Connect sheet prints the endpoint twice.** The full 90-char endpoint in the code box and again in its
+11. **The Connect sheet prints the endpoint twice.** *(Implemented e0dd21e: one endpoint, one copy.)* The full 90-char endpoint in the code box and again in its
     paragraph (and `/mcp/all` likewise); at 390 that is eight lines of URL. **Fix:** one endpoint, one copy.
     **S.**
 
