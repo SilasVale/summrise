@@ -1711,6 +1711,7 @@ try {
     const facts = document.querySelector('.timeline-facts');
     const age = document.querySelector('.timeline-age');
     const machine = document.querySelector('.timeline-machine');
+    const clock = document.querySelector('.timeline-row .timeline-time');
     const box = (el) => (el ? el.getBoundingClientRect() : null);
     const size = (el) => (el ? parseFloat(getComputedStyle(el).fontSize) : 0);
     return {
@@ -1718,6 +1719,9 @@ try {
       day: size(day),
       verb: size(verb),
       rowHeight: box(row)?.height ?? 0,
+      clockText: clock?.textContent?.trim() ?? '',
+      clockTitle: clock?.getAttribute('title') ?? '',
+      clockDateTime: clock?.getAttribute('datetime') ?? '',
       ageSize: size(age),
       ageDisplay: age ? getComputedStyle(age).display : '',
       machineAgeOnSecondLine:
@@ -1746,6 +1750,17 @@ try {
   if (activityDesign.rowHeight < 60) {
     throw new Error(`the row is ${activityDesign.rowHeight}px tall, not a record row`);
   }
+  // The Timeline's clock is the same element as the Table's and the Runs history's: `HH:MM:SS`,
+  // the UTC instant in `dateTime`, the exact local moment in the title (audit-43 F8).
+  if (!/^\d{2}:\d{2}:\d{2}$/.test(activityDesign.clockText)) {
+    throw new Error(`the Timeline's clock reads ${JSON.stringify(activityDesign.clockText)}`);
+  }
+  if (!/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} \(/.test(activityDesign.clockTitle)) {
+    throw new Error(`the Timeline's clock title is ${JSON.stringify(activityDesign.clockTitle)}`);
+  }
+  if (!activityDesign.clockDateTime || Number.isNaN(Date.parse(activityDesign.clockDateTime))) {
+    throw new Error(`the Timeline's clock carries ${JSON.stringify(activityDesign.clockDateTime)}`);
+  }
   if (!activityDesign.machineAgeOnSecondLine) {
     throw new Error('the machine and age are not on the row\'s second line');
   }
@@ -1773,10 +1788,17 @@ try {
   const activity390 = await page.evaluate(() => {
     const rail = document.querySelector('.rail')?.getBoundingClientRect() ?? null;
     const firstRow = document.querySelector('.timeline-row')?.getBoundingClientRect() ?? null;
+    const clock = document.querySelector('.timeline-row .timeline-time');
+    const seconds = document.querySelector('.timeline-row .timeline-clock-seconds');
+    const secondsBox = seconds?.getBoundingClientRect();
     return {
       viewport: document.documentElement.clientWidth,
       scrollWidth: document.documentElement.scrollWidth,
       verb: parseFloat(getComputedStyle(document.querySelector('.timeline-sentence')).fontSize),
+      clockText: clock?.textContent?.trim() ?? '',
+      clockTitle: clock?.getAttribute('title') ?? '',
+      secondsDisplay: seconds ? getComputedStyle(seconds).display : null,
+      secondsWidth: Math.round(secondsBox?.width ?? 0),
       age: getComputedStyle(document.querySelector('.timeline-age')).display,
       oldChips: document.querySelectorAll('.timeline-machines .chip.is-old').length,
       machineChips: document.querySelectorAll('.timeline-machines .chip').length,
@@ -1808,6 +1830,21 @@ try {
     throw new Error(
       `Activity at 390 dropped its verb to ${activity390.verb}px, not the scale's 14px`
     );
+  }
+  // **THE PHONE KEEPS THE SECONDS (audit-43 F8).** The measured 390 clock read `08:14` because a
+  // stylesheet hid the seconds span; a minute cannot separate two calls eight seconds apart. The
+  // whole `HH:MM:SS` is drawn now, with the exact instant in the title.
+  if (!/^\d{2}:\d{2}:\d{2}$/.test(activity390.clockText)) {
+    throw new Error(`Activity at 390's clock reads ${JSON.stringify(activity390.clockText)}`);
+  }
+  if (activity390.secondsDisplay === 'none' || activity390.secondsWidth === 0) {
+    throw new Error(
+      `Activity at 390 hid the seconds: display ${activity390.secondsDisplay}, ` +
+        `${activity390.secondsWidth} px`
+    );
+  }
+  if (!/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} \(/.test(activity390.clockTitle)) {
+    throw new Error(`Activity at 390's clock title is ${JSON.stringify(activity390.clockTitle)}`);
   }
   if (activity390.age === 'none') {
     throw new Error('Activity at 390 hid the age from the second line');
@@ -1863,6 +1900,7 @@ try {
       ).length,
       whenText: when?.textContent?.trim() ?? '',
       timeText: time?.textContent?.trim() ?? '',
+      timeTitle: time?.getAttribute('title') ?? null,
       dateTime: time?.getAttribute('datetime') ?? null
     };
   });
@@ -1890,16 +1928,31 @@ try {
   if (!/^\d{2}:\d{2}:\d{2}$/.test(audit1440.timeText)) {
     throw new Error(`the When cell's time reads ${JSON.stringify(audit1440.timeText)}`);
   }
+  if (!/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} \(/.test(audit1440.timeTitle ?? '')) {
+    throw new Error(
+      `the When cell's time carries no exact moment: ${JSON.stringify(audit1440.timeTitle)}`
+    );
+  }
   if (!audit1440.dateTime || Number.isNaN(Date.parse(audit1440.dateTime))) {
     throw new Error(`the When cell's time carries ${JSON.stringify(audit1440.dateTime)}`);
   }
-  if (!/(ago|just now)/.test(audit1440.whenText)) {
+  // **ONE CLOCK, ONE SPACING (audit-43 F8).** The measured cell read `08:46:18· 8s ago`: the dot
+  // was glued to the seconds and the only gap was a margin. The text itself must say the age beside
+  // the clock with one space, so a copy, a screen reader or a phone reads the same join.
+  if (!(audit1440.whenText ?? '').startsWith(`${audit1440.timeText} · `)) {
+    throw new Error(`the When cell glued its age to the clock: ${JSON.stringify(audit1440.whenText)}`);
+  }
+  if (!/ · .+ (ago|just now)$/.test(audit1440.whenText ?? '')) {
     throw new Error(`the When cell lost the age: ${JSON.stringify(audit1440.whenText)}`);
+  }
+  if (/\d·/.test(audit1440.whenText ?? '')) {
+    throw new Error(`the When cell has no space before the separator: ${JSON.stringify(audit1440.whenText)}`);
   }
   step(
     `at 1440 the filters are one ${audit1440.toolbarHeight} px row with one closed Export menu ` +
       `(${audit1440.formats} formats, none outside it); When is ${audit1440.timeText} with ` +
-      `"${audit1440.whenText.replace(audit1440.timeText, '').trim()}" beside it`
+      `"${audit1440.whenText.replace(audit1440.timeText, '').trim()}" beside it, the exact ` +
+      `instant in its title`
   );
 
   step('opened Activity and its Table view; the run\'s row is the one opened, not the console\'s');
@@ -1945,11 +1998,18 @@ try {
         const cell = row?.querySelectorAll('td.runs-fact')[2];
         const time = cell?.querySelector('time');
         const box = time?.getBoundingClientRect();
+        const age = cell?.querySelector('.hint');
+        const ageBox = age?.getBoundingClientRect();
+        const value = cell?.querySelector('.runs-started');
         return {
           text: time?.textContent?.trim() ?? null,
           title: time?.getAttribute('title') ?? null,
           datetime: time?.getAttribute('datetime') ?? null,
-          visible: time !== null && time !== undefined && (box?.width ?? 0) > 0
+          visible: time !== null && time !== undefined && (box?.width ?? 0) > 0,
+          cellText: cell?.textContent?.trim() ?? null,
+          valueText: value?.textContent?.trim() ?? null,
+          valueChildren: value?.children.length ?? 0,
+          ageHeight: Math.round(ageBox?.height ?? 0)
         };
       })()
     };
@@ -1981,6 +2041,18 @@ try {
     !/\.\d{3}Z$/.test(runs1440.started.datetime ?? '')
   ) {
     throw new Error(`the 1440 Runs Started reads ${JSON.stringify(runs1440.started)}`);
+  }
+  // **THE 1440 CELL KEEPS THE AGE ON THE CLOCK'S LINE (audit-43 F8).** The measured cell was
+  // 140 px wide and the 107 px age wrapped, stranding `ago`; the value is one nowrap wrapper and
+  // the join is one literal space on each side of the dot.
+  if (
+    runs1440.started.valueChildren !== 2 ||
+    !/^\d{2}:\d{2}:\d{2} · .+ ago$/.test(runs1440.started.valueText ?? '') ||
+    !(runs1440.started.valueText ?? '').startsWith(`${runs1440.started.text} · `) ||
+    /\d·/.test(runs1440.started.valueText ?? '') ||
+    runs1440.started.ageHeight > 24
+  ) {
+    throw new Error(`the 1440 Runs Started wraps or glues: ${JSON.stringify(runs1440.started)}`);
   }
   step(
     `at 1440 the Runs history keeps its table: header ${runs1440.headerWidth} px, command ` +
@@ -2021,8 +2093,28 @@ try {
         factTops: [...row.querySelectorAll('td.runs-fact')].map((cell) =>
           Math.round(cell.getBoundingClientRect().top)
         ),
-        startedText: row.querySelectorAll('td.runs-fact')[2]?.querySelector('time')
-          ?.textContent?.trim() ?? null
+        started: (() => {
+          const cell = row.querySelectorAll('td.runs-fact')[2];
+          const label = cell?.querySelector('.runs-fact-label');
+          const time = cell?.querySelector('time');
+          const age = cell?.querySelector('.hint');
+          const value = cell?.querySelector('.runs-started');
+          const labelBox = label?.getBoundingClientRect();
+          const timeBox = time?.getBoundingClientRect();
+          const ageBox = age?.getBoundingClientRect();
+          return {
+            clock: time?.textContent?.trim() ?? null,
+            cellText: cell?.textContent?.trim() ?? null,
+            valueText: value?.textContent?.trim() ?? null,
+            valueChildren: value?.children.length ?? 0,
+            labelRight: Math.round(labelBox?.right ?? 0),
+            timeLeft: Math.round(timeBox?.left ?? 0),
+            ageLeft: Math.round(ageBox?.left ?? 0),
+            timeTop: Math.round(timeBox?.top ?? 0),
+            ageTop: Math.round(ageBox?.top ?? 0),
+            ageHeight: Math.round(ageBox?.height ?? 0)
+          };
+        })()
       };
     });
     return {
@@ -2078,10 +2170,26 @@ try {
     if (card.labels.some((label) => !label.visible)) {
       throw new Error(`a 390 fact label is not visible: ${JSON.stringify(card.labels)}`);
     }
-    // The same clock and age the desktop table draws: the card is the same DOM, not a second
-    // vocabulary.
-    if (!/^\d{2}:\d{2}:\d{2}$/.test(card.startedText ?? '')) {
-      throw new Error(`the 390 card's Started reads ${JSON.stringify(card.startedText)}`);
+    // **THE AGE IS IN THE VALUE CELL, NOT THE LABEL'S COLUMN (audit-43 F8).** The measured 390
+    // card put the hint at x=48, under `Started` at x=160, beginning the line with a dangling `·`
+    // because it was the `<td>` grid's third child. The wrapper gives the grid a label and one
+    // value; the age must sit right of the label and on the clock's own line.
+    if (!/^\d{2}:\d{2}:\d{2}$/.test(card.started.clock ?? '')) {
+      throw new Error(`the 390 card's Started reads ${JSON.stringify(card.started.clock)}`);
+    }
+    if (
+      card.started.valueChildren !== 2 ||
+      !/^\d{2}:\d{2}:\d{2} · .+ ago$/.test(card.started.valueText ?? '') ||
+      !(card.started.valueText ?? '').startsWith(`${card.started.clock} · `) ||
+      /\d·/.test(card.started.valueText ?? '') ||
+      card.started.ageLeft <= card.started.labelRight ||
+      Math.abs(card.started.ageTop - card.started.timeTop) > 6 ||
+      card.started.ageHeight > 24
+    ) {
+      throw new Error(`the 390 card's Started is not one value cell: ${JSON.stringify(card.started)}`);
+    }
+    if (card.started.ageLeft <= card.started.timeLeft) {
+      throw new Error(`the 390 card's age is not beside its clock: ${JSON.stringify(card.started)}`);
     }
     if (card.factTops.length !== 4 || card.factTops.some((top) => top < card.commandBottom)) {
       throw new Error(

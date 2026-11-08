@@ -19,8 +19,8 @@ import {
 } from "./auditTime";
 import { auditCsv, auditCsvName, auditJsonl, auditJsonlName } from "./audit-export";
 import { downloadFile } from "./download";
+import { Moment } from "./Clock";
 import { age, shortDeviceName, shortId } from "./format";
-import { clock } from "./ActivityTimeline";
 import { AuditSourceLine } from "./AuditSourceLine";
 import { ConsoleCaller } from "./CallerMark";
 import { tokenFact, tokenLabel } from "./tokenFact";
@@ -816,19 +816,16 @@ export function AuditTable({
                       <tr className="audit-row">
                         <td className="audit-when" title={new Date(line.ts_ms).toISOString()}>
                           {!wide && disclosure(key, isOpen, line)}
-                          {/* **THE TABLE DATED ITS OWN RECORD ONLY AS AN AGE.** The Timeline said
-                              `04:45:03` for the line the Table called `8s ago` (audit-41 F4); the
-                              clock is the timeline's own `clock()` now, and the age stays beside it.
-                              The 1,000-row table draws the time as one text node, not the timeline's
-                              two spans: the phone's cell has room for the seconds, and the table is
-                              the one surface that draws a thousand of these. */}
-                          <time
-                            className="timeline-time"
-                            dateTime={new Date(line.ts_ms).toISOString()}
-                          >
-                            {clock(line.ts_ms)}
-                          </time>
-                          <span className="audit-age">· {age(line.ts_ms)}</span>
+                          {/* **ONE CLOCK, WITH ONE SPACE BEFORE THE AGE (audit-43 F8).** The cell
+                              said `08:46:18· 8s ago` — no space, because the gap was a 4 px margin
+                              rather than a character. The shared `Moment` draws the clock and the
+                              age with the one literal separator, and the time's `title` carries the
+                              exact instant the cell never offered. */}
+                          <Moment
+                            ts={line.ts_ms}
+                            age={age(line.ts_ms)}
+                            ageClassName="audit-age"
+                          />
                         </td>
                         <td title={line.device_id ? `${deviceName} (${line.device_id})` : deviceName}>
                           {wide ? (

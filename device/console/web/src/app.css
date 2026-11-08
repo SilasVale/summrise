@@ -2037,10 +2037,11 @@ span.files-name {
 /* THE RECORD'S MOMENT IS THE CLOCK, WITH ITS AGE BESIDE IT (audit-41 F4). The table dated a line
    only as `8s ago` while the Timeline said `04:45:03` for the same record; `.timeline-time` is the
    shared element now, and the cell only drops the timeline's padding. */
-/* The clock keeps a 4 px gap before its age, which is where the separator's space lives. The
-   table draws the seconds at every width: the cell has the room, and this is the surface where a
-   record is read rather than skimmed. */
-.audit-when .timeline-time { padding-top: 0; margin-right: 4px; white-space: nowrap; }
+/* THE JOIN IS A CHARACTER, NOT A MARGIN (audit-43 F8). The cell read `08:46:18· 8s ago`: the only
+   space was a 4 px margin, so the text itself had none. The shared `Moment` puts the one space in
+   the text and the margin is gone. A moment never wraps: the age belongs beside its clock. */
+.audit-when .timeline-time { padding-top: 0; white-space: nowrap; }
+.moment { white-space: nowrap; }
 .audit-age { color: var(--ink-faint); font-size: var(--fs-xs); white-space: nowrap; }
 .audit-chevron-cell { width: 1%; text-align: right; }
 .audit-chevron { color: var(--ink-faint); }
@@ -2730,6 +2731,12 @@ main::-webkit-scrollbar-track, .sheet-body::-webkit-scrollbar-track, .scroll::-w
 .runs-history td { padding: 9px 12px; border-bottom: 1px solid var(--hairline); }
 .runs-history tr:last-child td { border-bottom: 0; }
 .runs-row-active td { background: color-mix(in srgb, var(--accent) 8%, transparent); }
+/* ONE MOMENT, ONE VALUE CELL (audit-43 F8). The clock and its age share this wrapper so the phone's
+   two-column fact grid gets a label and one value, never the age as a third child in the label's
+   column. It is nowrap at both widths: the 1440 cell is ~140 px and `32m 39s ago` alone is 107 px,
+   so wrapping would strand `ago` on a line of its own. */
+.runs-started { white-space: nowrap; }
+.runs-started .timeline-time { padding-top: 0; }
 
 .runs-history-head { display: flex; align-items: center; gap: var(--sp-2); }
 .runs-history-head .hint { margin: 0; }
@@ -3057,16 +3064,15 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
 .timeline-empty-filtered { display: grid; gap: var(--sp-2); justify-items: start; }
 .timeline-empty-actions { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
 
-/* At phone width the clock is the when: the seconds go and the age goes with them (the clock
-   carries it), while the sentence, the machine and the outcome dot stay. The time column narrows
-   to the minute it now draws, and never wraps onto a second line. */
+/* At phone width the clock keeps its seconds: a minute cannot separate two calls 8 s apart, and
+   the exact instant in the title is a consolation, not the record (audit-43 F8). The time column
+   sizes to the whole `HH:MM:SS` instead of the old 44 px minute, and the clock never wraps onto a
+   second line. The age stays on the second line, where a record says how old the call is. */
 @media (max-width: 480px) {
   .timeline-line, button.timeline-line {
-    grid-template-columns: 44px 18px minmax(0, 1fr) 16px;
+    grid-template-columns: auto 18px minmax(0, 1fr) 16px;
     gap: 8px; padding: 14px 4px 14px 0; min-height: 60px;
   }
-  .timeline-clock-seconds { display: none; }
-  /* The age stays: the second line is where a record says how old the call is. */
   .timeline-age { display: inline; }
 }
 

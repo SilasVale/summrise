@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AuditLine, AuditSource, Device, TokenMeta } from "./api";
 import { ActivityTimeline } from "./ActivityTimeline";
+import { exactMoment } from "./format";
 import { restoreGlobal } from "./test/dom";
 
 // The timeline is the proof, not the summary: a row that opens must show the call as it was sent and
@@ -672,6 +673,25 @@ describe("ActivityTimeline", () => {
     const facts = document.querySelector(".timeline-facts");
     expect(facts?.querySelector(".timeline-age")).toHaveTextContent(/ago$/);
     expect(facts?.querySelector(".timeline-machine")).toHaveTextContent("Alpha");
+  });
+
+  it("keeps the exact moment in the clock's title, so the phone's seconds are a convenience", () => {
+    // audit-43 F8: the Timeline's `<time>` had no title, so the instant was nowhere; it also drew
+    // only `08:14` at 390. The seconds stay drawn now (the gate measures that), and the title is
+    // the record either way.
+    const ts = Date.UTC(2026, 10, 5, 9, 0, 5);
+    render(
+      <ActivityTimeline
+        lines={[line({ ts_ms: ts, device_id: alpha, sentence: "Read notes.txt" })]}
+        devices={devices}
+        nowMs={ts + 8_000}
+      />
+    );
+
+    const time = document.querySelector(".timeline-time") as HTMLTimeElement;
+    expect(time).not.toBeNull();
+    expect(time).toHaveAttribute("title", exactMoment(ts));
+    expect(time).toHaveTextContent(/^\d{2}:\d{2}:\d{2}$/);
   });
 
   it("marks the day label for the scroll container so it can stick", () => {

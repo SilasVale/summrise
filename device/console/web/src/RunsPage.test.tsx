@@ -201,6 +201,37 @@ describe("RunsPage", () => {
     }
   });
 
+  it("keeps the Started clock and age in one value cell, not the label's column", async () => {
+    // The phone's fact grid is two columns: label, value. The twenty-second list's fix left the
+    // clock and the age as separate children of the `<td>`, so the age auto-placed into the label's
+    // column under a leading `·` (audit-43 F8 measured label x=48, time x=160, hint x=48). The
+    // wrapper is what the grid sees; this is the structure the media query styles.
+    const startedAt = new Date(2026, 10, 4, 9, 41, 5).getTime();
+    const now = new Date(2026, 10, 4, 10, 0, 0).getTime();
+    const record: RunRecord = { ...HELLO, started_at_ms: startedAt };
+    mocked.mockResolvedValue(JSON.stringify([record]));
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(now);
+    try {
+      render(<RunsPage grant={GRANT} />);
+      const cell = (await screen.findByText("echo hello"))
+        .closest("tr")
+        ?.querySelectorAll("td.runs-fact")[2] as HTMLElement;
+      // Two grid items — the label and ONE value — not the three the broken card had.
+      expect(cell.children).toHaveLength(2);
+      const label = cell.children[0] as HTMLElement;
+      const value = cell.children[1] as HTMLElement;
+      expect(label).toHaveClass("runs-fact-label");
+      expect(value).toHaveClass("runs-started");
+      expect(value.querySelector("time")).not.toBeNull();
+      expect(value.textContent).toBe(
+        `${clockTimeSeconds(startedAt)} · ${age(now - startedAt)} ago`
+      );
+      expect(cell.textContent?.match(/ · /g)).toHaveLength(1);
+    } finally {
+      nowSpy.mockRestore();
+    }
+  });
+
   it("shortens a long command in the history and keeps the full line in its title", async () => {
     const long = {
       ...HELLO,

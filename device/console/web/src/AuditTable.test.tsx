@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AuditLine, Device, TokenMeta } from "./api";
 import { AuditTable } from "./AuditTable";
 import { downloadFile } from "./download";
+import { exactMoment } from "./format";
 
 vi.mock("./download", () => ({ downloadFile: vi.fn() }));
 
@@ -328,6 +329,31 @@ describe("AuditTable", () => {
     expect(time).toHaveAttribute("datetime", new Date(ts).toISOString());
     expect(time?.textContent).toBe(clock);
     expect(cell).toHaveTextContent(/ago|just now/);
+  });
+
+  it("keeps one space before the age and the exact moment in the clock's title", () => {
+    // audit-43 F8 measured `08:46:18· 8s ago`: the only gap was a 4 px margin on the `<time>`, so
+    // the text had none and the time itself had no title. The shared `Moment` puts the one space
+    // in the text, and the exact instant follows the Timeline's title.
+    const ts = new Date(2026, 10, 5, 8, 46, 18).getTime();
+    render(
+      <AuditTable
+        lines={[line({ ts_ms: ts, device_id: alpha, status: 200 })]}
+        devices={devices}
+        tokens={[]}
+      />
+    );
+
+    const cell = document.querySelector("tr.audit-row td.audit-when") as HTMLElement;
+    const time = cell.querySelector("time") as HTMLTimeElement;
+    expect(time).not.toBeNull();
+    expect(time).toHaveTextContent("08:46:18");
+    expect(time).toHaveAttribute("title", exactMoment(ts));
+    // The phone's disclosure is the cell's other child (an icon); the moment is the clock and age.
+    const text = cell.querySelector(".moment")?.textContent ?? "";
+    expect(text).toMatch(/^08:46:18 · .+ ago$/);
+    expect(text.match(/ · /g)).toHaveLength(1);
+    expect(text).not.toContain("18·");
   });
 
   it("keeps one Export control, with both formats inside it", () => {

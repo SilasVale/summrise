@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { copyText } from "./copy";
-import { clockTime, clockTimeSeconds, exactMoment, isoDate, message } from "./format";
+import { Moment } from "./Clock";
+import { clockTime, exactMoment, isoDate, message } from "./format";
 import { useRequestGate } from "./requests";
 import { age } from "./age";
 import { callTool, type Grant } from "./terminal";
@@ -350,18 +351,19 @@ export function RunsPage({
                   </td>
                   <td className="runs-fact">
                     <span className="runs-fact-label">Started</span>
-                    {/* **THE START IS AN INSTANT ON THE HISTORY TOO.** The row used to show only
-                        `31m 11s ago`, so a run could not be placed in time on the page that
-                        exists to inspect it, while the Activity Table dated the same class of run
-                        `06:59:29 · 7s ago`. The clock, the age and the exact moment are one
-                        vocabulary now, and the phone card gets the same because it is this DOM. */}
-                    <time
-                      dateTime={new Date(row.started_at_ms).toISOString()}
-                      title={exactMoment(row.started_at_ms)}
-                    >
-                      {clockTimeSeconds(row.started_at_ms)}
-                    </time>{" "}
-                    <span className="hint">· {age(Date.now() - row.started_at_ms)} ago</span>
+                    {/* **THE START IS ONE CLOCK, AND ONE GRID CELL ON A PHONE (audit-43 F8).** The
+                        row used to show only `31m 11s ago`, then the twenty-second list gave it the
+                        Table's clock and age — but as three children of the phone's two-column
+                        cell grid, so the age wrapped into the label's column under a dangling `·`
+                        and, at 1440, stranded `ago` on its own line. `Moment` keeps the clock and
+                        the age in one nowrap wrapper: the grid sees a label and one value, exactly
+                        like every other fact, and the exact instant is the `<time>`'s title. */}
+                    <Moment
+                      ts={row.started_at_ms}
+                      age={`${age(Date.now() - row.started_at_ms)} ago`}
+                      className="runs-started"
+                      ageClassName="hint"
+                    />
                   </td>
                   <td className="runs-fact">
                     <span className="runs-fact-label">stdout / stderr</span>

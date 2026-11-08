@@ -9,6 +9,7 @@ import {
 import { isChannelBoundary, isClientCall } from "./activitySummary";
 import { auditFailed } from "./auditFilter";
 import { spanText } from "./age";
+import { Clock, clock } from "./Clock";
 import { ageAt, shortId } from "./format";
 import { AuditSourceLine } from "./AuditSourceLine";
 import { ConsoleCaller } from "./CallerMark";
@@ -55,33 +56,6 @@ function dayLabel(ts: number, now: number): string {
   return `${DAY_NAMES[date.getDay()]}, ${date.getMonth() + 1}/${date.getDate()}${
     sameYear ? "" : `/${date.getFullYear()}`
   }`;
-}
-
-export function clock(ts: number): string {
-  const date = new Date(ts);
-  const pad = (value: number) => String(value).padStart(2, "0");
-  return `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
-}
-
-/**
- * The record's clock, as a minute span and a seconds span.
- *
- * On a phone the time cell narrows to the minute; the seconds stay in their own element so the
- * stylesheet can drop them without dropping the instant — `dateTime` and the full text still carry
- * HH:MM:SS for anything that reads the record rather than looks at it.
- *
- * **THE TIMELINE AND THE TABLE READ ONE MOMENT THE SAME WAY.** The Table used to say `8s ago` for
- * a line the Timeline dated to the second (audit-41 F4); both views import this element now, so
- * their vocabularies cannot drift apart again.
- */
-export function Clock(props: { ts: number }) {
-  const full = clock(props.ts);
-  return (
-    <time className="timeline-time" dateTime={new Date(props.ts).toISOString()}>
-      <span className="timeline-clock">{full.slice(0, 5)}</span>
-      <span className="timeline-clock-seconds">{full.slice(5)}</span>
-    </time>
-  );
 }
 
 /** Days newest first, each day's rows newest first (the list arrives that way). */
