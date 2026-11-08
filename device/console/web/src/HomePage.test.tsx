@@ -61,6 +61,7 @@ function drawFleet(extra: Record<string, unknown> = {}) {
   const onRetryFleet = vi.fn();
   const onAddMachine = vi.fn();
   const onOpen = vi.fn();
+  const onOpenMachine = vi.fn();
   const onConnect = vi.fn();
   const onTools = vi.fn();
   const onNotice = vi.fn();
@@ -74,6 +75,7 @@ function drawFleet(extra: Record<string, unknown> = {}) {
     enrollCommand: "",
     busy: false,
     onOpen,
+    onOpenMachine,
     onRename: vi.fn(),
     onRemove: vi.fn(),
     onDiagnostics: vi.fn(),
@@ -97,6 +99,7 @@ function drawFleet(extra: Record<string, unknown> = {}) {
     onRetryFleet,
     onAddMachine,
     onOpen,
+    onOpenMachine,
     onConnect,
     onTools,
     onNotice,
@@ -177,7 +180,7 @@ describe("Home — the fleet's installer", () => {
     drawFleet({ devices: [{ ...workshop, version: "0.3.8" }] });
 
     expect(
-      await screen.findByText("Behind: v0.3.8, the release is 0.3.9.")
+      await screen.findByText("The release is 0.3.9.")
     ).toBeInTheDocument();
     // The staged installer is the RELEASE; the console's own build is another version scheme and
     // the page may not call both "the console" (audit-40 F10).
@@ -306,8 +309,9 @@ describe("Home — the verdict and what needs attention", () => {
     expect(
       within(attention).getByRole("heading", { name: "DESKTOP-14RJCR8", level: 3 })
     ).toBeInTheDocument();
+    // The attention line uses the fleet row's one phrase, not a second spelling (audit-43 F2).
     expect(
-      within(attention).getByText("Offline — last seen 2d 5h ago.")
+      within(attention).getByText("offline · last seen 2d 5h ago")
     ).toBeInTheDocument();
   });
 
@@ -327,9 +331,10 @@ describe("Home — the verdict and what needs attention", () => {
     ).toBeInTheDocument();
     const attention = screen.getByRole("region", { name: "Needs attention" });
     expect(within(attention).getByRole("heading", { name: "old", level: 3 })).toBeInTheDocument();
-    expect(
-      within(attention).getByText("Behind: v0.3.8, the release is 0.3.9.")
-    ).toBeInTheDocument();
+    // The release is stated once by the block; the row names the machine and the problem.
+    expect(within(attention).getByText("The release is 0.3.9.")).toBeInTheDocument();
+    expect(within(attention).getByText("Behind the release.")).toBeInTheDocument();
+    expect(within(attention).queryByText(/0\.3\.8/)).toBeNull();
   });
 
   it("draws one row per machine, its problems listed, with one button that opens it", async () => {
@@ -337,7 +342,7 @@ describe("Home — the verdict and what needs attention", () => {
     // block draws one row with both problems listed and ONE door — four rows and four identical
     // buttons over two machines made the count and the block disagree (audit-40 F6).
     installerApi.installer.mockResolvedValue({ ...installerFacts, version: "0.3.289" });
-    const { onOpen } = drawFleet({
+    const { onOpenMachine } = drawFleet({
       devices: [
         machine({ id: "a", name: "alpha", version: "0.3.289" }),
         machine({ id: "b", name: "bravo", version: "0.3.289" }),
@@ -363,9 +368,13 @@ describe("Home — the verdict and what needs attention", () => {
     ).toBeInTheDocument();
     const problems = attention.querySelectorAll(".attention-problems li");
     expect(Array.from(problems, (problem) => problem.textContent)).toEqual([
-      "Offline — last seen 2d 5h ago.",
-      "Behind: v0.3.275, the release is 0.3.289."
+      "offline · last seen 2d 5h ago",
+      "Behind the release."
     ]);
+    // One release position: the block's sentence. Neither the machine's version nor the release is
+    // repeated in the row; the table's Version column is where the build is compared (audit-43 F2).
+    expect(within(attention).getAllByText("The release is 0.3.289.")).toHaveLength(1);
+    expect(within(attention).queryByText(/0\.3\.275/)).toBeNull();
     // One door for one machine; the name appears once, not in every problem line.
     const doors = within(attention).getAllByRole("button", {
       name: "Open machine for DESKTOP-14RJCR8"
@@ -373,7 +382,7 @@ describe("Home — the verdict and what needs attention", () => {
     expect(doors).toHaveLength(1);
     expect(within(attention).getAllByText(/DESKTOP-14RJCR8/)).toHaveLength(1);
     fireEvent.click(doors[0]);
-    expect(onOpen).toHaveBeenCalledWith("r14");
+    expect(onOpenMachine).toHaveBeenCalledWith("r14");
   });
 
   it("folds two machines' four problems into two rows, each with its own door", async () => {
@@ -381,7 +390,7 @@ describe("Home — the verdict and what needs attention", () => {
     // four rows. The block keeps every fact and loses the duplicate door: two rows, two doors
     // (audit-40 F6).
     installerApi.installer.mockResolvedValue({ ...installerFacts, version: "0.3.290" });
-    const { onOpen } = drawFleet({
+    const { onOpenMachine } = drawFleet({
       devices: [
         machine({
           id: "r14",
@@ -424,7 +433,7 @@ describe("Home — the verdict and what needs attention", () => {
     fireEvent.click(
       within(attention).getByRole("button", { name: "Open machine for DESKTOP-CPH4KB2" })
     );
-    expect(onOpen).toHaveBeenCalledWith("cph");
+    expect(onOpenMachine).toHaveBeenCalledWith("cph");
   });
 
   it("says nothing needs attention, with the fleet read's age, when the fleet is healthy", async () => {
@@ -544,14 +553,14 @@ describe("Home — the selected machine", () => {
     expect(
       within(attention).getByRole("heading", { name: "DESKTOP-14RJCR8", level: 3 })
     ).toBeInTheDocument();
-    expect(attention).toHaveTextContent("Offline — last seen 2d 5h ago.");
+    expect(attention).toHaveTextContent("offline · last seen 2d 5h ago");
     expect(screen.getByRole("table", { name: "The fleet" })).toBeInTheDocument();
     // One destination, one heading: the selected state does not become a second page.
     expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
     expect(screen.getByRole("heading", { name: "Machines", level: 1 })).toBeInTheDocument();
   });
 
-  it("summarises the selected machine in one section of Home", async () => {
+  it("summarises the selected machine's capabilities in one section of Home", async () => {
     const { onDevice, onConnect, onTools } = drawFleet({
       device: workshop,
       selectedId: workshop.id,
@@ -559,13 +568,16 @@ describe("Home — the selected machine", () => {
       fleetRead: { state: "ready", at: Date.now() }
     });
 
-    const summary = await screen.findByRole("region", {
-      name: "Selected machine workshop"
-    });
+    const summary = await screen.findByRole("region", { name: "Selected machine" });
+    // **HIGHLIGHTED, NOT REPEATED.** The row and the topbar already state the machine's name,
+    // reachability, age and build; the summary repeats none of them (audit-43 F2). Its heading is
+    // the generic section label, and the highlighted row says which machine it describes.
     expect(
-      within(summary).getByRole("heading", { name: "workshop", level: 2 })
+      within(summary).getByRole("heading", { name: "Selected machine", level: 2 })
     ).toBeInTheDocument();
-    expect(within(summary).getByText("Running")).toBeInTheDocument();
+    expect(within(summary).queryByText("workshop")).toBeNull();
+    expect(within(summary).queryByText(/Running|online|offline/)).toBeNull();
+    expect(within(summary).queryByText(/last seen|seen \d/)).toBeNull();
     // THE VERSION IS NOT SAID THREE TIMES. The topbar's chip states what runs and the table's
     // Version column repeats it for the fleet; the summary adds no third copy (task 79's rule for
     // the Machine tab's started line).
@@ -588,6 +600,57 @@ describe("Home — the selected machine", () => {
     expect(onConnect).toHaveBeenCalledTimes(1);
   });
 
+  it("draws the selected machine once and highlights its row", async () => {
+    const { container } = drawFleet({
+      device: workshop,
+      selectedId: workshop.id,
+      devices: [
+        machine({ id: workshop.id, name: "workshop", version: workshop.version }),
+        machine({ id: "a", name: "attic" })
+      ],
+      fleetRead: { state: "ready", at: Date.now() }
+    });
+
+    const summary = await screen.findByRole("region", { name: "Selected machine" });
+    // The name is the row's, once: the summary repeats neither it nor the presence word.
+    expect(within(summary).queryByText("workshop")).toBeNull();
+    expect(screen.getAllByText("workshop")).toHaveLength(1);
+    const table = screen.getByRole("table", { name: "The fleet" });
+    expect(within(table).getAllByRole("row")).toHaveLength(3);
+    const row = screen.getByRole("button", { name: "Open workshop" }).closest("tr");
+    expect(row).toHaveClass("is-current");
+    expect(screen.queryByText("Running")).toBeNull();
+    expect(container.querySelector(".machine-summary-head")).toBeNull();
+  });
+
+  it("sends the fleet row's door to Overview and the attention door to the machine tab", async () => {
+    const { onOpen, onOpenMachine } = drawFleet({
+      device: workshop,
+      selectedId: workshop.id,
+      devices: [
+        machine({ id: "w", name: "workshop", version: workshop.version }),
+        machine({
+          id: "r14",
+          name: "DESKTOP-14RJCR8",
+          online: false,
+          last_frame_ms: Date.now() - 3 * 3_600_000
+        })
+      ],
+      fleetRead: { state: "ready", at: Date.now() }
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Open workshop" }));
+    expect(onOpen).toHaveBeenCalledWith("w");
+    fireEvent.click(
+      screen.getByRole("button", { name: "Open machine for DESKTOP-14RJCR8" })
+    );
+    expect(onOpenMachine).toHaveBeenCalledWith("r14");
+    // The two doors are different verbs: the row opens the machine's Overview, the attention row
+    // its Machine tab. Neither is a selection-only press (audit-43 F1).
+    expect(onOpen).not.toHaveBeenCalledWith("r14");
+    expect(onOpenMachine).not.toHaveBeenCalledWith("w");
+  });
+
   it("draws no second Activity on Home when a machine is selected", async () => {
     drawFleet({
       device: workshop,
@@ -596,7 +659,7 @@ describe("Home — the selected machine", () => {
       fleetRead: { state: "ready", at: Date.now() }
     });
 
-    await screen.findByRole("region", { name: "Selected machine workshop" });
+    await screen.findByRole("region", { name: "Selected machine" });
     // The old selected Home was Activity in another place: a Now band over a day timeline. The
     // selection adds a summary, not the record.
     expect(screen.queryByRole("region", { name: "This machine's activity" })).toBeNull();
@@ -623,10 +686,9 @@ describe("Home — the selected machine", () => {
       fleetRead: { state: "ready", at: Date.now() }
     });
 
-    const summary = await screen.findByRole("region", {
-      name: "Selected machine workshop"
-    });
-    expect(within(summary).getByText(/^Offline/)).toBeInTheDocument();
+    const summary = await screen.findByRole("region", { name: "Selected machine" });
+    // The summary no longer restates the machine's presence; the row's highlighted status does.
+    expect(within(summary).queryByText(/^offline/)).toBeNull();
     expect(
       within(summary).getByText("Tool counts are unavailable while the machine is offline.")
     ).toBeInTheDocument();

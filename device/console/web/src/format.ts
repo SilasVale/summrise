@@ -157,6 +157,32 @@ export function lastHeardMs(device: {
 }
 
 /**
+ * The one reachability phrase a machine's row and Home's attention line both state.
+ *
+ * **ONE WORD, ONE AGE, ONE CASING.** The measured Home wrote the same silence three ways —
+ * `Offline — last seen 2d 16h ago.` in the attention block, `Offline · last seen 2d 16h ago` in
+ * the summary and `offline · last seen 2d 16h ago` in the fleet row — and called an online machine
+ * `Running` in two of those places. `online`/`offline` is the fleet's noun; the age keeps the
+ * fleet's punctuation and case, so the eye reads one fact instead of comparing three spellings.
+ * The age is absent only when the console has no evidence at all, and then the phrase is the
+ * reachability word alone rather than an invented moment.
+ */
+export function presenceText(
+  device: {
+    online: boolean;
+    last_frame_ms?: number | null;
+    last_left_ms?: number | null;
+    last_seen_ms?: number | null;
+  },
+  nowMs = Date.now()
+): string {
+  const heard = lastHeardMs(device);
+  const word = device.online ? "online" : "offline";
+  if (heard === null) return word;
+  return `${word} · ${device.online ? "seen" : "last seen"} ${seenAgo(heard, nowMs)}`;
+}
+
+/**
  * The part of a machine's name that tells it apart, for the phone's 67 px audit cell.
  *
  * The measured fleet is `DESKTOP-9VH92BJ`, `DESKTOP-14RJCR8` and `DESKTOP-CPH4KB2`: the only shared

@@ -158,7 +158,7 @@ describe("Device overview — the machine's live page", () => {
     // it is about and states its status.
     expect(screen.queryByRole("heading", { level: 1 })).toBeNull();
     expect(screen.getByRole("heading", { name: "workshop", level: 2 })).toBeInTheDocument();
-    expect(await screen.findByText("Running")).toBeInTheDocument();
+    expect(await screen.findByText("online")).toBeInTheDocument();
     // The console's build belongs to the Account menu; the subtitle says what the machine is.
     expect(screen.queryByText(/console v/)).toBeNull();
     // The counts line, not the status line, carries the counts: six tools across four capabilities
@@ -567,7 +567,7 @@ describe("Device overview — the machine's live page", () => {
       device: { ...workshop, online: false, last_frame_ms: Date.now() - 7 * 60_000 }
     });
 
-    expect(screen.getByText("Offline")).toBeInTheDocument();
+    expect(screen.getByText("offline")).toBeInTheDocument();
     const notice = screen.getByRole("status");
     expect(notice).toHaveTextContent("This machine is offline.");
     expect(notice).toHaveTextContent("Last seen 7m ago.");
@@ -800,6 +800,7 @@ describe("Device overview — the machine's live page", () => {
       "The machine is running. The console could not read its tool list, so the counts are not shown."
     );
     expect(notices[0]).toHaveAttribute("title", "the console could not read this machine's tools");
+    expect(screen.getByText("online")).toBeInTheDocument();
     expect(
       screen.queryByText("Tool counts are unavailable until the console can read the machine's list.")
     ).toBeNull();
@@ -875,7 +876,7 @@ describe("Device overview — the machine's live page", () => {
     };
     draw();
 
-    expect(await screen.findByText("Running")).toBeInTheDocument();
+    expect(await screen.findByText("online")).toBeInTheDocument();
     expect(await screen.findByRole("button", { name: /1 tool · 1 capability · 0 plugins/ })).toBeInTheDocument();
     expect(plugins.list).not.toHaveBeenCalled();
   });

@@ -61,6 +61,8 @@ export function MachineMenu({
           // **THE BUILD KEEPS ITS OWN ELEMENT BECAUSE THE PHONE KEEPS THE BUILD.** Below 640 px the
           // status word is hidden (the dot already carries it) while the version stays: an offline
           // Device page at 390 used to name no build anywhere, because this whole span was hidden.
+          // The word is the fleet's `online`/`offline`, not the app's `Running`: one reachability
+          // vocabulary on the shell, the attention rows and the table (audit-43 F2).
           <span className="machine-menu-meta">
             <span className="machine-menu-state">{chosen.online ? "online" : "offline"}</span>
             {chosen.version ? (

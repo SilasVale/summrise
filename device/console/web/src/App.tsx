@@ -1291,7 +1291,21 @@ export function App() {
             code={code}
             enrollCommand={enrollCommand}
             busy={enrolling}
-            onOpen={choose}
+            // **THE DOOR OPENS THE MACHINE.** A fleet row's visible name button used to call
+            // `choose` and leave the page on `#home`, so the operator who pressed `Open
+            // DESKTOP-…` stayed where they were (audit-43 F1). It now selects and opens Device →
+            // Overview; the attention row opens Device → Machine, where an absent machine's last
+            // facts live. The topbar menu and the picker stay choosers.
+            onOpen={(id) => {
+              choose(id);
+              setPage("device");
+              setTab("overview");
+            }}
+            onOpenMachine={(id) => {
+              choose(id);
+              setPage("device");
+              setTab("machine");
+            }}
             onRename={(device) => {
               setRenaming(device);
               setDraftName(device.name ?? "");

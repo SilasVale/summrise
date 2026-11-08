@@ -362,12 +362,16 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
-/** Select a machine from its fleet row; Home stays the fleet page and adds its summary. */
+/**
+ * Select a machine from the topbar's menu; Home stays the fleet page and highlights its row.
+ *
+ * The fleet row's name is a door now (Device → Overview), so a test that wants the selected Home
+ * selects through the menu, which remains a chooser (audit-43 F1).
+ */
 function selectDevice(name: string) {
-  const label = screen.getAllByText(name).find((node) => node.closest("tr.fleet-row"));
-  const row = label?.closest("tr.fleet-row") ?? null;
-  expect(row).not.toBeNull();
-  fireEvent.click(within(row as HTMLElement).getByRole("button", { name: /^Open / }));
+  fireEvent.click(screen.getByLabelText(/^(All machines|Machine: )/));
+  const menu = screen.getByLabelText("Machines");
+  fireEvent.click(within(menu).getByRole("button", { name: new RegExp(`^${name}`) }));
 }
 
 /** Open the selected machine's own page from Home's summary: Device → Overview. */
@@ -412,6 +416,40 @@ describe("App", () => {
     // The tab title and the address bar are both effects over the route the page has just drawn.
     await waitFor(() => expect(document.title).toBe("Machines · Summrise console"));
     await waitFor(() => expect(window.location.hash).toBe("#home"));
+  });
+
+  it("opens the attention row's machine on Device → Machine", async () => {
+    // The measured `Open machine` selected the machine and left the page on #home, so the one door
+    // the attention block exists for did nothing where the operator was looking (audit-43 F1).
+    mocks.devices.mockResolvedValue([
+      workshop,
+      { ...attic, online: false, last_frame_ms: Date.now() - 3 * 3_600_000 }
+    ]);
+    await bootAndSignIn();
+    await screen.findByText("1 of 2 online · 1 needs attention");
+
+    fireEvent.click(screen.getByRole("button", { name: "Open machine for attic" }));
+
+    await waitFor(() => expect(window.location.hash).toBe("#device/machine"));
+    expect(
+      await screen.findByRole("heading", { name: "Machine", level: 1 })
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText("Machine: attic")).toBeInTheDocument();
+    expect(localStorage.getItem("summrise.selected.device")).toBe(attic.id);
+  });
+
+  it("opens the fleet row's machine on Device → Overview", async () => {
+    // The row's name button and its chevron promised a destination; the press now opens the
+    // machine's own page instead of only selecting it (audit-43 F1).
+    await bootAndSignIn();
+
+    fireEvent.click(screen.getByRole("button", { name: "Open workshop" }));
+
+    await waitFor(() => expect(window.location.hash).toBe("#device/overview"));
+    expect(
+      await screen.findByRole("heading", { name: "Overview", level: 1 })
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText("Machine: workshop")).toBeInTheDocument();
   });
 
   it("shows the console's own 401 sentence in the sign-in panel", async () => {
@@ -1111,7 +1149,7 @@ describe("App", () => {
     });
     await bootAndSignIn();
     selectDevice("workshop");
-    await screen.findByRole("region", { name: "Selected machine workshop" });
+    await screen.findByRole("region", { name: "Selected machine" });
 
     // The header's own menu, opened on the selected machine.
     fireEvent.click(screen.getByLabelText("Machine: workshop"));
@@ -1164,7 +1202,7 @@ describe("App", () => {
     await bootAndSignIn();
     // A catalogue belongs to a machine, so pick one the way a person does.
     fireEvent.click(screen.getAllByRole("button", { name: /workshop/ })[0]);
-    await screen.findByRole("region", { name: "Selected machine workshop" });
+    await screen.findByRole("region", { name: "Selected machine" });
 
     // The late path: no reload, no click — the fragment changes on a page that is already mounted.
     window.history.replaceState(null, "", "#capabilities/files.read");
@@ -1699,8 +1737,11 @@ describe("App", () => {
     // Selecting stores the machine and stays on Home: the fleet keeps its verdict and its table,
     // and the machine is a summary section. The machine's own page is Device.
     expect(screen.getByRole("heading", { name: "Machines", level: 1 })).toBeInTheDocument();
-    const summary = screen.getByRole("region", { name: "Selected machine workshop" });
-    expect(summary).toHaveTextContent("Running");
+    const summary = screen.getByRole("region", { name: "Selected machine" });
+    // The selected machine is highlighted in the table, not repeated in the summary.
+    expect(summary).not.toHaveTextContent("Running");
+    const row = screen.getByRole("button", { name: "Open workshop" }).closest("tr");
+    expect(row).toHaveClass("is-current");
     // One rail item, one title: the selection does not rename the destination.
     await waitFor(() => expect(document.title).toBe("Machines · Summrise console"));
     expect(screen.getByLabelText("Machine: workshop")).toBeInTheDocument();

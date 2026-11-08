@@ -1,6 +1,6 @@
 import type { ChannelActivity, DeviceUpdate, HostFacts } from "./api";
 import type { LastAttempt } from "./attempt";
-import { lastHeardMs, seenAgo, shortId } from "./format";
+import { presenceText, shortId } from "./format";
 import { startedStory, processStartMs } from "./updateStory";
 
 export type Device = {
@@ -78,16 +78,8 @@ export function DeviceCard({
   // **THE AGE IS THE NEWEST EVIDENCE THE CONSOLE HAS.** A frame proves presence and wins; a console
   // that restarted mid-outage still has the audit's newest open `device.left`; the registry's
   // `last_seen_ms` is the last channel open, older than either. The row states the same moment the
-  // notice will, and `seenAgo` keeps the minutes so "1h 49m" cannot read as "2h".
-  const heard = lastHeardMs(device);
-  const state =
-    heard === null
-      ? device.online
-        ? "online"
-        : "offline"
-      : `${device.online ? "online" : "offline"} · ${
-          device.online ? "seen" : "last seen"
-        } ${seenAgo(heard)}`;
+  // attention line does, in the same words: `presenceText` is that one phrase (audit-43 F2).
+  const state = presenceText(device);
   // NO RECONNECT SENTENCE. `last_attempt` is a count and a reason with no moment of its own: both
   // online rows said "Reconnected after 1 attempt — …" at 10:07 about the 09:41/09:43 restarts, and
   // the sentence read as a fault that was happening now. `/fleet` carries no time for the attempt,

@@ -1463,9 +1463,11 @@ async function capturePage(page, state, meta, pass) {
   }
 
   if (meta.id === 'home') {
-    // Home is two states: the fleet (no machine in context) and the fleet with the selected
-    // machine's summary. The machine's own live page is Device → Overview, captured as its own page.
-    await page.locator('.fleet-open').first().click();
+    // Home is two states: the fleet (no machine in context) and the fleet with one machine
+    // selected. Selection is the topbar menu's job; the selected row is highlighted and the
+    // summary keeps only the capability counts and the two doors (audit-43 F1/F2). The machine's
+    // own live page is Device → Overview, captured as its own page.
+    await chooseMachine(page, state, 'workshop');
     await page.locator('.machine-summary').waitFor({ state: 'visible', timeout: 5_000 });
     await settle(page, state, 350);
     const selectedFile = `home-selected${pass.suffix}.png`;
@@ -1474,7 +1476,7 @@ async function capturePage(page, state, meta, pass) {
       pass: pass.key,
       page: 'home-selected',
       file: selectedFile,
-      note: 'the fleet with a machine selected: verdict, attention, the machine summary, the table'
+      note: 'the fleet with a machine selected: verdict, attention, the highlighted row and the capability summary'
     });
     console.log(`  ${pass.key.padEnd(6)} ${selectedFile}`);
 
@@ -1509,11 +1511,15 @@ async function capturePage(page, state, meta, pass) {
     await connect.waitFor({ state: 'hidden', timeout: 5_000 }).catch(() => undefined);
 
     await chooseMachine(page, state, 'studio');
-    // The offline machine's summary says its state and its own last-seen age; the counts are not
-    // invented. Its own page (Device → Overview) is where the Retry and the advice live.
-    const offlineSummary = page.locator('.machine-summary');
-    await offlineSummary.getByText(/^Offline/).waitFor({ state: 'visible', timeout: 5_000 });
-    await offlineSummary
+    // The offline machine's highlighted row says it is away; the summary does not repeat that
+    // state or an age, it only says the counts are not invented. Its own page (Device → Overview)
+    // is where the Retry and the advice live.
+    await page
+      .locator('tr.fleet-row.is-current .fleet-state')
+      .filter({ hasText: 'offline' })
+      .waitFor({ state: 'visible', timeout: 5_000 });
+    await page
+      .locator('.machine-summary')
       .getByText('Tool counts are unavailable while the machine is offline.')
       .waitFor({ state: 'visible', timeout: 5_000 });
     const offlineFile = `home-offline${pass.suffix}.png`;
@@ -1522,7 +1528,7 @@ async function capturePage(page, state, meta, pass) {
       pass: pass.key,
       page: 'home-offline',
       file: offlineFile,
-      note: 'Home with an offline machine selected: its summary says so and invents no counts'
+      note: 'Home with an offline machine selected: the row says so, the summary invents no counts'
     });
     console.log(`  ${pass.key.padEnd(6)} ${offlineFile}`);
 

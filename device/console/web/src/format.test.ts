@@ -7,6 +7,7 @@ import {
   isoDate,
   lastHeardMs,
   message,
+  presenceText,
   seenAgo,
   shortDeviceName,
   shortId
@@ -118,6 +119,38 @@ describe("lastHeardMs", () => {
     expect(lastHeardMs({ last_frame_ms: null, last_left_ms: 200, last_seen_ms: 100 })).toBe(200);
     expect(lastHeardMs({ last_frame_ms: null, last_left_ms: null, last_seen_ms: 100 })).toBe(100);
     expect(lastHeardMs({})).toBeNull();
+  });
+});
+
+describe("presenceText", () => {
+  const NOW = new Date(2026, 10, 5, 12, 0, 0).getTime();
+
+  it("states an online machine as the fleet row does: seen, in the fleet's casing", () => {
+    expect(presenceText({ online: true, last_frame_ms: NOW - 15_000 }, NOW)).toBe(
+      "online · seen 15s ago"
+    );
+  });
+
+  it("states an offline machine's silence in the same casing the attention line uses", () => {
+    // The measured Home wrote this one fact as `Offline — last seen 2d 5h ago.` in the attention
+    // block and `offline · last seen 2d 5h ago` in the fleet row. One helper means one spelling.
+    expect(
+      presenceText({ online: false, last_frame_ms: NOW - (2 * 24 + 5) * 3_600_000 }, NOW)
+    ).toBe("offline · last seen 2d 5h ago");
+  });
+
+  it("keeps the reachability word alone when the console has no evidence", () => {
+    expect(presenceText({ online: true, last_frame_ms: null }, NOW)).toBe("online");
+    expect(presenceText({ online: false }, NOW)).toBe("offline");
+  });
+
+  it("reads the newest evidence, not an older one", () => {
+    expect(
+      presenceText(
+        { online: false, last_frame_ms: null, last_left_ms: NOW - 7 * 60_000, last_seen_ms: NOW - 3 * 3_600_000 },
+        NOW
+      )
+    ).toBe("offline · last seen 7m ago");
   });
 });
 

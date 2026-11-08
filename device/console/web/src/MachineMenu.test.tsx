@@ -109,6 +109,23 @@ describe("MachineMenu — a switcher, not a second fleet table", () => {
     expect(row).not.toHaveTextContent(/v0\./);
   });
 
+  it("states every row with the fleet's reachability word, not the app's", () => {
+    // Home's fleet row says `online`; the menu is the same machines in the same shell, so it says
+    // `online`/`offline` too. The measured menu said `Running` while the table below it said
+    // `online` (audit-43 F2).
+    draw([
+      device({ name: "here", online: true }),
+      device({ id: "dev-away", name: "away", online: false, last_frame_ms: null })
+    ]);
+
+    const here = screen.getByRole("button", { name: /^here/ });
+    const away = screen.getByRole("button", { name: /^away/ });
+    expect(here).toHaveTextContent("online · v0.3.42");
+    expect(away).toHaveTextContent("offline · v0.3.42");
+    expect(here).not.toHaveTextContent("Running");
+    expect(away).not.toHaveTextContent("Offline");
+  });
+
   it("leaves the console's own rows alone", () => {
     draw([
       device({

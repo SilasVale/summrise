@@ -373,8 +373,10 @@ export function OverviewPage(props: OverviewPageProps) {
   // **ONE PLACE FOR EACH BUILD.** The subtitle used to be "Running · console v0.3.273-ux43", while
   // the Account menu already prints "Console 0.3.273-ux43"; at 390 the header chip drops the
   // device's own "v0.3.274", which made the console's the page's only build — the menu's fact said
-  // twice. The subtitle says what the machine is; the chip and the menu own the versions.
-  const statusLine = offline ? "Offline" : "Running";
+  // twice. The subtitle says what the machine is; the chip and the menu own the versions. Its word
+  // is the fleet's `online`/`offline`, the same one Home's rows and the topbar now state, not the
+  // app's `Running` (audit-43 F2).
+  const statusLine = offline ? "offline" : "online";
   const capabilities = new Set(live.tools.map((tool) => tool.capability)).size;
   // THE FAILURE SENTENCE SAYS WHY. "Not connected" alone leaves the operator choosing between the
   // edge and the machine; the attempt count and the device's own reason are that choice. The reason

@@ -1,7 +1,7 @@
 import { type Device, type Installer } from "./api";
 import { DeviceCard } from "./DeviceCard";
 import { copyText } from "./copy";
-import { lastHeardMs, seenAgo, shortId } from "./format";
+import { presenceText, seenAgo, shortId } from "./format";
 import { bytes } from "./runFormat";
 import { useInstaller } from "./useInstaller";
 import { useLiveTools } from "./useLiveTools";
@@ -43,7 +43,15 @@ type FleetProps = {
   code: Enrollment;
   enrollCommand: string;
   busy: boolean;
+  /** The fleet row's visible door: open that machine's own page, Device → Overview. */
   onOpen: (id: string) => void;
+  /**
+   * The attention row's visible door: open that machine where its last facts are, Device → Machine.
+   * It is a separate verb from the fleet row's because the two blocks ask different questions —
+   * "what is wrong with this machine?" and "which machine do I want?" — and the audit's measured
+   * `Open machine` promised a destination it did not open (audit-43 F1).
+   */
+  onOpenMachine: (id: string) => void;
   onRename: (device: Device) => void;
   onRemove: (device: Device) => void;
   onDiagnostics: (device: Device) => void;
@@ -135,8 +143,9 @@ type AttentionMachine = {
  * What needs attention, from the fleet read and the staged installer only.
  *
  * The clauses are the brief's own: a machine that is away is dated by the newest evidence the
- * console has (the row's rule), and a machine behind the staged installer names both versions. A
- * machine can produce two problems — away and behind at once — and both are listed under that
+ * console has (the row's rule), and a machine behind the staged installer says so without naming
+ * a version — the block states the release once, and the table's Version column holds the build.
+ * A machine can produce two problems — away and behind at once — and both are listed under that
  * machine's one row. Nothing here is invented: no evidence means the clause stops before "last
  * seen", and no staged installer means no comparison at all.
  */
@@ -147,12 +156,14 @@ function attentionProblems(
   const problems: AttentionProblem[] = [];
   for (const device of devices) {
     if (!device.online) {
-      const heard = lastHeardMs(device);
       problems.push({
         key: `${device.id}:offline`,
         device,
         tone: "offline",
-        clause: heard === null ? "Offline." : `Offline — last seen ${seenAgo(heard)}.`
+        // THE FLEET ROW'S OWN PHRASE, NOT A SECOND SPELLING. `offline · last seen 2d 16h ago` is
+        // `presenceText`'s one casing; the old `Offline — last seen … .` made the same silence read
+        // as a different fact in the block above the row that states it (audit-43 F2).
+        clause: presenceText(device)
       });
     }
     if (installer?.available && versionBelow(device.version, installer.version)) {
@@ -160,11 +171,10 @@ function attentionProblems(
         key: `${device.id}:behind`,
         device,
         tone: "behind",
-        // THE INSTALLER'S VERSION IS THE RELEASE, NOT THE CONSOLE'S BUILD. The fleet's chip and the
-        // Account menu name the console (`0.3.273-ux99`); this number is the staged
-        // `SummriseSetup-0.3.290.exe`. Calling it "the console has 0.3.290" made one word mean two
-        // versions on one screen (audit-40 F10).
-        clause: `Behind: v${device.version}, the release is ${installer.version}.`
+        // THE RELEASE IS STATED ONCE, BY THE BLOCK. A machine's version is the table's Version
+        // column; repeating it here made `0.3.291` appear once per behind row and again in the
+        // installer's filename (audit-43 F2). The block's one sentence names the target.
+        clause: "Behind the release."
       });
     }
   }
@@ -228,6 +238,8 @@ function fleetReadAge(fleet: FleetRead): string {
 function AttentionBlock(props: {
   problems: readonly AttentionProblem[];
   fleet: FleetRead;
+  /** The staged installer's version, the release the behind rows are measured against. */
+  release: string | null;
   onOpen: (id: string) => void;
 }) {
   if (props.problems.length === 0) {
@@ -241,9 +253,16 @@ function AttentionBlock(props: {
       </section>
     );
   }
+  // **ONE RELEASE SENTENCE, ONE VERSION POSITION.** The release is the installer's version, and
+  // every behind row is measured against the same number; stating it in each row made one number
+  // read as several facts. The rows name the machine and the problem; the block names the target.
+  const behind = props.release !== null && props.problems.some((problem) => problem.tone === "behind");
   return (
     <section className="attention" aria-label="Needs attention">
       <h2>Needs attention</h2>
+      {behind && (
+        <p className="attention-release hint">The release is {props.release}.</p>
+      )}
       <ul className="attention-list">
         {attentionMachines(props.problems).map((machine) => {
           const label = machine.device.name ?? shortId(machine.device.id);
@@ -280,15 +299,13 @@ function AttentionBlock(props: {
 /**
  * Home's one section about the machine in context.
  *
- * **THE SELECTION IS A SECTION, NOT THE PAGE.** Choosing a machine used to swap the whole
- * destination for that machine's live page, which dropped the verdict and the attention rows — the
- * answer to Home's one question — and drew a second Activity under the rail's Home. The fleet stays
- * Home; this section says who the selected machine is, what it can do, and hands off to the
- * machine's own page, Device. It carries no day timeline: the record is Activity's.
- *
- * The facts are the fleet's own: the row's name, reachability, version and live catalogue counts.
- * It does not repeat the start line, which the table's row already states, and it never invents a
- * count while the catalogue is unread or the machine is away.
+ * **THE SELECTED MACHINE IS HIGHLIGHTED, NOT REPEATED.** The fleet row already states the name, the
+ * reachability word, its age and the build, and the topbar's picker states the name and build for
+ * the machine in force. The summary used to state the name, `Running`/`Offline` and a second age —
+ * the same machine four times on one screen in three casings (audit-43 F2). It keeps only what the
+ * row does not: what the machine can do (the live catalogue counts, or why they are absent) and
+ * the two doors, Device → Overview and Connect a client. The row's `is-current` highlight is what
+ * says which machine these facts belong to.
  */
 function SelectedMachine(props: {
   device: Device;
@@ -297,32 +314,15 @@ function SelectedMachine(props: {
   onConnect: () => void;
 }) {
   const device = props.device;
-  const name = device.name ?? shortId(device.id);
   // The live catalogue is a machine fact, not activity: it answers what this machine can do. The
   // hook is shared with the Overview tab, so the read is cached for both.
   const live = useLiveTools(device.id);
   const offline = !device.online || live.offline;
-  const heard = lastHeardMs(device);
-  const state =
-    offline
-      ? heard === null
-        ? "Offline"
-        : `Offline · last seen ${seenAgo(heard)}`
-      : "Running";
   const capabilities = new Set(live.tools.map((tool) => tool.capability)).size;
   const countsKnown = !offline && !(live.error && live.tools.length === 0);
   return (
-    <section className="machine-summary" aria-label={`Selected machine ${name}`}>
-      <div className="machine-summary-head">
-        <h2>{name}</h2>
-        <span className="machine-summary-state">
-          <span
-            className={"dot " + (offline ? "dot-off" : "dot-ok")}
-            aria-hidden="true"
-          />
-          {state}
-        </span>
-      </div>
+    <section className="machine-summary" aria-label="Selected machine">
+      <h2>Selected machine</h2>
       {offline ? (
         <p className="hint machine-summary-counts">
           Tool counts are unavailable while the machine is offline.
@@ -454,13 +454,19 @@ function FleetHome(props: HomePageProps) {
           drawn with no machines neither — "Nothing needs attention" over an empty fleet would be
           true but useless, and the empty state below already says what to do. */}
       {ready && props.devices.length > 0 && (
-        <AttentionBlock problems={problems} fleet={fleet} onOpen={props.onOpen} />
+        <AttentionBlock
+          problems={problems}
+          fleet={fleet}
+          release={installer?.available ? installer.version : null}
+          onOpen={props.onOpenMachine}
+        />
       )}
 
       {/* **THE MACHINE IN CONTEXT SITS BESIDE THE FLEET, NOT INSTEAD OF IT.** The verdict and the
-          attention rows above are still the page's first answer; this section adds the selected
-          machine's own facts and its door to Device. It is drawn whichever machine the fleet
-          selected, including an offline one. */}
+          attention rows above are still the page's first answer; the selected row below is
+          highlighted, and this section adds only the facts the row cannot: its live catalogue
+          counts and its two doors. It is drawn whichever machine the fleet selected, including an
+          offline one. */}
       {props.device !== null && (
         <SelectedMachine
           device={props.device}

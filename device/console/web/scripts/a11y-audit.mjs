@@ -1214,9 +1214,15 @@ try {
   await boot(page, origin);
   await measure(page, 'home-fleet');
 
-  // A selected machine is a section of Home, not a second page: the fleet stays and the summary
-  // is measured with it. The machine's own live page is Device → Overview, measured next.
-  await page.locator('.fleet-open').first().click();
+  // A selected machine is highlighted in Home's fleet table, not repeated in a second page: the
+  // fleet stays and the summary (counts and doors only) is measured with it. Selection is the
+  // topbar menu's job; the fleet row is a door to Device → Overview now (audit-43 F1/F2).
+  await page.locator('details.machine-menu > summary').click();
+  await page
+    .locator('.machine-pop')
+    .getByRole('button', { name: /^workshop/ })
+    .first()
+    .click();
   await page.locator('.machine-summary').waitFor({ state: 'visible', timeout: 5_000 });
   await settle(page, 400);
   await measure(page, 'home-selected');

@@ -3182,6 +3182,8 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
   margin: 0; font-size: var(--fs-2xs); font-weight: var(--fw-semi);
   text-transform: uppercase; letter-spacing: var(--tracking-label); color: var(--ink-muted);
 }
+/* The one place the release is named: every behind row below is measured against this version. */
+.attention-release { margin: -4px 0 0; font-size: var(--fs-xs); }
 .attention-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 0; }
 .attention-row {
   display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
@@ -3288,27 +3290,21 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
 .installer-strip .btn { flex: none; }
 .installer-strip .hint { margin: 0 0 0 auto; font-size: var(--fs-xs); }
 
-/* ── Home: the selected machine is a section, not the page ─────────────────────────────────────
+/* ── Home: the selected machine is highlighted, not repeated ───────────────────────────────────
    The fleet's verdict, attention rows and table stay Home's; the machine's own live page is
-   Device → Overview. The section names the machine, says whether it runs and what it can do, and
-   hands off — it draws no day timeline, because that is Activity's noun. */
+   Device → Overview. The selected row is highlighted with the accent tint; the section below keeps
+   only what the row cannot state — what the machine can do and its two doors. It draws no name,
+   status, age or build, because the row and the topbar already own those facts (audit-43 F2). */
 .machine-summary {
   display: grid; gap: 10px;
   padding: 14px 18px;
   background: var(--panel); border: 1px solid var(--hairline);
   border-left: 3px solid var(--accent); border-radius: var(--radius);
 }
-.machine-summary-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; min-width: 0; }
-.machine-summary-head h2 {
-  margin: 0; font-size: var(--fs-lg); font-weight: var(--fw-semi);
-  letter-spacing: var(--tracking-tight);
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+.machine-summary h2 {
+  margin: 0; font-size: var(--fs-2xs); font-weight: var(--fw-semi);
+  text-transform: uppercase; letter-spacing: var(--tracking-label); color: var(--ink-muted);
 }
-.machine-summary-state {
-  display: inline-flex; align-items: center; gap: 8px;
-  color: var(--ink-muted); font-size: var(--fs-sm);
-}
-.machine-summary-state .dot { width: 8px; height: 8px; }
 .machine-summary-counts { margin: 0; }
 .machine-summary-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 
@@ -3366,7 +3362,6 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
   .fleet-actions { position: absolute; right: 8px; top: 8px; width: auto; }
   .installer-strip .hint { margin-left: 0; flex-basis: 100%; }
   .machine-summary { padding: 12px 14px; }
-  .machine-summary-head h2 { white-space: normal; overflow: visible; }
   .machine-summary-actions .primary { flex: 1 1 auto; }
   .overview-page { gap: 18px; }
   /* **THE FILTER BELONGS WITH THE LIST ON A PHONE.** `margin-left: auto` pushed the wrapped filter

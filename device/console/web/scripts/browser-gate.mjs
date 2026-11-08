@@ -1198,22 +1198,19 @@ try {
   const expectedMachines = [
     {
       name: 'DESKTOP-9VH92BJ',
-      problems: ['Behind: v0.3.42, the release is 0.3.280.']
+      problems: ['Behind the release.']
     },
     {
       name: 'DESKTOP-14RJCR8',
-      problems: [
-        'Offline — last seen 1h 49m ago.',
-        'Behind: v0.3.42, the release is 0.3.280.'
-      ]
+      problems: ['offline · last seen 1h 49m ago', 'Behind the release.']
     },
     {
       name: 'DESKTOP-CPH4KB2',
-      problems: ['Behind: v0.3.42, the release is 0.3.280.']
+      problems: ['Behind the release.']
     },
     {
       name: 'DESKTOP-7QK3MN2',
-      problems: ['Behind: v0.3.42, the release is 0.3.280.']
+      problems: ['Behind the release.']
     }
   ];
   const seenMachines = attention1440.rows.map((row) => ({
@@ -1241,10 +1238,22 @@ try {
   if (/the console has/i.test(attentionText1440)) {
     throw new Error(`an attention row calls the release the console: "${attentionText1440}"`);
   }
+  // **ONE RELEASE POSITION, ONE VERSION POSITION (audit-43 F2).** The block names the release once;
+  // the machine's build is the table's Version column, not a second copy in every problem line.
+  const releaseLine = (await page.locator('.attention-release').textContent())?.trim();
+  if (releaseLine !== 'The release is 0.3.280.') {
+    throw new Error(`the attention block's release line read ${JSON.stringify(releaseLine)}`);
+  }
+  if ((await page.locator('.attention-release').count()) !== 1) {
+    throw new Error('the attention block states the release more than once');
+  }
+  if (attentionText1440.includes('v0.3.42') || attentionText1440.includes('0.3.280')) {
+    throw new Error(`an attention row repeats a version: "${attentionText1440}"`);
+  }
   step(
     `the verdict is "${verdict1440}"; Needs attention lists ${attention1440.rows.length} machines ` +
-      `with ${attention1440.rows.reduce((sum, row) => sum + row.problems.length, 0)} problems and ` +
-      'one door each'
+      `with ${attention1440.rows.reduce((sum, row) => sum + row.problems.length, 0)} problems, ` +
+      `one release line ("${releaseLine}") and one door each`
   );
 
   // **THE FLEET IS A TABLE, NOT A SECOND ACTIVITY.** Machine / Status / Version / Started are the
@@ -1350,11 +1359,24 @@ try {
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.waitForTimeout(200);
 
-  await page.locator('.fleet-open').first().click();
-  // **THE SELECTION IS A SECTION OF HOME, NOT A SECOND HOME.** The row opens the machine in the
-  // topbar while Home keeps the fleet's one answer: the verdict, the attention rows and the table
-  // are still there, and the machine adds a summary section of its own. The machine's live page is
-  // Device → Overview, reached from the summary's door.
+  // **THE ATTENTION DOOR OPENS THE MACHINE (audit-43 F1).** The measured `Open machine` selected
+  // the machine and left #home, so the one action the block exists for did nothing where the
+  // operator was looking. It now selects and opens Device → Machine, where an absent machine's
+  // last facts live.
+  await page.getByRole('button', { name: 'Open machine for DESKTOP-CPH4KB2' }).click();
+  await page.getByRole('heading', { name: 'Machine', exact: true }).waitFor({ timeout: 10_000 });
+  const attentionHash = await page.evaluate(() => window.location.hash);
+  if (attentionHash !== '#device/machine') {
+    throw new Error(`the attention door landed on ${JSON.stringify(attentionHash)}`);
+  }
+  step('the attention door opened DESKTOP-CPH4KB2 on Device → Machine');
+
+  await page.locator('nav.rail button[title="Home"]').click();
+  await page.getByRole('heading', { name: 'Machines', exact: true }).waitFor({ timeout: 10_000 });
+  // **THE SELECTED MACHINE IS HIGHLIGHTED, NOT REPEATED (audit-43 F2).** Home keeps the fleet's
+  // one answer; the selected row carries the accent, and the summary keeps only what the row
+  // cannot state: the live catalogue counts and the two doors. It repeats no name, presence word,
+  // age or build.
   await page.locator('.machine-summary').waitFor({ state: 'visible', timeout: 10_000 });
   if ((await page.locator('.home-verdict').count()) !== 1) {
     throw new Error('opening a machine hid Home\'s verdict');
@@ -1365,15 +1387,56 @@ try {
   if ((await page.locator('tr.fleet-row').count()) !== 4) {
     throw new Error('opening a machine hid the fleet table');
   }
-  const summaryName = (await page.locator('.machine-summary h2').textContent())?.trim();
-  if (summaryName !== 'DESKTOP-9VH92BJ') {
-    throw new Error(`the selected machine's summary named "${summaryName}"`);
+  const selectedHome = await page.evaluate(() => {
+    const summary = document.querySelector('.machine-summary');
+    const current = document.querySelector('tr.fleet-row.is-current');
+    const menuState = document.querySelector('.machine-menu-state');
+    return {
+      heading: summary?.querySelector('h2')?.textContent?.trim() ?? '',
+      text: summary?.textContent ?? '',
+      currentRows: document.querySelectorAll('tr.fleet-row.is-current').length,
+      currentName: current?.querySelector('.fleet-name')?.textContent?.trim() ?? '',
+      menuState: menuState?.textContent?.trim() ?? ''
+    };
+  });
+  if (selectedHome.heading !== 'Selected machine') {
+    throw new Error(`the summary's heading read ${JSON.stringify(selectedHome.heading)}`);
   }
-  step('opened DESKTOP-9VH92BJ; Home keeps its verdict, attention rows and table, and adds its summary');
+  for (const repeated of ['DESKTOP-CPH4KB2', 'last seen', 'v0.3.', 'Running']) {
+    if (selectedHome.text.includes(repeated)) {
+      throw new Error(`the summary repeats ${JSON.stringify(repeated)}: "${selectedHome.text}"`);
+    }
+  }
+  if (selectedHome.currentRows !== 1 || selectedHome.currentName !== 'DESKTOP-CPH4KB2') {
+    throw new Error(`the selected row read ${JSON.stringify(selectedHome)}`);
+  }
+  if (selectedHome.menuState !== 'online') {
+    throw new Error(`the topbar's presence word read ${JSON.stringify(selectedHome.menuState)}`);
+  }
+  step(
+    'the selected row is highlighted once, the summary repeats no identity, and the topbar ' +
+      'says "online"'
+  );
 
   await page.getByRole('button', { name: 'Open Device' }).click();
   await page.getByRole('heading', { name: 'Overview', exact: true }).waitFor({ timeout: 10_000 });
-  step('opened Device → Overview; the machine\'s own live page');
+  const summaryHash = await page.evaluate(() => window.location.hash);
+  if (summaryHash !== '#device/overview') {
+    throw new Error(`the summary's Open Device landed on ${JSON.stringify(summaryHash)}`);
+  }
+  step('the summary door opened DESKTOP-CPH4KB2 on Device → Overview');
+
+  await page.locator('nav.rail button[title="Home"]').click();
+  await page.getByRole('heading', { name: 'Machines', exact: true }).waitFor({ timeout: 10_000 });
+  // **THE ROW'S NAME IS A DOOR (audit-43 F1).** It used to call `choose` and leave the page on
+  // #home; the press now opens the machine's own Overview.
+  await page.getByRole('button', { name: /^Open DESKTOP-9VH92BJ/ }).click();
+  await page.getByRole('heading', { name: 'Overview', exact: true }).waitFor({ timeout: 10_000 });
+  const rowHash = await page.evaluate(() => window.location.hash);
+  if (rowHash !== '#device/overview') {
+    throw new Error(`the fleet row's door landed on ${JSON.stringify(rowHash)}`);
+  }
+  step('the fleet row opened DESKTOP-9VH92BJ on Device → Overview; the machine\'s own live page');
 
   // **THE DAY IS ONE LINE; THE ROWS ARE ACTIVITY'S.** The measured page ended in a 29-row copy of
   // Activity's Today card, with the same timestamps and the same `2 calls · 17 s` clusters
@@ -3889,10 +3952,13 @@ try {
   // From here the offline machine's tools read is the measured 503; the console error listener
   // above knows that refusal belongs to this leg.
   state.offlineToolsFails = true;
+  // The row's name is the door now; it lands on the machine's own Overview (audit-43 F1).
   await page.getByRole('button', { name: /^Open DESKTOP-14RJCR8/ }).click();
-  await page.locator('.machine-summary').waitFor({ state: 'visible', timeout: 10_000 });
-  await page.getByRole('button', { name: 'Open Device' }).click();
   await page.getByRole('heading', { name: 'Overview', exact: true }).waitFor({ timeout: 10_000 });
+  const offlineHash = await page.evaluate(() => window.location.hash);
+  if (offlineHash !== '#device/overview') {
+    throw new Error(`the offline row's door landed on ${JSON.stringify(offlineHash)}`);
+  }
   const reason390 = await page.evaluate(() => {
     const element = document.querySelector('.attempt-reason');
     if (!element) return null;
@@ -4057,9 +4123,11 @@ try {
   await page.locator('details.machine-menu > summary').click();
   await page.getByRole('button', { name: 'All machines' }).click();
   await page.getByRole('button', { name: /^Open DESKTOP-7QK3MN2/ }).click();
-  await page.locator('.machine-summary').waitFor({ state: 'visible', timeout: 10_000 });
-  await page.getByRole('button', { name: 'Open Device' }).click();
   await page.getByRole('heading', { name: 'Overview', exact: true }).waitFor({ timeout: 10_000 });
+  const bigHash = await page.evaluate(() => window.location.hash);
+  if (bigHash !== '#device/overview') {
+    throw new Error(`the measured row's door landed on ${JSON.stringify(bigHash)}`);
+  }
   const bigToday = (await page.locator('.home-today').textContent())?.trim() ?? '';
   if (!bigToday.startsWith(`Today ${BIG_CLIENT} client calls`)) {
     throw new Error(`the measured hub's day line read ${JSON.stringify(bigToday)}`);
