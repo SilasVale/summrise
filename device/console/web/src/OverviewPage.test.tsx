@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AuditLine, Device, LiveTool } from "./api";
+import { exactMoment } from "./format";
 import { OverviewPage } from "./OverviewPage";
 import type { LiveLine } from "./liveActivity";
 
@@ -169,6 +170,35 @@ describe("Device overview — the machine's live page", () => {
     // The fetched calls are a day line, not a second copy of Activity's rows.
     expect(await screen.findByText(/^Today 4 client calls/)).toBeInTheDocument();
     expect(document.querySelectorAll(".timeline-row")).toHaveLength(0);
+  });
+
+  it("puts the machine's start in its own head, after the machine's name", async () => {
+    // **THE START BELONGS TO THE MACHINE HEAD (audit-44 F1).** It used to be the shell's first line,
+    // above the h1 `Overview` and 35 px above the machine's name, so the machine read as a
+    // subsection of its start time. It now sits beside the name it describes, and keeps the update
+    // answer that belongs to this start because Overview draws no update card.
+    const startedAt = Date.now() - 25 * 3_600_000;
+    draw({
+      device: {
+        ...workshop,
+        version: "0.3.42",
+        host: { restarts: [{ at_ms: startedAt, version: "0.3.42" }] },
+        update: {
+          current: "0.3.42",
+          verdict: { outcome: "ok", detail: "started 0.3.42" },
+          last_update: { to: "0.3.42", outcome: "applied", at_ms: Date.now() - 12 * 60_000 }
+        }
+      }
+    });
+
+    const head = document.querySelector(".overview-head");
+    if (!(head instanceof HTMLElement)) throw new Error("the machine head is not on the page");
+    const name = within(head).getByRole("heading", { name: "workshop", level: 2 });
+    const line = within(head).getByText("started 1d 1h ago (updated 12m ago)");
+    expect(line).toHaveAttribute("title", exactMoment(startedAt));
+    // The name is read first: the line follows it in the document, not the other way round.
+    expect(name.compareDocumentPosition(line) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(await screen.findByText("online")).toBeInTheDocument();
   });
 
   it("draws the day once, as one line, and draws none of Activity's rows", async () => {

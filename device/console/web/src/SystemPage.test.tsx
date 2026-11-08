@@ -395,6 +395,41 @@ describe("SystemPage", () => {
     expect(rows[0].label).not.toBe("Applied");
   });
 
+  it("keeps the machine's start line in the Device app section", async () => {
+    // **THE START IS THE DEVICE APP'S FACT, NOT THE SHELL'S FIRST LINE (audit-44 F1).** Every tab
+    // used to open with `started … ago`; the Machine tab is where the start is the subject, and it
+    // now sits in the section that also carries the update card, rather than above the page.
+    device(() => JSON.stringify([]));
+    const startedAt = Date.now() - 25 * 3_600_000;
+    const { container } = render(
+      <SystemPage
+        grant={GRANT}
+        device={{
+          id: "device-1",
+          name: "workshop",
+          online: true,
+          version: "0.3.42",
+          last_frame_ms: 1,
+          update: {
+            current: "0.3.42",
+            verdict: { outcome: "ok", detail: "started 0.3.42" },
+            last_update: { to: "0.3.41", outcome: "applied", at_ms: Date.now() - 26 * 3_600_000 }
+          },
+          host: { restarts: [{ at_ms: startedAt, version: "0.3.42" }] }
+        }}
+      />
+    );
+
+    await screen.findByText("online");
+    const section = container.querySelector('section[aria-labelledby="system-device-app"]');
+    if (!(section instanceof HTMLElement)) throw new Error("the Device app section is not on the page");
+    // **THE TOPBAR STATES THE BUILD; THE START LINE STATES WHEN.** The update card carries the
+    // version and the release comparison; this line keeps only the moment a chip cannot state.
+    const line = within(section).getByText("started 1d 1h ago");
+    expect(line).toHaveAttribute("title", exactMoment(startedAt));
+    expect(screen.queryByText(/updated/)).not.toBeInTheDocument();
+  });
+
   it("labels an applied outcome older than this start as history", async () => {
     // The measured 9VH Machine tab: the process started 0.3.286 at 06:16, the only update fact was
     // an apply to 0.3.273 two days earlier. The old apply is still shown — it is the device's own

@@ -2,7 +2,6 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { Device } from "./api";
 import { DevicePageShell } from "./DevicePageShell";
-import { exactMoment } from "./format";
 import type { DeviceTab } from "./Rail";
 
 const BOOT_AT = Date.now() - 25 * 3_600_000;
@@ -91,70 +90,32 @@ describe("DevicePageShell offline notice", () => {
     expect(screen.queryByRole("status")).not.toBeInTheDocument();
   });
 
-  it("draws the running version in the Machine tab's start line, and leaves the update answer to the card", () => {
-    renderShell("machine", {
-      ...MACHINE,
-      update: {
-        current: "0.3.42",
-        verdict: { outcome: "ok", detail: "started 0.3.42" },
-        last_update: { to: "0.3.41", outcome: "applied", at_ms: Date.now() - 26 * 3_600_000 }
-      }
-    });
-
-    // **THE TOPBAR STATES THE BUILD; THE START LINE STATES WHEN.** The update card carries the
-    // version and the release comparison; the line above it keeps only the moment a chip cannot
-    // state, the same sentence every other tab draws. The card's `(updated …)` stays on the card.
-    const line = screen.getByText("started 1d 1h ago");
-    expect(line).toHaveAttribute("title", exactMoment(BOOT_AT));
-    expect(screen.queryByText(/updated/)).not.toBeInTheDocument();
-  });
-
-  it("ages the update beside the start when the answer belongs to this start", () => {
-    renderShell("files", {
+  it("leaves the machine's start story to the page that answers it", () => {
+    // **THE START BELONGS TO THE MACHINE HEAD, NOT TO EVERY TAB (audit-44 F1).** The shell used to
+    // print `started … ago` under the h1 on all seven tabs, so Files, Terminal and Tools opened
+    // with an age before their own answer, and Overview put it above the machine's name. Each page
+    // now owns the sentence where it is the answer; the shell draws no part of it.
+    const withStart = {
       ...MACHINE,
       update: {
         current: "0.3.42",
         verdict: { outcome: "ok", detail: "started 0.3.42" },
         last_update: { to: "0.3.42", outcome: "applied", at_ms: Date.now() - 12 * 60_000 }
       }
-    });
-
-    // The console knows silence, not sleep: it must never claim the machine slept. The new facts
-    // beside it are when this process started and the age of the answer it folded in.
-    const line = screen.getByText("started 1d 1h ago (updated 12m ago)");
-    expect(line).toHaveAttribute("title", exactMoment(BOOT_AT));
-    expect(screen.queryByText(/asleep|sleeping/i)).not.toBeInTheDocument();
-  });
-
-  it("keeps a start that names a version the header does not show", () => {
-    renderShell("files", {
-      ...MACHINE,
-      update: {
-        current: "0.3.275",
-        verdict: { outcome: "ok", detail: "started 0.3.275" }
-      }
-    });
-
-    // The header says 0.3.42; the device says it started 0.3.275. That is a contradiction the
-    // operator needs, not a duplicate of the chip.
-    expect(screen.getByText("started 0.3.275 · 1d 1h ago")).toHaveAttribute(
-      "title",
-      exactMoment(BOOT_AT)
-    );
-  });
-
-  it("shows a refusal the device is making now, on an online machine too", () => {
-    renderShell("files", {
-      ...MACHINE,
-      online: true,
-      update: {
-        current: "0.3.42",
-        verdict: { outcome: "needs_attention", detail: "refused: nothing was installed" }
-      }
-    });
-
-    expect(screen.queryByRole("status")).not.toBeInTheDocument();
-    expect(screen.getByText("refused: nothing was installed")).toBeInTheDocument();
+    };
+    for (const tab of [
+      "overview",
+      "machine",
+      "terminal",
+      "screen",
+      "files",
+      "runs",
+      "tools"
+    ] as const) {
+      const { unmount } = renderShell(tab, withStart);
+      expect(document.querySelector(".started-line")).toBeNull();
+      unmount();
+    }
   });
 });
 
@@ -307,6 +268,71 @@ describe("DevicePageShell's tab strip at 390", () => {
       // The tab's box follows the scroll: it is inside the band now, so a second resize is a no-op.
       fireEvent(window, new Event("resize"));
       expect(strip.scrollLeft).toBe(87);
+    } finally {
+      geometry.restore();
+    }
+  });
+});
+
+/**
+ * jsdom reports 0 for the strip's `clientWidth` and `scrollWidth`; the browser's 390 measurements
+ * (audit-44 F2) are supplied on the element. The strip is 358 px inside a 447 px row of tabs, so
+ * 89 px are reachable by scrolling.
+ */
+function stripOverflow(strip: HTMLElement, clientWidth: number, scrollWidth: number) {
+  Object.defineProperty(strip, "clientWidth", { configurable: true, value: clientWidth });
+  Object.defineProperty(strip, "scrollWidth", { configurable: true, value: scrollWidth });
+  fireEvent.scroll(strip);
+}
+
+describe("DevicePageShell's tab strip affordance at 390", () => {
+  it("shows a way back to the tabs off the left edge, and it returns them", () => {
+    const geometry = tabGeometry();
+    geometry.phone();
+    try {
+      renderShell("machine");
+      const strip = screen.getByRole("navigation", { name: "Device views" });
+      // The route brought `Machine` into the band (87 px in), so `Overview` and `Screen` sit left
+      // of it; the measured 390 strip has 89 px of travel and the leftover 2 px is not a hidden tab.
+      expect(strip.scrollLeft).toBe(87);
+      stripOverflow(strip, 358, 447);
+
+      const earlier = screen.getByRole("button", { name: "Show earlier device views" });
+      expect(screen.queryByRole("button", { name: "Show later device views" })).toBeNull();
+
+      fireEvent.click(earlier);
+
+      // One page of tabs back: the strip starts at `Overview`, which is now the first visible tab.
+      expect(strip.scrollLeft).toBe(0);
+      expect(screen.queryByRole("button", { name: "Show earlier device views" })).toBeNull();
+      expect(
+        screen.getByRole("button", { name: "Show later device views" })
+      ).toBeInTheDocument();
+    } finally {
+      geometry.restore();
+    }
+  });
+
+  it("shows the later-tabs affordance only while tabs are off the right edge", () => {
+    const geometry = tabGeometry();
+    try {
+      renderShell("machine");
+      const strip = screen.getByRole("navigation", { name: "Device views" });
+      // The wide window wraps every tab, so there is nothing off either edge.
+      stripOverflow(strip, 1000, 447);
+      expect(screen.queryByRole("button", { name: /Show (earlier|later) device views/ })).toBeNull();
+
+      // The phone's strip: at scrollLeft 0 the last tabs are the hidden ones.
+      stripOverflow(strip, 358, 447);
+      const later = screen.getByRole("button", { name: "Show later device views" });
+      expect(screen.queryByRole("button", { name: "Show earlier device views" })).toBeNull();
+
+      fireEvent.click(later);
+      // The whole remaining travel: 447 px of tabs in a 358 px band.
+      expect(strip.scrollLeft).toBe(89);
+      expect(
+        screen.getByRole("button", { name: "Show earlier device views" })
+      ).toBeInTheDocument();
     } finally {
       geometry.restore();
     }

@@ -6,6 +6,7 @@ import { HostFactsBlock } from "./HostFacts";
 import { Modal } from "./Modal";
 import { useRequestGate } from "./requests";
 import { callTool, ToolError, type Grant } from "./terminal";
+import { StartedLine } from "./StartedLine";
 import { updateRows } from "./updateCard";
 import { useInstaller } from "./useInstaller";
 import type { VitalsSample } from "./vitals";
@@ -555,6 +556,10 @@ export function SystemPage({
 
       <section className="system-section" aria-labelledby="system-device-app">
         <h3 id="system-device-app">Device app</h3>
+        {/* The machine's start line belongs to the section that answers what the app is doing
+            (audit-44 F1). The update card below states the running version and the updater's last
+            answer, so the line keeps only the moment the process started. */}
+        {device && <StartedLine device={device} updateShown />}
         <UpdateCard device={device} />
         {device && (
           <>

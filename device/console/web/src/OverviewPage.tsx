@@ -12,6 +12,7 @@ import { ACTIVITY_LIMIT, mergeActivity } from "./activityMerge";
 import { isClientCall } from "./activitySummary";
 import { auditFailed } from "./auditFilter";
 import { spanText } from "./age";
+import { StartedLine } from "./StartedLine";
 
 /**
  * The selected machine's own page: the `Overview` tab of Device.
@@ -412,6 +413,10 @@ export function OverviewPage(props: OverviewPageProps) {
           <h2>{name}</h2>
           <p className="page-sub">{statusLine}</p>
         </div>
+        {/* The device's own account of its last start, in the machine's head beside the name it
+            describes (audit-44 F1). It used to be the shell's first line, above the h1 and 35 px
+            above this name. */}
+        <StartedLine device={device} />
       </header>
 
       {notice && (

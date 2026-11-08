@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef } from "react";
+import { useCallback, useLayoutEffect, useRef, useState } from "react";
 import type { Device } from "./api";
 import { lastHeardMs } from "./format";
 import type { FleetRead } from "./HomePage";
@@ -6,7 +6,12 @@ import { DEVICE_TABS, DEVICE_TAB_LABELS, type DeviceTab } from "./Rail";
 import { DevicePicker } from "./DevicePicker";
 import { OfflineNotice } from "./OfflineNotice";
 import type { Grant } from "./terminal";
-import { processStartMs, startedStory } from "./updateStory";
+
+/**
+ * A tab edge this close to the strip's edge is not a hidden tab. `bring()` can leave the active
+ * tab one or two pixels past the band, and a chevron drawn over it would cover the tab it names.
+ */
+const EDGE_SLACK = 8;
 
 /**
  * Device is ONE destination with five tabs, not five rail items. The shell owns the destination's one
@@ -45,6 +50,19 @@ export function DevicePageShell({
   const grant = grantFor(chosen);
   const tabStrip = useRef<HTMLElement>(null);
   const activeTab = useRef<HTMLButtonElement>(null);
+  const [edges, setEdges] = useState({ left: false, right: false });
+
+  // Which edges hold a tab the band cannot show. The strip is the scroll container; its own
+  // `scrollWidth`/`clientWidth` say how much travel exists, and `scrollLeft` says where the band is.
+  const syncEdges = useCallback(() => {
+    const strip = tabStrip.current;
+    if (!strip) return;
+    const left = strip.scrollLeft > EDGE_SLACK;
+    const right = strip.scrollWidth - strip.clientWidth - strip.scrollLeft > EDGE_SLACK;
+    setEdges((previous) =>
+      previous.left === left && previous.right === right ? previous : { left, right }
+    );
+  }, []);
 
   // **THE STRIP ALWAYS SHOWS THE TAB THE ROUTE CHOSE (audit-41 F2).** At 390 the seven labels are
   // 447 px inside a 358 px strip; `#device/machine` selected `Machine` at x=389..461 with
@@ -52,6 +70,14 @@ export function DevicePageShell({
   // scrollable tab bar must do — and the selection is brought into the band on mount, on a route
   // change, and when a resize makes the band narrower. The boxes are measured because the tab's
   // position already includes the strip's scroll; nothing moves when the tab is inside the band.
+  //
+  // **THE HIDDEN EDGE SAYS IT IS THERE (audit-44 F2).** Bringing `Machine` into the band leaves
+  // `Overview` and `Screen` entirely off the left edge, and the strip looked as if it began at
+  // `Terminal`; the last tabs are cut at the right edge on other routes. The strip now draws a
+  // chevron on each edge that has tabs beyond it, and the chevron scrolls a page of tabs back. The
+  // affordance follows `scrollLeft`/`scrollWidth`, so it appears on either side only when that side
+  // really holds a tab. A few pixels of slack are not a hidden tab: `bring()` can leave the active
+  // tab's edge a pixel or two past the band, and a chevron over it would cover the tab it names.
   useLayoutEffect(() => {
     const strip = tabStrip.current;
     const current = activeTab.current;
@@ -61,43 +87,70 @@ export function DevicePageShell({
       const tab = current.getBoundingClientRect();
       if (tab.left < band.left) strip.scrollLeft -= band.left - tab.left;
       else if (tab.right > band.right) strip.scrollLeft += tab.right - band.right;
+      syncEdges();
     };
     bring();
     window.addEventListener("resize", bring);
-    return () => window.removeEventListener("resize", bring);
-  }, [tab, chosen]);
-  // The device's own account of its last start, beside — never instead of — the console's account
-  // of its silence. It is shown online too: a machine that woke is exactly the one whose start the
-  // operator needs to place without a shell on it. The start keeps being drawn when its version
-  // repeats the header's chip: the chip states what runs, and only the journal says when it began.
-  const started = chosen
-    ? startedStory(chosen.update, {
-        startedAtMs: processStartMs(chosen),
-        shownVersion: chosen.version,
-        // The Machine tab draws the Updates card beside this line: the card states the running
-        // version and the updater's last answer, so the line keeps only the moment of the start.
-        updateShown: tab === "machine"
-      })
-    : null;
+    strip.addEventListener("scroll", syncEdges, { passive: true });
+    return () => {
+      window.removeEventListener("resize", bring);
+      strip.removeEventListener("scroll", syncEdges);
+    };
+  }, [tab, chosen, syncEdges]);
+
+  // One page of tabs, or one tab's width when the strip is narrower than that: enough to reach the
+  // tabs the chevron announced without jumping past them.
+  const nudge = (direction: -1 | 1) => {
+    const strip = tabStrip.current;
+    if (!strip) return;
+    const step = Math.max(80, Math.round(strip.clientWidth * 0.8));
+    const furthest = Math.max(0, strip.scrollWidth - strip.clientWidth);
+    strip.scrollLeft = Math.max(0, Math.min(furthest, strip.scrollLeft + direction * step));
+    syncEdges();
+  };
   return (
     <div className="page device-page">
       <header className="page-head device-head">
         <h1>{chosen ? DEVICE_TAB_LABELS[tab] : "Choose a machine"}</h1>
         {chosen && (
-          <nav className="device-tabs" aria-label="Device views" ref={tabStrip}>
-            {DEVICE_TABS.map((entry) => (
+          <div className="device-tabs-wrap">
+            {edges.left && (
               <button
-                key={entry}
                 type="button"
-                className="device-tab"
-                aria-current={entry === tab ? "page" : undefined}
-                ref={entry === tab ? activeTab : undefined}
-                onClick={() => onTab(entry)}
+                className="device-tabs-nudge left"
+                aria-label="Show earlier device views"
+                title="Earlier tabs"
+                onClick={() => nudge(-1)}
               >
-                {DEVICE_TAB_LABELS[entry]}
+                <span aria-hidden="true">‹</span>
               </button>
-            ))}
-          </nav>
+            )}
+            <nav className="device-tabs" aria-label="Device views" ref={tabStrip}>
+              {DEVICE_TABS.map((entry) => (
+                <button
+                  key={entry}
+                  type="button"
+                  className="device-tab"
+                  aria-current={entry === tab ? "page" : undefined}
+                  ref={entry === tab ? activeTab : undefined}
+                  onClick={() => onTab(entry)}
+                >
+                  {DEVICE_TAB_LABELS[entry]}
+                </button>
+              ))}
+            </nav>
+            {edges.right && (
+              <button
+                type="button"
+                className="device-tabs-nudge right"
+                aria-label="Show later device views"
+                title="Later tabs"
+                onClick={() => nudge(1)}
+              >
+                <span aria-hidden="true">›</span>
+              </button>
+            )}
+          </div>
         )}
         {/* **ONE ACTION, ONE NAME, ONE HOME.** The six tabs said `Connect` here while Overview
             drew `Connect a client` in its own content: the same sheet, two names and two places.
@@ -121,16 +174,6 @@ export function DevicePageShell({
           lastSeenMs={lastHeardMs(chosen)}
           detail="Nothing on this page can reach it until it reconnects; the console keeps trying on its own."
         />
-      )}
-
-      {/* The device's sentence, not the console's: "started 0.3.275 · 2h ago (update to 0.3.276
-          refused)". It sits beside the silence notice because the two answer different questions —
-          was it heard, and what did it start — and neither is used to explain the other. Its title,
-          when it is a start, is the exact instant the device reported. */}
-      {started && (
-        <p className="started-line" title={started.title ?? undefined}>
-          {started.text}
-        </p>
       )}
 
       {chosen && grant ? (
