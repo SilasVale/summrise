@@ -26,11 +26,10 @@ function buckets(lines: readonly AuditLine[], now: number): number[] {
  * The machine's "Now" band: is the AI working, and how fast — never the day's calls.
  *
  * Everything here is a fact from the console's own audit: the machine's fetched window and the
- * newest live lines merged, the same window the timeline below draws. The band reads presence, the
- * last minute's rate and the five-minute sparkline from it; it draws none of its rows, because those
- * rows are the timeline's, once, under the day's own heading (audit-41 F1). A running call is the
- * one line the band keeps: the proxy announces it before the device answers, so it is not an audit
- * row yet and has no timeline row to be a second copy of.
+ * newest live lines merged, the same window the day line reads. The band reads presence, the last
+ * minute's rate and the five-minute sparkline from it; it draws none of its rows, because the calls
+ * live in Activity now (audit-41 F1, audit-42 F1). A running call is the one line the band keeps:
+ * the proxy announces it before the device answers, so it is not an audit row yet.
  *
  * The console's own reads are facts in that same record, so they are excluded: the band counts the
  * calls a client made, never the console's own polling. When nothing has happened the band says so —
@@ -39,7 +38,7 @@ function buckets(lines: readonly AuditLine[], now: number): number[] {
  */
 export function LiveNow(props: {
   /**
-   * The same window the hub's timeline draws: the machine's fetched lines merged with the stream's,
+   * The same window the day line reads: the machine's fetched lines merged with the stream's,
    * newest first. It is wider than the fleet's newest 200 live lines, which after a reconnect is
    * only the newest forty and could hold none of this machine's calls.
    */
@@ -51,8 +50,6 @@ export function LiveNow(props: {
    */
   running?: StartedCall[];
   state: "connecting" | "live" | "offline";
-  /** The one door out of the state band: the fleet's record, which owns the older days. */
-  onAll: () => void;
 }) {
   // The sparkline advances on its own clock: a stream of timestamps that never ticks reads as a
   // screenshot, not as something happening.
@@ -104,9 +101,6 @@ export function LiveNow(props: {
               ? "the stream is down; the list below is the last read"
               : "opening the stream"}
         </span>
-        <button type="button" className="link live-all" onClick={props.onAll}>
-          All activity <span aria-hidden="true">→</span>
-        </button>
       </div>
 
       <svg

@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { LiveLine, StartedCall } from "./liveActivity";
 import { LiveNow } from "./LiveNow";
@@ -19,7 +19,7 @@ function line(overrides: Partial<LiveLine> = {}): LiveLine {
   };
 }
 
-const base = { state: "live" as const, onAll: () => {} };
+const base = { state: "live" as const };
 
 function started(overrides: Partial<StartedCall> = {}): StartedCall {
   return { id: "call-1", tool: "runs.exec", at_ms: Date.now(), caller: "client", ...overrides };
@@ -56,20 +56,17 @@ describe("LiveNow", () => {
     expect(document.querySelectorAll(".live-now .live-entry")).toHaveLength(0);
   });
 
-  it("keeps the Now facts and one door, with no call rows", () => {
-    const onAll = vi.fn();
-    render(<LiveNow lines={[line({ caller: "client" })]} state="live" onAll={onAll} />);
+  it("keeps the Now facts, with no call rows and no door of its own", () => {
+    render(<LiveNow lines={[line({ caller: "client" })]} state="live" />);
 
-    // The state band's own shape: its heading, its presence word, its rate, the sparkline and the
-    // one door out to the fleet's record. The calls below it are the timeline's.
+    // The state band's own shape: its heading, its presence word, its rate and the sparkline. The
+    // record's one door lives with the day line below; the band is the state, not a second list.
     expect(screen.getByRole("heading", { name: "Now", level: 2 })).toBeInTheDocument();
     expect(screen.getByText("Active now")).toBeInTheDocument();
     expect(screen.getByText("1 call in the last minute")).toBeInTheDocument();
     expect(screen.getByRole("img", { name: /Client calls per ten seconds/ })).toBeInTheDocument();
     expect(document.querySelectorAll(".live-now .live-entry")).toHaveLength(0);
-
-    fireEvent.click(screen.getByRole("button", { name: /All activity/ }));
-    expect(onAll).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("button", { name: /All activity/ })).toBeNull();
   });
 
   it("treats a line without a caller as unknown, not as a client's", () => {

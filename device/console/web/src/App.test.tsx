@@ -792,15 +792,17 @@ describe("App", () => {
     await openOverview();
 
     expect(
-      await screen.findByText(/^Today 10 client calls · 1 failed · last \d\d:\d\d · since 03:12$/)
+      await screen.findByText(
+        /^Today 10 client calls · 1 failed · spanning 2 s · since 03:12$/
+      )
     ).toBeInTheDocument();
-    // The timeline is still the fetched window: three rows, not ten invented ones.
-    await waitFor(() => expect(document.querySelectorAll(".timeline-row")).toHaveLength(3));
+    // The rows are Activity's: the machine's page draws the day, not the fetched window's three.
+    await waitFor(() => expect(document.querySelectorAll(".timeline-row")).toHaveLength(0));
   });
 
-  it("reports the day's ten calls above the window's three", async () => {
+  it("reports the day's ten calls, not the window's three", async () => {
     // The window is 1,000 lines and may hold only three of the day's ten client calls. The day line
-    // says ten; the window sentence says three, and says it is the window.
+    // says ten; the page draws none of the window's three, because the rows live in Activity.
     const midnight = todayStart();
     const lines: AuditLine[] = [];
     for (let index = 0; index < 997; index++) {
@@ -848,14 +850,13 @@ describe("App", () => {
     selectDevice("workshop");
     await openOverview();
 
+    // The window is full of today's lines, so its oldest line is not the day's first call and the
+    // line states no span; it still states the whole day's count from `/fleet`.
     expect(
-      await screen.findByText(/^Today 10 client calls · 1 failed · last /)
+      await screen.findByText("Today 10 client calls · 1 failed")
     ).toBeInTheDocument();
-    expect(
-      screen.getByText(
-        /Showing the newest 3 of 1000 lines \(3 client calls, 997 console reads\)/
-      )
-    ).toBeInTheDocument();
+    expect(screen.queryByText(/spanning/)).toBeNull();
+    expect(document.querySelectorAll(".timeline-row")).toHaveLength(0);
   });
 
   it("keeps the day's count on the machine's hub, not on Home's fleet row", async () => {

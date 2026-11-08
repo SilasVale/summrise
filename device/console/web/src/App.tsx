@@ -1519,7 +1519,6 @@ export function App() {
                 {tab === "overview" && chosen ? (
                   <OverviewPage
                     device={chosen}
-                    devices={devices}
                     onTools={() => setTab("tools")}
                     onActivity={() => setPage("activity")}
                     liveLines={live.lines}
@@ -1527,10 +1526,6 @@ export function App() {
                     liveState={live.state}
                     tick={pollTick}
                     liveRecoveries={live.recoveries}
-                    onWatchTerminal={(deviceId) => {
-                      choose(deviceId);
-                      setTab("terminal");
-                    }}
                   />
                 ) : null}
                 {tab === "screen" && grant ? (

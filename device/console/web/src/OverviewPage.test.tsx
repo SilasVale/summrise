@@ -94,93 +94,6 @@ function todayCalls(count: number): AuditLine[] {
   );
 }
 
-/**
- * A hub day shaped like the measured DESKTOP-9VH92BJ page: `clientCalls` AI calls and
- * `consoleReads` console reads, newest first, one second apart, all inside today's first hour.
- * The 60-row case (56 console, 4 client) is the measurement this rule was written from.
- */
-function hubDay(consoleReads: number, clientCalls: number): AuditLine[] {
-  const start = new Date();
-  start.setHours(0, 0, 0, 0);
-  const base = start.getTime() + 3_600_000;
-  return [
-    ...Array.from({ length: clientCalls }, (_, index) =>
-      call({
-        ts_ms: base - index * 1000,
-        caller: "client",
-        tool: `client.${index}`,
-        sentence: `Client call ${index}`
-      })
-    ),
-    ...Array.from({ length: consoleReads }, (_, index) =>
-      call({
-        ts_ms: base - (clientCalls + index) * 1000,
-        caller: "console",
-        tool: `console.${index}`,
-        sentence: `Console read ${index}`
-      })
-    )
-  ];
-}
-
-/**
- * The measured hub window (2026-11-05): 1004 fetched lines become 974 the hub can draw — 283 AI
- * calls, 580 console reads and 111 rows with no recorded caller — after 9 channel boundaries and 21
- * repeated keys are withheld. The newest 60 rows are the fold.
- */
-function measuredHubWindow(): { audit: AuditLine[]; liveLines: LiveLine[] } {
-  const start = new Date();
-  start.setHours(0, 0, 0, 0);
-  const base = start.getTime() + 6 * 3_600_000;
-  let tick = 0;
-  const next = () => base - tick++ * 1000;
-  const lines: AuditLine[] = [
-    ...Array.from({ length: 9 }, (_, index) =>
-      call({
-        ts_ms: next(),
-        caller: "console",
-        tool: index % 2 === 0 ? "device.left" : "device.joined",
-        sentence: "The console's channel boundary"
-      })
-    ),
-    ...Array.from({ length: 576 }, (_, index) =>
-      call({
-        ts_ms: next(),
-        caller: "console",
-        tool: `console.${index}`,
-        sentence: `Console read ${index}`
-      })
-    ),
-    ...Array.from({ length: 283 }, (_, index) =>
-      call({
-        ts_ms: next(),
-        caller: "client",
-        tool: `client.${index}`,
-        sentence: `Client call ${index}`
-      })
-    ),
-    ...Array.from({ length: 111 }, (_, index) =>
-      call({
-        ts_ms: next(),
-        tool: `unknown.${index}`,
-        sentence: `Unattributed ${index}`
-      })
-    )
-  ];
-  // Lines the file wrote twice: the same instant, tool and status, so the merge draws each once.
-  const repeats = lines.slice(7, 28).map((line) => ({ ...line }));
-  // The console's newest reads, on the live stream rather than in the fetched window.
-  const liveLines: LiveLine[] = Array.from({ length: 4 }, (_, index) =>
-    liveCall({
-      ts_ms: base + 4_000 - index * 1000,
-      caller: "console",
-      tool: `live.${index}`,
-      sentence: `Console read live ${index}`
-    })
-  );
-  return { audit: [...lines, ...repeats], liveLines };
-}
-
 /** An answer the test decides when to give. */
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -194,6 +107,7 @@ function draw(overrides: Record<string, unknown> = {}) {
   const {
     audit,
     auditError = false,
+    auditPromise,
     ...props
   } = overrides;
   const now = Date.now();
@@ -204,13 +118,13 @@ function draw(overrides: Record<string, unknown> = {}) {
     call({ tool: "runs.exec", ts_ms: now, caller: "client" })
   ];
   if (auditError) auditApi.audit.mockRejectedValue(new Error("the audit could not be read"));
+  else if (auditPromise) auditApi.audit.mockReturnValue(auditPromise);
   else auditApi.audit.mockResolvedValue(audit ?? calls);
   const onTools = vi.fn();
   const onActivity = vi.fn();
   const page = (extra: Record<string, unknown> = {}) => (
     <OverviewPage
       device={workshop}
-      devices={[workshop]}
       onTools={onTools}
       onActivity={onActivity}
       {...props}
@@ -237,7 +151,7 @@ beforeEach(() => {
 });
 
 describe("Device overview — the machine's live page", () => {
-  it("states the machine in one status line, with counts and the machine's timeline", async () => {
+  it("states the machine in one status line, with its counts and one day line", async () => {
     draw();
 
     // The Device shell owns the destination's one h1 ("Overview"); this page names the machine
@@ -252,14 +166,12 @@ describe("Device overview — the machine's live page", () => {
     const counts = await screen.findByRole("button", { name: /6 tools · 4 capabilities · 2 plugins/ });
     expect(counts).toHaveTextContent("6 tools · 4 capabilities · 2 plugins");
 
-    // The four fetched calls for this machine are the timeline, newest first. The old "Recent calls"
-    // list is gone: it was the same rows without the sentence.
-    await waitFor(() => expect(document.querySelectorAll(".timeline-row")).toHaveLength(4));
-    const rows = document.querySelectorAll(".timeline-row");
-    expect(rows[0]).toHaveTextContent("terminal.create");
+    // The fetched calls are a day line, not a second copy of Activity's rows.
+    expect(await screen.findByText(/^Today 4 client calls/)).toBeInTheDocument();
+    expect(document.querySelectorAll(".timeline-row")).toHaveLength(0);
   });
 
-  it("draws the newest calls once, in the day's timeline, under its one Today heading", async () => {
+  it("draws the day once, as one line, and draws none of Activity's rows", async () => {
     const now = new Date(2026, 10, 5, 14, 45, 0).getTime();
     const clock = vi.spyOn(Date, "now").mockReturnValue(now);
     try {
@@ -272,29 +184,29 @@ describe("Device overview — the machine's live page", () => {
         liveState: "live"
       });
 
-      // THE STATE BAND KEEPS ITS OWN SHAPE. The Now facts — presence, rate, the sparkline and the
-      // one door to the fleet's record — are read from the machine's window.
+      // THE STATE BAND KEEPS ITS OWN SHAPE. Presence, rate and the sparkline are read from the
+      // machine's window; the band draws none of the rows.
       expect(await screen.findByText("Active now")).toBeInTheDocument();
       expect(screen.getByText("3 calls in the last minute")).toBeInTheDocument();
-      expect(screen.getByRole("button", { name: /All activity/ })).toBeInTheDocument();
-
-      // THE CALLS ARE DRAWN ONCE. The band itself holds no row: no timeline row, no entry.
       const band = document.querySelector(".live-now");
       expect(band).not.toBeNull();
       expect(band?.querySelectorAll(".timeline-row")).toHaveLength(0);
       expect(band?.querySelectorAll(".live-entry")).toHaveLength(0);
 
-      const timeline = screen.getByRole("region", { name: "This machine's activity" });
-      await waitFor(() => expect(timeline.querySelectorAll(".timeline-row")).toHaveLength(3));
+      // THE DAY IS ONE LINE. It states the day, the count and the span the calls cover; the
+      // sentences themselves are Activity's now, so none of them is drawn here.
+      const line = await screen.findByText("Today 3 client calls · spanning 20 s");
+      expect(line).toHaveClass("home-today");
       for (const sentence of ["Read the run history", "Ran a command", "Read the machine's state"]) {
-        expect(screen.getAllByText(sentence)).toHaveLength(1);
-        expect(within(timeline).getByText(sentence)).toBeInTheDocument();
+        expect(screen.queryByText(sentence)).toBeNull();
       }
-
-      // And one Today heading above them, not a second over a band copy of the same rows.
-      const todayHeadings = screen.getAllByRole("heading", { level: 2, name: "Today" });
-      expect(todayHeadings).toHaveLength(1);
-      expect(timeline).toContainElement(todayHeadings[0]);
+      expect(document.querySelectorAll(".timeline-row")).toHaveLength(0);
+      expect(screen.queryByRole("heading", { level: 2, name: "Today" })).toBeNull();
+      expect(screen.queryByRole("button", { name: /Console reads/ })).toBeNull();
+      expect(screen.queryByRole("button", { name: /Show the rest of today/ })).toBeNull();
+      const region = screen.getByRole("region", { name: "This machine's activity" });
+      expect(within(region).getByText(/^Today 3 client calls/)).toBeInTheDocument();
+      expect(within(region).getByRole("button", { name: /All activity/ })).toBeInTheDocument();
     } finally {
       clock.mockRestore();
     }
@@ -322,16 +234,18 @@ describe("Device overview — the machine's live page", () => {
     expect(screen.queryByRole("button", { name: /Connect/ })).not.toBeInTheDocument();
   });
 
-  it("keeps one All activity link that opens the Activity page", () => {
+  it("keeps one All activity link, beside the day line, that opens the Activity page", async () => {
     const { onActivity } = draw();
 
     const all = screen.getAllByRole("button", { name: /All activity/ });
     expect(all).toHaveLength(1);
+    const line = await screen.findByText(/^Today 4 client calls/);
+    expect(all[0].closest(".home-day")).toBe(line.closest(".home-day"));
     fireEvent.click(all[0]);
     expect(onActivity).toHaveBeenCalledTimes(1);
   });
 
-  it("shows this machine's live lines in its timeline and no other machine's", () => {
+  it("counts this machine's live lines in its day line and no other machine's", async () => {
     const now = Date.now();
     draw({
       audit: [],
@@ -347,12 +261,17 @@ describe("Device overview — the machine's live page", () => {
       ]
     });
 
-    const timeline = screen.getByRole("region", { name: "This machine's activity" });
-    expect(within(timeline).getByText("Ran the workshop tests")).toBeInTheDocument();
-    expect(within(timeline).getByText("Read a workshop note")).toBeInTheDocument();
-    expect(within(timeline).queryByText("Built another machine")).not.toBeInTheDocument();
-    // The page is this machine's: another machine's live line must not leak into its timeline.
-    expect(screen.queryByText(/Built another machine/)).not.toBeInTheDocument();
+    // The page is this machine's: another machine's live line must not enter its count, and no
+    // live sentence is drawn — the rows belong to Activity.
+    expect(await screen.findByText(/^Today 2 client calls/)).toBeInTheDocument();
+    for (const sentence of [
+      "Ran the workshop tests",
+      "Read a workshop note",
+      "Built another machine"
+    ]) {
+      expect(screen.queryByText(sentence)).toBeNull();
+    }
+    expect(document.querySelectorAll(".timeline-row")).toHaveLength(0);
   });
 
   it("feeds the Now band from this machine's window, not the fleet's live slice", async () => {
@@ -469,47 +388,6 @@ describe("Device overview — the machine's live page", () => {
     await waitFor(() => expect(auditApi.audit).toHaveBeenCalledTimes(4));
   });
 
-  it("says when the window was read only when it is older than the live lines", async () => {
-    const midday = new Date();
-    midday.setHours(12, 0, 0, 0);
-    const now = midday.getTime();
-    const clock = vi.spyOn(Date, "now").mockReturnValue(now);
-    try {
-      const { rerenderHub } = draw({
-        audit: [call({ ts_ms: now - 3 * 3_600_000, caller: "client" })],
-        liveLines: [],
-        liveState: "live"
-      });
-      await screen.findByText("terminal.create");
-      expect(screen.queryByText(/^Read \d/)).toBeNull();
-
-      // A live line newer than the window, one second after the read: the tick's reread is still on
-      // its way, so the page does not yet call the window stale.
-      clock.mockReturnValue(now + 1_000);
-      rerenderHub({ liveLines: [liveCall({ ts_ms: now + 500, caller: "client" })] });
-      expect(screen.queryByText(/^Read \d/)).toBeNull();
-
-      // Two minutes without a successful reread: the window is older than the lines above it, and
-      // the page says when it was read instead of letting it stand for live data.
-      clock.mockReturnValue(now + 2 * 60_000);
-      rerenderHub({ liveLines: [liveCall({ ts_ms: now + 2 * 60_000 - 1_000, caller: "client" })] });
-      expect(screen.getByText("Read 2 min ago.")).toBeInTheDocument();
-
-      // The next read answers with a window that includes the live line: the sentence goes away,
-      // because the fetched part is no longer behind the stream.
-      auditApi.audit.mockResolvedValueOnce([
-        call({ ts_ms: now + 2 * 60_000 - 500, caller: "client" })
-      ]);
-      rerenderHub({
-        tick: 1,
-        liveLines: [liveCall({ ts_ms: now + 2 * 60_000 - 1_000, caller: "client" })]
-      });
-      await waitFor(() => expect(screen.queryByText("Read 2 min ago.")).toBeNull());
-    } finally {
-      clock.mockRestore();
-    }
-  });
-
   it("counts a call whose caller was never recorded but whose token proves it", async () => {
     // The live window has 908 lines with no caller, and 376 of them carry a token (no console line
     // does). Counting only caller === "client" read 62 where the record proved 363.
@@ -527,23 +405,26 @@ describe("Device overview — the machine's live page", () => {
       });
 
       expect(
-        await screen.findByText("Today 3 client calls · last 14:32")
+        await screen.findByText("Today 3 client calls · spanning 22 m")
       ).toBeInTheDocument();
     } finally {
       clock.mockRestore();
     }
   });
 
-  it("keeps the Activity filters off the hub's one-machine timeline", () => {
-    // The hub already shows this machine's day. An All machines chip over one machine's lines would
-    // be a control that cannot tell the truth, so the timeline is drawn without the filter bar.
+  it("keeps Activity's filters off the machine's page", async () => {
+    // The page is the machine's state, not a second Activity: no rows means no machine chips, no
+    // callers chip and no search to narrow the record here.
     draw();
-    const timeline = screen.getByRole("region", { name: "This machine's activity" });
-    expect(within(timeline).queryByRole("searchbox")).toBeNull();
-    expect(within(timeline).queryByRole("group", { name: "Filter by machine" })).toBeNull();
+    await screen.findByText(/^Today 4 client calls/);
+    const region = screen.getByRole("region", { name: "This machine's activity" });
+    expect(region.querySelector("input")).toBeNull();
+    expect(screen.queryByRole("searchbox")).toBeNull();
+    expect(screen.queryByRole("group", { name: "Filter by machine" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Clients only" })).toBeNull();
   });
 
-  it("keeps older days off the hub's timeline", async () => {
+  it("keeps older days off the machine's day line", async () => {
     const yesterday = new Date();
     yesterday.setDate(yesterday.getDate() - 1);
     yesterday.setHours(12, 0, 0, 0);
@@ -554,9 +435,10 @@ describe("Device overview — the machine's live page", () => {
 
     expect(screen.queryByText("Ran yesterday")).not.toBeInTheDocument();
     expect(await screen.findByText(/No calls from workshop today/)).toBeInTheDocument();
+    expect(document.querySelectorAll(".timeline-row")).toHaveLength(0);
   });
 
-  it("counts today's client calls, the failures among them, and when the last one was", async () => {
+  it("counts today's client calls, the failures among them, and the span of the day", async () => {
     const now = new Date(2026, 10, 5, 14, 45, 0).getTime();
     const clock = vi.spyOn(Date, "now").mockReturnValue(now);
     try {
@@ -580,9 +462,9 @@ describe("Device overview — the machine's live page", () => {
       });
 
       // Two succeeded and one failed, all after local midnight: the line counts the calls and the
-      // failures, and the last is the newest client call's clock — not a number the page invented.
+      // failures, and its span is the calls' own first-to-last moment — not a number the page invented.
       expect(
-        await screen.findByText("Today 3 client calls · 1 failed · last 14:32")
+        await screen.findByText("Today 3 client calls · 1 failed · spanning 22 m")
       ).toBeInTheDocument();
     } finally {
       clock.mockRestore();
@@ -639,47 +521,11 @@ describe("Device overview — the machine's live page", () => {
       });
 
       expect(
-        await screen.findByText("Today 2 client calls · last 14:32")
+        await screen.findByText("Today 2 client calls · spanning 12 m")
       ).toBeInTheDocument();
     } finally {
       clock.mockRestore();
     }
-  });
-
-  it("draws the AI's calls and folds the console's own reads behind one counted chip", async () => {
-    // The measured hub: 60 rows, 56 of them the console's polling. The list is the AI's work.
-    draw({ audit: hubDay(56, 4) });
-
-    await waitFor(() => expect(document.querySelectorAll(".timeline-row")).toHaveLength(4));
-    expect(screen.queryByText("Console read 0")).toBeNull();
-    const chip = screen.getByRole("button", { name: "Console reads · 56" });
-    expect(chip).toHaveAttribute("aria-pressed", "false");
-
-    // One click adds them: the rows were never dropped, only folded.
-    fireEvent.click(chip);
-    await waitFor(() => expect(document.querySelectorAll(".timeline-row")).toHaveLength(60));
-    expect(screen.getByText("Console read 0")).toBeInTheDocument();
-    expect(chip).toHaveAttribute("aria-pressed", "true");
-
-    // And one click takes them back out; the toggle is a view, not a persisted preference.
-    fireEvent.click(chip);
-    await waitFor(() => expect(document.querySelectorAll(".timeline-row")).toHaveLength(4));
-  });
-
-  it("names the hidden console reads when the AI made no calls, with the chip still offered", async () => {
-    draw({ audit: hubDay(56, 0) });
-
-    expect(
-      await screen.findByText("No client calls yet; the console's own reads are hidden.")
-    ).toBeInTheDocument();
-    const chip = screen.getByRole("button", { name: "Console reads · 56" });
-    expect(chip).toHaveAttribute("aria-pressed", "false");
-
-    fireEvent.click(chip);
-    await waitFor(() => expect(document.querySelectorAll(".timeline-row")).toHaveLength(56));
-    expect(
-      screen.queryByText("No client calls yet; the console's own reads are hidden.")
-    ).toBeNull();
   });
 
   it("does not invent client calls when the window holds only unattributed rows", async () => {
@@ -693,8 +539,9 @@ describe("Device overview — the machine's live page", () => {
     try {
       draw({ audit: [call({ ts_ms: now - 10_000 })] });
 
+      expect(await screen.findByText("Today no client calls")).toBeInTheDocument();
       expect(await screen.findByText("No client calls from workshop today.")).toBeInTheDocument();
-      expect(screen.getByRole("button", { name: "Console reads · 0" })).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /Console reads/ })).toBeNull();
       expect(screen.queryByRole("listitem")).toBeNull();
     } finally {
       clock.mockRestore();
@@ -1008,11 +855,51 @@ describe("Device overview — the machine's live page", () => {
     expect(auditApi.audit).toHaveBeenCalledTimes(1);
   });
 
-  it("says the window was cut when this machine's own 1000 were", async () => {
-    // Midnight, a minute in: every row is today even in a run that starts just after midnight.
+  it("does not claim there were no calls when this machine's audit could not be read", async () => {
+    draw({ auditError: true });
+
+    expect(
+      await screen.findByText(
+        "The console could not read this machine's activity, so this day line may be incomplete."
+      )
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/No calls from workshop today/)).toBeNull();
+  });
+
+  it("puts the capability line above the day line", async () => {
+    draw();
+
+    const counts = await screen.findByRole("button", {
+      name: /6 tools · 4 capabilities · 2 plugins/
+    });
+    const day = screen.getByRole("region", { name: "This machine's activity" });
+    // The line answers "what can this machine do now"; it sits with the Now band, before the day.
+    expect(counts.compareDocumentPosition(day) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("states a one-call day's moment, because one call has no span", async () => {
+    const now = new Date(2026, 10, 5, 14, 45, 0).getTime();
+    const clock = vi.spyOn(Date, "now").mockReturnValue(now);
+    try {
+      draw({
+        audit: [
+          call({ ts_ms: new Date(2026, 10, 5, 14, 32).getTime(), caller: "client" })
+        ]
+      });
+
+      expect(await screen.findByText("Today 1 client call · last 14:32")).toBeInTheDocument();
+      expect(screen.queryByText(/spanning/)).toBeNull();
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
+  it("states no span when the window is cut before the day's first call", async () => {
+    // Every fetched line is today and the window is full, so the oldest line on the page is not
+    // the day's first call: a span counted from it would start late, and the line says none.
     const start = new Date();
     start.setHours(0, 0, 0, 0);
-    const base = start.getTime() + 60_000;
+    const base = start.getTime() + 2 * 3_600_000;
     const thousand: AuditLine[] = Array.from({ length: 1000 }, (_, index) =>
       call({
         ts_ms: base - index,
@@ -1020,288 +907,179 @@ describe("Device overview — the machine's live page", () => {
         tool: index % 2 === 0 ? "terminal.create" : "files.read"
       })
     );
-    draw({ audit: thousand });
+    draw({ audit: thousand, device: { ...workshop, today: { client_calls: 1000, failed: 0 } } });
 
-    expect(
-      await screen.findByText(
-        "Showing the newest 60 of 1000 lines (1000 client calls); older ones are not on this page."
-      )
-    ).toBeInTheDocument();
+    expect(await screen.findByText("Today 1000 client calls")).toBeInTheDocument();
+    expect(screen.queryByText(/spanning/)).toBeNull();
+    expect(document.querySelectorAll(".timeline-row")).toHaveLength(0);
   });
 
-  it("names the drawable window, the rows it draws and what the merge withheld", async () => {
-    // The measured DESKTOP-14RJCR8 hub before the console and unattributed chips existed: 1000
-    // fetched, 6 channel boundaries and 17 repeated keys, so 977 rows are in the day list behind
-    // the 60-row fold (60 + 917 more). All 977 are client calls.
-    const start = new Date();
-    start.setHours(0, 0, 0, 0);
-    const base = start.getTime() + 3_600_000;
-    const calls = Array.from({ length: 977 }, (_, index) =>
-      call({
-        ts_ms: base - index * 1000,
-        caller: "client",
-        tool: `tool.${index}`,
-        sentence: `Call ${index}`
-      })
-    );
-    const boundaries = Array.from({ length: 6 }, (_, index) =>
-      call({
-        ts_ms: base - (977 + index) * 1000,
-        caller: "console",
-        tool: index % 2 === 0 ? "device.left" : "device.joined",
-        sentence: "The console's channel boundary"
-      })
-    );
-    const repeats = calls.slice(0, 17).map((line) => ({ ...line }));
-    draw({ audit: [...calls, ...boundaries, ...repeats] });
-
-    expect(
-      await screen.findByText(
-        "Showing the newest 60 of 977 lines (977 client calls; 6 channel events, 17 repeats not drawn); older ones are not on this page."
-      )
-    ).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: "Show the rest of today (917 more)" })
-    ).toBeInTheDocument();
-  });
-
-  it("states a window whose every number its controls can reach, and reaches all of it", async () => {
-    const { audit, liveLines } = measuredHubWindow();
-    draw({ audit, liveLines });
-
-    const sentence = await screen.findByText(/^Showing the newest 60 of 974 lines/);
-    expect(sentence.textContent).toBe(
-      "Showing the newest 60 of 974 lines (283 client calls, 580 console reads, 111 unattributed; 9 channel events, 21 repeats not drawn); older ones are not on this page."
-    );
-    // THE RULE THIS TEST PINS. The fetched window was 1004 lines, but the sentence may not state a
-    // line the fold and the two chips cannot draw: every number it prints is at most the 974 rows
-    // the controls reach.
-    for (const digits of sentence.textContent?.match(/\d+/g) ?? []) {
-      expect(Number(digits)).toBeLessThanOrEqual(974);
-    }
-    expect(sentence.textContent).not.toContain("1004");
-    // One rule: the sentence's client bucket is the number the day line above the list counts.
-    expect(screen.getByText(/^Today 283 client calls/)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Console reads · 580" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Unattributed · 111" })).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: "Show the rest of today (223 more)" })
-    ).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("button", { name: "Console reads · 580" }));
-    fireEvent.click(screen.getByRole("button", { name: "Unattributed · 111" }));
-    fireEvent.click(screen.getByRole("button", { name: "Show the rest of today (914 more)" }));
-
-    // The claim is the list's length: the fold draws the last row it says it holds.
-    await waitFor(() => expect(document.querySelectorAll(".timeline-row")).toHaveLength(974));
-    expect(await screen.findByText(/^Showing all 974 lines/)).toHaveTextContent(
-      "Showing all 974 lines (283 client calls, 580 console reads, 111 unattributed; 9 channel events, 21 repeats not drawn); older ones are not on this page."
-    );
-    // The oldest row of the window — the last one the fold claims — is on screen.
-    expect(screen.getByText("Unattributed 110")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /Show the rest of today/ })).toBeNull();
-  }, 20_000);
-
-  it("names and draws the unattributed rows even when no window sentence is due", async () => {
-    // The measured DESKTOP-9VH92BJ shape: its window is not cut, so there is no cap sentence, but
-    // 111 of its 311 lines are unattributed. The chip is where those rows are counted and reached.
-    const start = new Date();
-    start.setHours(0, 0, 0, 0);
-    const base = start.getTime() + 3_600_000;
-    let tick = 0;
-    const next = () => base - tick++ * 1000;
-    const audit: AuditLine[] = [
-      ...Array.from({ length: 36 }, (_, index) =>
-        call({
-          ts_ms: next(),
-          caller: "console",
-          tool: index % 2 === 0 ? "device.left" : "device.joined",
-          sentence: "The console's channel boundary"
-        })
-      ),
-      ...Array.from({ length: 145 }, (_, index) =>
-        call({
-          ts_ms: next(),
-          caller: "console",
-          tool: `console.${index}`,
-          sentence: `Console read ${index}`
-        })
-      ),
-      ...Array.from({ length: 19 }, (_, index) =>
-        call({
-          ts_ms: next(),
-          caller: "client",
-          tool: `client.${index}`,
-          sentence: `Client call ${index}`
-        })
-      ),
-      ...Array.from({ length: 111 }, (_, index) =>
-        call({
-          ts_ms: next(),
-          tool: `unknown.${index}`,
-          sentence: `Unattributed ${index}`
-        })
-      )
-    ];
-    draw({ audit });
-
-    await waitFor(() => expect(document.querySelectorAll(".timeline-row")).toHaveLength(19));
-    expect(screen.queryByText(/Showing the newest/)).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Unattributed · 111" }));
-    // 19 client calls and 111 unattributed rows: the fold now holds 70 of them.
-    fireEvent.click(screen.getByRole("button", { name: "Show the rest of today (70 more)" }));
-    await waitFor(() => expect(document.querySelectorAll(".timeline-row")).toHaveLength(130));
-    fireEvent.click(screen.getByRole("button", { name: "Console reads · 145" }));
-    await waitFor(() => expect(document.querySelectorAll(".timeline-row")).toHaveLength(275));
-    expect(screen.getByText("Unattributed 110")).toBeInTheDocument();
-  });
-
-  it("does not say the window was cut for a list shorter than the cap", async () => {
-    draw();
-
-    await screen.findByText("terminal.create");
-    expect(screen.queryByText(/Showing the newest/)).toBeNull();
-  });
-
-  it("does not claim there were no calls when this machine's audit could not be read", async () => {
-    draw({ auditError: true });
-
-    expect(
-      await screen.findByText(
-        "The console could not read this machine's activity, so this list may be incomplete."
-      )
-    ).toBeInTheDocument();
-    expect(screen.queryByText(/No calls from workshop today/)).toBeNull();
-  });
-
-  it("puts the capability line above this machine's timeline", async () => {
-    draw();
-
-    const counts = await screen.findByRole("button", {
-      name: /6 tools · 4 capabilities · 2 plugins/
-    });
-    const timeline = screen.getByRole("region", { name: "This machine's activity" });
-    // The line answers "what can this machine do now"; at the bottom it was 56 screens down.
-    expect(counts.compareDocumentPosition(timeline) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-  });
-
-  it("draws the newest 60 rows and offers the rest of today", async () => {
+  it("keeps the one day line while a busy day's rows stay in Activity", async () => {
     draw({ audit: todayCalls(75) });
 
-    // 60 rows, not 1000: the day is scannable, and the record behind it is one control away.
-    await waitFor(() => expect(document.querySelectorAll(".timeline-row")).toHaveLength(60));
-    const more = screen.getByRole("button", { name: "Show the rest of today (15 more)" });
-    expect(screen.getByRole("button", { name: /All activity/ })).toBeInTheDocument();
-    fireEvent.click(more);
-
-    await waitFor(() => expect(document.querySelectorAll(".timeline-row")).toHaveLength(75));
+    // A day's 75 calls are one line here and 75 rows in Activity: no fold, no cap sentence and no
+    // second copy of the record on this page.
+    expect(await screen.findByText(/^Today 75 client calls · spanning/)).toBeInTheDocument();
+    expect(document.querySelectorAll(".timeline-row")).toHaveLength(0);
     expect(screen.queryByRole("button", { name: /Show the rest of today/ })).toBeNull();
-    // The expansion is in place: the same region still holds the rows and its summary.
-    expect(
-      within(screen.getByRole("region", { name: "This machine's activity" })).getByText("Call 74")
-    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /All activity/ })).toBeInTheDocument();
+  });
+  it("draws no row of Activity's record", async () => {
+    draw();
+    expect(await screen.findByText(/^Today 4 client calls/)).toBeInTheDocument();
+    expect(document.querySelectorAll(".timeline-row")).toHaveLength(0);
   });
 
-  it("names the four repeats the day line counts but the window drops", async () => {
-    // The audit's uncut shape: 60 drawable rows plus four repeated keys. `/fleet` counts all 64
-    // client lines, the merge draws 60, and there is no fold because all 60 drawable rows are
-    // drawn. The day line and the fold cannot meet without the sentence Activity's cap sentence
-    // already prints: 60 drawn + 4 repeats not drawn = the 64 the day line counts.
+  it("draws no Today heading of its own", async () => {
+    draw();
+    await screen.findByText(/^Today 4 client calls/);
+    expect(screen.queryByRole("heading", { name: "Today" })).toBeNull();
+    expect(document.querySelector(".timeline-day-label")).toBeNull();
+  });
+
+  it("draws no Console reads chip, even when the window is mostly the console's", async () => {
+    draw({ audit: [
+      ...Array.from({ length: 4 }, (_, index) =>
+        call({ ts_ms: Date.now() - index * 1_000, caller: "client", tool: `client.${index}` })
+      ),
+      ...Array.from({ length: 56 }, (_, index) =>
+        call({ ts_ms: Date.now() - (4 + index) * 1_000, caller: "console", tool: `console.${index}` })
+      )
+    ] });
+
+    expect(await screen.findByText(/^Today 4 client calls/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Console reads/ })).toBeNull();
+    expect(document.querySelectorAll(".timeline-row")).toHaveLength(0);
+  });
+
+  it("draws no Unattributed chip", async () => {
+    draw({ audit: [
+      ...Array.from({ length: 3 }, (_, index) =>
+        call({ ts_ms: Date.now() - index * 1_000, caller: "client", tool: `client.${index}` })
+      ),
+      ...Array.from({ length: 111 }, (_, index) =>
+        call({ ts_ms: Date.now() - (3 + index) * 1_000, tool: `unknown.${index}` })
+      )
+    ] });
+
+    expect(await screen.findByText(/^Today 3 client calls/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Unattributed/ })).toBeNull();
+    expect(document.querySelectorAll(".timeline-row")).toHaveLength(0);
+  });
+
+  it("offers no rest-of-today fold", async () => {
+    draw({ audit: todayCalls(75) });
+    expect(await screen.findByText(/^Today 75 client calls/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Show the rest of today/ })).toBeNull();
+  });
+
+  it("draws no window sentence when the window is cut", async () => {
+    const start = new Date();
+    start.setHours(0, 0, 0, 0);
+    const base = start.getTime() + 2 * 3_600_000;
+    draw({
+      audit: Array.from({ length: 1000 }, (_, index) =>
+        call({ ts_ms: base - index, caller: "client", tool: `tool.${index}` })
+      ),
+      device: { ...workshop, today: { client_calls: 1000, failed: 0 } }
+    });
+
+    expect(await screen.findByText("Today 1000 client calls")).toBeInTheDocument();
+    expect(document.querySelector(".timeline-capped")).toBeNull();
+    expect(screen.queryByText(/Showing the newest/)).toBeNull();
+  });
+
+  it("draws no repeats sentence", async () => {
     const start = new Date();
     start.setHours(0, 0, 0, 0);
     const base = start.getTime() + 3_600_000;
     const calls = Array.from({ length: 60 }, (_, index) =>
-      call({
-        ts_ms: base - index * 1000,
-        caller: "client",
-        tool: `tool.${index}`,
-        sentence: `Call ${index}`,
-        // The four failures are drawable; the repeats below are successful, so the day read's
-        // `failed` and the failures the list draws are the same four.
-        status: index < 4 ? 503 : 200
-      })
+      call({ ts_ms: base - index * 1_000, caller: "client", tool: `tool.${index}` })
     );
-    const repeats = calls.slice(4, 8).map((line) => ({ ...line }));
     draw({
-      audit: [...calls, ...repeats],
-      device: { ...workshop, today: { client_calls: 64, failed: 4 } }
+      audit: [...calls, ...calls.slice(0, 4).map((line) => ({ ...line }))],
+      device: { ...workshop, today: { client_calls: 60, failed: 0 } }
     });
 
-    expect(
-      await screen.findByText("Today 64 client calls · 4 failed · last 01:00")
-    ).toBeInTheDocument();
-    await waitFor(() => expect(document.querySelectorAll(".timeline-row")).toHaveLength(60));
-    expect(screen.queryByRole("button", { name: /Show the rest of today/ })).toBeNull();
-    expect(screen.getByText("4 repeats not drawn.")).toBeInTheDocument();
+    expect(await screen.findByText(/^Today 60 client calls/)).toBeInTheDocument();
+    expect(screen.queryByText(/repeats? not drawn/)).toBeNull();
   });
 
-  it("names the four repeats between the measured day line and its fold", async () => {
-    // The 2026-11-05 hub: `/fleet` counted 183 client calls and 8 failed, the window held four
-    // repeated keys, and the fold drew 60 + 119 = 179 rows. The sentence is the missing term:
-    // 60 + 119 + 4 = 183, and the failed count is the same eight the list draws.
-    const start = new Date();
-    start.setHours(0, 0, 0, 0);
-    const base = start.getTime() + 3_600_000;
-    const calls = Array.from({ length: 179 }, (_, index) =>
-      call({
-        ts_ms: base - index * 1000,
-        caller: "client",
-        tool: `tool.${index}`,
-        sentence: `Call ${index}`,
-        status: index < 8 ? 503 : 200
-      })
-    );
-    const repeats = calls.slice(8, 12).map((line) => ({ ...line }));
-    draw({
-      audit: [...calls, ...repeats],
-      device: { ...workshop, today: { client_calls: 183, failed: 8 } }
-    });
-
-    expect(
-      await screen.findByText("Today 183 client calls · 8 failed · last 01:00")
-    ).toBeInTheDocument();
-    const more = screen.getByRole("button", { name: "Show the rest of today (119 more)" });
-    expect(screen.getByText("4 repeats not drawn.")).toBeInTheDocument();
-    fireEvent.click(more);
-
-    await waitFor(() => expect(document.querySelectorAll(".timeline-row")).toHaveLength(179));
-    expect(screen.queryByRole("button", { name: /Show the rest of today/ })).toBeNull();
-    // The sentence stays after the fold is gone: the window still dropped the four rows.
-    expect(screen.getByText("4 repeats not drawn.")).toBeInTheDocument();
+  it("draws no window-age note", async () => {
+    const midday = new Date();
+    midday.setHours(12, 0, 0, 0);
+    const now = midday.getTime();
+    const clock = vi.spyOn(Date, "now").mockReturnValue(now);
+    try {
+      const { rerenderHub } = draw({
+        audit: [call({ ts_ms: now - 3 * 3_600_000, caller: "client" })],
+        liveLines: [],
+        liveState: "live"
+      });
+      await screen.findByText(/^Today 1 client call/);
+      clock.mockReturnValue(now + 2 * 60_000);
+      rerenderHub({
+        liveLines: [liveCall({ ts_ms: now + 2 * 60_000 - 1_000, caller: "client" })]
+      });
+      expect(screen.queryByText(/^Read \d/)).toBeNull();
+    } finally {
+      clock.mockRestore();
+    }
   });
 
-  it("recounts the rest when a live row arrives while collapsed", async () => {
-    const { rerenderHub } = draw({ audit: todayCalls(75) });
-    await screen.findByRole("button", { name: "Show the rest of today (15 more)" });
-
-    // A new row at the top pushes the oldest visible row out of the window; N grows by one and the
-    // page says so, rather than keeping the count it happened to draw first.
-    rerenderHub({ liveLines: [liveCall({ sentence: "A brand new call" })] });
-
-    await screen.findByRole("button", { name: "Show the rest of today (16 more)" });
-    expect(document.querySelectorAll(".timeline-row")).toHaveLength(60);
-    expect(
-      within(screen.getByRole("region", { name: "This machine's activity" })).getByText(
-        "A brand new call"
-      )
-    ).toBeInTheDocument();
+  it("does not let the window's lines become the day's count", async () => {
+    const now = new Date(2026, 10, 5, 14, 45, 0).getTime();
+    const clock = vi.spyOn(Date, "now").mockReturnValue(now);
+    try {
+      draw({
+        audit: [14_10, 14_20, 14_32].map((hour) =>
+          call({ ts_ms: new Date(2026, 10, 5, 14, hour % 100, 0).getTime(), caller: "client" })
+        ),
+        device: { ...workshop, today: { client_calls: 10, failed: 0 } }
+      });
+      expect(
+        await screen.findByText("Today 10 client calls · spanning 22 m")
+      ).toBeInTheDocument();
+      expect(screen.queryByText(/3 client calls/)).toBeNull();
+    } finally {
+      clock.mockRestore();
+    }
   });
 
-  it("keeps the whole day drawn when a live row arrives after expanding", async () => {
-    const { rerenderHub } = draw({ audit: todayCalls(75) });
-    fireEvent.click(await screen.findByRole("button", { name: "Show the rest of today (15 more)" }));
-    await waitFor(() => expect(document.querySelectorAll(".timeline-row")).toHaveLength(75));
-
-    rerenderHub({ liveLines: [liveCall({ sentence: "A brand new call" })] });
-
-    await waitFor(() => expect(document.querySelectorAll(".timeline-row")).toHaveLength(76));
-    expect(
-      within(screen.getByRole("region", { name: "This machine's activity" })).getByText(
-        "A brand new call"
-      )
-    ).toBeInTheDocument();
-    // Expanded stays expanded; the hidden-rows control has nothing left to offer.
-    expect(screen.queryByRole("button", { name: /Show the rest of today/ })).toBeNull();
+  it("keeps the one All activity door out of the Now band", async () => {
+    draw();
+    await screen.findByText(/^Today 4 client calls/);
+    expect(screen.getAllByRole("button", { name: /All activity/ })).toHaveLength(1);
+    expect(document.querySelectorAll(".live-now button")).toHaveLength(0);
   });
+
+  it("states no span before the window that proves it has answered", async () => {
+    const now = new Date(2026, 10, 5, 14, 45, 0).getTime();
+    const clock = vi.spyOn(Date, "now").mockReturnValue(now);
+    try {
+      const answer = deferred<AuditLine[]>();
+      draw({
+        auditPromise: answer.promise,
+        device: { ...workshop, today: { client_calls: 2, failed: 0 } }
+      });
+
+      // `/fleet` has the day's count, but the window that proves the first and last call has not
+      // answered: the line states the count alone rather than a span from half a window.
+      expect(await screen.findByText("Today 2 client calls")).toBeInTheDocument();
+      expect(screen.queryByText(/spanning/)).toBeNull();
+
+      await act(async () => {
+        answer.resolve([
+          call({ ts_ms: now - 60_000, caller: "client" }),
+          call({ ts_ms: now - 120_000, caller: "client" })
+        ]);
+      });
+      expect(
+        await screen.findByText("Today 2 client calls · spanning 1 m")
+      ).toBeInTheDocument();
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
 });
-

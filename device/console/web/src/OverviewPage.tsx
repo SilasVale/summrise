@@ -8,34 +8,22 @@ import { listPlugins } from "./pluginApi";
 import { surfaceHash } from "./surface-link";
 import { toolsReadState } from "./toolsRead";
 import { useLiveTools, type LiveToolsRetry } from "./useLiveTools";
-import { ActivityTimeline } from "./ActivityTimeline";
-import {
-  ACTIVITY_LIMIT,
-  capActivity,
-  hubWindowSentence,
-  mergeActivityReport
-} from "./activityMerge";
-import {
-  isChannelBoundary,
-  isClientCall,
-  isConsoleRead,
-  isPoll,
-  isUnattributed
-} from "./activitySummary";
+import { ACTIVITY_LIMIT, mergeActivity } from "./activityMerge";
+import { isClientCall } from "./activitySummary";
 import { auditFailed } from "./auditFilter";
+import { spanText } from "./age";
 
 /**
  * The selected machine's own page: the `Overview` tab of Device.
  *
  * Home is the fleet's verdict; this is the machine's live view — its status, its Now band, its
- * counts line and today's timeline. It lives under Device because the machine's own page is Device;
- * Home never becomes this page. The timeline is one machine's day, so the Activity filters are off
- * (a machine chip over one machine's lines would be a lie); Activity remains the fleet's record and
- * owns the older days.
+ * counts line and one line about today. It lives under Device because the machine's own page is
+ * Device; Home never becomes this page. The day line states the day, its count and its span;
+ * the calls themselves are Activity's, once, because a second copy of the record here made the
+ * machine's front door a scoped Activity (audit-42 F1).
  */
 export type OverviewPageProps = {
   device: Device;
-  devices: Device[];
   onTools: () => void;
   onActivity: () => void;
   /** The live activity stream, newest first. Absent in tests and before the stream opens. */
@@ -47,8 +35,6 @@ export type OverviewPageProps = {
   tick?: number;
   /** How many snapshots have arrived after the stream dropped; each is one reread. */
   liveRecoveries?: number;
-  /** Open a machine's Terminal tab, where an AI's session can be watched. */
-  onWatchTerminal?: (deviceId: string) => void;
 };
 
 type PluginCount = number | null;
@@ -87,7 +73,7 @@ function plural(count: number, noun: string, many = `${noun}s`): string {
   return `${count} ${count === 1 ? noun : many}`;
 }
 
-/** Midnight in the console's own timezone; the hub's timeline is today's, not the audit window's. */
+/** Midnight in the console's own timezone; the hub's day is today's, not the audit window's. */
 function startOfToday(now = Date.now()): number {
   const date = new Date(now);
   date.setHours(0, 0, 0, 0);
@@ -115,32 +101,24 @@ function dayWord(ts: number, now: number): string {
 }
 
 /**
- * How many rows of the day the hub draws before folding the rest behind one control.
+ * The day's one line: the day, its count and the span its calls cover.
  *
- * The hub's timeline is one machine's whole day: on the busiest machine measured (2026-11-05) that
- * was 935 rows, a 51,620 px page with the capability line 56 screens down. Sixty rows is a day a
- * person can scan; the remaining rows are still one click away, in place, never paginated out of
- * reach. The Activity page keeps the whole record and is not folded.
- */
-const HUB_DAY_ROWS = 60;
-
-/**
- * The hub's one line about the day.
+ * **THE COUNT IS THE DAY'S, THE SPAN IS THE WINDOW'S.** The count and the failures come from
+ * `/fleet`'s `today`, the whole local calendar day (the same midnight the record cuts at); the
+ * fetched window only says how long that work lasted, because the call rows live in Activity now.
+ * A span is stated only when the window can prove it holds every one of today's calls: a cut
+ * window, or one that has not answered yet, may be missing the day's first call, so the line
+ * states the count alone rather than a shorter day. When the day read cannot prove the whole day,
+ * `coverageClause` says `since` or the scan bound — a partial day is stated, not hidden.
  *
- * **THE COUNT IS THE DAY'S, THE "LAST" IS THE WINDOW'S.** The count and the failures come from
- * `/fleet`'s `today`, which is the local calendar day (the same midnight the timeline cuts at); the
- * fetched window only says when the machine last worked, because the newest client call is always
- * the newest line and the window holds the newest lines. When the day read cannot prove the whole
- * day, it says `since` — a rotation or the scan bound is stated, not hidden.
- *
- * Only a client's calls count: the console's own failed polls are in the same audit and are not the
- * AI's work. A window with no line today still knows when the machine last worked, so it says that
- * instead of letting the empty timeline above read as a machine that did nothing overnight. A cut or
- * stale window is already named by the cap and read sentences; this line never repeats those.
+ * A day with one call has no span, so it names the call's moment instead. A window with no line
+ * today still knows when the machine last worked, so it says that instead of letting the empty
+ * day read as a machine that did nothing overnight.
  */
 function todayLine(
   day: Device["today"],
   lines: readonly AuditLine[],
+  partial: boolean,
   now = Date.now()
 ): string {
   const calls = lines.filter(isClientCall);
@@ -150,14 +128,27 @@ function todayLine(
     (latest, line) => (latest === null || line.ts_ms > latest.ts_ms ? line : latest),
     null
   );
+  const oldestToday = today.reduce<AuditLine | null>(
+    (oldest, line) => (oldest === null || line.ts_ms < oldest.ts_ms ? line : oldest),
+    null
+  );
+  // The calls' own first and last moment. It is the day's only when the window is whole: a cut or
+  // unread window's oldest today line is not the day's first call.
+  const span =
+    !partial && oldestToday !== null && newestToday !== null
+      ? Math.max(0, newestToday.ts_ms - oldestToday.ts_ms)
+      : 0;
+  const spanClause = span > 0 ? ` · spanning ${spanText(span)}` : "";
+  const oneCallClause =
+    span === 0 && today.length === 1 && newestToday !== null
+      ? ` · last ${clockTime(newestToday.ts_ms)}`
+      : "";
   if (day && day.client_calls > 0) {
-    // The count is the day's; the moment is the newest call the window holds. In the thousands-of-
-    // console-reads case the window may hold no client call at all, and then the line states the
-    // count without inventing a time it does not have.
     return (
       `Today ${plural(day.client_calls, "client call")}` +
       (day.failed > 0 ? ` · ${day.failed} failed` : "") +
-      (newestToday !== null ? ` · last ${clockTime(newestToday.ts_ms)}` : "") +
+      spanClause +
+      oneCallClause +
       coverageClause(day)
     );
   }
@@ -182,61 +173,13 @@ function todayLine(
     if (newest === null) return "Today no client calls";
     return `Today no client calls · last ${clockTime(newest.ts_ms)}${dayWord(newest.ts_ms, now)}`;
   }
-  const newest = today.reduce((latest, line) => Math.max(latest, line.ts_ms), 0);
   const failed = today.filter(auditFailed).length;
   return (
     `Today ${plural(today.length, "client call")}` +
     (failed > 0 ? ` · ${failed} failed` : "") +
-    ` · last ${clockTime(newest)}`
+    spanClause +
+    oneCallClause
   );
-}
-
-/**
- * How long a window may lag the live lines before the page says when it was read.
- *
- * The app's poll is five seconds and a reread needs a round trip. Under that grace the tick that
- * would reread the window is still on its way, and a sentence that appeared and vanished on every
- * live line would be noise, not a fact. Past it, the window has missed its reread and the page says
- * how old it is.
- */
-const READ_GRACE_MS = 6_000;
-
-/** "Read 2 min ago." — the one sentence under a window that is older than the live lines. */
-function readAgo(ms: number): string {
-  const seconds = Math.max(0, Math.floor(ms / 1000));
-  if (seconds < 60) return `Read ${seconds} s ago.`;
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `Read ${minutes} min ago.`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `Read ${hours} h ago.`;
-  return `Read ${Math.floor(hours / 24)} d ago.`;
-}
-
-/**
- * When the fetched window is behind the live lines, say when it was read.
- *
- * The timeline merges the two, so a reader cannot tell the fetched part's age from the rows: the
- * live lines are newer than the window's newest line, and the window below them may be hours old.
- * The sentence redraws on its own second so an unanswered reread keeps counting up; it disappears
- * as soon as the next read brings a window that includes the live line.
- */
-function WindowRead(props: { readAt: number | null; fetchedNewest: number; liveNewest: number }) {
-  const [, setTick] = useState(0);
-  const behind =
-    props.readAt !== null &&
-    props.liveNewest > 0 &&
-    (props.fetchedNewest === 0 || props.liveNewest > props.fetchedNewest);
-  useEffect(() => {
-    if (!behind) return;
-    const timer = window.setInterval(() => setTick((current) => current + 1), 1000);
-    return () => window.clearInterval(timer);
-  }, [behind]);
-  if (props.readAt === null || !behind) return null;
-  const elapsed = Date.now() - props.readAt;
-  if (elapsed < READ_GRACE_MS) return null;
-  // It counts up every second, so it is not a live region: a status role would re-announce the
-  // same fact once a second. The note is read when the page is read.
-  return <p className="hint home-read">{readAgo(elapsed)}</p>;
 }
 
 /**
@@ -276,11 +219,12 @@ function retryOutcome(retried: LiveToolsRetry | null, offline: boolean): string 
 
 /**
  * The machine's live page: is it running, what is it doing now, what did it do today. One status
- * line, one Connect action, the Now band, this machine's timeline and one counts line. The band
- * states presence; the calls are drawn once, in the timeline below (audit-41 F1). Identity is
- * the Device header's (the topbar names the machine); this page does not repeat the destination's
- * h1. The console's endpoint lives in Connect, so this page does not name it; the offline advice
- * names the machine's own panel as a place on the machine, not a door from here.
+ * line, the Now band, one counts line and one day line with the record's door. The band states
+ * presence and draws none of the calls; the day line states the day, its count and its span, and
+ * the rows themselves are Activity's, once (audit-41 F1, audit-42 F1). Identity is the Device
+ * header's (the topbar names the machine); this page does not repeat the destination's h1. The
+ * console's endpoint lives in Connect, so this page does not name it; the offline advice names the
+ * machine's own panel as a place on the machine, not a door from here.
  */
 export function OverviewPage(props: OverviewPageProps) {
   const device = props.device;
@@ -295,10 +239,10 @@ export function OverviewPage(props: OverviewPageProps) {
   const pluginsTool = live.tools.some((tool) => tool.name === "plugins.list");
   const plugins = usePluginCount(device.id, known, pluginsTool);
   // The page's subject is the machine: the stream's lines are the newest of the same audit, and
-  // both the Now band and the timeline drop every other machine's. The timeline is today's; older
+  // both the Now band and the day line drop every other machine's. The day line is today's; older
   // days belong to Activity, behind the All activity link.
   const liveLines = (props.liveLines ?? []).filter((line) => line.device_id === device.id);
-  // The band is this machine's, like the timeline: another machine's in-flight call must not name
+  // The band is this machine's, like the day line: another machine's in-flight call must not name
   // itself on this page. The caller filter lives in the band (it counts the AI, not the console).
   const liveRunning = (props.liveRunning ?? []).filter(
     (call) => call.device_id === device.id
@@ -310,27 +254,8 @@ export function OverviewPage(props: OverviewPageProps) {
   const [machineAudit, setMachineAudit] = useState<{
     device: string;
     lines: AuditLine[];
-    /** When the answer landed: the window is as fresh as this moment, and no fresher. */
-    readAt: number;
   } | null>(null);
   const [auditError, setAuditError] = useState(false);
-  // The hub draws the newest rows of the day; this remembers that the rest were asked for. It
-  // resets with the machine, so one machine's expanded day cannot stand for another's.
-  const [wholeDay, setWholeDay] = useState(false);
-  // **THE HUB IS THE AI'S WORK.** The console's own calls (and the failed polls it no longer
-  // records as work) are in the machine's audit and are not the thing this page is about, so they
-  // are folded behind one counted chip and drawn only when the reader asks. The state is this
-  // view's, not a stored preference: another machine starts folded.
-  const [showConsoleReads, setShowConsoleReads] = useState(false);
-  // The third fold: the day's lines that belong to neither the AI nor the console. They are real
-  // rows whose caller was never recorded; Activity has always counted them and the hub used to
-  // leave them out of every control. Also this view's, reset with the machine.
-  const [showUnattributed, setShowUnattributed] = useState(false);
-  useEffect(() => {
-    setWholeDay(false);
-    setShowConsoleReads(false);
-    setShowUnattributed(false);
-  }, [device.id]);
 
   // A read that answers after the page switched machines is another machine's answer, and must not
   // replace this one's window.
@@ -350,7 +275,7 @@ export function OverviewPage(props: OverviewPageProps) {
       const lines = await api.audit(ACTIVITY_LIMIT, device.id);
       if (showing.current === device.id && generation > readApplied.current) {
         readApplied.current = generation;
-        setMachineAudit({ device: device.id, lines, readAt: Date.now() });
+        setMachineAudit({ device: device.id, lines });
         setAuditError(false);
       }
     } catch {
@@ -396,97 +321,45 @@ export function OverviewPage(props: OverviewPageProps) {
   const todayStart = startOfToday(now);
   const loaded = machineAudit?.device === device.id;
   const fetched = loaded && machineAudit ? machineAudit.lines : [];
-  // The merged window keeps the older lines the timeline hides: the summary line below needs one of
-  // them to say when the machine last worked. The timeline itself is still today's only. The report
-  // also carries the repeats the merge dropped, which the cap sentence names.
-  const mergedWindow = mergeActivityReport(fetched, liveLines);
-  const windowLines = mergedWindow.lines.sort((a, b) => b.ts_ms - a.ts_ms);
-  // A channel boundary is in the audit to prove an absence, not to be drawn as the machine's work.
-  const windowBoundaries = windowLines.filter(isChannelBoundary).length;
-  const activityLines = windowLines.filter((line) => !isChannelBoundary(line));
-  const today = capActivity(activityLines.filter((line) => line.ts_ms >= todayStart));
-  // **THE HUB'S WINDOW HAS THREE DRAWABLE BUCKETS AND THREE WITHHELD KINDS.** One rule, Activity's
-  // header's: every non-boundary line is a client call (`isClientCall`), the console's own read
-  // (`isConsoleRead`), a failed poll (`isPoll`), or unattributed (`isUnattributed` — a real line
-  // with no recorded caller and no token to prove one). The hub draws the first three; the fold and
-  // its two chips hold exactly those rows. The measured 2026-11-05 hub had 1004 fetched lines under
-  // a sentence that named 974, while expanding and turning on the console chip drew 835: the missing
-  // rows were unattributed lines and polls, which no control offered. The sentence's total is now
-  // the three buckets, and every number in it is one of their counts or a withheld count no larger
-  // than their sum; polls, boundaries and repeats are named as not drawn.
-  const clientRows = today.lines.filter(isClientCall);
-  const consoleRows = today.lines.filter(isConsoleRead);
-  const pollRows = today.lines.filter(isPoll);
-  const unattributedRows = today.lines.filter(isUnattributed);
-  const visibleRows = today.lines.filter(
-    (line) =>
-      isClientCall(line) ||
-      (showConsoleReads && isConsoleRead(line)) ||
-      (showUnattributed && isUnattributed(line))
-  );
-  // **THE DAY IS SCANNABLE; THE RECORD IS NOT HIDDEN.** The newest rows are drawn and one control
-  // offers the rest of today in place. The count is the drawn list's own length minus what is
-  // drawn, so a live frame that arrives while the day is folded grows the label by the same one
-  // row it adds — and the count follows the chips, because a chip changes the list.
-  const hiddenDayRows = visibleRows.length - HUB_DAY_ROWS;
-  const dayRows = wholeDay ? visibleRows : visibleRows.slice(0, HUB_DAY_ROWS);
-  const hubCounts = {
-    client: clientRows.length,
-    console: consoleRows.length,
-    unattributed: unattributedRows.length,
-    polls: pollRows.length,
-    boundaries: windowBoundaries,
-    repeats: mergedWindow.repeats,
-    shown: dayRows.length
-  };
-  // Before the first window arrives there is nothing to count; the timeline says it is reading. Once
-  // a window (or a live line) is in hand, the summary is a fact about the lines on the page.
-  const summary =
-    loaded || liveLines.length > 0 ? todayLine(device.today, windowLines, now) : null;
-  // The window's own newest line and the stream's. When the stream holds a newer line than the
-  // window does, the fetched part is behind the live part and the page says when it was read.
-  const fetchedNewest = fetched.reduce((newest, line) => Math.max(newest, line.ts_ms), 0);
-  const liveNewest = liveLines.reduce((newest, line) => Math.max(newest, line.ts_ms), 0);
-  const readAt = loaded && machineAudit ? machineAudit.readAt : null;
-  // The server returns this machine's newest 1000 lines. If the oldest of them is still today then
-  // today's list may continue behind that window; if it is yesterday, every today line is already
-  // here. Live lines can also push the merged list past the cap.
+  // The fetched window and the live stream are one list: the day's span must count the calls that
+  // arrived live as well as those already in the file, and the Now band reads presence from the same
+  // merged window.
+  const windowLines = mergeActivity(fetched, liveLines).sort((a, b) => b.ts_ms - a.ts_ms);
+  // The window keeps older lines too: the day line needs one of them to say when the machine last
+  // worked, and the empty sentence needs today's rows to know what it is missing.
+  const dayLines = windowLines.filter((line) => line.ts_ms >= todayStart);
+  const clientRows = dayLines.filter(isClientCall);
+  // **A CUT WINDOW HAS NO PROVABLE SPAN.** The fetched answer is this machine's newest 1000 lines.
+  // When every one of them is today, the day's first call may be older than the window's oldest
+  // line, so a span counted from here would start late. Otherwise the oldest fetched line is
+  // yesterday (or the answer was short), and every today line is in hand.
   const oldestFetched = fetched[fetched.length - 1];
-  const ownWindowCut =
-    today.capped ||
-    (fetched.length >= ACTIVITY_LIMIT &&
-      oldestFetched !== undefined &&
-      oldestFetched.ts_ms >= todayStart);
-  // The hub's own sentence, not Activity's cap sentence: its controls hold a different set from
-  // the fetched window, and the sentence counts exactly what they hold. It is drawn where Activity
-  // draws its cap sentence, and only when this machine's window was cut.
-  const windowSentence = ownWindowCut ? hubWindowSentence(hubCounts) : null;
-  // **THE REPEATS ARE NAMED WHEREVER THE WINDOW DROPS THEM, CUT OR NOT.** The day line is `/fleet`'s
-  // day read, which counts every line the file holds; the fold draws the merged window, which draws
-  // a repeated `(ts_ms, tool, status)` key once. On 2026-11-05 that was 183 counted over 179
-  // drawable, and an uncut window had no sentence at all, so the four rows vanished silently. This
-  // is Activity's cap-sentence fact, in its words, beside the fold. A cut window already prints it
-  // in `hubWindowSentence`, so the two cannot say the same count twice.
-  const repeatsSentence =
-    mergedWindow.repeats > 0 && windowSentence === null
-      ? `${plural(mergedWindow.repeats, "repeat")} not drawn.`
+  const windowCut =
+    fetched.length >= ACTIVITY_LIMIT &&
+    oldestFetched !== undefined &&
+    oldestFetched.ts_ms >= todayStart;
+  // Before the first window arrives, `/fleet`'s day read is still a fact; once a window (or a live
+  // line) is in hand, the line also states the span. A failed read leaves the count it had and
+  // drops the span rather than letting a stale window stand for the day.
+  const summary =
+    device.today != null || loaded || liveLines.length > 0
+      ? todayLine(device.today, windowLines, !loaded || windowCut, now)
       : null;
-  // The empty sentence names what the list is missing rather than claiming nothing happened. With
-  // console reads folded, an empty list is usually the console's own polling, and the chip above is
-  // the way to it; a window with only unattributed rows is not the AI's work either, and says so
-  // without pretending the console's reads are hidden when there are none.
+  // The empty sentence names what is missing rather than claiming nothing happened. A window whose
+  // only rows are the console's or unattributed is not the AI's work either; the day's own read may
+  // still prove calls the window does not hold, so it is not called empty in that case.
+  const noCallsKnown =
+    loaded && clientRows.length === 0 && (device.today?.client_calls ?? 0) === 0;
   const empty = auditError
-    ? "The console could not read this machine's activity, so this list may be incomplete."
-    : !loaded
+    ? "The console could not read this machine's activity, so this day line may be incomplete."
+    : !loaded && liveLines.length === 0
       ? "Reading this machine's activity…"
-      : consoleRows.length > 0 && !showConsoleReads
-        ? "No client calls yet; the console's own reads are hidden."
-        : today.lines.length > 0
-          ? showConsoleReads
-            ? `No client calls or console reads from ${name} today.`
-            : `No client calls from ${name} today.`
-          : `No calls from ${name} today. When an AI client calls this machine with its token, ` +
-            "its work appears here; Connect a client sets one up.";
+      : noCallsKnown
+        ? dayLines.length === 0
+          ? `No calls from ${name} today. When an AI client calls this machine with its token, ` +
+            "its work appears in Activity; Connect a client sets one up."
+          : `No client calls from ${name} today.`
+        : null;
 
   const offline = !device.online || live.offline;
   // The last operator press, not the poll: null until Retry has settled once on this machine.
@@ -554,21 +427,17 @@ export function OverviewPage(props: OverviewPageProps) {
       )}
 
       <LiveNow
-        // The band and the timeline are the same machine's day: feeding the band the fleet's
-        // newest 200 live lines made it say "Quiet" while the window below held this machine's
-        // calls, and after a reconnect the live list is only the newest forty. The band reads
-        // presence from that window and draws none of its rows: the timeline below is the one
-        // place the calls appear.
-        lines={today.lines}
+        // The band and the day line are the same machine's day: feeding the band the fleet's
+        // newest 200 live lines made it say "Quiet" while the window held this machine's calls,
+        // and after a reconnect the live list is only the newest forty. The band reads presence
+        // from that window and draws none of its rows: the calls themselves live in Activity.
+        lines={dayLines}
         running={liveRunning}
         state={props.liveState ?? "connecting"}
-        onAll={props.onActivity}
       />
 
-      {/* **THE CAPABILITY LINE IS ABOVE THE LOG.** What this machine can do was drawn after the
-          timeline, which on the busiest measured machine put it 51,599 px down a 51,620 px page.
-          The line is the answer to a first question, so it sits with the Now band, not after the
-          day's record. */}
+      {/* **THE CAPABILITY LINE IS ABOVE THE DAY.** The line answers "what can this machine do
+          now", so it sits with the Now band, not after the day it describes. */}
       {offline ? (
         <p className="hint">Tool counts are unavailable while the machine is offline.</p>
       ) : read === "reading" ? (
@@ -588,70 +457,17 @@ export function OverviewPage(props: OverviewPageProps) {
         </button>
       )}
 
-      <section className="panel home-timeline" aria-label="This machine's activity">
-        {/* One line, above the rows: the day's count from `/fleet`'s day read, and the window's
-            newest call for "last". The rows below are still the fetched window, and the cap
-            sentence names it when they are cut. It is not a live region: it moves on the
-            five-second reread, not on every line, and a status role would re-announce the same
-            count. */}
+      {/* **THE DAY IS ONE LINE, NOT ACTIVITY'S CARD.** The measured page ended in a 29-row copy of
+          Activity's Today card: the same timestamps, the same `2 calls · 17 s` clusters, the same
+          heading (audit-42 F1). The day's count, failures and span stay here because they are the
+          machine's state; the rows are the record's and live in Activity, behind this one door. It
+          is not a live region: it moves on the five-second reread, not on every line. */}
+      <section className="panel home-day" aria-label="This machine's activity">
         {summary !== null && <p className="home-today">{summary}</p>}
-        {auditError && today.lines.length > 0 && (
-          // Live lines are on screen, but the history behind them is unread: the page says which
-          // half it is showing instead of letting the list stand for the whole day.
-          <p className="hint" role="status">
-            The console could not read this machine's audit, so this timeline shows only calls that
-            arrive live.
-          </p>
-        )}
-        <ActivityTimeline
-          lines={dayRows}
-          devices={props.devices}
-          capped={ownWindowCut}
-          windowSentence={windowSentence}
-          // The hub's timeline is already this machine's day: a machine chip here could only say
-          // "All machines" over one machine's lines, which would be a lie.
-          showFilters={false}
-          // The console's own reads are counted here, folded out of the list until asked for. The
-          // count is the day's console rows, not the rows the small fold happens to draw: the chip
-          // must name everything one click adds.
-          consoleReads={
-            loaded
-              ? {
-                  count: consoleRows.length,
-                  shown: showConsoleReads,
-                  onToggle: () => setShowConsoleReads((shown) => !shown)
-                }
-              : undefined
-          }
-          // The third fold names the rows no caller was recorded for. Activity's header counts the
-          // same bucket; the hub now offers the same rows instead of leaving them out of every list
-          // and every number. It is drawn only when it has rows.
-          unattributed={
-            loaded
-              ? {
-                  count: unattributedRows.length,
-                  shown: showUnattributed,
-                  onToggle: () => setShowUnattributed((shown) => !shown)
-                }
-              : undefined
-          }
-          onWatch={props.onWatchTerminal}
-          empty={empty}
-        />
-        {!wholeDay && hiddenDayRows > 0 && (
-          // A real control over the same list: it expands in place, so the count it shows is the
-          // rows behind it, not a page number made up from a cut. A live frame that lands while
-          // folded redraws this label with one more, because it is derived, not remembered.
-          <button type="button" className="link home-more" onClick={() => setWholeDay(true)}>
-            Show the rest of today ({hiddenDayRows} more)
-          </button>
-        )}
-        {repeatsSentence !== null && (
-          // The day line counts the day; the fold draws the merge. This is the row difference
-          // Activity's cap sentence names, so 60 + 119 + 4 = 183 has a sentence that says so.
-          <p className="hint home-repeats">{repeatsSentence}</p>
-        )}
-        <WindowRead readAt={readAt} fetchedNewest={fetchedNewest} liveNewest={liveNewest} />
+        <button type="button" className="link home-all" onClick={props.onActivity}>
+          All activity <span aria-hidden="true">→</span>
+        </button>
+        {empty !== null && <p className="hint">{empty}</p>}
       </section>
     </div>
   );

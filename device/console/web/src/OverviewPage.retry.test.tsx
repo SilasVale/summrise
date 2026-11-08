@@ -67,7 +67,6 @@ function hub() {
   return render(
     <OverviewPage
       device={OFFLINE}
-      devices={[OFFLINE]}
       onTools={vi.fn()}
       onActivity={vi.fn()}
     />

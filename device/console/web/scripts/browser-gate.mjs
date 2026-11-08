@@ -276,11 +276,9 @@ const CONSOLE_LINE = {
   caller: 'console'
 };
 // **THE HUB'S DAY IS WIDER THAN ONE SCREEN.** These 75 lines are today's at any hour — they sit one
-// second into the local day, and the distinct tool names keep them distinct even at one instant — so
-// the fold has a remainder to offer without the two rows the other legs assert on. Three of them are
-// client calls, so the newest sixty rows are the measured shape: 4 client calls and 56 console
-// reads. The rest are the console's own calls: its 73 reads are folded behind the hub's one chip,
-// and the Now band counts the AI and must stay Quiet with them in the day.
+// second into the local day, and the distinct tool names keep them distinct even at one instant.
+// Three of them are client calls, so the day line counts four with the recent call above; the rest
+// are the console's own reads, which the Now band must not count and Activity still draws.
 const DAY_START = new Date(NOW);
 DAY_START.setHours(0, 0, 0, 0);
 const HISTORIC_LINES = Array.from({ length: 75 }, (_, index) => ({
@@ -294,12 +292,11 @@ const HISTORIC_LINES = Array.from({ length: 75 }, (_, index) => ({
   caller: index < 3 ? 'client' : 'console'
 }));
 // The fixture's own day counts, derived from its clock. The two recent rows are today except in the
-// minutes after local midnight, so every expected number is computed instead of hardcoded: the hub
-// draws the client calls, the chip counts the console reads, and Activity draws every row.
+// minutes after local midnight, so every expected number is computed instead of hardcoded: the hub's
+// day line counts the client calls, and Activity draws every row.
 const FIXTURE_LINES = [CONSOLE_LINE, AUDIT_LINE, ...HISTORIC_LINES];
 const TODAY_LINES = FIXTURE_LINES.filter((line) => line.ts_ms >= DAY_START.getTime());
 const TODAY_CLIENT = TODAY_LINES.filter((line) => line.caller === 'client').length;
-const TODAY_CONSOLE = TODAY_LINES.filter((line) => line.caller === 'console').length;
 const ALL_CLIENT = FIXTURE_LINES.filter((line) => line.caller === 'client').length;
 // One day, one number: the fleet's `today` is the day this fixture's `/audit/day` would answer.
 DEVICE.today = { client_calls: TODAY_CLIENT, failed: 0 };
@@ -309,9 +306,9 @@ DEVICE.today = { client_calls: TODAY_CLIENT, failed: 0 };
 const FIRST_CLIENT = [...FIXTURE_LINES]
   .filter((line) => line.caller === 'client')
   .sort((left, right) => right.ts_ms - left.ts_ms)[0];
-// **THE MEASURED WINDOW: 1004 FETCHED, 974 THE CONTROLS CAN REACH.** A 1000-line answer for
-// BIG_DEVICE: 9 channel boundaries, 17 repeated keys, and 974 rows the hub draws — 283 client calls,
-// 580 console reads and 111 rows no caller was recorded for. All of it inside today's first twenty
+// **THE MEASURED WINDOW: 1004 FETCHED, 974 ACTIVITY DRAWS.** A 1000-line answer for BIG_DEVICE:
+// 9 channel boundaries, 17 repeated keys, and 974 rows the record draws — 283 client calls, 580
+// console reads and 111 rows no caller was recorded for. All of it inside today's first twenty
 // minutes, so the day filter keeps every row at any hour the gate runs.
 const BIG_CLIENT = 283;
 const BIG_CONSOLE = 580;
@@ -1378,145 +1375,87 @@ try {
   await page.getByRole('heading', { name: 'Overview', exact: true }).waitFor({ timeout: 10_000 });
   step('opened Device → Overview; the machine\'s own live page');
 
-  // **ONE LIST OF ROWS, ONCE.** The state band answers whether the AI is working and how fast; it
-  // draws none of the day's calls, which are the timeline's rows under its one Today heading. The
-  // measured page had the newest five rows twice, once in the band and once as the timeline's first
-  // five (audit-41 F1).
-  await page.locator('.timeline-row').first().waitFor({ state: 'visible', timeout: 10_000 });
-  const bandRows = await page.locator('.live-now .timeline-row, .live-now .live-entry').count();
-  if (bandRows !== 0) {
-    throw new Error(`the Now band drew ${bandRows} call row(s); the timeline owns them`);
+  // **THE DAY IS ONE LINE; THE ROWS ARE ACTIVITY'S.** The measured page ended in a 29-row copy of
+  // Activity's Today card, with the same timestamps and the same `2 calls · 17 s` clusters
+  // (audit-42 F1). The machine's page keeps the day's count and span and one door; the record's
+  // rows are drawn in Activity only, so this page draws none of them at either width.
+  await page.locator('.home-day .home-today').waitFor({ state: 'visible', timeout: 10_000 });
+  const overviewRows = await page.locator('.timeline-row').count();
+  if (overviewRows !== 0) {
+    throw new Error(`Overview drew ${overviewRows} of Activity's rows`);
   }
-  const dayHeadings = (await page.locator('.timeline-day-label').allTextContents()).map((text) =>
-    text.trim()
-  );
-  if (dayHeadings.length !== 1 || dayHeadings[0] !== 'Today') {
-    throw new Error(`the timeline's day headings were ${JSON.stringify(dayHeadings)}`);
+  if ((await page.locator('.timeline-day-label').count()) !== 0) {
+    throw new Error("Overview still draws Activity's day heading");
   }
-  step('the Now band draws no call rows; the timeline holds them once under its one Today heading');
-
-  // THE NOW BAND COUNTS THE AI, NOT THE CONSOLE'S OWN READS. The activity stream above serves one
-  // `terminal.list` the console made twenty seconds ago and one client call five minutes ago; a
-  // console read under ninety seconds must not make an idle machine read "Active now". The three
-  // historic client calls are today's at 00:00:01, so in the first ninety seconds of the day they
-  // are legitimately recent and the band is right to say Active; the leg does not claim otherwise.
-  const historicAge = Date.now() - (DAY_START.getTime() + 1_000);
-  if (historicAge >= 90_000) {
-    try {
-      await page.waitForFunction(
-        () => document.querySelector('.live-state')?.textContent?.trim() === 'Quiet',
-        null,
-        { timeout: 10_000 }
-      );
-    } catch {
-      const shown = (await page.locator('.live-state').first().textContent().catch(() => ''))?.trim();
-      throw new Error(`the Now band read "${shown}" with only the console's own read recent`);
-    }
-    const rate = (await page.locator('.live-rate').first().textContent())?.trim();
-    if (!rate || !rate.includes('no calls in the last minute')) {
-      throw new Error(`the Now rate counted the console's own read: "${rate}"`);
-    }
-    step('the Now band stays Quiet with the console\'s own read in the day');
-  } else {
-    step('the Now band leg skipped: the day is younger than its newest client call');
+  if ((await page.locator('.live-now .timeline-row, .live-now .live-entry').count()) !== 0) {
+    throw new Error('the Now band drew call rows');
   }
-
-  // **THE HUB IS THE AI'S WORK; THE CONSOLE'S READS ARE ONE CHIP AWAY.** The fixture's newest sixty
-  // rows are the measured shape — 4 client calls and 56 console reads — above a day line that counts
-  // the four. The hub draws the four: the console's own polling is counted on one chip, not drawn
-  // as the machine's work. Clicking the chip adds it; the fold then offers the rest of today, and
-  // nothing is dropped. The heights are measured, not asserted, so the change has a before/after.
-  const hubMeasure = () =>
+  const dayLine = (await page.locator('.home-today').textContent())?.trim() ?? '';
+  const todayCalls = `Today ${TODAY_CLIENT} client ${TODAY_CLIENT === 1 ? 'call' : 'calls'}`;
+  if (!dayLine.startsWith(todayCalls)) {
+    throw new Error(`Overview's day line read "${dayLine}", expected "${todayCalls}"`);
+  }
+  // The line's third fact is the span its calls cover. The fixture's whole day is in the window,
+  // so the span must be stated; only a fixture whose client calls all share one instant has none.
+  const clientToday = TODAY_LINES.filter((line) => line.caller === 'client');
+  const fixtureSpan =
+    Math.max(...clientToday.map((line) => line.ts_ms)) -
+    Math.min(...clientToday.map((line) => line.ts_ms));
+  if (fixtureSpan > 0 && !/ · spanning \d/.test(dayLine)) {
+    throw new Error(`the day line had no span: "${dayLine}"`);
+  }
+  const allActivity = page.locator('.home-day').getByRole('button', { name: /All activity/ });
+  if ((await allActivity.count()) !== 1) {
+    throw new Error('the day line has no single All activity door');
+  }
+  const overviewAt = () =>
     page.evaluate(() => {
       const main = document.querySelector('main');
+      const day = document.querySelector('.home-day');
+      const line = document.querySelector('.home-today');
       return {
         rows: document.querySelectorAll('.timeline-row').length,
-        height: main ? main.scrollHeight : 0
+        dayHeight: day ? Math.round(day.getBoundingClientRect().height) : 0,
+        lineHeight: line ? Math.round(line.getBoundingClientRect().height) : 0,
+        height: main ? main.scrollHeight : 0,
+        overflow:
+          document.documentElement.scrollWidth - document.documentElement.clientWidth
       };
     });
-  const hubChip = page.getByRole('button', { name: `Console reads · ${TODAY_CONSOLE}` });
-  await hubChip.waitFor({ state: 'visible', timeout: 10_000 });
-  const todayLine = (await page.locator('.home-today').textContent())?.trim();
-  const todayCalls = `Today ${TODAY_CLIENT} client ${TODAY_CLIENT === 1 ? 'call' : 'calls'}`;
-  if (!todayLine?.startsWith(todayCalls)) {
-    throw new Error(`the hub's day line read "${todayLine}", expected "${todayCalls}"`);
-  }
   await page.setViewportSize({ width: 1440, height: 960 });
   await page.waitForTimeout(500);
-  const hub1440 = await hubMeasure();
+  const overview1440 = await overviewAt();
   console.log(
-    `browser-gate: hub at 1440: ${hub1440.rows} rows, main ${hub1440.height} px` +
-      ` (${TODAY_CONSOLE} console reads folded)`
+    `browser-gate: Overview at 1440: ${overview1440.rows} rows, day line ` +
+      `${overview1440.dayHeight} px, main ${overview1440.height} px`
   );
-  if (hub1440.rows !== TODAY_CLIENT) {
-    throw new Error(`the hub drew ${hub1440.rows} rows; ${TODAY_CLIENT} are the AI's calls`);
+  if (overview1440.rows !== 0) {
+    throw new Error(`Overview drew ${overview1440.rows} rows at 1440`);
   }
-  if ((await page.locator('.timeline-caller').count()) !== 0) {
-    throw new Error('the hub drew the console\'s own reads before they were asked for');
+  if (overview1440.overflow > 0) {
+    throw new Error(`Overview scrolls sideways at 1440 by ${overview1440.overflow} px`);
   }
-  if ((await hubChip.getAttribute('aria-pressed')) !== 'false') {
-    throw new Error('the console-reads chip was pressed before it was chosen');
-  }
-  await hubChip.click();
-  const foldedRows = Math.min(TODAY_CLIENT + TODAY_CONSOLE, 60);
-  await page.waitForFunction(
-    (expected) => document.querySelectorAll('.timeline-row').length === expected,
-    foldedRows,
-    { timeout: 10_000 }
-  );
-  if ((await hubChip.getAttribute('aria-pressed')) !== 'true') {
-    throw new Error('the console-reads chip did not report its pressed state');
-  }
-  await page.locator('.timeline-caller').first().waitFor({ state: 'visible', timeout: 10_000 });
-  const hubWithConsole = await hubMeasure();
-  console.log(
-    `browser-gate: hub with console reads at 1440: ${hubWithConsole.rows} rows, ` +
-      `main ${hubWithConsole.height} px`
-  );
-  // The rest of today is still behind the fold the console chip just widened.
-  const more = page.getByRole('button', { name: /^Show the rest of today \(\d+ more\)$/ });
-  const hidden = Math.max(0, TODAY_CLIENT + TODAY_CONSOLE - 60);
-  if (hidden > 0) {
-    await more.waitFor({ state: 'visible', timeout: 10_000 });
-    const moreText = (await more.textContent())?.trim() ?? '';
-    if (Number(/\((\d+) more\)/.exec(moreText)?.[1] ?? -1) !== hidden) {
-      throw new Error(`the hub offered "${moreText}" for ${hidden} rows behind the fold`);
-    }
-    await more.click();
-    await page.waitForFunction(
-      (expected) => document.querySelectorAll('.timeline-row').length === expected,
-      TODAY_CLIENT + TODAY_CONSOLE,
-      { timeout: 10_000 }
-    );
-    if ((await more.count()) !== 0) throw new Error('the fold control stayed after the day expanded');
-  }
-  // The toggle is a view, not a stored preference: off again draws only the AI's calls.
-  await hubChip.click();
-  await page.waitForFunction(
-    (expected) => document.querySelectorAll('.timeline-row').length === expected,
-    TODAY_CLIENT,
-    { timeout: 10_000 }
-  );
-  step(
-    `the hub drew the AI's ${TODAY_CLIENT} calls, not the ${TODAY_CONSOLE} console reads, ` +
-      `and the chip restored all ${TODAY_CLIENT + TODAY_CONSOLE} in one click`
-  );
+  await page.screenshot({ path: path.join(OUT, 'device-overview-1440.png') });
   await page.setViewportSize({ width: 390, height: 844 });
   await page.waitForTimeout(500);
-  const hub390 = await hubMeasure();
+  const overview390 = await overviewAt();
   console.log(
-    `browser-gate: hub at 390: ${hub390.rows} rows, main ${hub390.height} px`
+    `browser-gate: Overview at 390: ${overview390.rows} rows, day line ` +
+      `${overview390.dayHeight} px, document ${390 + overview390.overflow}/390`
   );
-  if (hub390.rows !== TODAY_CLIENT) {
-    throw new Error(`the hub drew ${hub390.rows} rows at 390; ${TODAY_CLIENT} are the AI's calls`);
+  if (overview390.rows !== 0) {
+    throw new Error(`Overview drew ${overview390.rows} rows at 390`);
   }
-  // The first screen is the AI's work: the first row is the newest client call, not a console read.
-  const firstHubRow = (await page.locator('.timeline-row').first().textContent()) ?? '';
-  if (!firstHubRow.includes(FIRST_CLIENT.tool)) {
-    throw new Error(`the hub's first row was not the AI's call: "${firstHubRow}"`);
+  if (overview390.overflow > 0) {
+    throw new Error(`Overview scrolls sideways at 390 by ${overview390.overflow} px`);
   }
+  await page.screenshot({ path: path.join(OUT, 'device-overview-390.png') });
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.waitForTimeout(200);
+  step(
+    `Overview is one day line ("${dayLine}") and one All activity door; it draws none of ` +
+      `Activity's rows at 1440 or 390`
+  );
 
   // A CALL IN FLIGHT IS NOT AN AUDIT ROW. The proxy announces it before the device answers; the
   // band must name it while the timeline still has nothing, and the finished frame must clear it.
@@ -3975,109 +3914,93 @@ try {
   await page.locator('.account > summary').click();
   state.offlineToolsFails = false;
 
-  // **THE HUB'S SENTENCE NAMES ONLY ROWS ITS CONTROLS REACH.** The end leg opens the machine whose
-  // 1000-line window holds the measured 974-row day: 283 client calls, 580 console reads and 111
-  // rows no caller was recorded for, with 9 channel boundaries and 17 repeated keys withheld. The
-  // sentence may not print the fetched 1000 (or 1004) as a number of lines: expanding and turning on
-  // both chips is the only way to 974, and this leg measures that those four numbers are the rows
-  // the controls actually draw at both widths.
+  // **THE RECORD'S ROWS LIVE IN ACTIVITY, NOT ON THE MACHINE'S PAGE.** The end leg opens the
+  // machine whose 1000-line window holds the measured 974-row day: 283 client calls, 580 console
+  // reads and 111 rows no caller was recorded for, with 9 channel boundaries and 17 repeated keys
+  // withheld. Overview keeps one day line and one door; the 974 rows are Activity's, drawn once
+  // when the door is taken. Nothing on the machine's page folds or counts that window any more.
   await page.locator('details.machine-menu > summary').click();
   await page.getByRole('button', { name: 'All machines' }).click();
   await page.getByRole('button', { name: /^Open DESKTOP-7QK3MN2/ }).click();
   await page.locator('.machine-summary').waitFor({ state: 'visible', timeout: 10_000 });
   await page.getByRole('button', { name: 'Open Device' }).click();
   await page.getByRole('heading', { name: 'Overview', exact: true }).waitFor({ timeout: 10_000 });
-  const bigSentence390 = await page.locator('.timeline-capped').textContent();
-  const expectedBigSentence = (shown) =>
-    `Showing ${shown === BIG_DRAWABLE ? 'all' : `the newest ${shown} of`} ${BIG_DRAWABLE} lines ` +
-    `(${BIG_CLIENT} client calls, ${BIG_CONSOLE} console reads, ${BIG_UNATTRIBUTED} unattributed; ` +
-    `${BIG_BOUNDARIES} channel events, ${BIG_REPEATS} repeats not drawn); ` +
-    `older ones are not on this page.`;
-  if (bigSentence390?.trim() !== expectedBigSentence(60)) {
-    throw new Error(
-      `the measured hub's sentence read ${JSON.stringify(bigSentence390?.trim())}, expected ` +
-        `${JSON.stringify(expectedBigSentence(60))}`
-    );
-  }
-  for (const digits of bigSentence390.match(/\d+/g) ?? []) {
-    if (Number(digits) > BIG_DRAWABLE) {
-      throw new Error(
-        `the measured hub's sentence states ${digits}, more than the ${BIG_DRAWABLE} rows its controls draw`
-      );
-    }
-  }
-  // One rule: the sentence's client bucket and the day line above the rows are the same count.
-  const bigToday = (await page.locator('.home-today').textContent())?.trim();
-  if (!bigToday?.startsWith(`Today ${BIG_CLIENT} client calls`)) {
+  const bigToday = (await page.locator('.home-today').textContent())?.trim() ?? '';
+  if (!bigToday.startsWith(`Today ${BIG_CLIENT} client calls`)) {
     throw new Error(`the measured hub's day line read ${JSON.stringify(bigToday)}`);
   }
-  const bigRows = () => page.locator('.timeline-row').count();
-  const bigMore = (more) =>
-    page.getByRole('button', { name: `Show the rest of today (${more} more)` });
-  if ((await bigRows()) !== 60) {
-    throw new Error(`the measured hub drew ${await bigRows()} rows before the fold, not 60`);
+  // The window is full of today's lines, so its oldest is not the day's first call: no span.
+  if (bigToday.includes('spanning')) {
+    throw new Error(`a cut window stated a day span: ${JSON.stringify(bigToday)}`);
   }
-  const consoleChip = page.getByRole('button', { name: `Console reads · ${BIG_CONSOLE}` });
-  const unattributedChip = page.getByRole('button', {
-    name: `Unattributed · ${BIG_UNATTRIBUTED}`
-  });
-  await bigMore(BIG_CLIENT - 60).waitFor({ state: 'visible', timeout: 10_000 });
-  await consoleChip.click();
-  await unattributedChip.click();
-  const folded = await bigMore(BIG_DRAWABLE - 60).textContent();
-  const more390 = Number(/\((\d+) more\)/.exec(folded ?? '')?.[1] ?? -1);
-  const reachable390 = (await bigRows()) + more390;
-  if (reachable390 !== BIG_DRAWABLE) {
-    throw new Error(`at 390 the controls reach ${reachable390} rows, not ${BIG_DRAWABLE}`);
-  }
-  const document390 = await page.evaluate(() => ({
-    viewport: document.documentElement.clientWidth,
-    scrollWidth: document.documentElement.scrollWidth
+  const bigOffenders = await page.evaluate(() => ({
+    rows: document.querySelectorAll('.timeline-row').length,
+    capped: document.querySelectorAll('.timeline-capped').length,
+    folds: document.querySelectorAll('.home-more').length,
+    chips: document.querySelectorAll(
+      '.timeline-console-reads, .timeline-unattributed'
+    ).length,
+    headings: document.querySelectorAll('.timeline-day-label').length
   }));
-  console.log(
-    `browser-gate: measured hub at 390: ${await bigRows()} rows drawn, ${reachable390} reachable, ` +
-      `document ${document390.viewport}/${document390.scrollWidth}`
-  );
-  await page.screenshot({ path: path.join(OUT, '07c-measured-hub-390.png') });
-  await page.setViewportSize({ width: 1440, height: 960 });
-  await page.waitForTimeout(400);
-  await bigMore(BIG_DRAWABLE - 60).click();
-  await page.waitForFunction(
-    (expected) => document.querySelectorAll('.timeline-row').length === expected,
-    BIG_DRAWABLE,
-    { timeout: 10_000 }
-  );
-  const reachable1440 = await bigRows();
-  const allSentence = (await page.locator('.timeline-capped').textContent())?.trim();
-  if (allSentence !== expectedBigSentence(BIG_DRAWABLE)) {
+  if (
+    bigOffenders.rows !== 0 ||
+    bigOffenders.capped !== 0 ||
+    bigOffenders.folds !== 0 ||
+    bigOffenders.chips !== 0 ||
+    bigOffenders.headings !== 0
+  ) {
     throw new Error(
-      `after expanding, the measured hub's sentence read ${JSON.stringify(allSentence)}`
+      `the measured hub still draws the record: ${JSON.stringify(bigOffenders)}`
     );
   }
-  const lastBigRow = (await page.locator('.timeline-row').last().textContent())?.trim() ?? '';
-  if (!lastBigRow.includes('Unattributed 110')) {
-    throw new Error(`the expanded day's last row was ${JSON.stringify(lastBigRow)}`);
-  }
-  await page.screenshot({ path: path.join(OUT, '07d-measured-hub-1440.png') });
-  console.log(
-    `browser-gate: measured hub at 1440: ${reachable1440} rows drawn after the fold, ` +
-      `the sentence now says all ${BIG_DRAWABLE}`
-  );
-  if (reachable1440 !== BIG_DRAWABLE) {
-    throw new Error(`at 1440 the controls reached ${reachable1440} rows, not ${BIG_DRAWABLE}`);
+  const bigAll = page.locator('.home-day').getByRole('button', { name: /All activity/ });
+  if ((await bigAll.count()) !== 1) {
+    throw new Error('the measured hub has no single All activity door');
   }
   await page.setViewportSize({ width: 390, height: 844 });
   await page.waitForTimeout(400);
-  const reachable390After = await bigRows();
-  if (reachable390After !== BIG_DRAWABLE) {
-    throw new Error(
-      `the expanded measured day lost rows at 390: ${reachable390After} of ${BIG_DRAWABLE}`
-    );
+  if ((await page.locator('.timeline-row').count()) !== 0) {
+    throw new Error('the measured hub drew Activity rows at 390');
+  }
+  await page.screenshot({ path: path.join(OUT, '07c-measured-hub-390.png') });
+  await page.setViewportSize({ width: 1440, height: 960 });
+  await page.waitForTimeout(400);
+  await page.screenshot({ path: path.join(OUT, '07d-measured-hub-1440.png') });
+  // THE ONE DOOR OPENS THE RECORD. The same 1000-line window draws its 974 rows in Activity, so
+  // the machine's page did not drop them, it moved them to the page that owns them.
+  await bigAll.click();
+  await page.getByRole('heading', { name: 'Activity', exact: true, level: 1 }).waitFor({
+    timeout: 10_000
+  });
+  // The Activity page opens on the fleet's window; the machine's chip is the scope that reads its
+  // own 1000-line window, which is where the measured 974 rows are drawn. The view may have been
+  // left on the Table by an earlier leg, so the timeline is chosen first.
+  const timelineTab = page.getByRole('tab', { name: 'Timeline', exact: true });
+  if (
+    (await timelineTab.count()) > 0 &&
+    (await timelineTab.getAttribute('aria-selected')) !== 'true'
+  ) {
+    await timelineTab.click();
+  }
+  const bigChip = page.getByRole('button', { name: 'DESKTOP-7QK3MN2', exact: true });
+  await bigChip.waitFor({ state: 'visible', timeout: 10_000 });
+  await bigChip.click();
+  await page.waitForFunction(
+    (expected) => document.querySelectorAll('.timeline-row').length === expected,
+    BIG_DRAWABLE,
+    { timeout: 30_000 }
+  );
+  const activityRows = await page.locator('.timeline-row').count();
+  if (activityRows !== BIG_DRAWABLE) {
+    throw new Error(`Activity drew ${activityRows} rows, not the measured ${BIG_DRAWABLE}`);
+  }
+  const lastBigRow = (await page.locator('.timeline-row').last().textContent())?.trim() ?? '';
+  if (!lastBigRow.includes('Unattributed 110')) {
+    throw new Error(`the record's last row was ${JSON.stringify(lastBigRow)}`);
   }
   step(
-    `the measured hub states only the ${BIG_DRAWABLE} rows its fold and chips reach ` +
-      `(${BIG_CLIENT} client calls, ${BIG_CONSOLE} console reads, ${BIG_UNATTRIBUTED} unattributed); ` +
-      `at 390 ${reachable390} and at 1440 ${reachable1440} are reachable, and the fold reaches the last row`
+    `the measured hub is one day line (${BIG_CLIENT} client calls, no span on a cut window) ` +
+      `with no rows, chips or fold; its one door opens Activity with all ${BIG_DRAWABLE} rows`
   );
 
   // The Connect sheet at 390: the same measured promise for the token row.
