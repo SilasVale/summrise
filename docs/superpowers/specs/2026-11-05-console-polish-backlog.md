@@ -849,6 +849,57 @@ items verified live.
 10. **#signin's tab title says "Sign in" while the panel says "You are signed in".** *(Implemented 9592d54: `Signed in · Summrise console`.)* **Fix:** the title follows
     the panel. **S.**
 
+## P0 — the twenty-third list (opened 2026-11-08, from the audit of ux102)
+
+Measured 2026-11-08 00:15–00:57Z on live 0.3.273-ux102 at 1440/390. The twenty-second list is live; its
+residuals are this list's 6, 7 and 8.
+
+1. **`Open machine` only selects; the page stays Home.** Home's attention `Open machine`, every fleet row's
+   `Open DESKTOP-…` and the machine-menu rows only select — the page stays `#home` at both widths; the only
+   working door is the summary's `Open Device` → `#device/overview`. **Fix:** every door opens the machine.
+   **S.**
+
+2. **Home draws the selected machine three or four times with three vocabularies.** Topbar, attention,
+   summary and fleet row; `Running` vs `online`; three age casings (`Offline — last seen`, `Offline · last
+   seen`, `offline · last seen`); `0.3.291` appears four times on the page. **Fix:** one row per machine, one
+   vocabulary, the selected machine highlighted not repeated. **M.**
+
+3. **At 390 the fleet card's STARTED age has no label.** The thead is `display:none`, so `online · seen 10s
+   ago` and `2h 32m ago` stack 26 px apart as two bare ages — a regression of the twenty-second list's
+   age-only change. **Fix:** a visible label at 390. **S.**
+
+4. **Device with no selection says "No devices are enrolled yet. Add one from Home." while /fleet is still
+   reading or has failed.** A false empty fleet. **Fix:** reading / failed / empty states. **S.**
+
+5. **The offline Overview says `Now · Quiet · no calls in the last minute` and gives no last-seen age**, while
+   the same machine's Machine tab says `This machine is offline. Last seen 14h 31m ago.` **Fix:** the offline
+   Overview is offline, dated. **S.**
+
+6. **Activity counts one 9VH window three ways.** `353 rows in this window` (client-call rows), `891 lines of
+   1040` (timeline footer), `994 lines of 1040` (Table, one tab away). **Fix:** one noun and one count, or say
+   what each counts. **S/M.**
+
+7. **Machine prints the version three times and never says whether it is current.** Topbar chip, start line,
+   `Applied`; the 84T at the release 0.3.291 looks the same as the 9VH one ahead. **Fix:** one version + a
+   current/behind/up-to-date answer. **S/M.**
+
+8. **The clock is three clocks.** Table `08:46:18· 8s ago` with no space and no `title`; Timeline `08:14` at
+   390 with no `title`; Runs `· 32m 39s ago` falls into the label column at 390 and `ago` strands at 1440 —
+   the twenty-second list's own fix broke the phone grid. **Fix:** one clock format, one spacing, titles
+   everywhere, the phone grid fixed. **M.**
+
+9. **A tools failure is stated twice on Overview and three times on Tools.** Notice + line on Overview;
+   `No tool list`, notice with the raw error `boom`, and the Plugins line on Tools; offline Tools adds a Retry
+   it cannot use. **Fix:** one notice, one Retry only where it can work. **S.**
+
+10. **The topbar machine menu is a second fleet table.** It carries Activity's `29 client calls · 1 failed` and
+    an unlabelled drive (`I: 23.9 GiB free`) where Home's rows dropped the counters and say `online`. **Fix:** a
+    switcher, not a board. **S/M.**
+
+11. **The Connect sheet prints the endpoint twice.** The full 90-char endpoint in the code box and again in its
+    paragraph (and `/mcp/all` likewise); at 390 that is eight lines of URL. **Fix:** one endpoint, one copy.
+    **S.**
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
