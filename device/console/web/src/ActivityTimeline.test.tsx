@@ -815,13 +815,16 @@ describe("ActivityTimeline", () => {
 
     const chip = screen.getByRole("button", { name: "Clients only" });
     expect(chip).toHaveAttribute("aria-pressed", "false");
-    expect(chip).toHaveAccessibleDescription("2 rows in this window · spanning 3 m");
+    expect(chip).toHaveAccessibleDescription("2 client calls in this window · spanning 3 m");
     // Unpressed the whole record is drawn: two of these rows are not the AI's calls.
     expect(document.querySelectorAll(".timeline-row")).toHaveLength(4);
 
     fireEvent.click(chip);
 
     expect(chip).toHaveAttribute("aria-pressed", "true");
+    // Pressed, the subset is the list, so the count's noun is `rows` — the same number and window,
+    // named for what is now drawn rather than for the caller filter that selected it.
+    expect(chip).toHaveAccessibleDescription("2 rows in this window · spanning 3 m");
     expect(document.querySelectorAll(".timeline-row")).toHaveLength(2);
     expect(screen.getByText("Read notes.txt")).toBeInTheDocument();
     expect(screen.getByText("Ran a command")).toBeInTheDocument();
@@ -1082,13 +1085,13 @@ describe("ActivityTimeline's labelled filter and record footer", () => {
     const chip = screen.getByRole("button", { name: "Clients only" });
     expect(chip).toHaveTextContent(/^Clients only$/);
     expect(chip).not.toHaveTextContent(/client calls/i);
-    expect(chip).toHaveAccessibleDescription("2 rows in this window · spanning 1 m");
+    expect(chip).toHaveAccessibleDescription("2 client calls in this window · spanning 1 m");
 
     // The count follows the machine filter: it is the subset the control would draw from this
     // machine's window, not the whole fetched window's number.
     fireEvent.click(within(machines).getByRole("button", { name: "Beta" }));
     expect(screen.getByRole("button", { name: "Clients only" })).toHaveAccessibleDescription(
-      "1 row in this window · spanning 1 m"
+      "1 client call in this window · spanning 1 m"
     );
   });
 
@@ -1113,7 +1116,7 @@ describe("ActivityTimeline's labelled filter and record footer", () => {
     render(<ActivityTimeline lines={[newest, oldest]} devices={devices} />);
 
     expect(screen.getByRole("button", { name: "Clients only" })).toHaveAccessibleDescription(
-      "1 row in this window · spanning 24 h 37 m"
+      "1 client call in this window · spanning 24 h 37 m"
     );
   });
 

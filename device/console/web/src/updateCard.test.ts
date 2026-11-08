@@ -247,7 +247,7 @@ describe("updateRows — the panel's UPDATES grid, one version per row", () => {
       "Last check",
       "Channel"
     ]);
-    expect(rows[1].text).toBe("ok · started 0.3.280 · 7h ago");
+    expect(rows[1].text).toBe("ok · started 7h ago");
     expect(rows[2]).toMatchObject({ text: "not recorded" });
   });
 
@@ -292,5 +292,101 @@ describe("updateRows — the panel's UPDATES grid, one version per row", () => {
     expect(rows[3]).toMatchObject({
       text: `${isoDate(CHECK_AT)} ${clockTimeSeconds(CHECK_AT)}`
     });
+  });
+});
+
+/**
+ * THE MACHINE PAGE'S ONE ANSWER: is this build current with the release the console stages?
+ *
+ * The card used to state the running version and nothing else, so the 84T on the release and the
+ * 9VH one release ahead looked identical except for the digits (audit-43 F7). The version row now
+ * carries the comparison, and only that row names the release (the `current` clause does not repeat
+ * the number at all).
+ */
+describe("updateRows — the running version against the staged release", () => {
+  const applied = (version: string) => ({
+    version,
+    update: {
+      current: version,
+      last_update: { to: version, outcome: "applied" as const, at_ms: RESULT_AT },
+      last_check: { at_ms: CHECK_AT }
+    },
+    host: { restarts: [{ at_ms: STARTED_AT, version, channel: "canary" }] }
+  });
+
+  it("says a machine one release ahead is ahead, and names the release once", () => {
+    // The measured 9VH: runs 0.3.292 while the console's installer is 0.3.291.
+    const rows = updateRows(applied("0.3.292"), NOW, "0.3.291");
+
+    expect(rows[0]).toMatchObject({
+      label: "Applied",
+      text: "0.3.292 · ahead of the release 0.3.291"
+    });
+    // No other row repeats the running version or the release.
+    expect(rows.filter((row) => row.text.includes("0.3.292"))).toHaveLength(1);
+    expect(rows.filter((row) => row.text.includes("0.3.291"))).toHaveLength(1);
+  });
+
+  it("says a machine on the release is current, without writing the number twice", () => {
+    const rows = updateRows(applied("0.3.291"), NOW, "0.3.291.0");
+
+    expect(rows[0].text).toBe("0.3.291 · current (the release)");
+    expect(rows[0].text).not.toContain("0.3.291.0");
+  });
+
+  it("says a machine behind the release is behind", () => {
+    const rows = updateRows(applied("0.3.289"), NOW, "0.3.291");
+    expect(rows[0].text).toBe("0.3.289 · behind the release 0.3.291");
+  });
+
+  it("puts the comparison on the Running row when the applied target is not what runs", () => {
+    const rows = updateRows(
+      {
+        version: "0.3.280",
+        update: {
+          current: "0.3.280",
+          last_update: { to: "0.3.290", outcome: "applied", at_ms: RESULT_AT },
+          last_check: { at_ms: CHECK_AT }
+        },
+        host: { restarts: [{ at_ms: STARTED_AT, version: "0.3.280" }] }
+      },
+      NOW,
+      "0.3.291"
+    );
+
+    expect(rows[0]).toMatchObject({
+      label: "Running",
+      text: "0.3.280 · behind the release 0.3.291"
+    });
+    expect(rows[1]).toMatchObject({ label: "Last target", text: "0.3.290" });
+  });
+
+  it("states that the release is unknown when the console staged no installer", () => {
+    const rows = updateRows(applied("0.3.292"), NOW, null);
+    expect(rows[0].text).toBe("0.3.292 · release unknown");
+  });
+
+  it("adds no comparison while the installer read has not answered", () => {
+    const rows = updateRows(applied("0.3.292"), NOW);
+    expect(rows[0].text).toBe("0.3.292");
+  });
+
+  it("carries the verdict on a rollback that returned to what runs", () => {
+    const rows = updateRows(
+      {
+        version: "0.3.277",
+        update: {
+          current: "0.3.277",
+          last_update: { to: "0.3.278", outcome: "rolled_back", at_ms: RESULT_AT },
+          rolled_back_to: "0.3.277"
+        }
+      },
+      NOW,
+      "0.3.277"
+    );
+
+    expect(rows.find((row) => row.key === "rolled_back_to")?.text).toBe(
+      "0.3.277 · current (the release)"
+    );
   });
 });

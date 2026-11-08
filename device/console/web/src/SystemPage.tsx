@@ -7,6 +7,7 @@ import { Modal } from "./Modal";
 import { useRequestGate } from "./requests";
 import { callTool, ToolError, type Grant } from "./terminal";
 import { updateRows } from "./updateCard";
+import { useInstaller } from "./useInstaller";
 import type { VitalsSample } from "./vitals";
 
 /**
@@ -107,6 +108,7 @@ const RESTARTED_SENTENCE =
  * never sent keeps the one honest sentence instead of a grid of absences.
  */
 function UpdateCard({ device }: { device?: Device | null }) {
+  const installer = useInstaller();
   if (!device?.update) {
     return (
       <p className="hint system-update">
@@ -114,7 +116,11 @@ function UpdateCard({ device }: { device?: Device | null }) {
       </p>
     );
   }
-  const rows = updateRows(device);
+  // `undefined` while the read is out, `null` when the console has no staged installer, and the
+  // release's version when it does. The card states the comparison only when it is a fact.
+  const release =
+    installer === null ? undefined : installer.available ? installer.version : null;
+  const rows = updateRows(device, Date.now(), release);
   return (
     <section className="card system-update" aria-labelledby="system-update-title">
       <header>

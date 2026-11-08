@@ -1,9 +1,9 @@
-import { useEffect, useState } from "react";
-import { api, type Device, type Installer } from "./api";
+import { type Device, type Installer } from "./api";
 import { DeviceCard } from "./DeviceCard";
 import { copyText } from "./copy";
 import { lastHeardMs, seenAgo, shortId } from "./format";
 import { bytes } from "./runFormat";
+import { useInstaller } from "./useInstaller";
 import { useLiveTools } from "./useLiveTools";
 import { versionBelow } from "./versions";
 
@@ -56,33 +56,6 @@ type FleetProps = {
   onDismissCode: () => void;
   onNotice: (sentence: string) => void;
 };
-
-/**
- * The installer the console was given, read once when the fleet page is drawn.
- *
- * `null` is "nothing to show": the read has not landed, or it failed. That read is the installer's,
- * not `/fleet`'s: a slow or failed machine list must not take away the file that installs a machine.
- * A failed installer read hides the block rather than drawing a door that cannot open, and the page
- * does not poll it — the next visit to the fleet is the next read.
- */
-function useInstaller(): Installer | null {
-  const [installer, setInstaller] = useState<Installer | null>(null);
-  useEffect(() => {
-    let live = true;
-    api
-      .installer()
-      .then((answer) => {
-        if (live) setInstaller(answer);
-      })
-      .catch(() => {
-        if (live) setInstaller(null);
-      });
-    return () => {
-      live = false;
-    };
-  }, []);
-  return installer;
-}
 
 /**
  * Where to get the device runtime: a compact strip under the fleet, not the page's first card.

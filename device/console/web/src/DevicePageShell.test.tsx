@@ -101,10 +101,10 @@ describe("DevicePageShell offline notice", () => {
       }
     });
 
-    // **THE MACHINE TAB'S BODY STATES WHAT RUNS.** The update card carries the updater's answer;
-    // the start line above it carries the running build and the moment a chip cannot state, the
-    // same sentence every other tab draws. The card's `(updated …)` stays on the card.
-    const line = screen.getByText("started 0.3.42 · 1d 1h ago");
+    // **THE TOPBAR STATES THE BUILD; THE START LINE STATES WHEN.** The update card carries the
+    // version and the release comparison; the line above it keeps only the moment a chip cannot
+    // state, the same sentence every other tab draws. The card's `(updated …)` stays on the card.
+    const line = screen.getByText("started 1d 1h ago");
     expect(line).toHaveAttribute("title", exactMoment(BOOT_AT));
     expect(screen.queryByText(/updated/)).not.toBeInTheDocument();
   });
@@ -121,7 +121,7 @@ describe("DevicePageShell offline notice", () => {
 
     // The console knows silence, not sleep: it must never claim the machine slept. The new facts
     // beside it are when this process started and the age of the answer it folded in.
-    const line = screen.getByText("started 0.3.42 · 1d 1h ago (updated 12m ago)");
+    const line = screen.getByText("started 1d 1h ago (updated 12m ago)");
     expect(line).toHaveAttribute("title", exactMoment(BOOT_AT));
     expect(screen.queryByText(/asleep|sleeping/i)).not.toBeInTheDocument();
   });

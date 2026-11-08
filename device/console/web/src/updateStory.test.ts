@@ -34,9 +34,10 @@ describe("startedLine — the device's last start, and an update that belongs to
     );
 
     // The measured 9VH shape: started 0.3.286, the same version the header shows, 24 minutes before
-    // it went silent. The sentence is the device's; the age and the exact title are the console's.
+    // it went silent. The chip states the version; the start states when, and the title carries the
+    // exact instant.
     expect(story).toEqual({
-      text: "started 0.3.286 · 24m ago",
+      text: "started 24m ago",
       title: exactMoment(NOW - 24 * 60_000)
     });
   });
@@ -54,7 +55,7 @@ describe("startedLine — the device's last start, and an update that belongs to
       context
     );
 
-    expect(line).toBe("started 0.3.277 · 2h ago");
+    expect(line).toBe("started 2h ago");
     expect(line).not.toContain("updated");
   });
 
@@ -68,7 +69,7 @@ describe("startedLine — the device's last start, and an update that belongs to
         },
         context
       )
-    ).toBe("started 0.3.277 · 2h ago (updated 12m ago)");
+    ).toBe("started 2h ago (updated 12m ago)");
   });
 
   it("says the start once when the update is the start", () => {
@@ -84,12 +85,12 @@ describe("startedLine — the device's last start, and an update that belongs to
         },
         context
       )
-    ).toBe("started 0.3.277 · 2h ago");
+    ).toBe("started 2h ago");
   });
 
   it("keeps drawing the start when its version is the one the surface already shows", () => {
-    // The version repeats the chip, but the moment does not: the start's age is exactly what the
-    // chip cannot state, so the line is drawn instead of dropped as a duplicate.
+    // The version repeats the chip, so it is left out; the moment does not repeat anything, and
+    // the start's age is exactly what the chip cannot state. The line is drawn, not dropped.
     expect(
       startedLine(
         {
@@ -98,7 +99,7 @@ describe("startedLine — the device's last start, and an update that belongs to
         },
         context
       )
-    ).toBe("started 0.3.277 · 2h ago");
+    ).toBe("started 2h ago");
   });
 
   it("keeps the start version when the surface shows no version to repeat", () => {
@@ -164,7 +165,7 @@ describe("startedLine — the device's last start, and an update that belongs to
         },
         context
       )
-    ).toBe("started 0.3.277 · 2h ago");
+    ).toBe("started 2h ago");
   });
 
   it("says an updater's refusal inside this start after the start", () => {
@@ -177,7 +178,7 @@ describe("startedLine — the device's last start, and an update that belongs to
         },
         context
       )
-    ).toBe("started 0.3.277 · 2h ago (update to 0.3.278 refused)");
+    ).toBe("started 2h ago (update to 0.3.278 refused)");
   });
 
   it("names the version a rollback inside this start returned to", () => {
@@ -191,7 +192,7 @@ describe("startedLine — the device's last start, and an update that belongs to
         },
         context
       )
-    ).toBe("started 0.3.277 · 2h ago (update to 0.3.278 rolled back to 0.3.277)");
+    ).toBe("started 2h ago (update to 0.3.278 rolled back to 0.3.277)");
   });
 
   it("ages a verdict that is itself an applied-update sentence", () => {
@@ -258,7 +259,7 @@ describe("startedLine — the device's last start, and an update that belongs to
         },
         context
       )
-    ).toBe("started 0.3.277 · 2h ago");
+    ).toBe("started 2h ago");
   });
 });
 
@@ -319,10 +320,10 @@ describe("updateChannel — the channel the running process started from", () =>
  * contradiction is a fact the card does not carry.
  */
 describe("startedLine — a page that draws the update card", () => {
-  it("keeps the running version in the start line and leaves the applied clause to the card", () => {
-    // **THE START LINE STILL NAMES WHAT RUNS.** The card states the updater's answer, but the line
-    // above it is the one sentence on every tab that places the running build in time; hiding its
-    // version made Machine the only tab whose body did not state what the machine runs.
+  it("states only when the start was, leaving the version to the chip and the card", () => {
+    // **THE PAGE'S ONE VERSION IS THE CHIP, AND THE CARD'S FIRST ROW IS THE ANSWER.** The start line
+    // above the card is the one sentence that places the running process in time; repeating the
+    // version there made the same build read as three facts on one screen.
     expect(
       startedLine(
         {
@@ -332,7 +333,7 @@ describe("startedLine — a page that draws the update card", () => {
         },
         { ...context, updateShown: true }
       )
-    ).toBe("started 0.3.277 · 2h ago");
+    ).toBe("started 2h ago");
   });
 
   it("keeps a start version the chip does not show, because the card cannot state it", () => {

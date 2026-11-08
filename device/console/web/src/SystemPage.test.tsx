@@ -4,6 +4,11 @@ import { SystemPage } from "./SystemPage";
 import { callTool, ToolError, type Grant } from "./terminal";
 import { clockTimeSeconds, exactMoment, isoDate } from "./format";
 
+// The update card compares the running build with the staged release, so `/installer` is part of the
+// page's surface. Each test names the answer it needs; the default is a console with no staging.
+const installerApi = vi.hoisted(() => ({ installer: vi.fn() }));
+vi.mock("./api", () => ({ api: { installer: installerApi.installer } }));
+
 // The page's whole device surface is `callTool`; the real `ToolError` stays so a refusal is the class
 // the page actually receives from `./terminal`.
 vi.mock("./terminal", async (importOriginal) => {
@@ -46,6 +51,8 @@ function gridRows(container: HTMLElement) {
 describe("SystemPage", () => {
   beforeEach(() => {
     mocked.mockReset();
+    installerApi.installer.mockReset();
+    installerApi.installer.mockResolvedValue({ available: false });
   });
 
   it("does not ask a machine the fleet says is down, and says why", async () => {
@@ -293,7 +300,7 @@ describe("SystemPage", () => {
       "Last check",
       "Channel"
     ]);
-    expect(rows[0].value).toBe("0.3.284");
+    expect(rows[0].value).toBe("0.3.284 · release unknown");
     expect(rows[1].value).toBe("0.3.273");
     expect(rows[2].value).toBe("applied");
     expect(rows[3].value).toBe(`${isoDate(resultAt)} ${clockTimeSeconds(resultAt)}`);
@@ -338,7 +345,7 @@ describe("SystemPage", () => {
       "Last check",
       "Channel"
     ]);
-    expect(rows[0]).toMatchObject({ label: "Applied", value: "0.3.290" });
+    expect(rows[0]).toMatchObject({ label: "Applied", value: "0.3.290 · release unknown" });
     // ONE VERSION, ONE ROW: no `Running` or `Last target` row repeats what the applied row states.
     expect(rows.filter((row) => row.value.includes("0.3.290"))).toHaveLength(1);
   });
@@ -381,7 +388,7 @@ describe("SystemPage", () => {
       "Last check",
       "Channel"
     ]);
-    expect(rows[0].value).toBe("0.3.280");
+    expect(rows[0].value).toBe("0.3.280 · release unknown");
     expect(rows[1].value).toBe("0.3.290");
     expect(rows[2].value).toBe("applied");
     // The applied version is not the running one, so it is not the first row.
@@ -418,7 +425,7 @@ describe("SystemPage", () => {
 
     await screen.findByText("online");
     const rows = gridRows(container);
-    expect(rows[0]).toMatchObject({ label: "Running", value: "0.3.286" });
+    expect(rows[0]).toMatchObject({ label: "Running", value: "0.3.286 · release unknown" });
     expect(rows[1]).toMatchObject({ label: "Last target", value: "0.3.273" });
     // The old apply is not printed as the last outcome this process produced.
     expect(rows[2]).toMatchObject({
@@ -486,7 +493,7 @@ describe("SystemPage", () => {
       "Last check",
       "Channel"
     ]);
-    expect(rows[0].value).toBe("0.3.284");
+    expect(rows[0].value).toBe("0.3.284 · release unknown");
     for (const row of rows.slice(1, 5)) expect(row.value).toBe("not recorded");
     expect(rows[5].value).toBe("not reported");
     expect(container.querySelector(".system-channel")).toHaveTextContent(
@@ -532,10 +539,10 @@ describe("SystemPage", () => {
 
     await screen.findByText("online");
     const rows = gridRows(container);
-    expect(rows[0]).toMatchObject({ label: "Running", value: "0.3.280" });
+    expect(rows[0]).toMatchObject({ label: "Running", value: "0.3.280 · release unknown" });
     expect(rows.find((row) => row.label === "Channel")?.value).toBe("canary");
     expect(rows.find((row) => row.label === "Verdict")?.value).toMatch(
-      /^ok · started 0\.3\.280 · 7h ago$/
+      /^ok · started 7h ago$/
     );
     expect(rows.some((row) => row.value === "not reported")).toBe(false);
 
@@ -616,6 +623,49 @@ describe("SystemPage", () => {
     );
     expect(channel).not.toHaveTextContent("spanning");
   });
+
+  it.each([
+    ["0.3.292", "0.3.291", "0.3.292 · ahead of the release 0.3.291"],
+    ["0.3.291", "0.3.291", "0.3.291 · current (the release)"],
+    ["0.3.289", "0.3.291", "0.3.289 · behind the release 0.3.291"]
+  ])(
+    "answers the running %s against the staged release %s",
+    async (running, release, expected) => {
+      // **THE PAGE'S SECOND QUESTION IS "IS IT CURRENT?".** The measured 84T on the release and the
+      // 9VH one release ahead looked identical except for the digits; the card's version row now
+      // carries the comparison with the installer Home already offers.
+      installerApi.installer.mockResolvedValue({
+        available: true,
+        filename: `SummriseSetup-${release}.exe`,
+        version: release,
+        size_bytes: 1,
+        sha256: "a".repeat(64)
+      });
+      device(() => JSON.stringify([]));
+      const { container } = render(
+        <SystemPage
+          grant={GRANT}
+          device={{
+            id: "device-1",
+            name: "workshop",
+            online: true,
+            version: running,
+            last_frame_ms: 1,
+            update: {
+              current: running,
+              verdict: { outcome: "ok", detail: `started ${running}` },
+              last_update: { to: running, outcome: "applied", at_ms: Date.now() - 60_000 },
+              last_check: { at_ms: Date.now() - 20 * 60_000 }
+            },
+            host: { restarts: [{ at_ms: Date.now() - 60_000, version: running }] }
+          }}
+        />
+      );
+
+      await screen.findByText("online");
+      await waitFor(() => expect(gridRows(container)[0]?.value).toBe(expected));
+    }
+  );
 
   it("says the console has no update facts when the device never sent a story", async () => {
     device(() => JSON.stringify([]));

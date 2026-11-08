@@ -1591,16 +1591,18 @@ try {
   const filterLabels = await page.evaluate(() => ({
     machines: document.querySelector('#timeline-machines-label')?.textContent?.trim() ?? '',
     callers: document.querySelector('#timeline-callers-label')?.textContent?.trim() ?? '',
-    callersText: document.querySelector('.timeline-callers')?.textContent?.trim() ?? ''
+    chipText: document.querySelector('.timeline-callers button')?.textContent?.trim() ?? ''
   }));
   if (filterLabels.machines !== 'Machines' || filterLabels.callers !== 'Callers') {
     throw new Error(
       `the Activity filters are not labelled: ${JSON.stringify(filterLabels)}`
     );
   }
-  if (/client calls/i.test(filterLabels.callersText)) {
+  // The chip's own word is `Clients only`; the count beside it now names what it counted
+  // (`client calls` while the chip is off), which is the point of the sentence below.
+  if (filterLabels.chipText !== 'Clients only') {
     throw new Error(
-      `the Clients only control repeated the day's noun: "${filterLabels.callersText}"`
+      `the caller control's own label read "${filterLabels.chipText}", not "Clients only"`
     );
   }
   const filterCount = page.locator('#timeline-clients-window');
@@ -1616,16 +1618,19 @@ try {
     { timeout: 10_000 }
   );
   const filterCountText = (await filterCount.textContent())?.trim() ?? '';
-  // The count names the fetched window's span as well as its rows: the measured page put the day's
-  // `18 client calls` over `486 rows in this window` and stated the 24 h 37 m nowhere. The span's
-  // exact value depends on live rows this run adds, so the gate proves the label is there and is a
+  // **THE COUNT SAYS WHICH NOUN IT COUNTED.** The measured timeline put `353 rows in this window`
+  // over a list drawing 891 rows: the number is the client-call subset, not the window's size. The
+  // span's exact value depends on live rows this run adds, so the gate proves the noun and the
   // duration; the unit suite pins the arithmetic.
+  const allClientNoun = ALL_CLIENT === 1 ? 'client call' : 'client calls';
   if (
-    !filterCountText.startsWith(`${ALL_CLIENT} rows in this window · spanning `) ||
-    !/^\d+ rows in this window · spanning \d+ (s|m|h)( \d+ (s|m))?$/.test(filterCountText)
+    !filterCountText.startsWith(`${ALL_CLIENT} ${allClientNoun} in this window · spanning `) ||
+    !/^\d+ client calls? in this window · spanning \d+ (s|m|h)( \d+ (s|m))?$/.test(
+      filterCountText
+    )
   ) {
     throw new Error(
-      `the Clients only control stated "${filterCountText}", expected "${ALL_CLIENT} rows in this window · spanning <span>"`
+      `the Clients only control stated "${filterCountText}", expected "${ALL_CLIENT} ${allClientNoun} in this window · spanning <span>"`
     );
   }
   // THE SOURCE LINE, ONCE, BESIDE THE WINDOW SENTENCE. It says what is read, not what is drawn:
@@ -1679,6 +1684,7 @@ try {
     );
   }
   const narrowedCountLabel = (await filterCount.textContent())?.trim() ?? '';
+  // Pressed, the subset is the list, so the same number and window are named `rows`.
   if (
     !narrowedCountLabel.startsWith(`${ALL_CLIENT} rows in this window · spanning `) ||
     !/^\d+ rows in this window · spanning \d+ (s|m|h)( \d+ (s|m))?$/.test(narrowedCountLabel)
@@ -2521,9 +2527,9 @@ try {
   step(`the Repair task row says "${repairTaskRow.text}" for the fixture's online build`);
   // **THE DEVICE'S OWN UPDATE STORY IS THE PANEL'S GRID, NOT A GREY PARAGRAPH (audit-40 F3).** The
   // card states one fact per labelled row — the panel's `Last target` / `Last outcome` / `Last
-  // result` / `Last check` vocabulary — with the running version on its own row. The fixture's
-  // applied answer is a refusal to 0.3.43, so the applied version is not what runs and the grid
-  // leads with `Running`; the target is the refused one, and the version appears once per row.
+  // result` / `Last check` vocabulary — and the running row carries the release comparison. The
+  // fixture's applied answer is a refusal to 0.3.43, so the applied version is not what runs and
+  // the grid leads with `Running`; the target is the refused one.
   const updateRows = await page.evaluate(() => {
     const grid = document.querySelector('.system-update dl');
     if (!grid) return null;
@@ -2541,7 +2547,7 @@ try {
     throw new Error(`the update card's rows read ${JSON.stringify(labels)}`);
   }
   const rowValue = (label) => updateRows.find((row) => row.label === label)?.value ?? '';
-  if (rowValue('Running') !== '0.3.42') {
+  if (rowValue('Running') !== '0.3.42 · behind the release 0.3.280') {
     throw new Error(`the update card's Running row read "${rowValue('Running')}"`);
   }
   if (rowValue('Last target') !== '0.3.43') {
@@ -2556,22 +2562,25 @@ try {
   if (rowValue('Channel') !== 'stable') {
     throw new Error(`the update card's Channel row read "${rowValue('Channel')}"`);
   }
-  for (const row of updateRows) {
-    if ((row.value.match(/\d+\.\d+\.\d+/g) ?? []).length > 1) {
-      throw new Error(`the update card's ${row.label} row repeats a version: "${row.value}"`);
-    }
+  // **ONE VERSION, AND THE RELEASE IT IS PLACED AGAINST.** The verdict row names the running build
+  // once and the release once; no other row repeats the running version.
+  const cardText = updateRows.map((row) => row.value).join(' · ');
+  if ((cardText.match(/0\.3\.42/g) ?? []).length !== 1) {
+    throw new Error(`the update card repeats the running version: "${cardText}"`);
+  }
+  if ((cardText.match(/0\.3\.280/g) ?? []).length !== 1) {
+    throw new Error(`the update card repeats the release version: "${cardText}"`);
   }
   step(
     `the Machine tab draws the update card as labelled rows: ${updateRows
       .map((row) => `${row.label} ${row.value}`)
       .join(' · ')}`
   );
-  // **THE MACHINE TAB'S BODY STATES WHAT RUNS.** The start line used to drop its version here
-  // because the update card was drawn beside it, so Machine was the one tab whose body did not name
-  // the running build. The line above the card carries the running version on every tab now, and
-  // the update answer — the refused target — stays on the card. The exact instant stays in the title.
+  // **THE START LINE STATES WHEN, NOT WHICH BUILD.** The topbar chip states `Running · v0.3.42`
+  // and the card's first row carries the release comparison; the same number a third time beside
+  // them was the measured repetition (audit-43 F7). The exact instant stays in the title.
   const machineStart = (await page.locator('.started-line').innerText()).trim();
-  if (machineStart !== 'started 0.3.42 · 1h ago') {
+  if (machineStart !== 'started 1h ago') {
     throw new Error(`the Machine tab's start line read "${machineStart}"`);
   }
   const machineStartTitle = (await page.locator('.started-line').getAttribute('title')) ?? '';
@@ -2597,7 +2606,7 @@ try {
     throw new Error(`the Machine tab's check line read "${machineCheck}"`);
   }
   step('the Machine tab names the console link\'s last attempt and the panel\'s local check');
-  step('the Machine tab states reachability as Status · online, and its start line names the build');
+  step('the Machine tab states reachability as Status · online, and its start line states only when it started');
 
   // **THE CARD AT BOTH WIDTHS, AND THE PHONE KEEPS IT IN THE VIEWPORT.** The panel's grid is one
   // label/value row per fact; at 390 the rows wrap rather than pushing the page sideways. These are
@@ -3191,8 +3200,26 @@ try {
   );
   // The same sentence at 390: the status, version and start stack inside one card, and the silence's
   // age is still stated. The fleet list is Home with no machine chosen, so clear the choice through
-  // the header's own menu first.
+  // the header's own menu first. While it is open, the menu proves it is a switcher: name, state and
+  // build only, never Home's board (disk, the day's calls, the last absence).
   await page.locator('details.machine-menu > summary').click();
+  const switcherRows = await page.evaluate(() =>
+    [...document.querySelectorAll('.machine-pop > button')]
+      .filter((button) => button.querySelector('.machine-pop-name'))
+      .map((button) => button.textContent?.trim() ?? '')
+  );
+  if (switcherRows.length === 0) {
+    throw new Error('the machine menu drew no machine row');
+  }
+  for (const row of switcherRows) {
+    if (/GiB|client calls?|\bfailed\b|back |away since/.test(row)) {
+      throw new Error(`the machine menu drew a board fact: "${row}"`);
+    }
+    if (!/(online|offline) · v\d/.test(row)) {
+      throw new Error(`the machine menu row lost its state and build: "${row}"`);
+    }
+  }
+  step(`the machine menu is a switcher (${switcherRows.length} rows: name, state, build; no counters)`);
   await page.getByRole('button', { name: 'All machines' }).click();
   await page.locator('nav.rail button[title="Home"]').click();
   await page.getByRole('heading', { name: 'Machines', exact: true }).waitFor({ timeout: 10_000 });

@@ -643,7 +643,7 @@ describe("App", () => {
       "aria-pressed",
       "false"
     );
-    expect(screen.getByText("2 rows in this window · spanning 50 s")).toBeInTheDocument();
+    expect(screen.getByText("2 client calls in this window · spanning 50 s")).toBeInTheDocument();
 
     // The control draws the client subset; the header stays the day's sentence. Its own count says
     // which window it counts, so the page never states a second `client calls` number for the same

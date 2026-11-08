@@ -376,12 +376,6 @@ main.terminal-main { display: grid; grid-template-rows: auto minmax(0, 1fr); ali
   grid-column: 2 / -1; min-width: 0; color: var(--ink-faint); font-size: var(--fs-xs);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.fleet-attempt {
-  grid-column: 2 / -1; min-width: 0; color: var(--ink-muted); font-size: var(--fs-xs);
-  /* ONE LINE, CUT NOT WRAPPED. The reason is the device's whole sentence; the row's second line grows
-     by a sentence, not by a paragraph, and the title carries the text an ellipsis hides. */
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-}
 .attempt-reason {
   /* THE REASON WRAPS, IT IS NOT CUT. The measured 390 hub put 283 px of the channel's sentence in
      a 265 px line and drew "…and then dro…", leaving the last word in a title a phone cannot
@@ -475,7 +469,6 @@ button.link:hover { background: transparent; color: var(--accent); border-color:
   .fleet-chevron { display: none; }
   .fleet-verdict { order: 5; flex-basis: 100%; }
   .fleet-channel { order: 6; flex-basis: 100%; }
-  .fleet-attempt { order: 6; flex-basis: 100%; }
 }
 
 /* The selected machine's identity, kept above the terminal and above the grant form: whichever of

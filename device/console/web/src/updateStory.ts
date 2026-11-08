@@ -15,15 +15,20 @@ import { exactMoment, seenAgo } from "./format";
  * the running version; they cannot say when it began. So a start sentence is drawn with its age
  * even when its version repeats the chip:
  *
- *   started 0.3.286 · 24m ago                    a machine that restarted without changing version
- *   started 0.3.277 · 2h ago (updated 12m ago)   an answer that arrived inside this start
+ *   started 24m ago                              a machine that restarted without changing version
+ *   started 2h ago (updated 12m ago)             an answer that arrived inside this start
+ *   started 0.3.275 · 2h ago                     a start naming a version the chip does not show
  *   update to 0.3.276 refused                    the updater's refusal, inside this start
  *   update to 0.3.276 rolled back to 0.3.275     the updater's rollback, inside this start
  *   refused: nothing was installed               the device's own current sentence
  *
+ * **ONE VERSION PER SURFACE.** The chip (or Home's Version cell) already states what runs; a start
+ * that repeats it keeps only the moment, because the same number twice in one screen was read as
+ * two facts. A start naming a version the surface does not show is the contradiction the operator
+ * needs, and it is kept as written.
+ *
  * Without a journal moment the console cannot age the start, and a repeated version has nothing
- * new to say, so it draws no line rather than invent a time. A start naming a version the surface
- * does not show is the contradiction the operator needs, and it is kept as written.
+ * new to say, so it draws no line rather than invent a time.
  *
  * NO SENTENCE ATTACHES AN UPDATE TO A START IT PREDATES. `last_update.at_ms` belongs to a process
  * (the one that folded the answer in); the newest entry in the host frame's `restarts` journal is
@@ -53,10 +58,10 @@ export type StartStoryContext = {
   /**
    * True when the page draws the update card beside this line (the Machine tab's `Updates`).
    *
-   * **THE CARD OWNS THE UPDATE ANSWER THERE.** The card states the applied version first when it is
-   * the running one, and it dates the updater's last answer; a parenthetical `(updated 12m ago)`
-   * beside the start would say the same thing twice. So on that page the line states the running
-   * version and when the start was — the update answer itself stays on the card.
+   * **THE CARD OWNS THE UPDATE ANSWER THERE.** The card states the running version and its
+   * current/behind/ahead answer, and it dates the updater's last answer; a parenthetical
+   * `(updated 12m ago)` beside the start would say the same thing twice. So on that page the line
+   * keeps only when the start was — the version and the update answer itself stay on the card.
    */
   updateShown?: boolean;
 };
@@ -107,14 +112,15 @@ export function startedStory(
   let base: string | null;
   if (startedAt !== null) {
     const age = seenAgo(startedAt, context.nowMs);
-    // **ONE VERSION PER ROW, AND ONE PER TAB.** A surface with its own version column (Home) states
-    // the build there and only the age here; the Device shell has no such column, so its start line
-    // carries the version on every tab — including Machine, where the update card draws the
-    // updater's answer and the line above it is the only sentence that places what runs in time.
-    base =
-      context.versionElsewhere === true && repeatsSurface
+    // **ONE VERSION PER ROW, AND ONE PER SCREEN.** A surface whose own column or chip states the
+    // build drops the repeated version from the start sentence: Home's row keeps only the age
+    // (`2h ago`), and the Device shell keeps `started 2h ago` because its sentence needs a subject.
+    // A start naming a different version is still the sentence the operator has to read.
+    base = repeatsSurface
+      ? context.versionElsewhere === true
         ? age
-        : `started ${startVersion === "" ? age : `${startVersion} · ${age}`}`;
+        : `started ${age}`
+      : `started ${startVersion} · ${age}`;
   } else {
     // No journal: never borrow another moment for this start. A differing version is still the
     // device's sentence; a repeat of the chip has nothing new to say.

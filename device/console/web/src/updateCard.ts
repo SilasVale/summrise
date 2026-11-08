@@ -1,7 +1,7 @@
 import type { DeviceUpdate, HostFacts } from "./api";
 import { clockTimeSeconds, exactMoment, isoDate } from "./format";
 import { processStartMs, startedLine, updateChannel } from "./updateStory";
-import { versionEqual } from "./versions";
+import { versionEqual, versionRelation } from "./versions";
 
 /**
  * THE MACHINE TAB'S UPDATE STORY, IN THE DEVICE PANEL'S UPDATES SHAPE.
@@ -59,8 +59,19 @@ export type UpdatePageDevice = {
  *
  * The card is drawn only when the device sent an update story at all; a device that never sent one
  * keeps the page's one sentence instead of a grid of its own absence (`UpdateCard`).
+ *
+ * `release` is the staged installer's version — the one fact that turns the running number into the
+ * page's answer. `undefined` is "not read yet" and adds no clause; `null` is a console that knows it
+ * has no staging (or could not read one), which is stated as `release unknown` rather than left as
+ * an unstated comparison. A known release is compared once, on the row that states the version, so
+ * `0.3.292 · ahead of the release 0.3.291` is the whole answer and no other row repeats either
+ * number.
  */
-export function updateRows(device: UpdatePageDevice, nowMs = Date.now()): UpdateRow[] {
+export function updateRows(
+  device: UpdatePageDevice,
+  nowMs = Date.now(),
+  release: string | null | undefined = undefined
+): UpdateRow[] {
   const update = device.update ?? null;
   const last = update?.last_update ?? null;
   const verdict = update?.verdict ?? null;
@@ -87,10 +98,10 @@ export function updateRows(device: UpdatePageDevice, nowMs = Date.now()): Update
       // this version. `Running` and `Last target` would each repeat it. The row spells the running
       // version, because that is the field the header's chip shows and the two must not look like
       // different releases (`0.3.290` and `0.3.290.0` are not).
-      rows.push({ key: "applied", label: "Applied", text: running });
+      rows.push({ key: "applied", label: "Applied", text: versionText(running, release) });
     } else {
       if (running !== null && !(rolledBack !== null && versionEqual(running, rolledBack))) {
-        rows.push({ key: "running", label: "Running", text: running });
+        rows.push({ key: "running", label: "Running", text: versionText(running, release) });
       }
       if (target !== null) rows.push({ key: "target", label: "Last target", text: target });
     }
@@ -106,7 +117,14 @@ export function updateRows(device: UpdatePageDevice, nowMs = Date.now()): Update
       });
     }
     if (rolledBack !== null) {
-      rows.push({ key: "rolled_back_to", label: "Rolled back to", text: rolledBack });
+      // When the rollback returned to the running version there is no `Running` row above (it would
+      // repeat this one), so the verdict rides here: the card must still answer "is it current?".
+      const rollbackIsRunning = running !== null && versionEqual(running, rolledBack);
+      rows.push({
+        key: "rolled_back_to",
+        label: "Rolled back to",
+        text: rollbackIsRunning ? versionText(rolledBack, release) : rolledBack
+      });
     }
     rows.push(momentRow("result", "Last result", last.at_ms));
   } else if (verdict !== null && detail !== "") {
@@ -114,7 +132,9 @@ export function updateRows(device: UpdatePageDevice, nowMs = Date.now()): Update
     // result is its last start's sentence (the measured 84T's `started 0.3.280`) must not read as a
     // device with no record: the verdict is drawn as the device wrote it, aged only when the journal
     // proves when the start was.
-    if (running !== null) rows.push({ key: "running", label: "Running", text: running });
+    if (running !== null) {
+      rows.push({ key: "running", label: "Running", text: versionText(running, release) });
+    }
     rows.push({
       key: "verdict",
       label: "Verdict",
@@ -125,7 +145,9 @@ export function updateRows(device: UpdatePageDevice, nowMs = Date.now()): Update
   } else {
     // A story with no record: the panel's rows still say what is absent, so the operator learns the
     // device has no answer rather than meeting an empty card.
-    if (running !== null) rows.push({ key: "running", label: "Running", text: running });
+    if (running !== null) {
+      rows.push({ key: "running", label: "Running", text: versionText(running, release) });
+    }
     rows.push({ key: "target", label: "Last target", text: "not recorded", absent: true });
     rows.push({ key: "outcome", label: "Last outcome", text: "not recorded", absent: true });
     rows.push({ key: "result", label: "Last result", text: "not recorded", absent: true });
@@ -140,6 +162,28 @@ export function updateRows(device: UpdatePageDevice, nowMs = Date.now()): Update
     absent: channel === null
   });
   return rows;
+}
+
+/**
+ * The running version plus the card's one comparison with the staged release.
+ *
+ * An unread installer adds nothing (`undefined`); a console that read it and found no staging says
+ * `release unknown`; a known release is compared once. The `current` clause does not repeat the
+ * number — the running version at the start of the row is the whole fact — while "behind"/"ahead"
+ * must name the release, because that is the number the running one is being placed against.
+ */
+function versionText(
+  running: string,
+  release: string | null | undefined
+): string {
+  if (release === undefined) return running;
+  if (release === null) return `${running} · release unknown`;
+  const relation = versionRelation(running, release);
+  if (relation === "current") return `${running} · current (the release)`;
+  if (relation === "behind") return `${running} · behind the release ${release}`;
+  if (relation === "ahead") return `${running} · ahead of the release ${release}`;
+  // A value that is not a dotted version cannot be compared; name it rather than claim a side.
+  return `${running} · release ${release}`;
 }
 
 /** A row for a moment in the console's clock, with the exact instant for its title. */

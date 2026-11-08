@@ -14,16 +14,44 @@ export function versionBelow(
   running: string | null | undefined,
   installer: string | null | undefined
 ): boolean {
-  const left = parseVersion(running);
-  const right = parseVersion(installer);
-  if (left === null || right === null) return false;
-  const length = Math.max(left.length, right.length);
+  return compareVersions(running, installer) === -1;
+}
+
+/** Which side of the staged release a running build is on, or null when either is no version. */
+export type VersionRelation = "current" | "behind" | "ahead";
+
+/**
+ * The one answer the Machine tab's update card gives: is this machine current with the release?
+ *
+ * `versionBelow` answers only "behind", which the fleet's attention cue needs and nothing else can
+ * spell. The Machine tab also has to say "ahead" — the measured 9VH ran 0.3.292 while the release
+ * was 0.3.291 — and "current" when the two name the same release, trailing zeroes included. An
+ * unknown side answers `null` and the card says the release is unknown rather than inventing one.
+ */
+export function versionRelation(
+  running: string | null | undefined,
+  release: string | null | undefined
+): VersionRelation | null {
+  const comparison = compareVersions(running, release);
+  if (comparison === null) return null;
+  return comparison === 0 ? "current" : comparison < 0 ? "behind" : "ahead";
+}
+
+/** -1, 0 or 1 for two dotted versions; null when either side is not one. */
+function compareVersions(
+  left: string | null | undefined,
+  right: string | null | undefined
+): -1 | 0 | 1 | null {
+  const a = parseVersion(left);
+  const b = parseVersion(right);
+  if (a === null || b === null) return null;
+  const length = Math.max(a.length, b.length);
   for (let index = 0; index < length; index += 1) {
-    const a = left[index] ?? 0;
-    const b = right[index] ?? 0;
-    if (a !== b) return a < b;
+    const leftPart = a[index] ?? 0;
+    const rightPart = b[index] ?? 0;
+    if (leftPart !== rightPart) return leftPart < rightPart ? -1 : 1;
   }
-  return false;
+  return 0;
 }
 
 /**

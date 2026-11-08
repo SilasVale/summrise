@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { versionBelow, versionEqual } from "./versions";
+import { versionBelow, versionEqual, versionRelation } from "./versions";
 
 /**
  * A version is a comparison, not a sort. The fleet's cue says "behind 0.3.284" only when both
@@ -52,5 +52,37 @@ describe("versionEqual — the running version against the version the updater a
     expect(versionEqual("", "")).toBe(false);
     expect(versionEqual("0.3.284-rc1", "0.3.284")).toBe(false);
     expect(versionEqual("0.3.x", "0.3.284")).toBe(false);
+  });
+});
+
+/**
+ * THE MACHINE PAGE'S ONE ANSWER. The fleet asks "is it behind?"; the Machine tab also has to say
+ * "ahead" and "current", because a machine on the release and one a release ahead used to look
+ * identical except for the digits.
+ */
+describe("versionRelation — current, behind or ahead of the staged release", () => {
+  it("says current for the same release, whatever its spelling", () => {
+    expect(versionRelation("0.3.291", "0.3.291")).toBe("current");
+    expect(versionRelation("0.3.291", "0.3.291.0")).toBe("current");
+  });
+
+  it("says behind when the running build is numerically older", () => {
+    expect(versionRelation("0.3.289", "0.3.291")).toBe("behind");
+    expect(versionRelation("0.3.9", "0.3.10")).toBe("behind");
+  });
+
+  it("says ahead when the running build is numerically newer", () => {
+    // The measured 9VH: 0.3.292 runs while the release is 0.3.291.
+    expect(versionRelation("0.3.292", "0.3.291")).toBe("ahead");
+    expect(versionRelation("0.3.10", "0.3.9")).toBe("ahead");
+  });
+
+  it("says nothing when either side is not a version", () => {
+    expect(versionRelation(null, "0.3.291")).toBeNull();
+    expect(versionRelation("0.3.291", null)).toBeNull();
+    expect(versionRelation(undefined, undefined)).toBeNull();
+    expect(versionRelation("", "0.3.291")).toBeNull();
+    expect(versionRelation("0.3.291", "0.3.291-rc1")).toBeNull();
+    expect(versionRelation("0.3.x", "0.3.291")).toBeNull();
   });
 });
