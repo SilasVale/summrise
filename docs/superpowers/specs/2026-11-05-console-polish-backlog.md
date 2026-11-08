@@ -900,6 +900,51 @@ residuals are this list's 6, 7 and 8.
     paragraph (and `/mcp/all` likewise); at 390 that is eight lines of URL. **Fix:** one endpoint, one copy.
     **S.**
 
+## P0 — the twenty-fourth list (opened 2026-11-08, from the audit of ux103)
+
+Measured 2026-11-08 01:54–02:56Z on live 0.3.273-ux103. The CPH recovered to 0.3.292 during the tour (its ~15h
+outage ended 00:51Z), so the fleet is 3 of 4 online. The twenty-third list is live; its residuals are this
+list's 1-3.
+
+1. **Every Device tab opens with `started … ago` before its answer** — on Overview it precedes the machine's
+   name (y=129 vs 164). **Fix:** the start line belongs to the machine head, and only where it is the answer
+   (Overview/Machine), not above every tab. **M.**
+
+2. **At 390 the Device tab strip hides its first tabs with no affordance.** On Machine `scrollLeft=87`,
+   `Overview` at x=-69, `Terminal` clipped at x=7. **Fix:** the strip shows a scroll affordance (or wraps) so
+   the first tabs are reachable and visibly there. **S.**
+
+3. **The failure banner covers the topbar** (banner 352,12,736,52 over a 52 px topbar), and the page states
+   the same failure again with the only Retry. **Fix:** the banner below the topbar, one statement. **S/M.**
+
+4. **Screen's disabled Capture gives its actual reason in paragraph 2**, after a locked-session note. **Fix:**
+   the reason first. **S.**
+
+5. **The offline reason is stated twice on Screen/Files/Runs** (shell notice + tab sentence). **Fix:** once.
+   **S.**
+
+6. **The offline Machine dates its absence from the console's restart** (`since this console started at 09:52`)
+   while its own notice says `Last seen 2d 18h ago`. **Fix:** the machine's own last-seen. **S.**
+
+7. **At 390 with a populated fleet, Add a machine opens the enrollment panel at y=1045 below the fold** and the
+   press looks dead (visible at y=521 on the empty first-run page). **Fix:** scroll it into view. **S.**
+
+8. **The Machine page never prints the OS/CPU/arch the fleet frame carries** (`Windows 11 · x86_64 · 12
+   cores`). **Fix:** show them. **S.**
+
+9. **One action, four names** — `Open machine`, `Open Device`, `Open DESKTOP-…`, `Use`. **Fix:** one name.
+   **S.**
+
+10. **Activity's provenance line mixes audit.jsonl's 10-22 lifetime with the newest-1000 window**
+    (`1000/1040/19 repeats/5.7 MiB/since 10-22`). **Fix:** separate the file's lifetime from the window's.
+    **S.**
+
+11. **`last result 0` on the Repair task row is a code, not a verdict**; the 84T's `not reported by this build`
+    shows the row can speak English. **Fix:** `ok`/the reason. **S.**
+
+12. **The CPH's ~15 h absence leaves no trace after recovery** — `started 27m ago`, `Applied 0.3.292`, a
+    13-attempt retry note, but no `back after 14h 58m`. **Fix:** the recovery line. **M.**
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
