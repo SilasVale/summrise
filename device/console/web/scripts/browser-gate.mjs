@@ -723,6 +723,32 @@ function apiReply(request, url) {
     if (name === 'terminal.list') {
       return json({ result: { content: [{ type: 'text', text: '[]' }] } });
     }
+    // **THE MACHINE TAB'S PROCESS TABLE NEEDS A LIST TO DRAW.** The fixture answered nothing for
+    // `system.process_list`, so the gate's Machine page had no table and the leg that measures its
+    // action column had nothing to measure. This is the operator's own shape: four rows the device
+    // will not end (pid 0/4 and two kernel names) and four it would, one of them a reused-name
+    // worker that must still be identified by pid.
+    if (name === 'system.process_list') {
+      return json({
+        result: {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify([
+                { pid: 0, name: '[System Process]', memory_kb: 0 },
+                { pid: 4, name: 'System', memory_kb: 0 },
+                { pid: 224, name: 'Registry', memory_kb: 0 },
+                { pid: 692, name: 'smss.exe', memory_kb: 0 },
+                { pid: 828, name: 'LogonUI.exe', memory_kb: 74_496 },
+                { pid: 1140, name: 'VirtualBoxVM.exe', memory_kb: 921 },
+                { pid: 4242, name: 'nginx.exe', memory_kb: 82_000 },
+                { pid: 9001, name: 'summrise-console.exe', memory_kb: 12_288 }
+              ])
+            }
+          ]
+        }
+      });
+    }
     if (name === 'terminal.create') {
       state.opened = true;
       state.created += 1;
@@ -2810,6 +2836,40 @@ try {
   // now, and the update card is where the update story is written.
   await page.getByRole('button', { name: 'Machine', exact: true }).click();
   await page.getByRole('heading', { name: 'Machine', exact: true }).waitFor({ timeout: 10_000 });
+  // **THE PROCESS TABLE'S MOST REPEATED CONTROL IS NOT "KILL" (the twenty-eighth list, item 3).**
+  // Measured on the operator's machine: 235 rows, **222 `Kill` buttons** at 33 x 28 px, so the
+  // Machine page's commonest control was the destructive one and it was under the phone's 44 px
+  // target. A row offers its `⋯` menu now, and Kill lives inside it.
+  const processKills = await page.evaluate(() => {
+    const rows = [...document.querySelectorAll('tbody tr')].filter((row) =>
+      row.querySelector('.system-pid')
+    );
+    const killCells = [...document.querySelectorAll('td.system-kill-cell')];
+    // A cell's Kill button lives INSIDE a closed `<details>`: jsdom and Chrome both keep it in the
+    // DOM, so the measurement is "is this button a bare one the row draws", not "does it exist".
+    const bareKill = killCells.filter((cell) => {
+      const button = cell.querySelector('button');
+      return button !== null && button.closest('details.row-menu') === null;
+    }).length;
+    const menus = killCells.filter((cell) => cell.querySelector('details.row-menu')).length;
+    const protectedCells = killCells.filter(
+      (cell) => (cell.textContent ?? '').trim() === 'Protected'
+    ).length;
+    return { rows: rows.length, bareKill, menus, protectedCells };
+  });
+  if (processKills.bareKill !== 0) {
+    throw new Error(
+      `the process table draws ${processKills.bareKill} bare Kill buttons; the action is a row menu`
+    );
+  }
+  if (processKills.menus === 0) {
+    throw new Error('the process table draws no row menu for its killable processes');
+  }
+  step(
+    `the process table offers ${processKills.menus} row menus and ${processKills.protectedCells} ` +
+      `protected rows, with ${processKills.bareKill} bare Kill buttons`
+  );
+
   const machinePageText = await page.locator('.system-page').innerText();
   // THE OLD SENTENCE, NOT ANY "BUILD". `build 0.3.42 · online` was the repeated status; the repair
   // task row below names the build as the one that did not report a fact (audit-42 F7), which is a
