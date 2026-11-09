@@ -1052,6 +1052,93 @@ fleet token is the *AI client's* door to every machine it was minted for, the de
 client's door to one machine. None can substitute for another; the console refuses each at the
 wrong door by name.
 
+## P0 — the twenty-sixth list (opened 2026-11-09, the twenty design rules, measured)
+
+The operator's instruction: design by Refactoring UI's twenty rules, not by taste. This is the
+measurement of each rule against the console as it is, so the list starts with what is **enforced**
+(a named gate, so the rule cannot drift back), then what is **measured off** with its number.
+
+**Already enforced — the gate is the rule, and it is `device/console/tests/tokens.rs`:**
+
+| Rule | What holds it |
+|---|---|
+| 1 a system, not one-off values | `generated_tokens_match_the_canonical_sheet` (the sheet is generated from `device/ui`, so a hand-edit fails) |
+| 3 fewer font sizes | `seven_type_sizes_and_a_thirteen_pixel_body` — 7 sizes, 10/11/12/13/14/17/22 |
+| 4 fewer font weights | `every_weight_is_one_of_four_tokens` — 400/500/600/700, no literal `font-weight` in `app.css` |
+| 5 hierarchy from size/weight/colour | `every_type_size_comes_from_the_seven_step_scale` (no 0.95rem escapes) |
+| 13 readable text (contrast) | `every_text_pair_reads_on_the_surface_it_sits_on` — 15 named ink/surface pairs, AA measured, both themes |
+| 13 readable text (terminal) | `the_evidence_output_reads_on_its_terminal_surface` |
+| 18 motion respects the preference | five `prefers-reduced-motion` blocks, one of them a blanket; all four keyframes are named by their state change |
+| 20 rhythm | `spacing_uses_the_rhythm_when_the_value_is_already_on_it` + `spacing_is_the_rhythm_or_a_documented_exception` (rem only) |
+| 11 limited radii | `one_spacing_rhythm_and_the_canonical_radii` — the five canonical radii are asserted |
+| 15 no pure black on light surfaces | `--ink:#18181b`, `--canvas` is a mix of ink, and the dark block is restated rather than inherited (`the_dark_surfaces_are_restated_not_inherited`) |
+
+**Also held, not by a Rust gate: rule 19.** Empty / loading / failed states are asserted one by one
+in `browser-gate.mjs` (the failed fleet read, the failed tools read, the offline machine, the empty
+registry) and in the jsdom suites, because a state is a sentence and a sentence is measured where it
+is drawn, not in the token sheet.
+
+Measured gaps below. Each is the rule, its number, and the one shape that fixes it.
+
+1. **The rhythm gate is blind to `px`, and 37 literals are already off the rhythm or already a
+   token.** `spacing_uses_the_rhythm_when_the_value_is_already_on_it` scans **rem only**, so
+   `padding: 2px 12px` passes while `padding: 0.125rem 0.75rem` fails — the same number, one
+   spelling. Measured on `app.css`: **155 px spacing literals, 118 of them equal a `--sp-*` step,
+   37 off the rhythm** (18px × 7, 7px × 5, 3px × 4, 9px × 4, 15px × 4, 5px × 2, 22px, 26px, 44px,
+   68px, 220px, 26rem…). The 15px/18px pair is the timeline row's own padding, so the rows do not
+   sit on the rhythm the rest of the page keeps. **Fix:** the gate learns px (a px literal that
+   equals a step must be the token; an off-rhythm px is a documented exception or it moves), then
+   the 15px and 18px are put on referenced steps. **M.** *(A gate change, so it lands with its
+   mutation.)*
+
+2. **Six off-scale border radii.** Rule 11's gate asserts the five canonical tokens exist; it does
+   not stop `border-radius: 7px` — measured **15 distinct radius values** in `app.css`, six off the
+   scale: `7px` ×4 (the tab strip, the segmented control, the evidence door), `8px` ×3, `6px` ×1,
+   `10px` ×1, `999px` ×3 (the canonical pill, written as a literal), `1px` ×1. The tab strip's tray
+   is `--radius-sm2` (8px) and its segments are 7px, so the inset does not read as the tray's own.
+   **Fix:** every `border-radius` is a `var(--radius-*)` or `0`; the gate asserts it. **S.**
+
+3. **Fifteen shadows where the system names six.** Rule 10. `tokens.css` declares `--shadow`,
+   `--shadow-lg`, `--shadow-1`, `--shadow-2`; `app.css` adds `--elev-1`, `--elev-2` and `--ring`
+   in a second `:root` block, and `--elev-1` is **used zero times** while `--elev-2` is used twice.
+   Measured: **15 distinct `box-shadow` values**, of which three are literal
+   `0 1px 2px rgba(0,0,0,0.1)` (the raised segment) and the rest are tokens. A shadow token nobody
+   uses is a second palette waiting for its first use. **Fix:** one elevation family in one place
+   (the generated sheet), the dead `--elev-1` deleted, the raised-segment shadow a token, and the
+   gate asserts that every `box-shadow` is a token or `none` (`--ring` included). **S.**
+
+4. **Two literal colours outside the palette, and they are the terminal's own.** Rule 2/9. Measured
+   in `app.css`: `#14161a` on `#d6dae0` for `.evidence-output` — an ANSI-dark surface and ink that
+   the token sheet already has a family for (`--term-canvas`, `--term-white`), written as literals
+   so they cannot change with the theme (they are meant not to) but also cannot be checked by any
+   gate. The rest of the sheet's literals are `#000`/`#fff` inside `color-mix` (a ratio, not a
+   colour) plus one fallback `var(--line, #e3e1dc)` that never fires in the React page. **Fix:**
+   the two evidence colours become named tokens (`--evidence-bg`, `--evidence-ink`) declared beside
+   the terminal family, and the contrast gate reads them instead of two literals it was given by
+   hand. **S.**
+
+5. **Nine letter-spacing literals beside the four tracking tokens.** Rule 14. `tokens.css` names
+   `--tracking-display/-tight/-label/-eyebrow`; `app.css` also writes `-0.004em` (body), `-0.022em`
+   (h1), `-0.014em` (h2), `-0.012em`, `-0.01em` ×4, `0.01em`, `0.02em`, `0.04em`, `0`. The h1's
+   `-0.022em` is the *display* step's job done at the call site with a different number
+   (`--tracking-display` is `-0.011em`, so the h1 is twice as tight as the token that names it).
+   **Fix:** the heading tracking is the token's, the rest are the two literals a body and a small
+   caps label genuinely need — or they become tokens. **S.**
+
+6. **The evidence panel's radius is 10px where the panel around it is 14.** Rule 11 with rule 7:
+   the nested box is `border-radius: 10px` inside `.timeline-row`, and the row's inset group is
+   `6px`. Three radii inside one opened row. It reads as three systems. **Fix:** the nested box
+   takes the inner step (`--radius-sm2`), the row's line takes `--radius-xs`. **S.** *(This is the
+   same item as 2's measurement, done at the one place the operator opens most.)*
+
+7. **The block that renders in the jsdom suite is not the block the operator meets.** Not a design
+   rule but the reason several of the above went unseen: `device/console/web/src/tokens.css` is
+   generated and gated, but `app.css`'s 15px timeline padding, 7px segments and 10px evidence are
+   only visible in a browser. `browser-gate.mjs` measures layout where it already looks (the fleet,
+   the sheet, the fold) and not the type/space/radius of the surfaces it visits. **Fix:** a
+   measured pass in the browser gate that asserts the radius and shadow families **on the built
+   page** at 1440 and 390, so the gate and the operator see the same numbers. **M.**
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
