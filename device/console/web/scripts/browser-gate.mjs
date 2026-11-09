@@ -4124,6 +4124,27 @@ try {
   const resume390 = page.getByRole('button', { name: /^Resume/ });
   await resume390.waitFor({ timeout: 5_000 });
   await resume390.click();
+  // **THE TABLE OPENS ON THE SAME AMOUNT OF RECORD AS THE TIMELINE (the thirty-first list).**
+  // Measured on the operator's page: the Table built 1,001 rows at once — 17,074 elements and a
+  // 41,467 px page in 478 ms — while the Timeline beside it drew 60 behind a door. These two views
+  // are one record; this leg counts the rows the Table draws and fails if the wall comes back.
+  const tableFold = await page.evaluate(() => {
+    const rows = [...document.querySelectorAll('tr.audit-row')];
+    const doors = [...document.querySelectorAll('.audit-more')].map((button) =>
+      (button.textContent ?? '').replace(/\s+/g, ' ').trim()
+    );
+    return { rows: rows.length, doors: doors.slice(0, 3), elements: document.querySelectorAll('*').length };
+  });
+  if (tableFold.rows > 120) {
+    throw new Error(`the Table draws ${tableFold.rows} rows at once; a day opens on its newest 60`);
+  }
+  if (tableFold.doors.length === 0) {
+    throw new Error('the Table draws no door for the rest of its day');
+  }
+  step(
+    `the Table opens on ${tableFold.rows} rows with ${tableFold.doors.length} door(s): ${tableFold.doors.join(' / ')}`
+  );
+
   step('Activity offers no Refresh: Pause/Resume is the paused page\'s one way back');
   await page.getByRole('tab', { name: 'Table' }).click();
   const firstAuditRow = page.locator('.audit-row').first();
