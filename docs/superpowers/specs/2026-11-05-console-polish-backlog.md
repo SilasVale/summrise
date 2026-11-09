@@ -1745,6 +1745,16 @@ What remains, in the design's own order:
    `installer-strip` each write their own border and radius while `.card` exists and is used only on the
    machine pages. Home is the page whose first job is the verdict, and its blocks should read as one
    family. **S.**
+   *(**Done, live 0.3.273-ux143** (`a24d607`): all three carry `.card` and keep only what they add —
+   `.attention` its 3 px warning edge, `.fleet-table-wrap` `overflow: hidden` + `padding: 0` because a
+   table is the card's BODY, `.installer-strip` its flex row. Measured live: each **14 px cornered**,
+   attention and the strip at the card's **16 px padding**, the table at its declared 0. **And the
+   move cost the strip its shape for one deploy:** `.card` is `flex-direction: column`, the strip's
+   own rule set only `display: flex`, so it inherited the column — live on `ux142` it drew **238 px
+   tall with its four children at x=710 / 749 / 939 / 1,058**. The rule declares the direction it
+   means and the gate now reads it (`the installer strip stacks in a ${direction}`); live after,
+   `ux143`: **126 px, `flex-direction: row`**, children at 317 / 583 / 939. The cost is the honest
+   record of this item, not a footnote.)*
 
 ## How a round goes
 
