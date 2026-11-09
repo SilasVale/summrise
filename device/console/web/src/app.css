@@ -3060,7 +3060,11 @@ main::-webkit-scrollbar-track, .sheet-body::-webkit-scrollbar-track, .scroll::-w
      rule height means the labels, the chips and the field all start at the same y. */
 .timeline-filters {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 18rem) 18rem;
+  /* **THE MACHINE COLUMN KEEPS ITS OWN CHIPS ON ONE ROW.** The first grid gave that column the
+     leftover `1fr` (444 px at 1440), and the five chips need 581 — they wrapped to two rows and the
+     bar grew instead of tightening. `max-content` for the chips column, a flexible gap, and a fixed
+     search: the chips stay on one line and the search keeps the bar's right edge. */
+  grid-template-columns: max-content max-content 18rem;
   align-items: start;
   gap: var(--sp-1-5) var(--sp-5);
   margin: 0 0 18px; padding-bottom: var(--sp-3-5);
