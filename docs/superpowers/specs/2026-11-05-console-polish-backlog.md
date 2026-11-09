@@ -1654,6 +1654,15 @@ different hierarchies rather than one shared style.
    answer the page already knows), in the other direction. **Fix:** when the fleet has outrun the file
    the strip says what the file is FOR (a machine that leaves and comes back, or a new one) instead of
    inviting an install, and the invitation is not the page's loudest control. **M.**
+   *(**Done, live 0.3.273-ux138** (`eeb4429`): the strip has two states and says which it is in. The
+   live page (fleet 0.3.292, file 0.3.291) now reads `Installer for a new or returning machine` over a
+   **neutral** download, and the sentence names what the file is still good for: *"It installs a
+   machine that is not in the fleet yet, or one that comes back after being removed; a machine already
+   running 0.3.292 needs nothing from it."* The page now has **exactly one accent-filled control —
+   `Add a machine`** (measured across every element on `main` whose background is the accent solid).
+   The strip grew 100 → 118 px, which is the height of the sentence that makes it honest. A test draws
+   the live state and fails when `stale` is forced back to `false`; the gate's leg names the heading and
+   the control's class.)*
 
 ## How a round goes
 
