@@ -3200,10 +3200,25 @@ try {
       ` (${at.toISOString()})`
     );
   };
+  // **THE DATES ARE THE RECORD'S NOW (the twenty-sixth list, item 3).** A summary row states only
+  // what differs between credentials (how many machines, when it was last used); the id, the tool
+  // count and the three dates are one press away, in the record that button opens. The gate opens
+  // the first token's record and reads those cells there, so the ISO shape and the exact moment in
+  // the `title` are still measured, on the surface that now carries them.
   const dated = tokenRows.first();
-  const createdCell = dated.locator('.token-created time');
-  const usedCell = dated.locator('.token-name .hint time');
-  const expiresCell = dated.locator('.token-expires time');
+  const datedFace = await dated.innerText();
+  if (!datedFace.includes('used ') && !datedFace.includes('never used')) {
+    throw new Error(`the first token's row states no use: ${JSON.stringify(datedFace)}`);
+  }
+  await dated.getByRole('button', { name: /^[^]*Show details/ }).or(
+    dated.locator('.token-disclosure')
+  ).first().click();
+  const datedRecord = page.locator('.token-record').first();
+  await datedRecord.waitFor({ timeout: 10_000 });
+  const recordField = (label) => datedRecord.locator('dt', { hasText: label }).locator('..').locator('dd');
+  const createdCell = datedRecord.locator('dt:text-is("Created") + dd time');
+  const usedCell = datedRecord.locator('dt:text-is("Last used") + dd time');
+  const expiresCell = datedRecord.locator('dt:text-is("Expires") + dd time');
   for (const [cell, atMs, label] of [
     [createdCell, TOKENS[0].created_at_ms, 'created'],
     [usedCell, TOKENS[0].last_used_ms, 'used'],
@@ -3226,18 +3241,25 @@ try {
   }
   // A token with neither a use nor a lifetime keeps the words; no element pretends to a date.
   const neverToken = tokenRows.filter({ hasText: 'zss-harness-20261106-fleet' });
-  const neverExpiry = await neverToken.locator('.token-expires').innerText();
+  await neverToken.locator('.token-disclosure').click();
+  const neverRecord = page.locator('.token-record').first();
+  const neverExpiry = (await neverRecord.locator('dt:text-is("Expires") + dd').innerText()).trim();
   // At the sheet's 600 px container width the cell's own `Expires` label is inline, so the value is
   // the cell's suffix; a digit anywhere would mean a date was drawn for a token that has none.
-  if (!neverExpiry.endsWith('never') || /\d/.test(neverExpiry)) {
+  if (neverExpiry !== 'never' || /\d/.test(neverExpiry)) {
     throw new Error(`a token with no expiry read ${JSON.stringify(neverExpiry)}, not never`);
   }
   if ((await neverToken.locator('.token-expires time').count()) !== 0) {
     throw new Error('a token with no expiry drew a date');
   }
-  const neverUsed = await neverToken.locator('.token-name .hint').innerText();
-  if (neverUsed !== 'never used') {
+  // The row says `never used` in its own words, and the record says `never` for the date.
+  const neverUsed = await neverToken.locator('.token-facts').innerText();
+  if (!neverUsed.includes('never used') || neverUsed.includes('used 2')) {
     throw new Error(`a token that was never used read ${JSON.stringify(neverUsed)}, not never used`);
+  }
+  const neverRecordUsed = (await neverRecord.locator('dt:text-is("Last used") + dd').innerText()).trim();
+  if (neverRecordUsed !== 'never') {
+    throw new Error(`a token that was never used drew ${JSON.stringify(neverRecordUsed)} for its date`);
   }
   step(
     'the token sheet dates created/used/expires in ISO with the exact moment in the title, and never for a token with no expiry'
@@ -3248,6 +3270,14 @@ try {
   // against the sheet, not the viewport: the old sixth column put Revoke past its right edge.
   await page.waitForTimeout(400);
   const sheet1280 = await page.locator('.sheet').boundingBox();
+  // **ONE LINE, NOT 156 PX (the twenty-sixth list, item 3).** Measured before this change on the
+  // operator's page: seven rows of 156-164 px each repeating `39 tools · destructive allowed ·
+  // Expires never`. A summary row now states the two facts that differ, so the gate records its
+  // height beside the sheet's — a regression that puts the table cells back shows up as a number.
+  const rowGeometry = await page.locator('.token-table tbody tr.token-row').evaluateAll((rows) =>
+    rows.map((row) => Math.round(row.getBoundingClientRect().height))
+  );
+  step(`token rows at 1280 measure ${JSON.stringify(rowGeometry)} px tall (was 156-164 before item 3)`);
   const revoke1280 = await tokenRows.first().getByRole('button', { name: 'Revoke' }).boundingBox();
   if (!sheet1280 || !revoke1280) throw new Error('the token sheet or its Revoke has no box');
   const inside = (box, outer) =>
@@ -3553,12 +3583,18 @@ try {
     );
   }
   step(`the fleet coverage sentence marks each machine: ${coverage}`);
-  // **THE SCOPE CELL NAMES THE MACHINES.** A count alone sent the operator minting another token to
-  // answer "does this one cover 84T3LIN?"; the fleet row must name the gate machine it reaches.
+  // **THE RECORD NAMES THE MACHINES.** A count alone sent the operator minting another token to
+  // answer "does this one cover 84T3LIN?"; the count is the row's fact (backlog item 3) and the
+  // machine names are one press behind it, so the gate opens the row and reads them there.
   const fleetScopeRow = tokensDoor.getByRole('row', { name: /zss-harness-20261106-fleet/ });
-  const fleetScopeText = await fleetScopeRow.innerText();
+  const fleetFace = await fleetScopeRow.innerText();
+  if (!/\d+ machines? · /.test(fleetFace)) {
+    throw new Error(`the fleet token's row stated no reach count: ${JSON.stringify(fleetFace)}`);
+  }
+  await fleetScopeRow.locator('.token-disclosure').click();
+  const fleetScopeText = await page.locator('.token-record').first().innerText();
   if (!fleetScopeText.includes(DEVICE.name)) {
-    throw new Error(`the fleet token's scope read ${JSON.stringify(fleetScopeText)}`);
+    throw new Error(`the fleet token's record did not name the machines: ${JSON.stringify(fleetScopeText)}`);
   }
   // **THE SCOPE CELL NAMES THE DOOR, NOT ONLY THE MACHINES.** A token whose scope names a machine
   // is still refused at that machine's URL when it is a fleet token; the cell must say which door
@@ -3566,9 +3602,9 @@ try {
   if (!fleetScopeText.includes('fleet · /mcp/all')) {
     throw new Error(`the fleet token's scope did not name its door: ${JSON.stringify(fleetScopeText)}`);
   }
-  const deviceScopeText = await tokensDoor
-    .getByRole('row', { name: /gate-laptop/ })
-    .innerText();
+  const deviceScopeRow = tokensDoor.getByRole('row', { name: /gate-laptop/ });
+  await deviceScopeRow.locator('.token-disclosure').click();
+  const deviceScopeText = await page.locator('.token-record').first().innerText();
   if (!deviceScopeText.includes('device · /mcp/')) {
     throw new Error(`the device token's scope did not name its door: ${JSON.stringify(deviceScopeText)}`);
   }
@@ -3599,7 +3635,7 @@ try {
       sheetRight: Math.round(sheet.getBoundingClientRect().right),
       scrollerScrollWidth: scroller?.scrollWidth ?? 0,
       scrollerClientWidth: scroller?.clientWidth ?? 0,
-      rows: [...sheet.querySelectorAll('.token-table tbody tr')].map((row) => {
+      rows: [...sheet.querySelectorAll('.token-table tbody tr.token-row')].map((row) => {
         const nameCell = row.cells[0];
         const nameBox = row.querySelector('.token-name');
         const strong = nameBox?.querySelector('strong');

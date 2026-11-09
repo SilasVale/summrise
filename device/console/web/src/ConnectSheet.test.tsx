@@ -631,16 +631,64 @@ describe("ConnectSheet's one credential list", () => {
     expect(deviceRow).toHaveTextContent("device · /mcp/dev-workshop");
     expect(deviceRow).toHaveTextContent("this machine");
     expect(fleetRow).toHaveTextContent("fleet · /mcp/all");
-    expect(fleetRow).toHaveTextContent("workshop, dev-attic");
+    // **A ROW STATES WHAT DIFFERS (the twenty-sixth list, item 3).** The reach is a count here and
+    // the machine names are the record's; the count is the fact that separates four fleet tokens
+    // that otherwise read identically.
+    expect(fleetRow).toHaveTextContent("3 machines");
     expect(fleetRow).not.toHaveTextContent("all machines");
-    const scopeChip = within(fleetRow).getByText(/workshop, dev-attic/);
+    // The chip's title still carries the whole sentence, so the count is checkable on the row.
+    const scopeChip = within(fleetRow).getByText("fleet · /mcp/all");
     expect(scopeChip.getAttribute("title")).toContain("Covers 3 machines: workshop, dev-attic");
     expect(scopeChip.getAttribute("title")).toContain("enrolled after");
-    expect(screen.getAllByRole("row", { name: /laptop|dsh-fleet/ })).toHaveLength(2);
+    // Open the fleet record: every machine is named there, with no `and N more`.
+    fireEvent.click(within(fleetRow).getByRole("button", { name: /dsh-fleet/ }));
+    const record = document.querySelector(".token-record") as HTMLElement;
+    expect(record).not.toBeNull();
+    expect(record.textContent).toContain("workshop, dev-attic, dev-a-third-…");
+    expect(record.textContent).not.toContain("and 1 more");
+    // The open record is a table row too; the two SUMMARY rows are the credentials.
+    const summaryRows = [...document.querySelectorAll("tr.token-row")];
+    expect(summaryRows).toHaveLength(2);
+    expect(summaryRows[0]).toHaveTextContent("dsh-fleet");
+    expect(summaryRows[1]).toHaveTextContent("laptop");
+  });
 
-    const dataRows = within(screen.getByRole("table")).getAllByRole("row").slice(1);
-    expect(dataRows[0]).toHaveTextContent("dsh-fleet");
-    expect(dataRows[1]).toHaveTextContent("laptop");
+  it("states only what differs on a row, and puts everything else behind one disclosure", async () => {
+    // **THE MEASURED ROW WAS 156-164 PX AND SAID THE SAME WORDS SEVEN TIMES (the twenty-sixth
+    // list, item 3):** `39 tools`, `destructive allowed`, `Expires never`, three machine names and
+    // `and 1 more`. A row now carries the two facts that separate one credential from another —
+    // how many machines it reaches, and when it was last used — and the rest is its own record.
+    const fleet = tokenMeta({
+      id: "tok-fleet",
+      name: "dsh-fleet",
+      device_id: "",
+      device_ids: [WORKSHOP.id, ATTIC.id, "dev-a-third-machine"],
+      tools: ["files.read", "terminal.write"],
+      allow_destructive: true,
+      created_at_ms: Date.UTC(2026, 10, 2),
+      last_used_ms: Date.UTC(2026, 10, 4, 9, 41, 5)
+    });
+    mocks.tokens.mockResolvedValue([fleet]);
+    draw({ initialSection: "tokens" });
+
+    const row = await screen.findByRole("row", { name: /dsh-fleet/ });
+    const face = row.textContent ?? "";
+    expect(face).toContain("3 machines");
+    expect(face).toContain("used 2026-11-04");
+    // The repeated words are not on the row any more.
+    expect(face).not.toContain("tools");
+    expect(face).not.toContain("destructive");
+    expect(face).not.toContain("Expires");
+    expect(face).not.toContain("and 1 more");
+    expect(row.querySelector("time[datetime]")).not.toBeNull();
+
+    const door = within(row).getByRole("button", { name: /dsh-fleet/ });
+    expect(door).toHaveAttribute("aria-expanded", "false");
+    fireEvent.click(door);
+    expect(door).toHaveAttribute("aria-expanded", "true");
+    const record = document.querySelector(".token-record") as HTMLElement;
+    expect(record.textContent).toContain("destructive allowed");
+    expect(record.textContent).toContain("2026-11-02");
   });
 
   it("marks the token list as the container the narrow rule stacks", async () => {
@@ -721,7 +769,8 @@ describe("ConnectSheet's one credential list", () => {
       })
     );
     const row = await screen.findByRole("row", { name: /fleet/ });
-    expect(row).toHaveTextContent("workshop, attic");
+    // The count is the row's fact; the names are in the record (backlog item 3).
+    expect(row).toHaveTextContent("2 machines");
     // The one-time value is still the reveal; the row is metadata and never the secret.
     expect(screen.getByText("srm_" + "c".repeat(64))).toBeInTheDocument();
     expect(row).not.toHaveTextContent("srm_");
@@ -769,8 +818,16 @@ describe("ConnectSheet's one credential list", () => {
     try {
       draw({ initialSection: "tokens", focusTokenId: "tok-wanted" });
 
-      const row = await screen.findByRole("row", { name: /wanted/ });
+      // The refused token's record opens with it (its reach is the answer to the refusal), so the
+      // name matches two rows: the summary row is the one that is marked and carries the disclosure.
+      const rows = await screen.findAllByRole("row", { name: /wanted/ });
+      expect(rows.length).toBeGreaterThan(0);
+      const row = rows.find((candidate) => candidate.classList.contains("is-managed"))!;
       expect(row).toHaveClass("is-managed");
+      expect(within(row).getByRole("button", { name: /wanted/ })).toHaveAttribute(
+        "aria-expanded",
+        "true"
+      );
       // `findByRole` waits for the row's render, not for the effect that scrolls to it: the effect
       // runs in a later tick, so asserting the call here raced it (a flake under parallel load).
       await waitFor(() => expect(scrollIntoView).toHaveBeenCalled());
@@ -894,20 +951,30 @@ describe("ConnectSheet's token dates", () => {
 
     draw({ initialSection: "tokens" });
     const row = await screen.findByRole("row", { name: /dated/ });
-    const created = row.querySelector(".token-created time") as HTMLTimeElement;
-    const used = row.querySelector(".token-name .hint time") as HTMLTimeElement;
-    const expires = row.querySelector(".token-expires time") as HTMLTimeElement;
+    // **THE DATES ARE THE RECORD'S NOW (the twenty-sixth list, item 3).** A row states what
+    // differs between credentials; the exact dates are details, one press away. The record is a
+    // <dl>, so each value is found by its own <dt>.
+    fireEvent.click(within(row).getByRole("button", { name: /dated/ }));
+    const record = document.querySelector(".token-record") as HTMLElement;
+    const field = (label: string) => {
+      const dt = [...record.querySelectorAll("dt")].find((node) => node.textContent === label)!;
+      return dt.nextElementSibling as HTMLElement;
+    };
+    const created = field("Created").querySelector("time") as HTMLTimeElement;
+    const expires = field("Expires").querySelector("time") as HTMLTimeElement;
 
     expect(created).toHaveTextContent(/^2026-11-02$/);
-    expect(used).toHaveTextContent(/^2026-11-04$/);
     expect(expires).toHaveTextContent(/^2026-12-04$/);
     // The exact time is the cell's title, with the audit's UTC instant beside it.
     expect(created).toHaveAttribute(
       "title",
       `2026-11-02 17:03:09 (${new Date(CREATED_AT).toISOString()})`
     );
-    expect(used.getAttribute("title")).toContain("09:41:05");
     expect(expires.getAttribute("title")).toContain("09:41:05");
+    // The row's own facts line states when it was last used, and it is a <Moment> too.
+    const factsUsed = row.querySelector(".token-facts time") as HTMLTimeElement;
+    expect(factsUsed).toHaveTextContent(/^2026-11-04$/);
+    expect(factsUsed.getAttribute("title")).toContain("09:41:05");
     expect(created).toHaveAttribute("dateTime", new Date(CREATED_AT).toISOString());
     // Not one locale's slash form anywhere on the row.
     expect(row.textContent).not.toMatch(/\d{1,2}\/\d{1,2}\/\d{4}/);
@@ -920,12 +987,20 @@ describe("ConnectSheet's token dates", () => {
 
     draw({ initialSection: "tokens" });
     const row = await screen.findByRole("row", { name: /unused/ });
-    const expires = row.querySelector(".token-expires") as HTMLElement;
-    const hint = row.querySelector(".token-name .hint") as HTMLElement;
-
-    expect(expires.querySelector("time")).toBeNull();
-    expect(expires).toHaveTextContent("never");
-    expect(hint).toHaveTextContent("never used");
-    expect(hint.querySelector("time")).toBeNull();
+    // The summary says `never used` without an element that pretends to be a date…
+    const facts = row.querySelector(".token-facts") as HTMLElement;
+    expect(facts).toHaveTextContent("never used");
+    expect(facts.querySelector("time")).toBeNull();
+    // …and the record states both absences as words, with no <time> for either.
+    fireEvent.click(within(row).getByRole("button", { name: /unused/ }));
+    const record = document.querySelector(".token-record") as HTMLElement;
+    const field = (label: string) => {
+      const dt = [...record.querySelectorAll("dt")].find((node) => node.textContent === label)!;
+      return dt.nextElementSibling as HTMLElement;
+    };
+    expect(field("Expires")).toHaveTextContent("never");
+    expect(field("Expires").querySelector("time")).toBeNull();
+    expect(field("Last used")).toHaveTextContent("never");
+    expect(field("Last used").querySelector("time")).toBeNull();
   });
 });

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, type Created, type Device, type LiveTool, type TokenMeta } from "./api";
 import { groupByCapability } from "./capabilities";
 import { copyText } from "./copy";
@@ -356,6 +356,12 @@ function TokensSection({
   const [tokens, setTokens] = useState<TokenMeta[] | null>(null);
   const [tokensError, setTokensError] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  // **THE LIST ANSWERS "WHICH DO I KEEP", SO A ROW IS ONE LINE AND ITS DETAILS ARE BEHIND ITS
+  // OWN DISCLOSURE (the twenty-sixth list, item 3).** Measured before this: seven rows of
+  // 156-164 px each repeating `39 tools`, `destructive allowed` and `Expires never`, while the
+  // facts that differ between them — how many machines, when it was last used — were the last
+  // thing in the name cell. One record is open at a time, because a row's detail is a record.
+  const [openTokenId, setOpenTokenId] = useState<string | null>(null);
   const [rotating, setRotating] = useState<TokenMeta | null>(null);
   const [rotateBusy, setRotateBusy] = useState(false);
   const [rotateError, setRotateError] = useState<string | null>(null);
@@ -485,6 +491,9 @@ function TokensSection({
   // in jsdom and in a runtime that cannot scroll; the row's mark still says which record this is.
   useEffect(() => {
     if (!focusTokenId) return;
+    // The refusal sent the operator here to read THIS credential; its record is what says what it
+    // can reach, so the record opens with it rather than making the reader press twice.
+    setOpenTokenId(focusTokenId);
     focusedRow.current?.scrollIntoView?.({ block: "center", behavior: "smooth" });
   }, [focusTokenId, tokens]);
 
@@ -649,9 +658,6 @@ function TokensSection({
                 <tr>
                   <th scope="col">Name</th>
                   <th scope="col">Scope</th>
-                  <th scope="col">Tools</th>
-                  <th scope="col">Expires</th>
-                  <th scope="col">Created</th>
                   <th scope="col">
                     <span className="sr-only">Actions</span>
                   </th>
@@ -662,86 +668,144 @@ function TokensSection({
                   const label = entry.name || shortId(entry.id);
                   const scope = scopeLabel(entry, devices, device?.id ?? null);
                   const focused = entry.id === focusTokenId;
+                  const open = openTokenId === entry.id;
+                  // **THE FACTS THAT DIFFER, IN THE ROW'S OWN VOICE.** A fleet token's reach is a
+                  // count of the machines recorded on it; a device token's reach is the machine's
+                  // name, which `scopeLabel` already words. The use is the `<Moment>` the row always
+                  // carried, moved beside the count instead of under the id.
+                  const reach =
+                    tokenScope(entry) === "fleet"
+                      ? `${(entry.device_ids ?? []).length} machine${
+                          (entry.device_ids ?? []).length === 1 ? "" : "s"
+                        }`
+                      : scope.label;
+                  const recordId = `token-record-${entry.id}`;
                   return (
-                    <tr
-                      key={entry.id}
-                      className={focused ? "is-managed" : undefined}
-                      ref={focused ? focusedRow : undefined}
-                    >
-                      <td>
-                        <div className="token-name">
-                          <strong>{label}</strong>
-                          <span className="token-id">
-                            <code title={entry.id}>{shortId(entry.id)}</code>
+                    <Fragment key={entry.id}>
+                      <tr
+                        className={`token-row${focused ? " is-managed" : ""}${
+                          open ? " is-open" : ""
+                        }`}
+                        ref={focused ? focusedRow : undefined}
+                      >
+                        <td>
+                          <div className="token-name">
                             <button
                               type="button"
-                              className="mini"
-                              aria-label={`Copy id of ${label}`}
-                              onClick={() => void copyId(entry.id)}
+                              className="token-disclosure"
+                              aria-expanded={open}
+                              aria-controls={recordId}
+                              onClick={() =>
+                                setOpenTokenId((current) => (current === entry.id ? null : entry.id))
+                              }
                             >
-                              {copiedId === entry.id ? "Copied" : "Copy"}
+                              <span className="token-chevron" aria-hidden="true">
+                                ⌄
+                              </span>
+                              <strong>{label}</strong>
                             </button>
+                            <span className="token-facts">
+                              {reach} ·{" "}
+                              {entry.last_used_ms == null ? (
+                                "never used"
+                              ) : (
+                                <>used <Moment ts={entry.last_used_ms} /></>
+                              )}
+                            </span>
+                          </div>
+                        </td>
+                        <td>
+                          <span className="chip" title={scope.title}>
+                            {scope.door}
                           </span>
-                          <span className="hint">
-                            {entry.last_used_ms == null ? (
-                              "never used"
-                            ) : (
-                              <>used <Moment ts={entry.last_used_ms} /></>
-                            )}
-                          </span>
-                        </div>
-                      </td>
-                      <td>
-                        <span className="chip" title={scope.title}>
-                          {scope.door}
-                        </span>
-                        <span className="hint token-scope-reach" title={scope.title}>
-                          {scope.label}
-                        </span>
-                      </td>
-                      <td className="token-tools">
-                        <span title={entry.tools.join(", ")}>
-                          {entry.tools.length} tool{entry.tools.length === 1 ? "" : "s"}
-                        </span>
-                        <span className="hint">
-                          {entry.allow_destructive ? "destructive allowed" : "read-only"}
-                        </span>
-                      </td>
-                      <td className="token-expires">
-                        <span className="token-meta-label" aria-hidden="true">Expires</span>
-                        {entry.expires_at_ms == null ? (
-                          "never"
-                        ) : (
-                          <Moment ts={entry.expires_at_ms} />
-                        )}
-                      </td>
-                      <td className="token-created">
-                        <span className="token-meta-label" aria-hidden="true">Created</span>
-                        <Moment ts={entry.created_at_ms} />
-                      </td>
-                      <td className="token-actions">
-                        <button
-                          type="button"
-                          className="mini"
-                          onClick={() => {
-                            setRotateError(null);
-                            setRotating(entry);
-                          }}
-                        >
-                          Rotate
-                        </button>
-                        <button
-                          type="button"
-                          className="mini"
-                          onClick={() => {
-                            setRevokeError(null);
-                            setRevoking(entry);
-                          }}
-                        >
-                          Revoke
-                        </button>
-                      </td>
-                    </tr>
+                        </td>
+                        <td className="token-actions">
+                          <button
+                            type="button"
+                            className="mini"
+                            onClick={() => {
+                              setRotateError(null);
+                              setRotating(entry);
+                            }}
+                          >
+                            Rotate
+                          </button>
+                          <button
+                            type="button"
+                            className="mini"
+                            onClick={() => {
+                              setRevokeError(null);
+                              setRevoking(entry);
+                            }}
+                          >
+                            Revoke
+                          </button>
+                        </td>
+                      </tr>
+                      {open && (
+                        <tr className="token-record-row" id={recordId}>
+                          <td colSpan={3}>
+                            <dl className="token-record">
+                              <dt>Endpoint</dt>
+                              <dd title={scope.title}>
+                                <code className="mono">{scope.door}</code>
+                                {" — "}
+                                {tokenScope(entry) === "fleet"
+                                  ? (entry.device_ids ?? []).length === 0
+                                    ? "no machines recorded"
+                                    : (entry.device_ids ?? [])
+                                        .map(
+                                          (id) =>
+                                            devices.find((machine) => machine.id === id)?.name ||
+                                            shortId(id)
+                                        )
+                                        .join(", ")
+                                  : scope.label}
+                              </dd>
+                              <dt>Tools</dt>
+                              <dd>
+                                {entry.tools.length} tool{entry.tools.length === 1 ? "" : "s"} ·{" "}
+                                {entry.allow_destructive ? "destructive allowed" : "read-only"}
+                              </dd>
+                              <dt>ID</dt>
+                              <dd>
+                                <code className="mono" title={entry.id}>
+                                  {shortId(entry.id)}
+                                </code>
+                                <button
+                                  type="button"
+                                  className="mini"
+                                  aria-label={`Copy id of ${label}`}
+                                  onClick={() => void copyId(entry.id)}
+                                >
+                                  {copiedId === entry.id ? "Copied" : "Copy"}
+                                </button>
+                              </dd>
+                              <dt>Created</dt>
+                              <dd>
+                                <Moment ts={entry.created_at_ms} />
+                              </dd>
+                              <dt>Expires</dt>
+                              <dd>
+                                {entry.expires_at_ms == null ? (
+                                  "never"
+                                ) : (
+                                  <Moment ts={entry.expires_at_ms} />
+                                )}
+                              </dd>
+                              <dt>Last used</dt>
+                              <dd>
+                                {entry.last_used_ms == null ? (
+                                  "never"
+                                ) : (
+                                  <Moment ts={entry.last_used_ms} />
+                                )}
+                              </dd>
+                            </dl>
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
                   );
                 })}
               </tbody>
