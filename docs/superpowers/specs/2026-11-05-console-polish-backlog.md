@@ -1722,12 +1722,24 @@ What remains, in the design's own order:
    and the harness view still lay their content edge-to-edge inside the content card, so switching
    pages changes which frame you are looking at. Measured before: Plugins' boxes at x=73 (1,267 wide)
    and Memory's at x=219 (980). **M.**
+   *(**Done, panel `94f70f63`**: all five pages measure **x=125, 1,168 px column** at 1360 (1,120 + the
+   frame's two 24 px insets); the terminal keeps the one legitimate exception. Two of them were
+   ALMOST right, which is the worse failure: Plugins kept `padding: var(--sp-4) 20px`, later in the
+   sheet than the frame's rule, so it won — with `content-box` that drew a **1,160 px** page carrying
+   a **1,120 max**; Settings kept its own padding and had no width at all. Both paddings are gone.
+   The gate `every page but the terminal carries the frame` fails with `expected [ 'memory' ] to
+   deeply equal []` when a page root drops the class.)*
 
 2. **Settings' three nested folds collapsed to the card grammar.** Measured at 1360: `settings-fold`
    1,221 at x=98, `settings-section` 1,187 at x=115 inside it, `connect-snippet` 1,153 at x=132 inside
    that — three insets, each a hairline, on one page. The rule to apply is the one rule that fixes all
    three: a section is either a card or it is not, and nesting a box inside a box inside a box to say
    "these belong together" is what rule 7 (spacing and grouping, not borders) forbids. **M.**
+   *(**Done, panel `94f70f63`**: a section inside a fold keeps the fold's surface and draws no second
+   box — measured **x=166, padding 0, border 0**, with the snippet on the same edge at **x=166**
+   (it was 132). A section standing on the page keeps its card, which is what this exception
+   preserves rather than erases. The gate `a box inside a box inside a box is refused on Settings`
+   fails on the surface, the hairline and the inset independently.)*
 
 3. **Home's four ad-hoc boxes onto the card grammar.** `attention`, `fleet-table-wrap`, `installer`,
    `installer-strip` each write their own border and radius while `.card` exists and is used only on the
