@@ -1877,6 +1877,16 @@ console's machine tabs keep their own subject when `/mcp` fails (`Could not read
    page means to be honest here and is not. **Fix:** the hook reports three states, not two, and the
    failed one says what failed and offers the retry, exactly as the panel's three pages already do.
    **S.**
+   *(**Done, live 0.3.273-ux146** (`ab3e2e2`): `useInstaller` reports **three** states (`reading` /
+   `read` / `failed`) and carries a `retry`. Live with `/installer` answering 500 and `/fleet` empty:
+   `Install the device runtime · The installer could not be read, so this page cannot offer the
+   download or say which build it carries. · Try the installer again`, drawn as
+   `card installer installer-strip`. Before, that page drew `page-head` + `empty-state` and NOTHING
+   else (848 → 748 px). The gate's new leg breaks `/installer` in the page's own origin; mutation —
+   making the hook report `reading` in its `catch` — fails it with `a failed installer read drew
+   nothing at all — the page answered with silence`. The leg also taught the audit that **a failure
+   THIS SCRIPT plants is not a console error**: it is excused by the sentence describing it, and a
+   real 500 still fails the run.)*
 
 2. **The empty fleet's page has three blocks and no first action.** With `[]` the page reads
    `No machines yet` — and the installer strip below it is the page's smallest block (**66 px**),
