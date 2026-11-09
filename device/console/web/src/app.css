@@ -3064,12 +3064,19 @@ main::-webkit-scrollbar-track, .sheet-body::-webkit-scrollbar-track, .scroll::-w
      leftover `1fr` (444 px at 1440), and the five chips need 581 — they wrapped to two rows and the
      bar grew instead of tightening. `max-content` for the chips column, a flexible gap, and a fixed
      search: the chips stay on one line and the search keeps the bar's right edge. */
-  /* **THE SEARCH COLUMN SHRINKS; IT DOES NOT OVERFLOW.** A fixed 18rem third column overflowed the
-     bar by 143 px at 1440 (search x=1213 + 288 = 1501 against a bar ending at 1358) — the chips need
-     581, the callers column is as wide as its count sentence, and three fixed tracks add up past the
-     panel. The third track is the flexible one, and the search keeps its 18rem only while there is
-     room for it (`max-width: 100%` shrinks it to its own column when there is not). */
-  grid-template-columns: max-content max-content minmax(0, 1fr);
+  /* **THE COUNT GETS ITS OWN ROW, THE SEARCH KEEPS ITS WIDTH.** Three tracks at their natural widths
+     add up past the panel (chips 581 + the count sentence 294 + the search 288 + two gaps > 1044), and
+     the previous two attempts each broke something: a fixed third track overflowed the bar by 143 px,
+     and a flexible one squeezed the search to 145 px, where its placeholder read `sentence, tool, mach…`
+     — a clipped word is worse than a second line. The count spans the caller and search columns on a
+     row of its own, so the search keeps 18rem and still ends inside the bar. */
+  /* **THE MACHINE COLUMN TAKES THE LEFTOVER; ITS CHIPS WRAP INSIDE IT.** Three `max-content` tracks
+     have no shrink at all, so at the gate's 1280 they pushed the search 247 px past the bar. The
+     chips are a wrapping row by nature (`chips` is a flex wrap container) — at 1440 they fit on one
+     line (581 px inside a 608 px column) and at 1280 they take a second, which is what a chip row is
+     for. What must NOT move is the search: it is `18rem` of the bar's right edge, so the track is
+     fixed and the leftover goes to the chips. */
+  grid-template-columns: minmax(0, 1fr) max-content 18rem;
   align-items: start;
   gap: var(--sp-1-5) var(--sp-5);
   margin: 0 0 18px; padding-bottom: var(--sp-3-5);
@@ -3097,8 +3104,13 @@ main::-webkit-scrollbar-track, .sheet-body::-webkit-scrollbar-track, .scroll::-w
 .timeline-console-reads .chip[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); }
 /* The search label and field share the field's left edge: the label is the field's own name, so it
    sits on the same column start the input does (`display: grid` with one column). */
-.timeline-search { display: grid; gap: var(--sp-1-5); min-width: 0; width: 18rem; max-width: 100%; justify-self: end; }
+.timeline-search { display: grid; gap: var(--sp-1-5); min-width: 0; }
 .timeline-search input { width: 100%; max-width: 100%; }
+/* The caller count sits under the caller column and wraps rather than widening a track: a 294 px
+   sentence with `nowrap` made that track 294 px wide and pushed the search out of the bar (measured:
+   search right 1,499 against a bar ending at 1,252). It is placed by the grid's own flow, not by
+   `grid-column: 2` — pinning it there broke the label/chip edge when the tracks shrank (627 vs 684). */
+.filter-count { white-space: normal; max-width: 16rem; }
 @media (max-width: 639px) {
   .activity-page .page-head h1 { font-size: var(--fs-xl); }
   .activity-today { font-size: var(--fs-lg); }
