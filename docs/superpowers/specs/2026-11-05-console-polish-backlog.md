@@ -945,6 +945,7 @@ list's 1-3.
 10. **Activity's provenance line mixes audit.jsonl's 10-22 lifetime with the newest-1000 window**
     (`1000/1040/19 repeats/5.7 MiB/since 10-22`). **Fix:** separate the file's lifetime from the window's.
     **S.**
+   *(Live 0.3.273-ux105: `Reading audit.jsonl — 5.8 MiB, lines since 10-22 18:55. This window: 11-07 14:41 → 11-09 12:40.` — the file's lifetime and the drawn window are two labelled facts, no shared arithmetic.)*
 
 11. **`last result 0` on the Repair task row is a code, not a verdict**; the 84T's `not reported by this build`
     shows the row can speak English. **Fix:** `ok`/the reason. **S.**
@@ -952,6 +953,13 @@ list's 1-3.
 
 12. **The CPH's ~15 h absence leaves no trace after recovery** — `started 27m ago`, `Applied 0.3.292`, a
     13-attempt retry note, but no `back after 14h 58m`. **Fix:** the recovery line. **M.**
+   *(Partly shipped 0.3.273-ux105, and NOT closed: `RecoveryLine` draws `back after 41 m` from the console's own
+   channel pair and the browser gate proves it on the fixture, but the live fleet serves `last_outage: null` on
+   all four machines — the newest 1,000 audit lines carry 51 `device.joined` and 11 `device.left`, and every
+   rejoin after a console restart is join→join with no close to pair, so the ~15 h absence the item measures is
+   still unwitnessed. The remaining half is the DEVICE's own gap: the device knows when its channel dropped, so
+   its next `device.joined` should carry `channel_gap_ms` and the console should record it. Device-side, ships
+   with a device release.)*
 
 ## How a round goes
 
