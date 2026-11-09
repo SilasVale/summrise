@@ -2124,6 +2124,17 @@ away.
    `activityMerge.ts`), and the two are only equal because nobody has changed one alone. Measured: a
    gate compares them by re-stating the rule a third time. **Fix:** one table of cases both sides run
    against, so the two implementations cannot drift. **S.**
+   *(**Done, live 0.3.273-ux153** (`51fff11`): `docs/superpowers/specs/audit-buckets.json` is the rule
+   as ten CASES, each with all four answers written down; the console runs it from its lib's own test
+   (`the_bucketing_rule_is_the_shared_table`) and the page runs the same file from
+   `auditBuckets.table.test.ts`. **It found a drift on its first run:** `isConsoleRead` answered `true`
+   for a `device.joined` the console wrote while `is_client_call` drops boundaries before anything else
+   — and the page's day line was SAVED by its own ordering, which is exactly the state a rule drifts
+   into: the numbers right, the function wrong, and only a shared table able to say so. Both sides were
+   mutated to prove the table bites (the same sentence on either side: `a channel opening is a fact
+   about the machine and never work: console`). It lives in the lib's test module because the
+   predicates are `pub(crate)`, and widening the crate's API for a test would trade a real boundary
+   for a convenience.)*
 
 ## How a round goes
 
