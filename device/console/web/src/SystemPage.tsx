@@ -118,7 +118,10 @@ function UpdateCard({
   /** The whole fleet, so this card can compute the same target Home's alert does. */
   fleet?: readonly { version?: string | null }[];
 }) {
-  const installer = useInstaller();
+  const installerRead = useInstaller();
+  // The card's own answer needs a read that LANDED. `undefined` (still reading) adds no clause and a
+  // failed read adds none either — neither is a claim about the account.
+  const installer = installerRead.state === "read" ? installerRead.installer : null;
   if (!device?.update) {
     return (
       <p className="hint system-update">

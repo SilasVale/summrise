@@ -273,15 +273,29 @@ describe("Home — the fleet's installer", () => {
     ).toBeNull();
   });
 
-  it("hides the block when the read fails rather than showing a door that cannot open", async () => {
-    installerApi.installer.mockRejectedValue(new Error("the installer could not be read"));
+  it("says the read failed instead of drawing nothing (the fortieth list)", async () => {
+    // **MEASURED ON THE LIVE CONSOLE: `/installer` answering 500 left Home 100 px shorter with no
+    // sentence and no retry.** The hook's `catch` set the same `null` that "not read yet" used, and
+    // the render was `{installer !== null && …}` — so a console that failed to ask and an account
+    // with no file were one state, and the page drew neither. The panel's Memory, Settings and
+    // Plugins pages already answer a failed read with their own subject and a Retry.
+    installerApi.installer.mockRejectedValueOnce(new Error("the installer could not be read"));
     drawFleet();
 
     await waitFor(() => expect(installerApi.installer).toHaveBeenCalledTimes(1));
-    expect(
-      screen.queryByRole("heading", { name: "Install the device runtime" })
-    ).toBeNull();
+    // The block is still there — with its own subject and what it cannot do.
+    expect(screen.getByRole("region", { name: "Install the device runtime" })).toBeInTheDocument();
+    expect(screen.getByText(/The installer could not be read/)).toBeInTheDocument();
+    // It does NOT offer a download it does not have, and it does not claim the account has none.
+    expect(screen.queryByRole("link", { name: "Download Windows installer" })).toBeNull();
     expect(screen.queryByText(/No installer is published/)).toBeNull();
+    // And it offers the retry the panel's pages already offer.
+    installerApi.installer.mockResolvedValueOnce(installerFacts);
+    await act(async () => {
+      screen.getByRole("button", { name: "Try the installer again" }).click();
+    });
+    await screen.findByRole("heading", { name: "Install the device runtime" });
+    expect(screen.getByRole("link", { name: "Download Windows installer" })).toBeInTheDocument();
   });
 
   it("reads the installer once, not on every redraw", async () => {
