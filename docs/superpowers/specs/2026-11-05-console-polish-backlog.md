@@ -961,6 +961,47 @@ list's 1-3.
    its next `device.joined` should carry `channel_gap_ms` and the console should record it. Device-side, ships
    with a device release.)*
 
+## P0 — the twenty-fifth list (opened 2026-11-09, from the audit of ux105)
+
+Measured 2026-11-09 04:26–04:52Z on live `0.3.273-ux105` at 1440 and 390. The twenty-fourth list is
+live: 3–9 and 11 are ticked with their measurements, 10 is closed on ux105, and 12 is open with its
+witnessed half named (the console can pair a close it saw; it cannot invent one it did not). The
+four items below were each measured on the live page in this pass, and the two suspicions the audit
+carried but did not confirm were **deleted from the list rather than written down as findings**:
+both `Add a machine` doors mint **one** code (`POST /enroll` once; both doors show the same
+`a572d1d9…`), and the account menu carries doors (`Connect a client · Tokens · Copy console URL ·
+Documentation · Sign out`), not a second copy of the session.
+
+1. **Home with a machine selected draws a card that never names the machine.** Measured at 1440
+   with 9VH selected: `NEEDS ATTENTION` (14R, offline and behind the release) at **y=165**,
+   `SELECTED MACHINE` at **y=334** — and that card's whole text is `46 tools · 11 capabilities ·
+   Open · Connect a client`. The machine's name is only in the topbar and in the highlighted fleet
+   row below it, so the card asks the reader to remember what they clicked. **Fix:** the card names
+   the machine and states its presence in one line (`DESKTOP-9VH92BJ · online · v0.3.292`), and the
+   counts follow. **S.**
+
+2. **Activity draws today as one 69-foot wall.** Measured: **888 rows** on the page, **692** of them
+   under the `Today` label, `main` **73,740 px** tall at 1440, and four day labels
+   (`Today / Yesterday / Saturday 11/7 / Friday 11/6`) under a heading that says
+   `Today: 27 client calls, 3 failed.` The cap sentence — `newest 913 of 1040 (87 channel events, 27
+   repeats not drawn)` — and the provenance line are **only reachable at the bottom, 70,000 px
+   down**. **Fix:** a day is drawn as today's rows plus a count-and-door for the rest (`692 calls ·
+   11:52 → 12:43 — open the day`), the cap sentence sits beside the count it qualifies at the top,
+   and the full list stays behind the day's own expansion or the Table. **M.**
+
+3. **One credential list, seven rows that read the same.** Measured: seven tokens; four of them are
+   `zss-harness-*` differing only in their device list and creation date; every row repeats
+   `39 tools` and `destructive allowed` in the same position; the scope cell lists three names then
+   `and 1 more`; and `Create a token` — with its full tool-scope form — sits **above** `Existing
+   tokens`. The operator's question is *which credential do I hand out, and what does it reach?*
+   **Fix:** the list first, one line per token (`name · scope count · last used`), details on the
+   row's own disclosure; the mint form behind `New token`. **S/M.**
+
+4. **The rail says `Home`; the page it opens says `Machines`, and so does the window title.**
+   Measured: `document.title` `Machines · Summrise console`, h1 `Machines`, rail `Home` — on the
+   page the operator asked to be a verdict rather than a table. **Fix:** one name, `Home`, in all
+   three. **S.**
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
