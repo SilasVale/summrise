@@ -485,7 +485,18 @@ main.terminal-main { display: grid; grid-template-rows: auto minmax(0, 1fr); ali
 }
 .counts-line:hover { background: transparent; color: var(--accent); border-color: transparent; }
 
-.empty-state { display: grid; gap: var(--sp-3); justify-items: start; padding: var(--sp-4) 0; min-width: 0; }
+/* **THE EMPTY STATE IS THE PAGE'S CARD (the forty-sixth list).** It was a bare run of items with no
+   card — no corner, no padding, no surface — while the page beside it drew its cards as cards. The
+   contract's `empty` atom says what an empty state is on both surfaces: the card's corner, the card's
+   padding, start-aligned, no shadow. Measured on the panel at 1360 and the console at 1440, the console
+   was ALREADY right for its first-run card (16 / 14 / none / start / full width); this is the other
+   empty shape on the same surface, and it was not. */
+.empty-state {
+  display: grid; gap: var(--empty-gap, var(--sp-3)); justify-items: start; align-content: start;
+  padding: var(--sp-4); min-width: 0;
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
+  box-shadow: none;
+}
 .empty-state h2 { font-size: var(--fs-lg); }
 button.link {
   border: 0; background: transparent; color: var(--ink); padding: 0;

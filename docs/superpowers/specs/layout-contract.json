@@ -25,5 +25,13 @@
     "tablet": 767,
     "columns": 1088,
     "wide": 1280
+  },
+  "empty": {
+    "$comment": "The EMPTY state's atom, which both surfaces draw (the forty-sixth list). A page with nothing to list shows one card, on the page's own grid: the card's corner and padding, start-aligned text, no shadow, and the full width of the page's column. It is NOT a dialog \u2014 a 20px corner, a drop shadow and centred text on a 1120px column is a modal drawn where a page's empty state belongs.",
+    "radius": 14,
+    "pad": 16,
+    "gap": 12,
+    "textAlign": "start",
+    "shadow": "none"
   }
 }
