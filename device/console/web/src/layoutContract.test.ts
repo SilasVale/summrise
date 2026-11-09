@@ -37,6 +37,7 @@ type Contract = {
   page: { max: number; pad: number; gap: number };
   card: { radius: number; pad: number; gap: number; headerGap: number };
   rail: { console: number; panel: number };
+  title: { size: number; weight: number };
 };
 
 function contractText(): string {
@@ -84,7 +85,7 @@ describe("the layout contract", () => {
     // `agent/resources/panel-react/src/lib/layoutContract.test.ts`. If the two disagree, the two
     // frontends are drawn to different page systems and one of them is wrong.
     expect(createHash("sha256").update(contractText()).digest("hex")).toBe(
-      "6a6d7f86fd56e456a477fc8e3c20bc4185a6c873f51294878c3cf0b10de192d9"
+      "d2baa266283e3996ab8af1485ad98ab83449c79e731ebf630d60f719c0a79c55"
     );
   });
 
@@ -100,6 +101,21 @@ describe("the layout contract", () => {
     expect(page, "the page's rhythm comes from the scale").toContain(`gap: var(--${gap})`);
     expect(tokenPx(tokens(), pad)).toBe(contract.page.pad);
     expect(tokenPx(tokens(), gap)).toBe(contract.page.gap);
+  });
+
+  it("is the page title every page of both surfaces draws", () => {
+    // **THE PAGE TITLE WAS THE ONE THING THE FRAME DID NOT MAKE UNIFORM (the thirty-ninth list).**
+    // Measured 2026-11-10: this console drew it at 22 px / 700 on Home and Activity, while the panel
+    //'s History and Plugins drew theirs at 17 px / 700 — three separate rules over there, and none
+    // at all on History. A title is the reader's answer to "where am I"; it cannot have two sizes.
+    const source = css();
+    const title = ruleFor(source, "\\.page-head h1");
+    const size = tokenFor(tokens(), contract.title.size, "fs");
+    expect(title, "the title's size is the contract's").toContain(`font-size: var(--${size})`);
+    expect(tokenPx(tokens(), size)).toBe(contract.title.size);
+    expect(title, "the title's weight is the contract's").toContain(
+      `font-weight: ${contract.title.weight === 700 ? "var(--fw-bold)" : "var(--fw-semi)"}`
+    );
   });
 
   it("is the rail this console ships, which the contract records rather than equalizes", () => {

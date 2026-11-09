@@ -14,5 +14,9 @@
   "rail": {
     "console": 232,
     "panel": 52
+  },
+  "title": {
+    "size": 22,
+    "weight": 700
   }
 }

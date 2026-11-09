@@ -2407,6 +2407,11 @@ h2 { letter-spacing: var(--tracking-tight); }
    (`7af9b61`). Two declarations of one surface is how a page ends up 20 px narrower and 6 px
    tighter than its own contract says, and it is the reason the panel and the console could not
    agree about what a page is. Everything this block actually ADDED is the type, and that stays. */
+/* **THE PAGE TITLE IS ONE RULE, FROM THE CONTRACT (the thirty-ninth list).** Measured 2026-11-10:
+   Home and Activity draw it at 22 px / 700 while the panel's History and Plugins draw theirs at
+   17 px / 700 — three separate rules over there, none at all on History. The one element that must
+   answer "where am I" the same way on every page of both surfaces now comes from
+   `layout-contract.json`'s `title` (22 / 700), through the tokens the scale already has. */
 .page-head h1 { font-size: var(--fs-xl); font-weight: var(--fw-bold); }
 .page-sub { margin-top: 3px; }
 .page-actions { gap: var(--sp-2); }
@@ -2654,6 +2659,9 @@ input:not([type="checkbox"]):not([type="radio"]):focus, select:focus, textarea:f
   .rail-btn { height: auto; flex-direction: column; justify-content: center; gap: var(--sp-0-5); padding: var(--sp-1) var(--sp-0-5); }
   .rail-btn[aria-current="page"] { box-shadow: none; }
   .rail-label { font-size: var(--fs-2xs); }
+  /* The phone keeps a SMALLER title on purpose — 390 px cannot carry 22 px of name plus actions —
+     and it is the same rule at the same token, one responsive step down. The contract's number is
+     the desktop's; this is the media query that lowers it, not a second rule. */
   .page-head h1 { font-size: var(--fs-lg); }
   .terminal-panel .term-host { padding: 6px 8px; }
   .terminal-bar { padding: 4px 8px; }
