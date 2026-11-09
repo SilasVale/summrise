@@ -1080,6 +1080,17 @@ is drawn, not in the token sheet.
 
 Measured gaps below. Each is the rule, its number, and the one shape that fixes it.
 
+**A gate that was RED, and that nobody had run.** Before measuring anything else: `cargo test -p
+summrise-console --test tokens` fails on this branch at
+`spacing_is_the_rhythm_or_a_documented_exception` — a `2.25rem` in the phone audit card arrived with
+`49164b7` and the file was never run after it, because CI runs `cargo test` on `main` only and this
+round's gates were the web ones. **Fixed in this round** (`5ea5f18`): the length is a structural
+measurement (measured at 390: the card is 320 px, the disclosure ends 29 px in, the clock's text
+starts at 36), so it is now a documented exception with that number in its comment, and the file
+passes 10/10. **The lesson to keep:** every round's gate list includes the Rust token gate, because
+an untended gate is worse than none.
+
+
 1. **The rhythm gate is blind to `px`, and 37 literals are already off the rhythm or already a
    token.** `spacing_uses_the_rhythm_when_the_value_is_already_on_it` scans **rem only**, so
    `padding: 2px 12px` passes while `padding: 0.125rem 0.75rem` fails — the same number, one
