@@ -2446,6 +2446,36 @@ below 1280 and 85/125 at 1280/1360, which is the same rail plus the centring.
    a `@media` rule hiding `#icon-rail` would be a collapse by another name. Mutations print
    `the console collapses: expected 639 to be 767` and `no width query removes the rail`.)*
 
+## P0 — the fifty-second list (opened 2026-11-10, reduced motion is two mechanisms)
+
+The fifty-first list is closed: one rail at the contract's 52, and its collapse written down. This list
+came from rule 18 — *"motion only where it explains a state change, and respect reduced motion"* — which
+is the one of the twenty with no line in the contract and no gate that measures the BUILT page. Measured
+with `emulateMedia({ reducedMotion: 'reduce' })` on both built surfaces, counting only transitions longer
+than 1 ms (a `0.01ms` duration is the console's blanket rule switching motion OFF, not on).
+
+1. **One surface honours reduced motion completely; the other honours it by name, and misses.**
+   Measured on Home and Memory:
+
+       console   normal 29 moving elements  ->  reduce **0**
+       panel     normal 10 moving elements  ->  reduce **4** still moving at 0.2 s
+
+   The console's blanket rule is `*, *::before, *::after { transition-duration: 0.01ms !important;
+   animation-duration: 0.01ms !important; scroll-behavior: auto !important }` plus a named list for the
+   animations it wants gone entirely. The panel silences animations BY NAME in two blocks — and its own
+   comment records that this mechanism has already failed once (`scripts/test/motion-check.mjs` was
+   written after seven animations ran regardless). The four buttons still transitioning under `reduce`
+   are the same failure, one layer down: a NAMED LIST cannot cover a rule added later, and the list is
+   in a different file from the buttons.
+   **Fix:** one mechanism on both surfaces — the blanket, with the named list kept for what must lose
+   its animation entirely — and a gate that reads the BUILT page under `reduce`. **M.**
+
+2. **No gate measures reduced motion, on either surface, and the contract says nothing about it.**
+   `layout-contract.json` records the frame, the atoms and the levels; motion is the nineteenth of the
+   operator's twenty and appears nowhere in it. So the ONE rule about motion is enforced by two hand-
+   written lists in two repos, which is exactly the "two habits that drift" the directive names.
+   **Fix:** the contract records the mechanism, and each repo proves it on a rendered page. **S.**
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
