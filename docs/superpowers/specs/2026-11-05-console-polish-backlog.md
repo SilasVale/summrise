@@ -1756,6 +1756,40 @@ What remains, in the design's own order:
    `ux143`: **126 px, `flex-direction: row`**, children at 317 / 583 / 939. The cost is the honest
    record of this item, not a footnote.)*
 
+## P0 — the thirty-eighth list (opened 2026-11-10, the rhythm inside the cards)
+
+The layout program's three items are closed and the contract holds: both surfaces draw one page column
+(console **1,120** at 1440, panel **1,120** at 1360 and 2,560), one card (14 / 16 / 8), one rail per
+surface. This list starts one layer in: the frame is uniform, the blocks on it are not yet.
+
+Live console `0.3.273-ux143` at 1440 and the built panel at 1360. Two reads were clean and are
+recorded as clean: the page's own rhythm is exactly the contract's — three cards on Home with gaps of
+**24 / 24** px — and every page in both surfaces starts its content at the same x (**149** in the panel,
+**300** in the console).
+
+1. **Four cards on one page, four inner rhythms.** Measured live on Home at 1440, each block drawn on
+   the same card grammar:
+
+       .attention        gap 10px, padding 16px
+       .fleet-table-wrap gap  0px, padding  0px     (declared: it is the card's body)
+       .installer        gap 14px, padding 16px
+       .machine-summary  gap 10px, padding 14px 18px  ← the only card not at the card's padding
+
+   The card's grammar says **gap 8, padding 16**. Two of the four are at neither: `.installer` runs a
+   14 px rhythm and `.machine-summary` pads 14/18 while declaring itself the card. Rule 1 (start from a
+   system) is about exactly this — a card that quietly has its own inner scale is how four blocks on
+   one screen stop reading as one family, which is the state the previous list just fixed at the
+   outer layer. **Fix:** every card's inner rhythm and padding come from the contract, and the two
+   that genuinely need a different rhythm say why in one measured exception rather than drifting by
+   2 px each. **S.**
+
+2. **The panel's five pages keep five rhythms behind one frame.** The frame gives each page 24 px
+   between its blocks; measured at 1360, the blocks inside it run **24** (Memory, Settings) and **8**
+   (Plugins). Plugins is a list and 8 is defensible — but it is currently defensible by *nothing on
+   the page*, and the next page added will pick a third number. The contract has a `section.gap` of 24
+   that **no rule in either repo reads**. **Fix:** the pages declare which rhythm they use from the
+   contract (`page` or `section`), and the unused key is either used or deleted. **S.**
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
