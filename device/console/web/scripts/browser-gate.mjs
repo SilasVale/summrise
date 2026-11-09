@@ -2850,6 +2850,13 @@ try {
   // Measured on the operator's machine: 235 rows, **222 `Kill` buttons** at 33 x 28 px, so the
   // Machine page's commonest control was the destructive one and it was under the phone's 44 px
   // target. A row offers its `⋯` menu now, and Kill lives inside it.
+  // The list is a device CALL, not a render: wait for the table before measuring it, or the leg
+  // reads an empty page and calls that a missing menu (measured: it passed three times in a row and
+  // then failed once under load).
+  await page
+    .locator('.system-table tbody tr td.system-pid')
+    .first()
+    .waitFor({ timeout: 10_000 });
   const processKills = await page.evaluate(() => {
     const rows = [...document.querySelectorAll('tbody tr')].filter((row) =>
       row.querySelector('.system-pid')

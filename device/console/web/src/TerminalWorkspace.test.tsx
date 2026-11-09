@@ -305,9 +305,17 @@ describe("TerminalWorkspace tab names", () => {
     });
     render(<TerminalWorkspace grant={GRANT} />);
 
+    // **THE TAB'S ARRIVAL IS NOT THE READ'S ARRIVAL (the twenty-eighth list, item 5).** The tab is
+    // drawn when the list answers; the attach that follows it is a second call, and under parallel
+    // load the assertion ran before it had been recorded — `reads[0]` was `undefined`. That is the
+    // test asserting at a moment that has nothing to do with the promise, not a page that attaches
+    // to the wrong session. It waits for the read now.
     await screen.findByRole("tab", { name: /pty · / });
-    const reads = callToolMock.mock.calls.filter(([, name]) => name === "terminal.read");
-    expect(reads[0][2]).toMatchObject({ id: "new" });
+    await waitFor(() => {
+      const reads = callToolMock.mock.calls.filter(([, name]) => name === "terminal.read");
+      expect(reads.length).toBeGreaterThan(0);
+      expect(reads[0][2]).toMatchObject({ id: "new" });
+    });
   });
 
   it("shows the device session behind each tab", async () => {

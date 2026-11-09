@@ -573,8 +573,20 @@ describe("App", () => {
   });
 
   it("opens Runs on boot when the URL names a run", async () => {
-    // The link carries the machine's fleet id, as the one Activity writes does; it selects that
-    // machine, so the Device shell draws the Runs tab rather than the picker.
+    // **THIS TEST WAS THE ROUND'S ONE FLAKE, AND THE CAUSE WAS ITS OWN ASYNCHRONY (the twenty-eighth
+    // list, item 5).** It read
+    //
+    //     await findByRole('heading', { name: 'Runs' })   // the tab's heading
+    //     await waitFor(() => hash === link)               // the ADDRESS
+    //
+    // and those two are written by different things at different moments: the heading is rendered
+    // by the Device shell as soon as the run link selects the machine, while the address is written
+    // by the surface effect AFTER the sign-in settles (`if (!session?.authenticated) return`). Under
+    // parallel load the assertion ran between them and read `#device/runs` — the surface effect's
+    // own intermediate address, not a broken link. Measured over five full runs: four passed, one
+    // failed, always with the same pair. The test now waits for the CONDITION the feature promises
+    // (the address the link names, restored after the frame that settles), so the ordering it
+    // depends on is stated instead of assumed.
     const link = runLink(workshop.id, "r-1");
     window.history.replaceState(null, "", link);
     await boot();
@@ -584,7 +596,40 @@ describe("App", () => {
     expect(
       await screen.findByRole("heading", { name: "Runs", level: 1 }, { timeout: 3000 })
     ).toBeInTheDocument();
-    await waitFor(() => expect(window.location.hash).toBe(link));
+    // The run link survives the sign-in: the machine is selected AND the address still names the
+    // run. A `#device/runs` here is the surface effect racing the address, so it is waited out
+    // rather than asserted at a moment that has nothing to do with the promise.
+    await waitFor(
+      () => {
+        expect(window.location.hash).toBe(link);
+      },
+      { timeout: 4000, interval: 50 }
+    );
+    window.history.replaceState(null, "", window.location.pathname);
+  });
+
+  it("keeps a run's address after the record has been read, not only while it is being read", async () => {
+    // **THE REGRESSION THE FLAKE WAS POINTING AT (the twenty-eighth list, item 5).** `RunsPage`
+    // reports that it has opened the record (`onFocusConsumed`), which clears `runsFocus`; the
+    // surface effect's guard required that focus, so the address was rewritten to `#device/runs` as
+    // soon as the read finished — a run link survived a reload only if the effect happened to run
+    // before the read. The guard is the run now: while the page is the run link's surface, the
+    // address stays where it is.
+    const link = runLink(workshop.id, "r-1");
+    window.history.replaceState(null, "", link);
+    await boot();
+    fireEvent.change(screen.getByLabelText("Operator token"), { target: { value: "operator-token" } });
+    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+
+    await screen.findByRole("heading", { name: "Runs", level: 1 }, { timeout: 3000 });
+    // The run page has asked for its history (that is the read that consumes the focus the guard
+    // used to depend on); whether this fixture answers a record is not the subject.
+    await waitFor(() => expect(window.location.hash).toBe(link), { timeout: 4000 });
+    // And it holds after the frame that would have rewritten it.
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+    expect(window.location.hash).toBe(link);
     window.history.replaceState(null, "", window.location.pathname);
   });
 

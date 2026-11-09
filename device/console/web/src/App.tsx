@@ -804,7 +804,14 @@ export function App() {
     // `#signin` is a view the address asks for, not a surface this effect may overwrite with #home.
     if (signInRoute) return;
     const run = parseRunLink(window.location.hash);
-    if (run && page === "device" && tab === "runs" && runsFocus) return;
+    // **THE RUN LINK OUTLIVES THE FOCUS IT CARRIED.** The guard used to require `runsFocus`, which
+    // RunsPage clears the moment it has opened the record (`onFocusConsumed`). Whichever settled
+    // second decided the address: if the consume won, this effect saw no focus and rewrote
+    // `#run/<device>/<run>` to `#device/runs`, so a run link did not survive a reload — it survived
+    // it only when the effect happened to run first. Measured as the round's one flaky test, it is
+    // the same defect the flake was pointing at: the address a run link names is the run, not the
+    // tab. While the page IS the run link's own surface, this effect leaves the address alone.
+    if (run && page === "device" && tab === "runs" && run.deviceId === selected) return;
     const wanted = surfaceHash({
       page,
       tab: page === "device" ? tab : undefined,
