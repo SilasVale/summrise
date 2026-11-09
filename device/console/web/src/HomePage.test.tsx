@@ -610,18 +610,19 @@ describe("Home — the selected machine", () => {
     });
 
     const summary = await screen.findByRole("region", { name: "Selected machine" });
-    // **HIGHLIGHTED, NOT REPEATED.** The row and the topbar already state the machine's name,
-    // reachability, age and build; the summary repeats none of them (audit-43 F2). Its heading is
-    // the generic section label, and the highlighted row says which machine it describes.
+    // **THE HEADING IS THE SUBJECT (the thirty-fifth list).** The card used to carry a generic
+    // `Selected machine` label AND a line repeating the name, the presence word and the build —
+    // three facts the topbar picker and the highlighted row below already stated, on a card that
+    // exists for the catalogue counts and the two doors. The machine's own name is the heading now.
     expect(
-      within(summary).getByRole("heading", { name: "Selected machine", level: 2 })
+      within(summary).getByRole("heading", { name: "workshop", level: 2 })
     ).toBeInTheDocument();
-    // **THE CARD NAMES ITS SUBJECT (audit-45 F1).** audit-43 F2 read the highlighted row and the
-    // topbar as enough; the operator's brief is that a section headed "Selected machine" says which
-    // machine at a glance, so the name is here once. The AGE stays the row's below it, and the
-    // version is stated once on this card rather than a third time on the page.
-    expect(within(summary).getByText("workshop")).toHaveClass("machine-summary-name");
-    expect(within(summary).getByText("online")).toHaveClass("machine-summary-presence");
+    // **AN ONLINE MACHINE SAYS NOTHING ELSE ABOUT ITSELF.** Its presence is the row's dot and the
+    // row's `online · seen Ns ago`; the card does not repeat it. An OFFLINE machine keeps one line,
+    // because its last-seen age is why the counts below are absent (asserted in its own test).
+    expect(within(summary).queryByText("online")).toBeNull();
+    // The version is stated once on the page (the topbar chip and the table's column), never here.
+    expect(within(summary).queryByText(/^v\d/)).toBeNull();
     expect(within(summary).queryByText(/last seen|seen \d/)).toBeNull();
     // THE VERSION IS NOT SAID THREE TIMES. The topbar's chip states what runs and the table's
     // Version column repeats it for the fleet; the summary adds no third copy (task 79's rule for
