@@ -1580,6 +1580,17 @@ the phone's controls remain 44 px with the cards 97% covered.
    rule (20) says a grid fixes the rhythm, and here nothing is on one. **Fix:** the block is one
    grid with two columns and one row per subject, so each label starts where its own content starts
    and the right column shares one left edge. **S.**
+   *(**Done, live 0.3.273-ux136** (`d5aee29`): the count is its own line under `CALLERS` now, on that
+   column's edge — measured live at 1440, it moved from `x=1001` (where the chip row happened to end)
+   to **`x=919`**, the caller column's own start, which is 82 px of drift removed. The bar's remaining
+   edges are the ones each subject owns: machines `314`, callers `919`, the search's label and field
+   both at `1070` (the field's own left edge — it was already right). **Three grid attempts were
+   measured and rejected before this shape settled, and their numbers are in the sheet:** a
+   `max-content max-content 18rem` grid overflowed the bar by **247 px at 1280**; `minmax(0, max-content)`
+   split the caller label from its chip (**627 vs 684**); a fixed search track forced the five chips
+   onto a second row at 1440 (**452 px column against 581 px of chips**), which is a shape the desktop
+   never had. What ships is the original flex bar with one thing fixed, plus `align-items: start` so the
+   two labels stay on one baseline while the caller block is taller.)*
 
 ## How a round goes
 
