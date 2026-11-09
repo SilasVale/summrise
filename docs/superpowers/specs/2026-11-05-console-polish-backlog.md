@@ -2314,6 +2314,38 @@ the frame's 24. A page inside a page's padding is two frames; the pane scrolls a
 and for actions that no page draws yet — a class nobody can render is a rule a reader searches for and
 finds nothing. The atom now carries only what a page uses.)*
 
+## P0 — the forty-ninth list (opened 2026-11-10, the second heading level is four levels)
+
+The forty-eighth list is closed and a CUT landed: the panel's four page headers are one. Every page of
+both surfaces now opens the same way. This list came from reading DOWN the page instead of across it:
+the title is one rule, the FIRST line under it is not. Measured on the built surfaces, every page.
+
+Two reads were clean and are recorded as clean: the page TITLE (22 / 700 / -0.242 px) is identical on
+both surfaces through the contract, and the eyebrow's letter-spacing pair exists in both token sets
+(`--tracking-label:0.05em`, `--tracking-eyebrow:0.08em`). The problem is not the styles, it is what
+each one is USED FOR.
+
+1. **The level below a page title is 22 px on the console and 17 px on the panel.** Measured:
+
+       console  Activity's day heading (`h2.timeline-day-label`)  22 px / 600 / -0.44 px
+       console  Home's `Needs attention` (an `h2`)                10 px / 600 / +0.5 px, UPPERCASE
+       console  `DESKTOP-A` (an `h3`)                            14 px / 600
+       panel    Settings' sections (nine `h2`s)                  17 px / 600 / -0.187 px
+       panel    History's `Sessions` (an `h2`)                   14 px / 600 / normal
+
+   So a `h2` on the console can be 22, 10 or 14 px, and on the panel 17 or 14. **The tag does not
+   predict the size on either surface, and the two surfaces disagree about the number for the same
+   level.** Activity's day heading is the SAME size as the page title (22), one weight lighter — a
+   section that reads as a second title; Settings' sections are 17, a proper level; History's `Sessions`
+   is 14, a third. **Fix:** the contract names the levels below the title, and each surface uses one
+   per level. **M.**
+
+2. **The eyebrow has two spellings.** Measured: the console's label is `10 px / 600 / 0.5 px /
+   uppercase / --ink-faint` in nine places; the panel's is `11 px / 700 / 0.06em` (hard-coded, not the
+   token) on its own labels. `--tracking-label` is `0.05em` and `--tracking-eyebrow` is `0.08em`, so
+   three numbers exist for the same idea and each surface uses a different one. **Fix:** one eyebrow
+   atom in the contract, read by both. **S.**
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
