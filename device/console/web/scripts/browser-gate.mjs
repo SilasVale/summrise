@@ -1952,6 +1952,13 @@ try {
       throw new Error('the caller count sits above the chip it counts');
     }
   }
+  // **THE MACHINE CHIPS STAY ON ONE LINE.** The first grid gave that column the leftover `1fr` and
+  // the five chips wrapped to two rows, growing the bar instead of tightening it.
+  if (filterGrid.machinesChips && filterGrid.machinesChips.h > 34) {
+    throw new Error(
+      `the machine chips wrap onto a second row (${filterGrid.machinesChips.h} px tall)`
+    );
+  }
   // And every subject starts on the bar's one row: the three labels share a baseline.
   const labelYs = [
     filterGrid.machinesLabel,
