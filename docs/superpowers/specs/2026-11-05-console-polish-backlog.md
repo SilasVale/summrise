@@ -1339,6 +1339,42 @@ sideways scroll anywhere.** What the numbers did find:
    attach, the gate's new process-table leg) wait for their promise now. **After: 6 of 6 full runs
    green, 1,042 tests.**)*
 
+## P0 — the twenty-ninth list (opened 2026-11-09, the phone's targets and the shape of a row)
+
+The twenty-eighth list is closed, so this one starts from a second audit on different axes: what
+the phone can actually be tapped, what each state renders before and after a read, and whether the
+rules a live region promises are kept where they matter. Live `0.3.273-ux120`, measured at 1440 and
+390. **Three checks came back clean and are recorded as clean:** no console errors on any page at
+either width; no sideways scroll anywhere (the audit table's wrapper is 320 px in a 390 px viewport,
+`scrollWidth === clientWidth`); and `prefers-reduced-motion` is honoured — under `reducedMotion:
+'reduce'` every transition resolves to `1e-05s` (192 elements), and the stylesheet carries the media
+query.
+
+1. **Every control in the phone's main area is under the 44 px touch target.** Measured at 390 on
+   Home: **25 of 25** targets in `main` are shorter than 44 px, in four buckets — 26 px ×4 (the fleet
+   row's name door), 28 px ×1, **30 px ×15** (Tokens, Add a machine, `Open …`, Copy/Rename/Remove,
+   the account menu's items), 32 px ×5 (the `⋯` menus). The smallest is 24 × 28 px (the audit table's
+   per-row opener) and the row's name door **156 × 26 px**. A thumb misses a 26 px line; the page
+   even ships a 44 px `topbar-inner` rule and then never applies the same measure to the controls
+   below it. **Fix:** the phone's main controls get a 44 px minimum (a `min-height` on the shared
+   button/summary rules inside the phone query, not a per-component nudge), and the gate measures
+   the count. **M.**
+
+2. **Home's fleet row is 103 px tall and only 11% of it is a door.** Measured at 390: each row is
+   358 × 103 px; the name door inside it is 156 × 26 px (4,005 px² of 36,695), and tapping the row
+   body at its centre hits `.fleet-status` — a **span** — so nothing happens (`#home` before and
+   after; only the 26 px name navigates). On a phone the row is a card and the whole card looks
+   tappable, but only a strip of its first line is. **Fix:** the row's surface is the door —
+   the name button covers the card's body or the card itself is the button — and the `⋯` stays its
+   own target. **S.**
+
+3. **The audit table's phone rows are 26-57 px and their only opener is 24 × 28 px.** Measured at
+   390 with the Table open: 1,004 targets in `main`, **1,004 under 44 px**; the rows are 57 px tall
+   and the record's opener — `Show the record for runs.list` — is **24 × 28 px**, 999 of them. The
+   table is the page's densest surface and its one per-row control is below every touch guideline
+   in existence. **Fix:** with item 1's shared minimum the opener becomes 44 px; the row's height
+   must then be re-measured so the table does not double. **M.**
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
