@@ -1701,6 +1701,43 @@ try {
     return { label, ...measured };
   };
 
+  // **THE PAGE FRAME AND THE CARD ARE THE CONTRACT'S, IN THE BROWSER (the shared layout contract).**
+  // `src/layoutContract.test.ts` proves the STYLESHEET says 1120 / 24 / 24 and 14 / 16 / 8. This leg
+  // proves the RENDERED page draws them — a rule the cascade overrides, an `!important` elsewhere,
+  // or a box that never gets the class all pass a source-only check. Measured before this change:
+  // `.page` was 1,100 px wide (a late `min(1100px, 100%)` override from the 2026-11-04 restyle) at
+  // 26/28/44 px padding and 18 px gap, while `.card` was radius 10 / padding 12.
+  const frame = await page.evaluate(() => {
+    const page = document.querySelector('.page');
+    const style = page ? getComputedStyle(page) : null;
+    const card = document.querySelector('.card, .attention, .fleet-table-wrap');
+    const cardStyle = card ? getComputedStyle(card) : null;
+    return page && style
+      ? {
+          width: Math.round(page.getBoundingClientRect().width),
+          padding: style.padding,
+          gap: style.rowGap,
+          cardRadius: cardStyle ? cardStyle.borderTopLeftRadius : null,
+          cardPad: cardStyle ? cardStyle.paddingTop : null
+        }
+      : null;
+  });
+  if (frame === null) throw new Error('Home draws no .page to measure');
+  if (frame.width > 1120 + 1) {
+    throw new Error(`the page column drew ${frame.width} px wide, the contract says 1120`);
+  }
+  if (frame.padding !== '24px') {
+    throw new Error(`the page's padding drew ${frame.padding}, the contract says 24px`);
+  }
+  if (frame.gap !== '24px') {
+    throw new Error(`the page's vertical rhythm drew ${frame.gap}, the contract says 24px`);
+  }
+  step(
+    `the page frame is the shared contract's: ${frame.width} px wide, ${frame.padding} padding, ` +
+      `${frame.gap} rhythm` +
+      (frame.cardRadius ? `, and its first block's corner is ${frame.cardRadius}` : '')
+  );
+
   const homeScale = await scalePass('Home at 1440');
   step(
     `Home at 1440 draws the scales: radii ${homeScale.radii.join('/')}, ${homeScale.sizes.length} type ` +

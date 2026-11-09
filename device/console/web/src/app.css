@@ -647,9 +647,13 @@ a.btn.primary:hover { background: var(--accent-hover); border-color: var(--accen
 .alert-inline span { min-width: 0; overflow-wrap: anywhere; }
 .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(19rem, 1fr)); gap: var(--sp-3); }
 
+/* **ONE CARD, THE SAME CARD AS THE PANEL (the shared layout contract).** This atom was written to
+   a smaller grammar — radius 10 and padding 12 — while the desktop panel's pages had no atom at
+   all and hand-rolled eight of them. The contract fixes 14 / 16 / 8 for both, so a block reads the
+   same size in the web console and in the desktop app. */
 .card {
-  border: 1px solid var(--line); border-radius: var(--radius-sm);
-  padding: var(--sp-3); background: var(--surface);
+  border: 1px solid var(--line); border-radius: var(--radius);
+  padding: var(--sp-4); background: var(--surface);
   display: flex; flex-direction: column; gap: var(--sp-2);
   transition: border-color 0.15s ease, transform 0.15s ease;
 }
@@ -2391,7 +2395,12 @@ h2 { letter-spacing: var(--tracking-tight); }
 
 /* ── The page ─────────────────────────────────────────────────────────────────────────────────── */
 
-.page { width: min(1100px, 100%); padding: 26px 28px 44px; gap: 18px; }
+/* **THE PAGE IS DECLARED ONCE (the shared layout contract).** This block carried a SECOND
+   definition of the same surface — `min(1100px, 100%)` against the base rule's 1120, `26px 28px
+   44px` against `var(--sp-5)`, `18px` against `var(--sp-5)` — from the 2026-11-04 restyle
+   (`7af9b61`). Two declarations of one surface is how a page ends up 20 px narrower and 6 px
+   tighter than its own contract says, and it is the reason the panel and the console could not
+   agree about what a page is. Everything this block actually ADDED is the type, and that stays. */
 .page-head h1 { font-size: var(--fs-xl); font-weight: var(--fw-bold); }
 .page-sub { margin-top: 3px; }
 .page-actions { gap: var(--sp-2); }
@@ -3338,7 +3347,10 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
    do the work the old 13 px rows did not: 16 px names, a coloured dot with its word, a version
    chip, one start line, and a wider gap between the page's sections. */
 
-.home-page { gap: 22px; }
+/* **ONE RHYTHM, FROM THE CONTRACT (the shared layout contract).** This page carried `gap: 22px`
+   while the page rule said 24 and the mobile rule said 18 — a third rhythm nobody had chosen,
+   and the one the browser gate caught the moment it measured a rendered page instead of a
+   stylesheet. A page does not get its own rhythm. */
 .home-page .page-head h1 { font-size: var(--fs-xl); }
 .home-verdict {
   margin: var(--sp-1-5) 0 0; max-width: 40ch;
@@ -3503,7 +3515,9 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
    The shell owns the destination's one h1 and the tab strip; this page opens with the machine's
    name and its status, then the Now band and the day. The pieces are the old hub's, put where the
    machine's own page is. */
-.overview-page { display: grid; gap: 22px; min-width: 0; }
+/* The Overview is a page, so it takes the page's rhythm (see `.home-page` above). It keeps only
+   what it genuinely adds: the day line sits above the record here. */
+.overview-page { display: grid; min-width: 0; }
 .overview-head {
   display: flex; align-items: flex-start; justify-content: space-between;
   gap: var(--sp-3); flex-wrap: wrap; min-width: 0;
@@ -3524,7 +3538,8 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
 }
 
 @media (max-width: 639px) {
-  .home-page { gap: 18px; }
+  /* The phone keeps the contract's rhythm; a page that changed it here was the third rhythm
+     again, in the smallest window. */
   .home-page .page-head h1 { font-size: var(--fs-xl); }
   .home-verdict { font-size: var(--fs-xl); max-width: none; }
   .attention { padding: 14px; }
@@ -3563,7 +3578,7 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
   .installer-strip .hint { margin-left: 0; flex-basis: 100%; }
   .machine-summary { padding: 12px 14px; }
   .machine-summary-actions .primary { flex: 1 1 auto; }
-  .overview-page { gap: 18px; }
+  .overview-page { gap: var(--sp-4); }
   /* **THE FILTER BELONGS WITH THE LIST ON A PHONE.** `margin-left: auto` pushed the wrapped filter
      to the row's right edge (measured x=101) while every other control started at the panel's left
      (x=33). It is full width on its own line, aligned with New folder and Upload. */
