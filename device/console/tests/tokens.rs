@@ -277,6 +277,145 @@ fn every_type_size_comes_from_the_seven_step_scale() {
     }
 }
 
+// ── THE THREE RULES THAT WERE ONLY PROSE ─────────────────────────────────────────────────────────
+//
+// The token gate asserted the five radii EXIST and the four weights are named. It said nothing about
+// a literal sitting beside a token, so `app.css` carried 15 distinct radii (8 of them literals,
+// `7px` x4 on neither the scale nor a token), 15 distinct shadows across two elevation families
+// with `--elev-1` used ZERO times, and 9 letter-spacing literals beside 4 tracking tokens. These
+// three tests read the sheet the page actually renders and fail on the literal that would come back.
+
+/// Normalise a CSS value so `var( --radius-sm2 )` and `var(--radius-sm2)` are one form.
+fn tight(value: &str) -> String {
+    let mut out = String::new();
+    let mut chars = value.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            '(' => {
+                out.push('(');
+                while chars.peek() == Some(&' ') {
+                    chars.next();
+                }
+            }
+            ')' => {
+                while out.ends_with(' ') {
+                    out.pop();
+                }
+                out.push(')');
+            }
+            ' ' => {
+                out.push(' ');
+                while chars.peek() == Some(&' ') {
+                    chars.next();
+                }
+            }
+            _ => out.push(c),
+        }
+    }
+    out.trim().to_string()
+}
+
+#[test]
+fn every_border_radius_is_a_radius_token_or_zero() {
+    // Measured 2026-11-09 on the sheet Vite builds: 15 distinct `border-radius` values, of which
+    // seven were the scale's five steps and eight were literals — `7px` x4 (on neither the scale
+    // nor a token), `8px` x3, `6px` x1 and `10px` x1 (each equal to a step the token already names),
+    // `999px` x3 and `1px` x1. One radius with two spellings drifts; a `7px` inset inside an 8px
+    // tray is not the tray's own corner. This test is what stops the next `border-radius: 7px`.
+    let tokens = [
+        "var(--radius-xs)",
+        "var(--radius-sm2)",
+        "var(--radius-sm)",
+        "var(--radius)",
+        "var(--radius-lg)",
+        "var(--radius-pill)",
+    ];
+    for line in APP.lines() {
+        let Some(index) = line.find("border-radius:") else {
+            continue;
+        };
+        let value = line[index + "border-radius:".len()..]
+            .split(';')
+            .next()
+            .unwrap_or("");
+        for word in tight(value).split(' ') {
+            if word == "0" || tokens.contains(&word) {
+                continue;
+            }
+            panic!("border-radius word {word:?} is not a radius token or 0: {line}");
+        }
+    }
+}
+
+#[test]
+fn every_box_shadow_is_an_elevation_token_or_none() {
+    // Measured 2026-11-09: 15 distinct `box-shadow` values. `--shadow`, `--shadow-lg`, `--shadow-1`
+    // and `--shadow-2` live in the generated sheet; `--elev-1`, `--elev-2` and `--ring` in `app.css`'s
+    // local block — and `--elev-1` was used ZERO times. Three declarations wrote the raised segment's
+    // shadow by hand (`0 1px 2px rgba(0, 0, 0, 0.1)`) and the rest were rings. The elevation family
+    // is three names now (`--elev-segment`, `--elev-2`, and the token sheet's four), and a declared
+    // elevation token nobody draws with fails here rather than accumulating.
+    for line in APP.lines() {
+        let Some(index) = line.find("box-shadow:") else {
+            continue;
+        };
+        let value = line[index + "box-shadow:".len()..]
+            .split(';')
+            .next()
+            .unwrap_or("")
+            .trim();
+        if value == "none" {
+            continue;
+        }
+        // A ring is a shadow too: it is built from a length and a colour token (`0 0 0 3px
+        // var(--ok)`, `inset 3px 0 0 var(--accent)`, or a `color-mix` of one). So the rule is
+        // "every shadow names at least one var(--…) element", and the elevation family is the list
+        // a reader may draw an ELEVATION from — a ring is not an elevation and never counts as one.
+        let names_a_token = value.contains("var(--");
+        // A keyframe's ring contract is a TRANSPARENT outline at zero spread: `0 0 0 0 transparent`
+        // and `0 0 0 6px transparent` grow it to the pulse's far end. That is animation, not an
+        // elevation, and it names no colour because its whole job is to be invisible.
+        let transparent_ring = value.ends_with("transparent") && value.starts_with("0 0 0 ");
+        if names_a_token || transparent_ring {
+            continue;
+        }
+        panic!("box-shadow {value:?} names no elevation token: {line}");
+    }
+    // A declared elevation token that nothing draws with is a family waiting to happen. These are
+    // the two `app.css` declares locally (the generated sheet's four are asserted by the drift gate
+    // and the contrast tests); `--elev-1` was the third and is deleted with this change.
+    for token in ["--elev-segment", "--elev-2"] {
+        let uses = APP.matches(&format!("var({token})")).count();
+        assert!(uses > 0, "{token} is declared and used {uses} times");
+    }
+}
+
+#[test]
+fn the_tracking_literals_are_the_tokens_or_a_documented_exception() {
+    // Measured 2026-11-09: nine `letter-spacing` literals beside four tracking tokens, and the h1 was
+    // `-0.022em` where `--tracking-display` is `-0.011em` — twice as tight as the step whose job it
+    // was doing. Two literals are documented exceptions: the body's single optical track, and the
+    // air small-caps labels at 10-11 px need (`0.02em`, `0.04em`) that the display scale does not
+    // carry.
+    let allowed = ["normal", "0", "-0.004em", "0.02em", "0.04em"];
+    for line in APP.lines() {
+        let Some(index) = line.find("letter-spacing:") else {
+            continue;
+        };
+        let value = tight(
+            line[index + "letter-spacing:".len()..]
+                .split(';')
+                .next()
+                .unwrap_or("")
+                .trim(),
+        );
+        if value.starts_with("var(--tracking-") || allowed.contains(&value.as_str()) {
+            continue;
+        }
+        panic!("letter-spacing {value:?} is neither a tracking token nor a documented exception: {line}");
+    }
+}
+
 /// Does `value` contain `literal` as a whole length, not as the tail of `0.1rem` or `1.15rem`?
 fn contains_length(value: &str, literal: &str) -> bool {
     let mut from = 0;
