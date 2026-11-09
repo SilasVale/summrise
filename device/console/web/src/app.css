@@ -666,7 +666,7 @@ a.btn.primary:hover { background: var(--accent-hover); border-color: var(--accen
    stretched across a claim of two hours. */
 .vitals-keys { display: flex; flex-wrap: wrap; gap: 0.1rem var(--sp-3-5); font-size: var(--fs-xs); }
 .vitals-key { display: inline-flex; align-items: center; gap: var(--sp-1-5); }
-.vitals-key::before { content: ""; width: 0.6rem; height: 2px; border-radius: 1px; flex: none; }
+.vitals-key::before { content: ""; width: 0.6rem; height: 2px; border-radius: 0; flex: none; }
 .vitals-key-memory::before { background: var(--ink-muted); }
 .vitals-key-disk::before { background: var(--warn); }
 .vitals-chart { display: block; width: 100%; height: 2.75rem; margin-top: var(--sp-1); }
@@ -1782,7 +1782,7 @@ span.files-name {
 .tools-section { display: grid; gap: var(--sp-3); min-width: 0; }
 .tools-section > h2 {
   margin: 0;
-  font-size: var(--fs-lg); font-weight: var(--fw-semi); letter-spacing: -0.01em;
+  font-size: var(--fs-lg); font-weight: var(--fw-semi); letter-spacing: var(--tracking-tight);
 }
 .tools-section-head {
   display: flex; align-items: flex-start; gap: var(--sp-3); flex-wrap: wrap; min-width: 0;
@@ -2251,7 +2251,9 @@ span.files-name {
   --control-bg: color-mix(in srgb, var(--ink) 6%, transparent);
   --control-hover-bg: color-mix(in srgb, var(--ink) 9.5%, transparent);
   --ease: cubic-bezier(0.32, 0.72, 0, 1);
-  --elev-1: 0 1px 2px rgba(0, 0, 0, 0.06), 0 6px 16px -10px rgba(0, 0, 0, 0.28);
+  /* Two elevations and one raised control. `--elev-1` was declared here and used ZERO times
+     (measured 2026-11-09): it is gone rather than kept as a fourth family nobody draws with. */
+  --elev-segment: 0 1px 2px rgba(0, 0, 0, 0.1);
   --elev-2: 0 24px 60px -18px rgba(0, 0, 0, 0.38), 0 2px 8px rgba(0, 0, 0, 0.08);
   --ring: 0 0 0 4px color-mix(in srgb, var(--focus-ring) 22%, transparent);
 }
@@ -2270,8 +2272,8 @@ span.files-name {
 
 body { line-height: 1.5; letter-spacing: -0.004em; }
 main { background: var(--canvas); }
-h1 { letter-spacing: -0.022em; }
-h2 { letter-spacing: -0.014em; }
+h1 { letter-spacing: var(--tracking-display); }
+h2 { letter-spacing: var(--tracking-tight); }
 ::selection { background: color-mix(in srgb, var(--accent) 24%, transparent); }
 
 /* ── The window ───────────────────────────────────────────────────────────────────────────────── */
@@ -2284,7 +2286,7 @@ h2 { letter-spacing: -0.014em; }
   .topbar-inner { height: 52px; padding: 0 20px; gap: var(--sp-2-5); }
 }
 .brand { padding: 4px 6px; border-radius: var(--radius-xs); }
-.brand-name { font-size: var(--fs-base); font-weight: var(--fw-semi); letter-spacing: -0.012em; }
+.brand-name { font-size: var(--fs-base); font-weight: var(--fw-semi); letter-spacing: var(--tracking-tight); }
 
 /* The machine is the one thing the toolbar is FOR: no box around it, a fill on hover, and the
    caret is the affordance. */
@@ -2294,7 +2296,7 @@ h2 { letter-spacing: -0.014em; }
 }
 .machine-menu > summary:hover,
 .machine-menu[open] > summary { background: var(--control-bg); border-color: transparent; }
-.machine-menu-label { font-size: var(--fs-base); font-weight: var(--fw-semi); letter-spacing: -0.01em; }
+.machine-menu-label { font-size: var(--fs-base); font-weight: var(--fw-semi); letter-spacing: var(--tracking-tight); }
 .machine-menu-meta { font-size: var(--fs-sm); }
 
 /* ── The sidebar ──────────────────────────────────────────────────────────────────────────────── */
@@ -2379,19 +2381,19 @@ input:not([type="checkbox"]):not([type="radio"]):focus, select:focus, textarea:f
 }
 .device-tabs::-webkit-scrollbar { display: none; }
 .device-tab {
-  border: 0; border-radius: 7px; padding: 3px 12px;
+  border: 0; border-radius: var(--radius-xs); padding: 3px 12px;
   background: transparent; color: var(--ink-muted);
   font-size: var(--fs-sm); font-weight: var(--fw-regular);
   transition: background 120ms var(--ease), color 120ms var(--ease);
 }
 .device-tab:hover { background: transparent; color: var(--ink); border-color: transparent; }
 .device-tab[aria-current="page"] {
-  background: var(--panel); color: var(--ink); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+  background: var(--panel); color: var(--ink); box-shadow: var(--elev-segment);
   border-bottom-color: transparent; font-weight: var(--fw-semi);
 }
 .seg { background: var(--control-bg); border: 0; border-radius: var(--radius-sm2); padding: 2px; }
-.seg button { min-height: 24px; border-radius: 7px; font-size: var(--fs-sm); }
-.seg button[aria-pressed="true"] { background: var(--panel); color: var(--ink); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1); }
+.seg button { min-height: 24px; border-radius: var(--radius-xs); font-size: var(--fs-sm); }
+.seg button[aria-pressed="true"] { background: var(--panel); color: var(--ink); box-shadow: var(--elev-segment); }
 
 /* ── Surfaces ────────────────────────────────────────────────────────────────────────────────── */
 
@@ -2587,12 +2589,12 @@ input:not([type="checkbox"]):not([type="radio"]):focus, select:focus, textarea:f
   border-bottom: 0; background: var(--control-bg); border-radius: var(--radius-sm2);
 }
 .connect-tabs button {
-  border: 0; border-radius: 7px; background: transparent; color: var(--ink-muted);
+  border: 0; border-radius: var(--radius-xs); background: transparent; color: var(--ink-muted);
   padding: 3px 12px; font-size: var(--fs-sm);
 }
 .connect-tabs button:hover { background: transparent; color: var(--ink); }
 .connect-tabs button[aria-selected="true"] {
-  background: var(--panel); color: var(--ink); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+  background: var(--panel); color: var(--ink); box-shadow: var(--elev-segment);
   border-bottom-color: transparent; font-weight: var(--fw-semi);
 }
 
@@ -2686,7 +2688,7 @@ input:not([type="checkbox"]):not([type="radio"]):focus, select:focus, textarea:f
   background: var(--panel); border: 1px solid var(--hairline);
   border-radius: var(--radius); padding: 18px; gap: var(--sp-2-5);
 }
-.system-section > h3 { margin: 0; font-size: var(--fs-md); font-weight: var(--fw-semi); letter-spacing: -0.01em; }
+.system-section > h3 { margin: 0; font-size: var(--fs-md); font-weight: var(--fw-semi); letter-spacing: var(--tracking-tight); }
 .system-section > .hint { max-width: 68ch; }
 /* The update line's moments are read against each other, so its figures keep one width. It is a
    device fact on the section's own muted line, not a control or a second heading. */
@@ -2876,7 +2878,7 @@ main::-webkit-scrollbar-track, .sheet-body::-webkit-scrollbar-track, .scroll::-w
 }
 .plugin-row:last-child { border-bottom: 0; }
 .plugin-row:hover { background: var(--row-hover); }
-.plugin-name { font-size: var(--fs-md); font-weight: var(--fw-semi); letter-spacing: -0.01em; }
+.plugin-name { font-size: var(--fs-md); font-weight: var(--fw-semi); letter-spacing: var(--tracking-tight); }
 .plugin-meta { font-size: var(--fs-sm); }
 .plugin-path { font-size: var(--fs-2xs); }
 
@@ -2886,7 +2888,7 @@ main::-webkit-scrollbar-track, .sheet-body::-webkit-scrollbar-track, .scroll::-w
 .sheet-body h3 {
   margin: var(--sp-4) 0 var(--sp-1-5);
   font-size: var(--fs-xs); font-weight: var(--fw-semi);
-  color: var(--ink-muted); letter-spacing: 0.01em;
+  color: var(--ink-muted); letter-spacing: var(--tracking-label);
 }
 .sheet-body h3:first-child { margin-top: 0; }
 .sheet-body .field-label, .sheet-body label {
@@ -2924,9 +2926,9 @@ main::-webkit-scrollbar-track, .sheet-body::-webkit-scrollbar-track, .scroll::-w
   background: var(--panel); border: 1px solid var(--hairline); border-radius: var(--radius);
 }
 .live-now-head { display: flex; align-items: baseline; gap: var(--sp-2); flex-wrap: wrap; }
-.live-now-head h2 { margin: 0; font-size: var(--fs-md); font-weight: var(--fw-semi); letter-spacing: -0.01em; }
+.live-now-head h2 { margin: 0; font-size: var(--fs-md); font-weight: var(--fw-semi); letter-spacing: var(--tracking-tight); }
 .live-state { display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-xs); color: var(--ink-muted); }
-.live-dot { width: 7px; height: 7px; border-radius: 999px; background: var(--ink-faint); flex: none; }
+.live-dot { width: 7px; height: 7px; border-radius: var(--radius-pill); background: var(--ink-faint); flex: none; }
 .live-state.is-active { color: var(--ok); }
 .live-state.is-active .live-dot { background: var(--ok); animation: live-pulse 1.8s ease-out infinite; }
 .live-rate { font-size: var(--fs-xs); color: var(--ink-muted); }
@@ -2940,7 +2942,7 @@ main::-webkit-scrollbar-track, .sheet-body::-webkit-scrollbar-track, .scroll::-w
   font-size: var(--fs-sm); animation: live-in 160ms var(--ease) both;
 }
 .live-entry:last-child { border-bottom: 0; }
-.live-entry-dot { width: 5px; height: 5px; border-radius: 999px; flex: none; align-self: center; }
+.live-entry-dot { width: 5px; height: 5px; border-radius: var(--radius-pill); flex: none; align-self: center; }
 .live-sentence { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* A call the proxy has announced and not cleared. It is not an audit row: the dot pulses because
    the call is still going, and it is the one line the band keeps, because the timeline below has
@@ -3059,7 +3061,7 @@ main::-webkit-scrollbar-track, .sheet-body::-webkit-scrollbar-track, .scroll::-w
 .timeline-line {
   display: grid; grid-template-columns: 68px 20px minmax(0, 1fr) 18px;
   gap: 12px; align-items: start; padding: 15px 8px 15px 2px; min-height: 64px;
-  border-radius: 6px;
+  border-radius: var(--radius-xs);
 }
 /* A row that opens is a real button, reset to the line so the grid and the type stay the page's. */
 button.timeline-line {
@@ -3081,7 +3083,7 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
 .timeline-row:first-child .timeline-rail::before { top: 10px; }
 .timeline-rows > li:last-child .timeline-rail::before { bottom: auto; height: 19px; }
 .timeline-dot {
-  position: absolute; left: 50%; top: 7px; width: 9px; height: 9px; border-radius: 999px;
+  position: absolute; left: 50%; top: 7px; width: 9px; height: 9px; border-radius: var(--radius-pill);
   background: var(--ok); transform: translateX(-50%);
   box-shadow: 0 0 0 4px var(--canvas);
 }
@@ -3134,7 +3136,7 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
 /* The evidence panel: what the call carried, and what it returned. */
 .evidence {
   display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
-  border: 1px solid var(--hairline); border-radius: 10px; margin: 0 0 var(--sp-3) 22px;
+  border: 1px solid var(--hairline); border-radius: var(--radius-sm); margin: 0 0 var(--sp-3) 22px;
   overflow: hidden; background: var(--panel);
 }
 .evidence-main { min-width: 0; padding: 12px 14px; display: grid; gap: 6px; align-content: start; }
@@ -3145,19 +3147,19 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
 }
 .evidence-command {
   margin: 0; font-family: var(--mono); font-size: var(--fs-2xs);
-  background: var(--panel-2); border: 1px solid var(--hairline); border-radius: 8px;
+  background: var(--panel-2); border: 1px solid var(--hairline); border-radius: var(--radius-sm2);
   padding: 8px 10px; white-space: pre-wrap; word-break: break-word;
 }
 .evidence-output {
   margin: 0; font-family: var(--mono); font-size: var(--fs-2xs); line-height: 1.55;
-  background: #14161a; color: #d6dae0; border-radius: 8px; padding: 10px 12px;
+  background: #14161a; color: #d6dae0; border-radius: var(--radius-sm2); padding: 10px 12px;
   max-height: 220px; overflow: auto; white-space: pre-wrap;
 }
 /* The captured frame: evidence you look at, bounded by the panel it opens inside. */
 .evidence-shot { margin: 0; display: grid; gap: 6px; }
 .evidence-shot img {
   display: block; max-width: 100%; height: auto;
-  border: 1px solid var(--hairline); border-radius: 8px;
+  border: 1px solid var(--hairline); border-radius: var(--radius-sm2);
 }
 .evidence-shot figcaption {
   display: grid; gap: 2px; font-size: var(--fs-2xs); color: var(--ink-faint);
@@ -3177,7 +3179,7 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
 .evidence-facts dd.is-ok { color: var(--ok); }
 .evidence-facts dd.is-bad { color: var(--error); }
 .evidence-go {
-  margin-top: 10px; width: 100%; min-height: 26px; border: 0; border-radius: 7px;
+  margin-top: 10px; width: 100%; min-height: 26px; border: 0; border-radius: var(--radius-xs);
   background: var(--accent-solid); color: var(--accent-fg); font-size: var(--fs-2xs);
 }
 @media (max-width: 720px) {
