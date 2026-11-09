@@ -1101,10 +1101,61 @@ describe("ActivityTimeline's labelled filter and record footer", () => {
     expect(chip).toHaveAccessibleDescription("2 client calls in this window · spanning 1 m");
 
     // The count follows the machine filter: it is the subset the control would draw from this
-    // machine's window, not the whole fetched window's number.
+    // machine's window. **AND IT NAMES THAT SET (the thirty-seventh list).** With a scope active the
+    // sentence says which machine the count is of, and it withholds the span — the span belongs to
+    // the whole read, so stating it beside a narrowed count joined two different measurements.
     fireEvent.click(within(machines).getByRole("button", { name: "Beta" }));
     expect(screen.getByRole("button", { name: "Clients only" })).toHaveAccessibleDescription(
-      "1 client call in this window · spanning 1 m"
+      "1 client call on Beta in this window"
+    );
+  });
+
+  it("names the set a narrowed count is of, and withholds the span that belongs to the read", () => {
+    // **MEASURED AFTER A SEARCH THAT MATCHED NOTHING (the thirty-seventh list).** The page stated
+    // `0 client calls in this window · spanning 10 h 50 m`: the `0` was the SEARCH-FILTERED
+    // client-call count and the span was the UNFILTERED window's, joined by a `·` that read as "the
+    // span of the zero" — under a head that still said `Today: 876 client calls`. Three numbers,
+    // three different sets, no sign of which was which.
+    // A client call is one whose caller says so or one that carries a token; both are needed for the
+    // count to be non-zero before the search narrows it.
+    const newest = line({
+      ts_ms: Date.UTC(2026, 10, 5, 9, 1, 0),
+      tool: "terminal.list",
+      device_id: alpha,
+      caller: "client"
+    });
+    const older = line({
+      ts_ms: Date.UTC(2026, 10, 5, 9, 0, 0),
+      tool: "terminal.list",
+      device_id: beta,
+      caller: "client"
+    });
+    render(
+      <ActivityTimeline
+        lines={[newest, older]}
+        devices={devices}
+        nowMs={Date.UTC(2026, 10, 5, 10, 0, 0)}
+      />
+    );
+
+    const chip = screen.getByRole("button", { name: "Clients only" });
+    // Unfiltered: the window's own count and its own span, as before.
+    expect(chip).toHaveAccessibleDescription("2 client calls in this window · spanning 1 m");
+
+    const search = screen.getByRole("searchbox", { name: "Search activity" });
+    fireEvent.change(search, { target: { value: "no-such-line" } });
+    // Narrowed: the sentence names the set and the span is gone — the span belongs to the read, and
+    // the read is not what the reader is looking at.
+    expect(screen.getByRole("button", { name: "Clients only" })).toHaveAccessibleDescription(
+      "0 client calls matching the search in this window"
+    );
+    expect(screen.getByRole("button", { name: "Clients only" }).getAttribute("aria-describedby")).toBe(
+      "timeline-clients-window"
+    );
+    // And clearing the search puts both back.
+    fireEvent.change(search, { target: { value: "" } });
+    expect(screen.getByRole("button", { name: "Clients only" })).toHaveAccessibleDescription(
+      "2 client calls in this window · spanning 1 m"
     );
   });
 
