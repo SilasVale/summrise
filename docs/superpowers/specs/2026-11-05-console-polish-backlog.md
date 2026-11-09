@@ -1827,6 +1827,13 @@ the reader is); and every device page's title sits at the same x as its page col
    identical across every page of both surfaces — it is the reader's answer to "where am I" — and here
    it takes two sizes for no reason the page states. **Fix:** one page-title rule in the contract,
    drawn by every page on both surfaces, and the three panel rules collapse into it. **S.**
+   *(**Done, live console 0.3.273-ux145 / panel `bf52f7ff`**: the contract gained `title: 22 / 700`;
+   the console's rule asserts it through `--fs-xl` / `--fw-bold`, and the panel's `.page-title` is now
+   the single rule while the pages keep only their spacing. Measured after, both densities: every
+   content page's title is **22 px / 700** at its page column's edge (**x=149** desktop, **x=147**
+   panel). A test refuses a page that restates the type — and its first version read a one-line rule
+   (`.plug-title { margin: 0; }`) as swallowing the NEXT rule, so it failed on `.plug-sub`'s
+   `font-size` until the extractor stopped assuming the closing brace had a line to itself.)*
 
 2. **The panel draws the page's name twice, and the console once.** In the desktop density the
    shell's header already renders the page's title (measured: `desktop-header` at y=14, the page's
@@ -1836,6 +1843,14 @@ the reader is); and every device page's title sits at the same x as its page col
    alternate answers differently is whether the header is part of the frame or part of the page.
    **Fix:** the frame's header names the page OR the page names itself, never both, and the contract
    says which. **M.**
+   *(**Done, panel `bf52f7ff`**: **the page body owns its name, in both densities**, which is what the
+   console has always done. The header names the page only for the **terminal**, whose body is a shell
+   and cannot name itself. History's title stops being `sr-only`, and `desktop.css`'s rule that hid
+   Memory's, Settings' and Plugins' titles under the desktop canvas is deleted — it is now the wrong
+   side of the decision, and it could not have stayed anyway, since the pages carry `.page-title`,
+   which those selectors do not match. **Browser and Harness keep an invisible title deliberately:
+   both are PANES** (an embedded WebContentsView, a two-pane harness), and the shell test says so in
+   words. Mutation: removing History's `h1` fails with `History does not name itself in its own body`.)*
 
 ## How a round goes
 
