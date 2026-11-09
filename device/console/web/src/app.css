@@ -1824,9 +1824,18 @@ span.files-name {
 .tool-row:last-child { border-bottom: 0; }
 .tool-row:hover { background: var(--panel-2); border-color: transparent; }
 .tool-name { grid-column: 1; font-size: var(--fs-base); }
+/* **A CATALOGUE ENTRY MUST BE READABLE (the twenty-eighth list, item 2).** Measured on the live
+   Tools page: 46 tools, 46 descriptions, **12 truncated at 1440 and 44 of 46 at 390** — the row cut
+   the sentence with an ellipsis and offered no way to read it, losing 5,936 px of text at 1440 and
+   22,898 px at 390. The longest description is 2,672 px wide in the 315 px column the phone gives
+   it. Two lines, then an ellipsis: enough for the ordinary sentence, and the full text stays in the
+   tool's own sheet (which the row opens) for the long ones. `-webkit-line-clamp` is the only
+   standard way to clamp a line count, and every engine the console supports implements it. */
 .tool-description {
   grid-column: 1; color: var(--ink-muted); font-size: var(--fs-sm);
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
+  min-width: 0;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2;
+  overflow: hidden; overflow-wrap: anywhere;
 }
 .tool-chevron { grid-column: 2; grid-row: 1 / 3; align-self: center; color: var(--ink-faint); font-size: var(--fs-md); }
 .skeleton-list { display: grid; gap: var(--sp-2); }

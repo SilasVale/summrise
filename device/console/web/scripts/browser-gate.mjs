@@ -2733,6 +2733,46 @@ try {
   if (!toolsText.includes('Tools on this machine') || !toolsText.includes('plugins.list')) {
     throw new Error('the Tools tab did not draw the catalogue');
   }
+  // **THE CATALOGUE'S SENTENCES ARE READABLE (the twenty-eighth list, item 2).** Measured before
+  // this leg: 12 of 46 descriptions were truncated at 1440 and 44 of 46 at 390, because the row cut
+  // them to one line with an ellipsis and offered no way to read the rest — 5,936 px of text lost at
+  // 1440 and 22,898 px at 390. The row now clamps to two lines, so the gate counts how many are
+  // still cut SHORTER than their text and fails if the one-line shape returns.
+  const catalogueClamp = async (width) => {
+    await page.setViewportSize({ width, height: width === 390 ? 844 : 900 });
+    await page.waitForTimeout(400);
+    return page.evaluate(() => {
+      const folded = [...document.querySelectorAll('.tool-description')];
+      const cutToOne = folded.filter(
+        (element) => element.scrollHeight > element.clientHeight + 2 && element.clientHeight <= 22
+      );
+      const clampedToTwo = folded.filter((element) => element.clientHeight > 22);
+      return {
+        width: window.innerWidth,
+        descriptions: folded.length,
+        cutToOne: cutToOne.length,
+        clampedToTwo: clampedToTwo.length,
+        tallest: folded.reduce((max, element) => Math.max(max, element.clientHeight), 0)
+      };
+    });
+  };
+  const clamp1280 = await catalogueClamp(1280);
+  const clamp390 = await catalogueClamp(390);
+  if (clamp1280.cutToOne !== 0 || clamp390.cutToOne !== 0) {
+    throw new Error(
+      `a description is still cut to one line: ${JSON.stringify({ clamp1280, clamp390 })}`
+    );
+  }
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.waitForTimeout(300);
+  // The gate's own catalogue has seven short descriptions, so this leg proves the SHAPE (nothing is
+  // cut to one line) rather than the count; the count is measured on the operator's 46-tool page in
+  // the live check, where the long sentences actually live.
+  step(
+    `the catalogue's descriptions are never cut to one line: ${clamp1280.descriptions} rows at ` +
+      `1280, ${clamp390.descriptions} at 390, tallest ${clamp1280.tallest}/${clamp390.tallest}px`
+  );
+
   const runSection = page.locator('section[aria-labelledby="tools-run"]');
   await runSection
     .getByRole('heading', { name: 'Run a command on this machine', exact: true })
