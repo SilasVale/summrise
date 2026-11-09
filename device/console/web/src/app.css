@@ -3047,8 +3047,22 @@ main::-webkit-scrollbar-track, .sheet-body::-webkit-scrollbar-track, .scroll::-w
 
 /* The timeline filters with what a row actually carries: the machine that wrote it, and one search
    over the sentence, tool, machine and detail. The table's column filters stay with the table. */
+/* **ONE LEFT EDGE PER SUBJECT, ONE BASELINE PER ROW (the thirty-fourth list, item 2).** Measured at
+   1440 before this: the block's four left edges were x=314 (`MACHINES`), x=919 (`CALLERS`), **x=1001**
+   (the count sentence `710 client calls in this window · spanning 10 h 7 m`) and **x=1070**
+   (`Search activity` with its 288 px field), on three baselines (y=241, 267, 323) — inside a block
+   that reads as one bar. The count was a third element of the chip row, so it started where the row
+   happened to end; it is its own line under the Callers subject now, and the grid gives each column
+   its own edge and the whole bar one baseline.
+   - The machine chips and the caller control are one row, so their labels start at their chips.
+   - The search is the bar's right column: its label and its field share the field's left edge.
+   - Everything is aligned on the GRID's row, not nudged per element: `align-items: start` and one
+     rule height means the labels, the chips and the field all start at the same y. */
 .timeline-filters {
-  display: flex; align-items: flex-end; flex-wrap: wrap; gap: var(--sp-3-5) var(--sp-5);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 18rem) 18rem;
+  align-items: start;
+  gap: var(--sp-1-5) var(--sp-5);
   margin: 0 0 18px; padding-bottom: var(--sp-3-5);
   border-bottom: 1px solid var(--line);
 }
@@ -3072,15 +3086,20 @@ main::-webkit-scrollbar-track, .sheet-body::-webkit-scrollbar-track, .scroll::-w
 .timeline-console-reads { align-items: center; margin: 0 0 var(--sp-2); }
 .timeline-console-reads .chip { border: 0; cursor: pointer; }
 .timeline-console-reads .chip[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); }
-.timeline-search { margin-left: auto; }
-.timeline-search input { width: 18rem; max-width: 100%; }
+/* The search label and field share the field's left edge: the label is the field's own name, so it
+   sits on the same column start the input does (`display: grid` with one column). */
+.timeline-search { display: grid; gap: var(--sp-1-5); min-width: 0; }
+.timeline-search input { width: 100%; max-width: 100%; }
 @media (max-width: 639px) {
   .activity-page .page-head h1 { font-size: var(--fs-xl); }
   .activity-today { font-size: var(--fs-lg); }
   .activity-panel.is-record .stream-bar { padding-top: 12px; }
-  .timeline-filters { gap: 12px; }
+  /* **THE PHONE IS ONE COLUMN (the thirty-fourth list, item 2).** The bar's grid is three columns
+     wide on a desktop; at 390 those columns cannot fit, so the phone stacks the subjects and each
+     keeps its own left edge — the same alignment rule, one column instead of three. */
+  .timeline-filters { grid-template-columns: minmax(0, 1fr); gap: 12px; }
   .filter-block { width: 100%; }
-  .timeline-search { margin-left: 0; width: 100%; }
+  .timeline-search { width: 100%; }
   .timeline-search input { width: 100%; }
 }
 

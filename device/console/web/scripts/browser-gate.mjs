@@ -1902,6 +1902,70 @@ try {
     callers: document.querySelector('#timeline-callers-label')?.textContent?.trim() ?? '',
     chipText: document.querySelector('.timeline-callers button')?.textContent?.trim() ?? ''
   }));
+  // **ONE LEFT EDGE PER SUBJECT, ONE BASELINE PER ROW (the thirty-fourth list, item 2).** Measured at
+  // 1440 before the grid: `MACHINES` x=314, `CALLERS` x=919, the count sentence x=1001 and
+  // `Search activity` x=1070 on three baselines (241, 267, 323). The bar is one grid now; this leg
+  // reads the edges and fails when a subject is off its own column.
+  const filterGrid = await page.evaluate(() => {
+    const box = (element) => {
+      if (!element) return null;
+      const rect = element.getBoundingClientRect();
+      return {
+        x: Math.round(rect.x),
+        y: Math.round(rect.y),
+        w: Math.round(rect.width),
+        h: Math.round(rect.height)
+      };
+    };
+    const byId = (id) => box(document.getElementById(id));
+    const search = document.querySelector('.timeline-search');
+    return {
+      machinesLabel: byId('timeline-machines-label'),
+      machinesChips: box(document.querySelector('.timeline-machines')),
+      callersLabel: byId('timeline-callers-label'),
+      callersChips: box(document.querySelector('.timeline-callers')),
+      count: byId('timeline-clients-window'),
+      searchLabel: search ? box(search.querySelector('span')) : null,
+      searchField: search ? box(search.querySelector('input')) : null
+    };
+  });
+  const off = (a, b, what) => {
+    if (a === null || b === null) return `${what}: missing`;
+    return Math.abs(a.x - b.x) > 1 ? `${what}: ${a.x} vs ${b.x}` : null;
+  };
+  const misaligned = [
+    off(filterGrid.machinesLabel, filterGrid.machinesChips, 'Machines label/chips'),
+    off(filterGrid.callersLabel, filterGrid.callersChips, 'Callers label/chips'),
+    off(filterGrid.searchLabel, filterGrid.searchField, 'Search label/field')
+  ].filter(Boolean);
+  if (misaligned.length !== 0) {
+    throw new Error(`the Activity filter bar has edges off its columns: ${misaligned.join('; ')}`);
+  }
+  // The count belongs to the Callers column, not floating where the chip row ended.
+  if (filterGrid.count && filterGrid.callersChips) {
+    if (Math.abs(filterGrid.count.x - filterGrid.callersChips.x) > 1) {
+      throw new Error(
+        `the caller count starts at ${filterGrid.count.x}, its column starts at ${filterGrid.callersChips.x}`
+      );
+    }
+    if (filterGrid.count.y < filterGrid.callersChips.y) {
+      throw new Error('the caller count sits above the chip it counts');
+    }
+  }
+  // And every subject starts on the bar's one row: the three labels share a baseline.
+  const labelYs = [
+    filterGrid.machinesLabel,
+    filterGrid.callersLabel,
+    filterGrid.searchLabel
+  ].filter(Boolean).map((label) => label.y);
+  if (labelYs.length > 1 && Math.max(...labelYs) - Math.min(...labelYs) > 1) {
+    throw new Error(`the filter bar's labels sit on ${labelYs.join(' / ')} instead of one row`);
+  }
+  step(
+    `the Activity filter bar is one grid: labels on y=${labelYs[0]}, each over its own column ` +
+      `(count at x=${filterGrid.count?.x}, search at x=${filterGrid.searchField?.x})`
+  );
+
   if (filterLabels.machines !== 'Machines' || filterLabels.callers !== 'Callers') {
     throw new Error(
       `the Activity filters are not labelled: ${JSON.stringify(filterLabels)}`
