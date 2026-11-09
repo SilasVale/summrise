@@ -2339,12 +2339,23 @@ each one is USED FOR.
    section that reads as a second title; Settings' sections are 17, a proper level; History's `Sessions`
    is 14, a third. **Fix:** the contract names the levels below the title, and each surface uses one
    per level. **M.**
+   *(**Done on the console, live 0.3.273-ux160** (`5aff473`): `section: { h2 17/600, h3 14/600, eyebrow
+   10/600/0.05em/uppercase }` is in the contract. Activity's day heading was **22 / 600 — the page
+   TITLE's size, one weight lighter** — so the record's day read as a second page title above its rows;
+   it is 17 / 600 now, keeping its 24 px of padding and its stickiness. **The browser gate asserted the
+   bug** (`the day heading is 22px, not the scale's 22px`), which is worse than no gate: a leg that
+   encodes a defect defends it. The panel's side is the remaining work: Settings' nine `h2`s are 17
+   (the level) and History's `Sessions` is 14 (a third level, which the contract now calls `h3`).)*
 
 2. **The eyebrow has two spellings.** Measured: the console's label is `10 px / 600 / 0.5 px /
    uppercase / --ink-faint` in nine places; the panel's is `11 px / 700 / 0.06em` (hard-coded, not the
    token) on its own labels. `--tracking-label` is `0.05em` and `--tracking-eyebrow` is `0.08em`, so
    three numbers exist for the same idea and each surface uses a different one. **Fix:** one eyebrow
    atom in the contract, read by both. **S.**
+   *(**Done on the console with item 1**: twelve rules that each restated the same five declarations
+   are ONE selector list over twelve labels, and every rule keeps only what is its own — a colour, a
+   margin, `display: inline`. Measured after: **4** `text-transform: uppercase` where there were 12.
+   The panel's thirteenth spelling is the remaining work.)*
 
 ## How a round goes
 
