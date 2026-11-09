@@ -1502,6 +1502,32 @@ reconnect. The device keeps running and can be enrolled again with a new code.`,
    `host_facts`, not the app's — two different subjects that happen to sit in the same object. The
    column is right, and this entry is kept so the next reader does not re-run the comparison.)*
 
+## P0 — the thirty-third list (opened 2026-11-09, the installer is not the release)
+
+The thirty-second list is closed (one item, disproved — see above). This one came from the same read
+that disproved it: while checking the `Started` column I compared the fleet's own numbers, and the
+comparison exposed a different defect in the sentence Home puts on top of the page.
+
+Live `0.3.273-ux129`, read at 1440: the attention block says
+
+    The release is 0.3.291; the machines below are not on it.
+
+and the fleet it is talking about has `DESKTOP-9VH92BJ` on **v0.3.292** and `DESKTOP-CPH4KB2` on
+**v0.3.292** — two machines **ahead** of the "release". The number comes from the staged installer
+(`SummriseSetup-0.3.291.exe`, also on the page), and it is treated as the target every machine is
+measured against; the block even says "the machines below are not on it", which is false: two of the
+four are past it, and one of them (`84T3LIN`, v0.3.291) is exactly on it. What is true is that one
+machine, `14RJCR8`, is on **v0.3.275** and is therefore behind — behind the *fleet*, not behind an
+installer that is itself older than half the fleet.
+
+1. **Home's "the release" is the installer's version, and the fleet has already outrun it.** Measured
+   above: installer `0.3.291`, machines `0.3.292 / 0.3.275 / 0.3.292 / 0.3.291`, sentence
+   `The release is 0.3.291; the machines below are not on it.` — of which three of four ARE on or
+   past it, and the sentence never says which way the gap runs. The console must state the fleet's
+   own newest version as what it is compared against (it is the number the reader is actually
+   asking about), and, when the installer is behind that newest, say so on the installer's own line
+   rather than letting a stale download pass as the target. **M.**
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
