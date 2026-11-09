@@ -140,7 +140,13 @@ export function ScreenPage({
         <p className="hint screen-view-note">
           {view === "browser"
             ? "The device's browser, drawn here as screenshots. This is a remote view, not a local window."
-            : "A capture of the signed-in user's desktop; locked and disconnected sessions refuse."}
+            : /* **THE LEAD SENTENCE SAYS WHAT THIS IS, AND THE REASON BELOW SAYS WHY IT CANNOT**
+                (the thirtieth list, item 1). Measured at 1440 with the helper unregistered, the page
+                told the same refusal three times in three vocabularies — `…sessions refuse.`,
+                `Capture is off: …`, and `The picture comes from the per-user helper's session, so
+                …` — for 591 characters and one disabled button. The refusal is the
+                `screen-capture-reason` sentence's job; this one names the surface. */
+              "A capture of this machine's signed-in desktop."}
         </p>
         {view === "desktop" && (
           // **THE DISABLED BUTTON'S REASON STANDS BESIDE IT (audit-44 F4).** The measured page
@@ -207,11 +213,6 @@ export function ScreenPage({
         <BrowserPane grant={grant} deviceOnline={deviceOnline} />
       ) : (
         <>
-          <p className="hint">
-            The picture comes from the per-user helper's session, so a locked or disconnected session
-            is the device's refusal, not a black frame.
-          </p>
-
           {error && <p className="error">{error}</p>}
           {nextStep && <p className="hint">{nextStep}</p>}
 
@@ -222,7 +223,9 @@ export function ScreenPage({
             <p className="hint">
               {offline
                 ? "No capture yet."
-                : "No capture yet. Capture screen takes one when you ask; nothing is captured on a timer."}
+                : /* One line: the press, and the fact that nothing happens without it. The timer
+                    sentence was a second clause of the same idea (the thirtieth list, item 1). */
+                  "No capture yet — Capture screen takes one when you ask."}
             </p>
           )}
 
@@ -238,6 +241,14 @@ export function ScreenPage({
                 </a>
               </p>
               <img className="screen-shot" src={shot.dataUrl} alt="the device's screen" />
+              {/* **THE EXPLANATION SITS UNDER THE THING IT EXPLAINS.** It was paragraph one of the
+                  page, above a button that had not been pressed yet, explaining a failure the
+                  reader had not met. It is the picture's caption now: a black frame would be the
+                  first thing it accounts for. */}
+              <p className="hint screen-shot-caption">
+                The picture is the per-user helper's session, so a locked or disconnected session is
+                the machine's refusal, not a black frame.
+              </p>
             </>
           )}
         </>

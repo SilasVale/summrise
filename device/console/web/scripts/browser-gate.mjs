@@ -3353,6 +3353,33 @@ try {
       );
     }
   }
+  // **ONE REFUSAL, ONCE (the thirtieth list, item 1).** Measured at 1440 with the helper
+  // unregistered: the Screen tab carried 591 characters for one disabled button and told the same
+  // refusal three times — the lead's `…locked and disconnected sessions refuse.`, the reason's
+  // `Capture is off: …`, and a paragraph above the button ending `… not a black frame.` This leg
+  // counts the sentences that name a refusal and fails if a third one comes back.
+  const screenSentences = await page.evaluate(() => {
+    const screen = document.querySelector('main');
+    const notes = [...document.querySelectorAll('.screen-view-note, .screen-capture-reason, .hint')]
+      .filter((element) => element.getClientRects().length > 0)
+      .map((element) => (element.textContent ?? '').replace(/\s+/g, ' ').trim())
+      .filter((text) => text.length > 0);
+    const refusals = notes.filter((text) =>
+      /locked|disconnected|refus|Capture is off|cannot be captured/i.test(text)
+    );
+    return { notes: notes.slice(0, 6), refusals, chars: (screen?.innerText ?? '').length };
+  });
+  if (screenSentences.refusals.length > 1) {
+    throw new Error(
+      `the Screen tab states the refusal ${screenSentences.refusals.length} times: ${JSON.stringify(
+        screenSentences.refusals
+      )}`
+    );
+  }
+  step(
+    `the Screen tab states its refusal once (${screenSentences.refusals.length} of ${screenSentences.notes.length} notes, page ${screenSentences.chars} chars)`
+  );
+
   const captureButton = page.getByRole('button', { name: 'Capture screen', exact: true });
   if (!(await captureButton.isDisabled())) {
     throw new Error('Capture screen is enabled while the helper\'s session is disconnected');
