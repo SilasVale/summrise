@@ -815,7 +815,7 @@ describe("ActivityTimeline", () => {
 
     const chip = screen.getByRole("button", { name: "Clients only" });
     expect(chip).toHaveAttribute("aria-pressed", "false");
-    expect(chip).toHaveAccessibleDescription("2 client calls in this window · spanning 3 m");
+    expect(chip).toHaveAccessibleDescription("2 client calls in this window · from 09:00, spanning 3 m");
     // Unpressed the whole record is drawn: two of these rows are not the AI's calls.
     expect(document.querySelectorAll(".timeline-row")).toHaveLength(4);
 
@@ -824,7 +824,7 @@ describe("ActivityTimeline", () => {
     expect(chip).toHaveAttribute("aria-pressed", "true");
     // Pressed, the subset is the list, so the count's noun is `rows` — the same number and window,
     // named for what is now drawn rather than for the caller filter that selected it.
-    expect(chip).toHaveAccessibleDescription("2 rows in this window · spanning 3 m");
+    expect(chip).toHaveAccessibleDescription("2 rows in this window · from 09:00, spanning 3 m");
     expect(document.querySelectorAll(".timeline-row")).toHaveLength(2);
     expect(screen.getByText("Read notes.txt")).toBeInTheDocument();
     expect(screen.getByText("Ran a command")).toBeInTheDocument();
@@ -1098,7 +1098,7 @@ describe("ActivityTimeline's labelled filter and record footer", () => {
     const chip = screen.getByRole("button", { name: "Clients only" });
     expect(chip).toHaveTextContent(/^Clients only$/);
     expect(chip).not.toHaveTextContent(/client calls/i);
-    expect(chip).toHaveAccessibleDescription("2 client calls in this window · spanning 1 m");
+    expect(chip).toHaveAccessibleDescription("2 client calls in this window · from 09:00, spanning 1 m");
 
     // The count follows the machine filter: it is the subset the control would draw from this
     // machine's window. **AND IT NAMES THAT SET (the thirty-seventh list).** With a scope active the
@@ -1140,7 +1140,7 @@ describe("ActivityTimeline's labelled filter and record footer", () => {
 
     const chip = screen.getByRole("button", { name: "Clients only" });
     // Unfiltered: the window's own count and its own span, as before.
-    expect(chip).toHaveAccessibleDescription("2 client calls in this window · spanning 1 m");
+    expect(chip).toHaveAccessibleDescription("2 client calls in this window · from 09:00, spanning 1 m");
 
     const search = screen.getByRole("searchbox", { name: "Search activity" });
     fireEvent.change(search, { target: { value: "no-such-line" } });
@@ -1155,7 +1155,7 @@ describe("ActivityTimeline's labelled filter and record footer", () => {
     // And clearing the search puts both back.
     fireEvent.change(search, { target: { value: "" } });
     expect(screen.getByRole("button", { name: "Clients only" })).toHaveAccessibleDescription(
-      "2 client calls in this window · spanning 1 m"
+      "2 client calls in this window · from 09:00, spanning 1 m"
     );
   });
 
@@ -1179,8 +1179,13 @@ describe("ActivityTimeline's labelled filter and record footer", () => {
     });
     render(<ActivityTimeline lines={[newest, oldest]} devices={devices} />);
 
+    // **AND IT SAYS WHERE THE WINDOW STARTS (the forty-third list).** Measured live: the header read
+    // `Today: 206 client calls` over `629 client calls in this window · spanning 12 h 15 m`, and both
+    // were true — 629 > 206 because a 12 h 15 m window read at 19:48 starts at 07:33 and never crosses
+    // midnight. A span alone cannot say that; the START can, and it is the one fact that reconciles
+    // the two numbers a reader is looking at together.
     expect(screen.getByRole("button", { name: "Clients only" })).toHaveAccessibleDescription(
-      "1 client call in this window · spanning 24 h 37 m"
+      "1 client call in this window · from 08:23, spanning 24 h 37 m"
     );
   });
 
