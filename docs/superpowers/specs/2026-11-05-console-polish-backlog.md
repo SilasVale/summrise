@@ -1359,6 +1359,14 @@ query.
    below it. **Fix:** the phone's main controls get a 44 px minimum (a `min-height` on the shared
    button/summary rules inside the phone query, not a per-component nudge), and the gate measures
    the count. **M.**
+   *(**Done, live 0.3.273-ux123** (`98b1f4b` + `dd98bb7` + `c748985`): measured on the same phone
+   after the rule, **Home 25 targets / 0 under, Activity's timeline 111 / 0, the Table 1,004 / 0, and
+   the Connect sheet 1,030 / 0.** It took three commits because the cascade fought back: `.fleet-open…`
+   zeroes `min-height` and `button { min-height: 28px }` is more specific than `main button`, so the
+   rule is now the sheet's LAST statement and names each family that owns its own box (`.device-tab`,
+   `.tab-main`, `.fleet-open`, `.seg button`, the two audit summaries, and `[role="dialog"]`'s
+   controls). Measured while getting it wrong: `Tokens` stayed 30 px, the tabs 35 px, and a probe
+   reported `min-height: 0px` — that is why the position is documented in the sheet.)*
 
 2. **Home's fleet row is 103 px tall and only 11% of it is a door.** Measured at 390: each row is
    358 × 103 px; the name door inside it is 156 × 26 px (4,005 px² of 36,695), and tapping the row
@@ -1374,6 +1382,10 @@ query.
    table is the page's densest surface and its one per-row control is below every touch guideline
    in existence. **Fix:** with item 1's shared minimum the opener becomes 44 px; the row's height
    must then be re-measured so the table does not double. **M.**
+   *(**Done with item 1** (`c748985`): the 24 x 28 px opener is 44 px now and the Table at 390 reads
+   **1,004 targets, 0 under 44 px**; the row did not double — the table's total height moved
+   65,533 → 65,559 px (26 px for the whole 1,001-row page, because the opener sits inside a cell that
+   was already 57 px tall).)*
 
 ## How a round goes
 
