@@ -2068,6 +2068,19 @@ still names its own start, which is what the last list bought.
    that *"the measured host and browser are both Asia/Shanghai"*. That is true of the operator's own
    machine and false for a browser anywhere else, or a laptop opened while travelling. **Fix:** one
    midnight, named once, and each surface says which one it uses. **M.**
+   *(**Done, live 0.3.273-ux152** (`22a20ae`): the answer publishes `day_start_ms` — the midnight it
+   actually used — and the page groups its rows at that moment. Measured live from an
+   `America/New_York` browser: `day_start_ms` **16:00Z** (the console's own zone, Asia/Shanghai) while
+   the browser's midnight is **05:00Z**, and the headings read `Today` / `Yesterday` at the CONSOLE's
+   cut, so the label over the list and the count above it are about the same interval. **And the gate
+   says what it cannot see:** `playwright-core`'s `Page` has no `emulateTimezone` (the Context does,
+   and the run has one page), and re-zoning the whole run broke another leg's sentence
+   (`Today 4 client calls · last 15:31`), so the leg proves what it can see — the answer names its
+   midnight and the label does not start before it — and says in its own sentence that the
+   zone-independence is the unit test's, which sets the cut explicitly and fails on the browser's day
+   with no zone involved. **One unrelated red was fixed because it was in the way:** `tokens.rs`
+   failed on a `12px` literal in `.timeline-filters` — red on a clean trunk too, so the category gate
+   had been un-runnable.)*
 
 2. **The day's scan examined 302 lines to answer a day the window shows holding 1,000+ rows, and
    answered `since_ms: null`** — the schema's own word for *"the read reached midnight"*. Measured:
