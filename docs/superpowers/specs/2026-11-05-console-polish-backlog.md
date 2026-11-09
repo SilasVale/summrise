@@ -1492,6 +1492,15 @@ reconnect. The device keeps running and can be enrolled again with a new code.`,
    and its own empty label), or the cell states both facts when the app's own start is known;
    whichever it says must match what `StartedLine` on the Machine tab states for the same machine.
    **S.**
+   *(**DISPROVED 2026-11-09, before any work was done on it — the suspicion was mine and it was
+   wrong.** `host.restarts[0]` is not "the newest restart": it is **this process's own boot**, appended
+   at startup by `device/device/src/main.rs:985-1001` with `pid: std::process::id()`, and the journal is
+   newest-first. The live frame proves it: `restarts[0] = {at_ms 1794089629237, pid 20072, version
+   0.3.292}` — pid 20072 is the process that is running, and its age (39.2 h) is exactly the cell's
+   `1d 15h ago` with the title `2026-11-08 06:13:49`. What led me astray was comparing the cell against
+   the frame's `uptime_s` (7,165,579 s ≈ 82.9 days), which is the **machine's** OS uptime from
+   `host_facts`, not the app's — two different subjects that happen to sit in the same object. The
+   column is right, and this entry is kept so the next reader does not re-run the comparison.)*
 
 ## How a round goes
 
