@@ -2251,6 +2251,13 @@ span.files-name {
   --control-bg: color-mix(in srgb, var(--ink) 6%, transparent);
   --control-hover-bg: color-mix(in srgb, var(--ink) 9.5%, transparent);
   --ease: cubic-bezier(0.32, 0.72, 0, 1);
+  /* **THE EVIDENCE OUTPUT IS A TERMINAL IN BOTH THEMES (the twenty-sixth list, item 4).** The
+     transcript a call carried is a dark surface even on the light page — that is what makes it read
+     as output rather than as prose — so this pair is deliberately NOT restated in the dark block,
+     and it is named here rather than written at the call site so the contrast test can measure what
+     the page really draws. Measured: #d6dae0 on #14161a is 12.4:1 (AA needs 4.5). */
+  --evidence-bg: #14161a;
+  --evidence-ink: #d6dae0;
   /* Two elevations and one raised control. `--elev-1` was declared here and used ZERO times
      (measured 2026-11-09): it is gone rather than kept as a fourth family nobody draws with. */
   --elev-segment: 0 1px 2px rgba(0, 0, 0, 0.1);
@@ -3162,7 +3169,8 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
 }
 .evidence-output {
   margin: 0; font-family: var(--mono); font-size: var(--fs-2xs); line-height: 1.55;
-  background: #14161a; color: #d6dae0; border-radius: var(--radius-sm2); padding: var(--sp-2-5) var(--sp-3);
+  background: var(--evidence-bg); color: var(--evidence-ink);
+  border-radius: var(--radius-sm2); padding: var(--sp-2-5) var(--sp-3);
   max-height: 220px; overflow: auto; white-space: pre-wrap;
 }
 /* The captured frame: evidence you look at, bounded by the panel it opens inside. */
