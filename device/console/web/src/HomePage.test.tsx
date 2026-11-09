@@ -180,7 +180,7 @@ describe("Home — the fleet's installer", () => {
     drawFleet({ devices: [{ ...workshop, version: "0.3.8" }] });
 
     expect(
-      await screen.findByText("The release is 0.3.9.")
+      await screen.findByText("The release is 0.3.9; the machines below are not on it.")
     ).toBeInTheDocument();
     // The staged installer is the RELEASE; the console's own build is another version scheme and
     // the page may not call both "the console" (audit-40 F10).
@@ -331,10 +331,12 @@ describe("Home — the verdict and what needs attention", () => {
     ).toBeInTheDocument();
     const attention = screen.getByRole("region", { name: "Needs attention" });
     expect(within(attention).getByRole("heading", { name: "old", level: 3 })).toBeInTheDocument();
-    // The release is stated once by the block; the row names the machine and the problem.
-    expect(within(attention).getByText("The release is 0.3.9.")).toBeInTheDocument();
-    expect(within(attention).getByText("Behind the release.")).toBeInTheDocument();
-    expect(within(attention).queryByText(/0\.3\.8/)).toBeNull();
+    // The release is stated once by the block; the row names the machine, its own build and the
+    // distance (the twenty-eighth list, item 4), which is the fact the block alone could not give.
+    expect(
+      within(attention).getByText("The release is 0.3.9; the machines below are not on it.")
+    ).toBeInTheDocument();
+    expect(within(attention).getByText("On v0.3.8 · behind 0.3.9.")).toBeInTheDocument();
   });
 
   it("draws one row per machine, its problems listed, with one button that opens it", async () => {
@@ -369,12 +371,14 @@ describe("Home — the verdict and what needs attention", () => {
     const problems = attention.querySelectorAll(".attention-problems li");
     expect(Array.from(problems, (problem) => problem.textContent)).toEqual([
       "offline · last seen 2d 5h ago",
-      "Behind the release."
+      "On v0.3.275 · behind 0.3.289."
     ]);
-    // One release position: the block's sentence. Neither the machine's version nor the release is
-    // repeated in the row; the table's Version column is where the build is compared (audit-43 F2).
-    expect(within(attention).getAllByText("The release is 0.3.289.")).toHaveLength(1);
-    expect(within(attention).queryByText(/0\.3\.275/)).toBeNull();
+    // One release position: the block's sentence names the target once. The row names THIS machine's
+    // build, because a reader told "behind" without a number has to hunt the table for it.
+    expect(
+      within(attention).getAllByText("The release is 0.3.289; the machines below are not on it.")
+    ).toHaveLength(1);
+    expect(within(attention).getAllByText(/0\.3\.275/)).toHaveLength(1);
     // One door for one machine; the name appears once, not in every problem line. The visible verb
     // is `Open`, the same one the fleet row and the picker use (audit-44 F9).
     const doors = within(attention).getAllByRole("button", {

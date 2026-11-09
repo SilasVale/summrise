@@ -173,10 +173,15 @@ function attentionProblems(
         key: `${device.id}:behind`,
         device,
         tone: "behind",
-        // THE RELEASE IS STATED ONCE, BY THE BLOCK. A machine's version is the table's Version
-        // column; repeating it here made `0.3.291` appear once per behind row and again in the
-        // installer's filename (audit-43 F2). The block's one sentence names the target.
-        clause: "Behind the release."
+        // **THE ROW SAYS HOW FAR BEHIND, ONCE.** The block names the target release; this row names
+        // the machine's own build, so a reader can see the gap without hunting the table 445 px
+        // below (the twenty-eighth list, item 4). The number is the device's, not invented: it is
+        // the `version` the fleet read returned, and it is absent (a plain `Behind the release.`)
+        // when the machine did not report one.
+        clause:
+          device.version && installer
+            ? `On v${device.version} · behind ${installer.version}.`
+            : "Behind the release."
       });
     }
   }
@@ -258,12 +263,22 @@ function AttentionBlock(props: {
   // **ONE RELEASE SENTENCE, ONE VERSION POSITION.** The release is the installer's version, and
   // every behind row is measured against the same number; stating it in each row made one number
   // read as several facts. The rows name the machine and the problem; the block names the target.
+  //
+  // **BUT THE ROW MUST CARRY THE DISTANCE (the twenty-eighth list, item 4).** Measured on the live
+  // page: the block read `The release is 0.3.291.` / `DESKTOP-14RJCR8` / `offline · last seen 4d 2h
+  // ago` / `Behind the release.` / `Open`, and the machine's own version — `v0.3.275` — appeared
+  // NOWHERE in the block: it was 445 px lower, in the table's Version column. A reader was told a
+  // machine is behind and not how far, on the page whose whole job is the verdict and the next
+  // action. The clause now names the two numbers that are already on the page, so the sentence is
+  // the fact rather than a pointer to it.
   const behind = props.release !== null && props.problems.some((problem) => problem.tone === "behind");
   return (
     <section className="attention" aria-label="Needs attention">
       <h2>Needs attention</h2>
       {behind && (
-        <p className="attention-release hint">The release is {props.release}.</p>
+        <p className="attention-release hint">
+          The release is {props.release}; the machines below are not on it.
+        </p>
       )}
       <ul className="attention-list">
         {attentionMachines(props.problems).map((machine) => {
