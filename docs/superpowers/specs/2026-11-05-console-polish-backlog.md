@@ -1952,6 +1952,34 @@ paid for.
    `border-radius: var(--radius)` back into `.mem-card` — fails with `.mem-card must not restate the
    card's corner`.)*
 
+## P0 — the forty-second list (opened 2026-11-10, the width between the breakpoints)
+
+The forty-first list is closed. Both surfaces now hold the frame, the rhythm and the card; this list came
+from walking the two surfaces **across the widths between their breakpoints** — 380, 480, 639, 640, 700,
+720, 759, 760, 761, 799, 800, 900, 901, 1000, 1200, 1279, 1280, 1360 — rather than measuring the two
+widths the gates happen to open (1440 and 390).
+
+Two reads were clean and are recorded as clean: on the phone there is no sideways scroll on either page
+of either surface (`scrollWidth === innerWidth` at every width), and the console's page column keeps its
+contract rhythm and padding below 640 (`16 px` padding, `16 px` gap).
+
+1. **The console's phone padding and gap are `16 px`, which is not the contract and is not the screen.**
+   Measured at 390 and 480: `.page` draws `padding: 16px` and `gap: 16px` while the contract says 24.
+   That would be a "one responsive step down" answer — except the panel does not do it: measured on the
+   built panel at 380, its page draws **`padding: 24px`** and a 24 px rhythm, on a 297 px column. So the
+   two surfaces disagree about the phone by one step, and the smaller one is the one with the room
+   (the panel's rail takes 52 px of a 380 window; the console's takes 0, it is a bottom bar). **Fix:**
+   the contract either carries the phone's step or says the phone is the desktop's rhythm; the two
+   surfaces read the same sentence. **S.**
+
+2. **Neither surface has a breakpoint token.** The console declares **31** media queries at
+   `639 / 640 / 720 / 767 / 799 / 800 / 900 / 56rem / 68rem / 1280 / 480`, the panel **6** at
+   `700 / 760 / 900`. The values that matter are hidden inside `rem` in two of them (`56rem` = 896,
+   `68rem` = 1088) and every one is a literal. A layout system whose breakpoints are literals is a
+   system with an invisible fourth scale — spacing, type, radius are tokens and the widths are not.
+   **Fix:** the contract names the widths both surfaces may use, each media query reads one, and a
+   value outside the list fails in both repos. **M.**
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
