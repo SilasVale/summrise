@@ -461,7 +461,11 @@ function plural(count: number, noun: string, many = `${noun}s`): string {
  * client-call counters are gone — that is Activity's noun.
  */
 function FleetHome(props: HomePageProps) {
-  const installer = useInstaller();
+  const installerRead = useInstaller();
+  // `null` for "no answer yet" is what `releaseTarget` already means by it, so the two non-answers
+  // (still reading, failed) both pass `null` there — neither is a claim about the account.
+  const installer =
+    installerRead.state === "read" ? installerRead.installer : null;
   const fleet = props.fleetRead ?? { state: "ready" as const };
   // **THE PANEL MUST COME TO THE OPERATOR (audit-44 F7).** At 390 with a populated fleet the
   // enrollment panel opened at y=1045 with `scrollTop` still 0, so the press looked dead while the
@@ -635,14 +639,30 @@ function FleetHome(props: HomePageProps) {
 
       {/* The installer is the account's, not the read's: `/installer` is a separate answer, and it
           is the next step whether the machine list arrived, is still coming, or failed. It is a
-          compact strip after the fleet, not the page's first card. */}
-      {installer !== null && (
+          compact strip after the fleet, not the page's first card.
+          **AND WHEN THE READ FAILS THE PAGE SAYS SO (the fortieth list).** The render used to be
+          `{installer !== null && … }`, so a failed read drew nothing at all: measured live with
+          `/installer` answering 500, Home lost 100 px and printed no sentence and no retry. The
+          panel's Memory, Settings and Plugins pages already answer a failed read with their own
+          subject and a Retry; this is the console's installer doing the same. */}
+      {installerRead.state === "read" ? (
         <InstallerBlock
-          installer={installer}
+          installer={installerRead.installer}
           devices={props.devices}
           onNotice={props.onNotice}
         />
-      )}
+      ) : installerRead.state === "failed" ? (
+        <section className="card installer installer-strip" aria-label="Install the device runtime">
+          <h2>Install the device runtime</h2>
+          <p className="hint installer-stale">
+            The installer could not be read, so this page cannot offer the download or say which
+            build it carries.
+          </p>
+          <button type="button" className="mini" onClick={installerRead.retry}>
+            Try the installer again
+          </button>
+        </section>
+      ) : null}
 
       {props.code && (
         <section className="enroll" aria-labelledby="enroll-title">

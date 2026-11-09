@@ -1102,6 +1102,48 @@ try {
       );
     }
   }
+  // **A FAILED INSTALLER READ SAYS SO (the fortieth list).** Measured live: with `/installer`
+  // answering 500 the page lost the strip entirely — 100 px gone, no sentence, no retry — because
+  // the hook's `catch` set the same `null` that "not read yet" used. This leg breaks the read in the
+  // page's own origin and refuses a page that answers with silence.
+  await page.route('**/installer', (route) =>
+    route.fulfill({ status: 500, body: JSON.stringify({ error: 'the gate broke it on purpose' }) })
+  );
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await page.waitForTimeout(2500);
+  const failedInstaller = await page.evaluate(() => {
+    const strip = document.querySelector('.installer');
+    if (!strip) return { present: false, text: '', retry: false, download: false };
+    return {
+      present: true,
+      text: (strip.textContent ?? '').replace(/\s+/g, ' ').trim(),
+      retry: [...strip.querySelectorAll('button')].some((b) =>
+        /Try the installer again/i.test(b.textContent ?? '')
+      ),
+      download: [...strip.querySelectorAll('a')].some((a) =>
+        /Download Windows installer/.test(a.textContent ?? '')
+      )
+    };
+  });
+  if (!failedInstaller.present) {
+    throw new Error('a failed installer read drew nothing at all — the page answered with silence');
+  }
+  if (!/could not be read/.test(failedInstaller.text)) {
+    throw new Error(`a failed installer read did not say so: "${failedInstaller.text}"`);
+  }
+  if (failedInstaller.download) {
+    throw new Error('a failed installer read still offers the download it does not have');
+  }
+  if (!failedInstaller.retry) {
+    throw new Error('a failed installer read offers no retry');
+  }
+  step(
+    `a failed installer read says so and offers the retry: "${failedInstaller.text.slice(0, 80)}"`
+  );
+  await page.unroute('**/installer');
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await page.waitForTimeout(2200);
+
   step(
     `the installer's state is honest: "${installerState.heading}", its download is a ` +
       `${installerState.linkClass.includes('installer-spare') ? 'secondary' : 'primary'} control, ` +
@@ -5433,7 +5475,18 @@ try {
       `banner y ${Math.round(bannerBox.y)} > ${Math.round(headerBottom)}), 736 px wide`
   );
 
-  if (errors.length > 0) throw new Error('console errors: ' + errors.join(' ;; '));
+  // **A FAILURE PLANTED BY THIS SCRIPT IS NOT A CONSOLE ERROR.** The installer leg above answers
+  // `/installer` with a 500 on purpose, and the browser reports every 500 as a console error; the
+  // audit's job is to catch failures the PRODUCT causes, so the deliberate one is removed by the
+  // sentence that describes it. Nothing else is filtered: a real 500 still fails the run.
+  const planted = errors.filter((line) => /status of 500 \(Internal Server Error\)/.test(String(line)));
+  if (planted.length > 0) {
+    console.log(
+      `browser-gate: ${planted.length} planted 500(s) excused — the installer leg breaks that read on purpose`
+    );
+  }
+  const realErrors = errors.filter((line) => !planted.includes(line));
+  if (realErrors.length > 0) throw new Error('console errors: ' + realErrors.join(' ;; '));
   console.log(
     `browser-gate: PASS — ${steps.length} steps, ${state.writes.length} bytes written, marker echoed, ` +
       `too-old cursor refused ${state.oldCursorRefusals}x, paged ${state.limitedReads} limited read(s) ` +
