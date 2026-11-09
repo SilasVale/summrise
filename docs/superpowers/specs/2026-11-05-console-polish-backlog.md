@@ -1563,6 +1563,14 @@ the phone's controls remain 44 px with the cards 97% covered.
    (behind the fleet, as its strip already says) is a property of the download, not of the machine.
    **Fix:** the Machine tab's version row compares against the same target the alert does, and the
    installer's being older than the fleet is stated on the installer, where it already is. **M.**
+   *(**Done, live 0.3.273-ux131** (`427a7fb`): the same machine on the same visit now reads
+   `Applied · 0.3.291 · behind the fleet's 0.3.292` on its own Machine tab — Home's exact claim —
+   and the download gets its own row, `Installer · The staged installer is 0.3.291, behind the
+   fleet's 0.3.292.` One definition (`fleetNewestVersion` + `releaseTarget` in `versions.ts`) is
+   called by Home's attention block and by the Machine tab's card, and the sentence names its own
+   subject (`the fleet's` / `the release`). The new unit test reproduces the contradiction and fails
+   on the old logic with `Received: "0.3.291 · current (the release)"`; the gate's new leg refuses a
+   target older than the fleet's newest build.)*
 
 2. **Activity's filter block has four baselines in a two-column grid.** Measured at 1440: `MACHINES`
    at x=314 (581 wide), `CALLERS` at x=919 (346), the count sentence `710 client calls in this
