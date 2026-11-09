@@ -42,5 +42,14 @@
     "barRadius": 6,
     "rows": 3,
     "role": "status"
+  },
+  "failed": {
+    "$comment": "The FAILED state's atom, which both surfaces draw (the forty-eighth list). A failure is a NOTICE: the page's card grammar with the alarm's tint, its words in INK (the sentence is the message; the tint is the alarm), one Retry, and ONE live region \u2014 a second region saying the same failure in other words is two announcements.",
+    "radius": 8,
+    "pad": 12,
+    "textTone": "ink",
+    "tint": "alarm",
+    "role": "status",
+    "retries": 1
   }
 }

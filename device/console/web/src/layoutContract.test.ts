@@ -40,6 +40,7 @@ type Contract = {
   title: { size: number; weight: number };
   breakpoints: Record<string, number>;
   empty: { radius: number; pad: number; gap: number; textAlign: string; shadow: string };
+  failed: { radius: number; pad: number; textTone: string; tint: string; role: string; retries: number };
   loading: {
     rowRadius: number;
     rowPad: number;
@@ -66,6 +67,14 @@ function tokens(): string {
 }
 
 /** The declarations of the LAST rule for a selector — the cascade's answer, not the first match. */
+/** The source with comments removed, so a gate reads the MARKUP and never its own explanation. */
+function stripComments(source: string): string {
+  return source
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/\{\/\*[\s\S]*?\*\/\}/g, "")
+    .replace(/\s\/\/ .*$/gm, "");
+}
+
 function ruleFor(source: string, selector: string): string {
   const matches = [
     ...source.matchAll(new RegExp(`(?:^|\\n)${selector}\\s*\\{([\\s\\S]*?)\\n\\}`, "gm"))
@@ -95,7 +104,7 @@ describe("the layout contract", () => {
     // `agent/resources/panel-react/src/lib/layoutContract.test.ts`. If the two disagree, the two
     // frontends are drawn to different page systems and one of them is wrong.
     expect(createHash("sha256").update(contractText()).digest("hex")).toBe(
-      "2765217e89fa949818bad779a06c33a8fbcb256c95bf1cf333edc0830418e7a5"
+      "c93474d6e9ab9369c032881b4738b6fcdbc1074f2b40a9abd140f3a49f8e4339"
     );
   });
 
@@ -111,6 +120,30 @@ describe("the layout contract", () => {
     expect(page, "the page's rhythm comes from the scale").toContain(`gap: var(--${gap})`);
     expect(tokenPx(tokens(), pad)).toBe(contract.page.pad);
     expect(tokenPx(tokens(), gap)).toBe(contract.page.gap);
+  });
+
+  it("is the failed state's atom, and a failure is a notice with the alarm's tint", () => {
+    // **A FAILURE IS A NOTICE, NOT RED TEXT, AND ONE NEVER TOLD YOU HOW LOUD IT WAS (the forty-eighth
+    // list).** Measured with every read failing: this surface's `.notice` had the right SHAPE (12 px
+    // padding, a corner, a tint, ink words) but the SAME `#fafafa` tint for a refused fleet read and
+    // for an unavailable installer — one grey box for every kind of news. The panel, meanwhile, drew
+    // `rgb(165,29,29)` text with no container at all.
+    const source = css();
+    const body = ruleFor(source, ".notice");
+    expect(body, "the notice must have a rule").not.toBeNull();
+    const radius = body!.match(/border-radius:\s*var\(--([\w-]+)\)/)?.[1];
+    expect(radius, "the notice's corner is a TOKEN").toBeTruthy();
+    expect(tokenPx(tokens(), radius!), "the corner is the contract's").toBe(contract.failed.radius);
+    // **THE TINT IS THE ALARM'S, NOT THE PAGE'S.** A notice that cannot say how loud it is is one
+    // grey box for every kind of news, which is the state the panel's raw red text was over-correcting
+    // for on the other surface.
+    expect(body, "the notice wears the alarm's tint").toMatch(/background:\s*var\(--warn-soft\)/);
+    // **AND THE WORDS ARE INK.** No `color` declaration means the page's ink, which is the point:
+    // the sentence is the message and the tint is the alarm (rule 6, without a second colour).
+    expect(body, "the notice's words are ink, not a second alarm").not.toMatch(/color:\s*var\(--danger/);
+    // One announcer: the surfaces' failures are reported by ONE live region each.
+    const home = stripComments(readFileSync(path.join(here, "HomePage.tsx"), "utf8"));
+    expect(home, "the failed read is a live region").toMatch(/role="status"/);
   });
 
   it("is the loading state's atom, and a read in flight reserves the shape it will draw", () => {
