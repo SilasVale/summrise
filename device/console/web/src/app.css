@@ -289,7 +289,7 @@ main.terminal-main { display: grid; grid-template-rows: auto minmax(0, 1fr); ali
   .rail-items { flex-direction: row; gap: 0; width: 100%; }
   .rail-btn {
     flex: 1; flex-direction: column; justify-content: center; gap: var(--sp-0-5);
-    padding: var(--sp-1) 2px; font-size: var(--fs-xs); border-radius: var(--radius-xs);
+    padding: var(--sp-1) var(--sp-0-5); font-size: var(--fs-xs); border-radius: var(--radius-xs);
   }
   .rail-label { display: block; font-size: var(--fs-xs); font-weight: var(--fw-medium); }
   .page { padding: var(--sp-4); padding-bottom: var(--sp-5); gap: var(--sp-4); }
@@ -1941,7 +1941,7 @@ span.files-name {
    makes the single list honest. Cells wrap rather than widen the sheet on a phone. */
 .token-table td { vertical-align: top; }
 .token-table th:last-child, .token-table td:last-child { text-align: right; }
-.token-name { display: grid; gap: 2px; min-width: 0; justify-items: start; }
+.token-name { display: grid; gap: var(--sp-0-5); min-width: 0; justify-items: start; }
 .token-name strong { overflow-wrap: anywhere; }
 /* **A ROW IS ONE LINE AND A DOOR (the twenty-sixth list, item 3).** The disclosure is the row's
    own chevron, in front of the name, and the facts that separate this credential from that one sit
@@ -1963,7 +1963,7 @@ span.files-name {
 .token-record-row td { padding: var(--sp-2) var(--sp-3) var(--sp-3); background: var(--panel-2); }
 .token-record {
   display: grid; grid-template-columns: 7rem minmax(0, 1fr);
-  gap: 4px var(--sp-3); margin: 0; max-width: 40rem;
+  gap: var(--sp-1) var(--sp-3); margin: 0; max-width: 40rem;
 }
 .token-record dt { color: var(--ink-muted); font-size: var(--fs-sm); }
 .token-record dd { margin: 0; font-size: var(--fs-sm); color: var(--ink); overflow-wrap: anywhere; }
@@ -2041,7 +2041,7 @@ span.files-name {
   }
   .token-table td:nth-child(2) { justify-self: stretch; text-align: left; }
   .token-table td:nth-child(2) .chip { white-space: normal; }
-  .token-table .token-record { grid-template-columns: 1fr; gap: 2px var(--sp-2); }
+  .token-table .token-record { grid-template-columns: 1fr; gap: var(--sp-0-5) var(--sp-2); }
   .token-table .token-record dt { margin-top: var(--sp-1); }
 }
 
@@ -2128,7 +2128,7 @@ span.files-name {
   }
   .audit-table tbody { display: grid; gap: var(--sp-2); }
   .audit-table tr.audit-day { display: block; }
-  .audit-day th { display: block; padding: var(--sp-1) 2px; border: 0; background: transparent; }
+  .audit-day th { display: block; padding: var(--sp-1) var(--sp-0-5); border: 0; background: transparent; }
   .audit-table tr.audit-row {
     position: relative;
     display: grid;
@@ -2137,7 +2137,7 @@ span.files-name {
       "when device token status"
       "what what what what";
     align-items: center;
-    gap: 2px var(--sp-2);
+    gap: var(--sp-0-5) var(--sp-2);
     /* The disclosure is the card's own chevron, centred on its left edge: in the first line it made
        every card 24 px tall before the sentence was drawn (the measured row was 71 px). */
     padding: var(--sp-1-5) var(--sp-2-5) var(--sp-1-5) 2.25rem;
@@ -2151,7 +2151,7 @@ span.files-name {
     white-space: nowrap;
   }
   .audit-when .audit-disclosure {
-    position: absolute; left: 4px; top: 50%; transform: translateY(-50%);
+    position: absolute; left: var(--sp-1); top: 50%; transform: translateY(-50%);
     margin: 0;
   }
   .audit-row td:nth-child(2) { grid-area: device; white-space: nowrap; }
@@ -2185,7 +2185,7 @@ span.files-name {
 .audit-export-menu[open] > .audit-export-summary { border-color: var(--line-strong); background: var(--control-bg); }
 .audit-export-formats {
   position: absolute; right: 0; top: calc(100% + 4px); z-index: 30;
-  display: grid; gap: 2px; min-width: 15rem; padding: var(--sp-1);
+  display: grid; gap: var(--sp-0-5); min-width: 15rem; padding: var(--sp-1);
   background: var(--surface); border: 1px solid var(--line-strong);
   border-radius: var(--radius-sm); box-shadow: var(--shadow-lg);
 }
@@ -2291,7 +2291,7 @@ h2 { letter-spacing: var(--tracking-tight); }
 /* The machine is the one thing the toolbar is FOR: no box around it, a fill on hover, and the
    caret is the affordance. */
 .machine-menu > summary {
-  border: 0; background: transparent; padding: 4px 8px; border-radius: var(--radius-sm2);
+  border: 0; background: transparent; padding: var(--sp-1) var(--sp-2); border-radius: var(--radius-sm2);
   max-width: 26rem;
 }
 .machine-menu > summary:hover,
@@ -2305,9 +2305,9 @@ h2 { letter-spacing: var(--tracking-tight); }
 
 .rail { background: var(--sidebar); border-right: 1px solid var(--hairline); }
 @media (min-width: 640px) {
-  .rail { width: 232px; padding: 10px 10px 12px; }
+  .rail { width: 232px; padding: var(--sp-2-5) var(--sp-2-5) var(--sp-3); }
   .rail-btn {
-    height: 30px; padding: 0 10px; gap: 10px; border-radius: var(--radius-xs);
+    height: 30px; padding: 0 var(--sp-2-5); gap: var(--sp-2-5); border-radius: var(--radius-xs);
     font-size: var(--fs-base); font-weight: var(--fw-regular);
   }
 }
@@ -2339,7 +2339,7 @@ h2 { letter-spacing: var(--tracking-tight); }
    block, and its press is a 3% scale, not a 1 px drop. */
 
 button {
-  min-height: 28px; padding: 5px 12px;
+  min-height: 28px; padding: 5px var(--sp-3);
   border: 1px solid transparent; border-radius: var(--radius-sm2);
   background: var(--control-bg); color: var(--ink);
   font: inherit; font-size: var(--fs-sm); font-weight: var(--fw-medium);
@@ -2363,7 +2363,7 @@ button:focus-visible, a:focus-visible, summary:focus-visible {
 }
 
 input:not([type="checkbox"]):not([type="radio"]), select, textarea {
-  min-height: 28px; padding: 4px 10px;
+  min-height: 28px; padding: var(--sp-1) var(--sp-2-5);
   border: 1px solid var(--line-strong); border-radius: var(--radius-sm2);
   background: var(--panel); color: var(--ink);
   font: inherit; font-size: var(--fs-sm);
@@ -2375,13 +2375,13 @@ input:not([type="checkbox"]):not([type="radio"]):focus, select:focus, textarea:f
 
 /* The segmented control: a tray, and the current segment as a raised sheet of paper. */
 .device-tabs {
-  display: inline-flex; flex-wrap: nowrap; gap: 2px; padding: 2px;
+  display: inline-flex; flex-wrap: nowrap; gap: var(--sp-0-5); padding: var(--sp-0-5);
   border-bottom: 0; background: var(--control-bg); border-radius: var(--radius-sm2);
   max-width: 100%; overflow-x: auto; scrollbar-width: none;
 }
 .device-tabs::-webkit-scrollbar { display: none; }
 .device-tab {
-  border: 0; border-radius: var(--radius-xs); padding: 3px 12px;
+  border: 0; border-radius: var(--radius-xs); padding: 3px var(--sp-3);
   background: transparent; color: var(--ink-muted);
   font-size: var(--fs-sm); font-weight: var(--fw-regular);
   transition: background 120ms var(--ease), color 120ms var(--ease);
@@ -2391,7 +2391,7 @@ input:not([type="checkbox"]):not([type="radio"]):focus, select:focus, textarea:f
   background: var(--panel); color: var(--ink); box-shadow: var(--elev-segment);
   border-bottom-color: transparent; font-weight: var(--fw-semi);
 }
-.seg { background: var(--control-bg); border: 0; border-radius: var(--radius-sm2); padding: 2px; }
+.seg { background: var(--control-bg); border: 0; border-radius: var(--radius-sm2); padding: var(--sp-0-5); }
 .seg button { min-height: 24px; border-radius: var(--radius-xs); font-size: var(--fs-sm); }
 .seg button[aria-pressed="true"] { background: var(--panel); color: var(--ink); box-shadow: var(--elev-segment); }
 
@@ -2471,7 +2471,7 @@ input:not([type="checkbox"]):not([type="radio"]):focus, select:focus, textarea:f
 
 .terminal-bar {
   display: flex; align-items: center; gap: var(--sp-2);
-  padding: 6px 10px; min-width: 0;
+  padding: var(--sp-1-5) var(--sp-2-5); min-width: 0;
   border-bottom: 1px solid var(--hairline);
 }
 .terminal-actions { margin-left: auto; display: flex; align-items: center; gap: var(--sp-1-5); flex: none; }
@@ -2493,7 +2493,7 @@ input:not([type="checkbox"]):not([type="radio"]):focus, select:focus, textarea:f
 .tab-session { color: var(--ink-faint); }
 .find-bar {
   border: 0; border-bottom: 1px solid var(--hairline); border-radius: 0;
-  background: var(--canvas); padding: 6px 10px;
+  background: var(--canvas); padding: var(--sp-1-5) var(--sp-2-5);
 }
 .find-bar input { min-height: 26px; }
 
@@ -2572,9 +2572,9 @@ input:not([type="checkbox"]):not([type="radio"]):focus, select:focus, textarea:f
 /* ── The phone, after this layer ─────────────────────────────────────────────────────────────── */
 @media (max-width: 639px) {
   .page { padding: 18px 16px 32px; gap: var(--sp-4); }
-  .topbar-inner { height: 44px; padding: 0 16px; }
-  .rail { width: 100%; padding: 6px 8px; }
-  .rail-btn { height: auto; flex-direction: column; justify-content: center; gap: 2px; padding: 4px 2px; }
+  .topbar-inner { height: 44px; padding: 0 var(--sp-4); }
+  .rail { width: 100%; padding: var(--sp-1-5) var(--sp-2); }
+  .rail-btn { height: auto; flex-direction: column; justify-content: center; gap: var(--sp-0-5); padding: var(--sp-1) var(--sp-0-5); }
   .rail-btn[aria-current="page"] { box-shadow: none; }
   .rail-label { font-size: var(--fs-2xs); }
   .page-head h1 { font-size: var(--fs-lg); }
@@ -2585,12 +2585,12 @@ input:not([type="checkbox"]):not([type="radio"]):focus, select:focus, textarea:f
 /* The sheet's three sections are the same choice the device tabs are: one segmented control, not a
    second underline tab language three feet from the first. */
 .connect-tabs {
-  display: inline-flex; gap: 2px; padding: 2px;
+  display: inline-flex; gap: var(--sp-0-5); padding: var(--sp-0-5);
   border-bottom: 0; background: var(--control-bg); border-radius: var(--radius-sm2);
 }
 .connect-tabs button {
   border: 0; border-radius: var(--radius-xs); background: transparent; color: var(--ink-muted);
-  padding: 3px 12px; font-size: var(--fs-sm);
+  padding: 3px var(--sp-3); font-size: var(--fs-sm);
 }
 .connect-tabs button:hover { background: transparent; color: var(--ink); }
 .connect-tabs button[aria-selected="true"] {
@@ -2670,7 +2670,7 @@ input:not([type="checkbox"]):not([type="radio"]):focus, select:focus, textarea:f
 .facts > div {
   display: flex; flex-wrap: wrap; justify-content: space-between;
   gap: var(--sp-1) var(--sp-4); min-width: 0;
-  padding: 7px 2px; border-bottom: 1px solid var(--hairline);
+  padding: 7px var(--sp-0-5); border-bottom: 1px solid var(--hairline);
 }
 .facts > div:last-child { border-bottom: 0; }
 .facts dt { color: var(--ink-muted); font-size: var(--fs-sm); }
@@ -2704,7 +2704,7 @@ input:not([type="checkbox"]):not([type="radio"]):focus, select:focus, textarea:f
 .files-root { gap: var(--sp-1-5); font-size: var(--fs-sm); color: var(--ink-muted); }
 .files-crumbs {
   display: flex; align-items: center; gap: var(--sp-1-5); flex-wrap: wrap;
-  padding: 6px 2px; font-size: var(--fs-sm); color: var(--ink-muted);
+  padding: var(--sp-1-5) var(--sp-0-5); font-size: var(--fs-sm); color: var(--ink-muted);
   border-bottom: 1px solid var(--hairline);
 }
 .files-crumb { border: 0; background: transparent; padding: 0; color: var(--ink-muted); text-decoration: none; }
@@ -2724,7 +2724,7 @@ input:not([type="checkbox"]):not([type="radio"]):focus, select:focus, textarea:f
 }
 .files-list .files-row {
   display: flex; align-items: center; gap: var(--sp-2); min-width: 0;
-  padding: 9px 14px; border-bottom: 1px solid var(--hairline);
+  padding: 9px var(--sp-3-5); border-bottom: 1px solid var(--hairline);
   transition: background 120ms var(--ease);
 }
 .files-list .files-row:last-child { border-bottom: 0; }
@@ -2737,7 +2737,7 @@ input:not([type="checkbox"]):not([type="radio"]):focus, select:focus, textarea:f
 /* The hub's counts line is a navigation capsule, not orphan text between two cards. */
 .counts-line {
   background: var(--control-bg); border-radius: var(--radius-pill);
-  padding: 4px 12px; font-size: var(--fs-sm); color: var(--ink);
+  padding: var(--sp-1) var(--sp-3); font-size: var(--fs-sm); color: var(--ink);
 }
 .counts-line:hover { background: var(--control-hover-bg); color: var(--ink); }
 
@@ -2760,7 +2760,7 @@ main::-webkit-scrollbar-track, .sheet-body::-webkit-scrollbar-track, .scroll::-w
 .files-actions .files-root { display: inline-flex; align-items: center; gap: var(--sp-1-5); }
 .files-tools { display: flex; align-items: flex-end; gap: var(--sp-3); flex-wrap: wrap; }
 .files-new { display: grid; gap: var(--sp-1); }
-.files-new > label { font-size: var(--fs-2xs); color: var(--ink-muted); padding-left: 2px; }
+.files-new > label { font-size: var(--fs-2xs); color: var(--ink-muted); padding-left: var(--sp-0-5); }
 .files-new-row { display: flex; gap: var(--sp-1-5); }
 .files-new-row input { width: 12rem; }
 .files-upload { display: grid; gap: var(--sp-1); }
@@ -2772,15 +2772,15 @@ main::-webkit-scrollbar-track, .sheet-body::-webkit-scrollbar-track, .scroll::-w
 
 .runs-form { align-items: flex-start; gap: var(--sp-3); }
 .runs-field { display: grid; gap: var(--sp-1); }
-.runs-field > label, .field-label { font-size: var(--fs-2xs); color: var(--ink-muted); padding-left: 2px; }
+.runs-field > label, .field-label { font-size: var(--fs-2xs); color: var(--ink-muted); padding-left: var(--sp-0-5); }
 .field-help { font-size: var(--fs-2xs); color: var(--ink-muted); max-width: 20rem; line-height: 1.45; }
-.runs-shell { align-self: flex-end; padding-bottom: 8px; gap: var(--sp-1-5); font-size: var(--fs-sm); }
+.runs-shell { align-self: flex-end; padding-bottom: var(--sp-2); gap: var(--sp-1-5); font-size: var(--fs-sm); }
 .runs-shell input { accent-color: var(--accent); }
 .runs-history { background: var(--panel); border: 1px solid var(--hairline); border-radius: var(--radius); overflow: hidden; }
 .runs-history th {
   text-transform: none; letter-spacing: normal; font-size: var(--fs-2xs);
   font-weight: var(--fw-medium); color: var(--ink-muted);
-  border-bottom: 1px solid var(--hairline); padding: 8px 12px; text-align: left;
+  border-bottom: 1px solid var(--hairline); padding: var(--sp-2) var(--sp-3); text-align: left;
 }
 .runs-history td { padding: 9px 12px; border-bottom: 1px solid var(--hairline); }
 .runs-history tr:last-child td { border-bottom: 0; }
@@ -2874,7 +2874,7 @@ main::-webkit-scrollbar-track, .sheet-body::-webkit-scrollbar-track, .scroll::-w
 }
 .plugin-row {
   border: 0; border-bottom: 1px solid var(--hairline); border-radius: 0;
-  padding: 14px 16px; background: transparent;
+  padding: var(--sp-3-5) var(--sp-4); background: transparent;
 }
 .plugin-row:last-child { border-bottom: 0; }
 .plugin-row:hover { background: var(--row-hover); }
@@ -2922,17 +2922,17 @@ main::-webkit-scrollbar-track, .sheet-body::-webkit-scrollbar-track, .scroll::-w
    Everything is a fact from the audit stream; the pulse stops when the calls stop. */
 
 .live-now {
-  margin: 0 0 var(--sp-4); padding: 14px 16px;
+  margin: 0 0 var(--sp-4); padding: var(--sp-3-5) var(--sp-4);
   background: var(--panel); border: 1px solid var(--hairline); border-radius: var(--radius);
 }
 .live-now-head { display: flex; align-items: baseline; gap: var(--sp-2); flex-wrap: wrap; }
 .live-now-head h2 { margin: 0; font-size: var(--fs-md); font-weight: var(--fw-semi); letter-spacing: var(--tracking-tight); }
-.live-state { display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-xs); color: var(--ink-muted); }
+.live-state { display: inline-flex; align-items: center; gap: var(--sp-1-5); font-size: var(--fs-xs); color: var(--ink-muted); }
 .live-dot { width: 7px; height: 7px; border-radius: var(--radius-pill); background: var(--ink-faint); flex: none; }
 .live-state.is-active { color: var(--ok); }
 .live-state.is-active .live-dot { background: var(--ok); animation: live-pulse 1.8s ease-out infinite; }
 .live-rate { font-size: var(--fs-xs); color: var(--ink-muted); }
-.live-spark { display: block; width: 100%; height: 30px; margin: 10px 0 4px; }
+.live-spark { display: block; width: 100%; height: 30px; margin: var(--sp-2-5) 0 var(--sp-1); }
 .live-spark .spark-on { fill: var(--accent-solid); opacity: 0.8; }
 .live-spark .spark-off { fill: var(--hairline); }
 .live-list { list-style: none; margin: 0; padding: 0; }
@@ -2975,7 +2975,7 @@ main::-webkit-scrollbar-track, .sheet-body::-webkit-scrollbar-track, .scroll::-w
 .activity-page { gap: 16px; }
 .activity-page .page-head h1 { font-size: var(--fs-xl); }
 .activity-today {
-  margin: 8px 0 0; max-width: 80ch;
+  margin: var(--sp-2) 0 0; max-width: 80ch;
   font-size: var(--fs-lg); line-height: 1.45; font-weight: var(--fw-medium);
   color: var(--ink); font-variant-numeric: tabular-nums; text-wrap: pretty;
 }
@@ -2984,7 +2984,7 @@ main::-webkit-scrollbar-track, .sheet-body::-webkit-scrollbar-track, .scroll::-w
   background: transparent; border: 0; border-radius: 0; box-shadow: none; padding: 0;
 }
 .activity-panel.is-record .stream-bar {
-  margin: 0 0 14px; padding-top: 14px; border-top: 1px solid var(--line);
+  margin: 0 0 var(--sp-3-5); padding-top: var(--sp-3-5); border-top: 1px solid var(--line);
 }
 
 .stream-bar { display: flex; align-items: center; gap: var(--sp-2); margin: 0 0 var(--sp-3); }
@@ -2994,11 +2994,11 @@ main::-webkit-scrollbar-track, .sheet-body::-webkit-scrollbar-track, .scroll::-w
 /* The timeline filters with what a row actually carries: the machine that wrote it, and one search
    over the sentence, tool, machine and detail. The table's column filters stay with the table. */
 .timeline-filters {
-  display: flex; align-items: flex-end; flex-wrap: wrap; gap: 14px 24px;
-  margin: 0 0 18px; padding-bottom: 14px;
+  display: flex; align-items: flex-end; flex-wrap: wrap; gap: var(--sp-3-5) var(--sp-5);
+  margin: 0 0 18px; padding-bottom: var(--sp-3-5);
   border-bottom: 1px solid var(--line);
 }
-.filter-block { display: grid; gap: 6px; min-width: 0; }
+.filter-block { display: grid; gap: var(--sp-1-5); min-width: 0; }
 .filter-label {
   font-size: var(--fs-2xs); font-weight: var(--fw-semi);
   text-transform: uppercase; letter-spacing: var(--tracking-label);
@@ -3043,7 +3043,7 @@ main::-webkit-scrollbar-track, .sheet-body::-webkit-scrollbar-track, .scroll::-w
 /* One line while a changed scope's window is read: no stale rows, no cap sentence about them. */
 .timeline-loading, .audit-loading { margin: var(--sp-3) 0; }
 .timeline-day-label {
-  margin: 0; padding: 0 0 10px;
+  margin: 0; padding: 0 0 var(--sp-2-5);
   font-size: var(--fs-xl); line-height: 1.2; font-weight: var(--fw-semi);
   color: var(--ink); letter-spacing: var(--tracking-tight);
 }
@@ -3060,20 +3060,20 @@ main::-webkit-scrollbar-track, .sheet-body::-webkit-scrollbar-track, .scroll::-w
 .timeline-row.is-stretch { border-top: 1px solid var(--hairline); margin-top: 18px; }
 .timeline-line {
   display: grid; grid-template-columns: 68px 20px minmax(0, 1fr) 18px;
-  gap: 12px; align-items: start; padding: 15px 8px 15px 2px; min-height: 64px;
+  gap: var(--sp-3); align-items: start; padding: 15px var(--sp-2) 15px var(--sp-0-5); min-height: 64px;
   border-radius: var(--radius-xs);
 }
 /* A row that opens is a real button, reset to the line so the grid and the type stay the page's. */
 button.timeline-line {
   width: 100%; min-height: 64px; text-align: left; background: none; border: 0;
-  font: inherit; padding: 15px 8px 15px 2px; color: inherit; cursor: pointer;
+  font: inherit; padding: 15px var(--sp-2) 15px var(--sp-0-5); color: inherit; cursor: pointer;
 }
 button.timeline-line:hover { background: var(--row-hover); }
 /* `--ring` is already a shadow; wrapping it in a second one drew the wrong box. */
 button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
 .timeline-time {
   font-family: var(--mono); font-size: var(--fs-xs); color: var(--ink-faint);
-  font-variant-numeric: tabular-nums; padding-top: 4px; white-space: nowrap;
+  font-variant-numeric: tabular-nums; padding-top: var(--sp-1); white-space: nowrap;
 }
 .timeline-rail { position: relative; display: block; min-height: 34px; height: 100%; }
 .timeline-rail::before {
@@ -3128,7 +3128,7 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
 @media (max-width: 480px) {
   .timeline-line, button.timeline-line {
     grid-template-columns: auto 18px minmax(0, 1fr) 16px;
-    gap: 8px; padding: 14px 4px 14px 0; min-height: 60px;
+    gap: var(--sp-2); padding: var(--sp-3-5) var(--sp-1) var(--sp-3-5) 0; min-height: 60px;
   }
   .timeline-age { display: inline; }
 }
@@ -3139,7 +3139,7 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
   border: 1px solid var(--hairline); border-radius: var(--radius-sm); margin: 0 0 var(--sp-3) 22px;
   overflow: hidden; background: var(--panel);
 }
-.evidence-main { min-width: 0; padding: 12px 14px; display: grid; gap: 6px; align-content: start; }
+.evidence-main { min-width: 0; padding: var(--sp-3) var(--sp-3-5); display: grid; gap: var(--sp-1-5); align-content: start; }
 .evidence-side { padding: 12px 14px; border-left: 1px solid var(--hairline); }
 .evidence-label {
   margin: 0; font-size: var(--fs-2xs); color: var(--ink-faint);
@@ -3148,27 +3148,27 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
 .evidence-command {
   margin: 0; font-family: var(--mono); font-size: var(--fs-2xs);
   background: var(--panel-2); border: 1px solid var(--hairline); border-radius: var(--radius-sm2);
-  padding: 8px 10px; white-space: pre-wrap; word-break: break-word;
+  padding: var(--sp-2) var(--sp-2-5); white-space: pre-wrap; word-break: break-word;
 }
 .evidence-output {
   margin: 0; font-family: var(--mono); font-size: var(--fs-2xs); line-height: 1.55;
-  background: #14161a; color: #d6dae0; border-radius: var(--radius-sm2); padding: 10px 12px;
+  background: #14161a; color: #d6dae0; border-radius: var(--radius-sm2); padding: var(--sp-2-5) var(--sp-3);
   max-height: 220px; overflow: auto; white-space: pre-wrap;
 }
 /* The captured frame: evidence you look at, bounded by the panel it opens inside. */
-.evidence-shot { margin: 0; display: grid; gap: 6px; }
+.evidence-shot { margin: 0; display: grid; gap: var(--sp-1-5); }
 .evidence-shot img {
   display: block; max-width: 100%; height: auto;
   border: 1px solid var(--hairline); border-radius: var(--radius-sm2);
 }
 .evidence-shot figcaption {
-  display: grid; gap: 2px; font-size: var(--fs-2xs); color: var(--ink-faint);
+  display: grid; gap: var(--sp-0-5); font-size: var(--fs-2xs); color: var(--ink-faint);
 }
 .evidence-shot-note { color: var(--ink-faint); }
 .evidence-facts { margin: 6px 0 0; }
 .evidence-facts div {
   display: flex; justify-content: space-between; gap: var(--sp-3);
-  padding: 4px 0; border-bottom: 1px solid var(--hairline);
+  padding: var(--sp-1) 0; border-bottom: 1px solid var(--hairline);
 }
 .evidence-facts div:last-child { border-bottom: 0; }
 .evidence-facts dt { color: var(--ink-faint); font-size: var(--fs-2xs); }
@@ -3179,7 +3179,7 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
 .evidence-facts dd.is-ok { color: var(--ok); }
 .evidence-facts dd.is-bad { color: var(--error); }
 .evidence-go {
-  margin-top: 10px; width: 100%; min-height: 26px; border: 0; border-radius: var(--radius-xs);
+  margin-top: var(--sp-2-5); width: 100%; min-height: 26px; border: 0; border-radius: var(--radius-xs);
   background: var(--accent-solid); color: var(--accent-fg); font-size: var(--fs-2xs);
 }
 @media (max-width: 720px) {
@@ -3208,7 +3208,7 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
    is not a page footer and not a card — it is the line where the day stops being drawn. */
 .timeline-more {
   display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--sp-1) var(--sp-2);
-  width: 100%; margin: var(--sp-2) 0 0; padding: var(--sp-2) 2px; text-align: left;
+  width: 100%; margin: var(--sp-2) 0 0; padding: var(--sp-2) var(--sp-0-5); text-align: left;
   border: 0; border-top: 1px solid var(--hairline); border-radius: 0;
   background: transparent; color: var(--ink-muted);
   font-size: var(--fs-xs); font-weight: var(--fw-regular); line-height: 1.5;
@@ -3226,8 +3226,8 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
 /* The record's footer: what the window drew and what file it read. It sits below the day, quiet,
    because it is a fact to consult after the record, not a banner over it. */
 .timeline-footer {
-  display: grid; gap: 4px;
-  margin-top: 30px; padding-top: 14px; border-top: 1px solid var(--line);
+  display: grid; gap: var(--sp-1);
+  margin-top: 30px; padding-top: var(--sp-3-5); border-top: 1px solid var(--line);
 }
 .timeline-footer .timeline-capped,
 .timeline-footer .audit-source {
@@ -3245,7 +3245,7 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
 .home-page { gap: 22px; }
 .home-page .page-head h1 { font-size: var(--fs-xl); }
 .home-verdict {
-  margin: 6px 0 0; max-width: 40ch;
+  margin: var(--sp-1-5) 0 0; max-width: 40ch;
   color: var(--ink); font-size: var(--fs-xl); line-height: 1.2;
   font-weight: var(--fw-semi); letter-spacing: var(--tracking-tight);
   text-wrap: balance;
@@ -3255,8 +3255,8 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
    is one MACHINE with its problems listed under its name and one door. The machine count in the
    verdict is the row count here, so four problems over two machines are two rows (audit-40 F6). */
 .attention {
-  display: grid; gap: 10px;
-  padding: 16px 18px;
+  display: grid; gap: var(--sp-2-5);
+  padding: var(--sp-4) 18px;
   background: var(--panel);
   border: 1px solid var(--hairline);
   border-left: 3px solid var(--warn);
@@ -3270,8 +3270,8 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
 .attention-release { margin: -4px 0 0; font-size: var(--fs-xs); }
 .attention-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 0; }
 .attention-row {
-  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
-  padding: 10px 0; border-top: 1px solid var(--line-soft);
+  display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap;
+  padding: var(--sp-2-5) 0; border-top: 1px solid var(--line-soft);
 }
 .attention-row:first-child { padding-top: 0; border-top: 0; }
 .attention-row:last-child { padding-bottom: 0; }
@@ -3280,13 +3280,13 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
   margin: 0; font-size: var(--fs-md); font-weight: var(--fw-semi);
   overflow-wrap: anywhere;
 }
-.attention-problems { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.attention-problems { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--sp-0-5); }
 .attention-problems li { font-size: var(--fs-md); line-height: 1.4; color: var(--ink-muted); }
 /* The dot marks the machine's NAME, not the middle of a row that now holds its problems: the
    row's rule centers items, and a centered dot sat beside the first problem instead. */
-.attention-row .dot { width: 8px; height: 8px; align-self: flex-start; margin-top: 6px; }
+.attention-row .dot { width: 8px; height: 8px; align-self: flex-start; margin-top: var(--sp-1-5); }
 .attention-open { flex: none; }
-.attention-clear { border-left-color: var(--ok); padding: 12px 18px; }
+.attention-clear { border-left-color: var(--ok); padding: var(--sp-3) 18px; }
 .attention-clear-line {
   display: flex; align-items: center; gap: 9px; margin: 0;
   font-size: var(--fs-md); font-weight: var(--fw-medium);
@@ -3305,7 +3305,7 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
 }
 .fleet-table { width: 100%; border-collapse: collapse; table-layout: auto; }
 .fleet-table thead th {
-  padding: 9px 16px; text-align: left;
+  padding: 9px var(--sp-4); text-align: left;
   color: var(--ink-muted); background: var(--panel);
   border-bottom: 1px solid var(--line);
   font-size: var(--fs-2xs); font-weight: var(--fw-semi);
@@ -3318,7 +3318,7 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
 .fleet-table thead th:nth-child(4) { width: 26%; }
 .fleet-table thead th:nth-child(5) { width: 44px; }
 .fleet-table tbody td {
-  padding: 12px 16px; border-top: 1px solid var(--line-soft);
+  padding: var(--sp-3) var(--sp-4); border-top: 1px solid var(--line-soft);
   vertical-align: middle; font-size: var(--fs-sm); color: var(--ink-muted);
 }
 .fleet-table tbody tr:first-child td { border-top: 0; }
@@ -3329,7 +3329,7 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
 }
 .fleet-machine { width: 34%; }
 .fleet-open {
-  display: flex; align-items: center; gap: 8px;
+  display: flex; align-items: center; gap: var(--sp-2);
   min-height: 0; padding: 0; border: 0; border-radius: var(--radius-xs);
   background: transparent; color: var(--ink); text-align: left;
 }
@@ -3339,13 +3339,13 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .fleet-chevron { color: var(--ink-faint); font-size: var(--fs-md); line-height: 1; }
-.fleet-status { display: flex; align-items: center; gap: 8px; white-space: nowrap; }
+.fleet-status { display: flex; align-items: center; gap: var(--sp-2); white-space: nowrap; }
 .fleet-status .dot { width: 8px; height: 8px; }
 .fleet-state { color: var(--ink-muted); font-size: var(--fs-sm); }
 .fleet-state.ok { color: var(--ink); }
 .fleet-version { white-space: nowrap; }
 .fleet-build {
-  display: inline-block; padding: 2px 8px; border-radius: var(--radius-pill);
+  display: inline-block; padding: var(--sp-0-5) var(--sp-2); border-radius: var(--radius-pill);
   background: var(--panel-3); color: var(--ink);
   font-family: var(--font-mono); font-size: var(--fs-2xs); letter-spacing: 0;
 }
@@ -3359,14 +3359,14 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
 }
 .fleet-empty { color: var(--ink-faint); }
 .fleet-table tbody td.fleet-actions {
-  width: 44px; padding: 12px 12px 12px 0; text-align: right;
+  width: 44px; padding: var(--sp-3) var(--sp-3) var(--sp-3) 0; text-align: right;
 }
 .fleet-actions .row-menu { padding-right: 0; justify-content: flex-end; }
 
 /* The installer's compact strip: one line with the link and the sha256, after the fleet. */
 .installer.installer-strip {
-  display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
-  margin: 0; padding: 12px 16px;
+  display: flex; align-items: center; gap: var(--sp-3-5); flex-wrap: wrap;
+  margin: 0; padding: var(--sp-3) var(--sp-4);
   background: var(--panel); border: 1px solid var(--hairline);
   border-radius: var(--radius);
 }
@@ -3382,8 +3382,8 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
    neither the machine nor its presence asked the reader to remember the click. The name, the
    presence phrase and the version are the fleet row's own words, stated once here. */
 .machine-summary {
-  display: grid; gap: 10px;
-  padding: 14px 18px;
+  display: grid; gap: var(--sp-2-5);
+  padding: var(--sp-3-5) 18px;
   background: var(--panel); border: 1px solid var(--hairline);
   border-left: 3px solid var(--accent); border-radius: var(--radius);
 }
@@ -3393,13 +3393,13 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
 }
 .machine-summary-who {
   margin: 0;
-  display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap;
+  display: flex; align-items: baseline; gap: var(--sp-1-5); flex-wrap: wrap;
   font-size: var(--fs-sm); color: var(--ink-muted);
 }
 .machine-summary-name { color: var(--ink); font-size: var(--fs-md); font-weight: var(--fw-semi); }
 .machine-summary-version { color: var(--ink-faint); font-size: var(--fs-2xs); }
 .machine-summary-counts { margin: 0; }
-.machine-summary-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.machine-summary-actions { display: flex; align-items: center; gap: var(--sp-2-5); flex-wrap: wrap; }
 
 /* ── Device → Overview: the machine's own live page ────────────────────────────────────────────
    The shell owns the destination's one h1 and the tab strip; this page opens with the machine's
@@ -3408,7 +3408,7 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
 .overview-page { display: grid; gap: 22px; min-width: 0; }
 .overview-head {
   display: flex; align-items: flex-start; justify-content: space-between;
-  gap: 12px; flex-wrap: wrap; min-width: 0;
+  gap: var(--sp-3); flex-wrap: wrap; min-width: 0;
 }
 .overview-head h2 {
   margin: 0; font-size: var(--fs-lg); font-weight: var(--fw-semi);
@@ -3418,7 +3418,7 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
 /* The start line shares the machine's head with the name it describes, rather than preceding it.
    Its recovery line sits under it, in the same right-hand block, so "started … ago" and "back
    after …" are read as one answer about this machine's return. */
-.overview-head .overview-start { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.overview-head .overview-start { display: flex; flex-direction: column; gap: var(--sp-0-5); min-width: 0; }
 .overview-head .started-line { margin: 2px 0 0; }
 @media (min-width: 640px) {
   .overview-head .overview-start { margin-left: auto; text-align: right; }
@@ -3431,9 +3431,9 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
   .home-verdict { font-size: var(--fs-xl); max-width: none; }
   .attention { padding: 14px; }
   .attention-row {
-    display: grid; grid-template-columns: auto minmax(0, 1fr); row-gap: 8px;
+    display: grid; grid-template-columns: auto minmax(0, 1fr); row-gap: var(--sp-2);
   }
-  .attention-row .dot { grid-column: 1; grid-row: 1; margin-top: 6px; }
+  .attention-row .dot { grid-column: 1; grid-row: 1; margin-top: var(--sp-1-5); }
   .attention-body { grid-column: 2; min-width: 0; }
   .attention-open { grid-column: 2; justify-self: start; }
   /* The table becomes one card per machine: the name owns the first line, the status and the
@@ -3443,7 +3443,7 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
   .fleet-table thead { display: none; }
   .fleet-table .fleet-row {
     position: relative; display: grid; grid-template-columns: minmax(0, 1fr) auto;
-    gap: 7px 12px; margin: 0 0 8px; padding: 12px 14px;
+    gap: 7px var(--sp-3); margin: 0 0 var(--sp-2); padding: var(--sp-3) var(--sp-3-5);
     background: var(--panel); border: 1px solid var(--hairline); border-radius: var(--radius-sm);
   }
   .fleet-table tbody td { padding: 0; border: 0; }
@@ -3457,11 +3457,11 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
      header the card does not draw; the desktop table keeps the age alone. It stays on the age's
      line, because the card's third line is one fact. */
   .fleet-started-label {
-    display: inline; margin-right: 6px; color: var(--ink-faint); font-size: var(--fs-2xs);
+    display: inline; margin-right: var(--sp-1-5); color: var(--ink-faint); font-size: var(--fs-2xs);
     text-transform: uppercase; letter-spacing: var(--tracking-label);
   }
   .fleet-verdict { display: inline; white-space: normal; overflow: visible; text-overflow: clip; }
-  .fleet-actions { position: absolute; right: 8px; top: 8px; width: auto; }
+  .fleet-actions { position: absolute; right: var(--sp-2); top: var(--sp-2); width: auto; }
   .installer-strip .hint { margin-left: 0; flex-basis: 100%; }
   .machine-summary { padding: 12px 14px; }
   .machine-summary-actions .primary { flex: 1 1 auto; }

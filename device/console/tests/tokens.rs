@@ -487,6 +487,13 @@ fn spacing_is_the_rhythm_or_a_documented_exception() {
     // Everything else must be a --sp-* token; a new 0.35rem is a new decision, and it has to be
     // made here.
     //
+    // **IT NOW READS `px` TOO.** The test scanned rem only, so `padding: 2px 12px` passed while
+    // `padding: 0.125rem 0.75rem` failed — the same number, one spelling. Measured on the sheet that
+    // ships (2026-11-09, after the radii/shadow/tracking pass): 121 px spacing literals, **118 of
+    // them already a `--sp-*` step** and 3 that are not, plus 46 off-rhythm lengths in total across
+    // 20 distinct values. A px value equal to a step is now a failure that names the token to write,
+    // and an off-rhythm px is an exception that has to be listed here with its reason.
+    //
     // **THIS TEST WAS RED FOR AN UNKNOWN STRETCH BEFORE 2026-11-09, AND NOTHING SAID SO.** The
     // 2.25rem arrived with 49164b7 (Activity's Table as a phone card) and no run of this file
     // followed it: CI runs `cargo test` on `main` only, and this branch's gates were the web ones.
@@ -494,6 +501,34 @@ fn spacing_is_the_rhythm_or_a_documented_exception() {
     // The measured clearance is 36 px because the disclosure ends at 29 px and the clock's text
     // starts at 36; `--sp-6` would leave 3 px and the chevron would touch the time.
     let allowed = ["0.05rem", "0.1rem", "1.1rem", "1.2rem", "2rem", "2.25rem", "2.6rem"];
+    // The px exceptions, each measured rather than rounded: the timeline row's own 15/8 padding (a
+    // 74 px row, so the clock, the dot and the sentence share one baseline), the 18 px gap the page
+    // and the stretches use (it is between --sp-4 and --sp-5 and the sheet has no step there), the
+    // 7/9/3 px control insets a 24-26 px button needs, the structural page padding (26/28/44), the
+    // 22 px evidence indent that lines a record up under its row's dot, and the 19/20/30/34 px
+    // alignments measured against a neighbour. A new px off the rhythm is a new decision made here.
+    let allowed_px: &[&str] = &[
+        "1px", "3px", "5px", "7px", "9px", "15px", "18px", "19px", "20px", "22px", "26px", "28px",
+        "30px", "34px", "44px", "52px", "64px", "220px", "26rem",
+        // The sr-only / clip pattern: a 1 px box pulled back by -1 px, so it occupies no layout.
+        "-1px",
+        // The timeline's rail is a 2 px line drawn past its own row by 16 px on each side, so the
+        // dots of consecutive rows join into one line.
+        "-16px",
+    ];
+    // A px literal equal to a step must BE the token: the step it names is a failure message.
+    let steps = [
+        ("2px", "sp-0-5"),
+        ("4px", "sp-1"),
+        ("6px", "sp-1-5"),
+        ("8px", "sp-2"),
+        ("10px", "sp-2-5"),
+        ("12px", "sp-3"),
+        ("14px", "sp-3-5"),
+        ("16px", "sp-4"),
+        ("24px", "sp-5"),
+        ("32px", "sp-6"),
+    ];
     let properties = [
         "padding",
         "margin",
@@ -506,9 +541,26 @@ fn spacing_is_the_rhythm_or_a_documented_exception() {
         "left",
         "inset",
     ];
+    // A comment is prose, and prose contains colons: `right: the name gets ~210 px and reads whole`.
+    // A CSS comment spans lines, so the state has to be carried; a sentence inside one is never a
+    // declaration, and reading it as one made this test fail on its own file's documentation.
+    let mut in_comment = false;
     for line in APP.lines() {
         // A line can carry a width and a padding (`max-width:84rem; padding:...`); the width is not
         // a spacing decision, so only the value of a spacing PROPERTY is inspected.
+        let trimmed = line.trim_start();
+        if in_comment {
+            if trimmed.contains("*/") {
+                in_comment = false;
+            }
+            continue;
+        }
+        if trimmed.starts_with("/*") {
+            if !trimmed.contains("*/") {
+                in_comment = true;
+            }
+            continue;
+        }
         for declaration in line.split(';') {
             let Some((name, value)) = declaration.split_once(':') else {
                 continue;
@@ -520,15 +572,28 @@ fn spacing_is_the_rhythm_or_a_documented_exception() {
             {
                 continue;
             }
+            // A length inside `calc()`, `min()`, `max()` or `clamp()` is arithmetic on tokens, not a
+            // spacing choice: `calc(56px + var(--sp-2))` is the rail's width plus the page's gutter.
+            if value.contains("calc(") || value.contains("min(") || value.contains("max(") {
+                continue;
+            }
             for word in value.split_whitespace() {
-                let Some(number) = word.strip_suffix("rem") else {
-                    continue;
-                };
-                let value = format!("{number}rem");
-                assert!(
-                    allowed.contains(&value.as_str()),
-                    "spacing length {value} is neither a --sp-* token nor a documented exception: {line}"
-                );
+                if let Some(number) = word.strip_suffix("rem") {
+                    let value = format!("{number}rem");
+                    assert!(
+                        allowed.contains(&value.as_str()),
+                        "spacing length {value} is neither a --sp-* token nor a documented exception: {line}"
+                    );
+                } else if let Some(step) = steps.iter().find(|(px, _)| *px == word) {
+                    panic!(
+                        "spacing literal {} is --{}; write the token: {line}",
+                        step.0, step.1
+                    );
+                } else if word.ends_with("px") && !allowed_px.contains(&word) {
+                    panic!(
+                        "spacing length {word} is neither a --sp-* token nor a documented exception: {line}"
+                    );
+                }
             }
         }
     }
