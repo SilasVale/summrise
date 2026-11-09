@@ -3528,6 +3528,11 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
   main .device-tab,
   main .tab-main,
   main .row-menu > summary,
+  /* The fleet row's name door and the Activity view switch own their box in the base sheet
+     (`.fleet-open … { min-height: 0 }`, `.seg button { min-height: 24px }`), so they are named too:
+     a 26 px line is not a door a thumb can find. */
+  main .fleet-open,
+  main .seg button,
   .account > summary,
   .rail-btn {
     min-height: 44px;
