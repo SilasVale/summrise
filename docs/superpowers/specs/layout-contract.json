@@ -5,6 +5,11 @@
     "pad": 24,
     "gap": 24
   },
+  "head": {
+    "$comment": "The page HEADER's row, which both surfaces draw (a cut): the title block on the left, its lede or its actions beside it, aligned to the top so a wrapping lede grows downward.",
+    "gap": 12,
+    "align": "flex-start"
+  },
   "card": {
     "radius": 14,
     "pad": 16,
