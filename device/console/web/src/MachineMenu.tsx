@@ -7,6 +7,12 @@ import { shortId } from "./format";
  * once: its menu holds All machines, every machine, and Add a machine. A name beside a `<select>` that
  * repeats that name is the old rail's grammar — many controls, one fact.
  *
+ * **THE MENU DOES NOT OFFER WHAT IS ALREADY SHOWING (the twenty-seventh list, item 1).** Measured on
+ * the device page at 1440: the summary read `DESKTOP-9VH92BJ online · v0.3.292` and the menu's second
+ * row read the same words again, so a five-row picker was four choices and one echo. The current
+ * machine is the summary; the list holds `All machines` and the machines you are NOT looking at, and
+ * when nothing is chosen — the state where every machine is in play — every machine is a choice.
+ *
  * **A SWITCHER, NOT A SECOND FLEET TABLE.** The menu used to draw each machine's tightest disk, the
  * day's client calls and the last absence under its name — Home's board in miniature, with the
  * counters Activity owns and an unlabelled `I: 23.9 GiB free`. The question this control answers is
@@ -82,24 +88,29 @@ export function MachineMenu({
         >
           All machines
         </button>
-        {devices.map((device) => {
-          const name = device.name ?? shortId(device.id);
-          return (
+        {devices
+          .filter((device) => device.id !== chosen?.id)
+          .map((device) => {
+            const name = device.name ?? shortId(device.id);
+            return (
             <button
               key={device.id}
               type="button"
               aria-current={chosen?.id === device.id ? "true" : undefined}
               onClick={() => pick(() => onChoose(device.id))}
             >
-              <span className={"dot " + (device.online ? "dot-ok" : "dot-off")} aria-hidden="true" />
-              <span className="machine-pop-name">{name}</span>
-              <span className="machine-pop-meta">
-                {device.online ? "online" : "offline"}
-                {device.version ? ` · v${device.version}` : ""}
-              </span>
-            </button>
-          );
-        })}
+                <span
+                  className={"dot " + (device.online ? "dot-ok" : "dot-off")}
+                  aria-hidden="true"
+                />
+                <span className="machine-pop-name">{name}</span>
+                <span className="machine-pop-meta">
+                  {device.online ? "online" : "offline"}
+                  {device.version ? ` · v${device.version}` : ""}
+                </span>
+              </button>
+            );
+          })}
         <div className="machine-pop-sep" />
         <button type="button" onClick={() => pick(onAddMachine)}>
           Add a machine
