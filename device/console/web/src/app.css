@@ -900,10 +900,9 @@ tr:last-child td { border-bottom: 0; }
 .connect-tabs button[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--accent); font-weight: var(--fw-semi); }
 /* The tokens this device already has: metadata rows, one revoke action each, never a value. */
 .token-list { display: grid; gap: var(--sp-1-5); }
-.token-list h3 {
-  font-size: var(--fs-xs); font-weight: var(--fw-semi); color: var(--ink-faint);
-  text-transform: uppercase; letter-spacing: var(--tracking-label);
-}
+/* The eyebrow's SIZE paints `--ink-faint` here rather than the atom's `--ink-muted`: a token list's
+   group label sits inside a card's tint, where the muted grey measures too light. */
+.token-list h3 { color: var(--ink-faint); }
 .connect .grant-row select { width: auto; min-width: 9rem; }
 .connect-actions { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
 /* The header is a credential, not a document: a phone must still see the actions below it. */
@@ -1362,14 +1361,7 @@ button.chip-tag:hover {
   font: inherit;
 }
 .monitors-add > button { flex: none; }
-.monitor-kind {
-  margin-left: auto;
-  color: var(--ink-faint);
-  font-size: var(--fs-xs);
-  font-weight: var(--fw-semi);
-  text-transform: uppercase;
-  letter-spacing: var(--tracking-label);
-}
+.monitor-kind { margin-left: auto; color: var(--ink-faint); }
 
 /* The run form lives under Tools now; the history below it is the Runs page. The form wraps like the
    monitors add form; the history is a table in a capped scroll box so the record it loads stays on
@@ -1435,14 +1427,7 @@ button.chip-tag:hover {
   gap: var(--sp-2);
 }
 .runs-stream h3,
-.runs-detail-command h3 {
-  margin: 0;
-  font-size: var(--fs-xs);
-  font-weight: var(--fw-semi);
-  text-transform: uppercase;
-  letter-spacing: var(--tracking-label);
-  color: var(--ink-faint);
-}
+.runs-detail-command h3 { margin: 0; color: var(--ink-faint); }
 .runs-stream pre {
   margin: var(--sp-1) 0 0;
   padding: var(--sp-2-5) var(--sp-3);
@@ -1689,14 +1674,7 @@ span.files-name {
   color: var(--ink-muted);
   font-weight: var(--fw-medium);
 }
-.files-kind {
-  flex: none;
-  color: var(--ink-faint);
-  font-size: var(--fs-xs);
-  font-weight: var(--fw-semi);
-  text-transform: uppercase;
-  letter-spacing: var(--tracking-label);
-}
+.files-kind { flex: none; color: var(--ink-faint); }
 .files-size {
   flex: none;
   min-width: 4.5rem;
@@ -2663,13 +2641,7 @@ input:not([type="checkbox"]):not([type="radio"]):focus, select:focus, textarea:f
   margin: 0;
   min-width: 0;
 }
-.session-card-label {
-  color: var(--ink-muted);
-  font-size: var(--fs-2xs);
-  font-weight: var(--fw-medium);
-  letter-spacing: var(--tracking-label);
-  text-transform: uppercase;
-}
+.session-card-label { color: var(--ink-muted); }
 .session-card-input {
   min-width: 0;
   max-width: 100%;
@@ -3138,7 +3110,24 @@ main::-webkit-scrollbar-track, .sheet-body::-webkit-scrollbar-track, .scroll::-w
   border-bottom: 1px solid var(--line);
 }
 .filter-block { display: grid; gap: var(--sp-1-5); min-width: 0; }
-.filter-label {
+/* **THE EYEBROW, ONE ATOM (the forty-ninth list).** Twelve rules on this surface write the same five
+   declarations to turn a small label into an eyebrow, and the panel writes a thirteenth with different
+   numbers (11 px / 700 / a hard-coded 0.06em where this file reads the token). The numbers are the
+   contract's `section.eyebrow` — 10 px, 600, 0.05em, uppercase — and this is the rule both surfaces
+   are measured against. A label that needs a colour of its own (the alarm's, the accent's) still says
+   so; it does not restate the size, the weight or the spacing. */
+.filter-label,
+th,
+.token-list h3,
+.monitor-kind,
+.runs-detail-command h3,
+.files-kind,
+.session-card-label,
+.timeline-caller,
+.audit-caller,
+.evidence-label,
+.attention h2,
+.fleet-started-label {
   font-size: var(--fs-2xs); font-weight: var(--fw-semi);
   text-transform: uppercase; letter-spacing: var(--tracking-label);
   color: var(--ink-muted);
@@ -3190,9 +3179,14 @@ main::-webkit-scrollbar-track, .sheet-body::-webkit-scrollbar-track, .scroll::-w
 .audit-source { margin: 0 0 var(--sp-3); }
 /* One line while a changed scope's window is read: no stale rows, no cap sentence about them. */
 .timeline-loading, .audit-loading { margin: var(--sp-3) 0; }
+/* **THE DAY IS A SECTION, NOT A SECOND TITLE (the forty-ninth list).** Measured: this label drew
+   22 px / 600 while every other `h2` on this surface drew 17 / 600 — the SAME size as the page title,
+   one weight lighter, so the record's day read as a second page title above the rows. The contract's
+   `section.h2` is 17 / 600 and this is that level. Its 24 px of padding and its stickiness stay: the
+   day still has to hold its rows against the container's top. */
 .timeline-day-label {
   margin: 0; padding: 0 0 var(--sp-2-5);
-  font-size: var(--fs-xl); line-height: 1.2; font-weight: var(--fw-semi);
+  font-size: var(--fs-lg); line-height: 1.2; font-weight: var(--fw-semi);
   color: var(--ink); letter-spacing: var(--tracking-tight);
 }
 /* The timeline scrolls inside `main`, not with the page, so the day's name sticks to that
@@ -3262,11 +3256,7 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
    fact that is two syllables long (`console`). A box around an aside says it belongs to the row's
    structure; this belongs to the sentence, so it is the page's small-caps type and no chrome. The
    uppercase is what still tells it from prose, which is rule 6's "not colour alone". */
-.timeline-caller, .audit-caller {
-  display: inline; color: var(--ink-faint);
-  font-size: var(--fs-2xs); font-weight: var(--fw-semi); line-height: 1.5;
-  letter-spacing: var(--tracking-label); text-transform: uppercase;
-}
+.timeline-caller, .audit-caller { display: inline; color: var(--ink-faint); line-height: 1.5; }
 .timeline-chev {
   align-self: center; color: var(--ink-faint); font-size: var(--fs-xs);
   transition: transform 140ms var(--ease);
@@ -3299,10 +3289,7 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
 }
 .evidence-main { min-width: 0; padding: var(--sp-3) var(--sp-3-5); display: grid; gap: var(--sp-1-5); align-content: start; }
 .evidence-side { padding: 12px 14px; border-left: 1px solid var(--hairline); }
-.evidence-label {
-  margin: 0; font-size: var(--fs-2xs); color: var(--ink-faint);
-  letter-spacing: 0.04em; text-transform: uppercase;
-}
+.evidence-label { margin: 0; color: var(--ink-faint); }
 .evidence-command {
   margin: 0; font-family: var(--mono); font-size: var(--fs-2xs);
   background: var(--panel-2); border: 1px solid var(--hairline); border-radius: var(--radius-sm2);
@@ -3428,10 +3415,7 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
   display: grid;
   border-left: 3px solid var(--warn);
 }
-.attention h2 {
-  margin: 0; font-size: var(--fs-2xs); font-weight: var(--fw-semi);
-  text-transform: uppercase; letter-spacing: var(--tracking-label); color: var(--ink-muted);
-}
+.attention h2 { margin: 0; color: var(--ink-muted); }
 /* The one place the release is named: every behind row below is measured against this version. */
 .attention-release { margin: -4px 0 0; font-size: var(--fs-xs); }
 .attention-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 0; }

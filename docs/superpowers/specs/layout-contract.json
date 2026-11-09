@@ -24,6 +24,23 @@
     "size": 22,
     "weight": 700
   },
+  "section": {
+    "$comment": "The levels UNDER a page title (the forty-ninth list). A page has one title and the blocks below it are a LEVEL, not a size chosen per page: `h2` is a section, `h3` is the thing inside one, `eyebrow` is the small uppercase label above a block. Measured before: an h2 was 22, 17, 14 or 10 px depending on the page.",
+    "h2": {
+      "size": 17,
+      "weight": 600
+    },
+    "h3": {
+      "size": 14,
+      "weight": 600
+    },
+    "eyebrow": {
+      "size": 10,
+      "weight": 600,
+      "tracking": 0.05,
+      "transform": "uppercase"
+    }
+  },
   "breakpoints": {
     "narrow": 480,
     "phone": 639,
