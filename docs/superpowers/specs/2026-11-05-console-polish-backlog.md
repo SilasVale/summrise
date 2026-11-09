@@ -2357,6 +2357,39 @@ each one is USED FOR.
    margin, `display: inline`. Measured after: **4** `text-transform: uppercase` where there were 12.
    The panel's thirteenth spelling is the remaining work.)*
 
+## P0 — the fiftieth list (opened 2026-11-10, the panel's heading and its tracking)
+
+The forty-ninth list's console half is done: the day is a section, and twelve eyebrow rules are one.
+This list is the SAME ITEMS' panel half, measured rather than assumed — and it is one item, because
+the measurement says the panel's problem is not the size, it is the SPACING and the ONE heading that
+keeps a size of its own.
+
+Recorded as clean first, because it is: the panel's `h2` is 17 px / 600 on Settings (the level, exactly
+what the console now draws), and the card titles are 14 px / 600 (the level the contract calls `h3`).
+So the panel does NOT have the console's 22-in-a-section defect.
+
+1. **The panel has a hard-coded letter-spacing scale of FIVE values where the contract names one.**
+   Measured across `styles/components.css` alone:
+
+       0.06em  .goal-label and two more
+       0.05em  one rule
+       0.04em  eight rules (`.archive-state`, the pill labels, the table heads)
+       0.03em  two rules (the warning and danger banners)
+       0.4px   one rule — a PIXEL value in an em scale
+
+   and `styles/tokens.css` carries `--tracking-display: -0.011em` and `--tracking-micro: 0.014em`,
+   NEITHER of which is an eyebrow's spacing. So the panel's labels do not read the scale at all: five
+   numbers were written by hand, one of them in a different unit. The console has used
+   `--tracking-label: 0.05em` for this since it was written. **Fix:** the eyebrow's spacing is a TOKEN
+   in both repos (the contract's `section.eyebrow.tracking`), and the panel's five literals read it.
+   **S.**
+
+2. **History's `Sessions` is a level-3 size carrying a level-2 tag.** `.archive-title` is
+   `14px / 600` (the contract's `h3`) while the element is an `h2`, and Settings' `Agent update` is an
+   `h3` at `14px / 700` — the SAME size at a different weight, two tags for one level, and the
+   contract's `h3` is 14/600. **Fix:** the tag and the level agree, and the weight is the contract's.
+   **S.**
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
