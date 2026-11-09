@@ -2082,20 +2082,18 @@ still names its own start, which is what the last list bought.
    failed on a `12px` literal in `.timeline-filters` — red on a clean trunk too, so the category gate
    had been un-runnable.)*
 
-2. **The day's scan examined 302 lines to answer a day the window shows holding 1,000+ rows, and
-   answered `since_ms: null`** — the schema's own word for *"the read reached midnight"*. Measured:
-   `/audit/day` reports `lines_read: 302`, `client_calls: 231`, `since_ms: null`; `/audit?limit=1000`
-   returns 1,000 lines, **all of them today** (oldest 07:48Z, none before midnight). Two reads of the
-   same file disagree about how much of today exists, and the smaller one claims to be complete.
-   **A cut that reconciles them was searched for and NOT found**: no line in the window is a cut whose
-   client-call count equals the day's 231 (`windowClientFromAnyCut` has exactly one member,
-   15:21:49Z, and the console count's is a different moment, 17:46:24Z). **The mechanism is therefore
-   NOT claimed here.** What is claimed is the measurement and the contradiction: `newest_since`
-   deliberately does not read the rotated generation while `/audit` does, so the two reads are not
-   reading the same bytes, and the day's answer does not say which bytes it read. **Fix:** the answer
-   names its coverage in the same terms the window does, or reads the same bytes. **M.**
-   *(The guessed mechanism was written into this item first and then removed: it said the scan had
-   stopped early and called it whole, and the numbers above do not prove that.)*
+2. **~~The day's scan examined 302 lines for a day the window shows holding 1,000+ rows.~~
+   **DISPROVED — the window's 1,000 lines are NOT the day's.** The measurement compared
+   `/audit/day`'s `lines_read: 302` with `/audit?limit=1000` and assumed the window was inside the
+   day. It is not: measured live, **689 of those 1,000 lines are from BEFORE the day's own cut**,
+   and the 311 at or after it are the day. So the day's `lines_read: 312` is **311 + the one line
+   that proved the cut**, its `client_calls: 236` is exactly the 236 client calls in those 311 rows
+   by the server's own rule, and `since_ms: null` is CORRECT — the answer says "whole" because it
+   is whole. **The audit item was wrong; the read was right.**
+   *This is the third list in a row whose finding was a comparison between two intervals — the
+   same error, made this time in a measurement rather than in the page's prose. `5d9b887` pins the
+   property: `the_day_scan_covers_exactly_the_rows_at_or_after_its_cut` seeds rows on both sides of
+   a real local midnight and asserts the scan is the day's rows plus one proving line.*
 
 ## How a round goes
 
