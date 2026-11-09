@@ -815,13 +815,17 @@ describe("Home — the fleet's read", () => {
       fleetRead: { state: "failed", reason: "Failed to fetch" }
     });
 
-    // ONE FAILURE, ONE SENTENCE (audit-40 F4): the shell's banner names the failure, this page says
-    // only what it cannot show, and the cause is the line's title — never a second failure sentence
-    // and never the browser's words.
-    expect(screen.getByText("The machine list is not shown.")).toBeInTheDocument();
-    expect(screen.queryByText("The machine list could not be read.")).toBeNull();
-    expect(screen.queryByText(/could not be read/)).toBeNull();
-    expect(screen.getByTitle("Failed to fetch")).toBeInTheDocument();
+    // ONE FAILURE, ONE STATEMENT, ONE RETRY, ON THIS PAGE (audit-44 F3). The shell's banner no
+    // longer repeats the read: this notice names the failure, keeps the cause in its title, and is
+    // the one control that reads it again.
+    const notice = screen
+      .getByText("The console could not read the machine list.")
+      .closest(".notice");
+    expect(notice).not.toBeNull();
+    expect(notice).not.toHaveTextContent("Failed to fetch");
+    expect(within(notice as HTMLElement).getByTitle("Failed to fetch")).toBeInTheDocument();
+    expect(screen.getAllByText("The console could not read the machine list.")).toHaveLength(1);
+    expect(screen.getAllByRole("button", { name: "Retry" })).toHaveLength(1);
     expect(document.body.textContent).not.toContain("Failed to fetch");
     expect(screen.queryByText("No machines yet")).toBeNull();
     // The failed read states its own failure; it does not take away the next step.
@@ -842,10 +846,11 @@ describe("Home — the fleet's read", () => {
     });
 
     expect(
-      screen.getByText(/The machines below are the last list it read\./)
+      screen.getByText(
+        "The console could not read the machine list; the machines below are the last list it read."
+      )
     ).toBeInTheDocument();
-    // The stale clause replaces the failure sentence; the console's status is the title's.
-    expect(screen.queryByText("The machine list could not be read.")).toBeNull();
+    // The stale clause is part of the one statement; the console's status is the title's.
     expect(screen.getByTitle("503 device_unavailable")).toBeInTheDocument();
     expect(document.body.textContent).not.toContain("503 device_unavailable");
     expect(screen.getByText("workshop")).toBeInTheDocument();
@@ -883,7 +888,9 @@ describe("Home — the fleet's read", () => {
     });
 
     // The missing list and its one Retry stay; the doors are the next step beside them.
-    expect(screen.getByText("The machine list is not shown.")).toBeInTheDocument();
+    expect(
+      screen.getByText("The console could not read the machine list.")
+    ).toBeInTheDocument();
     expect(document.body.textContent).not.toContain("Failed to fetch");
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));
     expect(onRetryFleet).toHaveBeenCalledTimes(1);

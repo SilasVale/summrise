@@ -2304,8 +2304,8 @@ describe("App", () => {
   it("says the audit read failed, with its reason and a retry, instead of following it", async () => {
     // audit-38 F6: the audit was unread, but Activity still said it was following the record; the
     // counts and the source line were gone with no sentence saying why, so a live-only list read as
-    // the whole day's work. audit-40 F4: the banner names the failure once — the page's head has no
-    // second copy of it — and the notice says what the timeline can still show, with the one Retry.
+    // the whole day's work. audit-44 F3: the page itself holds the one statement and the one Retry;
+    // the shell banner no longer says the same failure over the topbar.
     mocks.audit.mockRejectedValue(new TypeError("Failed to fetch"));
     const view = await bootAndSignIn();
     fireEvent.click(screen.getByRole("button", { name: "Activity" }));
@@ -2318,25 +2318,27 @@ describe("App", () => {
     });
 
     expect(screen.queryByText(/Following the console's audit/)).toBeNull();
-    const banner = await screen.findByRole("alert");
-    expect(banner).toHaveTextContent("The console could not read the audit.");
-    expect(within(banner).getByTitle("Failed to fetch")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).toBeNull();
     // The page says what is missing, not the failure again, and has no status line to carry a
-    // second copy of it (audit-40 F4).
-    expect(screen.queryByText("The audit could not be read.")).toBeNull();
+    // second copy of it.
     expect(document.querySelector(".activity-status")).toBeNull();
     const notice = screen
-      .getByText("This timeline shows only calls that arrive live.")
+      .getByText(
+        "The console could not read the audit; this timeline shows only calls that arrive live."
+      )
       .closest(".notice");
     expect(notice).not.toBeNull();
+    // One statement and its cause: the title holds the browser's words, the sentence does not.
     expect(notice).not.toHaveTextContent("Failed to fetch");
-    expect(notice).not.toHaveTextContent("could not read");
+    expect(within(notice as HTMLElement).getByTitle("Failed to fetch")).toBeInTheDocument();
     expect(
       within(notice as HTMLElement).getByRole("button", { name: "Retry" })
     ).toBeInTheDocument();
-    // One failure sentence, one Retry, one copy of the cause: the banner holds both the sentence
-    // and the title, and the page's notice holds the control.
-    expect(screen.getAllByText("The console could not read the audit.")).toHaveLength(1);
+    expect(
+      screen.getAllByText(
+        "The console could not read the audit; this timeline shows only calls that arrive live."
+      )
+    ).toHaveLength(1);
     expect(document.body.textContent).not.toContain("Failed to fetch");
     expect(screen.getAllByTitle("Failed to fetch")).toHaveLength(1);
     expect(screen.getAllByRole("button", { name: "Retry" })).toHaveLength(1);
@@ -2424,15 +2426,15 @@ describe("App", () => {
     await act(async () => {
       answer.reject(new TypeError("Failed to fetch"));
     });
-    // The banner names the read; the page states what it can show, not the failure again.
-    expect(await screen.findByRole("alert")).toHaveTextContent(
-      "The console could not read the audit."
-    );
-    expect(screen.queryByText("The audit could not be read.")).toBeNull();
+    // The page owns the failure: one statement and one Retry, no shell banner over the topbar.
+    expect(screen.queryByRole("alert")).toBeNull();
     expect(document.querySelector(".activity-status")).toBeNull();
     expect(
-      await screen.findByText("This timeline shows only calls that arrive live.")
+      await screen.findByText(
+        "The console could not read the audit; this timeline shows only calls that arrive live."
+      )
     ).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "Retry" })).toHaveLength(1);
     expect(document.body.textContent).not.toContain("Failed to fetch");
     expect(screen.queryByText("Reading attic's window…")).toBeNull();
     expect(screen.queryByText("Read the workshop's notes")).toBeNull();
@@ -2556,21 +2558,23 @@ describe("App", () => {
     view.unmount();
   });
 
-  it("keeps a failed machine-list read on the page after the banner is dismissed", async () => {
+  it("keeps a failed machine-list read's one statement and Retry through a repeated failed poll", async () => {
     const startPoll = vi.spyOn(window, "setInterval");
     mocks.devices.mockRejectedValue(new TypeError("Failed to fetch"));
     const view = await signInWithoutFleet();
 
-    // ONE FAILURE, ONE SENTENCE (audit-40 F4): the banner names the read in the console's words and
-    // keeps the browser's text in its title; the page says only what it cannot show, and its notice
-    // owns the one Retry — the banner has none.
-    const banner = await screen.findByRole("alert");
-    expect(banner).toHaveTextContent("The console could not read the machine list.");
-    expect(banner).not.toHaveTextContent("Failed to fetch");
-    expect(within(banner).getByTitle("Failed to fetch")).toBeInTheDocument();
-    expect(within(banner).queryByRole("button", { name: /Retry/ })).toBeNull();
-    expect(screen.getByText("The machine list is not shown.")).toBeInTheDocument();
-    expect(screen.queryByText("The machine list could not be read.")).toBeNull();
+    // ONE FAILURE, ONE STATEMENT, ONE RETRY (audit-44 F3): Home owns the sentence in the console's
+    // words with the browser's text in its title, and its notice owns the one Retry. No shell banner
+    // says the same failure again.
+    const notice = (
+      await screen.findByText("The console could not read the machine list.")
+    ).closest(".notice");
+    expect(notice).not.toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(notice).not.toHaveTextContent("Failed to fetch");
+    expect(within(notice as HTMLElement).getByTitle("Failed to fetch")).toBeInTheDocument();
+    expect(within(notice as HTMLElement).getByRole("button", { name: "Retry" })).toBeInTheDocument();
+    expect(screen.getAllByText("The console could not read the machine list.")).toHaveLength(1);
     expect(screen.getAllByRole("button", { name: "Retry" })).toHaveLength(1);
     expect(document.body.textContent).not.toContain("Failed to fetch");
     expect(screen.queryByText("No machines yet")).toBeNull();
@@ -2579,20 +2583,16 @@ describe("App", () => {
       within(screen.getByRole("main")).getByRole("button", { name: "Add a machine" })
     ).toBeInTheDocument();
 
-    // A failed poll repeats the shell banner's named failure. Dismiss is the banner's control; the
-    // page's line and its one Retry survive it.
+    // A failed poll repeats the read's failure. The page keeps one statement, not a second copy.
     const poll = startPoll.mock.calls.findIndex(([, delay]) => delay === 5000);
     expect(poll).toBeGreaterThanOrEqual(0);
     window.clearInterval(startPoll.mock.results[poll].value as number);
     await act(async () => {
       (startPoll.mock.calls[poll][0] as () => void)();
     });
-    const repeat = await screen.findByRole("alert");
-    fireEvent.click(within(repeat).getByRole("button", { name: "Dismiss" }));
+    expect(await screen.findByText("The console could not read the machine list.")).toBeInTheDocument();
+    expect(screen.getAllByText("The console could not read the machine list.")).toHaveLength(1);
     expect(screen.queryByRole("alert")).toBeNull();
-    expect(screen.getByText("The machine list is not shown.")).toBeInTheDocument();
-    // The page's line still carries the evidence, now that the banner is gone.
-    expect(screen.getAllByTitle("Failed to fetch")).toHaveLength(1);
     expect(screen.getAllByRole("button", { name: "Retry" })).toHaveLength(1);
     expect(screen.queryByText("No machines yet")).toBeNull();
 
@@ -2617,7 +2617,7 @@ describe("App", () => {
     const view = await signInWithoutFleet();
 
     // The read's failure is on the page; the enrollment door is the next step and still works.
-    await screen.findByText("The machine list is not shown.");
+    await screen.findByText("The console could not read the machine list.");
     fireEvent.click(
       within(screen.getByRole("main")).getByRole("button", { name: "Add a machine" })
     );
@@ -2626,7 +2626,7 @@ describe("App", () => {
     expect(panel).toHaveTextContent(minted);
     expect(mocks.enroll).toHaveBeenCalledTimes(1);
     // Minting did not paper over the read's failure.
-    expect(screen.getByText("The machine list is not shown.")).toBeInTheDocument();
+    expect(screen.getByText("The console could not read the machine list.")).toBeInTheDocument();
     view.unmount();
   });
 
@@ -2635,30 +2635,32 @@ describe("App", () => {
     const view = await signInWithoutFleet();
 
     // audit-38 F2: the banner said `The console could not read Failed to fetch`. The read is the
-    // sentence's subject; the browser's own text is evidence, and evidence may sit in the title.
-    const banner = await screen.findByRole("alert");
-    expect(
-      within(banner).getByText("The console could not read the machine list.")
-    ).toBeInTheDocument();
-    expect(banner).not.toHaveTextContent("Failed to fetch");
-    expect(within(banner).getByTitle("Failed to fetch")).toBeInTheDocument();
+    // sentence's subject; the browser's own text is evidence, and evidence sits in the title.
+    const notice = (
+      await screen.findByText("The console could not read the machine list.")
+    ).closest(".notice");
+    expect(notice).not.toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(notice).not.toHaveTextContent("Failed to fetch");
+    expect(within(notice as HTMLElement).getByTitle("Failed to fetch")).toBeInTheDocument();
 
-    // The page's one Retry is the read again: the answer puts the fleet back and the banner away.
-    // The banner offers no second button for the same read (audit-40 F4).
+    // The page's one Retry is the read again: the answer puts the fleet back and the statement away.
     mocks.devices.mockResolvedValue([workshop, attic]);
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));
-    await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
+    await waitFor(() => expect(screen.queryByText(/could not read the machine list/)).toBeNull());
     expect(await screen.findByText("2 of 2 online · nothing to do")).toBeInTheDocument();
     view.unmount();
   });
 
-  it("keeps one banner when the same read fails again", async () => {
+  it("keeps one statement when the same read fails again", async () => {
     const startPoll = vi.spyOn(window, "setInterval");
     mocks.devices.mockRejectedValue(new TypeError("Failed to fetch"));
     const view = await signInWithoutFleet();
-    expect(await screen.findByRole("alert")).toBeInTheDocument();
+    expect(
+      await screen.findByText("The console could not read the machine list.")
+    ).toBeInTheDocument();
 
-    // Two more failed polls of the same read: a repeat is the same failure, not a second banner.
+    // Two more failed polls of the same read: a repeat is the same failure, not a second statement.
     const poll = startPoll.mock.calls.findIndex(([, delay]) => delay === 5000);
     expect(poll).toBeGreaterThanOrEqual(0);
     window.clearInterval(startPoll.mock.results[poll].value as number);
@@ -2669,33 +2671,76 @@ describe("App", () => {
       (startPoll.mock.calls[poll][0] as () => void)();
     });
 
-    expect(screen.getAllByRole("alert")).toHaveLength(1);
     expect(screen.getAllByText("The console could not read the machine list.")).toHaveLength(1);
+    expect(screen.getAllByRole("button", { name: "Retry" })).toHaveLength(1);
+    expect(screen.queryByRole("alert")).toBeNull();
     view.unmount();
   });
 
-  it("names each failed read in its own banner instead of joining them", async () => {
+  it("states each failed read on the page that owns it, not joined in one banner", async () => {
     mocks.devices.mockRejectedValue(new TypeError("Failed to fetch"));
     mocks.audit.mockRejectedValue(new TypeError("Failed to fetch"));
     const view = await signInWithoutFleet();
 
-    // Two reads, two subjects, one banner each: the old sentence joined the same raw text twice.
-    const banners = await screen.findAllByRole("alert");
-    expect(banners).toHaveLength(2);
+    // Home owns the fleet's failure: one statement and one Retry, no banner, and no copy of the
+    // other read's failure (the old banner joined both raw causes into one sentence).
     expect(
-      within(banners[0]).getByText("The console could not read the machine list.")
+      await screen.findByText("The console could not read the machine list.")
     ).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.queryByText(/could not read the audit/)).toBeNull();
+    expect(screen.getAllByText("The console could not read the machine list.")).toHaveLength(1);
+    expect(screen.getAllByRole("button", { name: "Retry" })).toHaveLength(1);
+
+    // Activity owns the audit's, once the page that states it is open.
+    fireEvent.click(screen.getByRole("button", { name: "Activity" }));
+    await screen.findByRole("heading", { name: "Activity", level: 1 });
     expect(
-      within(banners[1]).getByText("The console could not read the audit.")
+      await screen.findByText(
+        "The console could not read the audit; this timeline shows only calls that arrive live."
+      )
     ).toBeInTheDocument();
-    expect(banners.map((banner) => banner.textContent).join(" ")).not.toContain("Failed to fetch");
-    // The banner is the sentence and Dismiss; the page that owns a failed read carries its one
-    // Retry. On Home only the fleet's notice is drawn, so the page has exactly one Retry button.
-    for (const banner of banners) {
-      expect(within(banner).queryByRole("button", { name: /Retry/ })).toBeNull();
-    }
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(document.body.textContent).not.toContain("Failed to fetch");
     expect(screen.getAllByRole("button", { name: "Retry" })).toHaveLength(1);
     view.unmount();
+  });
+
+  it("draws an action's failure in the shell below the topbar, not over it", async () => {
+    await bootAndSignIn();
+    mocks.enroll.mockRejectedValueOnce(new HttpError(500, "internal"));
+
+    fireEvent.click(
+      within(screen.getByRole("main")).getByRole("button", { name: "Add a machine" })
+    );
+
+    // **BELOW THE TOPBAR (audit-44 F3).** The banner is the shell's `alerts` row between the header
+    // and the page, not a fixed layer at the window's top over the machine switcher. jsdom cannot
+    // measure the row, so the browser gate measures the boxes; this test pins the structure.
+    const banner = await screen.findByRole("alert");
+    expect(banner).toHaveClass("alert-banner");
+    const stack = banner.closest(".alert-stack");
+    expect(stack).not.toBeNull();
+    const topbar = document.querySelector(".topbar");
+    expect(topbar).not.toBeNull();
+    expect(
+      (topbar as Element).compareDocumentPosition(stack as Node) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+    expect((stack as Element).previousElementSibling).toBe(topbar);
+    expect((stack as Element).closest("main")).toBeNull();
+    expect((stack as Element).parentElement).toHaveClass("shell");
+    // One statement, its cause in the title, and the one Dismiss control.
+    expect(banner).toHaveTextContent("The console could not create an enrollment code.");
+    expect(within(banner).getByTitle("500 internal")).toBeInTheDocument();
+    expect(within(banner).getByRole("button", { name: "Dismiss" })).toBeInTheDocument();
+    expect(banner).not.toHaveTextContent("500 internal");
+    expect(screen.getAllByText("The console could not create an enrollment code.")).toHaveLength(1);
+    expect(screen.getAllByRole("alert")).toHaveLength(1);
+
+    // Dismiss ends the action's statement; the page below is untouched.
+    fireEvent.click(within(banner).getByRole("button", { name: "Dismiss" }));
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 
   it("draws the empty fleet and its enrollment CTA only when the read answered zero", async () => {

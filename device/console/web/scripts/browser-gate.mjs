@@ -461,7 +461,11 @@ const state = {
   offlineToolsDelayMs: 0,
   /** Whether the console's deployment staged an installer, and how often the page asked. */
   installerAvailable: true,
-  installerRequests: 0
+  installerRequests: 0,
+  /** Whether `/fleet` answers 500: the failed read whose one statement the last leg measures. */
+  failFleet: false,
+  /** Whether `POST /enroll` answers 500: the action failure that draws the shell banner. */
+  failEnroll: false
 };
 
 /**
@@ -586,8 +590,13 @@ function apiReply(request, url) {
   if (method === 'GET' && pathname === '/health') {
     return json({ status: 'ok', devices: 1, online: 1, version: 'browser-gate' });
   }
-  if (method === 'GET' && pathname === '/fleet')
+  if (method === 'POST' && pathname === '/enroll' && state.failEnroll) {
+    return json({ error: 'enrollment_unavailable' }, 500);
+  }
+  if (method === 'GET' && pathname === '/fleet') {
+    if (state.failFleet) return json({ error: 'console_unavailable' }, 500);
     return json([DEVICE, OFFLINE_DEVICE, QUIET_DEVICE, BIG_DEVICE]);
+  }
   // THE INSTALLER READ. One answer per fleet render; the page must not poll it, and the gate
   // counts the requests so a poll would show up here.
   if (method === 'GET' && pathname === '/installer') {
@@ -923,6 +932,9 @@ page.on('console', (message) => {
   // And for the deliberately refused sign-in: the browser logs `/auth`'s 401 as a resource error,
   // while the panel's alert is what that leg measures.
   if (state.refuseSignIn && message.text().includes('401')) return;
+  // The last two legs answer `/fleet` and `/enroll` with 500 on purpose: the failure state is
+  // what they measure, not a page fault.
+  if ((state.failFleet || state.failEnroll) && message.text().includes('500')) return;
   errors.push(message.text());
 });
 page.on('pageerror', (error) => errors.push('pageerror: ' + error.message));
@@ -4287,6 +4299,78 @@ try {
   await page.getByRole('heading', { name: 'Machines', exact: true }).waitFor({ timeout: 10_000 });
   await page.waitForFunction(() => window.location.hash === '#home', null, { timeout: 10_000 });
   step('the sign-in panel answers at #signin, and Back returns to the console still signed in');
+
+  // **ONE FAILED READ IS STATED ONCE, ON ITS PAGE (audit-44 F3).** A fresh boot answers `/fleet`
+  // with 500: Home owns the one statement and the one Retry, and the shell banner does not repeat
+  // it. The banner used to be a fixed layer at the window's top; it now lives in the shell's row
+  // between the header and the page, which the refused enrollment below measures.
+  state.failFleet = true;
+  await page.evaluate(() => localStorage.removeItem('summrise.selected.device'));
+  await page.goto(base + '/', { waitUntil: 'domcontentloaded' });
+  await page.getByRole('heading', { name: 'Machines', exact: true }).waitFor({ timeout: 10_000 });
+  const statement = page.getByText('The console could not read the machine list.', {
+    exact: true
+  });
+  await statement.waitFor({ timeout: 10_000 });
+  if ((await page.getByRole('alert').count()) !== 0) {
+    throw new Error('a failed fleet read also drew the shell banner');
+  }
+  if ((await statement.count()) !== 1) {
+    throw new Error('the failed fleet read did not state its failure exactly once');
+  }
+  if ((await page.getByRole('button', { name: 'Retry' }).count()) !== 1) {
+    throw new Error('the failed fleet read did not own exactly one Retry');
+  }
+  const failureTopbar = await page.locator('.topbar').boundingBox();
+  const failureNotice = await page.locator('.notice').first().boundingBox();
+  if (
+    !failureTopbar ||
+    !failureNotice ||
+    failureNotice.y < failureTopbar.y + failureTopbar.height
+  ) {
+    throw new Error('the failed read notice is not below the topbar');
+  }
+  step('a failed fleet read states one sentence on its page, with one Retry and no shell banner');
+
+  // The banner's own placement: a refused enrollment (an action no page below owns) draws it in
+  // the `alerts` row. The topbar is 52 px at this width; the banner's box must start below it, and
+  // keep the measured 736 px width so it reads as the same object the audit photographed.
+  state.failEnroll = true;
+  await page
+    .getByRole('main')
+    .getByRole('button', { name: 'Add a machine' })
+    .click();
+  const banner = page.locator('.alert-banner').first();
+  await banner.waitFor({ timeout: 10_000 });
+  await banner.getByText('The console could not create an enrollment code.').waitFor({
+    timeout: 10_000
+  });
+  const topbar = await page.locator('.topbar').boundingBox();
+  const stack = await page.locator('.alert-stack').boundingBox();
+  const bannerBox = await banner.boundingBox();
+  if (!topbar || !stack || !bannerBox) {
+    throw new Error('the topbar or the failure banner has no box');
+  }
+  const headerBottom = topbar.y + topbar.height;
+  if (stack.y < headerBottom || bannerBox.y < headerBottom) {
+    throw new Error(
+      `the banner's row starts at y ${stack.y} and the banner at y ${bannerBox.y}, ` +
+        `over a topbar that ends at ${headerBottom}`
+    );
+  }
+  if (Math.abs(bannerBox.width - 736) > 1) {
+    throw new Error(`the failure banner is ${bannerBox.width} px wide, not the measured 736`);
+  }
+  if ((await page.getByRole('alert').count()) !== 1) {
+    throw new Error('the action failure drew more than one banner');
+  }
+  if ((await banner.getByRole('button', { name: 'Dismiss' }).count()) !== 1) {
+    throw new Error('the action failure banner lost its Dismiss control');
+  }
+  step(
+    `the action failure banner sits below the topbar (row y ${Math.round(stack.y)}, ` +
+      `banner y ${Math.round(bannerBox.y)} > ${Math.round(headerBottom)}), 736 px wide`
+  );
 
   if (errors.length > 0) throw new Error('console errors: ' + errors.join(' ;; '));
   console.log(

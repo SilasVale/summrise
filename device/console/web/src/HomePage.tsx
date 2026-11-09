@@ -456,15 +456,16 @@ function FleetHome(props: HomePageProps) {
       )}
 
       {fleet.state === "failed" && (
-        // ONE FAILURE, ONE SENTENCE, ONE RETRY. The shell's banner names the read and keeps the
-        // browser's cause in its title; this notice says only what the page can and cannot show and
-        // is the one control that reads it again (audit-40 F4). The cause stays a title here too,
-        // so the evidence survives the banner's Dismiss.
+        // ONE FAILURE, ONE STATEMENT, ONE RETRY — ON THIS PAGE (audit-44 F3). The shell's banner
+        // used to name the failure here too, so one failed read read as two failure blocks about
+        // 70 px apart. This notice is now the one statement: it names the read in the console's
+        // words, says what the list below still is, keeps the cause in its title, and owns the one
+        // control that reads it again.
         <div className="notice" role="status">
           <span title={fleet.reason}>
             {props.devices.length > 0
-              ? "The machines below are the last list it read."
-              : "The machine list is not shown."}
+              ? "The console could not read the machine list; the machines below are the last list it read."
+              : "The console could not read the machine list."}
           </span>
           <button type="button" onClick={() => props.onRetryFleet?.()}>
             Retry

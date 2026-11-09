@@ -70,33 +70,25 @@ function storeSelectedDevice(id: string | null) {
 /**
  * One named failure on the shell's banner.
  *
- * `key` is the read, not the sentence: the five-second poll fails many times during one outage, and
- * a repeat is the same fact. Replacing the entry by key is the dedupe (audit-38 F2 measured the old
- * banner reading `The console could not read Failed to fetch; Failed to fetch`).
+ * `key` is the action, not the sentence: a repeated press during one refusal is the same fact.
+ * Replacing the entry by key is the dedupe (audit-38 F2 measured the old banner reading `The console
+ * could not read Failed to fetch; Failed to fetch`).
  *
  * `detail` is evidence, never the sentence: the browser's own `Failed to fetch`, or the console's
  * status and code. It is the entry's title, where a curious operator can read it and a sentence
  * cannot present it as the console's words.
  *
- * THE BANNER HAS NO RETRY. The page that owns the failed read draws the one control that reads it
- * again (`The machine list is not shown.` + Retry, `This timeline shows only calls that arrive
- * live.` + Retry); a second Retry in the banner made one failure offer two identical buttons
- * (audit-40 F4).
+ * **THE PAGE OWNS A FAILED READ.** Home, Activity and the Device picker each hold the one statement
+ * and the one Retry for the read they draw; a banner for the same read was a second statement of
+ * one failure (audit-44 F3). What is left here is an action's refusal — a rename, a remove, an
+ * enrollment code, a refused sign-in — which has no page surface below it. The banner has no Retry:
+ * the action is the page's own control, and a second button for the same read was audit-40 F4.
  */
 type BannerFailure = {
   key: string;
   sentence: string;
   detail?: string;
 };
-
-/** A failed read's entry: the subject is the sentence and the cause is the title. */
-function readFailure(key: string, subject: string, cause: unknown): BannerFailure {
-  return {
-    key,
-    sentence: `The console could not read ${subject}.`,
-    detail: describe(cause)
-  };
-}
 
 /**
  * What Activity knows about the audit window it is meant to draw.
@@ -527,15 +519,15 @@ export function App() {
     daySummary.device === auditScopeDevice &&
     auditDevice === auditScopeDevice;
   /**
-   * What the page can show while the audit is unread: the useful clause only. The failure itself is
-   * the shell banner's one sentence — the page said it three times, the last time in the browser's
-   * words (audit-39 F4) — and this notice owns the one Retry, so the banner needs no second.
+   * The page's one statement of a failed audit read, with the one Retry beside it. It names the
+   * failure in the console's words and then what the page can still show; the cause is the title.
+   * The shell banner no longer says the same failure again (audit-44 F3).
    */
   const auditFailedNotice =
     auditRead.state === "failed"
       ? auditHaveWindow
-        ? "The rows below are the last read; calls that arrive live are added to them."
-        : "This timeline shows only calls that arrive live."
+        ? "The console could not read the audit; the rows below are the last read, and calls that arrive live are added to them."
+        : "The console could not read the audit; this timeline shows only calls that arrive live."
       : null;
   /** No window is in hand: the page's subtitle says so, and the list may not claim emptiness. */
   const auditUnread = auditRead.state !== "ready" && !auditHaveWindow;
@@ -634,28 +626,23 @@ export function App() {
         // Sampling after a successful fleet fetch is what keeps an offline device from adding a
         // stale point.
         setVitals(recordVitals(list, Date.now()));
-        clearFailure("fleet");
       },
       (reason) => {
         // The last list stays on screen: it is still the console's knowledge. The read state is what
         // keeps it from being drawn as an empty fleet, and the reason is what the page can say.
+        // THE PAGE SAYS IT: Home and the Device picker own the one statement and the one Retry
+        // (audit-44 F3); the banner does not repeat a read's failure.
         setFleetRead({ state: "failed", reason: describe(reason) });
-        // The page's own notice carries what is missing and the one Retry; the shell's banner
-        // names the read and keeps the browser's text in the title rather than in the sentence.
-        reportFailure(readFailure("fleet", "the machine list", reason));
       }
     );
     const tokensAnswer = tokensOrEmpty().then((list) => setTokens(list));
-    // `rereadAudit` owns the audit read state; its rejection is only one of the reads the banner
-    // names.
-    const auditAnswer = rereadAudit().then(
-      () => clearFailure("audit"),
-      (cause) => reportFailure(readFailure("audit", "the audit", cause))
-    );
+    // `rereadAudit` owns the audit read state; Activity derives its one statement and Retry from it.
+    // Its rejection is already the page's fact, so this copy is answered and dropped.
+    const auditAnswer = rereadAudit().catch(() => {});
     // The page's callers still await every read, so a boot or a poll settles only when all three
     // have answered; what changed is WHEN each answer reaches the page.
     await Promise.all([fleetAnswer, tokensAnswer, auditAnswer]);
-  }, [rereadAudit, reportFailure, clearFailure]);
+  }, [rereadAudit]);
 
   /**
    * A scope change is a new window, so it is a new read — through the same reader the five-second
@@ -668,17 +655,9 @@ export function App() {
   useEffect(() => {
     if (!session?.authenticated) return;
     if (auditReadDevice === auditScopeDevice) return;
-    rereadAudit().catch((cause) => {
-      reportFailure(readFailure("audit", "the audit", cause));
-    });
-  }, [
-    session?.authenticated,
-    auditScopeDevice,
-    auditReadDevice,
-    rereadAudit,
-    refreshData,
-    reportFailure
-  ]);
+    // The page's notice derives from `auditRead`; a rejected promise still needs its handler.
+    rereadAudit().catch(() => {});
+  }, [session?.authenticated, auditScopeDevice, auditReadDevice, rereadAudit]);
 
   const probe = useCallback(async () => {
     // /session decides the page; /health only labels the console's build. Waiting for both meant a
@@ -1236,23 +1215,6 @@ export function App() {
   return (
     <div className="shell">
       <a className="skip-link" href="#main">Skip to content</a>
-      {failures.length > 0 && (
-        // POST-SIGN-IN FAILURES HAD NO SURFACE: every handler wrote an error string, and only the
-        // signed-out card ever drew it. The banner keeps each failure its own, names the read that
-        // failed, offers that read again, and keeps the technical cause in the title (audit-38 F2).
-        // A repeat of the same read replaces its entry instead of stacking another banner.
-        <div className="alert-stack">
-          {failures.map((failure) => (
-            <div className="alert-banner" role="alert" key={failure.key}>
-              <span title={failure.detail}>{failure.sentence}</span>
-              <button type="button" onClick={() => clearFailure(failure.key)}>
-                Dismiss
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
-
       <header className="topbar">
         <div className="topbar-inner">
           <button
@@ -1273,6 +1235,28 @@ export function App() {
           <div className="topbar-actions">{phone && account}</div>
         </div>
       </header>
+
+      {failures.length > 0 && (
+        // **BELOW THE TOPBAR, IN THE SHELL'S OWN ROW (audit-44 F3).** The stack used to float at
+        // the window's top and covered the machine switcher exactly when the console was reporting
+        // a failure. It now occupies the `alerts` grid row between the header and the page, so the
+        // cost of an action's refusal is a strip of height, not the machine's name.
+        //
+        // POST-SIGN-IN FAILURES HAD NO SURFACE: every handler wrote an error string, and only the
+        // signed-out card ever drew it. The banner keeps each action's failure its own and keeps
+        // the technical cause in the title (audit-38 F2). A repeat of the same action replaces its
+        // entry instead of stacking another banner.
+        <div className="alert-stack">
+          {failures.map((failure) => (
+            <div className="alert-banner" role="alert" key={failure.key}>
+              <span title={failure.detail}>{failure.sentence}</span>
+              <button type="button" onClick={() => clearFailure(failure.key)}>
+                Dismiss
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
 
       <Rail page={page} onPage={go} footer={phone ? undefined : account} />
 
@@ -1361,11 +1345,13 @@ export function App() {
               </div>
             </header>
             {auditFailedNotice !== null && (
-              // THE HUB'S SENTENCE, ON THE PAGE THAT OWNS THE FILTER. A live-only timeline under a
-              // record the console could not read says which half it is showing — the failure itself
-              // is the banner's, not a second sentence here (audit-39 F4).
+              // THE PAGE'S ONE STATEMENT AND ONE RETRY. The failure is named here, in the console's
+              // words with the technical cause in the title; the shell banner used to say it again
+              // over the topbar (audit-44 F3).
               <div className="notice" role="status">
-                <span>{auditFailedNotice}</span>
+                <span title={auditRead.state === "failed" ? auditRead.reason : undefined}>
+                  {auditFailedNotice}
+                </span>
                 <button
                   type="button"
                   onClick={() => {
