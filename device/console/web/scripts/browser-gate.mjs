@@ -2003,6 +2003,33 @@ try {
   // scale a value is drawn from.
   await page.setViewportSize({ width: 390, height: 844 });
   await page.waitForTimeout(500);
+  // **THE PHONE'S PAGE IS THE CONTRACT'S TOO (the forty-second list).** Two overrides drew it at
+  // 16 px padding and 16 px gap (`var(--sp-4)`), and a third drew `18px 16px 32px` — a THIRD phone
+  // padding, after the frame's 24. The narrower surface cannot hold a larger rhythm than the wider
+  // one: the built panel draws 24 px at 380 on a 297 px column, in a window with LESS room (its rail
+  // takes 52 px; the console's rail is a bottom bar and takes none). The frame supplies it at every
+  // width, and this leg reads it on the rendered phone.
+  const phoneFrame = await page.evaluate(() => {
+    const page_ = document.querySelector('.page');
+    if (!page_) return null;
+    const style = getComputedStyle(page_);
+    return {
+      pad: style.paddingLeft,
+      gap: style.rowGap,
+      width: Math.round(page_.getBoundingClientRect().width)
+    };
+  });
+  if (phoneFrame === null) throw new Error('the phone draws no .page');
+  if (phoneFrame.pad !== '24px') {
+    throw new Error(`the phone's page padding is ${phoneFrame.pad}, the contract says 24px`);
+  }
+  if (phoneFrame.gap !== '24px') {
+    throw new Error(`the phone's page rhythm is ${phoneFrame.gap}, the contract says 24px`);
+  }
+  step(
+    `the phone's page is the contract's: ${phoneFrame.pad} padding and ${phoneFrame.gap} rhythm ` +
+      `on a ${phoneFrame.width} px column`
+  );
   const homeScale390 = await scalePass('Home at 390');
   step(
     `Home at 390 draws the scales: radii ${homeScale390.radii.join('/')}, ` +

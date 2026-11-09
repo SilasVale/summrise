@@ -296,7 +296,12 @@ main.terminal-main { display: grid; grid-template-rows: auto minmax(0, 1fr); ali
     padding: var(--sp-1) var(--sp-0-5); font-size: var(--fs-xs); border-radius: var(--radius-xs);
   }
   .rail-label { display: block; font-size: var(--fs-xs); font-weight: var(--fw-medium); }
-  .page { padding: var(--sp-4); padding-bottom: var(--sp-5); gap: var(--sp-4); }
+  /* **THE PHONE'S PAGE IS THE CONTRACT'S, AND THE PANEL PROVED IT FIT (the forty-second list).** This
+     override drew `padding: var(--sp-4)` and `gap: var(--sp-4)` — a 16 px page — while the built panel
+     drew **24 px** padding and a 24 px rhythm at 380 on a 297 px column, in a window with LESS room
+     (its rail takes 52 px; this console's rail is a bottom bar and takes none). The narrower surface
+     cannot hold the larger rhythm and the wider one can. One number, from the contract. */
+
   .page-actions { width: 100%; margin-left: 0; }
   .search-field { width: 100%; margin-left: 0; }
   .search-field input { width: 100%; }
@@ -2662,7 +2667,8 @@ input:not([type="checkbox"]):not([type="radio"]):focus, select:focus, textarea:f
 
 /* ── The phone, after this layer ─────────────────────────────────────────────────────────────── */
 @media (max-width: 639px) {
-  .page { padding: 18px 16px 32px; gap: var(--sp-4); }
+  /* The last phone page rule, deleted for the same reason: `18px 16px 32px` is a THIRD phone
+     padding, after the frame's 24 and the override's 16. The frame supplies it. */
   .topbar-inner { height: 44px; padding: 0 var(--sp-4); }
   .rail { width: 100%; padding: var(--sp-1-5) var(--sp-2); }
   .rail-btn { height: auto; flex-direction: column; justify-content: center; gap: var(--sp-0-5); padding: var(--sp-1) var(--sp-0-5); }
