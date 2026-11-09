@@ -697,9 +697,17 @@ a.btn.primary:hover { background: var(--accent-hover); border-color: var(--accen
 .vitals-dot-disk { fill: var(--warn); }
 .vitals-caption, .vitals-collecting { margin: var(--sp-1) 0 0; color: var(--ink-muted); font-size: var(--fs-xs); line-height: 1.4; }
 
+/* **A CHIP'S LABEL IS `--ink`, NOT `--ink-muted` (the twenty-ninth list, the audit's contrast read).**
+   Measured on Activity at 1440: five chips — the machine filter's `DESKTOP-…` stops and the callers'
+   `Clients only` — drew `#71717a` on `#f4f4f5`, **4.40:1** against AA's 4.5. The pairing was never
+   asserted: `every_text_pair_reads_on_the_surface_it_sits_on` measured `ink-faint` on a chip but not
+   `ink-muted` on one, and `--ink-muted` passes on the page (4.63:1) and on a card (4.83:1) — the
+   chip's own `--panel-3` is the one surface it fails on. A chip's label is a label, not a hint: it
+   takes the page's `--ink` (16.12:1 on that wash), which is the same rule the filter's own value
+   already follows. */
 .chip {
   display: inline-block; padding: 0 var(--sp-2); border-radius: var(--radius-pill);
-  background: var(--panel-3); color: var(--ink-muted);
+  background: var(--panel-3); color: var(--ink);
   font-size: var(--fs-xs); font-weight: var(--fw-semi); line-height: 1.6; white-space: nowrap;
 }
 .chip-ok { background: var(--ok-soft); color: var(--ok); }
