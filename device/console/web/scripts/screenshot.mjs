@@ -1029,7 +1029,7 @@ const PAGES = [
   {
     id: 'home',
     label: 'Home',
-    heading: 'Machines',
+    heading: 'Home',
     state: 'the fleet zero state: each machine\'s build, reachability and the way in'
   },
   {
@@ -1304,7 +1304,7 @@ async function boot(page, state, origin) {
   await page.locator('nav.rail').waitFor({ state: 'visible', timeout: 10_000 });
   try {
     // The fleet is the default; wait for its one h1 and for the fleet read to land.
-    await page.getByRole('heading', { name: 'Machines', exact: true, level: 1 }).waitFor({
+    await page.getByRole('heading', { name: 'Home', exact: true, level: 1 }).waitFor({
       state: 'visible',
       timeout: 10_000
     });

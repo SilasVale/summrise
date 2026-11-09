@@ -864,16 +864,17 @@ export function App() {
   // The tab is part of the surface: a window full of consoles should say which one this is, and
   // the signed-out tab should not claim a machine page it is not showing.
   useEffect(() => {
-    // Home's one h1 is its noun: Machines, whichever machine is selected. Device without a machine
-    // is the picker, and the tab title says that rather than a tab that is not drawn (audit-40 F7).
+    // **ONE PAGE, ONE NAME (audit-45 F4).** Home's h1 said `Machines` while the rail that opened it
+    // said `Home` and the tab title repeated the h1: the same destination under three names. The
+    // page is the fleet's verdict and next action, not a table, so its name is the rail's, and the
+    // title reads it from the same map. Device without a machine is the picker, and the tab title
+    // says that rather than a tab that is not drawn (audit-40 F7).
     const current =
       page === "device"
         ? chosen === null
           ? "Choose a machine"
           : DEVICE_TAB_LABELS[tab]
-        : page === "home"
-          ? "Machines"
-          : PAGE_LABELS[page];
+        : PAGE_LABELS[page];
     // **THE TITLE FOLLOWS THE PANEL.** `#signin` while the tab is signed in draws `You are signed
     // in`, and the title said `Sign in · Summrise console`: a tab in a row of tabs named the
     // opposite of its page. The signed-in panel gets its own title; every other state keeps the

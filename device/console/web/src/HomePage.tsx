@@ -3,6 +3,7 @@ import { type Device, type Installer } from "./api";
 import { DeviceCard } from "./DeviceCard";
 import { copyText } from "./copy";
 import { presenceText, seenAgo, shortId } from "./format";
+import { PAGE_LABELS } from "./Rail";
 import { bytes } from "./runFormat";
 import { useInstaller } from "./useInstaller";
 import { useLiveTools } from "./useLiveTools";
@@ -416,7 +417,11 @@ function FleetHome(props: HomePageProps) {
     <div className="page home-page">
       <header className="page-head">
         <div>
-          <h1>Machines</h1>
+          {/* **ONE PAGE, ONE NAME (audit-45 F4).** The rail that opens this page says `Home`; the h1
+              said `Machines`, and the tab title repeated it, so one destination had three names.
+              The page is the fleet's verdict and its next action, not a table of machines, which is
+              why it is named for the destination rather than for its rows. */}
+          <h1>{PAGE_LABELS.home}</h1>
           {verdict !== null && (
             <p className={"home-verdict" + (problems.length > 0 ? " has-attention" : "")}>
               {verdict}

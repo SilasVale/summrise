@@ -334,7 +334,7 @@ async function bootAndSignIn() {
   const view = await boot();
   fireEvent.change(screen.getByLabelText("Operator token"), { target: { value: "operator-token" } });
   fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
-  await screen.findByRole("heading", { name: "Machines", level: 1 });
+  await screen.findByRole("heading", { name: "Home", level: 1 });
   await screen.findByRole("table", { name: "The fleet" });
   return view;
 }
@@ -347,7 +347,7 @@ async function signInWithoutFleet() {
   const view = await boot();
   fireEvent.change(screen.getByLabelText("Operator token"), { target: { value: "operator-token" } });
   fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
-  await screen.findByRole("heading", { name: "Machines", level: 1 });
+  await screen.findByRole("heading", { name: "Home", level: 1 });
   return view;
 }
 
@@ -417,7 +417,7 @@ describe("App", () => {
     expect(container.querySelector(".statusbar")).toBeNull();
     expect(screen.getByText("2 of 2 online · nothing to do")).toBeInTheDocument();
     // The tab title and the address bar are both effects over the route the page has just drawn.
-    await waitFor(() => expect(document.title).toBe("Machines · Summrise console"));
+    await waitFor(() => expect(document.title).toBe("Home · Summrise console"));
     await waitFor(() => expect(window.location.hash).toBe("#home"));
   });
 
@@ -504,7 +504,7 @@ describe("App", () => {
 
     fireEvent.change(screen.getByLabelText("Operator token"), { target: { value: "operator-token" } });
     fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
-    expect(await screen.findByRole("heading", { name: "Machines", level: 1 })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Home", level: 1 })).toBeInTheDocument();
     // A successful sign-in leaves the panel; the console's own surface takes the address back.
     await waitFor(() => expect(window.location.hash).toBe("#home"));
   });
@@ -544,7 +544,7 @@ describe("App", () => {
     expect(token.closest("details")).toBe(disclosure);
 
     fireEvent.click(back);
-    expect(await screen.findByRole("heading", { name: "Machines", level: 1 })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Home", level: 1 })).toBeInTheDocument();
     await waitFor(() => expect(window.location.hash).toBe("#home"));
     // No logout was made by looking at the panel.
     expect(mocks.logout).not.toHaveBeenCalled();
@@ -1043,7 +1043,7 @@ describe("App", () => {
 
   it("follows the fragment when the address bar changes, not only at first render", async () => {
     await bootAndSignIn();
-    expect(screen.getByRole("heading", { name: "Machines", level: 1 })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Home", level: 1 })).toBeInTheDocument();
     // A Device tab draws its surface only with a machine; the fragment test is about the address,
     // so choose one first and let the link move the tab (audit-40 F7).
     selectDevice("workshop");
@@ -1065,7 +1065,18 @@ describe("App", () => {
 
   it("names the current destination in the tab title", async () => {
     await bootAndSignIn();
-    await waitFor(() => expect(document.title).toBe("Machines · Summrise console"));
+    // **ONE PAGE, ONE NAME.** The rail said Home while the h1 and the tab title said Machines: three
+    // names for one destination, and the operator's page is the fleet's verdict, not a table
+    // (audit-45 F4). The title's page part is the h1's own word, and that word is the rail's.
+    const heading = screen.getByRole("heading", { level: 1 });
+    const railHome = within(screen.getByRole("navigation", { name: "Destinations" })).getByRole(
+      "button",
+      { name: "Home" }
+    );
+    expect(railHome).toHaveAttribute("aria-current", "page");
+    expect(heading.textContent).toBe("Home");
+    await waitFor(() => expect(document.title).toBe("Home · Summrise console"));
+    expect(document.title).toBe(`${heading.textContent} · Summrise console`);
 
     fireEvent.click(screen.getByRole("button", { name: "Activity" }));
     await screen.findByRole("heading", { name: "Activity", level: 1 });
@@ -1101,7 +1112,7 @@ describe("App", () => {
       "page"
     );
     expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
-    expect(screen.getByRole("heading", { name: "Machines", level: 1 })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Home", level: 1 })).toBeInTheDocument();
     expect(screen.getByLabelText("All machines")).toBeInTheDocument();
 
     openAccount();
@@ -1162,7 +1173,7 @@ describe("App", () => {
 
     // The fleet is the destination now, and the code the console answered is on it: the panel
     // that was previously reachable only by choosing All machines afterwards.
-    await screen.findByRole("heading", { name: "Machines", level: 1 });
+    await screen.findByRole("heading", { name: "Home", level: 1 });
     expect(screen.getByLabelText("All machines")).toBeInTheDocument();
     const panel = screen.getByRole("region", { name: "Enrollment command" });
     expect(panel).toHaveTextContent(minted);
@@ -1739,7 +1750,7 @@ describe("App", () => {
 
     // Selecting stores the machine and stays on Home: the fleet keeps its verdict and its table,
     // and the machine is a summary section. The machine's own page is Device.
-    expect(screen.getByRole("heading", { name: "Machines", level: 1 })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Home", level: 1 })).toBeInTheDocument();
     const summary = screen.getByRole("region", { name: "Selected machine" });
     // The selected machine is highlighted in the table, not repeated in the summary.
     expect(summary).not.toHaveTextContent("Running");
@@ -1748,7 +1759,7 @@ describe("App", () => {
       .closest("tr");
     expect(row).toHaveClass("is-current");
     // One rail item, one title: the selection does not rename the destination.
-    await waitFor(() => expect(document.title).toBe("Machines · Summrise console"));
+    await waitFor(() => expect(document.title).toBe("Home · Summrise console"));
     expect(screen.getByLabelText("Machine: workshop")).toBeInTheDocument();
     expect(localStorage.getItem("summrise.selected.device")).toBe(workshop.id);
     await waitFor(() => expect(window.location.hash).toBe("#home"));
@@ -1881,7 +1892,7 @@ describe("App", () => {
   it("lands the retired #capabilities link on Home when no machine is selected", async () => {
     const view = await retiredLinkWithoutMachine("#capabilities");
     expect(
-      await screen.findByRole("heading", { name: "Machines", level: 1 }, { timeout: 3000 })
+      await screen.findByRole("heading", { name: "Home", level: 1 }, { timeout: 3000 })
     ).toBeInTheDocument();
     await waitFor(() => expect(window.location.hash).toBe("#home"));
     view.unmount();
@@ -1890,7 +1901,7 @@ describe("App", () => {
   it("lands the retired #plugins link on Home when no machine is selected", async () => {
     const view = await retiredLinkWithoutMachine("#plugins");
     expect(
-      await screen.findByRole("heading", { name: "Machines", level: 1 }, { timeout: 3000 })
+      await screen.findByRole("heading", { name: "Home", level: 1 }, { timeout: 3000 })
     ).toBeInTheDocument();
     await waitFor(() => expect(window.location.hash).toBe("#home"));
     view.unmount();
@@ -2010,7 +2021,7 @@ describe("App", () => {
       email: "13122231591@163.com (DESKTOP-9VH92BJ)"
     }));
     render(<App />);
-    await screen.findByRole("heading", { name: "Machines", level: 1 });
+    await screen.findByRole("heading", { name: "Home", level: 1 });
 
     openAccount();
     fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
@@ -2468,7 +2479,7 @@ describe("App", () => {
       }
     ]);
     const view = await bootAndSignIn();
-    expect(screen.getByRole("heading", { name: "Machines", level: 1 })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Home", level: 1 })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Activity" }));
     await screen.findByRole("heading", { name: "Activity", level: 1 });

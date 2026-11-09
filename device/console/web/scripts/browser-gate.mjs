@@ -1005,7 +1005,7 @@ try {
 
   await page.getByLabel('Operator token').fill(TOKEN);
   await page.getByRole('button', { name: 'Sign in' }).click();
-  await page.getByRole('heading', { name: 'Machines', exact: true }).waitFor({ timeout: 10_000 });
+  await page.getByRole('heading', { name: 'Home', exact: true }).waitFor({ timeout: 10_000 });
   step('signed in through /auth; the fleet is Home\'s zero state');
   // **THE DOOR IS WHERE THE PERSON ARRIVES.** The fleet's zero state is where Add-a-machine starts,
   // and the enrollment command it prints assumes the runtime is installed. The block must name the
@@ -1120,7 +1120,7 @@ try {
   );
   await page.screenshot({ path: path.join(OUT, '02b-device-picker.png') });
   await page.locator('nav.rail button[title="Home"]').click();
-  await page.getByRole('heading', { name: 'Machines', exact: true }).waitFor({ timeout: 10_000 });
+  await page.getByRole('heading', { name: 'Home', exact: true }).waitFor({ timeout: 10_000 });
 
   // **#signin WHILE SIGNED IN LEADS WITH BACK (audit-40 F8).** The panel was headed `Sign in to the
   // console` while its sentence said the tab already was, and the credential form was the primary.
@@ -1172,7 +1172,7 @@ try {
   );
   await page.screenshot({ path: path.join(OUT, '02c-signin-signed-in.png') });
   await page.getByRole('button', { name: 'Back to the console' }).click();
-  await page.getByRole('heading', { name: 'Machines', exact: true }).waitFor({ timeout: 10_000 });
+  await page.getByRole('heading', { name: 'Home', exact: true }).waitFor({ timeout: 10_000 });
 
   // **AN OFFLINE MACHINE'S AGE IS THE NEWEST EVIDENCE.** No frame survived the console restart; the
   // registry's connect time is two hours old, the open close is 1 h 49 m old, and the pair in
@@ -1405,7 +1405,7 @@ try {
   step('the attention door opened DESKTOP-CPH4KB2 on Device → Machine');
 
   await page.locator('nav.rail button[title="Home"]').click();
-  await page.getByRole('heading', { name: 'Machines', exact: true }).waitFor({ timeout: 10_000 });
+  await page.getByRole('heading', { name: 'Home', exact: true }).waitFor({ timeout: 10_000 });
   // **THE SELECTED MACHINE IS HIGHLIGHTED, NOT REPEATED (audit-43 F2).** Home keeps the fleet's
   // one answer; the selected row carries the accent, and the summary keeps only what the row
   // cannot state: the live catalogue counts and the two doors. It repeats no name, presence word,
@@ -1463,7 +1463,7 @@ try {
   step('the summary door opened DESKTOP-CPH4KB2 on Device → Overview');
 
   await page.locator('nav.rail button[title="Home"]').click();
-  await page.getByRole('heading', { name: 'Machines', exact: true }).waitFor({ timeout: 10_000 });
+  await page.getByRole('heading', { name: 'Home', exact: true }).waitFor({ timeout: 10_000 });
   // **THE ROW'S NAME IS A DOOR (audit-43 F1).** It used to call `choose` and leave the page on
   // #home; the press now opens the machine's own Overview.
   await page.getByRole('button', { name: /^Open DESKTOP-9VH92BJ/ }).click();
@@ -3348,7 +3348,7 @@ try {
   step(`the machine menu is a switcher (${switcherRows.length} rows: name, state, build; no counters)`);
   await page.getByRole('button', { name: 'All machines' }).click();
   await page.locator('nav.rail button[title="Home"]').click();
-  await page.getByRole('heading', { name: 'Machines', exact: true }).waitFor({ timeout: 10_000 });
+  await page.getByRole('heading', { name: 'Home', exact: true }).waitFor({ timeout: 10_000 });
   await page.getByRole('button', { name: /^Open DESKTOP-14RJCR8/ }).waitFor({ timeout: 10_000 });
   // The attention rows and the installer strip are two reads of one page: `/fleet` can answer
   // before `/installer`, and measuring the block then sees only the offline machine. The strip is
@@ -4136,7 +4136,7 @@ try {
   await page.getByRole('heading', { name: 'Machine', exact: true }).waitFor({ timeout: 10_000 });
   step('at 390 the offline advice links Device → Machine and names the machine-local panel as local');
   await page.locator('nav.rail button[title="Home"]').click();
-  await page.getByRole('heading', { name: 'Machines', exact: true }).waitFor({ timeout: 10_000 });
+  await page.getByRole('heading', { name: 'Home', exact: true }).waitFor({ timeout: 10_000 });
 
   // **THE OFFLINE TOKEN FORM DOES NOT CLAIM THE CONSOLE'S COUNT.** `/fleet/<id>/tools` is 503 for
   // this machine, so the count comes from `/tools`. The form must name that catalogue, cover the
@@ -4297,7 +4297,7 @@ try {
   state.installerAvailable = false;
   await page.evaluate(() => localStorage.removeItem('summrise.selected.device'));
   await page.goto(base + '/', { waitUntil: 'domcontentloaded' });
-  await page.getByRole('heading', { name: 'Machines', exact: true }).waitFor({ timeout: 10_000 });
+  await page.getByRole('heading', { name: 'Home', exact: true }).waitFor({ timeout: 10_000 });
   await page.getByText(INSTALLER_SENTENCE).waitFor({ timeout: 10_000 });
   if ((await page.getByRole('link', { name: 'Download Windows installer' }).count()) !== 0) {
     throw new Error('the unavailable installer still drew a download link');
@@ -4315,7 +4315,7 @@ try {
   }
   await page.getByText('This tab is already signed in.').waitFor({ timeout: 10_000 });
   await page.getByRole('button', { name: 'Back to the console' }).click();
-  await page.getByRole('heading', { name: 'Machines', exact: true }).waitFor({ timeout: 10_000 });
+  await page.getByRole('heading', { name: 'Home', exact: true }).waitFor({ timeout: 10_000 });
   await page.waitForFunction(() => window.location.hash === '#home', null, { timeout: 10_000 });
   step('the sign-in panel answers at #signin, and Back returns to the console still signed in');
 
@@ -4326,7 +4326,7 @@ try {
   state.failFleet = true;
   await page.evaluate(() => localStorage.removeItem('summrise.selected.device'));
   await page.goto(base + '/', { waitUntil: 'domcontentloaded' });
-  await page.getByRole('heading', { name: 'Machines', exact: true }).waitFor({ timeout: 10_000 });
+  await page.getByRole('heading', { name: 'Home', exact: true }).waitFor({ timeout: 10_000 });
   const statement = page.getByText('The console could not read the machine list.', {
     exact: true
   });
