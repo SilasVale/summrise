@@ -1108,6 +1108,14 @@ an untended gate is worse than none.
    equals a step must be the token; an off-rhythm px is a documented exception or it moves), then
    the 15px and 18px are put on referenced steps. **M.** *(A gate change, so it lands with its
    mutation.)*
+   *(**Done, live 0.3.273-ux112** (`7040079`): the test reads both spellings now. 92 declarations
+   moved their on-step literals onto the tokens; the 121 on-step px literals went to zero, and the
+   42 that remain are the documented structural lengths, each with its reason in the test comment
+   (the timeline's 15/8 row padding and 18 px stretch gap, the 7/9/3 px control insets, the page's
+   26/28/44 padding, the evidence's 22 px indent, 19/20/30/34 alignments, the sr-only `-1px` clip, the
+   rail's `-16px` overlap, plus `calc()` arithmetic which is skipped). Both halves mutated: `8px`
+   back panics naming `--sp-2`, a new `13px` panics as undocumented; restored, 13/13. The live
+   timeline still measures 74 px rows and 120 rows — the conversion was pixel-identical.)*
 
 2. **Eight of the fifteen border radii are literals, and `7px` is not even on the scale.** Rule 11's
    gate asserts the five canonical tokens exist; it does not stop a literal beside a token. Measured
