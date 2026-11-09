@@ -1285,6 +1285,12 @@ sideways scroll anywhere.** What the numbers did find:
    what the tool can change, is unreadable on the phone. A catalogue whose entries can't be read is a
    list of names. **Fix:** the row's description gets two lines (a clamp, not an ellipsis) and the
    full sentence lives in the tool's own sheet, which already exists. **S.**
+   *(**Done, live 0.3.273-ux117** (`cc43b9d`): measured on the operator's 46-tool page after the
+   change, **cutToOne 0 at both widths** — 12 rows use their second line at 1440 and **44 of 46 use
+   it at 390**, exactly the rows that were previously cut mid-sentence. `main` grew 3,848 → 4,064 px
+   at 1440 and 4,072 → 4,864 px at 390: 216 and 792 px of text that used to be lost, not new
+   content. The browser gate counts descriptions that collapsed to one line while their text still
+   overflows and fails on any.)*
 
 3. **The Machine tab draws 222 `Kill` buttons in a 235-row process table.** Measured at 1440:
    `Machine` has **236 buttons**, 222 of them `Kill` at 33 × 28 px, one per process row — the
