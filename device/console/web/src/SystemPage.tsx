@@ -6,6 +6,7 @@ import { HostFactsBlock } from "./HostFacts";
 import { Modal } from "./Modal";
 import { useRequestGate } from "./requests";
 import { callTool, ToolError, type Grant } from "./terminal";
+import { RecoveryLine } from "./RecoveryLine";
 import { StartedLine } from "./StartedLine";
 import { updateRows } from "./updateCard";
 import { useInstaller } from "./useInstaller";
@@ -593,8 +594,10 @@ export function SystemPage({
         <h3 id="system-device-app">Device app</h3>
         {/* The machine's start line belongs to the section that answers what the app is doing
             (audit-44 F1). The update card below states the running version and the updater's last
-            answer, so the line keeps only the moment the process started. */}
+            answer, so the line keeps only the moment the process started. The recovery line is its
+            companion: the gap before this start, when a record proves one (audit-44 F12). */}
         {device && <StartedLine device={device} updateShown />}
+        <RecoveryLine device={device} consoleStartedAt={consoleStartedAt} />
         <UpdateCard device={device} />
         {device && (
           <>

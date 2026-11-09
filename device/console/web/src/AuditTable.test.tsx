@@ -145,6 +145,49 @@ it("names the machine whose window was cut", () => {
   ).toBeInTheDocument();
 });
 
+it("states the file's lifetime and this window's span as two spans", () => {
+  // audit-44 F10: `5.7 MiB, lines since 10-22` beside `the newest 1000 lines` left the reader to
+  // guess which span was this page's. The file's lifetime and the drawn window's span are both
+  // stated, each as its own fact, and the window's ends come from the lines on the page.
+  const source = {
+    file: "audit.jsonl",
+    bytes: 5_996_189,
+    oldest_ts_ms: new Date(2026, 9, 22, 18, 55).getTime()
+  };
+  const inWindow = [
+    { ...lines[0], ts_ms: new Date(2026, 9, 26, 8, 0, 0).getTime() },
+    { ...lines[1], ts_ms: new Date(2026, 9, 26, 8, 2, 0).getTime() }
+  ];
+  render(<AuditTable lines={inWindow} devices={devices} tokens={[]} source={source} />);
+  expect(document.querySelector(".audit-source")?.textContent).toBe(
+    "Reading audit.jsonl — 5.7 MiB, lines since 10-22 18:55. " +
+      "This window: 10-26 08:00 → 10-26 08:02."
+  );
+});
+
+it("keeps the file's facts but drops this window's span when a range is shown", () => {
+  // A chosen range is a different read with its own sentence; the source line still says which file
+  // the record comes from, but "this window" would point at the newest-window span that is not on
+  // the page.
+  const source = {
+    file: "audit.jsonl",
+    bytes: 5_996_189,
+    oldest_ts_ms: new Date(2026, 9, 22, 18, 55).getTime()
+  };
+  render(
+    <AuditTable
+      lines={lines}
+      devices={devices}
+      tokens={[]}
+      source={source}
+      range={drawnRange}
+    />
+  );
+  expect(document.querySelector(".audit-source")?.textContent).toBe(
+    "Reading audit.jsonl — 5.7 MiB, lines since 10-22 18:55."
+  );
+});
+
 it("says the window's limit when the request came back full", () => {
   const { rerender } = render(<AuditTable lines={lines} devices={devices} tokens={[]} />);
   expect(screen.queryByText(/the window's limit/)).toBeNull();

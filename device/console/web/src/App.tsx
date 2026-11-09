@@ -1528,6 +1528,7 @@ export function App() {
                     liveState={live.state}
                     tick={pollTick}
                     liveRecoveries={live.recoveries}
+                    consoleStartedAt={consoleStartedAt}
                   />
                 ) : null}
                 {tab === "screen" && grant ? (

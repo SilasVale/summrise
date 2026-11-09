@@ -998,12 +998,18 @@ describe("ActivityTimeline", () => {
         oldest_ts_ms: new Date(2026, 10, 2, 3, 10).getTime()
       }
     };
+    // The file's lifetime and the window's span are two facts, and the line states both apart: the
+    // measured defect printed the file's 17-day lifetime beside the newest-1000 cap and let it read
+    // as this page's range (audit-44 F10). The window's ends come from the drawn lines, not from
+    // `/audit/source`'s own oldest/newest.
+    const inWindow = { ...fromAlpha, ts_ms: new Date(2026, 10, 5, 9, 0, 0).getTime() };
     const { rerender } = render(
-      <ActivityTimeline lines={[fromAlpha]} devices={[]} atLimit source={source} />
+      <ActivityTimeline lines={[inWindow]} devices={[]} atLimit source={source} />
     );
     expect(
       screen.getByText(
-        "Reading audit.jsonl — 8.4 MiB, lines since 11-02 09:12; rotated once, older lines start 11-02 03:10."
+        "Reading audit.jsonl — 8.4 MiB, lines since 11-02 09:12; rotated once, older lines start 11-02 03:10. " +
+          "This window: 11-05 09:00."
       )
     ).toBeInTheDocument();
 

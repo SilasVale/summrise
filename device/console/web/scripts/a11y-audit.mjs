@@ -160,6 +160,10 @@ const DEVICES = [
     // The day `/fleet` counted in the audit's newest window: the row states it on its muted line.
     today: { client_calls: 283, failed: 38 },
     last_attempt: null,
+    // The console's own channel pair: the machine's channel closed and reopened 41 minutes later.
+    // The recovery line beside the start states it; it is text, so the audit expects no new control
+    // and no new tab stop from it (audit-44 F12).
+    last_outage: { away_ms: 41 * MINUTE, back_at_ms: NOW - 3 * HOUR },
     // The device's own account of its last start, as the host frame carries it. The line it draws
     // is text, not a control: the audit still finds no unnamed button and no extra tab stop.
     update: {

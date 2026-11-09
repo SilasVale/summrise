@@ -109,6 +109,10 @@ const DEVICE = {
     // rather than treating the refused target as the current one.
     last_check: { at_ms: NOW - 20 * 60_000, trigger: 'channel' }
   },
+  // The console's own channel pair: this machine's channel closed and reopened 41 minutes later.
+  // The recovery line beside the start says how long it was gone (audit-44 F12); its pair is the
+  // proven gap, not the device's journal (which this fixture leaves to the boot entry above).
+  last_outage: { away_ms: 41 * 60_000, back_at_ms: NOW - 2 * 60 * 60_000 },
   // The platform the run form chooses its example from. Only `os` and the boot journal are here:
   // the form needs the OS fact, and the journal's newest entry is the moment this process started,
   // which is what makes the refused answer at NOW - 60 s belong to it (ITEM 5).
@@ -2695,6 +2699,21 @@ try {
     throw new Error(`the Machine start title "${machineStartTitle}" does not carry the exact instant`);
   }
   step(`the Machine tab states "${machineStart}" with its exact instant in the title`);
+  // **THE RETURN SAYS HOW LONG THE MACHINE WAS GONE (audit-44 F12).** The channel pair is the
+  // console's own proof: the close and the reopen 41 minutes later. It sits beside the start, so the
+  // page that reads `started 1h ago` also says the machine was away before it.
+  const machineRecovery = (await page.locator('.recovery-line').innerText()).trim();
+  if (machineRecovery !== 'back after 41 m') {
+    throw new Error(`the Machine tab's recovery line read "${machineRecovery}"`);
+  }
+  const recoveryTitle = (await page.locator('.recovery-line').getAttribute('title')) ?? '';
+  if (!recoveryTitle.includes(`(${new Date(NOW - 2 * 60 * 60_000).toISOString()})`)) {
+    throw new Error(`the recovery title "${recoveryTitle}" does not carry the exact return`);
+  }
+  if ((await page.locator('.recovery-line').getAttribute('data-recovery-source')) !== 'console') {
+    throw new Error('the recovery line does not name the console as its record');
+  }
+  step(`the Machine tab says how long the machine was away before this start: ${machineRecovery}`);
   // **THE CONSOLE LINK'S ATTEMPT AND THE LOCAL CHECK ARE NAMED.** The device's own retry note
   // reached the console, so the Machine tab draws its count and the device's reason; and because the
   // console has no update-check tool, the page names the panel's own control instead of offering one.

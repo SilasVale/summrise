@@ -470,6 +470,51 @@ describe("SystemPage", () => {
     expect(screen.queryByText(/updated/)).not.toBeInTheDocument();
   });
 
+  it("puts the recovery line beside the start, from the device's own boot journal", async () => {
+    // **THE MEASURED CPH SHAPE (audit-44 F12).** The console never wrote the pair for that 15 h
+    // silence, so the device's own journal is the record: the host's uptime names the boot it
+    // returned on, and the boot before it closes the gap. The line says whose record it is.
+    device(() => JSON.stringify([]));
+    const backBoot = new Date(2026, 10, 8, 8, 51, 43).getTime();
+    const previousBoot = backBoot - (14 * 3_600_000 + 57 * 60_000 + 59_000);
+    const { container } = render(
+      <SystemPage
+        grant={GRANT}
+        consoleStartedAt={backBoot + 3_600_000}
+        device={{
+          id: "device-1",
+          name: "workshop",
+          online: true,
+          version: "0.3.292",
+          last_frame_ms: backBoot + 1_000,
+          update: {
+            current: "0.3.292",
+            verdict: { outcome: "ok", detail: "started 0.3.292" }
+          },
+          host: {
+            // The frame's host booted four seconds before the app; the newer entry is the update's
+            // restart 44 minutes later, not the boot.
+            uptime_s: 5,
+            restarts: [
+              { at_ms: backBoot + 44 * 60_000, version: "0.3.292" },
+              { at_ms: backBoot, version: "0.3.289" },
+              { at_ms: previousBoot, version: "0.3.289" }
+            ]
+          }
+        }}
+      />
+    );
+
+    await screen.findByText("online");
+    const section = container.querySelector('section[aria-labelledby="system-device-app"]');
+    if (!(section instanceof HTMLElement)) throw new Error("the Device app section is not on the page");
+    const line = within(section).getByText(
+      /^back after 14 h 57 m \(the device's journal recorded its boot at /
+    );
+    expect(line).toHaveAttribute("data-recovery-source", "journal");
+    expect(line).toHaveAttribute("title", exactMoment(backBoot));
+  });
+
   it("labels an applied outcome older than this start as history", async () => {
     // The measured 9VH Machine tab: the process started 0.3.286 at 06:16, the only update fact was
     // an apply to 0.3.273 two days earlier. The old apply is still shown — it is the device's own

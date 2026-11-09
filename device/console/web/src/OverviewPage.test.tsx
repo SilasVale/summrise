@@ -201,6 +201,36 @@ describe("Device overview — the machine's live page", () => {
     expect(await screen.findByText("online")).toBeInTheDocument();
   });
 
+  it("puts the recovery line under the start, from the console's channel pair", async () => {
+    // **THE START'S OTHER HALF (audit-44 F12).** `started 1h ago` alone reads as a normal start; the
+    // machine that was away for a day left no trace. The console's own close/reopen pair is the
+    // proven gap, and it is drawn beside the start it belongs to.
+    const backAt = Date.now() - 2 * 3_600_000;
+    draw({
+      device: {
+        ...workshop,
+        host: { restarts: [{ at_ms: Date.now() - 3_600_000, version: "0.3.246" }] },
+        update: {
+          current: "0.3.246",
+          verdict: { outcome: "ok", detail: "started 0.3.246" }
+        },
+        last_outage: { away_ms: 41 * 60_000, back_at_ms: backAt }
+      },
+      // The console started after the gap: it read both ends from the audit and can state them.
+      consoleStartedAt: backAt + 3_600_000
+    });
+
+    const head = document.querySelector(".overview-head");
+    if (!(head instanceof HTMLElement)) throw new Error("the machine head is not on the page");
+    const start = within(head).getByText(/^started /);
+    const line = within(head).getByText("back after 41 m");
+    expect(line).toHaveAttribute("title", exactMoment(backAt));
+    expect(line).toHaveAttribute("data-recovery-source", "console");
+    // The recovery follows the start, in the same right-hand block: first when, then how it got there.
+    expect(start.compareDocumentPosition(line) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(await screen.findByText("online")).toBeInTheDocument();
+  });
+
   it("draws the day once, as one line, and draws none of Activity's rows", async () => {
     const now = new Date(2026, 10, 5, 14, 45, 0).getTime();
     const clock = vi.spyOn(Date, "now").mockReturnValue(now);

@@ -11,6 +11,7 @@ import { auditFailed } from "./auditFilter";
 import { spanText } from "./age";
 import { Clock, clock } from "./Clock";
 import { ageAt, shortId } from "./format";
+import { auditWindowSpan } from "./auditSource";
 import { AuditSourceLine } from "./AuditSourceLine";
 import { ConsoleCaller } from "./CallerMark";
 import { tokenFact } from "./tokenFact";
@@ -721,16 +722,9 @@ export function ActivityTimeline(props: {
   // said so, so two true counts looked contradictory. The span is the fetched lines' own first and
   // last moment — not the filter's subset — because "this window" is the read, not the control's
   // selection. One line has no span to state.
-  const windowSpanMs = useMemo(() => {
-    let oldest: number | null = null;
-    let newest: number | null = null;
-    for (const line of props.lines) {
-      if (!Number.isFinite(line.ts_ms)) continue;
-      if (oldest === null || line.ts_ms < oldest) oldest = line.ts_ms;
-      if (newest === null || line.ts_ms > newest) newest = line.ts_ms;
-    }
-    return oldest !== null && newest !== null ? newest - oldest : 0;
-  }, [props.lines]);
+  const windowSpan = useMemo(() => auditWindowSpan(props.lines), [props.lines]);
+  const windowSpanMs =
+    windowSpan === null ? 0 : windowSpan.newest_ts_ms - windowSpan.oldest_ts_ms;
   // The active scope is never hidden: a filter the page is applying but not showing is a trap.
   const shownMachines = phone
     ? machines.filter((machine) => machine.known || machine.id === scope)
@@ -978,7 +972,7 @@ export function ActivityTimeline(props: {
                 )}
             </p>
           )}
-          <AuditSourceLine source={props.source} />
+          <AuditSourceLine source={props.source} window={windowSpan} />
         </footer>
       )}
     </div>

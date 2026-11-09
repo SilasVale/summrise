@@ -971,6 +971,9 @@ main.terminal-main:has(.terminal-workspace-empty) { grid-template-rows: auto aut
 /* The device's account of its last start, under the silence rather than inside it: the console knows
    frames stopped, not that the machine slept, and the two facts keep two sentences. */
 .started-line { margin: 0; color: var(--ink-muted); font-size: var(--fs-sm); line-height: 1.45; }
+/* The recovery line is the start line's companion, not a second notice: the same muted, small voice
+   under the sentence it belongs to, so the two read as one answer about this machine's return. */
+.recovery-line { margin: 0; color: var(--ink-muted); font-size: var(--fs-sm); line-height: 1.45; }
 .terminal-sessions { display: grid; gap: var(--sp-2); }
 .terminal-section-head {
   display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap;
@@ -3361,10 +3364,14 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
   letter-spacing: var(--tracking-tight);
 }
 .overview-head .page-sub { margin-top: 4px; }
-/* The start line shares the machine's head with the name it describes, rather than preceding it. */
+/* The start line shares the machine's head with the name it describes, rather than preceding it.
+   Its recovery line sits under it, in the same right-hand block, so "started … ago" and "back
+   after …" are read as one answer about this machine's return. */
+.overview-head .overview-start { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .overview-head .started-line { margin: 2px 0 0; }
 @media (min-width: 640px) {
-  .overview-head .started-line { margin-left: auto; text-align: right; }
+  .overview-head .overview-start { margin-left: auto; text-align: right; }
+  .overview-head .started-line { margin-left: 0; }
 }
 
 @media (max-width: 639px) {

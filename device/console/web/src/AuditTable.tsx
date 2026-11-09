@@ -21,6 +21,7 @@ import { auditCsv, auditCsvName, auditJsonl, auditJsonlName } from "./audit-expo
 import { downloadFile } from "./download";
 import { Moment } from "./Clock";
 import { age, shortDeviceName, shortId } from "./format";
+import { auditWindowSpan } from "./auditSource";
 import { AuditSourceLine } from "./AuditSourceLine";
 import { ConsoleCaller } from "./CallerMark";
 import { tokenFact, tokenLabel } from "./tokenFact";
@@ -300,6 +301,10 @@ export function AuditTable({
   );
   const shown = useMemo(() => filterAudit(lines, applied), [lines, applied]);
   const keys = useMemo(() => lineKeys(lines), [lines]);
+  // THE WINDOW'S SPAN, NOT THE FILE'S LIFETIME (audit-44 F10). `lines` is the window the page holds
+  // — the fetched list plus live lines — before this table's filters narrow the rows. A chosen range
+  // is a different read with its own sentence, so it draws the file's facts without this window's.
+  const windowSpan = useMemo(() => auditWindowSpan(lines), [lines]);
   const tokenNames = useMemo(() => new Map(tokens.map((entry) => [entry.id, entry.name])), [tokens]);
   const days = useMemo(() => byDay(shown), [shown]);
 
@@ -781,7 +786,7 @@ export function AuditTable({
               )}
             </p>
           )}
-          <AuditSourceLine source={source} />
+          <AuditSourceLine source={source} window={range === null ? windowSpan : null} />
           <table className="audit-table">
             <thead>
               <tr>

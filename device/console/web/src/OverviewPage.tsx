@@ -12,6 +12,7 @@ import { ACTIVITY_LIMIT, mergeActivity } from "./activityMerge";
 import { isClientCall } from "./activitySummary";
 import { auditFailed } from "./auditFilter";
 import { spanText } from "./age";
+import { RecoveryLine } from "./RecoveryLine";
 import { StartedLine } from "./StartedLine";
 
 /**
@@ -36,6 +37,11 @@ export type OverviewPageProps = {
   tick?: number;
   /** How many snapshots have arrived after the stream dropped; each is one reread. */
   liveRecoveries?: number;
+  /**
+   * When this console process began, from `/health`'s uptime. The recovery line uses it to tell
+   * the machine's absence from the console's own downtime inside the gap.
+   */
+  consoleStartedAt?: number | null;
 };
 
 type PluginCount = number | null;
@@ -415,8 +421,12 @@ export function OverviewPage(props: OverviewPageProps) {
         </div>
         {/* The device's own account of its last start, in the machine's head beside the name it
             describes (audit-44 F1). It used to be the shell's first line, above the h1 and 35 px
-            above this name. */}
-        <StartedLine device={device} />
+            above this name. The recovery line is its other half: how long the machine was away
+            before this start, when the console's pair or the device's journal proves it (F12). */}
+        <div className="overview-start">
+          <StartedLine device={device} />
+          <RecoveryLine device={device} consoleStartedAt={props.consoleStartedAt} />
+        </div>
       </header>
 
       {notice && (
