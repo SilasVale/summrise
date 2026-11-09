@@ -1995,8 +1995,14 @@ contract rhythm and padding below 640 (`16 px` padding, `16 px` gap).
    back where they were. **A fold that changes behaviour is not a fold.** The test refuses a stranger
    (`a width query outside the contract is a fourth scale nobody declared: expected [ 799 ] to deeply
    equal []`) and refuses a width written in `rem` at all — a width a grep cannot see is a width nobody
-   can review. The panel's six queries (700 / 760 / 900) are the remaining work: they are not yet on
-   this set.)*
+   can review. **The panel is on the set too** (`4796616b`): its six queries read `phone` (639) —
+   `700` only moves the session menu to the bottom sheet and nothing between 640 and 767 draws it
+   differently — `tablet` (767) for the rail's column flip, and **`columns` (1088) for the approval
+   banner, NOT `tablet`**. The obvious fold was 767 and the measurement refused it: at 768 / 800 / 900
+   the two-column banner gives the command **641 / 673 / 773 px** with its actions beside it, so
+   collapsing at 767 would have collapsed it **133 px too early**. The one-column form at 901 measures
+   almost identical to 1088's, which is what makes the fold safe on the other side. Its gate refuses
+   `900` the same way the console's does.)*
 
 ## How a round goes
 
