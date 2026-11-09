@@ -2095,6 +2095,36 @@ still names its own start, which is what the last list bought.
    property: `the_day_scan_covers_exactly_the_rows_at_or_after_its_cut` seeds rows on both sides of
    a real local midnight and asserts the scan is the day's rows plus one proving line.*
 
+## P0 — the forty-fifth list (opened 2026-11-10, from a disproved item)
+
+The forty-fourth list is closed: one item shipped (the day's cut is now named and the page groups at
+it), and one was **disproved** — the read was right and the audit was wrong. This list starts from
+what the disproof exposed: **three lists in a row found a comparison between two intervals**, twice in
+the page's prose and once in my own measurement. The product and the audit are making the same mistake,
+which means the MISTAKE is the finding, not either instance of it.
+
+Measured live `0.3.273-ux152` at 1440.
+
+Two reads were clean and are recorded as clean: the day's scan is provably the whole day (311 rows at
+or after the cut, plus the one that proved it, and the client count matches to the row), and the
+timeline's headings cut at the answer's `day_start_ms` on a browser whose own midnight is eight hours
+away.
+
+1. **Nothing in the console names an interval in a way a machine can check.** Every sentence about a
+   count states its interval in prose — `Today`, `in this window · from HH:MM, spanning …` — and the
+   only check any gate can make is a regular expression over the text. That is how three lists ended,
+   in a row, with a comparison between two intervals: the page's own sentences are the only place the
+   interval is stated, so a reader (and an auditor) has to parse English to compare them, and a regex
+   cannot. **Fix:** the counts carry their interval as DATA (a start and an end, on the element), so
+   the gate compares numbers instead of adjectives, and the sentences stay as they are. **M.**
+
+2. **The audit's own rule is not written down anywhere a programmer would look.** `is_client_call`
+   (a poll is not work, a channel boundary is not work, a caller-less line with a token is a client
+   call) lives in `audit.rs` and is re-implemented on the page's side (`isClientCall` in
+   `activityMerge.ts`), and the two are only equal because nobody has changed one alone. Measured: a
+   gate compares them by re-stating the rule a third time. **Fix:** one table of cases both sides run
+   against, so the two implementations cannot drift. **S.**
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
