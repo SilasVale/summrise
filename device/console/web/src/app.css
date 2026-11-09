@@ -3484,7 +3484,15 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
    the strip drew 12 px where its own comment said 16. What it genuinely adds is the row: a title, a
    button, and a sentence that takes the leftover width. */
 .installer.installer-strip {
-  display: flex; align-items: center; gap: var(--sp-3-5); flex-wrap: wrap;
+  /* **THE ROW IS THE STRIP'S OWN ADDITION, AND IT HAS TO SAY SO.** `.card` is
+     `display: flex; flex-direction: COLUMN`; this rule set `display: flex` and stopped there, so the
+     strip inherited the card's column and stacked title / button / sentence on top of each other,
+     each centred — measured live as a 238 px block whose four children each began at a different
+     x (710 / 749 / 939 / 1,058). One declaration was missing and the shape was gone. */
+  /* `display: flex` MATTERS AS MUCH AS THE DIRECTION: `.installer` above is `display: grid`, and a
+     grid with `flex-direction: row` is a grid — which lays its children in ONE COLUMN and produced
+     exactly the four-stack this rule exists to prevent (measured: 4 rows, 238 px tall). */
+  display: flex; flex-direction: row; align-items: center; gap: var(--sp-3-5); flex-wrap: wrap;
 }
 .installer-strip h2 { margin: 0; font-size: var(--fs-md); font-weight: var(--fw-semi); }
 .installer-strip .btn { flex: none; }
