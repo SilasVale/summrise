@@ -1036,7 +1036,11 @@ describe("AuditTable", () => {
     expect(screen.queryByText("No calls yet.")).not.toBeInTheDocument();
   });
 
-  it("renders the bounded window without a nested scroller and without a caption", () => {
+  it("opens one day on its newest rows and one door, like the Timeline", () => {
+    // **MEASURED ON THE LIVE PAGE (the thirty-first list):** the Table built 1,001 rows at once —
+    // 17,074 elements and a 41,467 px page — while the Timeline beside it drew 60 behind
+    // `Show the rest of today (865 more)`. The two views are one record; they open on one amount of
+    // it now, and this test pins both halves: the fold, and the door that reveals the rest.
     const many: AuditLine[] = Array.from({ length: 200 }, (_, index) => ({
       ts_ms: index,
       kind: "tool",
@@ -1047,9 +1051,14 @@ describe("AuditTable", () => {
     }));
     render(<AuditTable lines={many} devices={devices} tokens={[]} />);
 
-    expect(auditRows()).toHaveLength(200);
+    expect(auditRows()).toHaveLength(60);
     expect(document.querySelector(".audit-table")?.closest(".scroll")).toBeNull();
     expect(screen.queryByText(/loaded the newest/)).not.toBeInTheDocument();
+
+    const door = screen.getByRole("button", { name: /Show the rest of .+ \(140 more\)/ });
+    fireEvent.click(door);
+    expect(auditRows()).toHaveLength(200);
+    expect(screen.queryByRole("button", { name: /Show the rest of/ })).toBeNull();
   });
 
   it("keeps an open row open when a filter removes the rows above it", () => {

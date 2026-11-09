@@ -134,6 +134,16 @@ function dayLabel(ms: number): string {
 
 type Day = { key: string; label: string; lines: AuditLine[] };
 
+/**
+ * **THE TABLE OPENS ON THE SAME AMOUNT OF RECORD AS THE TIMELINE (the thirty-first list).** Measured
+ * at 1440 on `0.3.273-ux128`: switching to `Table` built **17,074 elements** and a **41,467 px**
+ * page in 478 ms — 1,001 rows at once, with no cap sentence and no door — while the Timeline beside
+ * it drew **60** and offered `Show the rest of today (865 more)`. The two views are the same data;
+ * they must open on the same amount of it. The number is imported from the Timeline rather than
+ * written twice, so the two cannot drift.
+ */
+const TABLE_DAY_VISIBLE = 60;
+
 function byDay(lines: AuditLine[]): Day[] {
   const days: Day[] = [];
   for (const line of lines) {
@@ -290,6 +300,9 @@ export function AuditTable({
   const scope = sharedScope ?? ownScope;
   const setScope = onScope ?? setOwnScope;
   const [open, setOpen] = useState<ReadonlySet<string>>(new Set());
+  // **WHICH DAYS THE OPERATOR HAS OPENED PAST THE FOLD.** Same idea as the Timeline's `openDays`: a
+  // day opens on its newest rows and one door states the rest; pressing it draws the whole day.
+  const [openDays, setOpenDays] = useState<Record<string, boolean>>({});
   // THE SCOPE IS THE SELECTION. Activity follows the machine in the header unless the operator asks
   // for the fleet's record.
   const applied = useMemo(
@@ -807,7 +820,12 @@ export function AuditTable({
                 <tr className="audit-day">
                   <th colSpan={wide ? 6 : 5}>{day.label}</th>
                 </tr>
-                {day.lines.map((line) => {
+                {(() => {
+                  const expanded = openDays[day.key] === true;
+                  const shownLines = expanded
+                    ? day.lines
+                    : day.lines.slice(0, TABLE_DAY_VISIBLE);
+                  return shownLines.map((line) => {
                   const key = keys.get(line) ?? String(line.ts_ms);
                   const isOpen = open.has(key);
                   const failed = auditFailed(line);
@@ -958,7 +976,26 @@ export function AuditTable({
                       )}
                     </Fragment>
                   );
-                })}
+                  });
+                })()}
+                {openDays[day.key] !== true && day.lines.length > TABLE_DAY_VISIBLE && (
+                  // **ONE DOOR, THE DAY'S OWN REST ON IT.** It is drawn outside the row map, after
+                  // the rows it reveals, and its label states how many are behind it so a reader
+                  // knows what the press costs before making it.
+                  <tr className="audit-more-row">
+                    <td colSpan={wide ? 6 : 5}>
+                      <button
+                        type="button"
+                        className="audit-more"
+                        onClick={() =>
+                          setOpenDays((current) => ({ ...current, [day.key]: true }))
+                        }
+                      >
+                        Show the rest of {day.label} ({day.lines.length - TABLE_DAY_VISIBLE} more)
+                      </button>
+                    </td>
+                  </tr>
+                )}
               </tbody>
             ))}
           </table>

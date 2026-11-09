@@ -2117,6 +2117,17 @@ span.files-name {
   text-transform: none; letter-spacing: normal;
   font-size: var(--fs-sm); font-weight: var(--fw-medium); color: var(--ink-muted);
 }
+/* **THE DAY'S DOOR, THE TIMELINE'S OWN SHAPE (the thirty-first list).** The Table drew every row
+   the page held; a day now opens on its newest 60 and this row states the rest. It is a muted
+   control on the table's own rhythm, not a second button style: the same `timeline-more` grammar the
+   page next door uses, so a reader who has met one door has met both. */
+.audit-more-row td { padding: 0; border-bottom: 1px solid var(--hairline); }
+.audit-more {
+  display: flex; align-items: baseline; gap: var(--sp-2); width: 100%;
+  padding: var(--sp-2) var(--sp-3); border: 0; border-radius: 0; background: transparent;
+  color: var(--ink-muted); font: inherit; font-size: var(--fs-sm); text-align: left; cursor: pointer;
+}
+.audit-more:hover { background: var(--panel-2); color: var(--ink); }
 .audit-day th {
   padding: var(--sp-2); background: var(--panel-2);
   color: var(--ink-muted); font-size: var(--fs-xs); font-weight: var(--fw-semi);
