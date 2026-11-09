@@ -677,6 +677,89 @@ fn add_to_day(day: &mut DayBuckets, line: &Value) {
 }
 
 #[cfg(test)]
+mod shared_table {
+    use super::*;
+    use serde_json::Value;
+
+    /// The table, read from the repo's specs — the same file the page's test reads.
+    fn table() -> Value {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../docs/superpowers/specs/audit-buckets.json");
+        let text = std::fs::read_to_string(&path)
+            .unwrap_or_else(|cause| panic!("the shared table at {}: {cause}", path.display()));
+        serde_json::from_str(&text).expect("the shared table is JSON")
+    }
+
+    fn is_poll(line: &Value) -> bool {
+        line.get("kind").and_then(Value::as_str) == Some("poll")
+    }
+
+    fn is_console_read(line: &Value) -> bool {
+        !is_channel_boundary(line) && !is_poll(line)
+            && line.get("caller").and_then(Value::as_str) == Some("console")
+    }
+
+    #[test]
+    fn the_bucketing_rule_is_the_shared_table() {
+        let table = table();
+        let cases = table["cases"].as_array().expect("the table holds cases");
+        assert!(!cases.is_empty(), "a table with no cases proves nothing");
+        for case in cases {
+            let why = case["why"].as_str().unwrap_or("(no reason given)");
+            let line = &case["line"];
+            assert_eq!(
+                is_channel_boundary(line),
+                case["boundary"].as_bool().unwrap(),
+                "{why}: boundary"
+            );
+            assert_eq!(is_poll(line), case["poll"].as_bool().unwrap(), "{why}: poll");
+            assert_eq!(
+                is_client_call(line),
+                case["client"].as_bool().unwrap(),
+                "{why}: client"
+            );
+            assert_eq!(
+                is_console_read(line),
+                case["console"].as_bool().unwrap(),
+                "{why}: console"
+            );
+        }
+    }
+
+    #[test]
+    fn every_case_but_a_boundary_lands_in_at_most_one_bucket() {
+        // The four buckets are the page's day line and they PARTITION the work. A line in two of them
+        // is a sentence that states one number twice; a line in none is a row the page draws and the
+        // header does not count — which is what "unattributed" is for.
+        let table = table();
+        let cases = table["cases"].as_array().expect("cases");
+        let mut unattributed = 0;
+        for case in cases {
+            let line = &case["line"];
+            if is_channel_boundary(line) {
+                assert!(
+                    !is_poll(line) && !is_client_call(line) && !is_console_read(line),
+                    "a boundary is in no bucket: {}",
+                    case["why"]
+                );
+                continue;
+            }
+            let count = usize::from(is_poll(line))
+                + usize::from(is_client_call(line))
+                + usize::from(is_console_read(line));
+            assert!(count <= 1, "a line is in at most one bucket: {}", case["why"]);
+            if count == 0 {
+                unattributed += 1;
+            }
+        }
+        assert!(
+            unattributed > 0,
+            "the table must hold a case that lands in no bucket, or the fourth one is untested"
+        );
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 

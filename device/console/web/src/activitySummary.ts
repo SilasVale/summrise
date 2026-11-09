@@ -58,7 +58,16 @@ export function isClientCall(
  * failed poll is a console fact but not a read of the screen — it gets its own bucket, so the chip
  * does not offer the machine's retries as console reads.
  */
-export function isConsoleRead(line: Pick<AuditLine, "caller" | "kind">): boolean {
+export function isConsoleRead(
+  line: Pick<AuditLine, "caller" | "kind" | "tool">
+): boolean {
+  // **A CHANNEL BOUNDARY IS IN NO BUCKET (the forty-fifth list).** `is_client_call` in the console's
+  // `audit.rs` drops `device.joined` / `device.left` before anything else, so a boundary is never a
+  // client call AND never a console read. This predicate used to answer `true` for a boundary the
+  // console wrote; `activityCounts` tested the boundary first, so the day's numbers were right and
+  // the predicate was wrong — which the shared table (docs/superpowers/specs/audit-buckets.json)
+  // caught the moment both sides ran it.
+  if (isChannelBoundary(line)) return false;
   return line.caller === "console" && !isPoll(line);
 }
 
