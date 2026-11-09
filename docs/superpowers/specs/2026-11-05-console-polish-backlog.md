@@ -1152,6 +1152,51 @@ an untended gate is worse than none.
    measured pass in the browser gate that asserts the radius and shadow families **on the built
    page** at 1440 and 390, so the gate and the operator see the same numbers. **M.**
 
+## P0 — the twenty-seventh list (opened 2026-11-09, from the page sweep at 1440 and 390)
+
+A read of every page the console has, looking for what a reader sees that is not a fact. Measured
+against the live console (`0.3.273-ux109`) at 1440.
+
+### Two suspicions, disproved before they became items
+
+**"The rail holds seven doors and only three are destinations."** The DOM says `nav.rail` contains
+three `.rail-btn` plus `.account` and seven `button` elements, which looked like the account
+popup's items leaking into the rail. Measured properly: the popup's four buttons are inside
+`<details class="account">` with `open === false`; `document.body.innerText` does not contain
+`Copy console URL`; hit-testing the centre of the (closed) `Tokens` button returns `NAV.rail`, not
+the button; and forty sequential Tab presses never land inside `.account-pop`. The popup is
+correctly closed, unpainted and unfocusable — **not a defect, not written as one.**
+
+**"Device with no machine says `Choose a machine` and offers nothing."** The earlier snapshot read
+only `p`/`.hint` paragraphs and found none. The page's `main.innerText` is: `Choose a machine` then
+four rows — `DESKTOP-9VH92BJ online v0.3.292 Open`, the same for the other three — one `ul` and
+four `Open` buttons. It does offer the choice. **Not a defect, not written as one.** (The rule this
+round keeps: a suspicion is measured before it is written, and a disproved one is recorded here so
+the next round does not re-run it.)
+
+### The items the measurement supports
+
+1. **The machine menu lists the machine it is already showing.** Measured on the device page at
+   1440: the `.machine-menu` summary reads `DESKTOP-9VH92BJ online · v0.3.292`, and opening it
+   draws five 34 px rows — `All machines`, then `DESKTOP-9VH92BJ online · v0.3.292` (**word for
+   word the summary above it**), `DESKTOP-14RJCR8 offline · v0.3.275`, `DESKTOP-CPH4KB2 online ·
+   v0.3.292`, `DESKTOP-84T3LIN online · v0.3.291`. A picker that offers the current item as a
+   choice is one row too long, and it makes the operator wonder whether picking it would do
+   something. **Fix:** the summary keeps naming the current machine; the list holds `All machines`
+   and the *other* machines, and the current one is marked (`aria-current="true"`) if it stays for
+   completeness. **S.**
+
+2. **Activity's record draws 150 borders for 8,270 characters of text.** Measured in `main` at
+   1440 on the Timeline: 1,771 elements, **150 carrying a border**, 121 with a shadow, and the two
+   largest contributors are `.timeline-row` (**118 `border-top`**) and `.timeline-caller`
+   (**25 bordered pills**). Each row is a box with a rule above it and a pill inside it, so the
+   record of what happened reads as a form to be filled in. Rule 7 of the design rules (spacing and
+   grouping instead of borders and boxes) says the day's rows need one rhythm, not 118 rules.
+   **Fix:** the day's rows lose their per-row rule and gain the existing 30 px group gap plus the
+   stretch labels' rules; the caller pills stop being bordered chips (`.timeline-caller` already
+   has the type). Measure the same three numbers afterwards — bordered, shadowed, and `main`'s
+   height — and record them. **M.**
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
