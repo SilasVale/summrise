@@ -1217,6 +1217,12 @@ the next round does not re-run it.)
    something. **Fix:** the summary keeps naming the current machine; the list holds `All machines`
    and the *other* machines, and the current one is marked (`aria-current="true"`) if it stays for
    completeness. **S.**
+   *(**Done, live 0.3.273-ux113** (`dad519a`): measured on the live page with 9VH in force, the
+   summary reads `DESKTOP-9VH92BJ online · v0.3.292` and the rows are `All machines`,
+   `DESKTOP-14RJCR8 offline · v0.3.275`, `DESKTOP-CPH4KB2 online · v0.3.292`,
+   `DESKTOP-84T3LIN online · v0.3.291`, `Add a machine` — **five rows, four choices, no echo**. With
+   no machine chosen every machine is still listed, because then every one is a choice. The browser
+   gate fails if any row repeats the summary's machine and prints the rows it saw.)*
 
 2. **Activity's record draws 150 borders for 8,270 characters of text.** Measured in `main` at
    1440 on the Timeline: 1,771 elements, **150 carrying a border**, 121 with a shadow, and the two
