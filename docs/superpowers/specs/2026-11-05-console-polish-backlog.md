@@ -1807,6 +1807,36 @@ recorded as clean: the page's own rhythm is exactly the contract's — three car
    selector on the same element beats the class — children at y=111 / 149 / 181. The fix is to delete
    the declaration, not to zero it, and the test asserts the page's own id declares no rhythm at all.)*
 
+## P0 — the thirty-ninth list (opened 2026-11-10, the page title, and what it is made of)
+
+The thirty-eighth list is closed. This one came from putting the two surfaces' **page heads** side by
+side at the same width, which no earlier audit had done: the frame is shared, the card is shared, and
+the thing that opens every page is not.
+
+Measured live console `0.3.273-ux144` at 1440, and the built panel at 1360 in both densities. Two
+reads were clean and are recorded as clean: the console's two top-level pages and the panel's four
+content pages all open with a visible `h1` (no page relies on the rail's icon alone to say where
+the reader is); and every device page's title sits at the same x as its page column (**300** console,
+**149** panel), so no title is off the grid it belongs to.
+
+1. **The page title is 22 px on some pages and 17 px on others, in the same product.** Measured:
+   console Home `22 px / 700`, console Activity `22 px / 700`, panel Memory `22 px / 700`,
+   panel Settings `22 px / 700` — but panel **History `17 px / 700`** and panel **Plugins `17 px / 700`**
+   (`.mem-head h1`, `.settings-header h1` and `.plug-title` are three separate rules; `.history-page`
+   has none and inherits whatever the shell gives it). A page title is the one element that must be
+   identical across every page of both surfaces — it is the reader's answer to "where am I" — and here
+   it takes two sizes for no reason the page states. **Fix:** one page-title rule in the contract,
+   drawn by every page on both surfaces, and the three panel rules collapse into it. **S.**
+
+2. **The panel draws the page's name twice, and the console once.** In the desktop density the
+   shell's header already renders the page's title (measured: `desktop-header` at y=14, the page's
+   `h1` below it at y=110 — the word `History` appears twice within 100 px), while the panel density
+   has no header and the page's own `h1` is the only one. The console draws it once, in the page.
+   The design contract says the frame is *rail · header · page body* — so the question the panel's
+   alternate answers differently is whether the header is part of the frame or part of the page.
+   **Fix:** the frame's header names the page OR the page names itself, never both, and the contract
+   says which. **M.**
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
