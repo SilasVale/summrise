@@ -1313,6 +1313,13 @@ sideways scroll anywhere.** What the numbers did find:
    is the verdict and the next action: a block that states a fact three times and offers one `Open`
    is not a verdict. **Fix:** the block names the machine, the one condition and the one action; the
    release number appears once, in the install strip where the download is. **S.**
+   *(**Done, live 0.3.273-ux119** (`6ca34b5`): the block now reads `The release is 0.3.291; the
+   machines below are not on it.` and each row carries the machine's own distance:
+   `DESKTOP-14RJCR8 · offline · last seen 4d 3h ago · On v0.3.275 · behind 0.3.291.` The build that
+   was 445 px below in the table is now at y=275, in the sentence about it. When a machine reports no
+   version the clause stays `Behind the release.` — nothing is invented for a machine that told the
+   console nothing. The block is 211 px tall at 1440 (was 147): the 64 px is the number the reader
+   came for.)*
 
 5. **`App.test.tsx`'s "opens Runs on boot" fails intermittently under the full parallel run.**
    Measured: it passed alone three consecutive times, passed in four suite pairs, and failed in
