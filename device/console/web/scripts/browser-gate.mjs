@@ -1470,6 +1470,108 @@ try {
 
   await page.locator('nav.rail button[title="Home"]').click();
   await page.getByRole('heading', { name: 'Home', exact: true }).waitFor({ timeout: 10_000 });
+
+  // **THE BUILT PAGE DRAWS THE SCALES, NOT JUST THE SHEET THAT DECLARES THEM (the twenty-sixth
+  // list, item 7).** Every rule below was enforced in `tokens.rs` against `app.css`'s source, and
+  // three of the defects this round fixed were invisible to that gate because a literal can be
+  // checked in the file while the RENDERED value comes from a var() chain, a media query or a
+  // container query. So this leg reads what the browser actually paints, on Home and on Activity,
+  // at 1440 and at 390, and fails if a rendered family leaves its scale.
+  //
+  // Measured on the live page (0.3.273-ux114) before writing this: radii `6/8/10/14/999px` on Home
+  // and `6/8/999px` on Activity, two shadow shapes, seven type sizes at 10-22 px, four weights,
+  // and 15-22 distinct spacing values at each width.
+  const scalePass = async (label) => {
+    const measured = await page.evaluate(() => {
+      const main = document.querySelector('main');
+      const radii = new Set();
+      const shadows = new Set();
+      const sizes = new Set();
+      const weights = new Set();
+      const spacings = new Set();
+      for (const element of main.querySelectorAll('*')) {
+        const style = getComputedStyle(element);
+        for (const part of (style.borderRadius || '').split(' ')) {
+          if (part && !part.startsWith('0')) radii.add(part);
+        }
+        if (style.boxShadow !== 'none') shadows.add(style.boxShadow);
+        if (element.children.length === 0 && (element.textContent ?? '').trim()) {
+          sizes.add(style.fontSize);
+          weights.add(style.fontWeight);
+        }
+        for (const side of ['Top', 'Right', 'Bottom', 'Left']) {
+          const value = style[`padding${side}`];
+          if (value && value !== '0px' && !value.includes('calc')) spacings.add(value);
+          const margin = style[`margin${side}`];
+          if (margin && margin !== '0px' && !margin.includes('calc')) spacings.add(margin);
+        }
+        for (const prop of ['rowGap', 'columnGap']) {
+          const value = style[prop];
+          if (value && value !== '0px' && !value.includes('calc')) spacings.add(value);
+        }
+      }
+      return {
+        radii: [...radii].sort(),
+        shadowCount: shadows.size,
+        sizes: [...sizes].sort(),
+        weights: [...weights].sort(),
+        spacingCount: spacings.size
+      };
+    });
+    // The five canonical radii, and nothing else: `--radius-xs/sm2/sm/radius/lg/pill`.
+    const allowedRadii = new Set(['6px', '8px', '10px', '14px', '20px', '999px']);
+    const strayRadii = measured.radii.filter((value) => !allowedRadii.has(value));
+    if (strayRadii.length > 0) {
+      throw new Error(`${label} draws radii outside the scale: ${JSON.stringify(strayRadii)}`);
+    }
+    // The seven-step type scale.
+    const allowedSizes = new Set(['10px', '11px', '12px', '13px', '14px', '17px', '22px']);
+    const straySizes = measured.sizes.filter((value) => !allowedSizes.has(value));
+    if (straySizes.length > 0) {
+      throw new Error(`${label} draws type sizes outside the scale: ${JSON.stringify(straySizes)}`);
+    }
+    // Four weights, no more.
+    const allowedWeights = new Set(['400', '500', '600', '700']);
+    const strayWeights = measured.weights.filter((value) => !allowedWeights.has(value));
+    if (strayWeights.length > 0) {
+      throw new Error(`${label} draws font weights outside the family: ${JSON.stringify(strayWeights)}`);
+    }
+    // One elevation family plus rings: the count is a family size, not a per-element tally.
+    if (measured.shadowCount > 6) {
+      throw new Error(`${label} draws ${measured.shadowCount} distinct shadows`);
+    }
+    return { label, ...measured };
+  };
+
+  const homeScale = await scalePass('Home at 1440');
+  step(
+    `Home at 1440 draws the scales: radii ${homeScale.radii.join('/')}, ${homeScale.sizes.length} type ` +
+      `sizes, weights ${homeScale.weights.join('/')}, ${homeScale.shadowCount} shadows, ` +
+      `${homeScale.spacingCount} spacing values`
+  );
+
+  await page.locator('nav.rail button[title="Activity"]').click();
+  await page.getByRole('heading', { name: 'Activity', exact: true }).waitFor({ timeout: 10_000 });
+  const activityScale = await scalePass('Activity at 1440');
+  step(
+    `Activity at 1440 draws the scales: radii ${activityScale.radii.join('/')}, ` +
+      `${activityScale.sizes.length} type sizes, ${activityScale.shadowCount} shadows`
+  );
+  // The phone draws the same families: the container queries change the SHAPE of a row, never the
+  // scale a value is drawn from.
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.waitForTimeout(500);
+  const homeScale390 = await scalePass('Home at 390');
+  step(
+    `Home at 390 draws the scales: radii ${homeScale390.radii.join('/')}, ` +
+      `${homeScale390.sizes.length} type sizes, weights ${homeScale390.weights.join('/')}, ` +
+      `${homeScale390.spacingCount} spacing values`
+  );
+  await page.setViewportSize({ width: 1440, height: 960 });
+  await page.waitForTimeout(500);
+  await page.locator('nav.rail button[title="Home"]').click();
+  await page.getByRole('heading', { name: 'Home', exact: true }).waitFor({ timeout: 10_000 });
+
   // **THE ROW'S NAME IS A DOOR (audit-43 F1).** It used to call `choose` and leave the page on
   // #home; the press now opens the machine's own Overview.
   await page.getByRole('button', { name: /^Open DESKTOP-9VH92BJ/ }).click();
