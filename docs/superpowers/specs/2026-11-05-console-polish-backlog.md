@@ -1971,6 +1971,13 @@ contract rhythm and padding below 640 (`16 px` padding, `16 px` gap).
    (the panel's rail takes 52 px of a 380 window; the console's takes 0, it is a bottom bar). **Fix:**
    the contract either carries the phone's step or says the phone is the desktop's rhythm; the two
    surfaces read the same sentence. **S.**
+   *(**Done, live 0.3.273-ux149** (`3b8ac69`): both phone overrides deleted — measured live after,
+   `padding: 24px` and a 24 px rhythm at **390 / 480 / 639** (it was 16 at every one), with no sideways
+   scroll at any width. The gate reads the rendered phone and prints `the phone's page is the contract's:
+   24px padding and 24px rhythm on a 390 px column`; mutation — putting `padding: var(--sp-4)` back —
+   fails with `the phone's page padding is 16px, the contract says 24px`. **And the panel was already
+   right:** measured at 380 on its 297 px column, its page is 24 / 24 and its card 16 / 8. A phone is not
+   a different design, it is the same design in fewer columns.)*
 
 2. **Neither surface has a breakpoint token.** The console declares **31** media queries at
    `639 / 640 / 720 / 767 / 799 / 800 / 900 / 56rem / 68rem / 1280 / 480`, the panel **6** at
