@@ -1592,6 +1592,32 @@ the phone's controls remain 44 px with the cards 97% covered.
    never had. What ships is the original flex bar with one thing fixed, plus `align-items: start` so the
    two labels stay on one baseline while the caller block is taller.)*
 
+## P0 — the thirty-fifth list (opened 2026-11-09, Home's selected card, from the "what does it cost" read)
+
+The thirty-fourth list is closed. This one came from measuring **what a state change costs the page**
+rather than what a sentence says: opening one machine and coming back to Home.
+
+Live `0.3.273-ux136` at 1440. Three results were clean and are recorded as clean: the two pages still
+differ by hierarchy (Home's verdict at 22 px/600 is the largest text on it, Activity's day sentence at
+17 px/500); with the fleet read failing, Home keeps the last list and states the failure once in `/fleet`'s
+own words, and every machine tab that reads `/mcp` states its own failure in its own subject
+(`Could not read the run history: boom`, `Could not list the files root: boom`, `Could not read the
+process list: boom`); and the Terminal's "Could not read this device's sessions" is NOT leaking onto
+other tabs — it sits inside the `hidden` workspace and measures 0 × 0 with no client rects, so the DOM
+query that once looked like a leak is not one.
+
+1. **Home's `Selected machine` card repeats what the page already says, and costs 154 px to do it.**
+   Measured: with one machine selected, Home grows from **908 → 952 px** and a 154 px section appears
+   that reads `Selected machine · DESKTOP-9VH92BJ · online · 0.3.292 · 46 tools · 11 capabilities ·
+   Open · Connect a client`. The name, the presence word and the build are **all three already on the
+   page** — the topbar picker states the name and build, and the fleet row below is highlighted and
+   states the name, `online · seen Ns ago` and `v0.3.292`. The card exists to carry the live catalogue
+   counts and two doors; it carries them under a label whose whole content is a repeat. On the page
+   whose one job is the verdict and the next action, a second statement of the selected machine's
+   identity is the one thing it must not spend height on. **Fix:** the card keeps the subject in
+   `<h2>`-level words only where the row cannot see it — the counts and the two doors — and its
+   identity line goes, because the highlight is the identity. **S.**
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
