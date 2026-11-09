@@ -1758,6 +1758,43 @@ async function captureActivity1000(browser, origin, width) {
   stubAudit = BIG_AUDIT;
   try {
     await page.goto(origin + '/#activity', { waitUntil: 'domcontentloaded', timeout: 30_000 });
+    // **A DAY IS SIXTY ROWS AND ONE DOOR (backlog item 2).** The 1000-row day first draws its newest
+    // 60; the door opens the rest in place, and only then is the last row `Call 1000`. The measured
+    // time is to the whole day painted, because that is what the reader reaches.
+    await page.waitForFunction(
+      () => {
+        const rows = document.querySelectorAll('.timeline-row');
+        const last = rows[rows.length - 1];
+        return (
+          rows.length === 60 &&
+          last !== undefined &&
+          (last.textContent ?? '').includes('Call 60')
+        );
+      },
+      null,
+      { timeout: 30_000 }
+    );
+    // The fold itself is the picture the operator asked for: 60 rows and one door above the rest.
+    // The door sits where the day stops being drawn, so the capture scrolls it into view.
+    await page.evaluate(() => {
+      const main = document.querySelector('main');
+      const door = document.querySelector('.timeline-more');
+      if (main && door) main.scrollTop = door.getBoundingClientRect().top - 120;
+    });
+    const foldedFile = `activity-folded-${width}.png`;
+    await page.screenshot({ path: path.join(OUT, foldedFile), animations: 'disabled', fullPage: false });
+    await page.evaluate(() => {
+      const main = document.querySelector('main');
+      if (main) main.scrollTop = 0;
+    });
+    captures.push({
+      pass: passKey,
+      page: 'activity-folded',
+      file: foldedFile,
+      note: `the 1000-row day folded to its newest 60 at ${width}px, with one door for the other 940`
+    });
+    console.log(`  ${passKey.padEnd(6)} ${foldedFile}`);
+    await page.locator('.timeline-more').first().click();
     await page.waitForFunction(
       () => {
         const rows = document.querySelectorAll('.timeline-row');
