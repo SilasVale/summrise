@@ -640,6 +640,69 @@ describe("App", () => {
     expect(mocks.audit).toHaveBeenCalledWith(1000);
   });
 
+  it("carries both counts' intervals as data, so a gate can compare numbers", async () => {
+    // **THE INTERVALS ARE DATA, NOT ADJECTIVES (the forty-fifth list).** `Today` is a word; the only
+    // check a gate can make of it is a regular expression over prose, and three lists in a row ended
+    // in a comparison between two intervals because of exactly that. The day's line carries the cut
+    // its count began at; the window's count carries the span it counted. Both are Unix milliseconds,
+    // and this test reads them the way the browser gate does.
+    const midnight = new Date();
+    midnight.setHours(0, 0, 0, 0);
+    const at = (seconds: number) => midnight.getTime() + seconds * 1_000;
+    mocks.audit.mockResolvedValue([
+      {
+        ts_ms: at(120),
+        kind: "mcp",
+        device_id: workshop.id,
+        token_id: null,
+        tool: "files.read",
+        detail: null,
+        status: 200,
+        caller: "client",
+        sentence: "Read a file"
+      },
+      {
+        ts_ms: at(180),
+        kind: "mcp",
+        device_id: workshop.id,
+        token_id: null,
+        tool: "files.write",
+        detail: null,
+        status: 200,
+        caller: "client",
+        sentence: "Wrote a file"
+      }
+    ]);
+    mocks.auditDay.mockResolvedValue({
+      day_start_ms: midnight.getTime(),
+      client_calls: 2,
+      failed: 0,
+      console: 0,
+      console_failed: 0,
+      poll: 0,
+      poll_failed: 0,
+      unattributed: 0,
+      unattributed_failed: 0
+    });
+    await bootAndSignIn();
+    fireEvent.click(screen.getByRole("button", { name: "Activity" }));
+
+    const dayLine = await screen.findByText("Today: 2 client calls.");
+    const day = dayLine.closest(".activity-today");
+    expect(day?.getAttribute("data-interval-kind")).toBe("day");
+    expect(Number(day?.getAttribute("data-interval-from"))).toBe(midnight.getTime());
+
+    const windowCount = document.getElementById("timeline-clients-window");
+    expect(windowCount?.getAttribute("data-interval-kind")).toBe("window");
+    const from = Number(windowCount?.getAttribute("data-interval-from"));
+    const to = Number(windowCount?.getAttribute("data-interval-to"));
+    // **THE WINDOW IS A SPAN, AND IT BEGINS AT OR AFTER THE DAY'S CUT** — a fetched window cannot
+    // start before the day it is drawn inside, and after this attribute exists that is checkable as
+    // arithmetic instead of as a sentence.
+    expect(from).toBeGreaterThanOrEqual(midnight.getTime());
+    expect(to).toBeGreaterThan(from);
+  });
+
   it("states the day's count in the Activity header, and says whose failures it counted", async () => {
     // Six rows: two client-proven (one by its caller, one only by its token), one console read and
     // one unattributed row, each with a failure beside it. The header leads with the AI's failure;
@@ -1405,6 +1468,8 @@ describe("App", () => {
     await bootAndSignIn();
     selectDevice("workshop");
     fireEvent.click(screen.getByRole("button", { name: "Activity" }));
+
+
 
     expect(
       await screen.findByText("Showing the newest 1000 lines — the window's limit.")
