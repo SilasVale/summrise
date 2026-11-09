@@ -222,11 +222,72 @@ fn every_text_pair_reads_on_the_surface_it_sits_on() {
 /// pair the operator reads, so it is measured with the same 4.5 threshold as the token pairs.
 #[test]
 fn the_evidence_output_reads_on_its_terminal_surface() {
-    let measured = contrast("#d6dae0", "#14161a");
+    // **IT READS THE TOKENS NOW (the twenty-sixth list, item 4).** The pair used to be two literals
+    // written at the call site and hand-copied into this test, so a palette change could not reach
+    // them and neither could this assertion. `--evidence-bg`/`--evidence-ink` are declared in
+    // `app.css`'s local block (deliberately not restated in the dark theme: the transcript is a
+    // terminal on both pages) and the test follows them.
+    let ink = declared(APP, "evidence-ink").expect("--evidence-ink is declared in app.css");
+    let surface = declared(APP, "evidence-bg").expect("--evidence-bg is declared in app.css");
+    let measured = contrast(ink, surface);
     assert!(
         measured >= 4.5,
-        "evidence output: #d6dae0 on #14161a measures {measured:.2}:1 (AA needs 4.5)"
+        "evidence output: {ink} on {surface} measures {measured:.2}:1 (AA needs 4.5)"
     );
+}
+
+#[test]
+fn no_colour_literal_sits_in_a_colour_property() {
+    // **THE SHEET'S COLOURS ARE NAMED OR DERIVED (the twenty-sixth list, item 4).** The evidence
+    // output's pair used to be `#14161a` and `#d6dae0` written at the call site, which no gate could
+    // check. Measured 2026-11-09 after naming them: the only hex literals left in `app.css` are the
+    // two now-tokens' declarations inside a `:root` block, the `#000`/`#fff` operands of
+    // `color-mix()` (a ratio, not a colour), and one `var(--line, #e3e1dc)` fallback that never
+    // fires in the React page. Anything else — a hex sitting as a property's VALUE — fails here.
+    let colour_properties = [
+        "color",
+        "background",
+        "background-color",
+        "border-color",
+        "border-top-color",
+        "border-right-color",
+        "border-bottom-color",
+        "border-left-color",
+        "outline-color",
+        "fill",
+        "stroke",
+    ];
+    for line in APP.lines() {
+        for declaration in line.split(';') {
+            let Some((name, value)) = declaration.split_once(':') else {
+                continue;
+            };
+            let name = name.trim();
+            if !colour_properties.contains(&name) {
+                continue;
+            }
+            let value = value.trim();
+            // A colour that is a token, a keyword or a function of tokens is not a literal.
+            let has_hex = value
+                .split(|c: char| c == ' ' || c == '(' || c == ')' || c == ',')
+                .any(|word| {
+                    let word = word.trim();
+                    word.starts_with('#') && word.len() >= 4
+                });
+            if !has_hex {
+                continue;
+            }
+            // The two admitted shapes: a `color-mix()` ratio and the declaration of a token itself.
+            if value.contains("color-mix(") || line.trim_start().starts_with("--") {
+                continue;
+            }
+            if value.contains("var(--") && value.contains(',') {
+                // `var(--line, #e3e1dc)`: a fallback for a token another sheet declares.
+                continue;
+            }
+            panic!("a colour literal sits as a property value: {line}");
+        }
+    }
 }
 
 #[test]
