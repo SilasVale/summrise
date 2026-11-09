@@ -441,10 +441,19 @@ main.terminal-main { display: grid; grid-template-rows: auto minmax(0, 1fr); ali
 
 /* The hub: one status line, one Connect action, the Now band, one counts line and one day line.
    No second header, no tile grid, no endpoint card — Connect owns the URL. */
+/* **A FAILURE IS A NOTICE, AND THE NOTICE WEARS THE ALARM'S TINT (the forty-eighth list).**
+   Measured on both surfaces with every read failing: this rule drew 12 px padding, a 10 px corner and
+   a `#fafafa` tint with its words in ink, while the panel drew raw `rgb(165,29,29)` text with no
+   container at all. The shape was already right here; two things were not.
+
+   The corner is now the contract's 8 — the scale both surfaces have (`--radius-sm2` on the panel is
+   this corner's name there) — and the tint is the WARNING's, because a notice that cannot say how loud
+   it is is one grey box for every kind of news. The words stay INK: the sentence is the message and
+   the tint is the alarm, which is rule 6 answered without a second colour. */
 .notice {
   display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap;
-  padding: var(--sp-3); border: 1px solid var(--line-strong); border-radius: var(--radius-sm);
-  background: var(--panel-2); font-size: var(--fs-sm);
+  padding: var(--sp-3); border: 1px solid var(--line-strong); border-radius: var(--radius-sm2);
+  background: var(--warn-soft); font-size: var(--fs-sm);
 }
 /* The direct child is the sentence the notice states; a reason inside it is not a second flex item. */
 .notice > span { flex: 1; min-width: 12rem; }
