@@ -1299,6 +1299,12 @@ sideways scroll anywhere.** What the numbers did find:
    control is "kill this process" tells the operator that killing processes is the point of the
    Machine page. **Fix:** one action per row is not the shape; a search finds the process you mean
    and the row's `⋯` menu holds Kill behind a confirmation naming the process. **M.**
+   *(**Done, live 0.3.273-ux118** (`f4aeecb`): measured on the same page, 235 rows and **0 bare Kill
+   buttons**, 222 row menus and 13 `Protected` rows — the count of killable rows is unchanged, the
+   shape is not. `main` stays 1,970 px, so this bought no height: it bought the removal of 222
+   buttons a reader could land on by accident, each of which opened a confirmation for a process
+   nobody had chosen. The gate measures the same three numbers on its own eight-row fixture and fails
+   on a bare button.)*
 
 4. **Home's "Needs attention" says the release twice.** Measured: the block reads `The release is
    0.3.291. DESKTOP-14RJCR8 offline · last seen 4d 2h ago Behind the release.` — the version appears
