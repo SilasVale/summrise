@@ -17,8 +17,11 @@
     "headerGap": 8
   },
   "rail": {
+    "$comment": "Each surface's first column. The CONSOLE collapses at `tablet` (767): below it the rail becomes the top bar, so the page's left is 0 \u2014 measured at 380/480/639. The PANEL never collapses: it is a device app in a window, and its rail is the page's first column at every width. The widths are recorded rather than equalized; the COLLAPSE is a rule, not a habit.",
     "console": 232,
-    "panel": 52
+    "panel": 52,
+    "consoleCollapsesAt": 767,
+    "panelCollapsesAt": null
   },
   "title": {
     "size": 22,
