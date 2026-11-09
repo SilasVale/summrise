@@ -5132,6 +5132,11 @@ struct DaySummary {
     poll_failed: u64,
     unattributed: u64,
     unattributed_failed: u64,
+    /// **THE MIDNIGHT THIS ANSWER CUT AT (the forty-fourth list).** The page's timeline grouped its
+    /// rows into days at the BROWSER's midnight while this read cut at the CONSOLE HOST's; they
+    /// agree only when both are the same zone. Publishing the moment lets the timeline label the
+    /// interval the count is of, on any browser.
+    day_start_ms: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
     since_ms: Option<u64>,
     #[serde(skip_serializing_if = "std::ops::Not::not")]
@@ -5168,6 +5173,7 @@ async fn audit_day(
         poll_failed: day.poll_failed,
         unattributed: day.unattributed,
         unattributed_failed: day.unattributed_failed,
+        day_start_ms: read.day_start_ms,
         since_ms: read.since_ms,
         bounded: read.bounded,
         scan_limit: read.bounded.then_some(crate::audit::DAY_SCAN_LIMIT),

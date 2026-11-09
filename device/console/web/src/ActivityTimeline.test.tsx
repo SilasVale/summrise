@@ -1159,6 +1159,41 @@ describe("ActivityTimeline's labelled filter and record footer", () => {
     );
   });
 
+  it("groups its days at the midnight the count used, not the browser's (the forty-fourth list)", () => {
+    // **ONE INTERVAL NAME OVER TWO INTERVALS.** Measured from a browser set to `America/New_York`
+    // (midnight 05:00Z): the page drew the `Today` label over rows from 07:48Z while the day line
+    // above it had counted from 00:00Z. The server now publishes `day_start_ms`, and the labels cut
+    // there — so a row at 01:00Z is TODAY when the cut is 00:00Z even in a browser whose own day
+    // began at 05:00Z. The test sets the cut explicitly, which is what a page does with the answer.
+    const cut = Date.UTC(2026, 10, 5, 0, 0, 0);
+    const afterCut = line({
+      ts_ms: cut + 3_600_000,
+      device_id: alpha,
+      sentence: "Read notes.txt",
+      tool: "files.read",
+      caller: "client"
+    });
+    const beforeCut = line({
+      ts_ms: cut - 3_600_000,
+      device_id: alpha,
+      sentence: "Read notes.txt",
+      tool: "files.read",
+      caller: "client"
+    });
+    render(
+      <ActivityTimeline
+        lines={[afterCut, beforeCut]}
+        devices={devices}
+        dayStartMs={cut}
+        nowMs={cut + 7_200_000}
+      />
+    );
+    // The two rows are in DIFFERENT days, because the cut is the boundary — with the browser's own
+    // midnight both would fall in one day on a UTC host and in two on a New York one.
+    expect(screen.getByText("Today")).toBeInTheDocument();
+    expect(screen.getByText("Yesterday")).toBeInTheDocument();
+  });
+
   it("names the fetched window's span beside the rows it counts", () => {
     // The measured Activity page put `Today: 18 client calls` over `486 rows in this window`; the
     // window was 24 h 37 m and the span was stated nowhere, so the two counts read as a

@@ -251,6 +251,12 @@ export type AuditDay = {
   poll_failed: number;
   unattributed: number;
   unattributed_failed: number;
+  /**
+   * **THE MIDNIGHT THIS ANSWER CUT AT (the forty-fourth list).** The answer used to say nothing about
+   * the moment its day began, so the page grouped its rows at the BROWSER's midnight — one interval
+   * name over two intervals whenever the reader's zone differed from the console host's.
+   */
+  day_start_ms?: number;
   since_ms?: number | null;
   bounded?: boolean;
   scan_limit?: number | null;

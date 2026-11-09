@@ -509,6 +509,11 @@ export function App() {
     shownDay !== null && !auditReadingOther
       ? activityDaySentence(shownDay.day)
       : null;
+  // **THE LABELS CUT WHERE THE COUNT CUT (the forty-fourth list).** The timeline used to group its
+  // rows at the BROWSER's midnight, so a reader whose zone differed from the console host's saw a
+  // `Today` label over an interval the day line had not counted. The answer names its midnight; the
+  // page hands it to the labels. No answer (a failed read) falls back to the browser's own day.
+  const shownDayStartMs = shownDay !== null ? shownDay.day.day_start_ms ?? null : null;
   /**
    * Whether a successful window for the current scope is in hand. The day answer and the rows
    * arrive together, so their scope is the same fact; a failed reread leaves both where they were.
@@ -1424,6 +1429,7 @@ export function App() {
               {activityView === "stream" ? (
                 <ActivityTimeline
                   lines={shownActivity}
+                  dayStartMs={shownDayStartMs}
                   devices={devices}
                   tokens={tokens}
                   capped={shownCapped}

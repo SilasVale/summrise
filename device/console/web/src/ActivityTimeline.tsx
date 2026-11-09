@@ -53,14 +53,31 @@ export const DAY_VISIBLE = 60;
 
 type Day = { key: string; label: string; lines: AuditLine[] };
 
-function dayKey(ts: number): string {
+/**
+ * **THE DAY'S CUT, AND IT IS THE ONE THE COUNT USED (the forty-fourth list).**
+ *
+ * This grouped rows at the BROWSER's local midnight while `/audit/day` counted from the CONSOLE
+ * HOST's. Measured: from a browser set to `America/New_York` (midnight 05:00Z) the page drew the
+ * `Today` label over rows from 07:48Z onward while the day line above it had counted from 00:00Z —
+ * one interval name over two intervals. The server now publishes `day_start_ms`, so the labels cut
+ * where the count cut, on any browser. `null` (an answer that carries no cut) keeps the browser's own
+ * day, which is the honest fallback for an older console.
+ */
+function dayKey(ts: number, cutMs: number | null = null): string {
+  if (cutMs !== null) {
+    // A day is `[cut + k·24h, cut + (k+1)·24h)`. Indexing from the cut is an integer division, and
+    // it stays correct across a DST hour because the cut moves with the zone rather than the label.
+    return String(Math.floor((ts - cutMs) / 86_400_000));
+  }
   const date = new Date(ts);
   return `${date.getFullYear()}-${date.getMonth() + 1}-${date.getDate()}`;
 }
 
-function dayLabel(ts: number, now: number): string {
-  if (dayKey(ts) === dayKey(now)) return "Today";
-  if (dayKey(ts) === dayKey(now - 86_400_000)) return "Yesterday";
+function dayLabel(ts: number, now: number, cutMs: number | null = null): string {
+  if (dayKey(ts, cutMs) === dayKey(now, cutMs)) return "Today";
+  // Yesterday is "the day before the reader's day", which on a fixed cut is one interval back —
+  // NOT "24 h before now", which crosses two days when the read is taken just after the cut.
+  if (Number(dayKey(ts, cutMs)) === Number(dayKey(now, cutMs)) - 1) return "Yesterday";
   const date = new Date(ts);
   const sameYear = date.getFullYear() === new Date(now).getFullYear();
   return `${DAY_NAMES[date.getDay()]}, ${date.getMonth() + 1}/${date.getDate()}${
@@ -69,13 +86,13 @@ function dayLabel(ts: number, now: number): string {
 }
 
 /** Days newest first, each day's rows newest first (the list arrives that way). */
-export function groupDays(lines: AuditLine[], now = Date.now()): Day[] {
+export function groupDays(lines: AuditLine[], now = Date.now(), cutMs: number | null = null): Day[] {
   const days: Day[] = [];
   for (const line of lines) {
-    const key = dayKey(line.ts_ms);
+    const key = dayKey(line.ts_ms, cutMs);
     const last = days[days.length - 1];
     if (last && last.key === key) last.lines.push(line);
-    else days.push({ key, label: dayLabel(line.ts_ms, now), lines: [line] });
+    else days.push({ key, label: dayLabel(line.ts_ms, now, cutMs), lines: [line] });
   }
   return days;
 }
@@ -602,6 +619,12 @@ export function ActivityTimeline(props: {
   /** The search text, shared with the table's "Tool or detail" field. */
   query?: string;
   onQuery?: (value: string) => void;
+  /**
+   * **THE MIDNIGHT THE DAY'S COUNT CUT AT (the forty-fourth list).** `/audit/day` answers it, and the
+   * labels group at that moment instead of the browser's — one interval name for one interval, on
+   * any browser. Absent (an older console) keeps the browser's day.
+   */
+  dayStartMs?: number | null;
   /** The machine the rows are narrowed to, or "" for every machine. */
   device?: string;
   onDevice?: (value: string) => void;
@@ -783,7 +806,9 @@ export function ActivityTimeline(props: {
   const shownMachines = phone
     ? machines.filter((machine) => machine.known || machine.id === scope)
     : machines;
-  const days = groupDays(filtered, at);
+  // The rows group at the DAY'S own cut when the answer names one (the forty-fourth list): the
+  // label over a list and the count above it must be about the same interval on any browser.
+  const days = groupDays(filtered, at, props.dayStartMs ?? null);
   const filtering = needle !== "" || scope !== "" || clientsOnly;
   const deviceLabel = scope !== "" ? (machineName(props.devices, scope) ?? scope) : "";
   // **THE CAP SENTENCE QUALIFIES THE COUNT IT SITS BESIDE.** It used to be the record's footer, 70,000
