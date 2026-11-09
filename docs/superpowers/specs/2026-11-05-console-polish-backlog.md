@@ -1462,6 +1462,12 @@ covered).
    about how much of it to draw at once. **Fix:** the Table gets the Timeline's two doors (a capped
    first screen and a `Show the rest` that reveals the remainder), so both views of the record open
    on the same amount; the count stays honest in the sentence above it. **M.**
+   *(**Done, live 0.3.273-ux129** (`fe4bf61`): measured on the same page, the Table now opens on
+   **62 rows / 1,100 elements / 2,962 px** (was 1,001 / 17,074 / 41,467) at 1440 and **62 / 1,158 /
+   4,480** at 390, with one door: `Show the rest of Today (940 more)`. Pressing it draws the whole
+   day — 1,000 rows, no door left, 41,467 px — so the wall is still reachable, it is just no longer
+   the first thing. The number is the Timeline's (`TABLE_DAY_VISIBLE = 60`), not a second threshold
+   invented for the table. The gate fails above 120 rows or on a day with no door.)*
 
 ## How a round goes
 
