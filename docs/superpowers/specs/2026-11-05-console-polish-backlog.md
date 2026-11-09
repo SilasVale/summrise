@@ -2146,6 +2146,35 @@ away.
    predicates are `pub(crate)`, and widening the crate's API for a test would trade a real boundary
    for a convenience.)*
 
+## P0 — the forty-sixth list (opened 2026-11-10, the empty state is two designs)
+
+The forty-fifth list is closed. This list came from the operator's directive read literally: the two
+surfaces must share **"the same empty/loading/failed states"**, and rule 19 says every surface has
+one that tells the truth. Measured on the built panel and the built console, at their own sizes.
+
+The 1,000-line audit read and Activity's day line were checked again and are recorded as clean: the
+empty states BELOW are the finding, and the truth-telling ones already shipped (Activity's failed read
+names the device's reason with a Retry; a successful empty read is a quiet line, never a box).
+
+1. **The two surfaces' empty states are two different designs, and one of them is a modal in
+   disguise.** Measured at 1360 on the panel and 1440 on the console:
+
+       panel  .empty-card      padding 40px 56px, radius 20px, shadow 0 12px 32px, background #fff,
+       centred            text-align center
+       console .card.first-run padding 16px,      radius 14px, shadow none,            background
+       surface,           text-align start, full width (1072 of 1120)
+
+   The panel's first-minute card is a **56 px-wide-padding, 20 px-radius, drop-shadowed, centre-aligned
+   box floated in the page**: on a 1120 px column it is the one surface in the product that is a
+   dialog, and it is drawn where a page's empty state belongs. The console's is the page's own card —
+   the same 14 px corner, the same 16 px padding, the same start-aligned left edge as every other
+   card on the page. **Fix:** one empty atom, in the contract, on both surfaces. **M.**
+
+2. **Neither surface's empty state is in the layout contract, so nothing can hold them equal.**
+   `layout-contract.json` names the page frame, the card and the rail; the empty state is a fourth
+   atom both surfaces draw and neither declares. **Fix:** the atom joins the contract with its own
+   numbers, and each repo's contract test reads it. **S.**
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
