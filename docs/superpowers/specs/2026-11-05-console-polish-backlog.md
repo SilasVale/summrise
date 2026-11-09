@@ -2426,6 +2426,13 @@ below 1280 and 85/125 at 1280/1360, which is the same rail plus the centring.
    measurement downstream (the page's left, its centring, the wrap point of the header) is taken
    against a frame that does not exist. **Fix:** one rail width, the contract's, and `#icon-rail`
    stops being a second answer. **S.**
+   *(**Done, panel `7bbbff3c`**: `.desktop-rail` is `width 52 / flex 0 0 52 / box-sizing border-box`,
+   measured after at **52 px**, and the page's left edge moved with it. **The gate was green while the
+   frame was wrong:** it asserted `flex: 0 0 52px` on `#icon-rail` — the right idea on the WRONG
+   ELEMENT. Both rails are asserted now, plus `box-sizing`, because the 57 px was the BORDER: a
+   content-box rail cannot be 52 whatever its `width` says. **And the active marker's arithmetic moved
+   with the rail:** its comment said "40 px button centred in a 56 px rail, so the edge is 8 px left" —
+   true of the rail this repo drew, false of 52, where (52-40)/2 is 6.)*
 
 2. **The contract's `rail` block records two widths and no rule about who owns them.** The console
    draws 232 from 767 up and a TOP BAR below it; the panel draws its rail at every width. That is a
@@ -2433,6 +2440,11 @@ below 1280 and 85/125 at 1280/1360, which is the same rail plus the centring.
    and the contract says only `console: 232, panel: 52`, so the next reader has to measure the console
    to learn it collapses. **Fix:** the contract records the collapse, and both repos' tests say which
    surface collapses where. **S.**
+   *(**Done, console `0f73941` / panel `bc909e56`, live 0.3.273-ux161**: `rail: { console 232, panel 52,
+   consoleCollapsesAt 767, panelCollapsesAt null }`. The console's test asserts its collapse is
+   `breakpoints.tablet`; the panel's asserts `null` AND that **no width query turns its rail off** —
+   a `@media` rule hiding `#icon-rail` would be a collapse by another name. Mutations print
+   `the console collapses: expected 639 to be 767` and `no width query removes the rail`.)*
 
 ## How a round goes
 
