@@ -42,12 +42,36 @@ describe("ScreenPage", () => {
 
   it("says no picture has been taken and names the control that takes one", () => {
     render(<ScreenPage grant={grant} view="desktop" onViewChange={() => undefined} />);
+    // One line: the press, and that nothing happens without it (the thirtieth list, item 1). The
+    // timer clause was the same idea a second time.
     expect(
-      screen.getByText(
-        "No capture yet. Capture screen takes one when you ask; nothing is captured on a timer."
-      )
+      screen.getByText("No capture yet — Capture screen takes one when you ask.")
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Capture screen" })).toBeInTheDocument();
+  });
+
+  it("says the refusal once, and puts the black-frame note where a picture would be", () => {
+    // **MEASURED AT 1440 (the thirtieth list, item 1):** with the helper unregistered the page
+    // carried 591 characters for one disabled button and told the same refusal three times — the
+    // lead's `A capture of the signed-in user's desktop; locked and disconnected sessions refuse.`,
+    // the reason's `Capture is off: …`, and a paragraph above the button ending `… not a black
+    // frame.` A reader who has not pressed anything yet does not need the third.
+    const { container } = render(
+      <ScreenPage
+        grant={grant}
+        view="desktop"
+        onViewChange={() => undefined}
+        helperRunning={false}
+      />
+    );
+
+    const surface = container.querySelector(".screen-view-note") as HTMLElement;
+    expect(surface.textContent).toBe("A capture of this machine's signed-in desktop.");
+    const reasons = container.querySelectorAll(".screen-capture-reason");
+    expect(reasons).toHaveLength(1);
+    expect(reasons[0].textContent).toMatch(/^Capture is off:/);
+    // The caption belongs to a picture, so it is absent until one exists.
+    expect(container.querySelector(".screen-shot-caption")).toBeNull();
   });
 
   it("says the helper has not registered before the operator clicks", () => {
@@ -84,13 +108,14 @@ describe("ScreenPage", () => {
     );
 
     const reason = screen.getByText(/has not registered, so a capture will be refused/);
-    const lockedNote = screen.getByText(/The picture comes from the per-user helper's session/);
     expect(reason).toHaveClass("hint");
     expect(reason.closest(".screen-view-head")).not.toBeNull();
-    // The reason precedes the locked-session paragraph, not the other way round.
-    expect(
-      reason.compareDocumentPosition(lockedNote) & Node.DOCUMENT_POSITION_FOLLOWING
-    ).toBeTruthy();
+    // **THE REFUSAL IS SAID ONCE (the thirtieth list, item 1).** The measured page said it three
+    // times in three vocabularies — the lead's `…sessions refuse.`, this reason, and a paragraph
+    // above the button about a black frame. The lead names the surface and this names the reason;
+    // the picture's caption carries the black-frame note, and only where there is a picture.
+    expect(screen.queryByText(/locked or disconnected session is the device's refusal/i)).toBeNull();
+    expect(screen.queryByText(/locked and disconnected sessions refuse/i)).toBeNull();
     // It is the disabled button's description, so the reason travels with the control.
     expect(
       container.querySelector(".screen-capture")?.getAttribute("aria-describedby")
