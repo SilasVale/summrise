@@ -2224,6 +2224,37 @@ The EMPTY states are clean by the last list. The LOADING states are the finding.
    *(**Done with item 1**: `.mem-result-line` is drawn only when `!busy && resultText !== ""`, and
    `resultText` answers `""` for a read in flight. Measured after: `countLine: absent (correct)`.)*
 
+## P0 — the forty-eighth list (opened 2026-11-10, the failed state is a bare sentence)
+
+The forty-seventh list is closed: the loading state is one skeleton on both surfaces. This list came
+from the last word of the operator's directive — *"the same empty/loading/failed states"* — and the
+failed state is the one nobody has looked at yet. Measured by failing every read on both surfaces.
+
+Two reads were clean and are recorded as clean: BOTH surfaces say what failed and BOTH offer exactly
+one Retry (`The console could not read the machine list.` with 1 retry; `the device did not answer`
+with 1 retry). The truth-telling is done. The SHAPE is not.
+
+1. **The two failed states are two different things: a card and a bare sentence.** Measured:
+
+       console  .notice (role=status)  12 px padding, 10 px corner, #fafafa background, ink text,
+                full width (1072) at x=300
+       panel    .error (role=alert)    0 px padding, 0 px radius, NO background, NO border,
+                `rgb(165,29,29)` red text at x=149, 1120 wide
+
+   The console draws a notice — a 12 px-padded, 10 px-cornered, tinted block on the page's grid —
+   and its words are INK (`#18181b`), because the sentence is the message and the tint is the
+   alarm. The panel draws raw red text with no container at all, on the page's grid, so a failure
+   is the one state on either surface that is not a card: it does not sit on the rhythm, it has no
+   edge to read against its neighbours, and its colour carries the whole message alone — which is
+   rule 6's failure (`never colour alone`). **Fix:** the failed atom joins the contract and both
+   surfaces draw it. **M.**
+
+2. **The panel's failure is ANNOUNCED twice.** Its `.error` is `role="alert"` inside a page whose
+   own status line already says `Not read — the memory list could not be loaded.`, so a screen
+   reader hears the same failure from two live regions in different words. The console has ONE
+   region and says one sentence. **Fix:** one announcer, and the second line carries what the first
+   cannot (the cause). **S.**
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
