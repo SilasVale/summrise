@@ -1332,6 +1332,14 @@ export function App() {
                     the window's own read; while the Table shows a chosen range, that sentence is
                     about another interval, and the table's own sentence is the one that names the
                     rows on screen. */}
+                {/* **THE DAY AND THE WINDOW ARE TWO INTERVALS, AND THE PAGE SAYS SO ONCE (the
+                    forty-third list).** Measured live at 19:48: this line read `Today: 206 client
+                    calls, 21 failed` and the bar under it read `629 client calls in this window ·
+                    spanning 12 h 15 m`. Both true, and nothing said that the window STARTS AT 07:33
+                    — so a reader comparing them can only conclude one is wrong. The day's own
+                    sentence says its interval (it always did: `Today`), the window's says its start,
+                    and this one clause says how they relate. It is drawn only when both numbers are
+                    on the page, because a sentence describing a comparison nobody can see is noise. */}
                 {activityCount !== null && activityRange === null && (
                   <p className="page-sub activity-today">{activityCount}</p>
                 )}

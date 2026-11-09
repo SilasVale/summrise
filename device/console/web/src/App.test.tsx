@@ -729,7 +729,12 @@ describe("App", () => {
       "aria-pressed",
       "false"
     );
-    expect(screen.getByText("2 client calls in this window · spanning 50 s")).toBeInTheDocument();
+    // **THE WINDOW NAMES ITS START AS WELL AS ITS LENGTH (the forty-third list).** The fixtures run
+    // from `midnight + 10 s` to `midnight + 60 s`, so the sentence says where the read begins — the
+    // fact that reconciles a window's count with the day's when the two disagree.
+    expect(
+      screen.getByText(/2 client calls in this window · from .+, spanning 50 s/)
+    ).toBeInTheDocument();
 
     // The control draws the client subset; the header stays the day's sentence. Its own count says
     // which window it counts, so the page never states a second `client calls` number for the same

@@ -922,8 +922,18 @@ export function ActivityTimeline(props: {
                   </>
                 ) : (
                   <>
+                    {/* **THE WINDOW NAMES WHERE IT STARTS, NOT ONLY HOW LONG IT IS (the
+                        forty-third list).** Measured live at 19:48: the header said `Today: 206
+                        client calls` and this line said `629 client calls in this window · spanning
+                        12 h 15 m` — both true, and 629 > 206 for a reason nothing on the page said:
+                        a 12 h 15 m window read at 19:48 STARTS AT 07:33, so it never crosses midnight
+                        and the day's 206 cannot be a subset of it. A span alone cannot say that; the
+                        START can, and it is the fact that reconciles the two numbers. */}
                     {" in this window"}
-                    {windowSpanMs > 0 ? ` · spanning ${spanText(windowSpanMs)}` : ""}
+                    {windowSpan !== null
+                      ? ` · from ${clockTime(windowSpan.oldest_ts_ms)}` +
+                        (windowSpanMs > 0 ? `, spanning ${spanText(windowSpanMs)}` : "")
+                      : ""}
                   </>
                 )}
             </span>

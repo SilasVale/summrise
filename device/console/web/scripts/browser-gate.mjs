@@ -1994,6 +1994,54 @@ try {
     `Activity draws the page's own rhythm: ${activityFrame.gap} gap and ${activityFrame.headToFirst} ` +
       `px between its head and its record — the same as Home`
   );
+  // **TWO COUNTS, TWO INTERVALS, AND THE PAGE SAYS WHICH EACH IS (the forty-third list).** Measured
+  // live at 19:48: the header read `Today: 206 client calls, 21 failed` over `629 client calls in this
+  // window · spanning 12 h 15 m` — both true, and 629 > 206 because the window starts at 07:33 and
+  // never crosses midnight. A reader comparing them could only conclude one was wrong. The bar now
+  // names its START; this leg refuses a bar that names only its length, because a length cannot
+  // reconcile two counts that cover different intervals.
+  // A previous leg left Activity scoped to one machine (it clicked that machine's chip), and a
+  // NARROWED count withholds the span by design — the span belongs to the read, and the read is not
+  // what the reader is looking at. Measure the UNNARROWED page: it is the one that has to reconcile
+  // a day count with a window count.
+  const allMachines = page.getByRole('button', { name: 'All machines', exact: true });
+  if ((await allMachines.count()) > 0) {
+    await allMachines.first().click();
+    await page.waitForTimeout(1600);
+  }
+  const activityCounts = await page.evaluate(() => {
+    const day = document.querySelector('.activity-today');
+    // THE CONTROL'S OWN DESCRIPTION, not a text sweep of the page: a sweep picks up the whole
+    // document's text and reads as if the sentence were one unbroken run of every label on it.
+    const control = [...document.querySelectorAll('button[aria-describedby]')].find((button) =>
+      /in this window/.test(
+        document.getElementById(button.getAttribute('aria-describedby') ?? '')?.textContent ?? ''
+      )
+    );
+    const described = control
+      ? (document.getElementById(control.getAttribute('aria-describedby') ?? '')?.textContent ?? '')
+          .trim()
+      : null;
+    return {
+      day: day ? (day.textContent ?? '').trim() : null,
+      bar: described
+    };
+  });
+  if (activityCounts.day === null || activityCounts.bar === null) {
+    throw new Error(`Activity draws one number without the other: ${JSON.stringify(activityCounts)}`);
+  }
+  if (!/^Today:/i.test(activityCounts.day)) {
+    throw new Error(`the day line does not name its interval: "${activityCounts.day}"`);
+  }
+  if (!/ in this window \u00b7 from \d/i.test(activityCounts.bar)) {
+    throw new Error(
+      `the window's count names only its length, not where it starts: "${activityCounts.bar}"`
+    );
+  }
+  step(
+    `the day and the window name their own intervals: "${activityCounts.day}" over ` +
+      `"${activityCounts.bar.slice(0, 70)}"`
+  );
   const activityScale = await scalePass('Activity at 1440');
   step(
     `Activity at 1440 draws the scales: radii ${activityScale.radii.join('/')}, ` +
@@ -2476,7 +2524,13 @@ try {
   // describes a different set.
   const allClientNoun = ALL_CLIENT === 1 ? 'client call' : 'client calls';
   const countForms = [
-    new RegExp(`^${ALL_CLIENT} ${allClientNoun} in this window · spanning \\d+ (s|m|h)( \\d+ (s|m))?$`),
+    // **THE WINDOW NAMES WHERE IT STARTS (the forty-third list).** A length alone cannot reconcile
+    // this count with the day's above it: measured live, a 12 h 15 m window read at 19:48 starts at
+    // 07:33 and the day's count covers midnight onward, so 629 > 206 was true and looked false.
+    new RegExp(
+      `^${ALL_CLIENT} ${allClientNoun} in this window · from \\d+(:| )\\d+( (AM|PM))?` +
+        `, spanning \\d+ (s|m|h)( \\d+ (s|m))?$`
+    ),
     new RegExp(`^${ALL_CLIENT} ${allClientNoun} on \\S+ in this window$`),
     // A live run may narrow by MACHINE while the count is still the whole window's; both are one set.
     new RegExp(`^${ALL_CLIENT} ${allClientNoun} (on \\S+ )?matching the search in this window$`)
@@ -2613,7 +2667,10 @@ try {
   // STILL THE ONE IT NAMES (the thirty-seventh list):** this leg runs with a machine selected, so the
   // sentence names that machine and withholds the whole read's span.
   const pressedForms = [
-    new RegExp(`^${ALL_CLIENT} rows in this window · spanning \\d+ (s|m|h)( \\d+ (s|m))?$`),
+    new RegExp(
+      `^${ALL_CLIENT} rows in this window · from \\d+(:| )\\d+( (AM|PM))?` +
+        `, spanning \\d+ (s|m|h)( \\d+ (s|m))?$`
+    ),
     new RegExp(`^${ALL_CLIENT} rows on \\S+ in this window$`)
   ];
   if (!pressedForms.some((form) => form.test(narrowedCountLabel))) {
