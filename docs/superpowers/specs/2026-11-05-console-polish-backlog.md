@@ -2248,12 +2248,29 @@ with 1 retry). The truth-telling is done. The SHAPE is not.
    edge to read against its neighbours, and its colour carries the whole message alone — which is
    rule 6's failure (`never colour alone`). **Fix:** the failed atom joins the contract and both
    surfaces draw it. **M.**
+   *(**Done, panel `daedef62` / console `ac340ec`, live 0.3.273-ux158**: `failed: { radius 8, pad 12,
+   textTone ink, tint alarm, role status, retries 1 }`. The panel after, measured at 1360:
+   **`padding 12px`, `radius 8px`, `background rgba(220,38,38,.08)`, text `rgb(24,24,27)`, 1 px border,
+   1120 wide, `role="status"`, 1 Retry** — a notice, not a red string. **And the console had the
+   opposite defect:** its notice had the right SHAPE but the SAME `#fafafa` tint for a refused fleet
+   read and for an unreadable installer, so a notice could not say how loud it was; it wears the alarm's
+   `--warn-soft` now (`rgb(255,244,229)`). The words stay INK on both, which is rule 6 answered without
+   a second colour. **The contract's corner is 8, not 10:** `--radius-sm2` is the panel's name for it
+   and both scales carry it, so the number moved to where the scales already were rather than adding a
+   third. **Two gates were wrong before they were right:** the panel's failed-atom test matched
+   `role="alert"` inside its OWN explanatory comment (a gate that fails on its documentation is a gate
+   nobody trusts — comments are stripped before the markup is read), and `findByRole("status")` matched
+   the page's other live region first, so the test finds the notice by its own words.)*
 
 2. **The panel's failure is ANNOUNCED twice.** Its `.error` is `role="alert"` inside a page whose
    own status line already says `Not read — the memory list could not be loaded.`, so a screen
    reader hears the same failure from two live regions in different words. The console has ONE
    region and says one sentence. **Fix:** one announcer, and the second line carries what the first
    cannot (the cause). **S.**
+   *(**Done with item 1**: the notice is the page's one live region and wears `status`, not `alert` —
+   the failure arrives AFTER the press, and an `alert` interrupts a reader mid-sentence. The result
+   line states (`Not read — the memory list could not be loaded.`), the notice announces (its words are
+   the cause).)*
 
 ## How a round goes
 
