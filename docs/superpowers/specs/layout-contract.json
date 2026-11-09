@@ -76,5 +76,11 @@
     "tint": "alarm",
     "role": "status",
     "retries": 1
+  },
+  "motion": {
+    "$comment": "Rule 18's mechanism, recorded once for both surfaces (the fifty-second list). REDUCED MOTION IS A BLANKET: every transition and animation is capped at 0.01ms under `prefers-reduced-motion: reduce`, because a NAMED LIST cannot cover a rule added later \u2014 measured, the panel still moved 4 elements at 0.2s under reduce while the console moved 0. The named list stays for the second half: an animation whose state must also stop (`animation: none`). `0.01ms` rather than `0s` so a `transitionend` listener still fires.",
+    "reducedMotion": "blanket",
+    "cap": "0.01ms",
+    "namedAnimationsStop": true
   }
 }

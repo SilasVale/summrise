@@ -9,7 +9,8 @@
     "dev": "vite",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "gate:browser": "node scripts/browser-gate.mjs"
+    "gate:browser": "node scripts/browser-gate.mjs",
+    "gate:motion": "node scripts/motion-gate.mjs"
   },
   "dependencies": {
     "@xterm/addon-fit": "^0.11.0",
