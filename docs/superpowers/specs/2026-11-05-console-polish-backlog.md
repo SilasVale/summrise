@@ -1536,6 +1536,43 @@ installer that is itself older than half the fleet.
    checks both halves — mutating the sentence to always take the fleet's form fails with
    `the attention block's release line read "… is 0.3.280; the machines below are behind it."`.)*
 
+## P0 — the thirty-fourth list (opened 2026-11-09, two surfaces disagree about one machine)
+
+The thirty-third list is closed. This list came from following one machine instead of one page: Home
+names `DESKTOP-84T3LIN` as behind, so I opened that machine and read what it says about itself.
+
+Live `0.3.273-ux130`. **The finding is a contradiction, not a wording defect:**
+
+    Home → Needs attention:  DESKTOP-84T3LIN · On v0.3.291 · behind 0.3.292.
+    That machine → Machine tab → Updates:  0.3.291 · current (the release)
+
+Same machine, same visit, two answers. Home compares against **the fleet's newest build**, the
+Machine tab compares against **the staged installer** (`updates.versionText` → `versionRelation`
+against the installer); with the fleet on 0.3.292 and the installer on 0.3.291 those two numbers are
+on opposite sides of 84T, so one page calls it behind and the other calls it current. A reader
+following the alert to its machine is told the alert was unnecessary. Two other reads recorded as
+clean: Home and Activity still differ by hierarchy rather than by accident (Home's headline fact is
+22 px / 600, Activity's day sentence is 17 px / 500 and the day label `Today` is 22 px / 600), and
+the phone's controls remain 44 px with the cards 97% covered.
+
+1. **Home and the machine's own page disagree about whether a machine is behind.** Measured above on
+   one machine in one visit: `behind 0.3.292` on Home, `current (the release)` on the Machine tab.
+   Neither sentence is wrong about its own comparison — they compare against different numbers —
+   which is exactly why the console cannot show both. One machine has one currency: the comparison
+   the alert makes is the one the machine's page must repeat, and the installer's own standing
+   (behind the fleet, as its strip already says) is a property of the download, not of the machine.
+   **Fix:** the Machine tab's version row compares against the same target the alert does, and the
+   installer's being older than the fleet is stated on the installer, where it already is. **M.**
+
+2. **Activity's filter block has four baselines in a two-column grid.** Measured at 1440: `MACHINES`
+   at x=314 (581 wide), `CALLERS` at x=919 (346), the count sentence `710 client calls in this
+   window · spanning 10 h 7 m` at **x=1001**, and `Search activity` with its field at **x=1070**
+   (288 wide, ending at 1,358 while the label above ends at 1,265). Four left edges and three
+   baselines (y=241, 267, 323) inside one block that reads as a single filter bar — the alignment
+   rule (20) says a grid fixes the rhythm, and here nothing is on one. **Fix:** the block is one
+   grid with two columns and one row per subject, so each label starts where its own content starts
+   and the right column shares one left edge. **S.**
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
