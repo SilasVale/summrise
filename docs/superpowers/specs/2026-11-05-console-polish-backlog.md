@@ -2221,6 +2221,8 @@ The EMPTY states are clean by the last list. The LOADING states are the finding.
    RESULT, used for a state that has no result. A reader who glances at that line sees a count and
    gets a word. **Fix:** the loading atom replaces it, and the count line is drawn only when it has
    a count. **S.**
+   *(**Done with item 1**: `.mem-result-line` is drawn only when `!busy && resultText !== ""`, and
+   `resultText` answers `""` for a read in flight. Measured after: `countLine: absent (correct)`.)*
 
 ## How a round goes
 
