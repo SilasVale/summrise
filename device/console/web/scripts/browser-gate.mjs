@@ -1737,6 +1737,13 @@ try {
   // and was used only on the machine pages — four blocks, four grammars, which is what makes a page
   // read as four stacked things. They all carry `.card` now, and this leg reads their rendered
   // corners and padding rather than their source.
+  // THE STRIP ARRIVES ON ITS OWN READ, so this leg waits for the page to finish drawing itself
+  // rather than measuring a Home that is still assembling — the first version of this check raced the
+  // installer read and reported `Home draws no .installer` on a page that was about to draw one.
+  await page
+    .locator('.installer.installer-strip')
+    .waitFor({ timeout: 10_000 })
+    .catch(() => {});
   const homeCards = await page.evaluate(() => {
     const out = [];
     for (const sel of ['.attention', '.fleet-table-wrap', '.installer']) {
@@ -1751,7 +1758,15 @@ try {
         card: element.classList.contains('card'),
         radius: style.borderTopLeftRadius,
         padLeft: style.paddingLeft,
-        padTop: style.paddingTop
+        padTop: style.paddingTop,
+        // **THE STRIP IS STILL A ROW.** `.card` sets `flex-direction: column`; a child rule that
+        // sets only `display: flex` keeps the column, and the title / button / sentence stack and
+        // centre themselves — measured live as a 238 px block whose four children began at x=710 /
+        // 749 / 939 / 1,058. Read on the same element, in the same pass, while Home is still drawn.
+        direction: style.flexDirection,
+        rows: new Set(
+          [...element.children].map((kid) => Math.round(kid.getBoundingClientRect().y))
+        ).size
       });
     }
     return out;
@@ -1773,6 +1788,13 @@ try {
       throw new Error(
         `Home's ${block.sel} padding is ${block.padTop} ${block.padLeft}, expected ${padded}`
       );
+    }
+    // The installer strip is the one block whose own addition is a ROW; a card that stacks is a
+    // different surface, and it happened the moment the strip stopped declaring the direction. Its
+    // children MAY wrap — the stale-file sentence is long and takes the leftover width at some
+    // viewports — so the assertion is the direction, which is a property of the rule, not the run.
+    if (block.sel === '.installer' && block.direction !== 'row') {
+      throw new Error(`the installer strip stacks in a ${block.direction}`);
     }
   }
   step(
