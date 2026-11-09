@@ -341,11 +341,20 @@ fn spacing_uses_the_rhythm_when_the_value_is_already_on_it() {
 
 #[test]
 fn spacing_is_the_rhythm_or_a_documented_exception() {
-    // Six lengths are not on the nine-step rhythm, and each is a structural measurement rather than
-    // a spacing choice: the 0.05/0.1rem control hairlines, the 1.1/1.2rem sheet padding, the 2rem
-    // boot/login padding and the 2.6rem offset above the status bar. Everything else must be a
-    // --sp-* token; a new 0.35rem is a new decision, and it has to be made here.
-    let allowed = ["0.05rem", "0.1rem", "1.1rem", "1.2rem", "2rem", "2.6rem"];
+    // Seven lengths are not on the nine-step rhythm, and each is a structural measurement rather
+    // than a spacing choice: the 0.05/0.1rem control hairlines, the 1.1/1.2rem sheet padding, the
+    // 2rem boot/login padding, the 2.6rem offset above the status bar, and the 2.25rem that clears
+    // the phone card's own disclosure (a 4 px inset + a 24 px chevron + the gap before the clock).
+    // Everything else must be a --sp-* token; a new 0.35rem is a new decision, and it has to be
+    // made here.
+    //
+    // **THIS TEST WAS RED FOR AN UNKNOWN STRETCH BEFORE 2026-11-09, AND NOTHING SAID SO.** The
+    // 2.25rem arrived with 49164b7 (Activity's Table as a phone card) and no run of this file
+    // followed it: CI runs `cargo test` on `main` only, and this branch's gates were the web ones.
+    // A gate that fails is worse than no gate — it teaches the next reader that red means noise.
+    // The measured clearance is 36 px because the disclosure ends at 29 px and the clock's text
+    // starts at 36; `--sp-6` would leave 3 px and the chevron would touch the time.
+    let allowed = ["0.05rem", "0.1rem", "1.1rem", "1.2rem", "2rem", "2.25rem", "2.6rem"];
     let properties = [
         "padding",
         "margin",
