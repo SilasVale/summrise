@@ -46,6 +46,7 @@ type Contract = {
   breakpoints: Record<string, number>;
   empty: { radius: number; pad: number; gap: number; textAlign: string; shadow: string };
   head: { gap: number; align: string };
+  motion: { reducedMotion: string; cap: string; namedAnimationsStop: boolean };
   section: {
     h2: { size: number; weight: number };
     h3: { size: number; weight: number };
@@ -115,7 +116,7 @@ describe("the layout contract", () => {
     // `agent/resources/panel-react/src/lib/layoutContract.test.ts`. If the two disagree, the two
     // frontends are drawn to different page systems and one of them is wrong.
     expect(createHash("sha256").update(contractText()).digest("hex")).toBe(
-      "a1e059b2fbd8e730eae779d8619af996e9f6f359ba8323bc1adf050f0d70ad49"
+      "7665774e553c63eca4e89aacd929fbd80a70d8ee4cda8157f4671c67a6e87935"
     );
   });
 
@@ -154,6 +155,29 @@ describe("the layout contract", () => {
     const globalH2 = source.match(/\nh2\s*\{[^}]*font-size:\s*var\(--([\w-]+)\)/)?.[1];
     expect(globalH2, "an h2's size is a TOKEN").toBeTruthy();
     expect(tokenPx(scale, globalH2!), "an h2 is the section level").toBe(contract.section.h2.size);
+  });
+
+  it("honours reduced motion with ONE blanket, and the contract records the mechanism", () => {
+    // **THE MECHANISM, ASSERTED HERE; THE RESULT, ASSERTED BY `scripts/motion-gate.mjs`.** This surface
+    // has honoured `prefers-reduced-motion` completely since it was written — measured, 29 elements move
+    // normally and **0** under `reduce` — and that is WHY the panel was measured against it: the panel's
+    // answer was two named lists and it still moved 4 buttons. The contract now records the mechanism
+    // (the nineteenth of the operator's twenty rules, which had no line in it at all).
+    const source = css();
+    const block = source.slice(source.indexOf("@media (prefers-reduced-motion: reduce)"));
+    // **THE BLANKET WINS OVER ANY RULE WRITTEN LATER**, which is what a named list cannot promise.
+    expect(block, "the blanket covers every element and both pseudo-elements").toMatch(
+      /\*, *\*::before, *\*::after {/
+    );
+    expect(block, "and it wins over a later rule").toMatch(/transition-duration:\s*0\.01ms !important/);
+    expect(block, "animations are capped too").toMatch(/animation-duration:\s*0\.01ms !important/);
+    // **`0.01ms` RATHER THAN `0s`**, so a `transitionend` listener still fires — the reason this surface
+    // chose it, kept as a contract value rather than a habit.
+    expect(contract.motion.reducedMotion).toBe("blanket");
+    expect(contract.motion.cap).toBe("0.01ms");
+    // **AND THE NAMED LIST IS STILL HERE FOR THE SECOND HALF OF THE RULE** — an animation whose STATE
+    // must also stop, which a duration cannot express.
+    expect(contract.motion.namedAnimationsStop).toBe(true);
   });
 
   it("is one eyebrow, and the twelve rules that drew it stop restating it", () => {
