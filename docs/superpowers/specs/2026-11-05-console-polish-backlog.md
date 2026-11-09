@@ -2046,6 +2046,35 @@ what five rounds of copy work bought.
    correct; two different sentences for them is not. **Fix:** only after item 1 says which interval
    each number is, the scope sentence says which subset each number is. **S.**
 
+## P0 — the forty-fourth list (opened 2026-11-10, two midnights)
+
+The forty-third list is closed. This list came from the question the last one made askable: **whose
+midnight is `Today`?** The page answers with two of them.
+
+Measured live `0.3.273-ux151` at 1440, and again from a browser set to `America/New_York`:
+
+    console host zone   UTC                console midnight 00:00Z
+    browser zone        America/New_York   browser midnight 05:00Z
+
+Two reads were clean and are recorded as clean: the day answer and the header agree to the row
+(`/audit/day` `client_calls: 231` over the page's `Today: 231 client calls`), and the window's count
+still names its own start, which is what the last list bought.
+
+1. **`/audit/day` cuts the day at the CONSOLE HOST's midnight; the timeline groups its rows at the
+   BROWSER's.** Measured: from an `America/New_York` browser (midnight 05:00Z) the page draws the
+   `Today` label over rows from 07:48Z onward while the day line has counted from 00:00Z — one
+   interval name over two intervals. The code says it outright: `/audit/day` is *"the console host's
+   local midnight"* and *"the page's timeline cuts at the browser's local midnight"*, with the note
+   that *"the measured host and browser are both Asia/Shanghai"*. That is true of the operator's own
+   machine and false for a browser anywhere else, or a laptop opened while travelling. **Fix:** one
+   midnight, named once, and each surface says which one it uses. **M.**
+
+2. **The day's scan reads 302 lines to answer a day that holds 1,000+ rows, and says it saw the
+   whole day.** Measured: `/audit/day` reports `lines_read: 302` for `client_calls: 231` while
+   `/audit?limit=1000` returns 1,000 lines ALL of them today (oldest 07:48Z, none before midnight).
+   The scan is partial and reports `since_ms: null` — which is the schema's own word for *"the read
+   reached midnight"*. **Fix:** either the answer says what it did not see, or it sees it. **M.**
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
