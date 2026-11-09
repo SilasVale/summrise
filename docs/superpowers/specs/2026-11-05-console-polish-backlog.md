@@ -992,6 +992,12 @@ Documentation · Sign out`), not a second copy of the session.
    down**. **Fix:** a day is drawn as today's rows plus a count-and-door for the rest (`692 calls ·
    11:52 → 12:43 — open the day`), the cap sentence sits beside the count it qualifies at the top,
    and the full list stays behind the day's own expansion or the Table. **M.**
+   *(Live 0.3.273-ux108: **180 rows drawn** (three days × 60), `main` **16,435 px** at 1440 — was
+   888 rows / 73,740 px. Three doors, each carrying its day's own count and clock: `Show the rest of
+   today (309 more)` · `369 calls · 10:02 → 14:42`, and the same for yesterday and Saturday. The cap
+   sentence is the first thing in the record (`Showing the newest 937 lines of 1040 fetched …`) and
+   `capAboveFirstDay` measured true. Pressing today's door draws 489 rows and leaves two doors.
+   `d64c20f`.)*
 
 3. **One credential list, seven rows that read the same.** Measured: seven tokens; four of them are
    `zss-harness-*` differing only in their device list and creation date; every row repeats
