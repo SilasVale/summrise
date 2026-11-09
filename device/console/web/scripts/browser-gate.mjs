@@ -1066,6 +1066,48 @@ try {
   if (state.installerRequests !== 1) {
     throw new Error(`the fleet read /installer ${state.installerRequests} times, not once`);
   }
+  // **A SPARE FILE IS NOT THE PAGE'S CALL TO ACTION (the thirty-sixth list).** Measured on the live
+  // page: an accent-filled `Download Windows installer` sat directly above the strip's own sentence
+  // saying the fleet had already outrun that file — the page's loudest control inviting a press whose
+  // answer it had given, on a fleet where the file could fix nothing. When the fleet is past the file
+  // the strip says what it is for, and its download is a NEUTRAL control: the page's one accent button
+  // is `Add a machine`.
+  const installerState = await page.evaluate(() => {
+    const strip = document.querySelector('.installer');
+    const link = strip?.querySelector('a');
+    const accentButtons = [...document.querySelectorAll('.page-actions a, .page-actions button')]
+      .filter((element) => {
+        const style = getComputedStyle(element);
+        return /accent-solid|primary/.test(element.className) || style.backgroundColor.includes('176, 58, 10');
+      })
+      .map((element) => (element.textContent ?? '').trim());
+    const style = link ? getComputedStyle(link) : null;
+    return {
+      heading: strip?.querySelector('h2')?.textContent?.trim() ?? '',
+      linkClass: link?.className ?? '',
+      linkBg: style?.backgroundColor ?? '',
+      stale: /already past this file/.test(strip?.textContent ?? ''),
+      accentButtons
+    };
+  });
+  if (installerState.stale) {
+    if (!installerState.linkClass.includes('installer-spare')) {
+      throw new Error(
+        `the stale installer's download is still the loud control: ${JSON.stringify(installerState)}`
+      );
+    }
+    if (installerState.heading !== 'Installer for a new or returning machine') {
+      throw new Error(
+        `the stale installer's heading still invites an install: ${installerState.heading}`
+      );
+    }
+  }
+  step(
+    `the installer's state is honest: "${installerState.heading}", its download is a ` +
+      `${installerState.linkClass.includes('installer-spare') ? 'secondary' : 'primary'} control, ` +
+      `and the page's accent button is ${installerState.accentButtons.join(' / ') || 'none'}`
+  );
+
   step(
     `the fleet's zero state offers ${INSTALLER.filename} (${installerLine}) from /installer/download`
   );

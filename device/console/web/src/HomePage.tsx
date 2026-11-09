@@ -91,24 +91,39 @@ function InstallerBlock(props: {
     );
   }
   const installer = props.installer;
+  // **AN INVITATION THE PAGE'S OWN NEXT LINE MAKES POINTLESS IS NOT AN INVITATION (the thirty-sixth
+  // list).** Measured at 1440 on `0.3.273-ux137`: an accent-filled `Download Windows installer` sat
+  // directly above `The fleet is already past this file: the newest build any machine reports is
+  // 0.3.292.` — the page's loudest control inviting a press whose answer it had already given, and
+  // the file could fix nothing on that fleet. The strip has TWO states now, and it says which one it
+  // is in: a file the fleet is behind is an invitation (install it and the fleet catches up); a file
+  // the fleet has outrun is a SPARE — what a machine that leaves and comes back, or a new one,
+  // installs — and its download is a quiet secondary control rather than the page's call to action.
+  const stale = fleetBehindInstaller(props.devices, installer.version);
+  const newest = fleetNewestVersion(props.devices);
   return (
     <section
       className="installer installer-strip"
       aria-label="Install the device runtime"
     >
-      <h2>Install the device runtime</h2>
-      <a className="btn primary" href="/installer/download" download>
+      <h2>{stale ? "Installer for a new or returning machine" : "Install the device runtime"}</h2>
+      <a
+        className={stale ? "btn installer-spare" : "btn primary"}
+        href="/installer/download"
+        download
+      >
         Download Windows installer
       </a>
       {/* **A STALE DOWNLOAD IS NOT THE TARGET (the thirty-third list).** The fleet ran 0.3.292
           while this staged installer was 0.3.291, and the attention block used to call that number
           "the release" — so the page's one downloadable file passed as the build everything should
           be measured against. When the machines are already past this file, its own line says so,
-          with the number the page actually holds. */}
-      {fleetBehindInstaller(props.devices, installer.version) && (
+          AND what the file is still good for. */}
+      {stale && (
         <p className="hint installer-stale">
-          The fleet is already past this file: the newest build any machine reports is{" "}
-          {fleetNewestVersion(props.devices)}.
+          The fleet is already past this file: the newest build any machine reports is {newest}. It
+          installs a machine that is not in the fleet yet, or one that comes back after being
+          removed; a machine already running {newest} needs nothing from it.
         </p>
       )}
       <p className="hint">

@@ -190,6 +190,31 @@ describe("Home — the fleet's installer", () => {
     expect(screen.queryByText("behind 0.3.9")).toBeNull();
   });
 
+  it("stops inviting an install when the fleet has outrun the file", async () => {
+    // **THE LIVE STATE (the thirty-sixth list).** On `0.3.273-ux137` the strip read
+    // `Install the device runtime` over an accent `Download Windows installer`, directly above its
+    // own sentence `The fleet is already past this file: the newest build any machine reports is
+    // 0.3.292.` — the page's loudest control inviting a press whose answer it had given. The strip
+    // now says what the file is FOR when the fleet has outrun it, and its download is neutral.
+    installerApi.installer.mockResolvedValue({ ...installerFacts, version: "0.3.291" });
+    drawFleet({
+      devices: [
+        { ...workshop, id: "a", name: "DESKTOP-9VH92BJ", version: "0.3.292" },
+        { ...workshop, id: "b", name: "DESKTOP-84T3LIN", version: "0.3.291" }
+      ]
+    });
+
+    const strip = await screen.findByRole("region", { name: "Install the device runtime" });
+    expect(within(strip).getByRole("heading")).toHaveTextContent(
+      "Installer for a new or returning machine"
+    );
+    const link = within(strip).getByRole("link", { name: "Download Windows installer" });
+    expect(link).toHaveClass("installer-spare");
+    expect(link).not.toHaveClass("primary");
+    // And it still says what it is for, in the page's own numbers.
+    expect(within(strip).getByText(/installs a machine that is not in the fleet yet/)).toBeInTheDocument();
+  });
+
   it("names the fleet's own newest build when the machines have outrun the installer", async () => {
     // **THE LIVE PAGE ON 0.3.273-ux129 (the thirty-third list).** The fleet ran
     // `0.3.292 / 0.3.275 / 0.3.292 / 0.3.291` while the staged installer was `0.3.291`, and Home said
