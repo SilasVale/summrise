@@ -33,5 +33,14 @@
     "gap": 12,
     "textAlign": "start",
     "shadow": "none"
+  },
+  "loading": {
+    "$comment": "The LOADING state's atom, which both surfaces draw (the forty-seventh list). A read that has not answered reserves the SHAPE of what it will draw: a card-sized skeleton row per item, with the read's own label in a live region. It is NOT a word in a result line: a loading state is not a result, and the count line is drawn only when it has a count.",
+    "rowRadius": 10,
+    "rowPad": 12,
+    "rowGap": 8,
+    "barRadius": 6,
+    "rows": 3,
+    "role": "status"
   }
 }

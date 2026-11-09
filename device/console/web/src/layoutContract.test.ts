@@ -40,6 +40,14 @@ type Contract = {
   title: { size: number; weight: number };
   breakpoints: Record<string, number>;
   empty: { radius: number; pad: number; gap: number; textAlign: string; shadow: string };
+  loading: {
+    rowRadius: number;
+    rowPad: number;
+    rowGap: number;
+    barRadius: number;
+    rows: number;
+    role: string;
+  };
 };
 
 function contractText(): string {
@@ -87,7 +95,7 @@ describe("the layout contract", () => {
     // `agent/resources/panel-react/src/lib/layoutContract.test.ts`. If the two disagree, the two
     // frontends are drawn to different page systems and one of them is wrong.
     expect(createHash("sha256").update(contractText()).digest("hex")).toBe(
-      "8664c9a6fe7a50ac5ab1ffcc75f9c35bb1757519fc246aa4609fe75dde1dd605"
+      "2765217e89fa949818bad779a06c33a8fbcb256c95bf1cf333edc0830418e7a5"
     );
   });
 
@@ -103,6 +111,45 @@ describe("the layout contract", () => {
     expect(page, "the page's rhythm comes from the scale").toContain(`gap: var(--${gap})`);
     expect(tokenPx(tokens(), pad)).toBe(contract.page.pad);
     expect(tokenPx(tokens(), gap)).toBe(contract.page.gap);
+  });
+
+  it("is the loading state's atom, and a read in flight reserves the shape it will draw", () => {
+    // **THE LOADING STATE IS A SKELETON IN A LIVE REGION (the forty-seventh list).** This surface
+    // drew it before the contract named it: `.skeleton-row` at 12 px padding, a 10 px corner, two
+    // bars at 6 px, inside `.skeleton-list` carrying `role="status"` and the read's own label. The
+    // contract writes the numbers down so the OTHER surface had somewhere to read them from, and this
+    // test refuses a literal in the same rule — `10px` and `--radius-sm` measure the same corner and
+    // only one of them is a system (`designScale`'s Rust counterpart refuses the literal too).
+    const source = css();
+    const row = ruleFor(source, ".skeleton-row");
+    expect(row, "the skeleton row must have a rule").not.toBeNull();
+    const rowRadius = row!.match(/border-radius:\s*var\(--([\w-]+)\)/)?.[1];
+    expect(rowRadius, "the row's corner is a TOKEN").toBeTruthy();
+    expect(tokenPx(tokens(), rowRadius!), "the row's corner is the contract's").toBe(
+      contract.loading.rowRadius
+    );
+    const pad = row!.match(/padding:\s*var\(--([\w-]+)\)/)?.[1];
+    expect(pad, "the row's padding is a TOKEN").toBeTruthy();
+    expect(tokenPx(tokens(), pad!), "the row's padding is the contract's").toBe(contract.loading.rowPad);
+    const bar = ruleFor(source, ".skeleton");
+    const barRadius = bar!.match(/border-radius:\s*var\(--([\w-]+)\)/)?.[1];
+    expect(barRadius, "the bar's corner is a TOKEN").toBeTruthy();
+    expect(tokenPx(tokens(), barRadius!), "the bar's corner is the contract's").toBe(
+      contract.loading.barRadius
+    );
+    // **THE HALF A STYLESHEET CANNOT HOLD.** The rows are drawn inside a live region that names the
+    // read, which is what makes a skeleton a statement rather than a shimmer.
+    const home = readFileSync(path.join(here, "HomePage.tsx"), "utf8");
+    // **THE TWO ATTRIBUTES THAT MAKE IT A STATEMENTS: A LABEL AND A LIVE ROLE.** The regex above
+    // matched either one on its own, so removing `role="status"` still passed — a gate that accepts
+    // the half it exists to protect. Each is asserted separately, on the element that carries the
+    // class, which is the only element either attribute belongs to.
+    const opening = home.slice(
+      home.indexOf('className="skeleton-list"'),
+      home.indexOf(">", home.indexOf('className="skeleton-list"'))
+    );
+    expect(opening, "the skeleton list names the read").toMatch(/aria-label=/);
+    expect(opening, "the skeleton list is a live region").toMatch(/role="status"/);
   });
 
   it("is the empty state's atom, and both empty shapes on this surface are it", () => {
