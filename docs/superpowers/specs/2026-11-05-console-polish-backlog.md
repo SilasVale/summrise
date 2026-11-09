@@ -916,24 +916,31 @@ list's 1-3.
 
 3. **The failure banner covers the topbar** (banner 352,12,736,52 over a 52 px topbar), and the page states
    the same failure again with the only Retry. **Fix:** the banner below the topbar, one statement. **S/M.**
+   *(Live 0.3.273-ux104: the failure banner is a grid row below the topbar — 0 `.alert-banner`s, one `.notice` + one Retry on a failed `/fleet`; the topbar keeps y=0 h=52 at 1440 and h=45 at 390)*
 
 4. **Screen's disabled Capture gives its actual reason in paragraph 2**, after a locked-session note. **Fix:**
    the reason first. **S.**
+   *(Live 0.3.273-ux104: `Capture is off: the per-user helper has not registered…` is the sentence beside the disabled button, `.screen-capture-group`; the locked-session legend stays after it)*
 
 5. **The offline reason is stated twice on Screen/Files/Runs** (shell notice + tab sentence). **Fix:** once.
    **S.**
+   *(Live 0.3.273-ux104: the tab lines name only what is missing (`No capture yet.`); the shell's orange notice owns the offline reason once)*
 
 6. **The offline Machine dates its absence from the console's restart** (`since this console started at 09:52`)
    while its own notice says `Last seen 2d 18h ago`. **Fix:** the machine's own last-seen. **S.**
+   *(Live 0.3.273-ux104: `The console restarted at 2026-11-09 12:27 and has not heard from this machine since; it was last seen 3d 20h ago.` — both dates, each labelled)*
 
 7. **At 390 with a populated fleet, Add a machine opens the enrollment panel at y=1045 below the fold** and the
    press looks dead (visible at y=521 on the empty first-run page). **Fix:** scroll it into view. **S.**
+   *(Live 0.3.273-ux104: at 390 with a full fleet the enrollment heading is focused at y=419 in an 844 px viewport (was y=1045, unfocused))*
 
 8. **The Machine page never prints the OS/CPU/arch the fleet frame carries** (`Windows 11 · x86_64 · 12
    cores`). **Fix:** show them. **S.**
+   *(Live 0.3.273-ux104: `Platform · Windows 11 · x86_64 · 12 cores` is the first row above Memory)*
 
 9. **One action, four names** — `Open machine`, `Open Device`, `Open DESKTOP-…`, `Use`. **Fix:** one name.
    **S.**
+   *(Live 0.3.273-ux104: the attention door and the summary read `Open`; the fleet rows keep `DESKTOP-… ›` with the accessible `Open DESKTOP-…`)*
 
 10. **Activity's provenance line mixes audit.jsonl's 10-22 lifetime with the newest-1000 window**
     (`1000/1040/19 repeats/5.7 MiB/since 10-22`). **Fix:** separate the file's lifetime from the window's.
@@ -941,6 +948,7 @@ list's 1-3.
 
 11. **`last result 0` on the Repair task row is a code, not a verdict**; the 84T's `not reported by this build`
     shows the row can speak English. **Fix:** `ok`/the reason. **S.**
+   *(Live 0.3.273-ux104: `last result 0 (success)` · next 2026-11-09 12:33)*
 
 12. **The CPH's ~15 h absence leaves no trace after recovery** — `started 27m ago`, `Applied 0.3.292`, a
     13-attempt retry note, but no `back after 14h 58m`. **Fix:** the recovery line. **M.**
