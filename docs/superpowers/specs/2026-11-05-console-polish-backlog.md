@@ -1782,6 +1782,15 @@ recorded as clean: the page's own rhythm is exactly the contract's — three car
    outer layer. **Fix:** every card's inner rhythm and padding come from the contract, and the two
    that genuinely need a different rhythm say why in one measured exception rather than drifting by
    2 px each. **S.**
+   *(**Done, live 0.3.273-ux144** (`dc43365`): every Home block is on the card's rhythm and padding —
+   measured live, `.attention` **8 / 16**, `.installer` **8 / 16**, `.machine-summary` **8 / 16**, the
+   table a declared **0 / 0** because it is the card's body. `.machine-summary` did not even carry
+   `.card` and hand-wrote `14px 18px`; the strip's 14 was a ROW gap read as a row-gap while the element
+   was still a grid, so it is now declared on the axis it belongs to (`column-gap` 14, `row-gap` 8).
+   Both edges the page keeps are named: `.attention`'s warning 3 px and `.machine-summary`'s accent
+   3 px, the page's one accent edge. The gate grew two legs — `Home's .installer runs a 14px inner
+   rhythm, the card's is 8px` and `the selected-machine card is not on the card grammar` — both
+   mutation-checked.)*
 
 2. **The panel's five pages keep five rhythms behind one frame.** The frame gives each page 24 px
    between its blocks; measured at 1360, the blocks inside it run **24** (Memory, Settings) and **8**
@@ -1789,6 +1798,14 @@ recorded as clean: the page's own rhythm is exactly the contract's — three car
    the page*, and the next page added will pick a third number. The contract has a `section.gap` of 24
    that **no rule in either repo reads**. **Fix:** the pages declare which rhythm they use from the
    contract (`page` or `section`), and the unused key is either used or deleted. **S.**
+   *(**Done, panel `6b0796a2`**: the two rhythms are the contract's own numbers and each page declares
+   which it uses — the **page rhythm 24** on Memory and Settings (the frame) and the **list rhythm 8**
+   on Plugins, which is the CARD's own inner gap rather than a new number. And the dead key is
+   **deleted**: `section.gap` was read by no rule in either repo, and both sha256 literals moved
+   together (`6a6d7f86…192d9`) — the cross-repo pin doing its job. One measurement worth keeping: giving
+   `#plugins-view` a `gap: 0` to stop it declaring a second rhythm COLLAPSED the list, because an ID
+   selector on the same element beats the class — children at y=111 / 149 / 181. The fix is to delete
+   the declaration, not to zero it, and the test asserts the page's own id declares no rhythm at all.)*
 
 ## How a round goes
 
