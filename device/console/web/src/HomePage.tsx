@@ -7,7 +7,7 @@ import { PAGE_LABELS } from "./Rail";
 import { bytes } from "./runFormat";
 import { useInstaller } from "./useInstaller";
 import { useLiveTools } from "./useLiveTools";
-import { versionBelow } from "./versions";
+import { fleetNewestVersion, releaseTarget, versionBelow, type Release } from "./versions";
 
 /** A one-time enrollment code and the command that redeems it. */
 export type Enrollment = { code: string; expires_at_ms: number } | null;
@@ -209,53 +209,6 @@ function attentionProblems(
 /** Whether any machine reports a build newer than the installer on this page. */
 function fleetBehindInstaller(devices: readonly Device[], installerVersion: string): boolean {
   return devices.some((device) => versionBelow(installerVersion, device.version));
-}
-
-/**
- * **THE TARGET IS THE NEWER OF THE TWO, AND THE SENTENCE SAYS WHICH (the thirty-third list).**
- *
- * "Behind" is a comparison, and the page holds two possible targets: the newest build the machines
- * report, and the staged installer. Measured on `0.3.273-ux129`, they disagreed — the fleet ran
- * `0.3.292 / 0.3.275 / 0.3.292 / 0.3.291` while the installer was `0.3.291` — and Home took the
- * installer, so its sentence (`The release is 0.3.291; the machines below are not on it.`) described
- * three machines that were on or past it. Taking the newer of the two gets both cases right: when
- * the installer leads, the machines really are not on it; when the fleet has outrun the file, the
- * machines really are behind the fleet. Which of the two it is, the sentence says in words.
- */
-type Release = { version: string; from: "fleet" | "installer" };
-
-function releaseTarget(
-  devices: readonly Device[],
-  installer: Installer | null
-): Release | null {
-  const newest = fleetNewestVersion(devices);
-  const staged = installer?.available ? installer.version : null;
-  if (newest === null) return staged === null ? null : { version: staged, from: "installer" };
-  if (staged === null) return { version: newest, from: "fleet" };
-  // `versionBelow(newest, staged)` is "the installer is newer than the fleet".
-  return versionBelow(newest, staged)
-    ? { version: staged, from: "installer" }
-    : { version: newest, from: "fleet" };
-}
-
-/**
- * The newest build any machine reports.
- * Measured on `0.3.273-ux129`: the fleet ran `0.3.292 / 0.3.275 / 0.3.292 / 0.3.291` while the
- * staged installer was `0.3.291`, and Home said `The release is 0.3.291; the machines below are not
- * on it.` — three of the four machines were on or past it, and the word "release" pointed at a
- * download older than half the fleet. The number a reader is asking about is the newest build the
- * machines themselves report; the installer is a separate subject and is compared on its own line.
- * Ties are broken by the semver order `compareVersions` already implements, so `0.3.291` and
- * `0.3.291.0` cannot both claim to be newest.
- */
-function fleetNewestVersion(devices: readonly Device[]): string | null {
-  let newest: string | null = null;
-  for (const device of devices) {
-    const version = device.version;
-    if (!version) continue;
-    if (newest === null || versionBelow(newest, version)) newest = version;
-  }
-  return newest;
 }
 
 /** The problems folded under the machine they belong to, in the fleet's own order. */

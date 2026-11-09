@@ -1,7 +1,10 @@
 import type { DeviceUpdate, HostFacts } from "./api";
 import { clockTimeSeconds, exactMoment, isoDate } from "./format";
 import { processStartMs, startedLine, updateChannel } from "./updateStory";
-import { versionEqual, versionRelation } from "./versions";
+import { versionEqual, versionRelation, type Release } from "./versions";
+
+/** The target a version row measures against: the number and where it came from. */
+type ReleaseTarget = Pick<Release, "version" | "from">;
 
 /**
  * THE MACHINE TAB'S UPDATE STORY, IN THE DEVICE PANEL'S UPDATES SHAPE.
@@ -70,7 +73,7 @@ export type UpdatePageDevice = {
 export function updateRows(
   device: UpdatePageDevice,
   nowMs = Date.now(),
-  release: string | null | undefined = undefined
+  release: ReleaseTarget | null | undefined = undefined
 ): UpdateRow[] {
   const update = device.update ?? null;
   const last = update?.last_update ?? null;
@@ -165,25 +168,43 @@ export function updateRows(
 }
 
 /**
- * The running version plus the card's one comparison with the staged release.
+ * The running version plus the card's one comparison with **the fleet's newest build**.
  *
- * An unread installer adds nothing (`undefined`); a console that read it and found no staging says
- * `release unknown`; a known release is compared once. The `current` clause does not repeat the
+ * **ONE MACHINE HAS ONE CURRENCY (the thirty-fourth list).** This row used to compare against the
+ * staged installer while Home's alert compared against the fleet's newest build, so on the measured
+ * page one machine read `behind 0.3.292` in Needs attention and `current (the release)` on its own
+ * Machine tab — in the same visit. Neither sentence was wrong about its own comparison, which is
+ * exactly why both cannot be shown: a reader who follows the alert to its machine is told the alert
+ * was unnecessary. The comparison the alert makes is the one this row repeats.
+ *
+ * `release` keeps its own meaning — the staged installer's version — but it is now stated on the
+ * installer's row rather than folded into the machine's standing: the file being older than the
+ * fleet is a property of the download, not of the machine.
+ *
+ * An unread fleet adds nothing (`undefined`); a fleet whose machines report no version says
+ * `release unknown`; a known target is compared once. The `current` clause does not repeat the
  * number — the running version at the start of the row is the whole fact — while "behind"/"ahead"
- * must name the release, because that is the number the running one is being placed against.
+ * must name the target, because that is the number the running one is being placed against.
  */
 function versionText(
   running: string,
-  release: string | null | undefined
+  target: ReleaseTarget | null | undefined
 ): string {
-  if (release === undefined) return running;
-  if (release === null) return `${running} · release unknown`;
-  const relation = versionRelation(running, release);
-  if (relation === "current") return `${running} · current (the release)`;
-  if (relation === "behind") return `${running} · behind the release ${release}`;
-  if (relation === "ahead") return `${running} · ahead of the release ${release}`;
+  if (target === undefined) return running;
+  if (target === null) return `${running} · release unknown`;
+  const relation = versionRelation(running, target.version);
+  // **THE SENTENCE NAMES ITS OWN SUBJECT (the thirty-third and thirty-fourth lists).** The target is
+  // whichever of the two numbers is newer, so a row that said `behind the fleet's 0.3.280` about the
+  // INSTALLER's version would point at the wrong file — and one that said `behind the release` about
+  // the fleet's newest would point at the wrong fleet.
+  const whose = target.from === "installer" ? "the release" : "the fleet's";
+  const current =
+    target.from === "installer" ? "current (the release)" : "current (the newest build in the fleet)";
+  if (relation === "current") return `${running} · ${current}`;
+  if (relation === "behind") return `${running} · behind ${whose} ${target.version}`;
+  if (relation === "ahead") return `${running} · ahead of ${whose} ${target.version}`;
   // A value that is not a dotted version cannot be compared; name it rather than claim a side.
-  return `${running} · release ${release}`;
+  return `${running} · release ${target.version}`;
 }
 
 /** A row for a moment in the console's clock, with the exact instant for its title. */

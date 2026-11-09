@@ -308,6 +308,116 @@ describe("SystemPage", () => {
     expect(screen.queryByText("not registered")).toBeNull();
   });
 
+  it("compares the machine against the fleet Home measures it by, not against the installer", async () => {
+    // **ONE MACHINE HAS ONE CURRENCY (the thirty-fourth list).** Measured on `0.3.273-ux130`: Home
+    // listed DESKTOP-84T3LIN as `On v0.3.291 · behind 0.3.292.` while that machine's own Machine tab
+    // read `0.3.291 · current (the release)` — in one visit. Home measured against the fleet's newest
+    // build and the tab against the staged installer (0.3.291), and those two numbers are on opposite
+    // sides of 84T. The card now takes the fleet and computes the same target Home does.
+    const installed = {
+      id: "device-1",
+      name: "workshop",
+      online: true,
+      version: "0.3.291",
+      last_frame_ms: 1,
+      update: {
+        current: "0.3.291",
+        last_check: null,
+        last_update: { to: "0.3.291", outcome: "applied", at_ms: Date.now() - 60_000 }
+      },
+      host: {
+        update: {
+          current: { version: "0.3.291", channel: "stable" },
+          previous: null,
+          pending: null,
+          last_swap: null,
+          repairs: []
+        },
+        restarts: [
+          { at_ms: Date.now() - 90_000, version: "0.3.291", channel: "stable", pid: 4200 }
+        ],
+        helper: { registered: false }
+      }
+    };
+    installerApi.installer.mockResolvedValue({
+      available: true,
+      filename: "SummriseSetup-0.3.291.exe",
+      version: "0.3.291",
+      size_bytes: 1,
+      sha256: "a".repeat(64)
+    });
+    const { container } = render(
+      <SystemPage
+        grant={GRANT}
+        device={installed}
+        fleet={[{ version: "0.3.292" }, { version: "0.3.275" }, { version: "0.3.291" }]}
+      />
+    );
+
+    await screen.findByText("online");
+    const rows = gridRows(container);
+    // The applied version leads when it is the one running (the card's own order), so the row that
+    // carries the comparison is whichever of the two states this build.
+    const versionRow = rows.find((row) => row.label === "Applied" || row.label === "Running");
+    // The machine is behind the FLEET's newest build — the same fact Home states about it.
+    expect(versionRow?.value).toBe("0.3.291 · behind the fleet's 0.3.292");
+    // The version row carries the fleet's comparison — the same fact Home states about this machine.
+    // (The installer row is drawn only when the fleet has outrun a NEWER file; here the installer and
+    // 84T are on the same build, so the fleet is behind the file, not the other way round.)
+  });
+
+  it("states the installer's own standing when the fleet has outrun the file", async () => {
+    // The measured fleet ran 0.3.292 while the staged installer was 0.3.291. The installer being
+    // older is a property of the DOWNLOAD, not of any machine, so it gets its own row: a reader
+    // comparing a machine's build with "the release" is comparing against the wrong number
+    // (the thirty-fourth list).
+    const installed = {
+      id: "device-1",
+      name: "workshop",
+      online: true,
+      version: "0.3.292",
+      last_frame_ms: 1,
+      update: {
+        current: "0.3.292",
+        last_check: null,
+        last_update: { to: "0.3.292", outcome: "applied", at_ms: Date.now() - 60_000 }
+      },
+      host: {
+        update: {
+          current: { version: "0.3.292", channel: "stable" },
+          previous: null,
+          pending: null,
+          last_swap: null,
+          repairs: []
+        },
+        restarts: [
+          { at_ms: Date.now() - 90_000, version: "0.3.292", channel: "stable", pid: 4200 }
+        ],
+        helper: { registered: false }
+      }
+    };
+    installerApi.installer.mockResolvedValue({
+      available: true,
+      filename: "SummriseSetup-0.3.291.exe",
+      version: "0.3.291",
+      size_bytes: 1,
+      sha256: "a".repeat(64)
+    });
+    const { container } = render(
+      <SystemPage
+        grant={GRANT}
+        device={installed}
+        fleet={[{ version: "0.3.292" }, { version: "0.3.275" }]}
+      />
+    );
+
+    await screen.findByText("online");
+    const installerRow = gridRows(container).find((row) => row.label === "Installer");
+    expect(installerRow?.value).toBe(
+      "The staged installer is 0.3.291, behind the fleet's 0.3.292."
+    );
+  });
+
   it("states the device's own update facts, including the last check", async () => {
     // The measured Machine tab left the operator with `Running · v0.3.284` and a sentence whose
     // last clause was the answer. The card states the facts as rows: the running version and the
@@ -757,6 +867,8 @@ describe("SystemPage", () => {
   });
 
   it.each([
+    // **THE SENTENCE NAMES ITS OWN SUBJECT (the thirty-third and thirty-fourth lists).** With no
+    // fleet passed, the card's own answer is the installer, so these three read "the release".
     ["0.3.292", "0.3.291", "0.3.292 · ahead of the release 0.3.291"],
     ["0.3.291", "0.3.291", "0.3.291 · current (the release)"],
     ["0.3.289", "0.3.291", "0.3.289 · behind the release 0.3.291"]

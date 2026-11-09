@@ -316,7 +316,7 @@ describe("updateRows — the running version against the staged release", () => 
 
   it("says a machine one release ahead is ahead, and names the release once", () => {
     // The measured 9VH: runs 0.3.292 while the console's installer is 0.3.291.
-    const rows = updateRows(applied("0.3.292"), NOW, "0.3.291");
+    const rows = updateRows(applied("0.3.292"), NOW, { version: "0.3.291", from: "installer" });
 
     expect(rows[0]).toMatchObject({
       label: "Applied",
@@ -328,14 +328,14 @@ describe("updateRows — the running version against the staged release", () => 
   });
 
   it("says a machine on the release is current, without writing the number twice", () => {
-    const rows = updateRows(applied("0.3.291"), NOW, "0.3.291.0");
+    const rows = updateRows(applied("0.3.291"), NOW, { version: "0.3.291.0", from: "installer" });
 
     expect(rows[0].text).toBe("0.3.291 · current (the release)");
     expect(rows[0].text).not.toContain("0.3.291.0");
   });
 
   it("says a machine behind the release is behind", () => {
-    const rows = updateRows(applied("0.3.289"), NOW, "0.3.291");
+    const rows = updateRows(applied("0.3.289"), NOW, { version: "0.3.291", from: "installer" });
     expect(rows[0].text).toBe("0.3.289 · behind the release 0.3.291");
   });
 
@@ -351,7 +351,7 @@ describe("updateRows — the running version against the staged release", () => 
         host: { restarts: [{ at_ms: STARTED_AT, version: "0.3.280" }] }
       },
       NOW,
-      "0.3.291"
+      { version: "0.3.291", from: "installer" }
     );
 
     expect(rows[0]).toMatchObject({
@@ -382,7 +382,7 @@ describe("updateRows — the running version against the staged release", () => 
         }
       },
       NOW,
-      "0.3.277"
+      { version: "0.3.277", from: "installer" }
     );
 
     expect(rows.find((row) => row.key === "rolled_back_to")?.text).toBe(
