@@ -1387,6 +1387,7 @@ async fn the_fleet_serves_the_whole_day_not_the_newest_window() {
     assert_eq!(
         day,
         json!({
+            "day_start_ms": local_midnight(fixture.now_ms()),
             "client_calls": 10,
             "failed": 0,
             "console": 0,
@@ -1536,6 +1537,7 @@ async fn the_day_route_counts_the_pages_four_buckets_from_midnight() {
     assert_eq!(
         day,
         json!({
+            "day_start_ms": local_midnight(now),
             "client_calls": 3,
             "failed": 2,
             "console": 1,

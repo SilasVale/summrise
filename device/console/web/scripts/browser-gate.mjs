@@ -710,9 +710,13 @@ function apiReply(request, url) {
   if (method === 'GET' && pathname === '/audit/day') {
     const device = url.searchParams.get('device');
     const source = device === BIG_DEVICE.id ? BIG_UNIQUE : TODAY_LINES;
-    return json(
-      dayCounts(source.filter((line) => device === null || line.device_id === device))
-    );
+    // **THE DAY NAMES ITS MIDNIGHT (the forty-fourth list).** The real console publishes
+    // `day_start_ms` so the page's labels cut where the count cut; a stub that omitted it would let
+    // the page fall back to the browser's day and the gate would never see the difference.
+    return json({
+      ...dayCounts(source.filter((line) => device === null || line.device_id === device)),
+      day_start_ms: DAY_START.getTime()
+    });
   }
   if (method === 'GET' && pathname === '/denials') return json([]);
   // The static registry, with the same destructive flags the live catalogue carries. The fleet
@@ -2041,6 +2045,53 @@ try {
   step(
     `the day and the window name their own intervals: "${activityCounts.day}" over ` +
       `"${activityCounts.bar.slice(0, 70)}"`
+  );
+  // **THE LABELS CUT WHERE THE COUNT CUT (the forty-fourth list).** Measured from a browser set to
+  // `America/New_York` (midnight 05:00Z): the page drew the `Today` label over rows from 07:48Z while
+  // the day line above it had counted from 00:00Z. The answer now names `day_start_ms`; this leg
+  // reads it and refuses a `Today` label whose first row is before the cut.
+  // **A BROWSER IS NOT THE CONSOLE HOST, AND THIS LEG CANNOT PRETEND OTHERWISE.** `playwright-core`'s
+  // `Page` has no `emulateTimezone` (the Context does, and this run has one page), and re-zoning the
+  // whole run broke another leg's sentence (`Today 4 client calls · last 15:31`). So this leg proves
+  // what it can see from here — that the answer NAMES its midnight and that the label does not start
+  // before it — and the zone-independence itself is proved by the unit test that sets the cut
+  // explicitly (`groups its days at the midnight the count used, not the browser's`), which fails on
+  // the browser's day with no zone involved. The honest summary of this leg's reach is in its name.
+  const dayCut = await page.evaluate(async () => {
+    const day = await fetch('/audit/day', { credentials: 'include' }).then((r) => r.json());
+    const label = [...document.querySelectorAll('.timeline-day-label')]
+      .map((element) => (element.textContent ?? '').trim())
+      .find((text) => text === 'Today') ?? null;
+    // The first day section's own clock: the rows inside it hold a `<time>` whose text is the
+    // record's stamp, and the section's ISO date is the row's own moment.
+    const firstDay = document.querySelector('.timeline-day');
+    const firstStamp = firstDay?.querySelector('time')?.getAttribute('datetime') ?? null;
+    const browserMidnight = new Date();
+    browserMidnight.setHours(0, 0, 0, 0);
+    return {
+      dayStartMs: day.day_start_ms ?? null,
+      dayLabel: label,
+      firstRowTs: firstStamp === null ? null : new Date(firstStamp).getTime(),
+      browserZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      browserMidnightMs: browserMidnight.getTime()
+    };
+  });
+  if (dayCut.dayStartMs === null) {
+    throw new Error('the day answer does not name the midnight it cut at');
+  }
+  if (dayCut.dayLabel === null) {
+    throw new Error('Activity draws no Today label to check');
+  }
+  if (dayCut.firstRowTs !== null && dayCut.firstRowTs < dayCut.dayStartMs) {
+    throw new Error(
+      `the Today label sits over a row from before the cut: ${JSON.stringify(dayCut)}`
+    );
+  }
+  step(
+    `the day names its midnight (${new Date(dayCut.dayStartMs).toISOString()}) and the Today label ` +
+      `starts at or after it; this browser's own day began ` +
+      `${Math.round((dayCut.browserMidnightMs - dayCut.dayStartMs) / 3_600_000)} h later, and the ` +
+      `zone-independence is the unit test's`
   );
   const activityScale = await scalePass('Activity at 1440');
   step(

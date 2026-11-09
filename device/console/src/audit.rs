@@ -249,6 +249,12 @@ pub(crate) struct DayBuckets {
 /// partial, and it says `bounded` when it happens.
 #[derive(Debug, Default)]
 pub(crate) struct DayRead {
+    /// **THE MIDNIGHT THIS READ CUT AT, IN UNIX MILLISECONDS (the forty-fourth list).** The page's
+    /// timeline groups its rows into days at the BROWSER's midnight and this read cuts at the CONSOLE
+    /// HOST's, so the two agree only when both are the same zone — true of the operator's own machine
+    /// and false for any other browser. The answer publishes the moment it used, so the page can cut
+    /// its labels at the same one instead of inferring it from the reader's clock.
+    pub(crate) day_start_ms: u64,
     /// The whole file's day, including lines that name no device (operator actions).
     pub(crate) all: DayBuckets,
     /// Each device's day. A device appears only when the day holds a line naming it.
@@ -454,6 +460,7 @@ impl Audit {
             None
         };
         DayRead {
+            day_start_ms: midnight_ms,
             all,
             devices,
             since_ms,
