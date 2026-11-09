@@ -485,7 +485,24 @@ button.link {
 button.link:hover { background: transparent; color: var(--accent); border-color: transparent; }
 
 @media (max-width: 639px) {
-  .fleet-open { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-1) var(--sp-2); padding: var(--sp-3); }
+  /* **THE CARD IS THE DOOR (the twenty-ninth list, item 2).** Measured at 390: a fleet row is
+     358 x 103 px and the name link inside it is 156 x 26 px — 4,005 of 36,695 px², eleven percent.
+     Tapping the card's body at its centre hit `.fleet-status` (a span), so a thumb that landed
+     anywhere but on the first line's 26 px of text got nothing: `#home` before and after. On the
+     desktop the row is a table row and the name link is the door; on the phone the card looks like
+     one target, so the name link now FILLS it — it is the card's whole surface, the `⋯` menu and the
+     other links keep their own boxes above it, and the visual order is unchanged because the link's
+     children are the same elements in the same grid. */
+  .fleet-open {
+    display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-1) var(--sp-2);
+    padding: var(--sp-3);
+    position: absolute; inset: 0; margin: 0;
+    align-content: flex-start;
+  }
+  /* The row is the positioned ancestor; the cells that hold a control of their own are lifted above
+     the door so the `⋯` and the row's links stay reachable. */
+  .fleet-table tbody tr { position: relative; }
+  .fleet-actions, .fleet-version-cell, .fleet-status-cell { position: relative; z-index: 1; }
   .fleet-name { flex: 1; }
   /* The status cell takes the whole row below dot and name; the counts take a line of their own so
      `283 calls · 38 failed` never competes with the name for the first line's width. */
