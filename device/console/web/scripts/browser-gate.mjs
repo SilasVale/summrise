@@ -3175,7 +3175,10 @@ try {
   step('opened Connect → Tokens; one row per registry token, including another machine\'s');
 
   // **THE MACHINE FORM COUNTS THE LIVE CATALOGUE.** The same seven tools carry two destructive
-  // flags on the gate machine; the sentence under them must state that count, not a blank.
+  // flags on the gate machine; the sentence under them must state that count, not a blank. The
+  // form is one press behind `New token` once the registry has credentials (backlog item 3), so the
+  // leg opens it before reading the count — and the list is checked BEFORE that press.
+  await connect.getByRole('button', { name: 'New token' }).click();
   const machineCount = connect.getByText('7 tools · 2 can change the machine', { exact: true });
   await machineCount.waitFor({ timeout: 10_000 });
   step(`the machine token form counts its live catalogue: "${(await machineCount.innerText()).trim()}"`);
@@ -3524,6 +3527,8 @@ try {
   // **THE FLEET FORM COUNTS THE REGISTRY, NOT A FALSE ZERO.** No machine is selected here, so the
   // only catalogue is `/tools`: seven tools, two destructive. The measured bug printed
   // `0 can change the machine` over exactly this form while the machine form printed the real count.
+  // The form is one press behind `New token` (backlog item 3).
+  await tokensDoor.getByRole('button', { name: 'New token' }).click();
   const fleetCount = tokensDoor.getByText(
     '7 tools · 2 can change the machine · one list for every machine in the token\'s scope',
     { exact: true }
@@ -4170,6 +4175,9 @@ try {
   await page.locator('.account').getByRole('button', { name: 'Tokens', exact: true }).click();
   const offlineTokens = page.getByRole('dialog', { name: 'Tokens' });
   await offlineTokens.waitFor({ timeout: 10_000 });
+  // The credential list is the section's answer; the mint form is one press behind `New token`
+  // (backlog item 3).
+  await offlineTokens.getByRole('button', { name: 'New token' }).click();
   const offlineCount = offlineTokens.getByText(
     '7 tools (console registry; the machine is offline) · 2 can change the machine',
     { exact: true }

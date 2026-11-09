@@ -1918,6 +1918,12 @@ span.files-name {
   margin: 0; font-size: var(--fs-base); font-weight: var(--fw-semi);
   text-transform: none; letter-spacing: normal; color: var(--ink);
 }
+/* The credential list is the section's answer and the mint form is its door (backlog item 3). */
+.token-list-head, .token-create-head {
+  display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap;
+}
+.token-list-head h3, .token-create-head h3 { flex: 1 1 auto; min-width: 0; }
+.token-list-head button, .token-create-head button { flex: none; }
 .token-warning { margin: 0; font-size: var(--fs-base); font-weight: var(--fw-semi); }
 .created-token {
   display: grid; gap: var(--sp-2); padding: var(--sp-3);

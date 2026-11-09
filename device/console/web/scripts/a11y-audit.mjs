@@ -1347,13 +1347,24 @@ try {
   await measure(page, 'connect-endpoint-dialog', '[role="dialog"]');
 
   await connect.getByRole('tab', { name: 'Tokens', exact: true }).click();
-  await connect.getByRole('heading', { name: 'Create a token' }).waitFor({
+  // **THE CREDENTIAL LIST IS THE TOKENS SECTION'S ANSWER (backlog item 3).** The audit measures the
+  // section as the operator meets it — the list first — and then opens the mint form, which is a
+  // door behind `New token`, and measures that surface too.
+  await connect.getByRole('heading', { name: 'Existing tokens' }).waitFor({
     state: 'visible',
     timeout: 5_000
   });
   await settle(page, 300);
   await measure(page, 'connect-tokens');
   await measure(page, 'connect-tokens-dialog', '[role="dialog"]');
+  await connect.getByRole('button', { name: 'New token', exact: true }).click();
+  await connect.getByRole('heading', { name: 'Create a token' }).waitFor({
+    state: 'visible',
+    timeout: 5_000
+  });
+  await settle(page, 300);
+  await measure(page, 'connect-tokens-form');
+  await measure(page, 'connect-tokens-form-dialog', '[role="dialog"]');
 
   await page.locator('.sheet-close').first().click();
   await context.close().catch(() => {});

@@ -347,6 +347,10 @@ function TokensSection({
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
   const [created, setCreated] = useState<Created | null>(null);
+  // **THE LIST ANSWERS "WHICH DO I KEEP", SO IT DRAWS FIRST (backlog item 3).** The mint form
+  // stays in the same markup, one press behind `New token`; `null` means the operator has not
+  // chosen and the read decides — an empty registry has nothing to list, so its form is open.
+  const [composing, setComposing] = useState<boolean | null>(null);
   const [copied, setCopied] = useState(false);
   const [copiedConfig, setCopiedConfig] = useState(false);
   const [tokens, setTokens] = useState<TokenMeta[] | null>(null);
@@ -586,6 +590,7 @@ function TokensSection({
       : `${location.origin}/mcp/${created.device_id}`
     : "";
   const createdConfig = created ? clientConfig("dsh", createdUrl).replace("<token>", created.token) : "";
+  const openForm = composing ?? (tokens !== null && tokens.length === 0);
   const canCreate =
     name.trim() !== "" &&
     selectedTools.length > 0 &&
@@ -615,6 +620,136 @@ function TokensSection({
           It is refused at this machine's URL, <code className="mono">{endpoint}</code>.
         </p>
       )}
+
+      <section className="token-list" aria-label="Existing tokens">
+        <div className="token-list-head">
+          <h3>Existing tokens</h3>
+          {!created && !openForm && (
+            <button type="button" className="primary" onClick={() => setComposing(true)}>
+              New token
+            </button>
+          )}
+        </div>
+        {tokens === null && !tokensError && <p className="hint">Loading…</p>}
+        {tokens !== null && tokens.length === 0 && (
+          <p className="hint">
+            A token is the credential a client keeps in its configuration, and none has been minted
+            yet; create one above.
+          </p>
+        )}
+        {tokens !== null && tokens.length > 0 && (
+          <div
+            className="table-scroll token-table-scroll"
+            role="region"
+            aria-label="Token list"
+            tabIndex={0}
+          >
+            <table className="token-table">
+              <thead>
+                <tr>
+                  <th scope="col">Name</th>
+                  <th scope="col">Scope</th>
+                  <th scope="col">Tools</th>
+                  <th scope="col">Expires</th>
+                  <th scope="col">Created</th>
+                  <th scope="col">
+                    <span className="sr-only">Actions</span>
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {tokens.map((entry) => {
+                  const label = entry.name || shortId(entry.id);
+                  const scope = scopeLabel(entry, devices, device?.id ?? null);
+                  const focused = entry.id === focusTokenId;
+                  return (
+                    <tr
+                      key={entry.id}
+                      className={focused ? "is-managed" : undefined}
+                      ref={focused ? focusedRow : undefined}
+                    >
+                      <td>
+                        <div className="token-name">
+                          <strong>{label}</strong>
+                          <span className="token-id">
+                            <code title={entry.id}>{shortId(entry.id)}</code>
+                            <button
+                              type="button"
+                              className="mini"
+                              aria-label={`Copy id of ${label}`}
+                              onClick={() => void copyId(entry.id)}
+                            >
+                              {copiedId === entry.id ? "Copied" : "Copy"}
+                            </button>
+                          </span>
+                          <span className="hint">
+                            {entry.last_used_ms == null ? (
+                              "never used"
+                            ) : (
+                              <>used <Moment ts={entry.last_used_ms} /></>
+                            )}
+                          </span>
+                        </div>
+                      </td>
+                      <td>
+                        <span className="chip" title={scope.title}>
+                          {scope.door}
+                        </span>
+                        <span className="hint token-scope-reach" title={scope.title}>
+                          {scope.label}
+                        </span>
+                      </td>
+                      <td className="token-tools">
+                        <span title={entry.tools.join(", ")}>
+                          {entry.tools.length} tool{entry.tools.length === 1 ? "" : "s"}
+                        </span>
+                        <span className="hint">
+                          {entry.allow_destructive ? "destructive allowed" : "read-only"}
+                        </span>
+                      </td>
+                      <td className="token-expires">
+                        <span className="token-meta-label" aria-hidden="true">Expires</span>
+                        {entry.expires_at_ms == null ? (
+                          "never"
+                        ) : (
+                          <Moment ts={entry.expires_at_ms} />
+                        )}
+                      </td>
+                      <td className="token-created">
+                        <span className="token-meta-label" aria-hidden="true">Created</span>
+                        <Moment ts={entry.created_at_ms} />
+                      </td>
+                      <td className="token-actions">
+                        <button
+                          type="button"
+                          className="mini"
+                          onClick={() => {
+                            setRotateError(null);
+                            setRotating(entry);
+                          }}
+                        >
+                          Rotate
+                        </button>
+                        <button
+                          type="button"
+                          className="mini"
+                          onClick={() => {
+                            setRevokeError(null);
+                            setRevoking(entry);
+                          }}
+                        >
+                          Revoke
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+        {tokensError && <p className="error">{tokensError}</p>}
+      </section>
 
       {created ? (
         <div className="created-token">
@@ -675,9 +810,16 @@ function TokensSection({
             </button>
           </div>
         </div>
-      ) : (
+      ) : openForm ? (
         <section className="token-create" aria-labelledby="create-token">
-          <h3 id="create-token">Create a token</h3>
+          <div className="token-create-head">
+            <h3 id="create-token">Create a token</h3>
+            {!created && (
+              <button type="button" className="mini" onClick={() => setComposing(false)}>
+                Close
+              </button>
+            )}
+          </div>
           <div className="field">
             <label htmlFor="token-name">Name</label>
             <input
@@ -813,130 +955,8 @@ function TokensSection({
             </button>
           </div>
         </section>
-      )}
+      ) : null}
 
-      <section className="token-list" aria-label="Existing tokens">
-        <h3>Existing tokens</h3>
-        {tokens === null && !tokensError && <p className="hint">Loading…</p>}
-        {tokens !== null && tokens.length === 0 && (
-          <p className="hint">
-            A token is the credential a client keeps in its configuration, and none has been minted
-            yet; create one above.
-          </p>
-        )}
-        {tokens !== null && tokens.length > 0 && (
-          <div
-            className="table-scroll token-table-scroll"
-            role="region"
-            aria-label="Token list"
-            tabIndex={0}
-          >
-            <table className="token-table">
-              <thead>
-                <tr>
-                  <th scope="col">Name</th>
-                  <th scope="col">Scope</th>
-                  <th scope="col">Tools</th>
-                  <th scope="col">Expires</th>
-                  <th scope="col">Created</th>
-                  <th scope="col">
-                    <span className="sr-only">Actions</span>
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {tokens.map((entry) => {
-                  const label = entry.name || shortId(entry.id);
-                  const scope = scopeLabel(entry, devices, device?.id ?? null);
-                  const focused = entry.id === focusTokenId;
-                  return (
-                    <tr
-                      key={entry.id}
-                      className={focused ? "is-managed" : undefined}
-                      ref={focused ? focusedRow : undefined}
-                    >
-                      <td>
-                        <div className="token-name">
-                          <strong>{label}</strong>
-                          <span className="token-id">
-                            <code title={entry.id}>{shortId(entry.id)}</code>
-                            <button
-                              type="button"
-                              className="mini"
-                              aria-label={`Copy id of ${label}`}
-                              onClick={() => void copyId(entry.id)}
-                            >
-                              {copiedId === entry.id ? "Copied" : "Copy"}
-                            </button>
-                          </span>
-                          <span className="hint">
-                            {entry.last_used_ms == null ? (
-                              "never used"
-                            ) : (
-                              <>used <Moment ts={entry.last_used_ms} /></>
-                            )}
-                          </span>
-                        </div>
-                      </td>
-                      <td>
-                        <span className="chip" title={scope.title}>
-                          {scope.door}
-                        </span>
-                        <span className="hint token-scope-reach" title={scope.title}>
-                          {scope.label}
-                        </span>
-                      </td>
-                      <td className="token-tools">
-                        <span title={entry.tools.join(", ")}>
-                          {entry.tools.length} tool{entry.tools.length === 1 ? "" : "s"}
-                        </span>
-                        <span className="hint">
-                          {entry.allow_destructive ? "destructive allowed" : "read-only"}
-                        </span>
-                      </td>
-                      <td className="token-expires">
-                        <span className="token-meta-label" aria-hidden="true">Expires</span>
-                        {entry.expires_at_ms == null ? (
-                          "never"
-                        ) : (
-                          <Moment ts={entry.expires_at_ms} />
-                        )}
-                      </td>
-                      <td className="token-created">
-                        <span className="token-meta-label" aria-hidden="true">Created</span>
-                        <Moment ts={entry.created_at_ms} />
-                      </td>
-                      <td className="token-actions">
-                        <button
-                          type="button"
-                          className="mini"
-                          onClick={() => {
-                            setRotateError(null);
-                            setRotating(entry);
-                          }}
-                        >
-                          Rotate
-                        </button>
-                        <button
-                          type="button"
-                          className="mini"
-                          onClick={() => {
-                            setRevokeError(null);
-                            setRevoking(entry);
-                          }}
-                        >
-                          Revoke
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-        {tokensError && <p className="error">{tokensError}</p>}
-      </section>
 
       {rotating && (
         <Modal
