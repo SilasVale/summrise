@@ -1249,22 +1249,26 @@ try {
   // **ONE ROW PER MACHINE, ITS PROBLEMS UNDER IT, ONE DOOR (audit-40 F6).** The verdict counts
   // machines, so four machines with five problems are four rows; the two-door 14R and the four
   // identical buttons were the measured defect.
+  // **EACH ROW NAMES THE DISTANCE, NOT ONLY THE VERDICT (the twenty-eighth list, item 4).** The
+  // fixture's machines all run 0.3.42 against the staged 0.3.280, so every behind clause reads the
+  // same numbers — which is exactly what the operator's page could not say at all: it printed
+  // `Behind the release.` and left the machine's own build 445 px below, in the table.
   const expectedMachines = [
     {
       name: 'DESKTOP-9VH92BJ',
-      problems: ['Behind the release.']
+      problems: ['On v0.3.42 · behind 0.3.280.']
     },
     {
       name: 'DESKTOP-14RJCR8',
-      problems: ['offline · last seen 1h 49m ago', 'Behind the release.']
+      problems: ['offline · last seen 1h 49m ago', 'On v0.3.42 · behind 0.3.280.']
     },
     {
       name: 'DESKTOP-CPH4KB2',
-      problems: ['Behind the release.']
+      problems: ['On v0.3.42 · behind 0.3.280.']
     },
     {
       name: 'DESKTOP-7QK3MN2',
-      problems: ['Behind the release.']
+      problems: ['On v0.3.42 · behind 0.3.280.']
     }
   ];
   const seenMachines = attention1440.rows.map((row) => ({
@@ -1297,16 +1301,22 @@ try {
   if (/the console has/i.test(attentionText1440)) {
     throw new Error(`an attention row calls the release the console: "${attentionText1440}"`);
   }
-  // **ONE RELEASE POSITION, ONE VERSION POSITION (audit-43 F2).** The block names the release once;
-  // the machine's build is the table's Version column, not a second copy in every problem line.
+  // **ONE RELEASE POSITION, ONE VERSION POSITION (audit-43 F2), AND EVERY ROW SAYS ITS DISTANCE
+  // (the twenty-eighth list, item 4).** The block names the target release once; a row names that
+  // machine's own build, so "behind" is a number the reader can see rather than a pointer to the
+  // table 445 px below.
   const releaseLine = (await page.locator('.attention-release').textContent())?.trim();
-  if (releaseLine !== 'The release is 0.3.280.') {
+  if (releaseLine !== 'The release is 0.3.280; the machines below are not on it.') {
     throw new Error(`the attention block's release line read ${JSON.stringify(releaseLine)}`);
   }
   if ((await page.locator('.attention-release').count()) !== 1) {
     throw new Error('the attention block states the release more than once');
   }
-  if (attentionText1440.includes('v0.3.42') || attentionText1440.includes('0.3.280')) {
+  // The old rule forbade a version in the block at all; that rule was the defect (item 4) — the row
+  // must say how far behind. What still must not happen is the CONSOLE's own build being called a
+  // release, or a row naming a machine's build twice.
+  const rowVersions = attention1440.rows.map((row) => (row.problems.join(' ').match(/v?\d+\.\d+\.\d+/g) ?? []).length);
+  if (rowVersions.some((count) => count > 2)) {
     throw new Error(`an attention row repeats a version: "${attentionText1440}"`);
   }
   step(
