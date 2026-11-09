@@ -1326,6 +1326,18 @@ sideways scroll anywhere.** What the numbers did find:
    roughly half of the full runs. A test that fails one run in two is the same lesson as a red gate.
    **Fix:** find the shared state it depends on (the `beforeEach` history reset, or a module-level
    boot flag) and make it order-independent, or state why it cannot be. **S.**
+   *(**Done, live 0.3.273-ux120** (`6e5dc4c`) — and the flake was a DEFECT, not a test. Measured
+   first: five full runs failed one; eight more failed three, always in the same case. The cause was
+   in `App.tsx`: the surface effect kept a run link's address only while `runsFocus` was set, and
+   `RunsPage` clears that the instant it has opened the record (`onFocusConsumed`), so
+   `#run/<device>/<run>` was rewritten to `#device/runs` whenever the read won the race — **a run
+   link survived a reload only by accident of ordering.** The guard is the run link now. The new
+   regression test fails on the old guard with the flake's own message
+   (`expected '#device/runs' to be '#run/dev-workshop-0001/r-1'`) and passes on the fix; live on
+   ux120 a `#run/<9VH>/r-nonexistent` link printed `h1 Runs` at boot and still held that address
+   after the read settled. Two more tests that asserted at the wrong moment (TerminalWorkspace's
+   attach, the gate's new process-table leg) wait for their promise now. **After: 6 of 6 full runs
+   green, 1,042 tests.**)*
 
 ## How a round goes
 
