@@ -1617,6 +1617,14 @@ query that once looked like a leak is not one.
    identity is the one thing it must not spend height on. **Fix:** the card keeps the subject in
    `<h2>`-level words only where the row cannot see it — the counts and the two doors — and its
    identity line goes, because the highlight is the identity. **S.**
+   *(**Done, live 0.3.273-ux137** (`62b05d7`): the card is **129 px** (was 154) and its whole text is
+   `DESKTOP-9VH92BJ · 46 tools · 11 capabilities · Open · Connect a client` — Home went **952 → 927 px**
+   with the same machine selected. The heading takes the row's own name type (`--fs-md` / semi), so the
+   card reads as a continuation of the row under it rather than a second, differently-shaped header.
+   An offline machine keeps one presence line (its last-seen age is why the counts are absent), and a
+   test asserts that an online machine's presence is NOT repeated. The gate now compares the card's
+   heading with the highlighted row's name — two statements of one subject must agree — and refuses a
+   second identity line at all.)*
 
 ## How a round goes
 
