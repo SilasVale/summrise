@@ -1692,6 +1692,14 @@ both widths, so a reader is never left staring at an empty page.
    the opposite. **Fix:** the sentence says which set it counted when a search or a machine scope is
    active, and the span either states the set it belongs to or is withheld while the count is
    filtered. **S.**
+   *(**Done, live 0.3.273-ux139** (`5c80315`): the sentence states the set it counted and the span is
+   withheld while the list is narrowed — `4 client calls in this window · spanning 1 m` (unfiltered),
+   `4 client calls on DESKTOP-9VH92BJ in this window` (scoped), `0 client calls matching the search on
+   DESKTOP-9VH92BJ in this window` (searched). The query is not echoed in the count: the empty state
+   quotes it once. A test pins all three forms and the span's return when the search clears, and the
+   gate types a no-match search and refuses a count carrying the read's span while narrowed. Closing
+   this also fixed the gate's own precondition: its "wait for `spanning`" hung on a legitimately
+   span-less page, so it waits for the number now.)*
 
 ## How a round goes
 
