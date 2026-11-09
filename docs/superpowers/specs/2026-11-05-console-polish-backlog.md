@@ -1006,6 +1006,11 @@ Documentation · Sign out`), not a second copy of the session.
    tokens`. The operator's question is *which credential do I hand out, and what does it reach?*
    **Fix:** the list first, one line per token (`name · scope count · last used`), details on the
    row's own disclosure; the mint form behind `New token`. **S/M.**
+   *(Half shipped 0.3.273-ux109: the sheet opens on `Existing tokens` with the seven rows and a
+   `New token` door; the form is one press behind it (`Create a token` appears only after the
+   press), and an empty registry still opens on the form. **NOT DONE:** the rows are unchanged —
+   each still prints `39 tools`, `destructive allowed`, three device names and `and 1 more`. The
+   row's one-line summary and its own disclosure are the remaining half of this item. `4ee214d`.)*
 
 4. **The rail says `Home`; the page it opens says `Machines`, and so does the window title.**
    Measured: `document.title` `Machines · Summrise console`, h1 `Machines`, rail `Home` — on the
