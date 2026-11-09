@@ -1154,6 +1154,15 @@ an untended gate is worse than none.
    the two evidence colours become named tokens (`--evidence-bg`, `--evidence-ink`) declared beside
    the terminal family, and the contrast gate reads them instead of two literals it was given by
    hand. **S.**
+   *(**Done on the gate, 0.3.273-ux116** (`8f50bc8`): both are tokens in `app.css`'s local block, the
+   contrast test follows them (12.4:1), and a new `no_colour_literal_sits_in_a_colour_property`
+   fails on any hex sitting as a colour property's value — proved by putting the two literals back
+   (`a colour literal sits as a property value: background: #14161a; color: #d6dae0;`). **Honest
+   boundary:** the LIVE check could not photograph the panel. All 115 openable rows of Activity's
+   first day were opened on ux116 and **none drew `.evidence-output`** — the console's real traffic
+   carries no text-output evidence in this window, so the pair is proved by the token gate and the
+   browser gate's fixture, not by a screenshot of the operator's page. This item is complete as a
+   gate, not as a picture.)*
 
 5. **Nine letter-spacing literals beside the four tracking tokens.** Rule 14. `tokens.css` names
    `--tracking-display/-tight/-label/-eyebrow`; `app.css` also writes `-0.004em` (body), `-0.022em`
