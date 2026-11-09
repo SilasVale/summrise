@@ -4510,6 +4510,56 @@ try {
     `the phone's controls measure >= 44 px (${phoneTouch.targets} targets, ${phoneTouch.under44} under, coarse pointer ${phoneTouch.coarse})`
   );
 
+  // **THE CARD IS THE DOOR ON THE PHONE (the twenty-ninth list, item 2).** Measured before this:
+  // a fleet row was 358 x 103 px and the name link inside it 156 x 26 — 11% of the card — and
+  // tapping the card's body at its centre hit `.fleet-status` and navigated nowhere. The link now
+  // covers the card, and this leg measures both the coverage and the tap.
+  // The previous legs left the page on a machine's tab; the fleet table is Home's.
+  await page.locator('nav.rail button[title="Home"]').click();
+  await page.getByRole('heading', { name: 'Home', exact: true }).waitFor({ timeout: 10_000 });
+  await page.locator('.fleet-table tbody tr').first().waitFor({ timeout: 10_000 });
+  // **THE FIRST CARD MUST BE ON SCREEN FOR A TAP TO BE MEASURABLE.** `elementFromPoint` answers
+  // `null` for a point outside the viewport, which read as "the tap missed" on a page whose table
+  // simply started below the fold (the legend row), so the card is scrolled into view first.
+  await page.locator('.fleet-table tbody tr').first().scrollIntoViewIfNeeded();
+  await page.waitForTimeout(400);
+  const cardDoor = await page.evaluate(() => {
+    const rows = [...document.querySelectorAll('.fleet-table tbody tr')];
+    const measured = rows.map((row) => {
+      const card = row.getBoundingClientRect();
+      const door = row.querySelector('.fleet-open')?.getBoundingClientRect();
+      const centre = document.elementFromPoint(
+        Math.round(card.x + card.width / 2),
+        Math.round(card.y + card.height / 2)
+      );
+      return {
+        coverage: door ? Math.round(((door.width * door.height) / (card.width * card.height)) * 100) : 0,
+        centreIsTheDoor: door ? centre !== null && (centre.closest('.fleet-open') !== null) : false
+      };
+    });
+    const more = rows[0]?.querySelector('.row-menu > summary');
+    return {
+      rows: measured.length,
+      worst: Math.min(...measured.map((entry) => entry.coverage)),
+      centreOnDoor: measured.filter((entry) => entry.centreIsTheDoor).length,
+      moreHeight: more ? Math.round(more.getBoundingClientRect().height) : 0
+    };
+  });
+  if (cardDoor.worst < 95) {
+    throw new Error(
+      `the phone's fleet card is not the door (worst coverage ${cardDoor.worst}%): ${JSON.stringify(cardDoor)}`
+    );
+  }
+  if (cardDoor.centreOnDoor !== cardDoor.rows) {
+    throw new Error(
+      `tapping a card's body lands outside its door on ${cardDoor.rows - cardDoor.centreOnDoor} of ${cardDoor.rows}`
+    );
+  }
+  step(
+    `the phone's fleet card is one door: every card ${cardDoor.worst}%+ covered, the centre of all ` +
+      `${cardDoor.rows} lands on the door, the ... menu still ${cardDoor.moreHeight} px of its own`
+  );
+
   step('at 390 the offline advice links Device → Machine and names the machine-local panel as local');
   await page.locator('nav.rail button[title="Home"]').click();
   await page.getByRole('heading', { name: 'Home', exact: true }).waitFor({ timeout: 10_000 });
