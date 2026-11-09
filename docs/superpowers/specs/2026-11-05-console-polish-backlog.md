@@ -1011,6 +1011,13 @@ Documentation · Sign out`), not a second copy of the session.
    press), and an empty registry still opens on the form. **NOT DONE:** the rows are unchanged —
    each still prints `39 tools`, `destructive allowed`, three device names and `and 1 more`. The
    row's one-line summary and its own disclosure are the remaining half of this item. `4ee214d`.)*
+   *(**The row is one line now, live 0.3.273-ux110** (`10bdb5d`): measured at 1280, seven summary
+   rows of **89-97 px** (was 156-164) whose whole face is `⌄ zss-harness-20261109-fleet4 · 4 machines
+   · used 2026-11-09 · fleet · /mcp/all · Rotate Revoke`; the table is 659 px where it was 1,141.
+   The chevron opens the record, and that record names ALL four machines, the tool count with its
+   destructive word, the id with Copy, and Created / Expires / Last used — `Last used 2026-11-09`
+   beside `Expires never`, the two facts that used to read as one repeated word. `and 1 more`
+   appears nowhere on the page (`andMore: false`). This item is complete.)*
 
 4. **The rail says `Home`; the page it opens says `Machines`, and so does the window title.**
    Measured: `document.title` `Machines · Summrise console`, h1 `Machines`, rail `Home` — on the
