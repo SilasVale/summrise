@@ -36,7 +36,12 @@ const contractPath = path.join(
 type Contract = {
   page: { max: number; pad: number; gap: number };
   card: { radius: number; pad: number; gap: number; headerGap: number };
-  rail: { console: number; panel: number };
+  rail: {
+    console: number;
+    panel: number;
+    consoleCollapsesAt: number | null;
+    panelCollapsesAt: number | null;
+  };
   title: { size: number; weight: number };
   breakpoints: Record<string, number>;
   empty: { radius: number; pad: number; gap: number; textAlign: string; shadow: string };
@@ -110,7 +115,7 @@ describe("the layout contract", () => {
     // `agent/resources/panel-react/src/lib/layoutContract.test.ts`. If the two disagree, the two
     // frontends are drawn to different page systems and one of them is wrong.
     expect(createHash("sha256").update(contractText()).digest("hex")).toBe(
-      "aaa468feabf81cfba71943bb7e990297a15a7d8e53b6046bf0571d62b4769743"
+      "a1e059b2fbd8e730eae779d8619af996e9f6f359ba8323bc1adf050f0d70ad49"
     );
   });
 
@@ -352,6 +357,12 @@ describe("the layout contract", () => {
     // numbers so one of them cannot be changed by accident and called a fix. Measured before this
     // change: the sheet declared **200 px** twice and **232 px** twice, and the frame drew 232.
     const source = css();
+    // **AND IT COLLAPSES WHERE THE CONTRACT SAYS (the fifty-first list).** The rail is 232 px from
+    // `tablet` (767) up and a TOP BAR below it, so the page's left edge is 0 at 380/480/639 — measured.
+    // The panel never collapses (a device app in a window), and the contract records that difference as
+    // a RULE rather than leaving the next reader to measure both surfaces.
+    expect(contract.rail.consoleCollapsesAt, "the console collapses").toBe(contract.breakpoints.tablet);
+    expect(contract.rail.panelCollapsesAt, "the panel never collapses").toBeNull();
     expect(source, "the rail's width is the contract's").toContain(
       `grid-template-columns: ${contract.rail.console}px minmax(0, 1fr)`
     );
