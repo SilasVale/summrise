@@ -1701,6 +1701,39 @@ both widths, so a reader is never left staring at an empty page.
    this also fixed the gate's own precondition: its "wait for `spanning`" hung on a legitimately
    span-less page, so it waits for the number now.)*
 
+## P0 — the layout program (opened 2026-11-10, the operator's directive: 彻底重构)
+
+Not a list of copy defects. The operator asked for the console and the panel's **page layout style** to
+be restructured, and the design is `docs/superpowers/specs/2026-11-10-shared-layout-design.md` with the
+numbers pinned in `docs/superpowers/specs/layout-contract.json`.
+
+**The contract is in force** — both repos carry the file, each side's test asserts its own built sheet
+draws the numbers *through tokens*, and each pins the **other** side's `sha256` (`2d3ee035…9502d5`).
+Shipped this round: the console's page is declared once (1120 / `var(--sp-5)` / `var(--sp-5)`, the third
+`22px` rhythm gone), its `.card` is the contract's 14 / 16 / 8, and its rail is the 232 it draws (it was
+declared 200 twice and 232 twice); the panel gained `.page` and `.card` at all — it had neither, its
+content measured 2,471 px at 2560 with the cards inside it stuck at 980. Live console `ux141`, gate
+leg: `the page frame is the shared contract's: 1048 px wide, 24px padding, 24px rhythm, and its first
+block's corner is 14px`.
+
+What remains, in the design's own order:
+
+1. **The panel's other four pages onto `.page`.** Memory is the only tenant; History, Plugins, Settings
+   and the harness view still lay their content edge-to-edge inside the content card, so switching
+   pages changes which frame you are looking at. Measured before: Plugins' boxes at x=73 (1,267 wide)
+   and Memory's at x=219 (980). **M.**
+
+2. **Settings' three nested folds collapsed to the card grammar.** Measured at 1360: `settings-fold`
+   1,221 at x=98, `settings-section` 1,187 at x=115 inside it, `connect-snippet` 1,153 at x=132 inside
+   that — three insets, each a hairline, on one page. The rule to apply is the one rule that fixes all
+   three: a section is either a card or it is not, and nesting a box inside a box inside a box to say
+   "these belong together" is what rule 7 (spacing and grouping, not borders) forbids. **M.**
+
+3. **Home's four ad-hoc boxes onto the card grammar.** `attention`, `fleet-table-wrap`, `installer`,
+   `installer-strip` each write their own border and radius while `.card` exists and is used only on the
+   machine pages. Home is the page whose first job is the verdict, and its blocks should read as one
+   family. **S.**
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
