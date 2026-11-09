@@ -177,6 +177,12 @@ fn every_text_pair_reads_on_the_surface_it_sits_on() {
         ("faint label on a card", "ink-faint", "surface"),
         ("faint label on the page", "ink-faint", "bg"),
         ("faint label on a chip", "ink-faint", "surface-chip"),
+        // **A CHIP'S LABEL (measured 2026-11-09).** The machine filter's stops and the callers'
+        // `Clients only` were drawn `--ink-muted` on `--surface-chip`, which is 4.40:1 — under AA —
+        // while the same grey passes on `--bg` (4.63) and on `--surface` (4.83). The chip is the one
+        // surface where the palette's mid grey is too light, so the pair is written down and the
+        // sheet draws the label in `--ink` instead.
+        ("chip label", "ink", "surface-chip"),
         ("primary button label", "accent-fg", "accent-solid"),
         ("success on its wash", "ok", "ok-soft"),
         ("warning on its wash", "warn", "warn-soft"),
@@ -214,6 +220,50 @@ fn every_text_pair_reads_on_the_surface_it_sits_on() {
                 if dark { "dark" } else { "light" }
             );
         }
+    }
+}
+
+/// **THE CHIP'S OWN PAIR, READ FROM THE RULE THAT DRAWS IT.** The pair list above names tokens, so a
+/// palette change is caught; it cannot catch a COMPONENT that picks the wrong token — and the chip did:
+/// `--ink-muted` on `--panel-3` is 4.40:1 while the same grey passes on the page. This test reads
+/// `.chip`'s declared colour and measures it against the chip's own surface, so the rule and the pair
+/// cannot drift apart again.
+#[test]
+fn the_chip_label_reads_on_its_own_wash() {
+    let rule = APP
+        .lines()
+        .skip_while(|line| !line.trim_start().starts_with(".chip {"))
+        .take_while(|line| !line.trim_end().ends_with('}'))
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(!rule.is_empty(), ".chip is declared in app.css");
+    let read = |property: &str| -> String {
+        let at = rule
+            .find(property)
+            .unwrap_or_else(|| panic!(".chip declares no {property}: {rule}"));
+        let rest = &rule[at + property.len()..];
+        let value = rest.split(';').next().unwrap_or("").trim().to_string();
+        assert!(
+            value.starts_with("var(--"),
+            ".chip's {property} is {value:?}, not a token"
+        );
+        value
+            .trim_start_matches("var(--")
+            .trim_end_matches(')')
+            .to_string()
+    };
+    let colour = read("color:");
+    let wash = read("background:");
+    for dark in [false, true] {
+        let sheet = theme(dark);
+        let ink_value = follows(sheet, &colour).unwrap_or_else(|| panic!("--{colour} is missing"));
+        let wash_value = follows(sheet, &wash).unwrap_or_else(|| panic!("--{wash} is missing"));
+        let measured = contrast(ink_value, wash_value);
+        assert!(
+            measured >= 4.5,
+            "the chip draws --{colour} {ink_value} on --{wash} {wash_value}: {measured:.2}:1 in {} (AA needs 4.5)",
+            if dark { "dark" } else { "light" }
+        );
     }
 }
 

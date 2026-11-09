@@ -1848,6 +1848,81 @@ try {
       `the caller control's own label read "${filterLabels.chipText}", not "Clients only"`
     );
   }
+
+  // **EVERY TEXT NODE ON THE PAGE MEETS AA ON THE SURFACE IT ACTUALLY SITS ON (the twenty-ninth
+  // list, the contrast read).** The Rust gate measures token pairs; it cannot see WHICH token a
+  // component picked, and the chip picked the wrong one — `--ink-muted` on `--panel-3` was 4.40:1,
+  // five chips on this page, while the same grey passed on the page and on a card. This leg measures
+  // every leaf text node on Activity at 1440 against its nearest opaque ancestor's background.
+  // The chip that regressed lives in the machine filter and the caller filter, and this is where
+  // those are drawn (`#timeline-machines-label` was just read above), so the scan runs here.
+  const aaScan = await page.evaluate(() => {
+    const parse = (colour) => {
+      const match = colour.match(/rgba?\(([^)]+)\)/);
+      if (!match) return null;
+      const parts = match[1].split(',').map((value) => parseFloat(value));
+      return { r: parts[0], g: parts[1], b: parts[2], a: parts.length > 3 ? parts[3] : 1 };
+    };
+    const luminance = (colour) => {
+      const channel = (value) => {
+        const v = value / 255;
+        return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+      };
+      return 0.2126 * channel(colour.r) + 0.7152 * channel(colour.g) + 0.0722 * channel(colour.b);
+    };
+    const ratio = (a, b) => {
+      const one = luminance(a);
+      const two = luminance(b);
+      return (Math.max(one, two) + 0.05) / (Math.min(one, two) + 0.05);
+    };
+    const surfaceOf = (element) => {
+      let node = element;
+      while (node && node !== document.documentElement) {
+        const style = getComputedStyle(node);
+        const background = parse(style.backgroundColor);
+        if (background && background.a > 0.9) return background;
+        node = node.parentElement;
+      }
+      return { r: 255, g: 255, b: 255, a: 1 };
+    };
+    const nodes = [...document.querySelectorAll('main *')].filter((element) => {
+      if (element.children.length) return false;
+      if (!(element.textContent ?? '').trim()) return false;
+      const box = element.getBoundingClientRect();
+      return box.width > 0 && box.height > 0;
+    });
+    const fails = [];
+    for (const element of nodes) {
+      const style = getComputedStyle(element);
+      // A disabled or aria-hidden node is not text a reader is asked to read.
+      if (element.closest('[aria-hidden="true"]')) continue;
+      const ink = parse(style.color);
+      const wash = surfaceOf(element);
+      if (!ink || !wash) continue;
+      const size = parseFloat(style.fontSize);
+      const bold = parseInt(style.fontWeight, 10) >= 700;
+      const needs = size >= 18.66 || (size >= 14 && bold) ? 3 : 4.5;
+      const measured = ratio(ink, wash);
+      if (measured < needs) {
+        fails.push({
+          text: (element.textContent ?? '').trim().slice(0, 30),
+          size: Math.round(size),
+          colour: style.color,
+          wash: `rgb(${Math.round(wash.r)},${Math.round(wash.g)},${Math.round(wash.b)})`,
+          measured: Math.round(measured * 10) / 10,
+          needs
+        });
+      }
+    }
+    return { measured: nodes.length, fails: fails.slice(0, 6), total: fails.length };
+  });
+  if (aaScan.total !== 0) {
+    throw new Error(`text on Activity fails AA: ${JSON.stringify(aaScan)}`);
+  }
+  step(
+    `every text node on Activity meets AA on the surface it sits on (${aaScan.measured} nodes measured)`
+  );
+
   const filterCount = page.locator('#timeline-clients-window');
   // The count's first render can be the live rows alone: the fetched window arrives on its own
   // read, and a one-line window has no span to state. Wait for the whole record so this assertion
