@@ -115,6 +115,46 @@ describe("SystemPage", () => {
     expect(screen.queryByText(/from this device yet/)).toBeNull();
   });
 
+  it("dates an offline machine's missing facts by the machine's own last seen, not the console's restart", async () => {
+    // **THE TWO DATES MUST NOT CONTRADICT EACH OTHER (audit-44 F6).** The measured 14R page said
+    // `no machine facts … since this console started at 09:52` beside the shell notice's
+    // `Last seen 2d 18h ago`; the 09:52 was this console process's start, so the absence read as
+    // the machine's last fact. Both facts now stand, each labelled, and the machine's own last-seen
+    // is the date the card answers with.
+    device((name) => {
+      if (name !== "system.process_list") {
+        throw new Error(`the test did not expect a ${name} call`);
+      }
+      return JSON.stringify([]);
+    });
+    const consoleStartedAt = new Date(2026, 10, 7, 20, 40, 0).getTime();
+    const seenAt = Date.now() - (2 * 24 + 18) * 3_600_000;
+    render(
+      <SystemPage
+        grant={GRANT}
+        deviceOnline={false}
+        consoleStartedAt={consoleStartedAt}
+        device={{
+          id: "device-14r",
+          name: "DESKTOP-14RJCR8",
+          online: false,
+          version: "0.3.1",
+          last_frame_ms: null,
+          last_seen_ms: seenAt
+        }}
+      />
+    );
+
+    expect(
+      await screen.findByText(
+        /The console restarted at 2026-11-07 20:40 and has not heard from this machine since; it was last seen 2d 18h ago\./
+      )
+    ).toBeInTheDocument();
+    // The console's own boundary is named, so the machine's date is not mistaken for it.
+    expect(screen.queryByText(/since this console started/)).toBeNull();
+    expect(screen.getByText(/They travel with the fleet read/)).toBeInTheDocument();
+  });
+
   it("dates an offline machine's facts with the age of its last frame", async () => {
     // audit-38 F7: the 9VH had been offline five hours, and the Machine tab still read `#3 connected`
     // and `Helper not registered this boot` as present-tense facts. The frame's own moment is what

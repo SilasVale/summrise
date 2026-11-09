@@ -69,7 +69,7 @@ export type DeviceUpdate = {
 
 /** What the device sent about its machine on the channel: the console shows it without a grant. */
 export type HostFacts = {
-  os?: { name?: string; version?: string; arch?: string };
+  os?: { name?: string; release?: string; version?: string; arch?: string };
   machine?: string;
   uptime_s?: number;
   cpu?: { cores?: number };

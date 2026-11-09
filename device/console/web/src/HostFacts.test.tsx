@@ -128,11 +128,30 @@ describe("HostFactsBlock — the Machine page's subject", () => {
 
     expect(screen.getByText("Repair task")).toBeInTheDocument();
     // The day and clock are the console's own timezone, so the shape is the assertion; the values
-    // are the machine's facts and are not rounded into relative ages.
+    // are the machine's facts and are not rounded into relative ages. A zero result is the Task
+    // Scheduler's success, and the row says so instead of leaving a code to be decoded (audit-44
+    // F11).
     expect(
-      screen.getByText(/^registered · last run .+ · last result 0 · next .+$/)
+      screen.getByText(/^registered · last run .+ · last result 0 \(success\) · next .+$/)
     ).toBeInTheDocument();
     expect(screen.queryByText(/not reported by this build/)).not.toBeInTheDocument();
+  });
+
+  it("keeps the raw repair result code in the row's title", () => {
+    // The visible verdict is `0 (success)`; the raw code is what an operator matches to a log, so
+    // it stays one hover away rather than being replaced by the word.
+    render(
+      <HostFactsBlock
+        host={{ repair_task: { registered: true, last_result: 0 } }}
+        vitals={[]}
+        online
+        runningVersion="0.3.292"
+      />
+    );
+
+    const value = screen.getByText(/last result 0 \(success\)/);
+    expect(value).toHaveAttribute("title", expect.stringContaining("0"));
+    expect(value).toHaveAttribute("title", expect.stringMatching(/success/i));
   });
 
   it("writes a failed repair result as the audit writes it", () => {
@@ -214,6 +233,47 @@ describe("HostFactsBlock — the Machine page's subject", () => {
     expect(screen.queryByText(/\(v/)).not.toBeInTheDocument();
   });
 
+  it("names what the machine is — OS, architecture and cores — above its memory", () => {
+    // **THE MACHINE PAGE ANSWERS WHAT THE MACHINE IS (audit-44 F8).** The fleet frame carries the
+    // platform (`Windows 11`, `x86_64`, 12 cores) and no surface printed it, so support had to open
+    // a shell to learn what the machine runs. The line sits above Memory, where the facts begin.
+    render(
+      <HostFactsBlock
+        host={{
+          os: { name: "Windows", release: "Windows 11", version: "10.0.26100", arch: "x86_64" },
+          cpu: { cores: 12 },
+          memory: { total_bytes: 8 * GIB, available_bytes: 4 * GIB }
+        }}
+        vitals={[]}
+      />
+    );
+
+    const platform = screen.getByText("Windows 11 · x86_64 · 12 cores");
+    const memory = screen.getByText("Memory");
+    expect(
+      platform.compareDocumentPosition(memory) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+  });
+
+  it("omits a platform fact the frame did not carry instead of inventing a zero", () => {
+    // A frame with no architecture and no core count still names the OS; the row must not print
+    // `undefined` or `0 cores`. A frame with no OS at all draws no Platform row.
+    const { rerender } = render(
+      <HostFactsBlock
+        host={{ os: { name: "linux", version: "6.8.0" }, cpu: { cores: 0 } }}
+        vitals={[]}
+      />
+    );
+
+    expect(screen.getByText("linux 6.8.0")).toBeInTheDocument();
+    expect(screen.queryByText(/0 cores/)).toBeNull();
+    expect(screen.queryByText(/undefined/)).toBeNull();
+
+    rerender(<HostFactsBlock host={{ memory: { total_bytes: 8 * GIB, available_bytes: 4 * GIB } }} vitals={[]} />);
+    expect(screen.queryByText("Platform")).toBeNull();
+    expect(screen.getByText("Memory")).toBeInTheDocument();
+  });
+
   it("does not invent a last run for a task that has never run", () => {
     render(
       <HostFactsBlock
@@ -222,7 +282,7 @@ describe("HostFactsBlock — the Machine page's subject", () => {
       />
     );
 
-    const value = screen.getByText(/^registered · last result 0 · next .+$/);
+    const value = screen.getByText(/^registered · last result 0 \(success\) · next .+$/);
     expect(value.textContent).not.toContain("last run");
   });
 });

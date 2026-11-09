@@ -113,7 +113,10 @@ const DEVICE = {
   // the form needs the OS fact, and the journal's newest entry is the moment this process started,
   // which is what makes the refused answer at NOW - 60 s belong to it (ITEM 5).
   host: {
-    os: { name: 'Windows', version: '10.0.26100', arch: 'x86_64' },
+    // **WHAT THE MACHINE IS (audit-44 F8).** The frame's own release/architecture/core facts; the
+    // Machine tab must print them above Memory.
+    os: { name: 'Windows', release: 'Windows 11', version: '10.0.26100', arch: 'x86_64' },
+    cpu: { cores: 12, percent_used: 6 },
     // The per-user helper registered in session 2, and session 2 is disconnected: the Screen page
     // must state that before the press instead of inviting the measured `os error 5`.
     sessions: [
@@ -1043,9 +1046,10 @@ try {
         button.getBoundingClientRect().width > 0
     ).length,
     rows: document.querySelectorAll('.picker li').length,
-    uses: [...document.querySelectorAll('.picker button')].map((button) =>
-      button.getAttribute('aria-label') ?? ''
-    ),
+    opens: [...document.querySelectorAll('.picker button')].map((button) => ({
+      label: button.getAttribute('aria-label') ?? '',
+      text: button.textContent?.trim() ?? ''
+    })),
     states: [...document.querySelectorAll('.picker-state')].map((state) => ({
       text: state.textContent?.trim() ?? '',
       title: state.getAttribute('title') ?? '',
@@ -1066,10 +1070,17 @@ try {
       `Device without a machine drew ${pickerFacts.visibleConnect} Connect button(s)`
     );
   }
-  if (pickerFacts.rows !== 4 || pickerFacts.uses.length !== 4) {
+  if (pickerFacts.rows !== 4 || pickerFacts.opens.length !== 4) {
     throw new Error(
-      `the picker drew ${pickerFacts.rows} rows and ${pickerFacts.uses.length} Use buttons, not 4`
+      `the picker drew ${pickerFacts.rows} rows and ${pickerFacts.opens.length} Open buttons, not 4`
     );
+  }
+  // **ONE VERB (audit-44 F9).** `Use` becomes `Open`, the same verb as Home's attention row, its
+  // summary and the fleet row's accessible name.
+  for (const door of pickerFacts.opens) {
+    if (!door.label.startsWith('Open ') || door.text !== 'Open') {
+      throw new Error(`the picker's door reads ${JSON.stringify(door)}, expected Open <machine>`);
+    }
   }
   // **THE STATE IS A WORD, NOT A COLOUR, AND THE VERSION KEEPS ITS V.** The words were `.sr-only`
   // under an `aria-hidden` dot, and the chip dropped the `v` Home's column carries.
@@ -1182,6 +1193,7 @@ try {
           problem.textContent?.trim() ?? ''
         ),
         door: row.querySelector('button')?.getAttribute('aria-label') ?? '',
+        doorText: row.querySelector('button')?.textContent?.trim() ?? '',
         doors: row.querySelectorAll('button').length
       }))
     };
@@ -1224,6 +1236,11 @@ try {
     if (row.door !== `Open machine for ${row.name}`) {
       throw new Error(
         `the ${row.name} row's door reads ${JSON.stringify(row.door)}, expected one for that machine`
+      );
+    }
+    if (row.doorText !== 'Open') {
+      throw new Error(
+        `the ${row.name} row's visible door reads ${JSON.stringify(row.doorText)}, not Open`
       );
     }
     if (row.doors !== 1) {
@@ -1418,11 +1435,14 @@ try {
       'says "online"'
   );
 
-  await page.getByRole('button', { name: 'Open Device' }).click();
+  await page
+    .locator('.machine-summary')
+    .getByRole('button', { name: 'Open DESKTOP-CPH4KB2' })
+    .click();
   await page.getByRole('heading', { name: 'Overview', exact: true }).waitFor({ timeout: 10_000 });
   const summaryHash = await page.evaluate(() => window.location.hash);
   if (summaryHash !== '#device/overview') {
-    throw new Error(`the summary's Open Device landed on ${JSON.stringify(summaryHash)}`);
+    throw new Error(`the summary's Open door landed on ${JSON.stringify(summaryHash)}`);
   }
   step('the summary door opened DESKTOP-CPH4KB2 on Device → Overview');
 
@@ -2588,6 +2608,18 @@ try {
     throw new Error('the Machine tab did not mark the absent Repair task row as absent');
   }
   step(`the Repair task row says "${repairTaskRow.text}" for the fixture's online build`);
+  // **THE MACHINE PAGE NAMES WHAT THE MACHINE IS (audit-44 F8).** The frame's OS, architecture and
+  // core count are one line above Memory; the measured page started at Memory and never said.
+  const platformRow = await page.evaluate(() => {
+    const row = [...document.querySelectorAll('.facts.host > div')].find(
+      (entry) => entry.querySelector('dt')?.textContent?.trim() === 'Platform'
+    );
+    return row?.querySelector('dd')?.textContent?.trim() ?? null;
+  });
+  if (platformRow !== 'Windows 11 · x86_64 · 12 cores') {
+    throw new Error(`the Machine tab's platform line read ${JSON.stringify(platformRow)}`);
+  }
+  step(`the Machine tab names the platform: "${platformRow}"`);
   // **THE DEVICE'S OWN UPDATE STORY IS THE PANEL'S GRID, NOT A GREY PARAGRAPH (audit-40 F3).** The
   // card states one fact per labelled row — the panel's `Last target` / `Last outcome` / `Last
   // result` / `Last check` vocabulary — and the running row carries the release comparison. The
@@ -2912,7 +2944,7 @@ try {
     .getByRole('heading', { name: 'Screen', exact: true, level: 1 })
     .waitFor({ timeout: 10_000 });
   const helperSessionLine = (await page.locator('#screen-helper-session').innerText()).trim();
-  for (const fact of ['session 2, which is disconnected', 'sign in at the machine']) {
+  for (const fact of ['session 2, which is disconnected', 'Sign in at the machine']) {
     if (!helperSessionLine.includes(fact)) {
       throw new Error(
         `the Screen helper line read "${helperSessionLine}", missing ${JSON.stringify(fact)}`

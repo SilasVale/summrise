@@ -9,11 +9,14 @@ const devices: Device[] = [
 ];
 
 describe("DevicePicker", () => {
-  it("names each Use button with its machine and states the state in words", () => {
+  it("names each Open button with its machine and states the state in words", () => {
     render(<DevicePicker devices={devices} onChoose={vi.fn()} />);
 
-    expect(screen.getByRole("button", { name: "Use Alpha" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Use Beta" })).toBeInTheDocument();
+    // **ONE VERB, ONE NAME (audit-44 F9).** The picker's door was `Use` while Home's rows said
+    // `Open`; it is the same action, so it says `Open` too.
+    const alpha = screen.getByRole("button", { name: "Open Alpha" });
+    expect(alpha).toHaveTextContent(/^Open$/);
+    expect(screen.getByRole("button", { name: "Open Beta" })).toBeInTheDocument();
     // **THE STATE IS A WORD, NOT ONLY A COLOUR.** The words used to be `.sr-only` under an
     // `aria-hidden` dot; a sighted operator who cannot read green from grey had no state at all.
     const online = screen.getByText("online");
@@ -75,7 +78,7 @@ describe("DevicePicker", () => {
       const { unmount } = render(
         <DevicePicker devices={devices} onChoose={vi.fn()} fleetRead={fleetRead} />
       );
-      expect(screen.getByRole("button", { name: "Use Alpha" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Open Alpha" })).toBeInTheDocument();
       expect(screen.queryByText(/No devices are enrolled yet/)).toBeNull();
       unmount();
     }

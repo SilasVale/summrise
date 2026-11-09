@@ -92,9 +92,9 @@ describe("RunsPage", () => {
     // THE READ IS NOT SENT: it cannot reach the machine, and the page would sit on "Reading the
     // device's run history…" until the console's dial timed out.
     await waitFor(() => expect(mocked).not.toHaveBeenCalled());
-    expect(
-      screen.getByText("The machine is offline; its run history cannot be read until it reconnects.")
-    ).toBeInTheDocument();
+    // **THE SHELL OWNS THE OFFLINE REASON (audit-44 F5).** The tab says only what is missing.
+    expect(screen.getByText("Its run history cannot be read.")).toBeInTheDocument();
+    expect(screen.queryByText(/machine is offline/i)).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Refresh history" })).toBeDisabled();
   });
 

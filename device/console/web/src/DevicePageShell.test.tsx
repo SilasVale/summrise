@@ -145,7 +145,7 @@ describe("DevicePageShell without a machine", () => {
     expect(screen.queryByRole("navigation", { name: "Device views" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Connect a client" })).toBeNull();
     // The picker itself is still the page's action.
-    fireEvent.click(screen.getByRole("button", { name: "Use workshop" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open workshop" }));
     expect(onChoose).toHaveBeenCalledWith(MACHINE.id);
     expect(screen.queryByText("page contents")).toBeNull();
   });

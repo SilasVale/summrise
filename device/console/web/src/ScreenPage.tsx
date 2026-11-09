@@ -143,30 +143,63 @@ export function ScreenPage({
             : "A capture of the signed-in user's desktop; locked and disconnected sessions refuse."}
         </p>
         {view === "desktop" && (
-          <button
-            type="button"
-            className="screen-capture"
-            disabled={busy || offline || helperMissing || blockedHelper !== null}
-            title={
-              offline
-                ? "The machine is offline; its screen can be captured when it reconnects"
-                : helperMissing
-                  ? "The fleet says this device's per-user helper has not registered; a capture needs it running in the signed-in user's desktop session"
+          // **THE DISABLED BUTTON'S REASON STANDS BESIDE IT (audit-44 F4).** The measured page
+          // opened with a legend, a dead button and a paragraph about locked sessions; the actual
+          // reason (`the helper has not registered`) was paragraph 2. The reason is now the first
+          // thing after the button, before the locked-session note below, and it is the button's
+          // own description.
+          <div className="screen-capture-group">
+            <button
+              type="button"
+              className="screen-capture"
+              disabled={busy || offline || helperMissing || blockedHelper !== null}
+              title={
+                offline
+                  ? "The machine is offline; its screen can be captured when it reconnects"
+                  : helperMissing
+                    ? "The fleet says this device's per-user helper has not registered; a capture needs it running in the signed-in user's desktop session"
+                    : blockedHelper
+                      ? helperTitle(blockedHelper)
+                      : undefined
+              }
+              aria-describedby={
+                helperMissing
+                  ? "screen-helper-missing"
                   : blockedHelper
-                    ? helperTitle(blockedHelper)
+                    ? "screen-helper-session"
                     : undefined
-            }
-            aria-describedby={
-              helperMissing
-                ? "screen-helper-missing"
-                : blockedHelper
-                  ? "screen-helper-session"
-                  : undefined
-            }
-            onClick={() => void capture()}
-          >
-            {busy ? "Capturing…" : "Capture screen"}
-          </button>
+              }
+              onClick={() => void capture()}
+            >
+              {busy ? "Capturing…" : "Capture screen"}
+            </button>
+
+            {/* AN INVITATION THE CONSOLE CAN ALREADY SEE WILL FAIL IS NOT AN INVITATION. The fleet
+                carries the helper's registration, so say it before the click and take the button
+                off: an enabled press whose own page says it will be refused is the measured defect.
+                The fact is a poll old, so the next fleet read puts the button back. */}
+            {helperMissing && (
+              <p className="hint screen-capture-reason" id="screen-helper-missing">
+                Capture is off: the per-user helper has not registered, so a capture will be
+                refused. It starts in the signed-in user's desktop session; the Machine tab shows
+                its state.
+              </p>
+            )}
+
+            {/* THE SESSION ROW IS THE OTHER HALF OF THE SAME INVITATION. A helper registered in a
+                disconnected or idle session cannot reach an input desktop, and the device answers
+                with Windows' `os error 5`; the Machine tab's `Helper session 2` and `#2 disconnected`
+                are already the explanation. Say it with the way out, and disable the press: this is
+                not a poll-old hint like registration, it is the session the helper is in. The fleet
+                polls every five seconds, so connecting the session re-enables the button. */}
+            {blockedHelper && (
+              <p className="hint screen-capture-reason" id="screen-helper-session">
+                Capture is off: the per-user helper is in session {blockedHelper.id}, which is{" "}
+                {blockedHelper.state}. Sign in at the machine or reconnect its remote session, then
+                capture again.
+              </p>
+            )}
+          </div>
         )}
       </div>
 
@@ -179,40 +212,16 @@ export function ScreenPage({
             is the device's refusal, not a black frame.
           </p>
 
-          {/* AN INVITATION THE CONSOLE CAN ALREADY SEE WILL FAIL IS NOT AN INVITATION. The fleet
-              carries the helper's registration, so say it before the click and take the button off:
-              an enabled press whose own page says it will be refused is the measured defect. The
-              fact is a poll old, so the next fleet read puts the button back when it registers. */}
-          {helperRunning === false && (
-            <p className="hint" id="screen-helper-missing">
-              The fleet says this device's per-user helper has not registered, so a capture will be
-              refused and the button is off until it does. The helper runs inside the signed-in
-              user's desktop session; the Machine tab shows its state.
-            </p>
-          )}
-
-          {/* THE SESSION ROW IS THE OTHER HALF OF THE SAME INVITATION. A helper registered in a
-              disconnected or idle session cannot reach an input desktop, and the device answers
-              with Windows' `os error 5`; the Machine tab's `Helper session 2` and `#2 disconnected`
-              are already the explanation. Say it with the way out, and disable the press: this is
-              not a poll-old hint like registration, it is the session the helper is in. The fleet
-              polls every five seconds, so connecting the session re-enables the button. */}
-          {blockedHelper && (
-            <p className="hint" id="screen-helper-session">
-              The fleet's last report puts this device's per-user helper in session{" "}
-              {blockedHelper.id}, which is {blockedHelper.state}. A capture will be refused until
-              that session is connected and unlocked — sign in at the machine or reconnect its
-              remote session, then capture again.
-            </p>
-          )}
-
           {error && <p className="error">{error}</p>}
           {nextStep && <p className="hint">{nextStep}</p>}
 
           {!shot && !error && !busy && (
+            // **THE SHELL OWNS THE OFFLINE REASON (audit-44 F5).** The Device shell already states
+            // the machine, its last-seen and that nothing on the page can reach it; the tab says
+            // only what is missing, so the same fact is not stated twice within one screen.
             <p className="hint">
               {offline
-                ? "The machine is offline; a capture is not possible until it reconnects."
+                ? "No capture yet."
                 : "No capture yet. Capture screen takes one when you ask; nothing is captured on a timer."}
             </p>
           )}

@@ -74,9 +74,10 @@ describe("FilesPage listing", () => {
     // THE READ IS NOT SENT. The page used to sit on "Reading the device's files root…" until the
     // console's dial timed out — a stuck page where the truth was an absent machine.
     await waitFor(() => expect(mocked).not.toHaveBeenCalled());
-    expect(
-      screen.getByText("The machine is offline; its files cannot be read until it reconnects.")
-    ).toBeInTheDocument();
+    // **THE SHELL OWNS THE OFFLINE REASON (audit-44 F5).** The Device shell states the machine, its
+    // last-seen and that nothing on the page can reach it; this tab's line names only the absence.
+    expect(screen.getByText("Its files cannot be read.")).toBeInTheDocument();
+    expect(screen.queryByText(/machine is offline/i)).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Refresh" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Create" })).toBeDisabled();
     expect(screen.getByLabelText("Upload a file")).toBeDisabled();

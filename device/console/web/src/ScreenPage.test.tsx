@@ -30,10 +30,11 @@ describe("ScreenPage", () => {
     render(
       <ScreenPage grant={grant} view="desktop" onViewChange={() => undefined} deviceOnline={false} />
     );
-    expect(
-      screen.getByText("The machine is offline; a capture is not possible until it reconnects.")
-    ).toBeInTheDocument();
-    expect(screen.queryByText(/No capture yet/)).not.toBeInTheDocument();
+    // **THE SHELL OWNS THE OFFLINE REASON (audit-44 F5).** The Device shell already states the
+    // machine, its last-seen and the consequence; the tab says only what is missing, so the same
+    // fact is not stated twice within one screen.
+    expect(screen.queryByText(/machine is offline/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/^No capture yet/)).toBeInTheDocument();
     const capture = screen.getByRole("button", { name: "Capture screen" });
     expect(capture).toBeDisabled();
     expect(capture.getAttribute("title")).toMatch(/reconnects/);
@@ -69,6 +70,33 @@ describe("ScreenPage", () => {
     expect(capture.getAttribute("title")).toMatch(/has not registered/);
   });
 
+  it("leads with the disabled button's reason, before the locked-session note", () => {
+    // audit-44 F4: the measured page opened with the legend, a dead button and a paragraph about
+    // locked sessions; the actual reason (`the helper has not registered`) was paragraph 2. The
+    // reason is now drawn beside the button, so the first answer is the button's own state.
+    const { container } = render(
+      <ScreenPage
+        grant={grant}
+        view="desktop"
+        onViewChange={() => undefined}
+        helperRunning={false}
+      />
+    );
+
+    const reason = screen.getByText(/has not registered, so a capture will be refused/);
+    const lockedNote = screen.getByText(/The picture comes from the per-user helper's session/);
+    expect(reason).toHaveClass("hint");
+    expect(reason.closest(".screen-view-head")).not.toBeNull();
+    // The reason precedes the locked-session paragraph, not the other way round.
+    expect(
+      reason.compareDocumentPosition(lockedNote) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+    // It is the disabled button's description, so the reason travels with the control.
+    expect(
+      container.querySelector(".screen-capture")?.getAttribute("aria-describedby")
+    ).toBe("screen-helper-missing");
+  });
+
   it("stays quiet when the device did not say or the helper is registered", () => {
     const { rerender } = render(
       <ScreenPage grant={grant} view="desktop" onViewChange={() => undefined} />
@@ -99,9 +127,9 @@ describe("ScreenPage", () => {
 
     // The Machine tab's two rows, said on the Screen page where the refusal would happen.
     expect(
-      screen.getByText(/per-user helper in session 2, which is disconnected/)
+      screen.getByText(/per-user helper is in session 2, which is disconnected/)
     ).toBeInTheDocument();
-    expect(screen.getByText(/sign in at the machine or reconnect its remote session/)).toBeInTheDocument();
+    expect(screen.getByText(/sign in at the machine or reconnect its remote session/i)).toBeInTheDocument();
     const capture = screen.getByRole("button", { name: "Capture screen" });
     expect(capture).toBeDisabled();
     expect(capture.getAttribute("title")).toMatch(/session 2/);

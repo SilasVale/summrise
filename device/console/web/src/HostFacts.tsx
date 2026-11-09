@@ -56,6 +56,27 @@ const REPAIR_TASK_ABSENT_TITLE =
  * The vitals chart is not a device fact: it is this browser's own sample of the two rows above it,
  * drawn after them because the live numbers are the current truth and the line is the history.
  */
+/**
+ * What the machine is, in the frame's own values: `Windows 11 · x86_64 · 12 cores`.
+ *
+ * `release` is the human name the device reports (`Windows 11`) and wins over `version`
+ * (`10.0.26100`); a frame that carries only name and version still says both, so an older device
+ * is not left with a bare `Windows`. Architecture and core count join with the same separator, and
+ * a fact the frame did not carry is omitted rather than printed as `undefined` or `0 cores`.
+ */
+function platformLine(host: HostFacts): string | null {
+  const name =
+    host.os?.release?.trim() ||
+    [host.os?.name?.trim(), host.os?.version?.trim()].filter(Boolean).join(" ");
+  const cores = host.cpu?.cores;
+  const parts = [
+    name || null,
+    host.os?.arch?.trim() || null,
+    typeof cores === "number" && cores > 0 ? `${cores} ${cores === 1 ? "core" : "cores"}` : null
+  ];
+  return parts.filter((part): part is string => part !== null).join(" · ") || null;
+}
+
 export function HostFactsBlock({
   host,
   vitals,
@@ -116,6 +137,16 @@ export function HostFactsBlock({
         </p>
       )}
       <dl className="facts host">
+        {platformLine(host) !== null && (
+          // **WHAT THE MACHINE IS, BEFORE WHAT IT HAS (audit-44 F8).** The frame carries the OS,
+          // its architecture and its core count; the page used to start at Memory and never name
+          // any of them. One line above Memory, using the frame's own values and omitting a fact
+          // the frame did not carry rather than printing a zero.
+          <div>
+            <dt>Platform</dt>
+            <dd>{platformLine(host)}</dd>
+          </div>
+        )}
         {memory && memory.total_bytes ? (
           <div>
             <dt>Memory</dt>
@@ -166,7 +197,10 @@ export function HostFactsBlock({
               Repair task
             </dt>
             {repairTask ? (
-              <dd className={repairTask.registered ? undefined : "muted"}>
+              <dd
+                className={repairTask.registered ? undefined : "muted"}
+                title={repairTaskTitle(repairTask)}
+              >
                 {repairTaskSentence(repairTask)}
               </dd>
             ) : (
@@ -204,17 +238,39 @@ export function HostFactsBlock({
  * `not registered` is a fact the machine reported (the task is absent), not a missing answer: the
  * missing answer is `absentRepairTaskSentence` below. `registered` always leads when the task
  * exists; the last run and its result are stated only when Task Scheduler reported them, and `next`
- * only when the task has a next run. A zero result is success, and Task Scheduler's other results
- * are written as the audit writes them (`0x80070002`), because the number is the fact an operator
- * matches to a log.
+ * only when the task has a next run. **A ZERO RESULT IS THE SCHEDULER'S SUCCESS, NOT A CODE TO
+ * DECODE** (audit-44 F11): it reads `last result 0 (success)`, while Task Scheduler's failures stay
+ * as the audit writes them (`0x80070002`) because that is the number an operator matches to a log.
+ * The raw code stays in the row's title either way.
  */
 function repairTaskSentence(task: NonNullable<HostFacts["repair_task"]>): string {
   if (!task.registered) return "not registered";
   const parts = ["registered"];
   if (task.last_run_ms != null) parts.push(`last run ${taskMoment(task.last_run_ms)}`);
-  if (task.last_result != null) parts.push(`last result ${taskResult(task.last_result)}`);
+  if (task.last_result != null) {
+    parts.push(
+      `last result ${taskResult(task.last_result)}${task.last_result === 0 ? " (success)" : ""}`
+    );
+  }
   if (task.next_run_ms != null) parts.push(`next ${taskMoment(task.next_run_ms)}`);
   return parts.join(" · ");
+}
+
+/**
+ * The repair result's raw code, for the row's hover.
+ *
+ * `0 (success)` is a verdict, and a verdict can lose the evidence it came from: the Task Scheduler
+ * number is what a log repeats, so it stays here unaltered — decimal, and the hexadecimal spelling
+ * for a failure, the same pair the visible row uses.
+ */
+function repairTaskTitle(
+  task: NonNullable<HostFacts["repair_task"]>
+): string | undefined {
+  if (task.last_result == null) return undefined;
+  if (task.last_result === 0) {
+    return "The machine's Task Scheduler last result code: 0 (success).";
+  }
+  return `The machine's Task Scheduler last result code: ${task.last_result} (${taskResult(task.last_result)}).`;
 }
 
 /**

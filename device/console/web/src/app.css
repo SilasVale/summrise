@@ -522,7 +522,17 @@ button.link:hover { background: transparent; color: var(--accent); border-color:
 /* Screen's two views are a choice made before the content, not a control tucked into a corner. */
 .screen-view-head { display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap; }
 .screen-view-note { margin: 0; flex: 1; min-width: 14rem; }
-.screen-capture { margin-left: auto; }
+/* The disabled button and its reason travel together: the reason is read beside the control, not
+   as the second paragraph below the page's legend (audit-44 F4). */
+.screen-capture-group {
+  margin-left: auto;
+  display: grid;
+  gap: var(--sp-2);
+  justify-items: end;
+  max-width: 100%;
+}
+.screen-capture-group .screen-capture { margin-left: 0; }
+.screen-capture-reason { margin: 0; max-width: 34rem; }
 
 /* A button inside a grid panel stretches to the column: buttons are controls, not blocks. */
 .panel > button, .grant > button { justify-self: start; }

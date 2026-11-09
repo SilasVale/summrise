@@ -1623,10 +1623,10 @@ async function captureWorkspace(page, state, pass) {
   try {
     await goTo(page, meta);
     // A previous capture (Activity → Runs) may have selected a device already, in which case the
-    // workspace is on screen and the picker's Use button does not exist. Both paths lead here.
+    // workspace is on screen and the picker's Open button does not exist. Both paths lead here.
     const workspace = page.locator('main .terminal-workspace');
     if ((await workspace.count()) === 0) {
-      const use = page.locator('main .picker button', { hasText: 'Use' }).first();
+      const use = page.locator('main .picker button', { hasText: 'Open' }).first();
       if ((await use.count()) === 0) return;
       await use.click();
     }

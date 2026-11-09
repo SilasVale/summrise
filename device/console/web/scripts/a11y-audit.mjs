@@ -1227,7 +1227,10 @@ try {
   await settle(page, 400);
   await measure(page, 'home-selected');
 
-  await page.getByRole('button', { name: 'Open Device', exact: true }).click();
+  await page
+    .locator('.machine-summary')
+    .getByRole('button', { name: 'Open workshop', exact: true })
+    .click();
   await page.getByRole('heading', { name: 'Overview', exact: true, level: 1 }).waitFor({
     state: 'visible',
     timeout: 5_000

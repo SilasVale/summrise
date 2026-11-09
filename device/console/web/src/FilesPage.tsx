@@ -190,7 +190,9 @@ export function FilesPage({
     // on "Reading the device's files root…" until the console's dial timed out, which reads as a
     // stuck page rather than an absent machine.
     if (offline) {
-      setNote("The machine is offline; its files cannot be read until it reconnects.");
+      // The shell notice already states the machine, its last-seen and that nothing on the page
+      // can reach it (audit-44 F5); this line names only what is missing.
+      setNote("Its files cannot be read.");
       setLoadingDir(false);
       return;
     }

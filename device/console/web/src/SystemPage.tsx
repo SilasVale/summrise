@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import type { Device } from "./DeviceCard";
 import { spanText } from "./age";
-import { clockTime, grouped, isoDate, message } from "./format";
+import { clockTime, grouped, isoDate, lastHeardMs, message, seenAgo } from "./format";
 import { HostFactsBlock } from "./HostFacts";
 import { Modal } from "./Modal";
 import { useRequestGate } from "./requests";
@@ -212,6 +212,42 @@ function UpdateCheckLine() {
       The console has no update-check tool: a check runs on the machine's own panel ("Check for
       updates now").
     </p>
+  );
+}
+
+/**
+ * Why this machine's facts are absent, with each party's moment labelled.
+ *
+ * The facts live in THIS console process's memory, so an empty section is a fact about the console
+ * as much as about the machine. For an offline machine the console's restart explains why the
+ * section is empty and the machine's own last-seen is the date that answers `how long ago`; stating
+ * only the console's start put two contradictory absence dates on one page (audit-44 F6). An online
+ * machine has been heard from, so only the console boundary applies: its frames simply carry no
+ * machine facts.
+ */
+function missingFactsSentence(
+  device: Device | null | undefined,
+  consoleStartedAt: number | null | undefined
+): string {
+  const started =
+    consoleStartedAt != null
+      ? ` at ${isoDate(consoleStartedAt)} ${clockTime(consoleStartedAt)}`
+      : "";
+  const heard = device ? lastHeardMs(device) : null;
+  const lastSeen = heard != null ? `it was last seen ${seenAgo(heard)}` : null;
+  let lead: string;
+  if (device && !device.online) {
+    lead =
+      consoleStartedAt != null
+        ? `The console restarted${started} and has not heard from this machine since`
+        : "The console has no machine facts from this device";
+    lead += lastSeen ? `; ${lastSeen}.` : ".";
+  } else {
+    lead = `The console has no machine facts from this device since this console started${started}.`;
+  }
+  return (
+    `${lead} They travel with the fleet read, which the console repeats every few seconds; a ` +
+    "device that does not report them leaves this section with none."
   );
 }
 
@@ -531,14 +567,13 @@ export function SystemPage({
             runningVersion={device.version}
           />
         ) : (
-          <p className="hint">
-            {`The console has no machine facts from this device since this console started${
-              consoleStartedAt != null
-                ? ` at ${isoDate(consoleStartedAt)} ${clockTime(consoleStartedAt)}`
-                : ""
-            }. They travel with the fleet read, which the console repeats every few seconds; a ` +
-              "device that does not report them leaves this section with none."}
-          </p>
+          // **ONE MACHINE DATE, ONE CONSOLE DATE, EACH LABELLED (audit-44 F6).** The measured
+          // offline page said the console had no facts "since this console started at 09:52" beside
+          // the notice's "Last seen 2d 18h ago"; 09:52 was this process's start, not the machine's
+          // last fact, and the two dates read as a contradiction. An offline machine now gets both
+          // facts — the console restart and the machine's own last seen — and the last seen is the
+          // date the card answers with.
+          <p className="hint">{missingFactsSentence(device, consoleStartedAt)}</p>
         )}
         {device && (
           // **THE REACHABILITY WORD NOW HAS A SUBJECT.** The facts card ended on a bare `online`

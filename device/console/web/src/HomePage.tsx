@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import { type Device, type Installer } from "./api";
 import { DeviceCard } from "./DeviceCard";
 import { copyText } from "./copy";
@@ -286,7 +287,11 @@ function AttentionBlock(props: {
                 aria-label={`Open machine for ${label}`}
                 onClick={() => props.onOpen(machine.device.id)}
               >
-                Open machine
+                {/* **ONE VERB (audit-44 F9).** The attention row, the summary and the picker all
+                    said `Open …`/`Use`; the visible verb is `Open` everywhere. The accessible name
+                    still says which subject this door opens, because it opens Device → Machine
+                    rather than the Overview the row/picker doors open. */}
+                Open
               </button>
             </li>
           );
@@ -314,6 +319,7 @@ function SelectedMachine(props: {
   onConnect: () => void;
 }) {
   const device = props.device;
+  const label = device.name ?? shortId(device.id);
   // The live catalogue is a machine fact, not activity: it answers what this machine can do. The
   // hook is shared with the Overview tab, so the read is cached for both.
   const live = useLiveTools(device.id);
@@ -344,8 +350,13 @@ function SelectedMachine(props: {
         </button>
       )}
       <div className="machine-summary-actions">
-        <button type="button" className="primary" onClick={props.onOpenDevice}>
-          Open Device
+        <button
+          type="button"
+          className="primary"
+          aria-label={`Open ${label}`}
+          onClick={props.onOpenDevice}
+        >
+          Open
         </button>
         <button type="button" onClick={props.onConnect}>
           Connect a client
@@ -369,6 +380,18 @@ function plural(count: number, noun: string, many = `${noun}s`): string {
 function FleetHome(props: HomePageProps) {
   const installer = useInstaller();
   const fleet = props.fleetRead ?? { state: "ready" as const };
+  // **THE PANEL MUST COME TO THE OPERATOR (audit-44 F7).** At 390 with a populated fleet the
+  // enrollment panel opened at y=1045 with `scrollTop` still 0, so the press looked dead while the
+  // code waited below the fold. The panel is scrolled into the viewport and its heading focused,
+  // which is both the visual answer and where a keyboard reader resumes.
+  const enrollTitle = useRef<HTMLHeadingElement>(null);
+  useEffect(() => {
+    if (!props.code) return;
+    const title = enrollTitle.current;
+    if (!title) return;
+    if (typeof title.scrollIntoView === "function") title.scrollIntoView({ block: "start" });
+    title.focus({ preventScroll: true });
+  }, [props.code]);
   // **A ZERO NEEDS A READ BEHIND IT.** The empty fleet is a fact only when `/fleet` answered with
   // no machines; a page that is still reading, or whose read failed, holds an empty list too, and
   // telling that reader "No machines yet" invites enrollment for a fleet the console cannot see.
@@ -530,7 +553,9 @@ function FleetHome(props: HomePageProps) {
 
       {props.code && (
         <section className="enroll" aria-labelledby="enroll-title">
-          <h2 id="enroll-title">Enrollment command</h2>
+          <h2 id="enroll-title" ref={enrollTitle} tabIndex={-1}>
+            Enrollment command
+          </h2>
           <p className="hint">
             This code works once, for 15 minutes. On the Windows machine, open an elevated Command
             Prompt in the folder you chose on the installer's directory page (the default is{" "}

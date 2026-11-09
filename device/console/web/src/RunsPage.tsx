@@ -116,7 +116,9 @@ export function RunsPage({
     // A MACHINE THE FLEET SAYS IS DOWN IS NOT ASKED — the read cannot reach it, and the page would
     // sit on "Reading the device's run history…" until the console's dial timed out.
     if (offline) {
-      setHistoryNote("The machine is offline; its run history cannot be read until it reconnects.");
+      // The shell notice already states the machine, its last-seen and that nothing on the page
+      // can reach it (audit-44 F5); this line names only what is missing.
+      setHistoryNote("Its run history cannot be read.");
       return;
     }
     void read();

@@ -375,11 +375,13 @@ describe("Home — the verdict and what needs attention", () => {
     // repeated in the row; the table's Version column is where the build is compared (audit-43 F2).
     expect(within(attention).getAllByText("The release is 0.3.289.")).toHaveLength(1);
     expect(within(attention).queryByText(/0\.3\.275/)).toBeNull();
-    // One door for one machine; the name appears once, not in every problem line.
+    // One door for one machine; the name appears once, not in every problem line. The visible verb
+    // is `Open`, the same one the fleet row and the picker use (audit-44 F9).
     const doors = within(attention).getAllByRole("button", {
       name: "Open machine for DESKTOP-14RJCR8"
     });
     expect(doors).toHaveLength(1);
+    expect(doors[0]).toHaveTextContent(/^Open$/);
     expect(within(attention).getAllByText(/DESKTOP-14RJCR8/)).toHaveLength(1);
     fireEvent.click(doors[0]);
     expect(onOpenMachine).toHaveBeenCalledWith("r14");
@@ -593,8 +595,12 @@ describe("Home — the selected machine", () => {
     fireEvent.click(counts);
     expect(onTools).toHaveBeenCalledTimes(1);
 
-    // The machine's own page is Device; the summary hands off instead of becoming it.
-    fireEvent.click(within(summary).getByRole("button", { name: "Open Device" }));
+    // The machine's own page is Device; the summary hands off instead of becoming it. **ONE
+    // VERB, ONE NAME (audit-44 F9):** the button was `Open Device`, now `Open` with the machine as
+    // its accessible subject, the same verb as the fleet row and the picker.
+    const open = within(summary).getByRole("button", { name: "Open workshop" });
+    expect(open).toHaveTextContent(/^Open$/);
+    fireEvent.click(open);
     expect(onDevice).toHaveBeenCalledTimes(1);
     fireEvent.click(within(summary).getByRole("button", { name: "Connect a client" }));
     expect(onConnect).toHaveBeenCalledTimes(1);
@@ -617,7 +623,7 @@ describe("Home — the selected machine", () => {
     expect(screen.getAllByText("workshop")).toHaveLength(1);
     const table = screen.getByRole("table", { name: "The fleet" });
     expect(within(table).getAllByRole("row")).toHaveLength(3);
-    const row = screen.getByRole("button", { name: "Open workshop" }).closest("tr");
+    const row = within(table).getByRole("button", { name: "Open workshop" }).closest("tr");
     expect(row).toHaveClass("is-current");
     expect(screen.queryByText("Running")).toBeNull();
     expect(container.querySelector(".machine-summary-head")).toBeNull();
@@ -639,7 +645,8 @@ describe("Home — the selected machine", () => {
       fleetRead: { state: "ready", at: Date.now() }
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "Open workshop" }));
+    const table = screen.getByRole("table", { name: "The fleet" });
+    fireEvent.click(within(table).getByRole("button", { name: "Open workshop" }));
     expect(onOpen).toHaveBeenCalledWith("w");
     fireEvent.click(
       screen.getByRole("button", { name: "Open machine for DESKTOP-14RJCR8" })
@@ -925,5 +932,48 @@ describe("Home — the fleet's read", () => {
     expect(
       install.compareDocumentPosition(enroll) & Node.DOCUMENT_POSITION_FOLLOWING
     ).toBeTruthy();
+  });
+});
+
+describe("Home — opening the enrollment panel", () => {
+  beforeEach(() => {
+    installerApi.installer.mockResolvedValue(installerFacts);
+  });
+
+  it("brings the panel into view and focuses its heading when the code arrives", async () => {
+    // **A PRESS WHOSE PANEL IS BELOW THE FOLD LOOKS DEAD (audit-44 F7).** At 390 with a populated
+    // fleet the Add-a-machine panel opened at y=1045 with scrollTop still 0, so the screen did not
+    // move and the operator could not tell the press had worked. The panel is scrolled in and its
+    // heading focused, which is also where a keyboard reader starts.
+    const scrollIntoView = vi.fn();
+    const original = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = scrollIntoView;
+    try {
+      const fleet = drawFleet({
+        devices: [
+          machine({ id: "a", name: "alpha" }),
+          machine({ id: "b", name: "bravo" }),
+          machine({ id: "c", name: "charlie" }),
+          machine({ id: "d", name: "delta" })
+        ],
+        fleetRead: { state: "ready", at: Date.now() },
+        code: null,
+        enrollCommand: ""
+      });
+
+      fleet.rerenderFleet({
+        code: { code: "code-1", expires_at_ms: Date.now() + 15 * 60_000 },
+        enrollCommand:
+          "summrise-device.exe --enroll https://console.test code-1 --data C:\\ProgramData\\Summrise"
+      });
+
+      const heading = await screen.findByRole("heading", { name: "Enrollment command" });
+      expect(heading).toHaveAttribute("tabindex", "-1");
+      expect(heading).toHaveFocus();
+      expect(scrollIntoView).toHaveBeenCalledWith({ block: "start" });
+      expect(scrollIntoView.mock.instances[0]).toBe(heading);
+    } finally {
+      Element.prototype.scrollIntoView = original;
+    }
   });
 });

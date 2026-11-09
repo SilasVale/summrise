@@ -69,10 +69,10 @@ export function DevicePicker({
             <button
               type="button"
               className="mini"
-              aria-label={`Use ${device.name ?? shortId(device.id)}`}
+              aria-label={`Open ${device.name ?? shortId(device.id)}`}
               onClick={() => onChoose(device.id)}
             >
-              Use
+              Open
             </button>
           </li>
         );

@@ -376,7 +376,10 @@ function selectDevice(name: string) {
 
 /** Open the selected machine's own page from Home's summary: Device → Overview. */
 async function openOverview() {
-  fireEvent.click(screen.getByRole("button", { name: "Open Device" }));
+  const summary = screen.getByRole("region", { name: "Selected machine" });
+  // **ONE VERB, ONE NAME (audit-44 F9).** The summary's door was `Open Device`; it is `Open`,
+  // named for the machine it opens, like the fleet row and the picker.
+  fireEvent.click(within(summary).getByRole("button", { name: /^Open / }));
   expect(
     await screen.findByRole("heading", { name: "Overview", level: 1 })
   ).toBeInTheDocument();
@@ -1073,7 +1076,7 @@ describe("App", () => {
     fireEvent.click(screen.getByRole("button", { name: "Device" }));
     await waitFor(() => expect(document.title).toBe("Choose a machine · Summrise console"));
 
-    fireEvent.click(screen.getByRole("button", { name: "Use workshop" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open workshop" }));
     await waitFor(() => expect(document.title).toBe("Terminal · Summrise console"));
 
     fireEvent.click(screen.getByRole("button", { name: "Tools" }));
@@ -1683,7 +1686,7 @@ describe("App", () => {
     expect(screen.queryByRole("button", { name: "Screen" })).toBeNull();
 
     // Choosing a machine opens the tabs on the stored tab (Terminal from the rail's entry).
-    fireEvent.click(screen.getByRole("button", { name: "Use workshop" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open workshop" }));
     expect(
       screen.getByRole("heading", { name: "Terminal", level: 1 })
     ).toBeInTheDocument();
@@ -1740,7 +1743,9 @@ describe("App", () => {
     const summary = screen.getByRole("region", { name: "Selected machine" });
     // The selected machine is highlighted in the table, not repeated in the summary.
     expect(summary).not.toHaveTextContent("Running");
-    const row = screen.getByRole("button", { name: "Open workshop" }).closest("tr");
+    const row = within(screen.getByRole("table", { name: "The fleet" }))
+      .getByRole("button", { name: "Open workshop" })
+      .closest("tr");
     expect(row).toHaveClass("is-current");
     // One rail item, one title: the selection does not rename the destination.
     await waitFor(() => expect(document.title).toBe("Machines · Summrise console"));
@@ -2547,7 +2552,7 @@ describe("App", () => {
     await act(async () => {
       answer.resolve([workshop]);
     });
-    expect(await screen.findByRole("button", { name: "Use workshop" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Open workshop" })).toBeInTheDocument();
     view.unmount();
   });
 
