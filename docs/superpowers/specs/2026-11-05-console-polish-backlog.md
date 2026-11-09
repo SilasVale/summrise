@@ -1626,6 +1626,35 @@ query that once looked like a leak is not one.
    heading with the highlighted row's name — two statements of one subject must agree — and refuses a
    second identity line at all.)*
 
+## P0 — the thirty-sixth list (opened 2026-11-09, the installer strip versus the fleet it is behind)
+
+The thirty-fifth list is closed. This list came from reading the page in **strict reading order** — the
+first twelve things a reader meets by y-then-x — and from the same page with an **empty fleet**, the
+one a new operator lands on.
+
+Live `0.3.273-ux137` at 1440 and 390. Three results were clean and are recorded as clean: Home's
+reading order is already the brief's order (`Home` → the verdict → the attention block), so the page's
+first sentence after its name is the fleet's own count; the empty fleet is honest and complete
+(`No machines yet` / `Add your first machine` / `Start with the installer below, then press Add a machine
+for the enrollment command`, at 739 px on the phone and 908 on the desktop); and Activity's head says
+its day in one sentence at **17 px / 500**, below Home's verdict at 22 px / 600, so the two pages keep
+different hierarchies rather than one shared style.
+
+1. **Home invites an install with a file that its own strip says the fleet has outrun.** Measured at
+   1440 on the live page: the strip (y=684, 100 px) reads
+
+       Install the device runtime / Download Windows installer
+       The fleet is already past this file: the newest build any machine reports is 0.3.292.
+       SummriseSetup-0.3.291.exe · 6.3 MB · sha256 0adcbd7c…
+
+   — an accent-filled `Download Windows installer` button directly above a sentence saying that file
+   is older than every machine in the fleet. Nothing on the page tells the reader what installing it
+   would fix, because the answer is nothing: every machine already runs the newer build. An invitation
+   that the page's own next line makes pointless is the same defect the Screen tab had (a press whose
+   answer the page already knows), in the other direction. **Fix:** when the fleet has outrun the file
+   the strip says what the file is FOR (a machine that leaves and comes back, or a new one) instead of
+   inviting an install, and the invitation is not the page's loudest control. **M.**
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
