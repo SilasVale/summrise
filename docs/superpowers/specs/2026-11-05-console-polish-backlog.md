@@ -1527,6 +1527,14 @@ installer that is itself older than half the fleet.
    own newest version as what it is compared against (it is the number the reader is actually
    asking about), and, when the installer is behind that newest, say so on the installer's own line
    rather than letting a stale download pass as the target. **M.**
+   *(**Done, live 0.3.273-ux130** (`ad945e3`): the same page now reads `The newest build in the
+   fleet is 0.3.292; the machines below are behind it.` with **14R (v0.3.275) and 84T (v0.3.291)**
+   as the two rows — the machines actually behind the fleet — where before it read
+   `The release is 0.3.291; the machines below are not on it.` with only 14R. The installer strip
+   carries a line of its own: `The fleet is already past this file: the newest build any machine
+   reports is 0.3.292.` The sentence's subject follows the newer of the two numbers, and the gate
+   checks both halves — mutating the sentence to always take the fleet's form fails with
+   `the attention block's release line read "… is 0.3.280; the machines below are behind it."`.)*
 
 ## How a round goes
 
