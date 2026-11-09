@@ -144,15 +144,35 @@ describe("MachineMenu — a switcher, not a second fleet table", () => {
     }
   });
 
-  it("marks the chosen machine, not the others", () => {
+  it("does not offer the machine it is already showing, and marks the others as choices", () => {
+    // **THE MEASURED MENU WAS FIVE ROWS AND FOUR CHOICES (the twenty-seventh list, item 1):** the
+    // summary said `DESKTOP-9VH92BJ online · v0.3.292` and the second row said it again. The current
+    // machine is the summary; a row is a machine you could switch TO.
     const chosen = device();
     draw([chosen, device({ id: "dev-attic", name: "attic" })], chosen);
 
-    expect(screen.getByRole("button", { name: /^workshop/ })).toHaveAttribute(
+    expect(screen.queryByRole("button", { name: /^workshop/ })).toBeNull();
+    expect(screen.getByRole("button", { name: /^attic/ })).not.toHaveAttribute("aria-current");
+    expect(screen.getByRole("button", { name: "All machines" })).toBeInTheDocument();
+    // The summary still names the machine in force, so nothing is lost by hiding the echo. A
+    // `<summary>` is not a button; its accessible name is the one the aria-label gives it.
+    expect(screen.getByLabelText("Machine: workshop")).toBeInTheDocument();
+  });
+
+  it("offers every machine when none is chosen, because then every one is a choice", () => {
+    const { container } = draw(
+      [device(), device({ id: "dev-attic", name: "attic" })],
+      null
+    );
+    const rows = [...container.querySelectorAll(".machine-pop button")].map((b) =>
+      (b.textContent ?? "").replace(/\s+/g, " ").trim()
+    );
+    expect(rows.some((row) => /^workshop/.test(row))).toBe(true);
+    expect(rows.some((row) => /^attic/.test(row))).toBe(true);
+    expect(screen.getByRole("button", { name: "All machines" })).toHaveAttribute(
       "aria-current",
       "true"
     );
-    expect(screen.getByRole("button", { name: /^attic/ })).not.toHaveAttribute("aria-current");
   });
 
   it("says All machines in the summary when no machine is chosen", () => {

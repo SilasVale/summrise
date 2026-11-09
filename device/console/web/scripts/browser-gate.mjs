@@ -4203,6 +4203,41 @@ try {
   await page.locator('nav.rail button[title="Home"]').click();
   await page.getByRole('heading', { name: 'Home', exact: true }).waitFor({ timeout: 10_000 });
 
+  // **THE MACHINE MENU DOES NOT OFFER WHAT IS ALREADY SHOWING (the twenty-seventh list, item 1).**
+  // The measured menu read `DESKTOP-9VH92BJ online · v0.3.292` in its summary and then drew the same
+  // words as its second row: five rows, four choices. The summary names the machine in force, so a
+  // row is a machine you could switch TO.
+  await page.locator('.machine-menu').click();
+  await page.waitForTimeout(400);
+  const machineMenu = await page.evaluate(() => {
+    const menu = document.querySelector('.machine-menu');
+    const summary = menu.querySelector('summary');
+    const summaryLabel = summary.textContent.replace(/\s+/g, ' ').trim();
+    const current = menu.querySelector('summary .machine-menu-label')?.textContent?.trim() ?? null;
+    const rows = [...menu.querySelectorAll('.machine-pop button')].map((b) => ({
+      text: b.textContent.replace(/\s+/g, ' ').trim(),
+      name: b.querySelector('.machine-pop-name')?.textContent?.trim() ?? null
+    }));
+    return { summaryLabel, current, rows };
+  });
+  if (!machineMenu.current) throw new Error('the machine menu names no current machine');
+  const echoes = machineMenu.rows.filter((row) => row.name === machineMenu.current);
+  if (echoes.length !== 0) {
+    throw new Error(
+      `the machine menu re-offered the machine already in the summary (${machineMenu.current}): ` +
+        JSON.stringify(echoes)
+    );
+  }
+  if (machineMenu.rows[0]?.text !== 'All machines') {
+    throw new Error(`the machine menu's first row is ${JSON.stringify(machineMenu.rows[0])}`);
+  }
+  step(
+    `the machine menu names ${machineMenu.current} once and lists ${machineMenu.rows.length} choices ` +
+      `(${machineMenu.rows.map((row) => row.name ?? row.text).join(', ')})`
+  );
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(200);
+
   // **THE OFFLINE TOKEN FORM DOES NOT CLAIM THE CONSOLE'S COUNT.** `/fleet/<id>/tools` is 503 for
   // this machine, so the count comes from `/tools`. The form must name that catalogue, cover the
   // machine with the row's own silence, and draw the static-fallback note on the default preset —
