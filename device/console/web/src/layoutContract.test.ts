@@ -38,6 +38,7 @@ type Contract = {
   card: { radius: number; pad: number; gap: number; headerGap: number };
   rail: { console: number; panel: number };
   title: { size: number; weight: number };
+  breakpoints: Record<string, number>;
 };
 
 function contractText(): string {
@@ -85,7 +86,7 @@ describe("the layout contract", () => {
     // `agent/resources/panel-react/src/lib/layoutContract.test.ts`. If the two disagree, the two
     // frontends are drawn to different page systems and one of them is wrong.
     expect(createHash("sha256").update(contractText()).digest("hex")).toBe(
-      "d2baa266283e3996ab8af1485ad98ab83449c79e731ebf630d60f719c0a79c55"
+      "52d0854a23f41bd11a88325c9e4b0bf984a333c907e7e2affe8a1586ff51444a"
     );
   });
 
@@ -101,6 +102,38 @@ describe("the layout contract", () => {
     expect(page, "the page's rhythm comes from the scale").toContain(`gap: var(--${gap})`);
     expect(tokenPx(tokens(), pad)).toBe(contract.page.pad);
     expect(tokenPx(tokens(), gap)).toBe(contract.page.gap);
+  });
+
+  it("is the breakpoint set, and every width query reads one of them", () => {
+    // **THE WIDTHS WERE THE ONE SCALE THAT WAS NOT A SCALE (the forty-second list).** Spacing, type,
+    // radius and colour were tokens; the widths at which this layout changes were literals scattered
+    // through 31 media queries — `639 / 640 / 720 / 767 / 799 / 800 / 900 / 480 / 1280`, plus two in
+    // `rem` (`56rem` = 896, `68rem` = 1088) whose real numbers a grep cannot even see. The odd ones
+    // were folded into the set after checking, one by one, that the fold changed nothing measured
+    // (two of them DID change behaviour and were put back).
+    const source = css();
+    const widths = [...source.matchAll(/@media\s+\(([^)]*(?:width)[^)]*)\)/g)]
+      .map((match) => match[1])
+      .flatMap((query) => [...query.matchAll(/(?:min|max)-width:\s*([0-9]+)(px|rem)/g)].map((m) => ({
+        value: Number(m[1]),
+        unit: m[2]
+      })))
+      .filter((entry) => entry.unit === 'px')
+      .map((entry) => entry.value);
+    // The set a query may name: the contract's breakpoints, and the ±1 pair each side of them that
+    // `min-width`/`max-width` needs (639/640 is ONE breakpoint written from both ends).
+    const allowed = new Set<number>();
+    for (const value of Object.values(contract.breakpoints)) {
+      allowed.add(value);
+      allowed.add(value + 1);
+    }
+    const strangers = [...new Set(widths)].filter((value) => !allowed.has(value));
+    expect(strangers, 'a width query outside the contract is a fourth scale nobody declared').toEqual(
+      [],
+    );
+    // And nothing is hidden inside a `rem`: a width a grep cannot see is a width nobody can review.
+    const remWidths = [...source.matchAll(/@media\s+\([^)]*width:\s*[0-9]+rem/g)];
+    expect(remWidths.length, 'a width query must name pixels, which the contract lists').toBe(0);
   });
 
   it("is the page title every page of both surfaces draws", () => {

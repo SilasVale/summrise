@@ -18,5 +18,12 @@
   "title": {
     "size": 22,
     "weight": 700
+  },
+  "breakpoints": {
+    "narrow": 480,
+    "phone": 639,
+    "tablet": 767,
+    "columns": 1088,
+    "wide": 1280
   }
 }
