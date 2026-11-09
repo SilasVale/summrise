@@ -1664,6 +1664,35 @@ different hierarchies rather than one shared style.
    the live state and fails when `stale` is forced back to `false`; the gate's leg names the heading and
    the control's class.)*
 
+## P0 — the thirty-seventh list (opened 2026-11-09, a count that counts one thing beside a span that describes another)
+
+The thirty-sixth list is closed. This one came from following a **single interaction to its end**:
+type a search that matches nothing into Activity and read every number the page then states.
+
+Live `0.3.273-ux137` at 1440 and 390. Three results were clean and are recorded as clean: the fleet
+row's menu holds exactly three actions with the destructive one marked (`Copy diagnostics`, `Rename`,
+`Remove` in `danger`); the Rename dialog labels its field (`<label for="rename">Name</label>`) and
+states in its placeholder what an empty value means (`leave empty to use the device's own hostname`);
+and the no-match state itself is good — `No activity matches “zzzz”.` with a `Clear search` door at
+both widths, so a reader is never left staring at an empty page.
+
+1. **The caller count counts the filtered set while the span beside it describes the whole read.**
+   Measured after typing `zzzz` at 1440, one page stating four numbers:
+
+       head:        Today: 876 client calls, 42 failed — 2 console failures; 6 unattributed.
+       filter chip: 0 client calls in this window · spanning 10 h 50 m
+       empty state: No activity matches “zzzz”.
+       span:        the fetched window's own first and last moment
+
+   The chip's `0` is the **search-filtered** client-call count (`matching.filter(isClientCall)`), and
+   the `10 h 50 m` beside it is the **unfiltered** window's span, joined by a `·` that reads as "the
+   span of the zero". The head above still says `Today: 876 client calls` — true of the day and false
+   of what the list is showing. Three numbers describe three different sets, and the page gives no
+   sign of it. The operator's brief is 一目了然; a count whose qualifier is a different measurement is
+   the opposite. **Fix:** the sentence says which set it counted when a search or a machine scope is
+   active, and the span either states the set it belongs to or is withheld while the count is
+   filtered. **S.**
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
