@@ -2190,6 +2190,38 @@ names the device's reason with a Retry; a successful empty read is a quiet line,
    number that was not written down first. This is why items 1 and 2 shipped in the order they did:
    the number, then the two surfaces.)*
 
+## P0 — the forty-seventh list (opened 2026-11-10, the loading state is one surface's)
+
+The forty-sixth list is closed: the empty state is one atom on both surfaces. This list came from
+reading the NEXT word in the operator's directive — *"the same empty/loading/failed states"* — and
+the loading state is where the two surfaces are furthest apart. Measured on a console whose every
+read answers after 2.5 s and a panel whose every tool read answers after 2.5 s, so both states were
+on screen long enough to measure.
+
+The FAILED states were checked again and are clean: the console's audit failure names its cause and
+offers one Retry, and the panel's activity failure names the device's own reason and does the same.
+The EMPTY states are clean by the last list. The LOADING states are the finding.
+
+1. **The console draws a skeleton; the panel draws an 11 px grey sentence.** Measured:
+
+       console  .skeleton-row   12 px padding, 10 px corner, 1 px border, #fff, 60 px tall,
+                full width (1072); two bars (14.4 px and 11.2 px, 6 px corner, #f4f4f5);
+                `.skeleton-list` carries `role="status"` and the label "Reading the machine list"
+       panel    .mem-result-line `Loading…` — 11 px, `rgb(113,113,122)`, at x=149 y=259,
+                inside no `role`, no `aria-busy`, its ancestor a plain div
+
+   One surface reserves the shape of the thing it is about to draw and says what it is waiting for,
+   in a live region. The other prints a grey word in a result line that belongs to a read that has
+   not answered yet — and a screen reader is told nothing, because nothing there has a role or a
+   busy state. **Fix:** the loading atom joins the contract and both surfaces draw it: a card-shaped
+   skeleton with the read's own label, in a live region. **M.**
+
+2. **The panel's loading sentence is also the count line, so it shouts in the wrong place.** `Loading…`
+   is drawn where `3 entries · newest first` will sit, 11 px and grey — the size and colour of a
+   RESULT, used for a state that has no result. A reader who glances at that line sees a count and
+   gets a word. **Fix:** the loading atom replaces it, and the count line is drawn only when it has
+   a count. **S.**
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
