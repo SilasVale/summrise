@@ -327,9 +327,30 @@ function SelectedMachine(props: {
   const offline = !device.online || live.offline;
   const capabilities = new Set(live.tools.map((tool) => tool.capability)).size;
   const countsKnown = !offline && !(live.error && live.tools.length === 0);
+  // **THE CARD NAMES WHAT IT IS ABOUT (audit-45 F1, revising audit-43 F2).** With 9VH selected the
+  // card's whole text was `46 tools · 11 capabilities` and two doors: the machine's name and state
+  // lived only in the topbar and in the highlighted row BELOW this card, so the card asked the
+  // reader to remember the click. F2 read the row and the topbar as enough; the operator's own
+  // brief (一目了然) is that a section headed "Selected machine" must say which one at a glance.
+  // The line keeps F2's intent — the AGE stays the row's, and the version appears only when the
+  // frame carried one — while stating the subject: name, the fleet's own presence word, version.
+  // An offline machine keeps the full phrase with its last-seen age, because that age is what the
+  // card's next sentence (counts unavailable) is about.
+  const presence = device.online ? "online" : presenceText(device);
   return (
     <section className="machine-summary" aria-label="Selected machine">
       <h2>Selected machine</h2>
+      <p className="machine-summary-who">
+        <span className="machine-summary-name">{label}</span>
+        {" · "}
+        <span className="machine-summary-presence">{presence}</span>
+        {device.version ? (
+          <>
+            {" · "}
+            <span className="machine-summary-version mono">{device.version}</span>
+          </>
+        ) : null}
+      </p>
       {offline ? (
         <p className="hint machine-summary-counts">
           Tool counts are unavailable while the machine is offline.

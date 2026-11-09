@@ -1406,10 +1406,11 @@ try {
 
   await page.locator('nav.rail button[title="Home"]').click();
   await page.getByRole('heading', { name: 'Home', exact: true }).waitFor({ timeout: 10_000 });
-  // **THE SELECTED MACHINE IS HIGHLIGHTED, NOT REPEATED (audit-43 F2).** Home keeps the fleet's
-  // one answer; the selected row carries the accent, and the summary keeps only what the row
-  // cannot state: the live catalogue counts and the two doors. It repeats no name, presence word,
-  // age or build.
+  // **THE SELECTED MACHINE IS HIGHLIGHTED, AND THE CARD NAMES IT (audit-45 F1).** audit-43 F2 kept
+  // the summary down to counts and doors because the row below it already named the machine; the
+  // operator's brief is that a section headed "Selected machine" answers at a glance, so the card
+  // states the name, `online`, and the build once each — and still repeats no AGE (the row's), no
+  // second presence spelling and no third copy of the version elsewhere on the page.
   await page.locator('.machine-summary').waitFor({ state: 'visible', timeout: 10_000 });
   if ((await page.locator('.home-verdict').count()) !== 1) {
     throw new Error('opening a machine hid Home\'s verdict');
@@ -1426,6 +1427,7 @@ try {
     const menuState = document.querySelector('.machine-menu-state');
     return {
       heading: summary?.querySelector('h2')?.textContent?.trim() ?? '',
+      who: summary?.querySelector('.machine-summary-who')?.textContent?.trim() ?? '',
       text: summary?.textContent ?? '',
       currentRows: document.querySelectorAll('tr.fleet-row.is-current').length,
       currentName: current?.querySelector('.fleet-name')?.textContent?.trim() ?? '',
@@ -1435,7 +1437,11 @@ try {
   if (selectedHome.heading !== 'Selected machine') {
     throw new Error(`the summary's heading read ${JSON.stringify(selectedHome.heading)}`);
   }
-  for (const repeated of ['DESKTOP-CPH4KB2', 'last seen', 'v0.3.', 'Running']) {
+  // The card's own line: name · presence · build, each stated once, and the age left to the row.
+  if (selectedHome.who !== 'DESKTOP-CPH4KB2 · online · 0.3.42') {
+    throw new Error(`the summary's subject line read ${JSON.stringify(selectedHome.who)}`);
+  }
+  for (const repeated of ['last seen', 'seen ', '· v0.3.246 · v0.3.', 'Running']) {
     if (selectedHome.text.includes(repeated)) {
       throw new Error(`the summary repeats ${JSON.stringify(repeated)}: "${selectedHome.text}"`);
     }
@@ -1447,8 +1453,8 @@ try {
     throw new Error(`the topbar's presence word read ${JSON.stringify(selectedHome.menuState)}`);
   }
   step(
-    'the selected row is highlighted once, the summary repeats no identity, and the topbar ' +
-      'says "online"'
+    `the selected row is highlighted once, the summary names its subject (${selectedHome.who}), ` +
+      'and the topbar says "online"'
   );
 
   await page
