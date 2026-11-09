@@ -1908,6 +1908,36 @@ console's machine tabs keep their own subject when `/mcp` fails (`Could not read
    fails with `the installer strip is drawn beside the first-run card — the page says its next step
    twice`.)*
 
+## P0 — the forty-first list (opened 2026-11-10, the rhythm that was wrong four times)
+
+The fortieth list is closed. This list came from asking a question the audits had never asked: **is the
+page rhythm the SAME on both pages of the console?** The answer was no, and it had been no through
+four separate rounds of "the frame is uniform".
+
+Live console `0.3.273-ux147` at 1440, the built panel at 1360, and the two surfaces compared block by
+block. Two reads were clean and are recorded as clean: every page in both surfaces now starts its
+content on its page column's edge (149 panel, 300 console), and every card in both surfaces carries the
+one grammar (corner 14, the card's padding, the card's inner rhythm) — the checks the last three lists
+paid for.
+
+1. **Activity ran a fourth rhythm.** Home and Overview carried `gap: 22px`, the phone `18px`, and
+   Activity **`gap: 16px`** — measured live at 1440: Activity's head and its record sat **16 px** apart
+   while Home's sat **24**. The frame leg that has been printing
+   `the page frame is the shared contract's: 1048 px wide, 24px padding, 24px rhythm` every round was
+   measuring **Home only**, so the sentence was true of one of the console's two top-level pages and
+   said nothing about the other. **Fix:** the rule is deleted (the frame supplies the rhythm), and the
+   leg becomes per-page: it opens Activity, reads its rendered `row-gap` and the distance from its head
+   to its first block, and compares both to Home's. **S.**
+
+2. **The panel's card grammar has no test that every card IS a card.** The console's blocks are
+   checked one by one (`Home's .attention is not on the card grammar`); the panel checks the ATOM
+   (radius, padding, gap through tokens) but never that any page's named block uses it. Measured at
+   1360: `plug-inventory`, `plug-card`, `plug-log` and `mem-card` still paint their own borders, radii
+   and paddings — four implementations of one atom on two pages, exactly the shape the console's Home
+   had before its blocks were put on the grammar. **Fix:** the same assertion on the panel's side:
+   every block that draws a box uses the atom, or says in one sentence why it is not a card.
+   **M.**
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
