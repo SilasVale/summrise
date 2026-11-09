@@ -1469,6 +1469,30 @@ covered).
    the first thing. The number is the Timeline's (`TABLE_DAY_VISIBLE = 60`), not a second threshold
    invented for the table. The gate fails above 120 rows or on a day with no door.)*
 
+## P0 — the thirty-second list (opened 2026-11-09, from the second audit of the same day)
+
+The thirty-first list is closed. The audits are now cheap enough to run beside each other, so this
+one looked at four axes the previous lists did not: **what the account menu offers**, **what the
+`Started` column measures**, **the outbound links**, and **the row menu's destructive items**.
+Live `0.3.273-ux129` at 1440. Three results were clean and are recorded as clean: the only external
+link is `Documentation → github.com/SilasVale/summrise/tree/main/docs` and it answers **200**; the
+installer's `Download Windows installer` is a same-origin route, not an off-site jump; and the
+`Remove` confirmation states the consequence before it acts (`Its channel closes now and it cannot
+reconnect. The device keeps running and can be enrolled again with a new code.`, with `Cancel` first).
+
+1. **Home's `Started` column is not a start — it is the newest restart the machine reported.**
+   Measured: `DESKTOP-9VH92BJ`'s cell reads `1d 15h ago` with the title
+   `2026-11-08 06:13:49`, and the fleet API's own record for that machine carries
+   `registered_at_ms` (the enrollment) and `last_seen_ms`, not a start. The cell is
+   `processStartMs(device)`, which is `host.restarts[0].at_ms` — the newest entry in the restart
+   journal — so a machine that has never restarted shows `—` (`No start reported`) and one that
+   restarted twice shows the newer restart as its *start*. A column headed `Started` that means "the
+   newest restart" will be read as the app's uptime, which is the one number a person checks when
+   deciding whether to restart again. **Fix:** the column says what it is (`Last restart`, with `—`
+   and its own empty label), or the cell states both facts when the app's own start is known;
+   whichever it says must match what `StartedLine` on the Machine tab states for the same machine.
+   **S.**
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
