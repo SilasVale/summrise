@@ -1393,6 +1393,37 @@ query.
    65,533 → 65,559 px (26 px for the whole 1,001-row page, because the opener sits inside a cell that
    was already 57 px tall).)*
 
+## P0 — the thirtieth list (opened 2026-11-09, one vocabulary and three sentences about one refusal)
+
+The twenty-ninth list is closed. This one starts from three reads on axes the earlier audits did not
+touch: **contrast measured per rendered text node** (not per token pair), **the product's own
+vocabulary**, and **the Screen tab, which is the one place the console says "this will be refused"
+before a press**. Live `0.3.273-ux125` at 1440 and 390. Two results were clean and are recorded as
+clean: after the chip fix, **every text node on Home, Activity and the open token sheet meets AA**,
+in both themes (58 / 657 / 62 / 51 nodes, 0 failures); and the machine band's phone overflow already
+has its two named nudges (`Show later device views`, enabled only when there is something to show).
+
+1. **The Screen tab says one refusal three times, in three vocabularies.** Measured at 1440 with the
+   helper unregistered: `A capture of the signed-in user's desktop; locked and disconnected sessions
+   refuse.` then `Capture is off: the per-user helper has not registered, so a capture will be
+   refused. It starts in the signed-in user's desktop session; the Machine tab shows its state.` then
+   `The picture comes from the per-user helper's session, so a locked or disconnected session is the
+   device's refusal, not a black frame.` then `No capture yet. Capture screen takes one when you ask;
+   nothing is captured on a timer.` — **591 characters for one page whose only control is a disabled
+   button**, and the third sentence explains a failure mode the second already names. **Fix:** the
+   page states the refusal once (the `Capture is off:` sentence, which carries the reason and the way
+   out), the empty state says what the surface is for in one line, and the standing explanation
+   moves under the picture as a caption rather than above the button. **S.**
+
+2. **The product calls the same thing a `device` and a `machine`, in the same panel.** Measured
+   across the seven machine tabs and both fleet pages: `machine` 53 uses and `device` 27, and the
+   pairs are not different things — the Machine tab's own heading is `Device app` directly under the
+   tab called `Machine`, its sentence says `Restart this device's app` and the process table says
+   `236 processes on the device, by pid.`, while the tab strip, the fleet table and Home all say
+   `machine`. In the tool catalogue it is worse than inconsistent: **11 of 46 descriptions say
+   `device`, 1 says `machine`, and 33 say neither** — the catalogue's own per-tool sheet is the place
+   a reader learns what the tool acts on. One noun, chosen, and the other retired. **M.**
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
