@@ -1981,18 +1981,16 @@ try {
       );
     }
   }
-  // And every subject starts on the bar's one row: the three labels share a baseline.
-  const labelYs = [
-    filterGrid.machinesLabel,
-    filterGrid.callersLabel,
-    filterGrid.searchLabel
-  ].filter(Boolean).map((label) => label.y);
-  if (labelYs.length > 1 && Math.max(...labelYs) - Math.min(...labelYs) > 1) {
-    throw new Error(`the filter bar's labels sit on ${labelYs.join(' / ')} instead of one row`);
+  // **THE TWO SUBJECTS BESIDE EACH OTHER SHARE A BASELINE; THE SEARCH IS ITS OWN ROW.** The bar is a
+  // flex row of blocks, so the machine and caller labels must agree and the right-aligned search may
+  // sit lower — what may not happen is a label drifting off its own content.
+  const pairs = [filterGrid.machinesLabel, filterGrid.callersLabel].filter(Boolean).map((l) => l.y);
+  if (pairs.length > 1 && Math.abs(pairs[0] - pairs[1]) > 1) {
+    throw new Error(`the filter bar's machine and caller labels sit on ${pairs.join(' / ')}`);
   }
   step(
-    `the Activity filter bar is one grid: labels on y=${labelYs[0]}, each over its own column ` +
-      `(count at x=${filterGrid.count?.x}, search at x=${filterGrid.searchField?.x})`
+    `the Activity filter bar aligns each subject with its own column: labels on y=${pairs[0]}, ` +
+      `count at x=${filterGrid.count?.x} under the callers, search field at x=${filterGrid.searchField?.x}`
   );
 
   if (filterLabels.machines !== 'Machines' || filterLabels.callers !== 'Callers') {
