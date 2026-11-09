@@ -103,6 +103,20 @@ describe("the layout contract", () => {
     expect(tokenPx(tokens(), gap)).toBe(contract.page.gap);
   });
 
+  it("is the rail this console ships, which the contract records rather than equalizes", () => {
+    // The console's rail carries DESTINATION LABELS and measures 232 px; the panel's is an icon
+    // rail at 52. A web console and a desktop app genuinely differ here — the contract records both
+    // numbers so one of them cannot be changed by accident and called a fix. Measured before this
+    // change: the sheet declared **200 px** twice and **232 px** twice, and the frame drew 232.
+    const source = css();
+    expect(source, "the rail's width is the contract's").toContain(
+      `grid-template-columns: ${contract.rail.console}px minmax(0, 1fr)`
+    );
+    expect(source, "the rail itself is the contract's width").toContain(
+      `width: ${contract.rail.console}px`
+    );
+  });
+
   it("is a card this console draws, through tokens", () => {
     const source = css();
     const card = ruleFor(source, "\\.card");

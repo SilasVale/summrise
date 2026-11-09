@@ -105,7 +105,11 @@ p { margin: var(--sp-1-5) 0; }
   --nav-current-fg: var(--ink);
   --nav-border: var(--line);
   --nav-focus: var(--focus-ring);
-  grid-area: rail; width: 200px; min-height: 0;
+  /* **THE RAIL IS 232, AND THAT IS THE CONTRACT'S NUMBER (the shared layout contract).** It was
+     declared 200 in two places and 232 in two overrides further down the sheet, so the actual frame
+     was 232 while its own first declaration said 200 — the same disease as the page's two widths.
+     One number, from the contract. */
+  grid-area: rail; width: 232px; min-height: 0;
   display: flex; flex-direction: column;
   padding: var(--sp-3) var(--sp-2) var(--sp-2);
   background: var(--nav-bg); color: var(--nav-fg);
@@ -177,7 +181,7 @@ p { margin: var(--sp-1-5) 0; }
 .shell {
   height: 100vh; height: 100dvh;
   display: grid;
-  grid-template-columns: 200px minmax(0, 1fr);
+  grid-template-columns: 232px minmax(0, 1fr);
   /* The `alerts` row is the failure banner's home: below the header, above the page (audit-44
      F3). It collapses to 0 when no banner is drawn. */
   grid-template-rows: 56px auto minmax(0, 1fr);
