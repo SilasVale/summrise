@@ -2029,6 +2029,15 @@ what five rounds of copy work bought.
    *"two true counts looked contradictory"* — it solved that for the count beside it and left the
    count ABOVE it unexplained. **Fix:** the two sentences name their intervals in the same words, and
    the page says once, in one place, how they relate. **S.**
+   *(**Done, live 0.3.273-ux151** (`d81fa69`): the window's count names its START — measured live after,
+   `Today: 219 client calls, 21 failed.` over `624 client calls in this window · **from 07:44**, spanning
+   12 h 19 m`, which is the fact that reconciles the two: a 12 h 19 m read taken at 20:04 begins at
+   07:44 and never crosses midnight. The gate leg reads the day line and the control's own
+   `aria-describedby` and refuses a bar that names only its length (`the window's count names only its
+   length, not where it starts`). **The leg found two things on the way, both real:** the previous leg
+   left Activity SCOPED to one machine (a narrowed count withholds its span by design, so the leg was
+   measuring the wrong page), and a text sweep of `main *` read the whole document's text as if it were
+   one sentence.)*
 
 2. **The scope chips do not survive being read as a filter.** Measured on the same live page: the six
    chips are `aria-pressed` toggles — `All machines` true, four machines false, `Clients only` false —
