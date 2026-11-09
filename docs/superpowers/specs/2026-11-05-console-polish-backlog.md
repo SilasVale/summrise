@@ -1445,6 +1445,24 @@ has its two named nudges (`Show later device views`, enabled only when there is 
    and a destination, not the thing, and renaming them rewrites bookmarks and every test that names
    a surface.)*
 
+## P0 — the thirty-first list (opened 2026-11-09, the two pages at 1,001 rows and 40,000 px)
+
+The thirtieth list is closed. This one starts from a read of **what the console does when the data is
+large**, which the earlier audits never touched because they always looked at the first frame. Live
+`0.3.273-ux128` at 1440 and 390. One result was clean and is recorded as clean: the phone's machine
+band and the phone's cards were re-measured and still hold (no control under 44 px, every card 97%
+covered).
+
+1. **The Table draws 1,001 rows at once, with no door and no cap.** Measured at 1440: switching to
+   `Table` builds **17,074 elements** and a **41,467 px** page in **478 ms**, and at 390 it is
+   **18,072 elements / 65,615 px**. There is no "show the rest", no cap sentence, no virtual window —
+   the whole fetched window is a table. The Timeline next door learned this lesson and now says
+   `Showing the newest 925 lines of 1040 fetched` with `Show the rest of today (865 more)` doors
+   (**60 rows drawn → 925 when the doors are pressed**), so the two views of the same data disagree
+   about how much of it to draw at once. **Fix:** the Table gets the Timeline's two doors (a capped
+   first screen and a `Show the rest` that reveals the remainder), so both views of the record open
+   on the same amount; the count stays honest in the sentence above it. **M.**
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
