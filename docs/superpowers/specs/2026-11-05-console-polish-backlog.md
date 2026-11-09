@@ -1896,6 +1896,17 @@ console's machine tabs keep their own subject when `/mcp` fails (`Could not read
    is the INSTALLER, and the block for it is the one the reader reaches last and the one that is
    smallest. **Fix:** on an empty fleet the installer is the page's action, not its footnote — the
    empty state and the strip are one block, in the order a new operator actually works. **M.**
+   *(**Done, live 0.3.273-ux147** (`85331ca`): one card — `Install the device runtime` / the sentence
+   naming the order / the door / the file's facts — **156 px**, one installer door on the whole page,
+   no second strip. The block is the SAME component in a `bare` mode (a card inside a card is the
+   shape the thirty-eighth list removed from Settings, and two components would be two places that
+   know the three states). Measured live after: `hasCard: true`, `doors: [{ vis: true, inCard: true }]`.
+   The new gate leg draws the zero fleet through the gate's own stub — and **it cost two fixes in the
+   gate itself, both real**: `page.route` registrations stack with the most recent winning, so the
+   leg inherited the previous leg's planted 500 and measured the FAILED card; and a fixed timeout
+   raced the installer read, so the leg waits for the DOOR. Mutation: letting the strip draw too
+   fails with `the installer strip is drawn beside the first-run card — the page says its next step
+   twice`.)*
 
 ## How a round goes
 
