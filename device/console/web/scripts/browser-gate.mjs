@@ -1319,6 +1319,72 @@ try {
   if (rowVersions.some((count) => count > 2)) {
     throw new Error(`an attention row repeats a version: "${attentionText1440}"`);
   }
+  // **THE RELEASE LINE NAMES THE NUMBER IT MEASURES (the thirty-third list).** Measured on
+  // `0.3.273-ux129`: the fleet ran 0.3.292/0.3.275/0.3.292/0.3.291 while the installer was 0.3.291,
+  // and Home said `The release is 0.3.291; the machines below are not on it.` — three of four were
+  // on or past it. The block measures against the newer of the fleet's newest build and the staged
+  // installer, and its sentence says which of the two it is; this leg checks both halves.
+  const releaseTarget = await page.evaluate(() => {
+    const parse = (text) => {
+      const match = /(\d+\.\d+\.\d+)/.exec(text ?? '');
+      return match ? match[1].split('.').map(Number) : null;
+    };
+    const compare = (a, b) => {
+      for (let i = 0; i < Math.max(a.length, b.length); i += 1) {
+        const diff = (a[i] ?? 0) - (b[i] ?? 0);
+        if (diff !== 0) return diff;
+      }
+      return 0;
+    };
+    const line = document.querySelector('.attention-release')?.textContent?.trim() ?? '';
+    const installerText = document.querySelector('.installer')?.textContent ?? '';
+    const builds = [...document.querySelectorAll('.fleet-table tbody tr .fleet-build')].map(
+      (node) => parse(node.textContent)
+    );
+    const newest = builds.filter(Boolean).sort(compare).pop() ?? null;
+    return {
+      line,
+      installer: parse(installerText),
+      newest,
+      fleetForm: /in the fleet is/.test(line),
+      releaseForm: /The release is/.test(line)
+    };
+  });
+  if (releaseTarget.line === '') {
+    throw new Error('the attention block draws no release line');
+  }
+  if (releaseTarget.newest === null || releaseTarget.installer === null) {
+    throw new Error(`the release line has no number to check: ${JSON.stringify(releaseTarget)}`);
+  }
+  // The newer of the two is the target, and the sentence must be the form that names it. A tie
+  // takes the fleet's form: the machines' own builds are the page's subject.
+  const compare = (a, b) => {
+    for (let i = 0; i < Math.max(a.length, b.length); i += 1) {
+      const diff = (a[i] ?? 0) - (b[i] ?? 0);
+      if (diff !== 0) return diff;
+    }
+    return 0;
+  };
+  const installerLeads = compare(releaseTarget.newest, releaseTarget.installer) < 0;
+  const named = /(?:The release is|in the fleet is) (\d+\.\d+\.\d+)/.exec(releaseTarget.line)?.[1];
+  if (installerLeads ? !releaseTarget.releaseForm : !releaseTarget.fleetForm) {
+    throw new Error(
+      `the release line names the wrong subject (fleet ${releaseTarget.newest} vs installer ` +
+        `${releaseTarget.installer}): "${releaseTarget.line}"`
+    );
+  }
+  const expected = installerLeads ? releaseTarget.installer : releaseTarget.newest;
+  if (named !== expected.join('.')) {
+    throw new Error(
+      `the release line says ${named}, but the target it should name is ${expected.join('.')}: ` +
+        `"${releaseTarget.line}"`
+    );
+  }
+  step(
+    `the release line names its own target: "${releaseTarget.line}" (fleet newest ` +
+      `${releaseTarget.newest.join('.')}, installer ${releaseTarget.installer.join('.')})`
+  );
+
   step(
     `the verdict is "${verdict1440}"; Needs attention lists ${attention1440.rows.length} machines ` +
       `with ${attention1440.rows.reduce((sum, row) => sum + row.problems.length, 0)} problems, ` +
