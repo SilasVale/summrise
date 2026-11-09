@@ -1259,6 +1259,53 @@ the next round does not re-run it.)
    is that a 8,000-character record no longer reads as a form. The browser gate fails on
    `rowRules !== 0` or `callerPills !== 0` from now on.)*
 
+## P0 — the twenty-eighth list (opened 2026-11-09, the fresh audit at 1440 and 390)
+
+Both previous lists are closed, so this one starts from a measured read of every page the console
+has: Home, Activity's Timeline at both widths, and the seven machine tabs (Overview, Terminal,
+Screen, Files, Runs, Tools, Machine), with `main`'s height, line count, duplicate lines, clipped text
+and button counts. Live `0.3.273-ux116`. **No console errors on any page at either width, and no
+sideways scroll anywhere.** What the numbers did find:
+
+1. **The Devices bar stacks every tab's heading at the top of the tab strip.** Measured on five tabs
+   at 1440: a visible `Sessions on this device` heading sits at **y=0** (0 px tall, its parent
+   `terminal-page` hidden by `display:none`) on Overview, Files, Runs, Tools and Machine. It does
+   not paint, so no screenshot shows it, but it is in the accessibility tree as a heading the
+   operator's reader can land on, above a page that has nothing to do with sessions. The Terminal
+   page owns that section; the other six tabs should not carry it. **Fix:** the sessions section
+   renders inside the Terminal tab only, and a browser-gate leg asserts one visible `h2` per tab
+   whose text matches the tab's own job. **S.**
+
+2. **Two-thirds of the tool catalogue's descriptions are cut off with no way to read them.**
+   Measured on Tools: **46 tools, 46 descriptions, 12 truncated at 1440 and 44 truncated at 390**
+   (`text-overflow: ellipsis` + one line), losing **5,936 px of text at 1440 and 22,898 px at 390** —
+   the longest description is 2,672 px wide in a 315 px box. `terminal.write`'s own text, which says
+   what the tool can change, is unreadable on the phone. A catalogue whose entries can't be read is a
+   list of names. **Fix:** the row's description gets two lines (a clamp, not an ellipsis) and the
+   full sentence lives in the tool's own sheet, which already exists. **S.**
+
+3. **The Machine tab draws 222 `Kill` buttons in a 235-row process table.** Measured at 1440:
+   `Machine` has **236 buttons**, 222 of them `Kill` at 33 × 28 px, one per process row — the
+   destructive action on every line of a list nobody reads (235 processes, `0.0 MB` for most). The
+   button is 33 px wide, below the 44 px touch target the phone needs. A page whose most repeated
+   control is "kill this process" tells the operator that killing processes is the point of the
+   Machine page. **Fix:** one action per row is not the shape; a search finds the process you mean
+   and the row's `⋯` menu holds Kill behind a confirmation naming the process. **M.**
+
+4. **Home's "Needs attention" says the release twice.** Measured: the block reads `The release is
+   0.3.291. DESKTOP-14RJCR8 offline · last seen 4d 2h ago Behind the release.` — the version appears
+   in the sentence and the condition is repeated as a second line, and the fleet row below says
+   `v0.3.275 · offline · last seen 4d 2h ago` again. The operator's standing direction is that Home
+   is the verdict and the next action: a block that states a fact three times and offers one `Open`
+   is not a verdict. **Fix:** the block names the machine, the one condition and the one action; the
+   release number appears once, in the install strip where the download is. **S.**
+
+5. **`App.test.tsx`'s "opens Runs on boot" fails intermittently under the full parallel run.**
+   Measured: it passed alone three consecutive times, passed in four suite pairs, and failed in
+   roughly half of the full runs. A test that fails one run in two is the same lesson as a red gate.
+   **Fix:** find the shared state it depends on (the `beforeEach` history reset, or a module-level
+   boot flag) and make it order-independent, or state why it cannot be. **S.**
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
