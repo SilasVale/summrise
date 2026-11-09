@@ -39,6 +39,7 @@ type Contract = {
   rail: { console: number; panel: number };
   title: { size: number; weight: number };
   breakpoints: Record<string, number>;
+  empty: { radius: number; pad: number; gap: number; textAlign: string; shadow: string };
 };
 
 function contractText(): string {
@@ -86,7 +87,7 @@ describe("the layout contract", () => {
     // `agent/resources/panel-react/src/lib/layoutContract.test.ts`. If the two disagree, the two
     // frontends are drawn to different page systems and one of them is wrong.
     expect(createHash("sha256").update(contractText()).digest("hex")).toBe(
-      "52d0854a23f41bd11a88325c9e4b0bf984a333c907e7e2affe8a1586ff51444a"
+      "8664c9a6fe7a50ac5ab1ffcc75f9c35bb1757519fc246aa4609fe75dde1dd605"
     );
   });
 
@@ -102,6 +103,35 @@ describe("the layout contract", () => {
     expect(page, "the page's rhythm comes from the scale").toContain(`gap: var(--${gap})`);
     expect(tokenPx(tokens(), pad)).toBe(contract.page.pad);
     expect(tokenPx(tokens(), gap)).toBe(contract.page.gap);
+  });
+
+  it("is the empty state's atom, and both empty shapes on this surface are it", () => {
+    // **THE EMPTY STATE IS A PAGE ATOM, NOT A BARE RUN OF ITEMS (the forty-sixth list).** The
+    // directive says the two surfaces share the same empty state, and the contract now declares it.
+    // This surface has TWO empty shapes and they must be the same one: `.card.first-run` (the
+    // first-minute card) and `.empty-state` (a list with nothing in it, drawn by the plugin catalogue
+    // and the device shell). Measured before the fix: `.card.first-run` was already the page's card
+    // (16 / 14 / no shadow / start / 1072 of a 1120 column) and `.empty-state` was a bare run of
+    // items with NO corner, NO padding and NO surface — the same idea drawn two ways on one page.
+    const source = css();
+    const rule = ruleFor(source, ".empty-state");
+    expect(rule, "the empty state must have a rule").not.toBeNull();
+    const radius = rule!.match(/border-radius:\s*var\(--([\w-]+)\)/)?.[1];
+    expect(radius, "the empty state's corner is a token").toBeTruthy();
+    expect(tokenPx(tokens(), radius!), "the corner is the card's").toBe(contract.empty.radius);
+    const pad = rule!.match(/padding:\s*var\(--([\w-]+)\)/)?.[1];
+    expect(pad, "the empty state's padding is a token").toBeTruthy();
+    expect(tokenPx(tokens(), pad!), "the padding is a card's").toBe(contract.empty.pad);
+    expect((rule!.match(/box-shadow:\s*([^;}]+)/)?.[1] ?? "").trim()).toBe(contract.empty.shadow);
+    // And the first-minute card is the same atom: it is the page's `.card`, so its corner and padding
+    // come from the one rule the contract already fixes.
+    const card = ruleFor(source, ".card");
+    expect(tokenPx(tokens(), (card!.match(/border-radius:\s*var\(--([\w-]+)\)/)?.[1])!)).toBe(
+      contract.empty.radius
+    );
+    expect(tokenPx(tokens(), (card!.match(/padding:\s*var\(--([\w-]+)\)/)?.[1])!)).toBe(
+      contract.empty.pad
+    );
   });
 
   it("is the breakpoint set, and every width query reads one of them", () => {
