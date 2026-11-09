@@ -1102,12 +1102,14 @@ an untended gate is worse than none.
    the 15px and 18px are put on referenced steps. **M.** *(A gate change, so it lands with its
    mutation.)*
 
-2. **Six off-scale border radii.** Rule 11's gate asserts the five canonical tokens exist; it does
-   not stop `border-radius: 7px` — measured **15 distinct radius values** in `app.css`, six off the
-   scale: `7px` ×4 (the tab strip, the segmented control, the evidence door), `8px` ×3, `6px` ×1,
-   `10px` ×1, `999px` ×3 (the canonical pill, written as a literal), `1px` ×1. The tab strip's tray
-   is `--radius-sm2` (8px) and its segments are 7px, so the inset does not read as the tray's own.
-   **Fix:** every `border-radius` is a `var(--radius-*)` or `0`; the gate asserts it. **S.**
+2. **Eight of the fifteen border radii are literals, and `7px` is not even on the scale.** Rule 11's
+   gate asserts the five canonical tokens exist; it does not stop a literal beside a token. Measured
+   in `app.css`: 15 distinct values, of which seven are the scale's five steps and eight are
+   literals — `7px` ×4 (the tab strip, the segmented control, the evidence door), `8px` ×3, `6px`
+   ×1, `10px` ×1 (each equal to a step the token already names, so one radius has two spellings),
+   `999px` ×3 (the canonical pill) and `1px` ×1. **Only `7px` is on neither the scale nor a token**,
+   and it is the inset of a tray that is `--radius-sm2`. **Fix:** every `border-radius` is a
+   `var(--radius-*)` or `0`, the segments take `--radius-xs`, and the gate asserts it. **S.**
 
 3. **Fifteen shadows where the system names six.** Rule 10. `tokens.css` declares `--shadow`,
    `--shadow-lg`, `--shadow-1`, `--shadow-2`; `app.css` adds `--elev-1`, `--elev-2` and `--ring`
@@ -1136,11 +1138,11 @@ an untended gate is worse than none.
    **Fix:** the heading tracking is the token's, the rest are the two literals a body and a small
    caps label genuinely need — or they become tokens. **S.**
 
-6. **The evidence panel's radius is 10px where the panel around it is 14.** Rule 11 with rule 7:
-   the nested box is `border-radius: 10px` inside `.timeline-row`, and the row's inset group is
-   `6px`. Three radii inside one opened row. It reads as three systems. **Fix:** the nested box
-   takes the inner step (`--radius-sm2`), the row's line takes `--radius-xs`. **S.** *(This is the
-   same item as 2's measurement, done at the one place the operator opens most.)*
+6. **One opened timeline row draws three radii, two of them by hand.** Rule 11 with rule 7:
+   `.evidence` writes `border-radius: 10px` and the row's own line writes `6px` — both literals at
+   values the scale names — inside a sheet that is 14px. **Fix:** the nested box takes
+   `--radius-sm2` (the step inside a 14px sheet) and the row's line `--radius-xs`, so a reader sees
+   a sheet, a box in it, and a line rather than three unrelated corners. **S.**
 
 7. **The block that renders in the jsdom suite is not the block the operator meets.** Not a design
    rule but the reason several of the above went unseen: `device/console/web/src/tokens.css` is
