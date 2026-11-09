@@ -3335,8 +3335,10 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
 /* ── Home: the selected machine is highlighted, not repeated ───────────────────────────────────
    The fleet's verdict, attention rows and table stay Home's; the machine's own live page is
    Device → Overview. The selected row is highlighted with the accent tint; the section below keeps
-   only what the row cannot state — what the machine can do and its two doors. It draws no name,
-   status, age or build, because the row and the topbar already own those facts (audit-43 F2). */
+   only what the row cannot state — what the machine can do and its two doors. IT NAMES ITS SUBJECT
+   (audit-45 F1): the card sits BELOW the row that selected the machine, so a card that named
+   neither the machine nor its presence asked the reader to remember the click. The name, the
+   presence phrase and the version are the fleet row's own words, stated once here. */
 .machine-summary {
   display: grid; gap: 10px;
   padding: 14px 18px;
@@ -3347,6 +3349,13 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
   margin: 0; font-size: var(--fs-2xs); font-weight: var(--fw-semi);
   text-transform: uppercase; letter-spacing: var(--tracking-label); color: var(--ink-muted);
 }
+.machine-summary-who {
+  margin: 0;
+  display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap;
+  font-size: var(--fs-sm); color: var(--ink-muted);
+}
+.machine-summary-name { color: var(--ink); font-size: var(--fs-md); font-weight: var(--fw-semi); }
+.machine-summary-version { color: var(--ink-faint); font-size: var(--fs-2xs); }
 .machine-summary-counts { margin: 0; }
 .machine-summary-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 

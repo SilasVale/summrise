@@ -577,8 +577,12 @@ describe("Home — the selected machine", () => {
     expect(
       within(summary).getByRole("heading", { name: "Selected machine", level: 2 })
     ).toBeInTheDocument();
-    expect(within(summary).queryByText("workshop")).toBeNull();
-    expect(within(summary).queryByText(/Running|online|offline/)).toBeNull();
+    // **THE CARD NAMES ITS SUBJECT (audit-45 F1).** audit-43 F2 read the highlighted row and the
+    // topbar as enough; the operator's brief is that a section headed "Selected machine" says which
+    // machine at a glance, so the name is here once. The AGE stays the row's below it, and the
+    // version is stated once on this card rather than a third time on the page.
+    expect(within(summary).getByText("workshop")).toHaveClass("machine-summary-name");
+    expect(within(summary).getByText("online")).toHaveClass("machine-summary-presence");
     expect(within(summary).queryByText(/last seen|seen \d/)).toBeNull();
     // THE VERSION IS NOT SAID THREE TIMES. The topbar's chip states what runs and the table's
     // Version column repeats it for the fleet; the summary adds no third copy (task 79's rule for
@@ -618,9 +622,10 @@ describe("Home — the selected machine", () => {
     });
 
     const summary = await screen.findByRole("region", { name: "Selected machine" });
-    // The name is the row's, once: the summary repeats neither it nor the presence word.
-    expect(within(summary).queryByText("workshop")).toBeNull();
-    expect(screen.getAllByText("workshop")).toHaveLength(1);
+    // The name is the row's AND the summary's, because the summary is the section that names its
+    // subject (audit-45 F1); "once" now means the table does not repeat the selection a third time.
+    expect(within(summary).getByText("workshop")).toHaveClass("machine-summary-name");
+    expect(screen.getAllByText("workshop")).toHaveLength(2);
     const table = screen.getByRole("table", { name: "The fleet" });
     expect(within(table).getAllByRole("row")).toHaveLength(3);
     const row = within(table).getByRole("button", { name: "Open workshop" }).closest("tr");
@@ -694,8 +699,13 @@ describe("Home — the selected machine", () => {
     });
 
     const summary = await screen.findByRole("region", { name: "Selected machine" });
-    // The summary no longer restates the machine's presence; the row's highlighted status does.
-    expect(within(summary).queryByText(/^offline/)).toBeNull();
+    // **AN OFFLINE MACHINE KEEPS ITS FULL PHRASE (audit-45 F1).** The card's next sentence is about
+    // counts it cannot read, so the why belongs here: the fleet row's own `offline · last seen …`
+    // phrasing, not a second spelling. An online machine states `online` alone and leaves the age to
+    // the row below it.
+    expect(within(summary).getByText(/^offline · last seen/)).toHaveClass(
+      "machine-summary-presence"
+    );
     expect(
       within(summary).getByText("Tool counts are unavailable while the machine is offline.")
     ).toBeInTheDocument();
