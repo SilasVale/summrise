@@ -3047,38 +3047,24 @@ main::-webkit-scrollbar-track, .sheet-body::-webkit-scrollbar-track, .scroll::-w
 
 /* The timeline filters with what a row actually carries: the machine that wrote it, and one search
    over the sentence, tool, machine and detail. The table's column filters stay with the table. */
-/* **ONE LEFT EDGE PER SUBJECT, ONE BASELINE PER ROW (the thirty-fourth list, item 2).** Measured at
-   1440 before this: the block's four left edges were x=314 (`MACHINES`), x=919 (`CALLERS`), **x=1001**
-   (the count sentence `710 client calls in this window · spanning 10 h 7 m`) and **x=1070**
-   (`Search activity` with its 288 px field), on three baselines (y=241, 267, 323) — inside a block
-   that reads as one bar. The count was a third element of the chip row, so it started where the row
-   happened to end; it is its own line under the Callers subject now, and the grid gives each column
-   its own edge and the whole bar one baseline.
-   - The machine chips and the caller control are one row, so their labels start at their chips.
-   - The search is the bar's right column: its label and its field share the field's left edge.
-   - Everything is aligned on the GRID's row, not nudged per element: `align-items: start` and one
-     rule height means the labels, the chips and the field all start at the same y. */
+/* **THE COUNT BELONGS TO THE CALLERS COLUMN, AND NOTHING ELSE MOVES (the thirty-fourth list, item
+   2).** Measured at 1440 before this change, inside a block that reads as one bar:
+
+       MACHINES        x=314, y=241
+       CALLERS         x=919, y=241
+       count sentence  x=1001, y=267   ← a third element of the chip row, so it began where the
+                                          chip row happened to end, 82 px right of its own label
+       Search activity x=1070, y=323   ← its own row, right-aligned, label over field
+
+   One edge was wrong, not four: the count floated inside the chip row. It is its own line under
+   `CALLERS` now, so it starts at its column's edge, and the bar keeps the shape that already worked
+   — the machine chips on ONE row at 1440, the callers beside them, the search right-aligned on the
+   row below it. Three grid attempts were measured and rejected: `max-content max-content 18rem`
+   overflowed the bar by 247 px at 1280, `minmax(0,max-content)` split the caller label from its chip
+   (627 vs 684), and a fixed search track forced the chips onto a second row at 1440 (452 px column
+   against 581 px of chips) — a chip row that wraps above 1440 is the shape the desktop does not have. */
 .timeline-filters {
-  display: grid;
-  /* **THE MACHINE COLUMN KEEPS ITS OWN CHIPS ON ONE ROW.** The first grid gave that column the
-     leftover `1fr` (444 px at 1440), and the five chips need 581 — they wrapped to two rows and the
-     bar grew instead of tightening. `max-content` for the chips column, a flexible gap, and a fixed
-     search: the chips stay on one line and the search keeps the bar's right edge. */
-  /* **THE COUNT GETS ITS OWN ROW, THE SEARCH KEEPS ITS WIDTH.** Three tracks at their natural widths
-     add up past the panel (chips 581 + the count sentence 294 + the search 288 + two gaps > 1044), and
-     the previous two attempts each broke something: a fixed third track overflowed the bar by 143 px,
-     and a flexible one squeezed the search to 145 px, where its placeholder read `sentence, tool, mach…`
-     — a clipped word is worse than a second line. The count spans the caller and search columns on a
-     row of its own, so the search keeps 18rem and still ends inside the bar. */
-  /* **THE MACHINE COLUMN TAKES THE LEFTOVER; ITS CHIPS WRAP INSIDE IT.** Three `max-content` tracks
-     have no shrink at all, so at the gate's 1280 they pushed the search 247 px past the bar. The
-     chips are a wrapping row by nature (`chips` is a flex wrap container) — at 1440 they fit on one
-     line (581 px inside a 608 px column) and at 1280 they take a second, which is what a chip row is
-     for. What must NOT move is the search: it is `18rem` of the bar's right edge, so the track is
-     fixed and the leftover goes to the chips. */
-  grid-template-columns: minmax(0, 1fr) max-content 18rem;
-  align-items: start;
-  gap: var(--sp-1-5) var(--sp-5);
+  display: flex; align-items: start; flex-wrap: wrap; gap: var(--sp-3-5) var(--sp-5);
   margin: 0 0 18px; padding-bottom: var(--sp-3-5);
   border-bottom: 1px solid var(--line);
 }
@@ -3104,13 +3090,10 @@ main::-webkit-scrollbar-track, .sheet-body::-webkit-scrollbar-track, .scroll::-w
 .timeline-console-reads .chip[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); }
 /* The search label and field share the field's left edge: the label is the field's own name, so it
    sits on the same column start the input does (`display: grid` with one column). */
-.timeline-search { display: grid; gap: var(--sp-1-5); min-width: 0; }
-.timeline-search input { width: 100%; max-width: 100%; }
-/* The caller count sits under the caller column and wraps rather than widening a track: a 294 px
-   sentence with `nowrap` made that track 294 px wide and pushed the search out of the bar (measured:
-   search right 1,499 against a bar ending at 1,252). It is placed by the grid's own flow, not by
-   `grid-column: 2` — pinning it there broke the label/chip edge when the tracks shrank (627 vs 684). */
-.filter-count { white-space: normal; max-width: 16rem; }
+.timeline-search { display: grid; gap: var(--sp-1-5); min-width: 0; margin-left: auto; }
+.timeline-search input { width: 18rem; max-width: 100%; }
+/* One line under its chips, on the column's own edge, wrapping rather than forcing the bar wide. */
+.filter-count { white-space: normal; max-width: 20rem; }
 @media (max-width: 639px) {
   .activity-page .page-head h1 { font-size: var(--fs-xl); }
   .activity-today { font-size: var(--fs-lg); }
