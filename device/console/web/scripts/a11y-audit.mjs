@@ -723,7 +723,7 @@ async function boot(page, origin) {
     throw new Error(`GET / answered ${response ? response.status() : 'nothing'}`);
   }
   await page.locator('nav.rail').waitFor({ state: 'visible', timeout: 10_000 });
-  await page.getByRole('heading', { name: 'Machines', exact: true, level: 1 }).waitFor({
+  await page.getByRole('heading', { name: 'Home', exact: true, level: 1 }).waitFor({
     state: 'visible',
     timeout: 10_000
   });

@@ -559,7 +559,7 @@ describe("Home — the selected machine", () => {
     expect(screen.getByRole("table", { name: "The fleet" })).toBeInTheDocument();
     // One destination, one heading: the selected state does not become a second page.
     expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
-    expect(screen.getByRole("heading", { name: "Machines", level: 1 })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Home", level: 1 })).toBeInTheDocument();
   });
 
   it("summarises the selected machine's capabilities in one section of Home", async () => {
@@ -755,7 +755,7 @@ describe("Home — the fleet's Tokens door", () => {
   it("keeps the door in the fleet's zero state", () => {
     drawFleet();
 
-    expect(screen.getByRole("heading", { name: "Machines", level: 1 })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Home", level: 1 })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Tokens" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Add a machine" })).toBeInTheDocument();
   });
