@@ -2169,11 +2169,26 @@ names the device's reason with a Retry; a successful empty read is a quiet line,
    dialog, and it is drawn where a page's empty state belongs. The console's is the page's own card —
    the same 14 px corner, the same 16 px padding, the same start-aligned left edge as every other
    card on the page. **Fix:** one empty atom, in the contract, on both surfaces. **M.**
+   *(**Done, panel `cb685d9b` / console `8b26eaa`, live console 0.3.273-ux156**: `layout-contract.json`
+   carries `empty: { radius 14, pad 16, gap 12, textAlign start, shadow none }` and both repos' contract
+   tests read it. The panel's card after, measured at 1360: **`padding 16px`, `radius 14px`,
+   `shadow none`, `text-align start`, 1120 wide with a 24 px left gap** — the console's numbers, to the
+   pixel. The mark shrank from a 56 px tile to a 30 px slot at the sentence's start; the sentence and
+   its one action stayed. **The console had TWO empties and they were two shapes:** `.card.first-run`
+   was already the atom, `.empty-state` (the plugin and tool catalogues, the device shell) was a bare
+   run of items with no corner, no padding and no surface — after, it measures 1072 of 1120 at the
+   same 16 / 14 / none. Mutation on each side fails with `the corner is the card's 14: expected 20 to
+   be 14` (panel) and `the empty state's corner is a token: expected undefined to be truthy` (console).
+   **The cross-repo pin moved twice on the way** — the panel committed first, so the console's literal
+   is its hash — which is the mechanism working, not an inconvenience.)*
 
 2. **Neither surface's empty state is in the layout contract, so nothing can hold them equal.**
    `layout-contract.json` names the page frame, the card and the rail; the empty state is a fourth
    atom both surfaces draw and neither declares. **Fix:** the atom joins the contract with its own
    numbers, and each repo's contract test reads it. **S.**
+   *(**Done with item 1** — the atom is in the contract because neither side could be held to a
+   number that was not written down first. This is why items 1 and 2 shipped in the order they did:
+   the number, then the two surfaces.)*
 
 ## How a round goes
 
