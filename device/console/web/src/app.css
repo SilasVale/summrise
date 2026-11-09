@@ -593,6 +593,14 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
    so the block that hands out the release's installer sits first, in the fleet's zero state and in
    the Add-a-machine panel. Its one link is the browser's own same-origin download: the session
    cookie is the gate, and the page never holds the file. */
+/* **A SPARE FILE IS NOT A CALL TO ACTION (the thirty-sixth list).** When the fleet has outrun the
+   staged installer, the strip's download is what a machine that is not in the fleet (or one that
+   returns) would use — not the page's next step. It takes the neutral control's weight, so the
+   page's one accent-filled control stays the one the reader should press: `Add a machine`. */
+.installer-spare {
+  background: var(--panel); color: var(--ink); border-color: var(--line-strong);
+}
+.installer-spare:hover { background: var(--panel-3); }
 .installer {
   display: grid; gap: var(--sp-2); justify-items: start;
   padding: var(--sp-3); margin: 0 0 var(--sp-3);
