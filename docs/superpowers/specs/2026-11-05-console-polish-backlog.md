@@ -1852,6 +1852,41 @@ the reader is); and every device page's title sits at the same x as its page col
    both are PANES** (an embedded WebContentsView, a two-pane harness), and the shell test says so in
    words. Mutation: removing History's `h1` fails with `History does not name itself in its own body`.)*
 
+## P0 — the fortieth list (opened 2026-11-10, the states that tell the truth, and one that tells nothing)
+
+The thirty-ninth list is closed. The operator's directive names the empty, the loading and the failed
+state as part of the shared layout system, and the design rules make rule 19 the one that says they
+must tell the truth. This list is a sweep of exactly those states across both surfaces.
+
+Live console `0.3.273-ux145` at 1440, and the built panel at 1360 with every `/api` read answered
+`500 boom`. Three reads were clean and are recorded as clean: the panel's Memory, Settings and
+Plugins each answer a failed read with its own subject and a `Retry` (`Not read — the memory list
+could not be loaded. boom · Retry`, `The device's settings could not be read. The limits below are
+empty, not this device's values. · Retry`, `Inventory unavailable. inventory: boom · Retry`); the
+console's machine tabs keep their own subject when `/mcp` fails (`Could not read the run history: boom`,
+`Could not list the files root: boom`); and the empty fleet's page is a real page — three blocks
+(`page-head` 65, `empty-state first-run` 100, the installer strip 66) at 848 px.
+
+1. **When the installer read fails, Home silently drops the strip.** Measured: with `/fleet` empty and
+   `/installer` answering 500, the page draws **`page-head` + `empty-state first-run` and nothing
+   else** — no strip, no sentence, no `Retry`, 848 → 748 px. The render is
+   `{installer !== null && <InstallerBlock …/>}`, and `useInstaller`'s `catch` sets `null` — the same
+   value it uses for "not read yet". So an ACCOUNT with no installer and a CONSOLE that failed to ask
+   are one state, and the one the reader gets is silence. The comment above the block is explicit that
+   the installer "is the next step whether the machine list arrived, is still coming, or failed" — the
+   page means to be honest here and is not. **Fix:** the hook reports three states, not two, and the
+   failed one says what failed and offers the retry, exactly as the panel's three pages already do.
+   **S.**
+
+2. **The empty fleet's page has three blocks and no first action.** With `[]` the page reads
+   `No machines yet` — and the installer strip below it is the page's smallest block (**66 px**),
+   drawn after an `empty-state` of 100. Measured: the strip's own heading is
+   `Installer for a new or returning machine` and its sentence says the fleet is past the file; on a
+   fleet of zero both statements are about a fleet that does not exist. A first-run page's next step
+   is the INSTALLER, and the block for it is the one the reader reaches last and the one that is
+   smallest. **Fix:** on an empty fleet the installer is the page's action, not its footnote — the
+   empty state and the strip are one block, in the order a new operator actually works. **M.**
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
