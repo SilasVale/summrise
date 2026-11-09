@@ -1670,7 +1670,7 @@ describe("TerminalWorkspace recovery", () => {
     // The second tab does not exist yet; the menu names the one the device still has.
     fireEvent.click(screen.getByLabelText("Session tools"));
     fireEvent.click(await screen.findByRole("button", { name: "Sessions (1)" }));
-    const dialog = await screen.findByRole("dialog", { name: "Sessions on this device" });
+    const dialog = await screen.findByRole("dialog", { name: "Sessions on this machine" });
     expect(within(dialog).getByText("older")).toBeInTheDocument();
     // The list is about "which one is recent"; the age is what answers it, not a wall-clock stamp.
     expect(within(dialog).getByText(/opened 5m \d\ds ago/)).toBeInTheDocument();
@@ -2092,7 +2092,7 @@ describe("TerminalWorkspace session card", () => {
     expect(screen.queryByText("No session is open on this machine.")).toBeNull();
 
     // The one control that makes a session sits with that sentence, not in a second empty card.
-    const sessions = screen.getByRole("region", { name: "Sessions on this device" });
+    const sessions = screen.getByRole("region", { name: "Sessions on this machine" });
     const start = within(sessions).getAllByRole("button", { name: "+ New session" });
     expect(start).toHaveLength(1);
     expect(screen.getAllByRole("button", { name: "+ New session" })).toHaveLength(1);
