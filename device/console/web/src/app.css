@@ -3054,10 +3054,15 @@ main::-webkit-scrollbar-track, .sheet-body::-webkit-scrollbar-track, .scroll::-w
   position: sticky; top: 0; z-index: 1;
   background: var(--canvas);
 }
+/* **THE DAY'S RECORD IS ONE COLUMN OF LINES, NOT 118 RULES (the twenty-seventh list, item 2).**
+   Measured at 1440: `.timeline-row` carried 118 `border-top`s, so every call was boxed off from the
+   one above it by a hairline and the record read as a form to be filled in. A row is separated by
+   the page's own rhythm instead: the day label opens a day, a stretch header draws the one rule
+   that means "the work changed here", and the rows between them are lines of one list. Hover and
+   the open row still say which line you are on. */
 .timeline-rows { list-style: none; margin: 0; padding: 0; }
-.timeline-row { border-top: 1px solid var(--hairline); }
-.timeline-row:first-child { border-top: 0; }
-.timeline-row.is-stretch { border-top: 1px solid var(--hairline); margin-top: 18px; }
+.timeline-row { border-top: 0; }
+.timeline-row.is-stretch { border-top: 0; margin-top: 18px; }
 .timeline-line {
   display: grid; grid-template-columns: 68px 20px minmax(0, 1fr) 18px;
   gap: var(--sp-3); align-items: start; padding: 15px var(--sp-2) 15px var(--sp-0-5); min-height: 64px;
@@ -3104,10 +3109,15 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
 .timeline-outcome.is-warn { color: var(--warn); }
 /* The console's own reads are rows like any other; this quiet word is what tells them from the AI's
    calls. It never takes a status colour: it says who looked, not how the call went. */
+/* **THE CALLER IS A WORD, NOT A PILL (the twenty-seventh list, item 2).** Measured on Activity's
+   Timeline at 1440: 150 bordered elements, 25 of them this pill — one boxed outline per row, on a
+   fact that is two syllables long (`console`). A box around an aside says it belongs to the row's
+   structure; this belongs to the sentence, so it is the page's small-caps type and no chrome. The
+   uppercase is what still tells it from prose, which is rule 6's "not colour alone". */
 .timeline-caller, .audit-caller {
-  display: inline-block; padding: 0 var(--sp-1); border: 1px solid var(--hairline);
-  border-radius: var(--radius-pill); color: var(--ink-faint);
+  display: inline; color: var(--ink-faint);
   font-size: var(--fs-2xs); font-weight: var(--fw-semi); line-height: 1.5;
+  letter-spacing: var(--tracking-label); text-transform: uppercase;
 }
 .timeline-chev {
   align-self: center; color: var(--ink-faint); font-size: var(--fs-xs);
