@@ -1512,6 +1512,91 @@ async fn a_machine_with_no_line_today_serves_no_day() {
 /// read, a failed poll, an unattributed row and a channel boundary each go to their own place, and a
 /// client failure is the client's.
 #[tokio::test]
+/// **THE DAY'S ANSWER IS CHECKABLE FROM THE WINDOW IT SITS ABOVE (the forty-fourth list, item 2).**
+///
+/// The item that opened this work claimed the day "read 302 lines to answer a day the window shows
+/// holding 1,000+" and that the read was partial while saying it was whole. The measurement that
+/// disproved it is arithmetic anyone can repeat: take the window, keep the lines at or after the
+/// answer's own `day_start_ms`, count them by the server's own client rule, and compare with
+/// `lines_read` and `client_calls`. 689 of the 1,000 were BEFORE the cut; the 311 at or after it are
+/// the day, and 312 = 311 + the one line that proved the cut.
+///
+/// This test seeds that shape and refuses a day whose scan is not the rows at or after its cut.
+async fn the_day_scan_covers_exactly_the_rows_at_or_after_its_cut() {
+    let fixture = Fixture::new("day-scan-coverage");
+    // **A CLOCK WITH A DAY IN IT, SET BEFORE THE SESSION IS MINTED.** The fixture starts at
+    // 1,000,000 ms (1970), whose local midnight is the epoch — a clock with no day to read. Advancing
+    // after `authenticate` would expire the cookie the session was minted with (measured: a 401).
+    fixture.advance_ms(1_700_000_000_000);
+    let session = fixture.authenticate().await;
+    let alpha = register_fixture_device(&fixture, &signing_key(0xa1)).await;
+    let now = fixture.now_ms();
+    let midnight = local_midnight(now);
+    // A fixture whose local midnight is the epoch has no day to test; say so rather than assert
+    // against a clock that cannot have one.
+    assert!(midnight > 0, "the fixture's clock has no local day: {now}");
+    let mut lines = Vec::new();
+    // Three rows from the day before: they are NOT the day, and the scan must not count them.
+    // `saturating_sub` because a fixture whose clock is minutes after epoch has no day before it,
+    // and a test that panics on arithmetic proves nothing about the read.
+    for offset in [86_400_000u64, 90_000_000, 120_000_000] {
+        let Some(before) = midnight.checked_sub(offset) else {
+            continue;
+        };
+        lines.push(json!({
+            "ts_ms": before,
+            "kind": "mcp",
+            "device_id": alpha,
+            "status": 200,
+            "tool": "files.read",
+            "caller": "client"
+        }));
+    }
+    // Five rows inside the day: two client calls, two console reads, one boundary.
+    lines.push(json!({ "ts_ms": midnight + 1_000, "kind": "device", "device_id": alpha, "status": 200, "tool": "device.joined", "caller": "console" }));
+    lines.push(json!({ "ts_ms": midnight + 60_000, "kind": "mcp", "device_id": alpha, "status": 200, "tool": "files.read", "caller": "client" }));
+    lines.push(json!({ "ts_ms": midnight + 120_000, "kind": "mcp", "device_id": alpha, "status": 200, "tool": "runs.exec", "caller": "client" }));
+    lines.push(json!({ "ts_ms": midnight + 180_000, "kind": "mcp", "device_id": alpha, "status": 200, "tool": "state.get", "caller": "console" }));
+    lines.push(json!({ "ts_ms": midnight + 240_000, "kind": "mcp", "device_id": alpha, "status": 200, "tool": "plugins.list", "caller": "console" }));
+    seed_audit_file(&fixture, "audit.jsonl", &lines);
+
+    let (status, day) = send(fixture.app(), get("/audit/day", Some(&session))).await;
+    assert_eq!(status, StatusCode::OK, "the day read: {day}");
+
+    // THE ANSWER'S OWN CUT decides which rows are the day; anything else is a second convention.
+    let cut = day["day_start_ms"].as_u64().expect("the answer names its cut");
+    let inside: Vec<_> = lines
+        .iter()
+        .filter(|line| line["ts_ms"].as_u64().unwrap_or(0) >= cut)
+        .collect();
+    assert_eq!(
+        day["client_calls"],
+        json!(2),
+        "two client calls inside the day: {day}"
+    );
+    // **THE BOUNDARY IS A FACT ABOUT THE MACHINE, NOT WORK.** `is_channel_boundary` drops
+    // `device.joined` / `device.left` from every bucket, so the join line is in none of the day's
+    // numbers while still being one of the lines the scan read — the two reads are the console's 2.
+    assert_eq!(
+        day["console"],
+        json!(2),
+        "the two reads are the console's lines; the boundary is in no bucket: {day}"
+    );
+    // **THE SCAN TOUCHED THE WHOLE DAY, NOT A SLICE OF IT.** `lines_read` is every line examined,
+    // which is the day's rows plus the one older line that proved where the day starts.
+    assert_eq!(
+        day["lines_read"],
+        json!(inside.len() + 1),
+        "the scan examined the day's {} rows and one proving line, not a slice: {day}",
+        inside.len()
+    );
+    // And a whole day says so: `since_ms` is absent, because the scan did reach midnight.
+    assert!(
+        day.get("since_ms").is_none() || day["since_ms"].is_null(),
+        "a whole day must not name a coverage start: {day}"
+    );
+}
+
 async fn the_day_route_counts_the_pages_four_buckets_from_midnight() {
     let fixture = Fixture::new("day-buckets");
     let session = fixture.authenticate().await;
