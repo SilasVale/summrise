@@ -1986,6 +1986,17 @@ contract rhythm and padding below 640 (`16 px` padding, `16 px` gap).
    system with an invisible fourth scale — spacing, type, radius are tokens and the widths are not.
    **Fix:** the contract names the widths both surfaces may use, each media query reads one, and a
    value outside the list fails in both repos. **M.**
+   *(**Done, console + contract `70e7510`, live 0.3.273-ux150**: `breakpoints: { narrow: 480, phone:
+   639, tablet: 767, columns: 1088, wide: 1280 }` is in the contract and every width query must read one
+   (±1, because `639/640` is ONE breakpoint written from both ends). The odd literals were folded after
+   **checking each one against the rendered layout at 390 / 480 / 720 / 799 / 1279 / 1280** — and two
+   were REFUSED: `480` is the phone's own step and `1280` is where the audit filter row stops wrapping,
+   so folding them would have changed two bands, which is a redesign smuggled in as a rename. Both are
+   back where they were. **A fold that changes behaviour is not a fold.** The test refuses a stranger
+   (`a width query outside the contract is a fourth scale nobody declared: expected [ 799 ] to deeply
+   equal []`) and refuses a width written in `rem` at all — a width a grep cannot see is a width nobody
+   can review. The panel's six queries (700 / 760 / 900) are the remaining work: they are not yet on
+   this set.)*
 
 ## How a round goes
 
