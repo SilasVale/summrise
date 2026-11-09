@@ -1375,6 +1375,12 @@ query.
    tappable, but only a strip of its first line is. **Fix:** the row's surface is the door —
    the name button covers the card's body or the card itself is the button — and the `⋯` stays its
    own target. **S.**
+   *(**Done, live 0.3.273-ux124** (`04e425f`): measured at 390 on the live page, every card's door
+   covers **97%** of the card and the centre of **all four** lands on it; tapping a card's body at
+   60% of its height lands on `#device/overview`, where before it stayed `#home`. The card is **77 px**
+   tall (was 103): the absolute door collapses the cell's own box, so the phone's Home page got
+   shorter as well as tappable. The `⋯` keeps its own 44 px. The gate fails on coverage under 95%,
+   on a centre that misses, or on a menu that lost its own box.)*
 
 3. **The audit table's phone rows are 26-57 px and their only opener is 24 × 28 px.** Measured at
    390 with the Table open: 1,004 targets in `main`, **1,004 under 44 px**; the rows are 57 px tall
