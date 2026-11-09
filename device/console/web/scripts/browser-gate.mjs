@@ -1744,6 +1744,24 @@ try {
     throw new Error(`the source line did not state the rotation: "${sourceText}"`);
   }
   step(`the window states the file it reads: ${sourceText}`);
+  // **A DAY IS SIXTY ROWS AND ONE DOOR (backlog item 2).** The fixture is one day of 79 rows, so the
+  // page draws the newest 60 and the door states the rest; pressing it draws the whole day.
+  const drawnRows = await page.locator('.timeline-row').count();
+  const dayDoors = page.locator('.timeline-more');
+  if ((await dayDoors.count()) !== 1) {
+    throw new Error(`Activity drew ${await dayDoors.count()} day doors for one long day`);
+  }
+  const doorText = (await dayDoors.textContent())?.trim() ?? '';
+  if (!/^Show the rest of today \(\d+ more\)/.test(doorText)) {
+    throw new Error(`the day door read ${JSON.stringify(doorText)}`);
+  }
+  if (drawnRows !== 60) {
+    throw new Error(`Activity drew ${drawnRows} rows before the fold, not the day's 60`);
+  }
+  await dayDoors.click();
+  if (await page.locator('.timeline-more').count()) {
+    throw new Error('the day door stayed after the day was opened');
+  }
   const allActivityRows = await page.locator('.timeline-row').count();
   // **THE PAGE'S OWN WRITES ARE AUDIT ROWS.** The console records every call, so the two
   // `terminal.write` lines the session-card leg typed are drawn beside the fetched window. The
@@ -4251,6 +4269,17 @@ try {
   const bigChip = page.getByRole('button', { name: 'DESKTOP-7QK3MN2', exact: true });
   await bigChip.waitFor({ state: 'visible', timeout: 10_000 });
   await bigChip.click();
+  await page.waitForFunction(
+    (expected) => document.querySelectorAll('.timeline-row').length === expected,
+    Math.min(BIG_DRAWABLE, 60),
+    { timeout: 30_000 }
+  );
+  // The measured 974-row day is 60 rows and one door now; the door opens the rest in place.
+  const bigDoor = page.locator('.timeline-more');
+  if ((await bigDoor.count()) !== 1) {
+    throw new Error(`the measured day drew ${await bigDoor.count()} doors for 974 rows`);
+  }
+  await bigDoor.click();
   await page.waitForFunction(
     (expected) => document.querySelectorAll('.timeline-row').length === expected,
     BIG_DRAWABLE,

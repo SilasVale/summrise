@@ -3015,6 +3015,9 @@ main::-webkit-scrollbar-track, .sheet-body::-webkit-scrollbar-track, .scroll::-w
    Outside: one line per action. Click: the evidence for that one call. */
 
 .timeline { display: grid; gap: 30px; }
+/* **THE CAP SENTENCE SITS WHERE ITS COUNT IS.** It counts the rows the first day label introduces,
+   so it is drawn above that label; measured on the 888-row page it used to land 70,000 px down the
+   record, after the rows it was qualifying. */
 .timeline-capped { margin: 0 0 var(--sp-3); }
 /* The cap sentence's companion: what was read, beside what was drawn. */
 .audit-source { margin: 0 0 var(--sp-3); }
@@ -3179,6 +3182,26 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
 .timeline-stretch.is-header .timeline-stretch-text { color: var(--ink-muted); }
 .timeline-stretch-text {
   color: var(--ink-faint); font-size: var(--fs-xs); letter-spacing: 0.02em; white-space: nowrap;
+}
+
+/* THE DAY'S DOOR. Sixty rows are drawn and the rest are one quiet line rather than 632 more rows:
+   a text control, in the record's own column, that says what it holds and what the day covers. It
+   is not a page footer and not a card — it is the line where the day stops being drawn. */
+.timeline-more {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--sp-1) var(--sp-2);
+  width: 100%; margin: var(--sp-2) 0 0; padding: var(--sp-2) 2px; text-align: left;
+  border: 0; border-top: 1px solid var(--hairline); border-radius: 0;
+  background: transparent; color: var(--ink-muted);
+  font-size: var(--fs-xs); font-weight: var(--fw-regular); line-height: 1.5;
+}
+.timeline-more:hover { background: transparent; color: var(--ink); }
+.timeline-more-door { text-decoration: underline; text-underline-offset: 2px; }
+.timeline-more-facts { color: var(--ink-faint); white-space: nowrap; }
+/* The cap sentence that moved above the first day label is the same quiet line it was in the
+   footer: it qualifies the count it sits beside, and must not compete with the day's name. */
+.timeline-day .timeline-capped {
+  margin: calc(var(--sp-1) * -1) 0 var(--sp-2); max-width: 78ch;
+  color: var(--ink-faint); font-size: var(--fs-xs); line-height: 1.5;
 }
 
 /* The record's footer: what the window drew and what file it read. It sits below the day, quiet,

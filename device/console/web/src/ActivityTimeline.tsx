@@ -10,7 +10,7 @@ import { isChannelBoundary, isClientCall } from "./activitySummary";
 import { auditFailed } from "./auditFilter";
 import { spanText } from "./age";
 import { Clock, clock } from "./Clock";
-import { ageAt, shortId } from "./format";
+import { ageAt, clockTime, shortId } from "./format";
 import { auditWindowSpan } from "./auditSource";
 import { AuditSourceLine } from "./AuditSourceLine";
 import { ConsoleCaller } from "./CallerMark";
@@ -41,6 +41,15 @@ const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Frid
  * screen — and that is the one whose summary must arrive before the walk, not after it.
  */
 const STRETCH_HEADER_ROWS = 10;
+
+/**
+ * How many of a day's newest rows are drawn before the rest go behind one door.
+ *
+ * Measured on the operator's page: 692 calls sat under `Today` and `main` was 73,740 px tall at
+ * 1440, so the day was a wall whose end nobody reached. Sixty rows is about four screens — past
+ * what a reader scans and short of a wall — and the day's own count and span still arrive at the top.
+ */
+export const DAY_VISIBLE = 60;
 
 type Day = { key: string; label: string; lines: AuditLine[] };
 
@@ -363,10 +372,48 @@ function dayStretches(lines: readonly AuditLine[]): Stretch[] {
   return stretches;
 }
 
+/** One count of calls, in the one spelling the stretch labels and the day's door share. */
+function callsText(count: number): string {
+  return `${count} ${count === 1 ? "call" : "calls"}`;
+}
+
 /** What a stretch held, in the one spelling both forms use. */
 function stretchText(stretch: Stretch): string {
-  const calls = `${stretch.count} ${stretch.count === 1 ? "call" : "calls"}`;
+  const calls = callsText(stretch.count);
   return stretch.spanMs > 0 ? `${calls} · ${spanText(stretch.spanMs)}` : calls;
+}
+
+/**
+ * The day's own count and span, in the page's existing vocabulary: `692 calls · 11:52 → 12:43`.
+ *
+ * `callsText` is the stretch label's own noun, and `clockTime` is the summary line's own clock, so
+ * the door states the day in the words the page already uses instead of a second format. The rows
+ * arrive newest first, so the span runs from the day's first row to its last. The count is every row
+ * the day holds — the drawn ones and the ones behind its door — because the door qualifies that
+ * count rather than adding a second one.
+ */
+function dayText(lines: readonly AuditLine[]): string {
+  const calls = callsText(lines.length);
+  if (lines.length === 0) return calls;
+  const newest = lines[0].ts_ms;
+  const oldest = lines[lines.length - 1].ts_ms;
+  const span = `${clockTime(oldest)} → ${clockTime(newest)}`;
+  // One moment, or two ends inside the same minute, has no span to draw: the arrow would point from
+  // one moment to itself and claim a stretch that is not there (the provenance line's own rule).
+  if (oldest === newest || clockTime(oldest) === clockTime(newest)) return calls;
+  return `${calls} · ${span}`;
+}
+
+/**
+ * The day's own word for its door: `today`, `yesterday`, or the date as the day label spells it.
+ *
+ * The door is a sentence about the day it sits in, so it must not say "today" about Saturday when it
+ * is drawn under Saturday's label; the label's own words are the ones that are true there.
+ */
+function dayWord(label: string): string {
+  if (label === "Today") return "today";
+  if (label === "Yesterday") return "yesterday";
+  return label;
 }
 
 /** One closed line, or one opened line with its evidence. */
@@ -645,6 +692,13 @@ export function ActivityTimeline(props: {
 }) {
   const [now, setNow] = useState(() => Date.now());
   const [openKey, setOpenKey] = useState<string | null>(null);
+  /**
+   * The days the operator has opened past [`DAY_VISIBLE`], keyed by day key.
+   *
+   * The fold is the day's own, so opening today must not open yesterday; expanding a day stays
+   * expanded while live rows arrive, because the key it is held by is the date, not the rows.
+   */
+  const [openDays, setOpenDays] = useState<Record<string, boolean>>({});
   // Uncontrolled when rendered on its own; the page passes the shared values so a search survives
   // the switch to the table and back.
   const [ownQuery, setOwnQuery] = useState("");
@@ -732,6 +786,20 @@ export function ActivityTimeline(props: {
   const days = groupDays(filtered, at);
   const filtering = needle !== "" || scope !== "" || clientsOnly;
   const deviceLabel = scope !== "" ? (machineName(props.devices, scope) ?? scope) : "";
+  // **THE CAP SENTENCE QUALIFIES THE COUNT IT SITS BESIDE.** It used to be the record's footer, 70,000
+  // px down the page: the row that says how many lines were dropped came after 888 lines nobody could
+  // reach. It belongs above the first day label now, where the count it qualifies is — and when there
+  // is no day to sit above, the footer still holds it rather than the sentence vanishing.
+  const cappedSentence =
+    props.windowSentence != null || props.capped || props.atLimit
+      ? props.windowSentence ??
+        capSentence(
+          ACTIVITY_LIMIT,
+          props.cappedMachine ?? null,
+          props.capped ? "capped" : "at-limit",
+          props.windowCounts ?? null
+        )
+      : null;
 
   return (
     <div className="activity-timeline">
@@ -893,14 +961,27 @@ export function ActivityTimeline(props: {
         )
       ) : (
         <div className="timeline">
-          {days.map((day) => {
+          {days.map((day, dayIndex) => {
             const stretches = dayStretches(day.lines);
             const orderAt = new Map(stretches.map((stretch, order) => [stretch.start, order]));
+            // **A DAY IS ITS NEWEST ROWS, THEN ONE DOOR.** The measured day was 692 rows and a 73,740 px
+            // `main`; sixty rows is about four screens, and the rest is a line that states the day's
+            // own count and span rather than a wall nobody reaches the end of.
+            const open = openDays[day.key] === true;
+            const shown = open ? day.lines : day.lines.slice(0, DAY_VISIBLE);
+            const hidden = day.lines.length - shown.length;
+            const foldable = !open && day.lines.length > DAY_VISIBLE;
             return (
               <section key={day.key} className="timeline-day" aria-label={day.label}>
+                {/* **THE CAP SENTENCE IS ABOVE THE FIRST DAY LABEL.** It counts the rows the first day
+                    introduces; at the record's footer it landed 70,000 px down the page, after 888
+                    rows nobody could reach the end of. */}
+                {dayIndex === 0 && cappedSentence !== null && (
+                  <p className="hint timeline-capped">{cappedSentence}</p>
+                )}
                 <h2 className="timeline-day-label is-sticky">{day.label}</h2>
                 <ol className="timeline-rows">
-                  {day.lines.map((line, index) => {
+                  {shown.map((line, index) => {
                     const key = `${line.ts_ms}-${line.tool ?? line.kind}-${line.status}`;
                     const order = orderAt.get(index);
                     const current = order === undefined ? null : stretches[order];
@@ -947,30 +1028,37 @@ export function ActivityTimeline(props: {
                     );
                   })}
                 </ol>
+                {foldable && (
+                  // **ONE MUTED DOOR, THE DAY'S OWN COUNT ON IT.** The door says what is behind it, and
+                  // the day's count and span on the same line say what the whole day is: the words are
+                  // the stretch label's noun and the provenance line's clock, so the fold states the
+                  // day in the page's own vocabulary rather than a second, differently-shaped number.
+                  <button
+                    type="button"
+                    className="timeline-more"
+                    title={`${dayText(day.lines)}; the newest ${DAY_VISIBLE} are drawn`}
+                    onClick={() => setOpenDays((current) => ({ ...current, [day.key]: true }))}
+                  >
+                    <span className="timeline-more-door">
+                      Show the rest of {dayWord(day.label)} ({hidden} more)
+                    </span>
+                    <span className="timeline-more-facts">{dayText(day.lines)}</span>
+                  </button>
+                )}
               </section>
             );
           })}
         </div>
       ))}
       {/* The technical hints are the record's footer, not its preface: what was drawn and what was
-          read are facts to consult after the day, not a banner above it. They stay quiet and last. */}
+          read are facts to consult after the day, not a banner above it. They stay quiet and last.
+          The cap sentence is the exception: it moved above the first day label, because it counts
+          the rows there. With no day to sit above — a filtered day with no rows, or an unread one —
+          it stays here rather than vanishing from a page that has the fact. */}
       {!props.loading && (
         <footer className="timeline-footer">
-          {(props.windowSentence != null || props.capped || props.atLimit) && (
-            // The fetched window and the live lines can add up to more than the console's cap.
-            // Dropping the oldest is right; doing it silently would hide rows. The sentence names
-            // the window only: the cut rows can be yesterday's, so "of today" would be false on a
-            // list that spans days. A full request that dropped nothing is the other fact: the same
-            // helper says the window hit its limit without pretending to know what is behind it.
-            <p className="hint timeline-capped">
-              {props.windowSentence ??
-                capSentence(
-                  ACTIVITY_LIMIT,
-                  props.cappedMachine ?? null,
-                  props.capped ? "capped" : "at-limit",
-                  props.windowCounts ?? null
-                )}
-            </p>
+          {days.length === 0 && cappedSentence !== null && (
+            <p className="hint timeline-capped">{cappedSentence}</p>
           )}
           <AuditSourceLine source={props.source} window={windowSpan} />
         </footer>

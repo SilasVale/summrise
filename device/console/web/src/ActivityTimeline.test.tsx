@@ -890,8 +890,10 @@ describe("ActivityTimeline", () => {
     expect(screen.queryByText("Nothing has happened yet.")).not.toBeInTheDocument();
   });
 
-  it("draws a full 1000-row day, down to the last row", () => {
-    // P2-12 measured this: the page asks for the server's cap and the timeline draws all of it.
+  it("draws a full 1000-row day behind one door, down to the last row", () => {
+    // P2-12 measured this: the page asks for the server's cap. The day is not thrown away, but it is
+    // not a 70,000 px wall either: the newest 60 rows are drawn and the other 940 are a door that
+    // opens the rest in place (backlog item 2).
     // The fixture is one day, newest first, with a unique timestamp so every row has its own key.
     const newest = Date.UTC(2026, 10, 5, 9, 0, 0);
     const lines = Array.from({ length: 1000 }, (_, index) =>
@@ -903,6 +905,11 @@ describe("ActivityTimeline", () => {
     );
     render(<ActivityTimeline lines={lines} devices={[]} nowMs={newest + 1_000} />);
 
+    // The record is the whole day, but the page is not a wall: the newest 60 are drawn and the
+    // other 940 are one door. Pressing it draws the day down to its last row (backlog item 2).
+    expect(document.querySelectorAll(".timeline-row")).toHaveLength(60);
+    expect(screen.queryByText("Call 1000")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /^Show the rest of today/ }));
     expect(document.querySelectorAll(".timeline-row")).toHaveLength(1000);
     expect(screen.getByText("Call 1000")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Today" })).toBeInTheDocument();
@@ -1141,17 +1148,18 @@ describe("ActivityTimeline's labelled filter and record footer", () => {
 
     const timeline = document.querySelector<HTMLElement>(".timeline");
     const footer = document.querySelector<HTMLElement>(".timeline-footer");
+    const capped = document.querySelector<HTMLElement>(".timeline-capped");
     expect(timeline).not.toBeNull();
     expect(footer).not.toBeNull();
     expect(
       (timeline as HTMLElement).compareDocumentPosition(footer as HTMLElement) &
         Node.DOCUMENT_POSITION_FOLLOWING
     ).toBeTruthy();
-    expect(timeline?.querySelector(".timeline-capped")).toBeNull();
+    // The cap sentence qualifies the count at the top of the record, not the footer: it moved above
+    // the first day label where the rows it counts begin (backlog item 2).
+    expect(timeline?.querySelector(".timeline-capped")).not.toBeNull();
     expect(timeline?.querySelector(".audit-source")).toBeNull();
-    expect(footer?.querySelector(".timeline-capped")).toHaveTextContent(
-      "Showing the newest 1000 lines — the window's limit."
-    );
+    expect(capped).toHaveTextContent("Showing the newest 1000 lines — the window's limit.");
     expect(footer?.querySelector(".audit-source")).toHaveTextContent(/^Reading audit\.jsonl/);
   });
 });
@@ -1218,5 +1226,101 @@ describe("ActivityTimeline on a phone", () => {
     const chip = within(group).getByRole("button", { name: "old id · fe209fc2c119…" });
     expect(chip).toHaveAttribute("aria-pressed", "true");
     expect(within(group).queryByRole("button", { name: "Alpha" })).toBeInTheDocument();
+  });
+});
+
+/**
+ * A DAY IS ITS NEWEST ROWS, THEN ONE DOOR (backlog item 2). On the operator's page 692 rows sat
+ * under `Today` and `main` was 73,740 px tall at 1440; the day's count and span were at the bottom
+ * of the wall. A day is drawn as sixty rows and one muted door that states the rest.
+ */
+describe("ActivityTimeline's day door", () => {
+  /** One day's rows, newest first, each a distinct second so every row has its own key. */
+  function dayRows(count: number, dayOffset = 0): AuditLine[] {
+    const newest = Date.UTC(2026, 10, 5 - dayOffset, 12, 43, 0);
+    return Array.from({ length: count }, (_, index) =>
+      line({
+        ts_ms: newest - index * 1_000,
+        device_id: alpha,
+        sentence: `Call ${index + 1}`,
+        tool: "files.read",
+        caller: "client"
+      })
+    );
+  }
+
+  it("draws 60 rows and one door naming the rest, with the day's count and span", () => {
+    render(
+      <ActivityTimeline
+        lines={dayRows(200)}
+        devices={devices}
+        nowMs={Date.UTC(2026, 10, 5, 12, 50, 0)}
+      />
+    );
+
+    expect(document.querySelectorAll(".timeline-row")).toHaveLength(60);
+    const doors = document.querySelectorAll(".timeline-more");
+    expect(doors).toHaveLength(1);
+    // ONE sentence, the day's own label word, the day's own count of what is behind it.
+    expect(doors[0]).toHaveTextContent("Show the rest of today (140 more)");
+    // And the day it belongs to, in the page's vocabulary: the stretch label's noun and the
+    // provenance line's clock, over the whole day rather than only the drawn rows.
+    expect(doors[0]).toHaveTextContent("200 calls · 12:39 → 12:43");
+    expect(screen.queryByText("Call 140")).toBeNull();
+    expect(screen.getByText("Call 60")).toBeInTheDocument();
+  });
+
+  it("opens the day in place when the door is pressed, and the door goes", () => {
+    render(
+      <ActivityTimeline
+        lines={dayRows(200)}
+        devices={devices}
+        nowMs={Date.UTC(2026, 10, 5, 12, 50, 0)}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /Show the rest of today/ }));
+
+    expect(document.querySelectorAll(".timeline-row")).toHaveLength(200);
+    expect(screen.queryByRole("button", { name: /Show the rest of today/ })).toBeNull();
+    expect(document.querySelector(".timeline-more")).toBeNull();
+    expect(screen.getByText("Call 200")).toBeInTheDocument();
+  });
+
+  it("draws no door for a day of five rows", () => {
+    render(
+      <ActivityTimeline
+        lines={dayRows(5)}
+        devices={devices}
+        nowMs={Date.UTC(2026, 10, 5, 12, 50, 0)}
+      />
+    );
+
+    expect(document.querySelectorAll(".timeline-row")).toHaveLength(5);
+    expect(document.querySelector(".timeline-more")).toBeNull();
+    expect(screen.queryByRole("button", { name: /Show the rest/ })).toBeNull();
+  });
+
+  it("puts the cap sentence above the first day label, where the count it qualifies is", () => {
+    render(
+      <ActivityTimeline
+        lines={dayRows(80)}
+        devices={devices}
+        capped
+        nowMs={Date.UTC(2026, 10, 5, 12, 50, 0)}
+      />
+    );
+
+    const capped = document.querySelector<HTMLElement>(".timeline-capped");
+    const firstLabel = document.querySelector<HTMLElement>(".timeline-day-label");
+    expect(capped).not.toBeNull();
+    expect(firstLabel).not.toBeNull();
+    expect(
+      (capped as HTMLElement).compareDocumentPosition(firstLabel as HTMLElement) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+    // The day label is inside the timeline, so the sentence is above the record and not below it.
+    const before = document.querySelector<HTMLElement>(".timeline-day-label");
+    expect(before?.previousElementSibling).toBe(capped);
   });
 });
