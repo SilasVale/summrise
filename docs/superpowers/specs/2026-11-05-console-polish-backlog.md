@@ -1183,6 +1183,14 @@ an untended gate is worse than none.
    the sheet, the fold) and not the type/space/radius of the surfaces it visits. **Fix:** a
    measured pass in the browser gate that asserts the radius and shadow families **on the built
    page** at 1440 and 390, so the gate and the operator see the same numbers. **M.**
+   *(**Done, live 0.3.273-ux115** (`89eba15`): the browser gate now collects every rendered
+   `border-radius`, every text size and weight, and the distinct spacing lengths on Home and
+   Activity at 1440 and at 390, and fails on a radius outside `6/8/10/14/20/999px`, a size outside
+   `10-22px`, a weight outside `400/500/600/700`, or more than six shadow shapes. Measured: Home
+   `10/14/6/8/999px`, 7 sizes, 4 weights, 2 shadows, 20 spacing values; Activity `14/6/8/999px`,
+   6 sizes, 1 shadow; Home at 390 `14/6/8/999px`, 6 sizes, 14 spacing values. **Mutated**: a
+   `border-radius: 13px` on `.fleet-machine` made it fail with `Home at 1440 draws radii outside the
+   scale: ["13px"]`, and restoring it passes.)*
 
 ## P0 — the twenty-seventh list (opened 2026-11-09, from the page sweep at 1440 and 390)
 
