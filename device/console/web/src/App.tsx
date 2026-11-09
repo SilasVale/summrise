@@ -1345,8 +1345,21 @@ export function App() {
                     sentence says its interval (it always did: `Today`), the window's says its start,
                     and this one clause says how they relate. It is drawn only when both numbers are
                     on the page, because a sentence describing a comparison nobody can see is noise. */}
+                {/* **THE INTERVAL IS DATA, NOT AN ADJECTIVE (the forty-fifth list).** `Today` is a
+                    word; a gate can only match it with a regular expression, and three lists in a row
+                    ended in a comparison between two intervals because of exactly that. The element
+                    now carries the interval it counts — `data-interval-kind` and the two moments, in
+                    Unix milliseconds — so a gate compares NUMBERS with the interval the window's
+                    count carries, instead of comparing two English sentences. */}
                 {activityCount !== null && activityRange === null && (
-                  <p className="page-sub activity-today">{activityCount}</p>
+                  <p
+                    className="page-sub activity-today"
+                    data-interval-kind="day"
+                    data-interval-from={shownDayStartMs ?? undefined}
+                    data-interval-to={activityPaused && pausedAt !== null ? pausedAt : undefined}
+                  >
+                    {activityCount}
+                  </p>
                 )}
                 {/* **THE FAILED READ HAS ONE SENTENCE, AND IT IS THE BANNER'S.** This line is
                     the page's state (following, reading, paused, lagging) and is absent when the

@@ -2013,6 +2013,49 @@ try {
     await allMachines.first().click();
     await page.waitForTimeout(1600);
   }
+  // **TWO COUNTS, TWO INTERVALS, COMPARED AS NUMBERS (the forty-fifth list).** The day's line and the
+  // window's count each carry `data-interval-from` / `data-interval-to`. This leg reads them and
+  // asserts what the prose can only claim: the window's interval is a real span, the day's interval
+  // begins at the cut the answer published, and the window is not silently asserting itself to be the
+  // day. A page that named its intervals only in English could not be checked this way at all.
+  const intervals = await page.evaluate(() => {
+    const read = (selector) => {
+      const element = document.querySelector(selector);
+      if (element === null) return null;
+      return {
+        kind: element.getAttribute('data-interval-kind'),
+        from: Number(element.getAttribute('data-interval-from') ?? '0'),
+        to: Number(element.getAttribute('data-interval-to') ?? '0'),
+        text: (element.textContent ?? '').trim().slice(0, 60)
+      };
+    };
+    return { day: read('.activity-today'), window: read('#timeline-clients-window') };
+  });
+  if (intervals.day === null || intervals.window === null) {
+    throw new Error(`Activity does not carry both intervals as data: ${JSON.stringify(intervals)}`);
+  }
+  if (intervals.day.kind !== 'day' || intervals.window.kind !== 'window') {
+    throw new Error(`the intervals are not labelled: ${JSON.stringify(intervals)}`);
+  }
+  if (!(intervals.day.from > 0)) {
+    throw new Error(`the day's interval has no start: ${JSON.stringify(intervals.day)}`);
+  }
+  if (!(intervals.window.from > 0 && intervals.window.to > intervals.window.from)) {
+    throw new Error(`the window's interval is not a span: ${JSON.stringify(intervals.window)}`);
+  }
+  // **THE WINDOW MUST START AT OR AFTER THE DAY'S CUT** — a fetched window cannot begin before the
+  // day it is drawn inside, or the count beside the day is counting yesterday too (which the prose
+  // now says, and the numbers now prove).
+  if (intervals.window.from < intervals.day.from) {
+    throw new Error(
+      `the window starts before the day's cut: ${JSON.stringify(intervals)}`
+    );
+  }
+  step(
+    `the two counts carry their intervals as data: day from ` +
+      `${new Date(intervals.day.from).toISOString()}, window ` +
+      `${new Date(intervals.window.from).toISOString()} → ${new Date(intervals.window.to).toISOString()}`
+  );
   const activityCounts = await page.evaluate(() => {
     const day = document.querySelector('.activity-today');
     // THE CONTROL'S OWN DESCRIPTION, not a text sweep of the page: a sweep picks up the whole

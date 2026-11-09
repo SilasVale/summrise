@@ -911,7 +911,17 @@ export function ActivityTimeline(props: {
                 Clients only
               </button>
             </div>
-            <span className="filter-count" id="timeline-clients-window">
+            <span
+              className="filter-count"
+              id="timeline-clients-window"
+              // **THE WINDOW'S COUNT CARRIES ITS OWN INTERVAL (the forty-fifth list).** The sentence
+              // beside it names its start and length in prose; these are the same two facts as
+              // numbers, so a gate can compare them with the day's interval above instead of parsing
+              // two English sentences. The window is the READ's span, not the filter's subset.
+              data-interval-kind="window"
+              data-interval-from={windowSpan?.oldest_ts_ms ?? undefined}
+              data-interval-to={windowSpan?.newest_ts_ms ?? undefined}
+            >
               {/* **THE COUNT NAMES THE NOUN IT COUNTED.** It is always the client-call subset of
                     the fetched window; while the chip is off the list beside it draws every caller,
                     so `353 rows` named the wrong thing and read as the window's size (audit-43 F6).
