@@ -3533,6 +3533,18 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
      a 26 px line is not a door a thumb can find. */
   main .fleet-open,
   main .seg button,
+  /* The Table's two disclosure summaries are 30 px by their own rule; they open the filter bar and
+     the export panel, so they are doors like any other. */
+  main .audit-filter-summary,
+  main .audit-export-summary,
+  /* **THE SHEET ON A PHONE IS A FULL-SCREEN SURFACE**, and its controls are the same thumb's
+     targets: measured at 390, 26 of them were under 44 px — the close button, the three section
+     tabs, `New token`, and every row's `Rotate`/`Revoke` and disclosure at 20-30 px. The rule names
+     the dialog rather than `body` so a desktop sheet is untouched. */
+  [role="dialog"] button,
+  [role="dialog"] input,
+  [role="dialog"] summary,
+  [role="dialog"] a[href],
   .account > summary,
   .rail-btn {
     min-height: 44px;
