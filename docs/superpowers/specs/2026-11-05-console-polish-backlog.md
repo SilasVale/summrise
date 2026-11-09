@@ -2469,12 +2469,23 @@ than 1 ms (a `0.01ms` duration is the console's blanket rule switching motion OF
    in a different file from the buttons.
    **Fix:** one mechanism on both surfaces — the blanket, with the named list kept for what must lose
    its animation entirely — and a gate that reads the BUILT page under `reduce`. **M.**
+   *(**Done, panel `463d8c19` / console `6f92b3d`, live 0.3.273-ux162**: the panel has the console's
+   blanket and **measures 0 under `reduce`** where it measured 4 at 0.2 s. **The first draft of my own
+   number lied:** counting "elements with a transition" reported 129 after the blanket and 29 before it —
+   `0.01ms` is the blanket switching motion OFF, and a presence check reads it as MORE motion. The
+   measurement is the DURATION.)*
 
 2. **No gate measures reduced motion, on either surface, and the contract says nothing about it.**
    `layout-contract.json` records the frame, the atoms and the levels; motion is the nineteenth of the
    operator's twenty and appears nowhere in it. So the ONE rule about motion is enforced by two hand-
    written lists in two repos, which is exactly the "two habits that drift" the directive names.
    **Fix:** the contract records the mechanism, and each repo proves it on a rendered page. **S.**
+   *(**Done, console `6f92b3d` / panel `463d8c19`**: `motion: { reducedMotion "blanket", cap "0.01ms",
+   namedAnimationsStop true }` is in the contract, and BOTH repos carry a rendered-page gate —
+   `scripts/motion-gate.mjs` on each, run as `npm run gate:motion` on the console. **A gate that is not
+   in the routine is a gate nobody runs**, so it sits beside `gate:browser`. Mutations: the console prints
+   `Home: 3 element(s) still move … SUMMARY:0.12s, card attention:0.15s`; the panel prints
+   `Memory: 4 element(s) still move … btn btn-primary btn-mini:0.2s`.)*
 
 ## How a round goes
 
