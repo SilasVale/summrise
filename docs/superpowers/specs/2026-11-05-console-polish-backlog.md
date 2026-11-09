@@ -979,6 +979,10 @@ Documentation · Sign out`), not a second copy of the session.
    row below it, so the card asks the reader to remember what they clicked. **Fix:** the card names
    the machine and states its presence in one line (`DESKTOP-9VH92BJ · online · v0.3.292`), and the
    counts follow. **S.**
+   *(Live 0.3.273-ux107: `.machine-summary-who` reads `DESKTOP-9VH92BJ · online · 0.3.292` above
+   `46 tools · 11 capabilities`; an offline machine keeps `offline · last seen 3d 21h ago`, because
+   the card's next sentence is about the counts that silence withholds. `404b37e`. The age is
+   deliberately still the row's, so the card names its subject and the row keeps the clock.)*
 
 2. **Activity draws today as one 69-foot wall.** Measured: **888 rows** on the page, **692** of them
    under the `Today` label, `main` **73,740 px** tall at 1440, and four day labels
