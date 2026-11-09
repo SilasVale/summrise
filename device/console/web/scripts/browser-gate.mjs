@@ -1963,6 +1963,37 @@ try {
 
   await page.locator('nav.rail button[title="Activity"]').click();
   await page.getByRole('heading', { name: 'Activity', exact: true }).waitFor({ timeout: 10_000 });
+  // **THE PAGE RHYTHM IS THE CONTRACT'S, ON EVERY PAGE (the forty-first list).** The frame leg above
+  // measures HOME. Activity carried `gap: 16px` — a fourth rhythm, after the `22px` the previous audit
+  // removed from Home and Overview — and no leg had ever looked at the second page's rhythm, which is
+  // exactly why it survived. Read the rendered gap on the page that is open, not on the one that was.
+  const activityFrame = await page.evaluate(() => {
+    const page_ = document.querySelector('.page');
+    const head = page_?.querySelector('.page-head');
+    const firstBlock = head?.nextElementSibling;
+    const style = page_ ? getComputedStyle(page_) : null;
+    return page_ && style && firstBlock
+      ? {
+          gap: style.rowGap,
+          headToFirst: Math.round(firstBlock.getBoundingClientRect().y - head.getBoundingClientRect().bottom)
+        }
+      : null;
+  });
+  if (activityFrame === null) throw new Error('Activity draws no .page');
+  if (activityFrame.gap !== frame.gap) {
+    throw new Error(
+      `Activity's rhythm is ${activityFrame.gap}, the contract's (and Home's) is ${frame.gap}`
+    );
+  }
+  if (activityFrame.headToFirst !== 24) {
+    throw new Error(
+      `Activity's head sits ${activityFrame.headToFirst} px above its first block, the page's 24`
+    );
+  }
+  step(
+    `Activity draws the page's own rhythm: ${activityFrame.gap} gap and ${activityFrame.headToFirst} ` +
+      `px between its head and its record — the same as Home`
+  );
   const activityScale = await scalePass('Activity at 1440');
   step(
     `Activity at 1440 draws the scales: radii ${activityScale.radii.join('/')}, ` +

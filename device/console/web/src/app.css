@@ -3066,7 +3066,10 @@ main::-webkit-scrollbar-track, .sheet-body::-webkit-scrollbar-track, .scroll::-w
    The day is the page: one readable sentence at the top, then an open record on the canvas. The
    white card belongs to Home's fleet table; Activity drops it so the two pages cannot read as the
    same shape at a glance. */
-.activity-page { gap: 16px; }
+/* **THE PAGE RHYTHM IS THE CONTRACT'S, ON EVERY PAGE (the forty-first list).** Activity carried
+   `gap: 16px` — a FOURTH rhythm, after the `22px` the last audit removed from Home and Overview, on
+   the one page no browser leg measured. Live at 1440, its two blocks sat 16 px apart while Home's
+   sat 24. A page does not get its own rhythm; the frame supplies it. */
 .activity-page .page-head h1 { font-size: var(--fs-xl); }
 .activity-today {
   margin: var(--sp-2) 0 0; max-width: 80ch;
