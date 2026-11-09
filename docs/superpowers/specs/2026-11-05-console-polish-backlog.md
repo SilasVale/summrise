@@ -1117,6 +1117,11 @@ an untended gate is worse than none.
    `999px` ×3 (the canonical pill) and `1px` ×1. **Only `7px` is on neither the scale nor a token**,
    and it is the inset of a tray that is `--radius-sm2`. **Fix:** every `border-radius` is a
    `var(--radius-*)` or `0`, the segments take `--radius-xs`, and the gate asserts it. **S.**
+   *(**Done, live 0.3.273-ux111** (`997fc17`): the eight literals are the tokens they already
+   equalled and `7px` is `--radius-xs`; measured on the live page at 1440 the rendered radii are
+   exactly `6px`, `8px`, `10px`, `14px` and `999px` — the five steps, in both the Home and the
+   Activity trees. `every_border_radius_is_a_radius_token_or_zero` fails on the next literal, proved
+   by re-adding `border-radius: 7px` and watching it panic with that line.)*
 
 3. **Fifteen shadows where the system names six.** Rule 10. `tokens.css` declares `--shadow`,
    `--shadow-lg`, `--shadow-1`, `--shadow-2`; `app.css` adds `--elev-1`, `--elev-2` and `--ring`
@@ -1126,6 +1131,11 @@ an untended gate is worse than none.
    uses is a second palette waiting for its first use. **Fix:** one elevation family in one place
    (the generated sheet), the dead `--elev-1` deleted, the raised-segment shadow a token, and the
    gate asserts that every `box-shadow` is a token or `none` (`--ring` included). **S.**
+   *(**Done, live 0.3.273-ux111** (`997fc17`): `--elev-1` deleted, the segment's shadow became
+   `--elev-segment` (3 uses), and `every_box_shadow_is_an_elevation_token_or_none` now fails on a
+   bare literal — proved by restoring `0 1px 2px rgba(0, 0, 0, 0.1)` and watching it panic. The two
+   shapes it admits besides an elevation are a ring (any `var(--…)` colour at a length) and the
+   keyframe's transparent outline, each named in the test's comment.)*
 
 4. **Two literal colours outside the palette, and they are the terminal's own.** Rule 2/9. Measured
    in `app.css`: `#14161a` on `#d6dae0` for `.evidence-output` — an ANSI-dark surface and ink that
@@ -1144,12 +1154,19 @@ an untended gate is worse than none.
    (`--tracking-display` is `-0.011em`, so the h1 is twice as tight as the token that names it).
    **Fix:** the heading tracking is the token's, the rest are the two literals a body and a small
    caps label genuinely need — or they become tokens. **S.**
+   *(**Done, live 0.3.273-ux111** (`997fc17`): the h1 is `--tracking-display`, the h2 and five
+   name/heading sites are `--tracking-tight`, `.files-kind`'s `0.01em` is `--tracking-label`, and the
+   two documented exceptions are the body's `-0.004em` plus the small-caps `0.02em`/`0.04em`.
+   `the_tracking_literals_are_the_tokens_or_a_documented_exception` fails on `-0.022em` put back,
+   proved the same way.)*
 
 6. **One opened timeline row draws three radii, two of them by hand.** Rule 11 with rule 7:
    `.evidence` writes `border-radius: 10px` and the row's own line writes `6px` — both literals at
    values the scale names — inside a sheet that is 14px. **Fix:** the nested box takes
    `--radius-sm2` (the step inside a 14px sheet) and the row's line `--radius-xs`, so a reader sees
    a sheet, a box in it, and a line rather than three unrelated corners. **S.**
+   *(**Done with item 2** (`997fc17`): both were literals at named steps, so they became those
+   tokens; nothing about the geometry changed and the live page's radii are the scale's five.)*
 
 7. **The block that renders in the jsdom suite is not the block the operator meets.** Not a design
    rule but the reason several of the above went unseen: `device/console/web/src/tokens.css` is
