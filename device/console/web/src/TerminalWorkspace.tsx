@@ -2179,7 +2179,7 @@ export function TerminalWorkspace({
         <div className="terminal-start">
           <section className="terminal-sessions" aria-labelledby="terminal-sessions-heading">
             <div className="terminal-section-head">
-              <h3 id="terminal-sessions-heading">Sessions on this device</h3>
+              <h3 id="terminal-sessions-heading">Sessions on this machine</h3>
               {/* **THE EMPTY PAGE HAS ONE EMPTY STATE AND ONE ACTION.** The duplicate card above
                   said "No session is open" 108 px before this list said it again; the action now
                   sits with the sentence that names it. */}
@@ -2792,7 +2792,7 @@ export function TerminalWorkspace({
       )}
 
       {sessionsOpen && (
-        <Modal title="Sessions on this device" onClose={() => setSessionsOpen(false)}>
+        <Modal title="Sessions on this machine" onClose={() => setSessionsOpen(false)}>
           <p className="hint">
             The device keeps a session after this page detaches from it. Attaching shows it in a
             tab; the shell is not restarted.

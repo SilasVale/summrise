@@ -784,7 +784,7 @@ export function SystemPage({
       <section className="system-section" aria-labelledby="system-net">
         <h3 id="system-net">Network test</h3>
         <p className="hint">
-          One TCP connect from the device to one port — the question its own clients ask, not an
+          One TCP connect from this machine to one port — the question its own clients ask, not an
           ICMP ping. A port that refuses the connection is a result: the addresses are what the
           device resolved, and the reason sits with them. A name that does not resolve is a refusal
           and is shown as one.
