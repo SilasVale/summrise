@@ -605,11 +605,14 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
   background: var(--panel); color: var(--ink); border-color: var(--line-strong);
 }
 .installer-spare:hover { background: var(--panel-3); }
+/* The strip is a card on the page's recessed surface: it keeps the fill that says "this is a
+   download, not a section", and takes the card's own border, radius and padding. */
 .installer {
   display: grid; gap: var(--sp-2); justify-items: start;
-  padding: var(--sp-3); margin: 0 0 var(--sp-3);
-  border: 1px solid var(--line); border-radius: var(--radius-xs);
-  background: var(--surface-recessed);
+  margin: 0; background: var(--surface-recessed);
+  /* The card's own padding, not a second one: `padding: var(--sp-3)` was this strip's private
+     inset and it beat the card's by being later in the sheet. */
+  padding: var(--sp-4);
 }
 .installer h2 { font-size: var(--fs-base); }
 .installer .hint { margin: 0; }
@@ -3366,13 +3369,15 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
 /* The attention block is the page's one warning surface: it is read before the table, and each row
    is one MACHINE with its problems listed under its name and one door. The machine count in the
    verdict is the row count here, so four problems over two machines are two rows (audit-40 F6). */
+/* **HOME'S BLOCKS ARE THE PAGE'S CARDS (the shared layout contract).** `.attention`,
+   `.fleet-table-wrap` and `.installer` each wrote their own border, radius and padding while `.card`
+   existed and was used only on the machine pages — four blocks of one page, four grammars, which is
+   what makes a page read as four stacked things instead of one document. Each keeps only what it
+   genuinely ADDS: this block's left edge is the warning (rule 16, an accent edge used deliberately),
+   and its tighter inner rhythm belongs to a list of rows. */
 .attention {
   display: grid; gap: var(--sp-2-5);
-  padding: var(--sp-4) 18px;
-  background: var(--panel);
-  border: 1px solid var(--hairline);
   border-left: 3px solid var(--warn);
-  border-radius: var(--radius);
 }
 .attention h2 {
   margin: 0; font-size: var(--fs-2xs); font-weight: var(--fw-semi);
@@ -3411,10 +3416,8 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
 
 /* The fleet is a table, not a stack of cards: the four facts align and the eye compares a column
    at a time. The first cell is the row's link; the status cell owns the dot and its word. */
-.fleet-table-wrap {
-  background: var(--panel); border: 1px solid var(--hairline);
-  border-radius: var(--radius); overflow: hidden;
-}
+/* The table is the card's content: it clips to the card's own corners and adds no box of its own. */
+.fleet-table-wrap { overflow: hidden; padding: 0; gap: 0; }
 .fleet-table { width: 100%; border-collapse: collapse; table-layout: auto; }
 .fleet-table thead th {
   padding: 9px var(--sp-4); text-align: left;
@@ -3476,11 +3479,12 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
 .fleet-actions .row-menu { padding-right: 0; justify-content: flex-end; }
 
 /* The installer's compact strip: one line with the link and the sha256, after the fleet. */
+/* **THE STRIP IS THE CARD, IN ONE ROW (the shared layout contract).** It re-declared the same
+   border, radius and padding one layer later — so the card's grammar lost to a copy of itself, and
+   the strip drew 12 px where its own comment said 16. What it genuinely adds is the row: a title, a
+   button, and a sentence that takes the leftover width. */
 .installer.installer-strip {
   display: flex; align-items: center; gap: var(--sp-3-5); flex-wrap: wrap;
-  margin: 0; padding: var(--sp-3) var(--sp-4);
-  background: var(--panel); border: 1px solid var(--hairline);
-  border-radius: var(--radius);
 }
 .installer-strip h2 { margin: 0; font-size: var(--fs-md); font-weight: var(--fw-semi); }
 .installer-strip .btn { flex: none; }

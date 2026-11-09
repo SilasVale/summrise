@@ -1732,6 +1732,54 @@ try {
   if (frame.gap !== '24px') {
     throw new Error(`the page's vertical rhythm drew ${frame.gap}, the contract says 24px`);
   }
+  // **HOME'S BLOCKS ARE THE PAGE'S CARDS (the shared layout contract).** Each of `attention`,
+  // `fleet-table-wrap` and `installer` wrote its own border, radius and padding while `.card` existed
+  // and was used only on the machine pages — four blocks, four grammars, which is what makes a page
+  // read as four stacked things. They all carry `.card` now, and this leg reads their rendered
+  // corners and padding rather than their source.
+  const homeCards = await page.evaluate(() => {
+    const out = [];
+    for (const sel of ['.attention', '.fleet-table-wrap', '.installer']) {
+      const element = document.querySelector(sel);
+      if (!element) {
+        out.push({ sel, missing: true });
+        continue;
+      }
+      const style = getComputedStyle(element);
+      out.push({
+        sel,
+        card: element.classList.contains('card'),
+        radius: style.borderTopLeftRadius,
+        padLeft: style.paddingLeft,
+        padTop: style.paddingTop
+      });
+    }
+    return out;
+  });
+  for (const block of homeCards) {
+    if (block.missing) throw new Error(`Home draws no ${block.sel}`);
+    if (!block.card) throw new Error(`Home's ${block.sel} is not on the card grammar`);
+    if (block.radius !== '14px') {
+      throw new Error(`Home's ${block.sel} corner is ${block.radius}, the contract says 14px`);
+    }
+    // **THE TABLE'S PADDING IS ZERO ON PURPOSE, AND IT IS NOT AN EXCEPTION TO THE CARD.** A table
+    // is uniformly-padded content: the card's 16 px would sit inside the wrap and push the header
+    // row inward while the table's own cells carry their own gutters (9 px / `--sp-4`). The rule the
+    // contract states is the CARD's grammar — corner and padding — and a content block that IS the
+    // card's body declares `padding: 0` deliberately, with its own comment. Everything else must be
+    // the card's.
+    const padded = block.sel === '.fleet-table-wrap' ? '0px' : '16px';
+    if (block.padLeft !== padded || block.padTop !== padded) {
+      throw new Error(
+        `Home's ${block.sel} padding is ${block.padTop} ${block.padLeft}, expected ${padded}`
+      );
+    }
+  }
+  step(
+    `Home's blocks are the page's cards: ${homeCards.map((b) => b.sel).join(', ')} — each a 14 px ` +
+      `corner and the card's padding, on the one grammar (the table's is 0 — it is the card's body)`
+  );
+
   step(
     `the page frame is the shared contract's: ${frame.width} px wide, ${frame.padding} padding, ` +
       `${frame.gap} rhythm` +
