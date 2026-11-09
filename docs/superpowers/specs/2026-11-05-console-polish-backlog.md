@@ -2383,12 +2383,25 @@ So the panel does NOT have the console's 22-in-a-section defect.
    `--tracking-label: 0.05em` for this since it was written. **Fix:** the eyebrow's spacing is a TOKEN
    in both repos (the contract's `section.eyebrow.tracking`), and the panel's five literals read it.
    **S.**
+   *(**Done, panel `e8aab712`**: `--tracking-label: 0.05em` exists in both repos now and **all 19
+   literals** read it — 0.06em ×3, 0.05em ×1, 0.04em ×8, 0.03em ×2 and the 0.4px one. The gate refuses a
+   sixth: `a hand-written letter-spacing is a sixth tracking scale: expected [ '0.04em' ]`.
+   **And the gate found the drift in the OTHER direction**, which is why it counts the whole sheet: five
+   DISPLAY literals (`-0.01em` ×4, `-0.02em` ×1) duplicated `--tracking-display` — the same disease one
+   level up. They read the token too, so **zero hand-written letter-spacings remain in the three
+   component sheets.**)*
 
 2. **History's `Sessions` is a level-3 size carrying a level-2 tag.** `.archive-title` is
    `14px / 600` (the contract's `h3`) while the element is an `h2`, and Settings' `Agent update` is an
    `h3` at `14px / 700` — the SAME size at a different weight, two tags for one level, and the
    contract's `h3` is 14/600. **Fix:** the tag and the level agree, and the weight is the contract's.
    **S.**
+   *(**Done with item 1, panel `e8aab712`**: History's `Sessions` is **17 / 600** (`section.h2`) and
+   `Agent update` states its weight instead of inheriting the browser's 700. Mutation: `History's
+   section is section.h2: expected 14 to be 17`. **THE FIRST DRAFT DID IT BACKWARDS AND THE OUTLINE
+   CAUGHT IT:** making the TAG follow the size (`h2` -> `h3`) was refused by `documentOutline.test.ts`
+   with `h1 -> h3 skips a level`. A heading's level is its place in the document; **a stylesheet may
+   choose its size, never its place.**)*
 
 ## How a round goes
 
