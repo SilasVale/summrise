@@ -2117,6 +2117,16 @@ away.
    interval is stated, so a reader (and an auditor) has to parse English to compare them, and a regex
    cannot. **Fix:** the counts carry their interval as DATA (a start and an end, on the element), so
    the gate compares numbers instead of adjectives, and the sentences stay as they are. **M.**
+   *(**Done, live 0.3.273-ux155** (`9e37510`, corrected by `4e3bf13`): `.activity-today` carries
+   `data-interval-kind="day"` plus the cut the answer published, and `#timeline-clients-window` carries
+   `kind="window"` plus the read's span. The gate compares them as numbers. **And it caught me**: the
+   first leg asserted "the window must start at or after the day's cut", and the live check on ux154
+   disproved it in one read — the day cut was **16:00Z** while the window ran **07:58Z → 21:36Z**, because
+   the window is a 1,000-LINE slice that slides, not a day. The crossing is the phenomenon the forty-third
+   list found, not a defect; the leg now asserts that the day line's interval IS the published cut and
+   says in its own sentence when the window crosses it. **A flake was found on the way and not papered
+   over:** adding the field to the suite's SHARED day stub made an unrelated test fail deterministically,
+   so the interval's test names its own answer and three consecutive full-suite runs pass.)*
 
 2. **The audit's own rule is not written down anywhere a programmer would look.** `is_client_call`
    (a poll is not work, a channel boundary is not work, a caller-less line with a token is a client
