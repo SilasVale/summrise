@@ -885,8 +885,9 @@ export function ActivityTimeline(props: {
               >
                 Clients only
               </button>
-              <span className="filter-count" id="timeline-clients-window">
-                {/* **THE COUNT NAMES THE NOUN IT COUNTED.** It is always the client-call subset of
+            </div>
+            <span className="filter-count" id="timeline-clients-window">
+              {/* **THE COUNT NAMES THE NOUN IT COUNTED.** It is always the client-call subset of
                     the fetched window; while the chip is off the list beside it draws every caller,
                     so `353 rows` named the wrong thing and read as the window's size (audit-43 F6).
                     Pressed, the subset is the list and `rows` is true. */}
@@ -900,8 +901,7 @@ export function ActivityTimeline(props: {
                     : "client calls"}{" "}
                 in this window
                 {windowSpanMs > 0 ? ` · spanning ${spanText(windowSpanMs)}` : ""}
-              </span>
-            </div>
+            </span>
           </div>
           <label className="audit-field timeline-search">
             <span>Search activity</span>
