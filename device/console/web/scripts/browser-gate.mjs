@@ -1583,6 +1583,30 @@ try {
   // build — three facts the topbar picker and the highlighted row already stated. The name is the
   // heading now, and it must be the machine the highlight is on: two statements of one subject are
   // only worth their height if they agree.
+  // **THE SELECTED CARD IS THE CARD, TOO (the thirty-eighth list).** It was the one Home block that
+  // hand-wrote its own padding — 14px 18px against the grammar's 16 — while `.card` sat beside it
+  // unused. Read on the rendered element, at both widths: the phone's override sets a smaller
+  // padding on purpose (a 390 px column cannot afford 16 px on each side), so the assertion is the
+  // CARD's grammar, which is what the class brings, not the desktop's padding value.
+  const selectedCard = await page.evaluate(() => {
+    const summary = document.querySelector('.machine-summary');
+    if (!summary) return null;
+    const style = getComputedStyle(summary);
+    return {
+      card: summary.classList.contains('card'),
+      radius: style.borderTopLeftRadius,
+      leftEdge: style.borderLeftWidth
+    };
+  });
+  if (selectedCard === null) throw new Error('Home draws no .machine-summary');
+  if (!selectedCard.card) throw new Error("the selected-machine card is not on the card grammar");
+  if (selectedCard.radius !== '14px') {
+    throw new Error(`the selected-machine card's corner is ${selectedCard.radius}`);
+  }
+  // And its accent edge is deliberate: rule 16, the page's one accent edge, still 3 px.
+  if (selectedCard.leftEdge !== '3px') {
+    throw new Error(`the selected card's accent edge is ${selectedCard.leftEdge}, not 3px`);
+  }
   if (selectedHome.heading !== selectedHome.currentName) {
     throw new Error(
       `the summary's heading read ${JSON.stringify(selectedHome.heading)}, the highlighted row ` +
@@ -1763,6 +1787,7 @@ try {
         // sets only `display: flex` keeps the column, and the title / button / sentence stack and
         // centre themselves — measured live as a 238 px block whose four children began at x=710 /
         // 749 / 939 / 1,058. Read on the same element, in the same pass, while Home is still drawn.
+        gap: style.rowGap,
         direction: style.flexDirection,
         rows: new Set(
           [...element.children].map((kid) => Math.round(kid.getBoundingClientRect().y))
@@ -1793,6 +1818,13 @@ try {
     // different surface, and it happened the moment the strip stopped declaring the direction. Its
     // children MAY wrap — the stale-file sentence is long and takes the leftover width at some
     // viewports — so the assertion is the direction, which is a property of the rule, not the run.
+    // **AND EVERY BLOCK'S INNER RHYTHM IS THE CARD'S (the thirty-eighth list).** Measured before this
+    // leg existed: `.attention` gap 10, `.installer` gap 14, `.machine-summary` gap 10 with a
+    // `14px 18px` padding — three private scales on four cards that had just been put on one grammar.
+    // The outer grammar alone is not the family; the inside has to match it too.
+    if (block.sel !== '.fleet-table-wrap' && block.gap !== '8px') {
+      throw new Error(`Home's ${block.sel} runs a ${block.gap} inner rhythm, the card's is 8px`);
+    }
     if (block.sel === '.installer' && block.direction !== 'row') {
       throw new Error(`the installer strip stacks in a ${block.direction}`);
     }

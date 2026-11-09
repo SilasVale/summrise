@@ -608,11 +608,10 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 /* The strip is a card on the page's recessed surface: it keeps the fill that says "this is a
    download, not a section", and takes the card's own border, radius and padding. */
 .installer {
-  display: grid; gap: var(--sp-2); justify-items: start;
+  /* The card's own rhythm and padding; the strip variant below re-declares the gap on its OTHER
+     axis (a row's column-gap), which is a different measurement and not a second scale. */
+  display: grid; justify-items: start;
   margin: 0; background: var(--surface-recessed);
-  /* The card's own padding, not a second one: `padding: var(--sp-3)` was this strip's private
-     inset and it beat the card's by being later in the sheet. */
-  padding: var(--sp-4);
 }
 .installer h2 { font-size: var(--fs-base); }
 .installer .hint { margin: 0; }
@@ -3376,7 +3375,9 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
    genuinely ADDS: this block's left edge is the warning (rule 16, an accent edge used deliberately),
    and its tighter inner rhythm belongs to a list of rows. */
 .attention {
-  display: grid; gap: var(--sp-2-5);
+  /* The card's own rhythm (8), not a private 10: the rows inside it are the card's contents. It
+     keeps the warning edge — rule 16 — and nothing else of its own. */
+  display: grid;
   border-left: 3px solid var(--warn);
 }
 .attention h2 {
@@ -3492,7 +3493,13 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
   /* `display: flex` MATTERS AS MUCH AS THE DIRECTION: `.installer` above is `display: grid`, and a
      grid with `flex-direction: row` is a grid — which lays its children in ONE COLUMN and produced
      exactly the four-stack this rule exists to prevent (measured: 4 rows, 238 px tall). */
-  display: flex; flex-direction: row; align-items: center; gap: var(--sp-3-5); flex-wrap: wrap;
+  /* **THE ROW'S GAP IS COLUMN-GAP, NOT THE CARD'S ROW-GAP (the thirty-eighth list).** A row of
+     title / button / sentence spaces its CHILDREN apart, which is a different measurement from the
+     card's inner rhythm — and the same 14 px read as `rowGap` while the element was a grid, which is
+     what made the gate see a private inner scale. Declared on the axis it belongs to, the card's row
+     rhythm is the card's and the row's spacing is the row's. */
+  display: flex; flex-direction: row; align-items: center; column-gap: var(--sp-3-5);
+  row-gap: var(--sp-2); flex-wrap: wrap;
 }
 .installer-strip h2 { margin: 0; font-size: var(--fs-md); font-weight: var(--fw-semi); }
 .installer-strip .btn { flex: none; }
@@ -3505,11 +3512,14 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
    (audit-45 F1): the card sits BELOW the row that selected the machine, so a card that named
    neither the machine nor its presence asked the reader to remember the click. The name, the
    presence phrase and the version are the fleet row's own words, stated once here. */
+/* **THE SELECTED-MACHINE CARD IS THE CARD (the thirty-eighth list).** It was the one Home block that
+   hand-wrote its own padding — `14px 18px` against the grammar's 16 — and its own border and radius,
+   while `.card` sat unused beside it. What it genuinely adds is the accent edge that says "this is
+   the machine in force" (rule 16: an accent edge used deliberately, and the page has exactly one).
+   Measured before this: the four Home blocks ran gap 10 / 10 / 14 and padding 16 / 16 / 14 18. */
 .machine-summary {
-  display: grid; gap: var(--sp-2-5);
-  padding: var(--sp-3-5) 18px;
-  background: var(--panel); border: 1px solid var(--hairline);
-  border-left: 3px solid var(--accent); border-radius: var(--radius);
+  display: grid;
+  border-left: 3px solid var(--accent);
 }
 /* **THE CARD OPENS ON THE MACHINE'S NAME (the thirty-fifth list).** The heading IS the subject now,
    so it takes the name's type rather than the label's: the same size and weight the fleet row gives

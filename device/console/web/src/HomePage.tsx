@@ -405,7 +405,7 @@ function SelectedMachine(props: {
   // for an online machine. An OFFLINE machine keeps one line, because its last-seen age is the reason
   // the counts below are absent — that age is the only fact the row's `seen … ago` cannot give.
   return (
-    <section className="machine-summary" aria-label="Selected machine">
+    <section className="card machine-summary" aria-label="Selected machine">
       <h2 className="machine-summary-name">{label}</h2>
       {!device.online && (
         <p className="machine-summary-who">

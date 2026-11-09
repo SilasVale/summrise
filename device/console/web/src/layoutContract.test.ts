@@ -37,7 +37,6 @@ type Contract = {
   page: { max: number; pad: number; gap: number };
   card: { radius: number; pad: number; gap: number; headerGap: number };
   rail: { console: number; panel: number };
-  section: { gap: number };
 };
 
 function contractText(): string {
@@ -85,7 +84,7 @@ describe("the layout contract", () => {
     // `agent/resources/panel-react/src/lib/layoutContract.test.ts`. If the two disagree, the two
     // frontends are drawn to different page systems and one of them is wrong.
     expect(createHash("sha256").update(contractText()).digest("hex")).toBe(
-      "2d3ee035994875a5a7741d2f6431127268630a40e68160fd6c187118739502d5"
+      "6a6d7f86fd56e456a477fc8e3c20bc4185a6c873f51294878c3cf0b10de192d9"
     );
   });
 

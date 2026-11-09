@@ -1,7 +1,18 @@
 {
   "$comment": "The layout system the console and the desktop panel share. Both repos carry this file; each repo's gate asserts its own stylesheet uses these numbers AND that this file's sha256 matches the literal recorded in the other repo's test. Change it in both repos or neither.",
-  "page": { "max": 1120, "pad": 24, "gap": 24 },
-  "card": { "radius": 14, "pad": 16, "gap": 8, "headerGap": 8 },
-  "rail": { "console": 232, "panel": 52 },
-  "section": { "gap": 24 }
+  "page": {
+    "max": 1120,
+    "pad": 24,
+    "gap": 24
+  },
+  "card": {
+    "radius": 14,
+    "pad": 16,
+    "gap": 8,
+    "headerGap": 8
+  },
+  "rail": {
+    "console": 232,
+    "panel": 52
+  }
 }
