@@ -715,7 +715,9 @@ export function SystemPage({
                   <th>PID</th>
                   <th>Process</th>
                   <th>Memory</th>
-                  <th>Action</th>
+                  <th>
+                    <span className="sr-only">Actions</span>
+                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -731,22 +733,39 @@ export function SystemPage({
                     </td>
                     <td className="system-kill-cell">
                       {protectedProcess(process) ? (
+                        // **A PROCESS THE DEVICE WILL NOT END SAYS SO IN A WORD, NOT A ROW-MENU.**
+                        // The measured page printed `Protected` in 13 of its 235 rows; the other 222
+                        // carried a `Kill` button 33 x 28 px wide, so the Machine tab's most
+                        // repeated control was "kill this process" (the twenty-eighth list, item 3).
                         <span className="hint" title="The device refuses to end an operating-system process">
                           Protected
                         </span>
                       ) : (
-                        <button
-                          type="button"
-                          className="mini danger"
-                          disabled={killing}
-                          aria-label={`Kill PID ${process.pid} (${process.name})`}
-                          onClick={() => {
-                            setKillError(null);
-                            setKillTarget(process);
-                          }}
-                        >
-                          Kill
-                        </button>
+                        // **ONE ACTION IS BEHIND THE ROW'S OWN MENU.** Kill is destructive and rare;
+                        // a table of 235 rows should not offer 222 of them as buttons. The `⋯`
+                        // opens the same menu Home's fleet rows use, and the dialog it opens still
+                        // names the pid and the process before anything happens.
+                        <details className="row-menu system-row-menu">
+                          <summary
+                            aria-label={`Actions for PID ${process.pid} (${process.name})`}
+                            title={`Actions for PID ${process.pid}`}
+                          >
+                            ⋯
+                          </summary>
+                          <div className="row-menu-pop">
+                            <button
+                              type="button"
+                              className="danger"
+                              disabled={killing}
+                              onClick={() => {
+                                setKillError(null);
+                                setKillTarget(process);
+                              }}
+                            >
+                              Kill PID {process.pid}
+                            </button>
+                          </div>
+                        </details>
                       )}
                     </td>
                   </tr>

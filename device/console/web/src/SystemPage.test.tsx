@@ -18,6 +18,18 @@ vi.mock("./terminal", async (importOriginal) => {
 
 const mocked = vi.mocked(callTool);
 
+/**
+ * Open a process row's own action menu. The menu is the row's `⋯`, not a button per line: jsdom
+ * gives a `<summary>` no button role, so it is found by the label it carries, which is also the
+ * accessible name a reader hears.
+ */
+function openRowMenu(pid: number, name: string): void {
+  const summary = screen.getByLabelText(`Actions for PID ${pid} (${name})`);
+  const details = summary.closest("details") as HTMLDetailsElement;
+  details.open = true;
+  fireEvent.click(summary);
+}
+
 const GRANT: Grant = { deviceId: "device-1", envelope: { token: "envelope" } };
 
 // The page's `DeviceProcess` is private; this is its wire shape, not a second definition.
@@ -864,8 +876,41 @@ describe("SystemPage", () => {
     const row = screen.getByText("System").closest("tr") as HTMLElement;
     expect(within(row).getByText("Protected")).toBeInTheDocument();
     expect(within(row).queryByRole("button", { name: /Kill/ })).not.toBeInTheDocument();
-    // The ordinary process next to it still has its action.
-    expect(screen.getByRole("button", { name: "Kill PID 4242 (nginx)" })).toBeInTheDocument();
+    // The ordinary process next to it still has its action — behind its own row menu, because a
+    // table of 235 rows must not draw 222 buttons (the twenty-eighth list, item 3).
+    expect(screen.getByLabelText("Actions for PID 4242 (nginx)")).toBeInTheDocument();
+  });
+
+  it("draws one menu per live process, not a Kill button on every row", async () => {
+    // **MEASURED ON THE OPERATOR'S MACHINE PAGE (the twenty-eighth list, item 3):** 235 process
+    // rows, **222 `Kill` buttons** at 33 x 28 px — the page's most repeated control was the
+    // destructive one, and it was below the 44 px touch target the phone needs. A row is a fact;
+    // its one action lives behind its own `⋯`, the same menu Home's fleet rows use.
+    const protectedOne: Process = { pid: 4, name: "System", memory_kb: 0 };
+    const many: Process[] = Array.from({ length: 40 }, (_, index) => ({
+      pid: 1000 + index,
+      name: `worker-${index}.exe`,
+      memory_kb: 4096
+    }));
+    device((name) =>
+      name === "system.process_list" ? JSON.stringify([protectedOne, ...many]) : JSON.stringify({})
+    );
+    render(<SystemPage grant={GRANT} />);
+    await screen.findByText("41 processes on the device, by pid.");
+
+    // jsdom keeps a closed `<details>`'s children in the DOM, so the claim is not "the button
+    // does not exist" but "the button is not one a reader can reach": every `Kill PID n` sits
+    // inside a menu that is closed, and the only control the row offers is its `⋯`.
+    const killButtons = screen.queryAllByRole("button", { name: /^Kill PID / });
+    expect(killButtons).toHaveLength(40);
+    for (const button of killButtons) {
+      const menu = button.closest("details") as HTMLDetailsElement;
+      expect(menu.open).toBe(false);
+    }
+    expect(screen.getAllByLabelText(/^Actions for PID /)).toHaveLength(40);
+    // The protected row still says `Protected` and offers nothing at all.
+    expect(screen.getByText("Protected")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Actions for PID 4 (System)")).toBeNull();
   });
 
   it("kills the pid the device reported, only after the confirmation, then re-reads", async () => {
@@ -883,7 +928,8 @@ describe("SystemPage", () => {
     render(<SystemPage grant={GRANT} />);
     await screen.findByText("2 processes on the device, by pid.");
 
-    fireEvent.click(screen.getByRole("button", { name: "Kill PID 4242 (nginx)" }));
+    openRowMenu(4242, "nginx");
+    fireEvent.click(screen.getByRole("button", { name: "Kill PID 4242" }));
     let dialog = await screen.findByRole("dialog", { name: "Kill PID 4242 (nginx)?" });
     // The confirmation names both halves of the identity it is about to send.
     expect(dialog).toHaveTextContent("PID 4242");
@@ -892,7 +938,8 @@ describe("SystemPage", () => {
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(called("system.process_kill")).toHaveLength(0);
 
-    fireEvent.click(screen.getByRole("button", { name: "Kill PID 4242 (nginx)" }));
+    openRowMenu(4242, "nginx");
+    fireEvent.click(screen.getByRole("button", { name: "Kill PID 4242" }));
     dialog = await screen.findByRole("dialog", { name: "Kill PID 4242 (nginx)?" });
     fireEvent.click(within(dialog).getByRole("button", { name: "Kill PID 4242" }));
 
@@ -926,7 +973,8 @@ describe("SystemPage", () => {
     render(<SystemPage grant={GRANT} />);
     await screen.findByText("1 process on the device, by pid.");
 
-    fireEvent.click(screen.getByRole("button", { name: "Kill PID 4242 (nginx)" }));
+    openRowMenu(4242, "nginx");
+    fireEvent.click(screen.getByRole("button", { name: "Kill PID 4242" }));
     const dialog = await screen.findByRole("dialog", { name: "Kill PID 4242 (nginx)?" });
     fireEvent.click(within(dialog).getByRole("button", { name: "Kill PID 4242" }));
 
