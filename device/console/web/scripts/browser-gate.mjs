@@ -1536,12 +1536,26 @@ try {
       menuState: menuState?.textContent?.trim() ?? ''
     };
   });
-  if (selectedHome.heading !== 'Selected machine') {
-    throw new Error(`the summary's heading read ${JSON.stringify(selectedHome.heading)}`);
+  // **THE CARD'S HEADING IS THE SELECTED MACHINE'S NAME (the thirty-fifth list).** It used to read
+  // the generic `Selected machine` and then a line repeating the name, the presence word and the
+  // build — three facts the topbar picker and the highlighted row already stated. The name is the
+  // heading now, and it must be the machine the highlight is on: two statements of one subject are
+  // only worth their height if they agree.
+  if (selectedHome.heading !== selectedHome.currentName) {
+    throw new Error(
+      `the summary's heading read ${JSON.stringify(selectedHome.heading)}, the highlighted row ` +
+        `names ${JSON.stringify(selectedHome.currentName)}`
+    );
   }
-  // The card's own line: name · presence · build, each stated once, and the age left to the row.
-  if (selectedHome.who !== 'DESKTOP-CPH4KB2 · online · 0.3.42') {
-    throw new Error(`the summary's subject line read ${JSON.stringify(selectedHome.who)}`);
+  // An online machine says nothing else about itself: presence is the row's dot and age.
+  if (/^online|online · seen/.test(selectedHome.who)) {
+    throw new Error(`the summary repeats an online machine's presence: ${selectedHome.who}`);
+  }
+  // **THE NAME IS STATED ONCE, AND NOT AGAIN WITH ITS PRESENCE AND BUILD.** The old line read
+  // `DESKTOP-CPH4KB2 · online · 0.3.42` while the row below stated the same three facts; an online
+  // machine draws no such line now, so the card's whole identity is its heading.
+  if (selectedHome.who !== '') {
+    throw new Error(`the summary drew a second identity line: ${JSON.stringify(selectedHome.who)}`);
   }
   for (const repeated of ['last seen', 'seen ', '· v0.3.246 · v0.3.', 'Running']) {
     if (selectedHome.text.includes(repeated)) {
@@ -1555,8 +1569,8 @@ try {
     throw new Error(`the topbar's presence word read ${JSON.stringify(selectedHome.menuState)}`);
   }
   step(
-    `the selected row is highlighted once, the summary names its subject (${selectedHome.who}), ` +
-      'and the topbar says "online"'
+    `the selected row is highlighted once and the summary's heading IS the machine ` +
+      `("${selectedHome.heading}"), with no second identity line; the topbar says "online"`
   );
 
   await page

@@ -380,21 +380,23 @@ function SelectedMachine(props: {
   // frame carried one — while stating the subject: name, the fleet's own presence word, version.
   // An offline machine keeps the full phrase with its last-seen age, because that age is what the
   // card's next sentence (counts unavailable) is about.
-  const presence = device.online ? "online" : presenceText(device);
+  // **THE HEADING IS THE SUBJECT; AN ONLINE MACHINE IS NOT ANNOUNCED TWICE (the thirty-fifth list).**
+  // Measured on the live page with one machine selected: Home grew 908 → 952 px and a 154 px card
+  // read `Selected machine · DESKTOP-9VH92BJ · online · 0.3.292 · 46 tools · 11 capabilities · Open ·
+  // Connect a client` — while the topbar picker stated the name and build and the highlighted row
+  // below stated the name, `online · seen Ns ago` and `v0.3.292`. Three of the card's four facts were
+  // the page's own. The card now led by its label and then said the machine; it leads by the MACHINE
+  // (the same one statement, in the place a section names its subject), and the identity line is gone
+  // for an online machine. An OFFLINE machine keeps one line, because its last-seen age is the reason
+  // the counts below are absent — that age is the only fact the row's `seen … ago` cannot give.
   return (
     <section className="machine-summary" aria-label="Selected machine">
-      <h2>Selected machine</h2>
-      <p className="machine-summary-who">
-        <span className="machine-summary-name">{label}</span>
-        {" · "}
-        <span className="machine-summary-presence">{presence}</span>
-        {device.version ? (
-          <>
-            {" · "}
-            <span className="machine-summary-version mono">{device.version}</span>
-          </>
-        ) : null}
-      </p>
+      <h2 className="machine-summary-name">{label}</h2>
+      {!device.online && (
+        <p className="machine-summary-who">
+          <span className="machine-summary-presence">{presenceText(device)}</span>
+        </p>
+      )}
       {offline ? (
         <p className="hint machine-summary-counts">
           Tool counts are unavailable while the machine is offline.

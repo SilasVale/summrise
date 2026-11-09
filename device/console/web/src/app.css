@@ -3475,17 +3475,19 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
   background: var(--panel); border: 1px solid var(--hairline);
   border-left: 3px solid var(--accent); border-radius: var(--radius);
 }
+/* **THE CARD OPENS ON THE MACHINE'S NAME (the thirty-fifth list).** The heading IS the subject now,
+   so it takes the name's type rather than the label's: the same size and weight the fleet row gives
+   that name (`--fs-md` / semi), which is what makes the card read as a continuation of the row it
+   belongs to rather than a second, differently-shaped header. The row is below the card in the
+   table, so its highlight cannot be the only link between them. */
 .machine-summary h2 {
-  margin: 0; font-size: var(--fs-2xs); font-weight: var(--fw-semi);
-  text-transform: uppercase; letter-spacing: var(--tracking-label); color: var(--ink-muted);
+  margin: 0; color: var(--ink); font-size: var(--fs-md); font-weight: var(--fw-semi);
 }
 .machine-summary-who {
   margin: 0;
   display: flex; align-items: baseline; gap: var(--sp-1-5); flex-wrap: wrap;
   font-size: var(--fs-sm); color: var(--ink-muted);
 }
-.machine-summary-name { color: var(--ink); font-size: var(--fs-md); font-weight: var(--fw-semi); }
-.machine-summary-version { color: var(--ink-faint); font-size: var(--fs-2xs); }
 .machine-summary-counts { margin: 0; }
 .machine-summary-actions { display: flex; align-items: center; gap: var(--sp-2-5); flex-wrap: wrap; }
 
