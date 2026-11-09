@@ -898,9 +898,34 @@ export function ActivityTimeline(props: {
                     : "rows"
                   : clientCalls === 1
                     ? "client call"
-                    : "client calls"}{" "}
-                in this window
-                {windowSpanMs > 0 ? ` · spanning ${spanText(windowSpanMs)}` : ""}
+                    : "client calls"}
+                {/* **THE COUNT'S QUALIFIER MUST BE THE COUNT'S SET (the thirty-seventh list).**
+                    Measured after typing a search that matched nothing: `0 client calls in this
+                    window · spanning 10 h 50 m`, where the `0` is the SEARCH-FILTERED client-call
+                    count and the span is the UNFILTERED window's — a `·` joining two different
+                    measurements as if one described the other, under a head that still said
+                    `Today: 876 client calls`. When the list is narrowed the sentence says so, and the
+                    span is withheld while it is: the span belongs to the read, and the read is not
+                    what the reader is looking at. */}
+                {/* The query itself is NOT repeated here: the empty state below already quotes it
+                    once, and a reader who is looking at their own search does not need it echoed in
+                    a subordinate count. `matching the search` says which set the number is of. */}
+                {needle !== "" || scope !== "" ? (
+                  // One separator, not two: the fragments are joined by the page's own `·`, so
+                  // `on Beta in this window` reads as one clause rather than `on Beta  in this`.
+                  // One space, one clause: the separators are inside each fragment so the sentence
+                  // cannot pick up a second space from a conditional that did not fire.
+                  <>
+                    {needle !== "" ? " matching the search" : ""}
+                    {scope !== "" ? ` on ${deviceLabel}` : ""}
+                    {" in this window"}
+                  </>
+                ) : (
+                  <>
+                    {" in this window"}
+                    {windowSpanMs > 0 ? ` · spanning ${spanText(windowSpanMs)}` : ""}
+                  </>
+                )}
             </span>
           </div>
           <label className="audit-field timeline-search">

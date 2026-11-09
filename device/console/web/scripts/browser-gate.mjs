@@ -2140,10 +2140,15 @@ try {
   // The count's first render can be the live rows alone: the fetched window arrives on its own
   // read, and a one-line window has no span to state. Wait for the whole record so this assertion
   // measures the window the page ends with, not the empty list it started from.
+  // **THE SPAN IS WITHHELD WHEN THE LIST IS NARROWED (the thirty-seventh list).** A previous leg
+  // selects a machine (or types a search), and the count then names the set it counted instead of
+  // joining a filtered number to the unfiltered window's span. So the wait is for a NUMBER, not for
+  // 'spanning': the count is ready when it states one, and the span is asserted below only when the
+  // bar is unfiltered.
   await page.waitForFunction(
     () =>
-      (document.querySelector('#timeline-clients-window')?.textContent ?? '').includes(
-        'spanning'
+      /\d+ (client call|client calls|row|rows)/.test(
+        document.querySelector('#timeline-clients-window')?.textContent ?? ''
       ),
     undefined,
     { timeout: 10_000 }
@@ -2153,15 +2158,22 @@ try {
   // over a list drawing 891 rows: the number is the client-call subset, not the window's size. The
   // span's exact value depends on live rows this run adds, so the gate proves the noun and the
   // duration; the unit suite pins the arithmetic.
+  // **THE SENTENCE STATES ONE SET (the thirty-seventh list).** A previous leg selects a machine, so
+  // this count is narrowed: it names the machine it counted and it withholds the span, because the
+  // span belongs to the whole read. Both forms are accepted here — the unfiltered one keeps its
+  // span, the narrowed one names its scope — and what is refused is a number joined to a span that
+  // describes a different set.
   const allClientNoun = ALL_CLIENT === 1 ? 'client call' : 'client calls';
-  if (
-    !filterCountText.startsWith(`${ALL_CLIENT} ${allClientNoun} in this window · spanning `) ||
-    !/^\d+ client calls? in this window · spanning \d+ (s|m|h)( \d+ (s|m))?$/.test(
-      filterCountText
-    )
-  ) {
+  const countForms = [
+    new RegExp(`^${ALL_CLIENT} ${allClientNoun} in this window · spanning \\d+ (s|m|h)( \\d+ (s|m))?$`),
+    new RegExp(`^${ALL_CLIENT} ${allClientNoun} on \\S+ in this window$`),
+    // A live run may narrow by MACHINE while the count is still the whole window's; both are one set.
+    new RegExp(`^${ALL_CLIENT} ${allClientNoun} (on \\S+ )?matching the search in this window$`)
+  ];
+  if (!countForms.some((form) => form.test(filterCountText))) {
     throw new Error(
-      `the Clients only control stated "${filterCountText}", expected "${ALL_CLIENT} ${allClientNoun} in this window · spanning <span>"`
+      `the Clients only control stated "${filterCountText}", expected its count and its OWN set ` +
+        `(either "… in this window · spanning <span>" or "… on <machine> in this window")`
     );
   }
   // THE SOURCE LINE, ONCE, BESIDE THE WINDOW SENTENCE. It says what is read, not what is drawn:
@@ -2286,11 +2298,14 @@ try {
     );
   }
   const narrowedCountLabel = (await filterCount.textContent())?.trim() ?? '';
-  // Pressed, the subset is the list, so the same number and window are named `rows`.
-  if (
-    !narrowedCountLabel.startsWith(`${ALL_CLIENT} rows in this window · spanning `) ||
-    !/^\d+ rows in this window · spanning \d+ (s|m|h)( \d+ (s|m))?$/.test(narrowedCountLabel)
-  ) {
+  // Pressed, the subset is the list, so the same number and window are named `rows`. **AND THE SET IS
+  // STILL THE ONE IT NAMES (the thirty-seventh list):** this leg runs with a machine selected, so the
+  // sentence names that machine and withholds the whole read's span.
+  const pressedForms = [
+    new RegExp(`^${ALL_CLIENT} rows in this window · spanning \\d+ (s|m|h)( \\d+ (s|m))?$`),
+    new RegExp(`^${ALL_CLIENT} rows on \\S+ in this window$`)
+  ];
+  if (!pressedForms.some((form) => form.test(narrowedCountLabel))) {
     throw new Error(
       `the Clients only control lost its window count while pressed: "${narrowedCountLabel}"`
     );
@@ -2465,6 +2480,40 @@ try {
       `retired id, and its first record starts at y=${activity390.firstRowTop} above the rail at ` +
       `y=${activity390.railTop}`
   );
+
+  // **A COUNT'S QUALIFIER MUST BE ITS OWN SET (the thirty-seventh list).** Measured on the live page
+  // after typing a search that matched nothing: `0 client calls in this window · spanning 10 h 50 m`
+  // — the `0` was the SEARCH-FILTERED count and the span was the UNFILTERED window's, joined by a `·`
+  // that read as "the span of the zero", under a head that still said `Today: 876 client calls`. This
+  // leg types a no-match search and refuses a count that carries the read's span while the list is
+  // narrowed, or that fails to say which set it counted.
+  await page.locator('.timeline-search input').fill('zzzz-no-such-call');
+  await page.waitForTimeout(600);
+  const narrowedNumbers = await page.evaluate(() => {
+    const count = document.querySelector('#timeline-clients-window')?.textContent ?? '';
+    const empty = [...document.querySelectorAll('main p, main span')]
+      .map((element) => (element.textContent ?? '').replace(/\s+/g, ' ').trim())
+      .find((text) => /No activity matches/.test(text)) ?? null;
+    const head = document.querySelector('.activity-today')?.textContent?.trim() ?? '';
+    return { count: count.replace(/\s+/g, ' ').trim(), empty, head, clear: !!document.querySelector('button') };
+  });
+  if (narrowedNumbers.empty === null) {
+    throw new Error('a search that matches nothing draws no empty state');
+  }
+  if (/ \u00b7 spanning /.test(narrowedNumbers.count)) {
+    throw new Error(
+      `the narrowed count still carries the whole read's span: "${narrowedNumbers.count}"`
+    );
+  }
+  if (!/matching the search/.test(narrowedNumbers.count)) {
+    throw new Error(`the narrowed count does not name its set: "${narrowedNumbers.count}"`);
+  }
+  step(
+    `a no-match search states its own set: "${narrowedNumbers.count}" beside ` +
+      `"${narrowedNumbers.empty}", with the day still "${narrowedNumbers.head}"`
+  );
+  await page.locator('.timeline-search input').fill('');
+  await page.waitForTimeout(600);
 
   step(
     `the header counted ${TODAY_CLIENT} client calls, Activity kept all ${allActivityRows} rows ` +
