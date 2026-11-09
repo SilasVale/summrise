@@ -131,8 +131,18 @@ beforeEach(() => {
   mocks.createToken.mockResolvedValue(CREATED);
 });
 
+/** The mint form. It is a door behind `New token` once the registry has a credential (backlog item
+ *  3), so asking for the form opens it first; with an empty registry it is already open. */
 function tokenForm(): HTMLElement {
-  return document.querySelector(".token-create") as HTMLElement;
+  const form = document.querySelector(".token-create");
+  if (!form) {
+    const door = document.querySelector<HTMLButtonElement>(".token-list-head button");
+    if (!door) throw new Error("the token list drew no New token door");
+    fireEvent.click(door);
+  }
+  const opened = document.querySelector(".token-create");
+  if (!opened) throw new Error("the New token door drew no form");
+  return opened as HTMLElement;
 }
 
 function draw(overrides: Record<string, unknown> = {}) {
@@ -166,6 +176,11 @@ describe("ConnectSheet", () => {
     expect(screen.getByText(/claude mcp add --transport http summrise/)).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("tab", { name: "Tokens" }));
+    // **THE LIST IS FIRST (backlog item 3).** With a registry the sheet opens on the credentials,
+    // and the mint form is one press behind `New token`.
+    expect(screen.getByRole("heading", { name: "Existing tokens" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Create a token" })).toBeNull();
+    tokenForm();
     expect(screen.getByRole("heading", { name: "Create a token" })).toBeInTheDocument();
     expect(screen.getByText(/2 tools · 1 can change the machine/)).toBeInTheDocument();
     // One credential list, not a device list with a fleet list folded into a disclosure.
@@ -176,6 +191,8 @@ describe("ConnectSheet", () => {
   it("opens on Tokens when the account menu asked for it, with Tokens as the title", () => {
     draw({ initialSection: "tokens" });
     expect(screen.getByRole("dialog", { name: "Tokens" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Existing tokens" })).toBeInTheDocument();
+    tokenForm();
     expect(screen.getByRole("heading", { name: "Create a token" })).toBeInTheDocument();
   });
 
@@ -347,6 +364,9 @@ describe("ConnectSheet", () => {
     expect(screen.getByText("http://localhost:3000/mcp/all")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("tab", { name: "Tokens" }));
     expect(screen.getByText(/spans the fleet/)).toBeInTheDocument();
+    // The registry in this fixture has a credential, so the list draws first and the form is one
+    // press behind `New token` (backlog item 3).
+    tokenForm();
     expect(screen.getByRole("button", { name: "Create token" })).toBeInTheDocument();
     // With no current machine the only scope the form can mint is the fleet one.
     expect(screen.getByRole("button", { name: "all machines" })).toHaveAttribute("aria-pressed", "true");
