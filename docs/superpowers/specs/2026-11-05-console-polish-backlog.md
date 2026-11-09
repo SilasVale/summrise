@@ -1001,6 +1001,9 @@ Documentation · Sign out`), not a second copy of the session.
    Measured: `document.title` `Machines · Summrise console`, h1 `Machines`, rail `Home` — on the
    page the operator asked to be a verdict rather than a table. **Fix:** one name, `Home`, in all
    three. **S.**
+   *(Live 0.3.273-ux106: `document.title` `Home · Summrise console`, h1 `Home`, rail `Home`
+   (`aria-current="page"`); the h1 reads `PAGE_LABELS.home`, the rail's own map, so the three
+   cannot drift apart again. `1cb2fd9`.)*
 
 ## The operator's own question, recorded (2026-11-09)
 
