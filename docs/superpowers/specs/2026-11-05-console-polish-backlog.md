@@ -2301,6 +2301,18 @@ panel's four pages each restate around it.
 lede and the optional actions; `.mem-head`, `.plug-header` and `.settings-header` deleted, with their
 margin rules folded into the one header. The console's rule is the shape — it is already one header,
 so the panel is the surface that moves. **M.**)*
+*(**Done — the cut landed**, panel `b4aa80f4` / console `78a0ca5`, live `0.3.273-ux159`. Measured on all
+four pages after: **`header=page-head`, title at x=149, y=111, `.page-sub` at y=115** — the console's
+rule exactly. Deleted: `.plug-header`, `.plug-title`, `.plug-sub`, `.settings-header`, `.settings-header
+h1`, `.settings-lede`, `.mem-head h1`, and `.mem-head`'s margin pair; the three ledes that each had their
+own name became `.page-sub`. `layout-contract.json` gained **`head: { gap 12, align flex-start }`**, so
+the row is a decision rather than three habits.
+**A FIFTH DEFECT THE MEASUREMENT FOUND:** once the headers were one, Memory's title was STILL 16 px
+lower — `mem-pane`, the page's scroller, carried `padding: 16px 20px` around a `.page` that already has
+the frame's 24. A page inside a page's padding is two frames; the pane scrolls and the page pads.
+**The dead-style ratchet refused the first draft**, correctly: the atom offered arms for a lede alias
+and for actions that no page draws yet — a class nobody can render is a rule a reader searches for and
+finds nothing. The atom now carries only what a page uses.)*
 
 ## How a round goes
 
