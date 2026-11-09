@@ -76,7 +76,12 @@ type FleetProps = {
  * fleet because the fleet is the page's subject; the installer is the next step once a machine is
  * missing, and it keeps its sha256 line so the file can be checked after it lands.
  */
-function InstallerBlock(props: { installer: Installer; onNotice: (sentence: string) => void }) {
+function InstallerBlock(props: {
+  installer: Installer;
+  /** The fleet the strip is drawn beside: its newest build can already be past this file. */
+  devices: readonly Device[];
+  onNotice: (sentence: string) => void;
+}) {
   if (!props.installer.available) {
     return (
       <p className="hint installer-missing">
@@ -95,6 +100,17 @@ function InstallerBlock(props: { installer: Installer; onNotice: (sentence: stri
       <a className="btn primary" href="/installer/download" download>
         Download Windows installer
       </a>
+      {/* **A STALE DOWNLOAD IS NOT THE TARGET (the thirty-third list).** The fleet ran 0.3.292
+          while this staged installer was 0.3.291, and the attention block used to call that number
+          "the release" — so the page's one downloadable file passed as the build everything should
+          be measured against. When the machines are already past this file, its own line says so,
+          with the number the page actually holds. */}
+      {fleetBehindInstaller(props.devices, installer.version) && (
+        <p className="hint installer-stale">
+          The fleet is already past this file: the newest build any machine reports is{" "}
+          {fleetNewestVersion(props.devices)}.
+        </p>
+      )}
       <p className="hint">
         {installer.filename} · {bytes(installer.size_bytes)} ·{" "}
         {/* **THE DISPLAYED HASH IS A PREFIX; THE CHECK IS THE FULL DIGEST.** The strip showed
@@ -153,8 +169,10 @@ type AttentionMachine = {
  */
 function attentionProblems(
   devices: readonly Device[],
-  installer: Installer | null
+  /** The build the behind rows are measured against, and where it came from. */
+  release: Release | null
 ): AttentionProblem[] {
+  const target = release?.version ?? null;
   const problems: AttentionProblem[] = [];
   for (const device of devices) {
     if (!device.online) {
@@ -168,7 +186,7 @@ function attentionProblems(
         clause: presenceText(device)
       });
     }
-    if (installer?.available && versionBelow(device.version, installer.version)) {
+    if (target !== null && versionBelow(device.version, target)) {
       problems.push({
         key: `${device.id}:behind`,
         device,
@@ -179,13 +197,65 @@ function attentionProblems(
         // the `version` the fleet read returned, and it is absent (a plain `Behind the release.`)
         // when the machine did not report one.
         clause:
-          device.version && installer
-            ? `On v${device.version} · behind ${installer.version}.`
+          device.version && target
+            ? `On v${device.version} · behind ${target}.`
             : "Behind the release."
       });
     }
   }
   return problems;
+}
+
+/** Whether any machine reports a build newer than the installer on this page. */
+function fleetBehindInstaller(devices: readonly Device[], installerVersion: string): boolean {
+  return devices.some((device) => versionBelow(installerVersion, device.version));
+}
+
+/**
+ * **THE TARGET IS THE NEWER OF THE TWO, AND THE SENTENCE SAYS WHICH (the thirty-third list).**
+ *
+ * "Behind" is a comparison, and the page holds two possible targets: the newest build the machines
+ * report, and the staged installer. Measured on `0.3.273-ux129`, they disagreed — the fleet ran
+ * `0.3.292 / 0.3.275 / 0.3.292 / 0.3.291` while the installer was `0.3.291` — and Home took the
+ * installer, so its sentence (`The release is 0.3.291; the machines below are not on it.`) described
+ * three machines that were on or past it. Taking the newer of the two gets both cases right: when
+ * the installer leads, the machines really are not on it; when the fleet has outrun the file, the
+ * machines really are behind the fleet. Which of the two it is, the sentence says in words.
+ */
+type Release = { version: string; from: "fleet" | "installer" };
+
+function releaseTarget(
+  devices: readonly Device[],
+  installer: Installer | null
+): Release | null {
+  const newest = fleetNewestVersion(devices);
+  const staged = installer?.available ? installer.version : null;
+  if (newest === null) return staged === null ? null : { version: staged, from: "installer" };
+  if (staged === null) return { version: newest, from: "fleet" };
+  // `versionBelow(newest, staged)` is "the installer is newer than the fleet".
+  return versionBelow(newest, staged)
+    ? { version: staged, from: "installer" }
+    : { version: newest, from: "fleet" };
+}
+
+/**
+ * The newest build any machine reports.
+ * Measured on `0.3.273-ux129`: the fleet ran `0.3.292 / 0.3.275 / 0.3.292 / 0.3.291` while the
+ * staged installer was `0.3.291`, and Home said `The release is 0.3.291; the machines below are not
+ * on it.` — three of the four machines were on or past it, and the word "release" pointed at a
+ * download older than half the fleet. The number a reader is asking about is the newest build the
+ * machines themselves report; the installer is a separate subject and is compared on its own line.
+ * Ties are broken by the semver order `compareVersions` already implements, so `0.3.291` and
+ * `0.3.291.0` cannot both claim to be newest.
+ */
+function fleetNewestVersion(devices: readonly Device[]): string | null {
+  let newest: string | null = null;
+  for (const device of devices) {
+    const version = device.version;
+    if (!version) continue;
+    if (newest === null || versionBelow(newest, version)) newest = version;
+  }
+  return newest;
 }
 
 /** The problems folded under the machine they belong to, in the fleet's own order. */
@@ -245,8 +315,8 @@ function fleetReadAge(fleet: FleetRead): string {
 function AttentionBlock(props: {
   problems: readonly AttentionProblem[];
   fleet: FleetRead;
-  /** The staged installer's version, the release the behind rows are measured against. */
-  release: string | null;
+  /** The build the behind rows are measured against, and where that number came from. */
+  release: Release | null;
   onOpen: (id: string) => void;
 }) {
   if (props.problems.length === 0) {
@@ -275,9 +345,15 @@ function AttentionBlock(props: {
   return (
     <section className="attention" aria-label="Needs attention">
       <h2>Needs attention</h2>
-      {behind && (
+      {behind && props.release && (
+        // **THE SENTENCE SAYS WHICH NUMBER IT NAMES.** A fleet that has outrun the staged installer
+        // and a fleet that is behind it are different claims, and `The release is 0.3.291` was
+        // ambiguous enough to describe three machines that were on or past it (the thirty-third
+        // list, measured on ux129).
         <p className="attention-release hint">
-          The release is {props.release}; the machines below are not on it.
+          {props.release.from === "installer"
+            ? `The release is ${props.release.version}; the machines below are not on it.`
+            : `The newest build in the fleet is ${props.release.version}; the machines below are behind it.`}
         </p>
       )}
       <ul className="attention-list">
@@ -436,7 +512,8 @@ function FleetHome(props: HomePageProps) {
   // The verdict and the attention rows are claims about the fleet now, so they wait for a
   // successful read. A failed read keeps the last list on screen and states the failure instead.
   const ready = fleet.state === "ready";
-  const problems = ready ? attentionProblems(props.devices, installer) : [];
+  const release = ready ? releaseTarget(props.devices, installer) : null;
+  const problems = ready ? attentionProblems(props.devices, release) : [];
   // **THE BANNER NAMES THE FAILURE; THIS LINE ONLY SAYS WHAT IS MISSING.** When the read failed
   // there is no verdict to give, so the header draws none and the notice below states what the page
   // can show. A second failure sentence here made the page say one failure three times (audit-40
@@ -522,7 +599,7 @@ function FleetHome(props: HomePageProps) {
         <AttentionBlock
           problems={problems}
           fleet={fleet}
-          release={installer?.available ? installer.version : null}
+          release={release}
           onOpen={props.onOpenMachine}
         />
       )}
@@ -590,7 +667,11 @@ function FleetHome(props: HomePageProps) {
           is the next step whether the machine list arrived, is still coming, or failed. It is a
           compact strip after the fleet, not the page's first card. */}
       {installer !== null && (
-        <InstallerBlock installer={installer} onNotice={props.onNotice} />
+        <InstallerBlock
+          installer={installer}
+          devices={props.devices}
+          onNotice={props.onNotice}
+        />
       )}
 
       {props.code && (

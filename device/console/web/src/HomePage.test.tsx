@@ -179,6 +179,8 @@ describe("Home — the fleet's installer", () => {
     installerApi.installer.mockResolvedValue(installerFacts);
     drawFleet({ devices: [{ ...workshop, version: "0.3.8" }] });
 
+    // The installer LEADS here (0.3.9 against a machine on 0.3.8), so the sentence names the
+    // installer — the case this test was written for.
     expect(
       await screen.findByText("The release is 0.3.9; the machines below are not on it.")
     ).toBeInTheDocument();
@@ -186,6 +188,39 @@ describe("Home — the fleet's installer", () => {
     // the page may not call both "the console" (audit-40 F10).
     expect(screen.queryByText(/the console has/)).toBeNull();
     expect(screen.queryByText("behind 0.3.9")).toBeNull();
+  });
+
+  it("names the fleet's own newest build when the machines have outrun the installer", async () => {
+    // **THE LIVE PAGE ON 0.3.273-ux129 (the thirty-third list).** The fleet ran
+    // `0.3.292 / 0.3.275 / 0.3.292 / 0.3.291` while the staged installer was `0.3.291`, and Home said
+    // `The release is 0.3.291; the machines below are not on it.` — three of those four machines
+    // were ON or PAST it. The block measures against the newer of the two and says which it is.
+    installerApi.installer.mockResolvedValue({ ...installerFacts, version: "0.3.291" });
+    drawFleet({
+      devices: [
+        { ...workshop, id: "a", name: "DESKTOP-9VH92BJ", version: "0.3.292" },
+        { ...workshop, id: "b", name: "DESKTOP-14RJCR8", version: "0.3.275" },
+        { ...workshop, id: "c", name: "DESKTOP-CPH4KB2", version: "0.3.292" },
+        { ...workshop, id: "d", name: "DESKTOP-84T3LIN", version: "0.3.291" }
+      ]
+    });
+
+    expect(
+      await screen.findByText(
+        "The newest build in the fleet is 0.3.292; the machines below are behind it."
+      )
+    ).toBeInTheDocument();
+    // Exactly one machine is behind — the one on 0.3.275 — and the two on 0.3.292 are NOT called
+    // behind, which is the error the old sentence made in the opposite direction.
+    const attention = screen.getByRole("region", { name: "Needs attention" });
+    // **TWO ARE BEHIND, AND THE TWO ON 0.3.292 ARE NOT.** 14R is on 0.3.275 and 84T on 0.3.291;
+    // both are behind the fleet's newest build. The machines ON that build are absent, which is the
+    // error the old installer-target sentence made in the opposite direction (it excluded them and
+    // described the ones that were ahead).
+    expect(attention.querySelectorAll(".attention-row")).toHaveLength(2);
+    expect(within(attention).getByText("On v0.3.275 · behind 0.3.292.")).toBeInTheDocument();
+    // And the installer's own line says the file is behind the fleet.
+    expect(screen.getByText(/The fleet is already past this file/)).toBeInTheDocument();
   });
 
   it("draws no fleet cue when the console staged no installer", async () => {
@@ -334,7 +369,7 @@ describe("Home — the verdict and what needs attention", () => {
     // The release is stated once by the block; the row names the machine, its own build and the
     // distance (the twenty-eighth list, item 4), which is the fact the block alone could not give.
     expect(
-      within(attention).getByText("The release is 0.3.9; the machines below are not on it.")
+      within(attention).getByText("The newest build in the fleet is 0.3.9; the machines below are behind it.")
     ).toBeInTheDocument();
     expect(within(attention).getByText("On v0.3.8 · behind 0.3.9.")).toBeInTheDocument();
   });
@@ -376,7 +411,7 @@ describe("Home — the verdict and what needs attention", () => {
     // One release position: the block's sentence names the target once. The row names THIS machine's
     // build, because a reader told "behind" without a number has to hunt the table for it.
     expect(
-      within(attention).getAllByText("The release is 0.3.289; the machines below are not on it.")
+      within(attention).getAllByText("The newest build in the fleet is 0.3.289; the machines below are behind it.")
     ).toHaveLength(1);
     expect(within(attention).getAllByText(/0\.3\.275/)).toHaveLength(1);
     // One door for one machine; the name appears once, not in every problem line. The visible verb
