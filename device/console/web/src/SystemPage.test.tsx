@@ -831,7 +831,7 @@ describe("SystemPage", () => {
     render(<SystemPage grant={GRANT} />);
 
     // The note counts what the device answered, not what the table happens to draw.
-    expect(await screen.findByText("2 processes on the device, by pid.")).toBeInTheDocument();
+    expect(await screen.findByText("2 processes on this machine, by pid.")).toBeInTheDocument();
     const table = screen.getByRole("table");
     expect(within(table).getByText("4242")).toBeInTheDocument();
     expect(within(table).getByText("nginx")).toBeInTheDocument();
@@ -860,7 +860,7 @@ describe("SystemPage", () => {
 
     await vi.waitFor(() => expect(called("system.process_list")).toHaveLength(3));
     expect(called("system.process_list")[2][2]).toEqual({});
-    expect(await screen.findByText("2 processes on the device, by pid.")).toBeInTheDocument();
+    expect(await screen.findByText("2 processes on this machine, by pid.")).toBeInTheDocument();
     expect(within(screen.getByRole("table")).getByText("sshd")).toBeInTheDocument();
   });
 
@@ -871,7 +871,7 @@ describe("SystemPage", () => {
       throw new Error(`the test did not expect a ${name} call`);
     });
     render(<SystemPage grant={GRANT} />);
-    await screen.findByText("2 processes on the device, by pid.");
+    await screen.findByText("2 processes on this machine, by pid.");
 
     const row = screen.getByText("System").closest("tr") as HTMLElement;
     expect(within(row).getByText("Protected")).toBeInTheDocument();
@@ -896,7 +896,7 @@ describe("SystemPage", () => {
       name === "system.process_list" ? JSON.stringify([protectedOne, ...many]) : JSON.stringify({})
     );
     render(<SystemPage grant={GRANT} />);
-    await screen.findByText("41 processes on the device, by pid.");
+    await screen.findByText("41 processes on this machine, by pid.");
 
     // jsdom keeps a closed `<details>`'s children in the DOM, so the claim is not "the button
     // does not exist" but "the button is not one a reader can reach": every `Kill PID n` sits
@@ -926,7 +926,7 @@ describe("SystemPage", () => {
       throw new Error(`the test did not expect a ${name} call`);
     });
     render(<SystemPage grant={GRANT} />);
-    await screen.findByText("2 processes on the device, by pid.");
+    await screen.findByText("2 processes on this machine, by pid.");
 
     openRowMenu(4242, "nginx");
     fireEvent.click(screen.getByRole("button", { name: "Kill PID 4242" }));
@@ -954,7 +954,7 @@ describe("SystemPage", () => {
     // The list is read again after the attempt, with the filter the table was read with.
     await vi.waitFor(() => expect(called("system.process_list")).toHaveLength(2));
     expect(called("system.process_list")[1][2]).toEqual({});
-    expect(await screen.findByText("1 process on the device, by pid.")).toBeInTheDocument();
+    expect(await screen.findByText("1 process on this machine, by pid.")).toBeInTheDocument();
   });
 
   it("keeps the confirmation open on a refusal and still re-reads the list", async () => {
@@ -971,7 +971,7 @@ describe("SystemPage", () => {
       throw new Error(`the test did not expect a ${name} call`);
     });
     render(<SystemPage grant={GRANT} />);
-    await screen.findByText("1 process on the device, by pid.");
+    await screen.findByText("1 process on this machine, by pid.");
 
     openRowMenu(4242, "nginx");
     fireEvent.click(screen.getByRole("button", { name: "Kill PID 4242" }));
@@ -1008,7 +1008,7 @@ describe("SystemPage", () => {
       throw new Error(`the test did not expect a ${name} call`);
     });
     render(<SystemPage grant={GRANT} />);
-    await screen.findByText("The device reports no running processes.");
+    await screen.findByText("The machine reports no running processes.");
 
     fireEvent.change(screen.getByLabelText("Host"), { target: { value: "example.com" } });
     fireEvent.change(screen.getByLabelText("Port"), { target: { value: "443" } });
@@ -1045,7 +1045,7 @@ describe("SystemPage", () => {
       throw new Error(`the test did not expect a ${name} call`);
     });
     render(<SystemPage grant={GRANT} />);
-    await screen.findByText("The device reports no running processes.");
+    await screen.findByText("The machine reports no running processes.");
 
     // The grant decides whether the call is allowed; the page does not ask for a tool list first
     // (this mock fails an unasked-for call) and does not hide the deliberate step on a guess.
@@ -1056,7 +1056,7 @@ describe("SystemPage", () => {
     const dialog = await screen.findByRole("dialog", { name: "Restart the device app?" });
     // The confirmation names the losses and the launcher budget, not just "are you sure".
     expect(dialog).toHaveTextContent(
-      "Every open terminal, browser tab and run on the device ends"
+      "Every open terminal, browser tab and run on this machine ends"
     );
     expect(dialog).toHaveTextContent("The launcher allows three consecutive restarts");
     expect(dialog).toHaveTextContent("three quick restarts can leave the device down");
@@ -1076,7 +1076,7 @@ describe("SystemPage", () => {
       throw new Error(`the test did not expect a ${name} call`);
     });
     render(<SystemPage grant={GRANT} />);
-    await screen.findByText("The device reports no running processes.");
+    await screen.findByText("The machine reports no running processes.");
 
     fireEvent.click(screen.getByRole("button", { name: "Restart app" }));
     const dialog = await screen.findByRole("dialog", { name: "Restart the device app?" });
@@ -1088,7 +1088,7 @@ describe("SystemPage", () => {
     expect(
       await screen.findByText(
         "The device is restarting through its launcher. It will reconnect in a few seconds; " +
-          "terminals, browser tabs and runs on the device ended."
+          "terminals, browser tabs and runs on this machine ended."
       )
     ).toBeInTheDocument();
     // The answer precedes the exit: the sentence says restarting, never that it is back.
@@ -1106,7 +1106,7 @@ describe("SystemPage", () => {
       throw new Error(`the test did not expect a ${name} call`);
     });
     render(<SystemPage grant={GRANT} />);
-    await screen.findByText("The device reports no running processes.");
+    await screen.findByText("The machine reports no running processes.");
 
     fireEvent.click(screen.getByRole("button", { name: "Restart app" }));
     const dialog = await screen.findByRole("dialog", { name: "Restart the device app?" });
@@ -1131,7 +1131,7 @@ describe("SystemPage", () => {
       throw new Error(`the test did not expect a ${name} call`);
     });
     render(<SystemPage grant={GRANT} />);
-    await screen.findByText("The device reports no running processes.");
+    await screen.findByText("The machine reports no running processes.");
 
     fireEvent.click(screen.getByRole("button", { name: "Restart app" }));
     const dialog = await screen.findByRole("dialog", { name: "Restart the device app?" });
@@ -1171,7 +1171,7 @@ describe("SystemPage", () => {
       throw new Error(`the test did not expect a ${name} call`);
     });
     render(<SystemPage grant={GRANT} />);
-    await screen.findByText("The device reports no running processes.");
+    await screen.findByText("The machine reports no running processes.");
 
     fireEvent.change(screen.getByLabelText("Host"), { target: { value: "example.com" } });
     fireEvent.change(screen.getByLabelText("Port"), { target: { value: "443" } });
