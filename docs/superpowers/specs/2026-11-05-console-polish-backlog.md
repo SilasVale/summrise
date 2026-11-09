@@ -1430,6 +1430,20 @@ has its two named nudges (`Show later device views`, enabled only when there is 
    `machine`. In the tool catalogue it is worse than inconsistent: **11 of 46 descriptions say
    `device`, 1 says `machine`, and 33 say neither** — the catalogue's own per-tool sheet is the place
    a reader learns what the tool acts on. One noun, chosen, and the other retired. **M.**
+   *(**Done for everything this repo writes, live 0.3.273-ux128** (`aaf8f1a` + `fc14ef2`): the
+   Machine tab speaks one noun throughout — `The app on this machine`, `… on this machine, and takes
+   it offline …`, `236 processes on this machine, by pid.`, `The machine reports no running
+   processes.`, the restart dialog's `… run on this machine ends` — and the terminal's panel and
+   session menu say `Sessions on this machine`; the Network test says `from this machine`.
+   `device/core/src/registry.rs`'s nine description strings moved too, and `GET /tools` serves
+   `this machine's files roots` for all four file tools. **Two boundaries, recorded rather than
+   painted over:** (a) the LIVE Tools page still shows the DEVICE's own copy — `files.read` read
+   `one of the device's files roots` on ux128 — because the catalogue it draws is
+   `/fleet/<id>/tools`, published by the running device binary from its own registry, which is a
+   repo this workstream does not own; the console's own `/tools` route, which the grant form reads,
+   is fixed. (b) `#device/overview` and the rail's `Device` door keep their names: they are a route
+   and a destination, not the thing, and renaming them rewrites bookmarks and every test that names
+   a surface.)*
 
 ## How a round goes
 
