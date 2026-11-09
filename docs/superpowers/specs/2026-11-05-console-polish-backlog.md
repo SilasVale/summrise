@@ -2403,6 +2403,37 @@ So the panel does NOT have the console's 22-in-a-section defect.
    with `h1 -> h3 skips a level`. A heading's level is its place in the document; **a stylesheet may
    choose its size, never its place.**)*
 
+## P0 — the fifty-first list (opened 2026-11-10, the rail the contract records is not the rail drawn)
+
+The fiftieth list is closed: one tracking token, and a section stops being two levels. This list came
+from the directive's first words — *"the same page frame (rail, header, page body, card grammar,
+density rhythm)"* — read against the contract, which records a rail for each surface. Measured at
+every width the contract declares, on both built surfaces.
+
+Three measurements came back CLEAN and are recorded as clean: the page PAD is 24/24 at all seven
+widths on both surfaces; the console's page LEFT is 0 at 380/480/639 (its rail is a top bar there) and
+232 from 767 up, which is the contract's `rail.console`; and the panel's page LEFT is 74 at every width
+below 1280 and 85/125 at 1280/1360, which is the same rail plus the centring.
+
+1. **The panel's rail is 56 px, and the contract says 52.** Measured on the built panel:
+
+       #icon-rail     flex: 0 0 52px          (layout.css) — the shell's rail
+       .desktop-rail  width: 56px; flex: 0 0 56px  (components.css) — the rail a person SEES
+
+   and the drawn element measures **57** (56 + its 1 px border), while the contract records 52. So
+   this repo holds two rails, one of which hides the other, and the number written down is the number
+   of the one nobody sees. The rail is the page's first column: if its width is wrong, every
+   measurement downstream (the page's left, its centring, the wrap point of the header) is taken
+   against a frame that does not exist. **Fix:** one rail width, the contract's, and `#icon-rail`
+   stops being a second answer. **S.**
+
+2. **The contract's `rail` block records two widths and no rule about who owns them.** The console
+   draws 232 from 767 up and a TOP BAR below it; the panel draws its rail at every width. That is a
+   real difference — one is a fleet console with room for names, the other a device panel in a window —
+   and the contract says only `console: 232, panel: 52`, so the next reader has to measure the console
+   to learn it collapses. **Fix:** the contract records the collapse, and both repos' tests say which
+   surface collapses where. **S.**
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
