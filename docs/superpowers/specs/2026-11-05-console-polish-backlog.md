@@ -1414,6 +1414,13 @@ has its two named nudges (`Show later device views`, enabled only when there is 
    page states the refusal once (the `Capture is off:` sentence, which carries the reason and the way
    out), the empty state says what the surface is for in one line, and the standing explanation
    moves under the picture as a caption rather than above the button. **S.**
+   *(**Done, live 0.3.273-ux126** (`e734c8a`): the live page reads three sentences now —
+   `A capture of this machine's signed-in desktop.` / `Capture is off: the per-user helper has not
+   registered, so a capture will be refused. It starts in the signed-in user's desktop session; the
+   Machine tab shows its state.` / `No capture yet — Capture screen takes one when you ask.` — at
+   **370 characters** (was 591). The black-frame note is the picture's caption and is absent until
+   there is a picture. The gate counts the sentences naming a refusal and fails on a second one;
+   mutating the lead back fails with `the Screen tab states the refusal 2 times`.)*
 
 2. **The product calls the same thing a `device` and a `machine`, in the same panel.** Measured
    across the seven machine tabs and both fleet pages: `machine` 53 uses and `device` 27, and the
