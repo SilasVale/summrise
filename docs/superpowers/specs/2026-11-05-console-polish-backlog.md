@@ -1928,6 +1928,11 @@ paid for.
    said nothing about the other. **Fix:** the rule is deleted (the frame supplies the rhythm), and the
    leg becomes per-page: it opens Activity, reads its rendered `row-gap` and the distance from its head
    to its first block, and compares both to Home's. **S.**
+   *(**Done, live 0.3.273-ux148** (`843f6b5`): the rule is deleted, and measured live after —
+   `pageGap: "24px"`, the head 24 px above its first block, the same as Home. The leg prints
+   `Activity draws the page's own rhythm: 24px gap and 24 px between its head and its record — the
+   same as Home`, and putting `gap: 16px` back fails with `Activity's rhythm is 16px, the contract's
+   (and Home's) is 24px` — a sentence the old Home-only leg could not produce.)*
 
 2. **The panel's card grammar has no test that every card IS a card.** The console's blocks are
    checked one by one (`Home's .attention is not on the card grammar`); the panel checks the ATOM
@@ -1937,6 +1942,15 @@ paid for.
    had before its blocks were put on the grammar. **Fix:** the same assertion on the panel's side:
    every block that draws a box uses the atom, or says in one sentence why it is not a card.
    **M.**
+   *(**Done, panel `80307f7a`**: the page-body blocks are on the atom — measured after, `mem-card` and
+   `plug-card` **14 / 16 / 8**, `plug-inventory` **14 / 0 / 8** (a list of rows is the card's BODY,
+   the same answer Home's fleet table gives). **The gate's scope is a measured decision:** the sheet
+   holds **38** other elements that paint a hairline — chips, buttons, popovers, modals, the session
+   menu — and none is a SECTION of a page; putting them on `.card` would give every chip a 16 px
+   padding and a 14 px corner, which is a uniform, not a grammar. The test names the page-body blocks
+   and asserts per block that the corner and the hairline are NOT restated; mutation — putting
+   `border-radius: var(--radius)` back into `.mem-card` — fails with `.mem-card must not restate the
+   card's corner`.)*
 
 ## How a round goes
 
