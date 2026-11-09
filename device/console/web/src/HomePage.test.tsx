@@ -283,8 +283,8 @@ describe("Home — the fleet's installer", () => {
     drawFleet();
 
     await waitFor(() => expect(installerApi.installer).toHaveBeenCalledTimes(1));
-    // The block is still there — with its own subject and what it cannot do.
-    expect(screen.getByRole("region", { name: "Install the device runtime" })).toBeInTheDocument();
+    // The block is still there — with its own subject and what it cannot do. On a fleet of zero it
+    // is the first-run card's door (the fortieth list), so the card is what carries the sentence.
     expect(screen.getByText(/The installer could not be read/)).toBeInTheDocument();
     // It does NOT offer a download it does not have, and it does not claim the account has none.
     expect(screen.queryByRole("link", { name: "Download Windows installer" })).toBeNull();
@@ -294,8 +294,7 @@ describe("Home — the fleet's installer", () => {
     await act(async () => {
       screen.getByRole("button", { name: "Try the installer again" }).click();
     });
-    await screen.findByRole("heading", { name: "Install the device runtime" });
-    expect(screen.getByRole("link", { name: "Download Windows installer" })).toBeInTheDocument();
+    await screen.findByRole("link", { name: "Download Windows installer" });
   });
 
   it("reads the installer once, not on every redraw", async () => {
@@ -1003,16 +1002,20 @@ describe("Home — the fleet's read", () => {
     expect(screen.getByText("No machines yet")).toBeInTheDocument();
     expect(screen.queryByText("0 machines · 0 online")).toBeNull();
     expect(screen.getByRole("button", { name: "Add a machine" })).toBeInTheDocument();
-    // THE DOORS ARE THE NEXT STEP, LABELLED, IN THE ORDER THEY ARE USED. The old empty paragraph
-    // told the reader to run the command before the installer had been offered, and the command's
-    // panel had no visible name.
-    expect(screen.getByRole("heading", { name: "Add your first machine" })).toBeInTheDocument();
-    expect(screen.queryByText(/Run the command/)).toBeNull();
-    const install = await screen.findByRole("heading", { name: "Install the device runtime" });
-    const firstRun = screen.getByRole("heading", { name: "Add your first machine" });
+    // **THE NEXT STEP IS ONE BLOCK, AND IT IS THE ONE A PERSON CAN PRESS (the fortieth list).**
+    // Measured on a fleet of zero at 1440: the page drew the empty state (100 px) ABOVE the installer
+    // strip (66 px) and told the reader to "start with the installer below" — the next step was the
+    // page's smallest block, drawn last, described by the block above it. On a zero fleet the two are
+    // one card now: the download door, its file's facts, and the order to do it in.
+    const firstRun = screen.getByTestId("first-run");
+    // The installer read is a separate request, so the card's heading follows it: await it.
     expect(
-      firstRun.compareDocumentPosition(install) & Node.DOCUMENT_POSITION_FOLLOWING
-    ).toBeTruthy();
+      await screen.findByRole("heading", { name: "Install the device runtime" })
+    ).toBeInTheDocument();
+    expect(within(firstRun).getByRole("link", { name: "Download Windows installer" })).toBeInTheDocument();
+    // ONE installer door on the whole page, not the card's and the strip's.
+    expect(screen.getAllByRole("link", { name: "Download Windows installer" })).toHaveLength(1);
+    expect(screen.queryByText(/Run the command/)).toBeNull();
   });
 
   it("puts the installer before the labelled enrollment command", async () => {

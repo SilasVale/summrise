@@ -81,6 +81,14 @@ function InstallerBlock(props: {
   /** The fleet the strip is drawn beside: its newest build can already be past this file. */
   devices: readonly Device[];
   onNotice: (sentence: string) => void;
+  /**
+   * **BARE, AND WHY IT EXISTS (the fortieth list).** On a fleet of zero this block is the page's
+   * NEXT STEP and not a footnote, so the first-run card hosts it. Hosting it framed would be a card
+   * inside a card — the exact shape the thirty-eighth list removed from Settings — so the same
+   * component draws its contents without its own box, and there is still only ONE place that knows
+   * what the installer's three states look like.
+   */
+  bare?: boolean;
 }) {
   if (!props.installer.available) {
     return (
@@ -99,8 +107,39 @@ function InstallerBlock(props: {
   // is in: a file the fleet is behind is an invitation (install it and the fleet catches up); a file
   // the fleet has outrun is a SPARE — what a machine that leaves and comes back, or a new one,
   // installs — and its download is a quiet secondary control rather than the page's call to action.
+  // **A FLEET OF ZERO IS NEVER "STALE" (the fortieth list).** Measured on an empty fleet: the strip
+  // said `Installer for a new or returning machine` and its note described a fleet already past the
+  // file — about a fleet that does not exist. There is nothing to be behind.
   const stale = fleetBehindInstaller(props.devices, installer.version);
   const newest = fleetNewestVersion(props.devices);
+  if (props.bare) {
+    // The contents only: the first-run card owns the box, the heading and the sentence that names
+    // the order. This is the same THREE-STATE body the strip draws everywhere else.
+    return (
+      <div className="first-run-door">
+        <a className="btn primary" href="/installer/download" download>
+          Download Windows installer
+        </a>
+        <p className="hint">
+          {installer.filename} · {bytes(installer.size_bytes)} ·{" "}
+          <span className="mono" title={installer.sha256}>
+            sha256 {installer.sha256.slice(0, 8)}…
+          </span>
+        </p>
+        <button
+          type="button"
+          className="mini installer-digest"
+          onClick={() =>
+            void copyText(installer.sha256).then((ok) =>
+              props.onNotice(ok ? "Digest copied." : "Could not copy the digest.")
+            )
+          }
+        >
+          Copy digest
+        </button>
+      </div>
+    );
+  }
   return (
     <section
       className="card installer installer-strip"
@@ -629,11 +668,47 @@ function FleetHome(props: HomePageProps) {
         // paragraph sent the reader to "run the command" before the installer had been offered, and
         // the command's panel had no visible name; this block names the order (install, then add)
         // and both doors carry their own headings.
-        <section className="empty-state first-run" aria-labelledby="first-run-title">
-          <h2 id="first-run-title">Add your first machine</h2>
+        /* **A FIRST-RUN PAGE'S NEXT STEP IS THE INSTALLER, AND THE INSTALLER WAS ITS SMALLEST
+           BLOCK AND ITS LAST (the fortieth list).** Measured on a fleet of zero at 1440: the page
+           drew `page-head` 65 px, this empty state 100 px, and the installer strip 66 px BELOW
+           both — the one thing a new operator can act on, drawn smallest and last, with a note
+           above it saying "start with the installer below". And the strip's sentence on a fleet of
+           zero was `Installer for a new or returning machine`, which describes a fleet that does
+           not exist yet. So on a zero fleet the empty state and the strip are ONE block, in the
+           order the work happens: what to do, then the door, then the file's own facts. */
+        <section
+          className="card first-run"
+          aria-labelledby="first-run-title"
+          data-testid="first-run"
+        >
+          {/* **THE HEADING NAMES THE THING THE READER CAN DO.** `Install the device runtime` is true
+              only when the account HAS a file; when the release carries none, claiming "install"
+              would be a heading for a door that is not there. */}
+          <h2 id="first-run-title">
+            {installerRead.state === "read" && installerRead.installer.available
+              ? "Install the device runtime"
+              : "Add your first machine"}
+          </h2>
           <p className="hint">
-            Start with the installer below, then press Add a machine for the enrollment command.
+            No machine has enrolled yet. Install this file on the machine you want to run, then
+            press Add a machine for its enrollment command.
           </p>
+          {installerRead.state === "read" ? (
+            <InstallerBlock
+              installer={installerRead.installer}
+              devices={props.devices}
+              onNotice={props.onNotice}
+              bare
+            />
+          ) : installerRead.state === "failed" ? (
+            <p className="hint installer-stale">
+              The installer could not be read, so this page cannot offer the download or say which
+              build it carries.{" "}
+              <button type="button" className="mini" onClick={installerRead.retry}>
+                Try the installer again
+              </button>
+            </p>
+          ) : null}
         </section>
       ) : null}
 
@@ -645,7 +720,9 @@ function FleetHome(props: HomePageProps) {
           `/installer` answering 500, Home lost 100 px and printed no sentence and no retry. The
           panel's Memory, Settings and Plugins pages already answer a failed read with their own
           subject and a Retry; this is the console's installer doing the same. */}
-      {installerRead.state === "read" ? (
+      {/* On a zero fleet the strip's job is the first-run card's (above); drawing both would be the
+          page saying the same next step twice, which is the thing this list keeps finding. */}
+      {empty ? null : installerRead.state === "read" ? (
         <InstallerBlock
           installer={installerRead.installer}
           devices={props.devices}
