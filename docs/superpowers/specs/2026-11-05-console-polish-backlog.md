@@ -2069,11 +2069,20 @@ still names its own start, which is what the last list bought.
    machine and false for a browser anywhere else, or a laptop opened while travelling. **Fix:** one
    midnight, named once, and each surface says which one it uses. **M.**
 
-2. **The day's scan reads 302 lines to answer a day that holds 1,000+ rows, and says it saw the
-   whole day.** Measured: `/audit/day` reports `lines_read: 302` for `client_calls: 231` while
-   `/audit?limit=1000` returns 1,000 lines ALL of them today (oldest 07:48Z, none before midnight).
-   The scan is partial and reports `since_ms: null` — which is the schema's own word for *"the read
-   reached midnight"*. **Fix:** either the answer says what it did not see, or it sees it. **M.**
+2. **The day's scan examined 302 lines to answer a day the window shows holding 1,000+ rows, and
+   answered `since_ms: null`** — the schema's own word for *"the read reached midnight"*. Measured:
+   `/audit/day` reports `lines_read: 302`, `client_calls: 231`, `since_ms: null`; `/audit?limit=1000`
+   returns 1,000 lines, **all of them today** (oldest 07:48Z, none before midnight). Two reads of the
+   same file disagree about how much of today exists, and the smaller one claims to be complete.
+   **A cut that reconciles them was searched for and NOT found**: no line in the window is a cut whose
+   client-call count equals the day's 231 (`windowClientFromAnyCut` has exactly one member,
+   15:21:49Z, and the console count's is a different moment, 17:46:24Z). **The mechanism is therefore
+   NOT claimed here.** What is claimed is the measurement and the contradiction: `newest_since`
+   deliberately does not read the rotated generation while `/audit` does, so the two reads are not
+   reading the same bytes, and the day's answer does not say which bytes it read. **Fix:** the answer
+   names its coverage in the same terms the window does, or reads the same bytes. **M.**
+   *(The guessed mechanism was written into this item first and then removed: it said the scan had
+   stopped early and called it whole, and the numbers above do not prove that.)*
 
 ## How a round goes
 
