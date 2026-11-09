@@ -3064,7 +3064,12 @@ main::-webkit-scrollbar-track, .sheet-body::-webkit-scrollbar-track, .scroll::-w
      leftover `1fr` (444 px at 1440), and the five chips need 581 — they wrapped to two rows and the
      bar grew instead of tightening. `max-content` for the chips column, a flexible gap, and a fixed
      search: the chips stay on one line and the search keeps the bar's right edge. */
-  grid-template-columns: max-content max-content 18rem;
+  /* **THE SEARCH COLUMN SHRINKS; IT DOES NOT OVERFLOW.** A fixed 18rem third column overflowed the
+     bar by 143 px at 1440 (search x=1213 + 288 = 1501 against a bar ending at 1358) — the chips need
+     581, the callers column is as wide as its count sentence, and three fixed tracks add up past the
+     panel. The third track is the flexible one, and the search keeps its 18rem only while there is
+     room for it (`max-width: 100%` shrinks it to its own column when there is not). */
+  grid-template-columns: max-content max-content minmax(0, 1fr);
   align-items: start;
   gap: var(--sp-1-5) var(--sp-5);
   margin: 0 0 18px; padding-bottom: var(--sp-3-5);
@@ -3092,7 +3097,7 @@ main::-webkit-scrollbar-track, .sheet-body::-webkit-scrollbar-track, .scroll::-w
 .timeline-console-reads .chip[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); }
 /* The search label and field share the field's left edge: the label is the field's own name, so it
    sits on the same column start the input does (`display: grid` with one column). */
-.timeline-search { display: grid; gap: var(--sp-1-5); min-width: 0; }
+.timeline-search { display: grid; gap: var(--sp-1-5); min-width: 0; width: 18rem; max-width: 100%; justify-self: end; }
 .timeline-search input { width: 100%; max-width: 100%; }
 @media (max-width: 639px) {
   .activity-page .page-head h1 { font-size: var(--fs-xl); }

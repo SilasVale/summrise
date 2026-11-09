@@ -1929,6 +1929,22 @@ try {
       searchField: search ? box(search.querySelector('input')) : null
     };
   });
+  // **NOTHING IN THE BAR MAY BE WIDER THAN THE BAR.** A fixed third column overflowed it by 143 px
+  // on the live page (the search's right edge at 1501 against a bar ending at 1358), which the
+  // label-alignment checks above could not see: every label was still on its own column.
+  const barRight = await page.evaluate(() => {
+    const bar = document.querySelector('.timeline-filters');
+    const search = document.querySelector('.timeline-search');
+    if (!bar || !search) return null;
+    return {
+      bar: Math.round(bar.getBoundingClientRect().right),
+      search: Math.round(search.getBoundingClientRect().right),
+      field: Math.round(search.querySelector('input')?.getBoundingClientRect().right ?? 0)
+    };
+  });
+  if (barRight && (barRight.search > barRight.bar + 1 || barRight.field > barRight.bar + 1)) {
+    throw new Error(`the filter bar overflows itself: ${JSON.stringify(barRight)}`);
+  }
   const off = (a, b, what) => {
     if (a === null || b === null) return `${what}: missing`;
     return Math.abs(a.x - b.x) > 1 ? `${what}: ${a.x} vs ${b.x}` : null;
