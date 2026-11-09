@@ -89,3 +89,42 @@ function parseVersion(value: string | null | undefined): number[] | null {
   }
   return numbers;
 }
+
+/**
+ * **ONE MACHINE HAS ONE CURRENCY — AND ONE PLACE DEFINES IT (the thirty-fourth list).** Home's
+ * attention block and the machine's own Machine tab used to compute their target separately: Home
+ * took the newer of the fleet's newest build and the staged installer, the tab took the installer
+ * alone, so one machine read `behind 0.3.292` in Needs attention and `current (the release)` on its
+ * own page in one visit. These two functions are the single definition both callers use.
+ *
+ * `releaseTarget` answers the newer of the two; `from` says which number it is, so a sentence can
+ * name its subject in words instead of saying "the release" about a file the fleet has outrun.
+ */
+export type Release = { version: string; from: "fleet" | "installer" };
+
+/** The newest build any machine reports, or null when none reported one. */
+export function fleetNewestVersion(
+  devices: readonly { version?: string | null }[]
+): string | null {
+  let newest: string | null = null;
+  for (const device of devices) {
+    const version = device.version;
+    if (!version) continue;
+    if (newest === null || versionBelow(newest, version)) newest = version;
+  }
+  return newest;
+}
+
+/** The build machines are measured against: the newer of their own newest and the installer. */
+export function releaseTarget(
+  devices: readonly { version?: string | null }[],
+  installer: { available?: boolean; version?: string | null } | null
+): Release | null {
+  const newest = fleetNewestVersion(devices);
+  const staged = installer?.available ? (installer.version ?? null) : null;
+  if (newest === null) return staged === null ? null : { version: staged, from: "installer" };
+  if (staged === null) return { version: newest, from: "fleet" };
+  return versionBelow(newest, staged)
+    ? { version: staged, from: "installer" }
+    : { version: newest, from: "fleet" };
+}

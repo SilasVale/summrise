@@ -3119,6 +3119,49 @@ try {
   if ((cardText.match(/0\.3\.280/g) ?? []).length !== 1) {
     throw new Error(`the update card repeats the release version: "${cardText}"`);
   }
+  // **ONE MACHINE HAS ONE CURRENCY (the thirty-fourth list).** Measured on the operator's page: one
+  // machine read `behind 0.3.292` in Needs attention and `current (the release)` on its own tab, in
+  // one visit — Home measured against the fleet's newest build and the tab against the installer.
+  // The card computes Home's target now; this leg checks the Running row's sentence names a target at
+  // least as new as the fleet's newest, and that it states a comparison at all.
+  const sameCurrency = await page.evaluate(() => {
+    const row = [...document.querySelectorAll('.system-update dl > div')].find(
+      (entry) => entry.querySelector('dt')?.textContent?.trim() === 'Running'
+    );
+    return {
+      text: row?.querySelector('dd')?.textContent?.trim() ?? '',
+      fleetNewest: [...document.querySelectorAll('.fleet-table tbody .fleet-build')]
+        .map((node) => (node.textContent ?? '').trim().replace(/^v/, ''))
+        .filter(Boolean)
+    };
+  });
+  if (!/behind|ahead|current|release unknown/.test(sameCurrency.text)) {
+    throw new Error(`the update card's Running row states no comparison: "${sameCurrency.text}"`);
+  }
+  const parseOne = (value) => value.split('.').map(Number);
+  const compareTwo = (a, b) => {
+    for (let i = 0; i < Math.max(a.length, b.length); i += 1) {
+      const diff = (a[i] ?? 0) - (b[i] ?? 0);
+      if (diff !== 0) return diff;
+    }
+    return 0;
+  };
+  const targets = (sameCurrency.text.match(/\d+\.\d+\.\d+/g) ?? []).map(parseOne);
+  const fleet = sameCurrency.fleetNewest.map(parseOne);
+  const newest = fleet.sort(compareTwo).pop();
+  if (targets.length >= 2 && newest) {
+    const target = targets[targets.length - 1];
+    if (compareTwo(target, newest) < 0) {
+      throw new Error(
+        `the update card measures against ${target.join('.')}, older than the fleet's newest ` +
+          `${newest.join('.')}: "${sameCurrency.text}"`
+      );
+    }
+  }
+  step(
+    `the update card compares against the same currency Home does: "${sameCurrency.text}"`
+  );
+
   step(
     `the Machine tab draws the update card as labelled rows: ${updateRows
       .map((row) => `${row.label} ${row.value}`)

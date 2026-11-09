@@ -10,6 +10,7 @@ import { RecoveryLine } from "./RecoveryLine";
 import { StartedLine } from "./StartedLine";
 import { updateRows } from "./updateCard";
 import { useInstaller } from "./useInstaller";
+import { fleetNewestVersion, releaseTarget, versionBelow } from "./versions";
 import type { VitalsSample } from "./vitals";
 
 /**
@@ -109,7 +110,14 @@ const RESTARTED_SENTENCE =
  * before this start says so. The card draws no fact the fleet did not send — a story the device
  * never sent keeps the one honest sentence instead of a grid of absences.
  */
-function UpdateCard({ device }: { device?: Device | null }) {
+function UpdateCard({
+  device,
+  fleet = []
+}: {
+  device?: Device | null;
+  /** The whole fleet, so this card can compute the same target Home's alert does. */
+  fleet?: readonly { version?: string | null }[];
+}) {
   const installer = useInstaller();
   if (!device?.update) {
     return (
@@ -118,17 +126,46 @@ function UpdateCard({ device }: { device?: Device | null }) {
       </p>
     );
   }
-  // `undefined` while the read is out, `null` when the console has no staged installer, and the
-  // release's version when it does. The card states the comparison only when it is a fact.
-  const release =
-    installer === null ? undefined : installer.available ? installer.version : null;
-  const rows = updateRows(device, Date.now(), release);
+  // **THE COMPARISON IS THE ALERT'S, NOT THE INSTALLER'S (the thirty-fourth list).** `fleetRelease`
+  // is the number Home measures machines against; the installer keeps its own standing on the row
+  // below. `undefined` while the prop has not arrived is "not read yet" and adds no clause. A caller
+  // that does not pass the target (a page rendered on its own) keeps the card's own answer: the
+  // installer it can read, or `release unknown` when that read says there is no staging.
+  const target =
+    fleet.length > 0
+      ? releaseTarget(fleet, installer)
+      : installer === null
+        ? undefined
+        : installer.available
+          ? { version: installer.version, from: "installer" as const }
+          : null;
+  const rows = updateRows(device, Date.now(), target);
+  // **THE FILE'S STANDING IS ITS OWN ROW, NOT THE MACHINE'S (`the thirty-fourth list`).** The staged
+  // installer being older than the fleet is a property of the download; the version row above now
+  // compares the machine against the fleet, so this row is where the download states itself. It is
+  // drawn only when a comparison between the two is a fact — an unread or absent installer adds
+  // nothing, exactly as before.
+  const newestBuild = fleetNewestVersion(fleet);
+  const installerRow =
+    installer !== null &&
+    installer.available &&
+    newestBuild !== null &&
+    // The file is behind when the fleet's newest build is NEWER than the file.
+    versionBelow(installer.version, newestBuild)
+      ? { text: `The staged installer is ${installer.version}, behind the fleet's ${newestBuild}.` }
+      : null;
   return (
     <section className="card system-update" aria-labelledby="system-update-title">
       <header>
         <strong id="system-update-title">Updates</strong>
       </header>
       <dl className="facts">
+        {installerRow !== null && (
+          <div>
+            <dt>Installer</dt>
+            <dd>{installerRow.text}</dd>
+          </div>
+        )}
         {rows.map((row) => (
           <div key={row.key}>
             <dt>{row.label}</dt>
@@ -269,6 +306,7 @@ export function SystemPage({
   device,
   deviceOnline,
   consoleStartedAt,
+  fleet = [],
   vitals = []
 }: {
   grant: Grant;
@@ -283,6 +321,13 @@ export function SystemPage({
    * Absent when `/health` could not state it; the sentence then names the boundary without a time.
    */
   consoleStartedAt?: number | null;
+  /**
+   * The build Home's alert measures machines against — the fleet's newest, or the staged installer
+   * when it is newer. **ONE MACHINE HAS ONE CURRENCY (the thirty-fourth list):** the card used to
+   * compare against the installer alone, so the same machine read `behind 0.3.292` in Needs
+   * attention and `current (the release)` on its own page in one visit.
+   */
+  fleet?: readonly { version?: string | null }[];
   vitals?: VitalsSample[];
 }) {
   const offline = deviceOnline === false;
@@ -603,7 +648,7 @@ export function SystemPage({
             companion: the gap before this start, when a record proves one (audit-44 F12). */}
         {device && <StartedLine device={device} updateShown />}
         <RecoveryLine device={device} consoleStartedAt={consoleStartedAt} />
-        <UpdateCard device={device} />
+        <UpdateCard device={device} fleet={fleet} />
         {device && (
           <>
             <ConsoleLinkLine device={device} />

@@ -1592,6 +1592,11 @@ export function App() {
                       device={chosen}
                       deviceOnline={chosen?.online}
                       consoleStartedAt={consoleStartedAt}
+                      /* **ONE MACHINE HAS ONE CURRENCY (the thirty-fourth list).** The machine's
+                         page computes its target with the same helper Home's attention block calls,
+                         from the same fleet and the same installer read, so a machine Home calls
+                         behind cannot call itself current on its own Machine tab. */
+                      fleet={devices}
                       vitals={chosen ? vitals[chosen.id] ?? [] : []}
                     />
                   </section>
