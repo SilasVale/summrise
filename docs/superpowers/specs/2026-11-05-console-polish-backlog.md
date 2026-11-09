@@ -1002,6 +1002,38 @@ Documentation · Sign out`), not a second copy of the session.
    page the operator asked to be a verdict rather than a table. **Fix:** one name, `Home`, in all
    three. **S.**
 
+## The operator's own question, recorded (2026-11-09)
+
+**"现在 console 为什么有多个 token，不能统一成一个 token 吗" — answered with the live measurement,
+not with a design opinion.**
+
+The console holds **seven tokens** (read from `/tokens` on ux105): four `zss-harness-*` fleet tokens
+created 2026-11-04, -06 and -09; `dsh-aggregate` (2026-10-27, 3 machines, last used 2026-11-09
+12:13); `e2e-connect` (created 2026-10-27, **never used**); and `test` (a single-machine token on
+9VH, last used 2026-11-02). `dsh-aggregate` is the one this session's MCP client actually uses.
+
+**Why the model has two kinds, and why that is not the defect.** A device token is the bearer at
+`/mcp/<machine>`; a fleet token is the bearer at `/mcp/all` and carries a **fixed list** of machines
+(`device_ids`), enforced where the device is chosen. The scope is recorded because the endpoint is
+recorded: a token that only ever opened one machine's door must not silently become a fleet
+credential. That is the same reason `TokenKind` exists at all — the 401 must name the door instead
+of re-deriving it.
+
+**What IS the defect, and it is the operator's actual friction.** Seven rows where four are the same
+harness token minted again on a new date, one has never been used, and nothing on the page says
+which one the AI is using right now. The list answers "what exists", not "which do I keep". The fix
+is the fifth list's item 3 (list first, one line per token, `last used` beside the name) **plus**
+one fact the list does not yet print: **the token this console is being read from**, when the
+operator's own client is one of them. A credential list with "last used" and a footer row naming the
+in-use credential is the shape that makes seven rows answer the question; a single unified token
+would answer it by removing the choices the operator needs (rotation, per-machine blast radius).
+
+**Cloudflare Access session vs Fleet token vs Device token** — three credentials, and they are not
+interchangeable: Access is the *operator's browser* door (the page answers `via: proxy` here), the
+fleet token is the *AI client's* door to every machine it was minted for, the device token is the AI
+client's door to one machine. None can substitute for another; the console refuses each at the
+wrong door by name.
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
