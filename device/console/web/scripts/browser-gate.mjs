@@ -2043,18 +2043,37 @@ try {
   if (!(intervals.window.from > 0 && intervals.window.to > intervals.window.from)) {
     throw new Error(`the window's interval is not a span: ${JSON.stringify(intervals.window)}`);
   }
-  // **THE WINDOW MUST START AT OR AFTER THE DAY'S CUT** — a fetched window cannot begin before the
-  // day it is drawn inside, or the count beside the day is counting yesterday too (which the prose
-  // now says, and the numbers now prove).
-  if (intervals.window.from < intervals.day.from) {
+  // **THE WINDOW MAY START BEFORE THE DAY'S CUT, AND THAT IS THE POINT.**
+  //
+  // This leg first asserted the opposite — "a fetched window cannot begin before the day it is drawn
+  // inside" — and the live check on `0.3.273-ux154` disproved it in one read: the day's cut was
+  // `2026-11-09T16:00Z` while the window ran `07:58Z → 21:36Z`. The window is a 1,000-LINE slice that
+  // slides; it is not a day, and when the read crosses midnight it does begin before the day's cut.
+  // That is precisely why the two counts are different intervals, and why each now names its own.
+  //
+  // So the leg asserts what is TRUE and CHECKABLE: both intervals exist and are labelled, the day's
+  // interval begins at the cut the answer published, and the window is a real span. Whether they
+  // coincide is the reader's question, and the page answers it in prose (the day says `Today`, the
+  // window says `from HH:MM`).
+  const publishedCut = await page.evaluate(async () => {
+    const day = await fetch('/audit/day', { credentials: 'include' }).then((r) => r.json());
+    return day.day_start_ms ?? null;
+  });
+  if (publishedCut === null) {
+    throw new Error('the day answer does not name the midnight it cut at');
+  }
+  if (intervals.day.from !== publishedCut) {
     throw new Error(
-      `the window starts before the day's cut: ${JSON.stringify(intervals)}`
+      `the day line's interval (${intervals.day.from}) is not the answer's cut (${publishedCut})`
     );
   }
   step(
     `the two counts carry their intervals as data: day from ` +
-      `${new Date(intervals.day.from).toISOString()}, window ` +
-      `${new Date(intervals.window.from).toISOString()} → ${new Date(intervals.window.to).toISOString()}`
+      `${new Date(intervals.day.from).toISOString()} (the answer's cut), window ` +
+      `${new Date(intervals.window.from).toISOString()} → ${new Date(intervals.window.to).toISOString()}` +
+      (intervals.window.from < intervals.day.from
+        ? ' — the window crosses the cut, so the two counts are two intervals'
+        : '')
   );
   const activityCounts = await page.evaluate(() => {
     const day = document.querySelector('.activity-today');
