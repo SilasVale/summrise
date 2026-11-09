@@ -2272,6 +2272,36 @@ with 1 retry). The truth-telling is done. The SHAPE is not.
    line states (`Not read — the memory list could not be loaded.`), the notice announces (its words are
    the cause).)*
 
+## P0 — a CUT, opened 2026-11-10 (the panel's page header is three headers)
+
+The forty-eighth list is closed and the four state atoms — card, empty, loading, failed — are one
+grammar on both surfaces. Before writing a new list I walked the product's own **Cuts** section
+(*"a product gets better by removing things"*) and found one the workstream had never taken: the
+panel's PAGE HEADER is not one header. It is three, one per page that carries a title.
+
+Measured on the built panel at 1360, every page:
+
+       Memory    .mem-head        title at x=149, y=127, its own `h1` rule for the margin
+       Plugins   .plug-header     title at x=149, y=111, its own `h1` rule for the margin
+       Settings  .settings-header title at x=149, y=111, its own `h1` rule for the margin
+       History   (the page itself) title at x=149, y=111, no header element at all
+
+`history-page page` is the fourth: its title sits directly in the page, because History's page root
+IS `.page`, while the other three draw a `<header>` and then a body. So a page's first line is a
+title at x=149 either way, and the y differs by 16 between the page that forgot the header and the
+three that wrote one — with three separate rules each explaining that its margin is 'only the spacing
+its lede needs'.
+
+The console has the opposite habit: ONE `.page-head` on every page, `display: flex`, a 12 px column
+gap, the title at 22/700, the sub-line under it at 17 px in INK, and the actions on the right — read
+from a single rule. This is what the contract's `title` atom already names (22 / 700) and what the
+panel's four pages each restate around it.
+
+*(**The cut:** one `.page-head` on the panel, drawn by every page, carrying the title, the optional
+lede and the optional actions; `.mem-head`, `.plug-header` and `.settings-header` deleted, with their
+margin rules folded into the one header. The console's rule is the shape — it is already one header,
+so the panel is the surface that moves. **M.**)*
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
