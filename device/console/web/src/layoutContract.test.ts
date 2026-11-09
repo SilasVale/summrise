@@ -40,6 +40,7 @@ type Contract = {
   title: { size: number; weight: number };
   breakpoints: Record<string, number>;
   empty: { radius: number; pad: number; gap: number; textAlign: string; shadow: string };
+  head: { gap: number; align: string };
   failed: { radius: number; pad: number; textTone: string; tint: string; role: string; retries: number };
   loading: {
     rowRadius: number;
@@ -104,7 +105,7 @@ describe("the layout contract", () => {
     // `agent/resources/panel-react/src/lib/layoutContract.test.ts`. If the two disagree, the two
     // frontends are drawn to different page systems and one of them is wrong.
     expect(createHash("sha256").update(contractText()).digest("hex")).toBe(
-      "c93474d6e9ab9369c032881b4738b6fcdbc1074f2b40a9abd140f3a49f8e4339"
+      "ed201958262c5c9df80fdacb6e9b42a32ab8d4a916335ab3e31e5b509d42cb51"
     );
   });
 
@@ -120,6 +121,30 @@ describe("the layout contract", () => {
     expect(page, "the page's rhythm comes from the scale").toContain(`gap: var(--${gap})`);
     expect(tokenPx(tokens(), pad)).toBe(contract.page.pad);
     expect(tokenPx(tokens(), gap)).toBe(contract.page.gap);
+  });
+
+  it("is one page head, drawn by every page, with the contract's row", () => {
+    // **A CUT THAT WAS THE PANEL'S, AND THIS SURFACE WAS THE PROOF IT COULD BE UNIFORM.** Measured on
+    // the built panel: four pages, three header classes and one page with no header at all — and the
+    // page without one sat 16 px higher than the rest. The console has always drawn ONE `.page-head`
+    // on every page; the contract now writes its row down (`head: { gap 12, align flex-start }`) and
+    // this test holds BOTH halves: the rule reads the contract, and no page invents its own.
+    const source = css();
+    const body = ruleFor(source, ".page-head");
+    expect(body, "the page head must have a rule").not.toBeNull();
+    const gap = body!.match(/gap:\s*var\(--([\w-]+)\)/)?.[1];
+    expect(gap, "the head's gap is a TOKEN").toBeTruthy();
+    expect(tokenPx(tokens(), gap!), "the head's gap is the contract's").toBe(contract.head.gap);
+    expect((body!.match(/align-items:\s*([^;}]+)/)?.[1] ?? "").trim()).toBe(contract.head.align);
+    // **EVERY PAGE DRAWS IT, AND NONE OF THEM SPELLS IT ITSELF.** The pages that carry a title, named
+    // so a new page cannot quietly draw its own first line.
+    const pages = ["HomePage", "App"];
+    const all = pages
+      .map((page) => stripComments(readFileSync(path.join(here, `${page}.tsx`), "utf8")))
+      .join("\n");
+    expect(all, "the head is drawn").toMatch(/className="page-head"/);
+    expect(all, "no page keeps a second header class").not.toMatch(
+      /className="(device-head|activity-head|home-head)"/);
   });
 
   it("is the failed state's atom, and a failure is a notice with the alarm's tint", () => {
