@@ -599,6 +599,10 @@ function apiReply(request, url) {
   }
   if (method === 'GET' && pathname === '/fleet') {
     if (state.failFleet) return json({ error: 'console_unavailable' }, 500);
+    // A FLEET OF ZERO IS A STATE THE GATE MUST BE ABLE TO DRAW (the fortieth list). It is the page
+    // a new operator meets, and it had no leg at all — which is why the installer could be the
+    // page's smallest, last block for two lists without a test noticing.
+    if (state.emptyFleet) return json([]);
     return json([DEVICE, OFFLINE_DEVICE, QUIET_DEVICE, BIG_DEVICE]);
   }
   // THE INSTALLER READ. One answer per fleet render; the page must not poll it, and the gate
@@ -1137,12 +1141,80 @@ try {
   if (!failedInstaller.retry) {
     throw new Error('a failed installer read offers no retry');
   }
+  // **A ZERO FLEET'S NEXT STEP IS ONE CARD (the fortieth list).** Measured live at 1440 on a fleet
+  // of zero: `page-head` 65, `empty-state` 100, and the installer strip 66 BELOW both — with the
+  // empty state's sentence saying "start with the installer below". The page's next step was its
+  // smallest block, drawn last, described by the block above it. Now there is ONE card: what to do,
+  // the door, and the file's facts — and one installer door on the whole page, not two.
+  // **THE PLANTED 500 BELONGS TO THE LEG ABOVE.** `page.route` registrations stack and the most
+  // recent wins, so the zero-fleet leg asked `/installer`, got this leg's 500, and drew the FAILED
+  // card — measured as `heading: "Add your first machine", hasDoor: false`. Detach it first; the
+  // measurement above is already taken.
+  await page.unroute('**/installer');
+  state.emptyFleet = true;
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  // The installer is its own request, so the card lands before its door does. Wait for the DOOR,
+  // not for a fixed interval — a page still assembling is not a page that failed.
+  await page
+    .locator('[data-testid="first-run"] a[href="/installer/download"]')
+    .waitFor({ timeout: 10_000 })
+    .catch(() => {});
+  await page.waitForTimeout(600);
+  const firstRun = await page.evaluate(() => {
+    const card = document.querySelector('[data-testid="first-run"]');
+    const strip = document.querySelector('.installer.installer-strip');
+    const pageEl = document.querySelector('.page');
+    const doors = [...document.querySelectorAll('a[href="/installer/download"]')].filter((a) => {
+      const r = a.getBoundingClientRect();
+      return r.width > 0 && r.height > 0;
+    }).length;
+    return {
+      card: card
+        ? {
+            h: Math.round(card.getBoundingClientRect().height),
+            y: Math.round(card.getBoundingClientRect().y),
+            heading: (card.querySelector('h2')?.textContent ?? '').trim(),
+            hasDoor: [...card.querySelectorAll('a[href="/installer/download"]')].length > 0,
+            text: (card.textContent ?? '').replace(/\s+/g, ' ').trim().slice(0, 120)
+          }
+        : null,
+      strip: strip ? Math.round(strip.getBoundingClientRect().height) : null,
+      doors,
+      blocks: pageEl ? [...pageEl.children].map((k) => (k.className ?? '').toString().slice(0, 26)) : []
+    };
+  });
+  if (firstRun.card === null) {
+    throw new Error('a fleet of zero drew no first-run card');
+  }
+  if (!firstRun.card.hasDoor) {
+    throw new Error(
+      'the first-run card does not carry the installer door: ' + JSON.stringify(firstRun)
+    );
+  }
+  if (/Add your first machine/.test(firstRun.card.heading)) {
+    throw new Error(
+      `the first-run card still says "${firstRun.card.heading}" while it draws the installer door`
+    );
+  }
+  if (firstRun.strip !== null) {
+    throw new Error(
+      'the installer strip is drawn beside the first-run card — the page says its next step twice'
+    );
+  }
+  if (firstRun.doors !== 1) {
+    throw new Error(`a fleet of zero draws ${firstRun.doors} installer doors`);
+  }
+  step(
+    `a fleet of zero is one card, ${firstRun.card.h} px, headed "${firstRun.card.heading}", ` +
+      `with ${firstRun.doors} installer door and no second strip`
+  );
+  state.emptyFleet = false;
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await page.waitForTimeout(2200);
+
   step(
     `a failed installer read says so and offers the retry: "${failedInstaller.text.slice(0, 80)}"`
   );
-  await page.unroute('**/installer');
-  await page.reload({ waitUntil: 'domcontentloaded' });
-  await page.waitForTimeout(2200);
 
   step(
     `the installer's state is honest: "${installerState.heading}", its download is a ` +

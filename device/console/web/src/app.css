@@ -607,6 +607,15 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .installer-spare:hover { background: var(--panel-3); }
 /* The strip is a card on the page's recessed surface: it keeps the fill that says "this is a
    download, not a section", and takes the card's own border, radius and padding. */
+/* **A ZERO FLEET'S NEXT STEP IS ONE CARD (the fortieth list).** Measured at 1440 on a fleet of zero:
+   the empty state (100 px) sat ABOVE the installer strip (66 px) and its sentence told the reader to
+   "start with the installer below" — the page's next step was its smallest block, drawn last, and
+   described by the block above it. The card is `.card` (the one grammar) plus a row for the door;
+   the strip below it is not drawn on a zero fleet at all, so the page has ONE installer door. */
+.first-run { gap: var(--sp-3); }
+.first-run-door { display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap; }
+.first-run-door .hint { margin: 0; }
+
 .installer {
   /* The card's own rhythm and padding; the strip variant below re-declares the gap on its OTHER
      axis (a row's column-gap), which is a different measurement and not a second scale. */
