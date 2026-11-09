@@ -1267,14 +1267,16 @@ Screen, Files, Runs, Tools, Machine), with `main`'s height, line count, duplicat
 and button counts. Live `0.3.273-ux116`. **No console errors on any page at either width, and no
 sideways scroll anywhere.** What the numbers did find:
 
-1. **The Devices bar stacks every tab's heading at the top of the tab strip.** Measured on five tabs
-   at 1440: a visible `Sessions on this device` heading sits at **y=0** (0 px tall, its parent
-   `terminal-page` hidden by `display:none`) on Overview, Files, Runs, Tools and Machine. It does
-   not paint, so no screenshot shows it, but it is in the accessibility tree as a heading the
-   operator's reader can land on, above a page that has nothing to do with sessions. The Terminal
-   page owns that section; the other six tabs should not carry it. **Fix:** the sessions section
-   renders inside the Terminal tab only, and a browser-gate leg asserts one visible `h2` per tab
-   whose text matches the tab's own job. **S.**
+1. ~~**The Devices bar stacks every tab's heading at the top of the tab strip.**~~ **DISPROVED before
+   it was worked on, and the disproving is the finding.** My audit script collected
+   `main.querySelectorAll('h2, h3')`, which returns hidden elements too. The heading is real in the
+   DOM but it sits inside `<div class="page terminal-page" hidden>` whose computed `display` is
+   `none`, its box is **0 x 0**, and `getClientRects().length` is 0 — so it is in neither the paint
+   nor the accessibility tree. Measured per tab at 1440: Overview `visible:false,
+   hiddenAncestor:"page terminal-page"`, the same on Files, Runs and Machine; on Terminal it is
+   `visible:true` because there the section IS the page. **No defect. Nothing to fix.** The lesson is
+   the audit's own: a DOM query is not a measurement; a heading counts as present only when it has a
+   box.
 
 2. **Two-thirds of the tool catalogue's descriptions are cut off with no way to read them.**
    Measured on Tools: **46 tools, 46 descriptions, 12 truncated at 1440 and 44 truncated at 390**
