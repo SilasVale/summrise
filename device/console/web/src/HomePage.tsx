@@ -103,7 +103,7 @@ function InstallerBlock(props: {
   const newest = fleetNewestVersion(props.devices);
   return (
     <section
-      className="installer installer-strip"
+      className="card installer installer-strip"
       aria-label="Install the device runtime"
     >
       <h2>{stale ? "Installer for a new or returning machine" : "Install the device runtime"}</h2>
@@ -311,7 +311,7 @@ function AttentionBlock(props: {
   // the fact rather than a pointer to it.
   const behind = props.release !== null && props.problems.some((problem) => problem.tone === "behind");
   return (
-    <section className="attention" aria-label="Needs attention">
+    <section className="card attention" aria-label="Needs attention">
       <h2>Needs attention</h2>
       {behind && props.release && (
         // **THE SENTENCE SAYS WHICH NUMBER IT NAMES.** A fleet that has outrun the staged installer
@@ -591,7 +591,7 @@ function FleetHome(props: HomePageProps) {
       {props.devices.length > 0 ? (
         // A real table: the four fleet facts line up column-wise, and at 390 the stylesheet turns
         // each row into a card. The row's own link is its name; the overflow is the management.
-        <div className="fleet-table-wrap">
+        <div className="card fleet-table-wrap">
           <table className="fleet-table" aria-label="The fleet">
             <thead>
               <tr>
