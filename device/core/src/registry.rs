@@ -35,24 +35,24 @@ pub const CAPABILITIES: &[Capability] = &[
             ToolDef {
                 name: "files.read",
                 destructive: false,
-                description: "Read a file inside one of the device's files roots: workspace by default, or shared when the operator configured it (the optional root argument).",
+                description: "Read a file inside one of this machine's files roots: workspace by default, or shared when the operator configured it (the optional root argument).",
             },
             ToolDef {
                 name: "files.write",
                 destructive: true,
-                description: "Write a file inside one of the device's files roots; its parent must exist. Pass root: \"shared\" to use the operator-configured second root.",
+                description: "Write a file inside one of this machine's files roots; its parent must exist. Pass root: \"shared\" to use the operator-configured second root.",
             },
             ToolDef {
                 name: "files.mkdir",
                 destructive: false,
                 description:
-                    "Create one directory inside one of the device's files roots; never overwrites. Pass root: \"shared\" to use the operator-configured second root.",
+                    "Create one directory inside one of this machine's files roots; never overwrites. Pass root: \"shared\" to use the operator-configured second root.",
             },
             ToolDef {
                 name: "files.list",
                 destructive: false,
                 description:
-                    "List a directory inside one of the device's files roots, sorted, at most 1000 entries. Pass root: \"shared\" to use the operator-configured second root.",
+                    "List a directory inside one of this machine's files roots, sorted, at most 1000 entries. Pass root: \"shared\" to use the operator-configured second root.",
             },
         ],
     },
@@ -62,7 +62,7 @@ pub const CAPABILITIES: &[Capability] = &[
             ToolDef {
                 name: "memory.append",
                 destructive: true,
-                description: "Append one entry to the device's append-only memory and return its id; the id is what memory.update and memory.delete name.",
+                description: "Append one entry to this machine's append-only memory and return its id; the id is what memory.update and memory.delete name.",
             },
             ToolDef {
                 name: "memory.update",
@@ -79,7 +79,7 @@ pub const CAPABILITIES: &[Capability] = &[
             ToolDef {
                 name: "memory.search",
                 destructive: false,
-                description: "Search the device's memory, newest entries first.",
+                description: "Search this machine's memory, newest entries first.",
             },
             ToolDef {
                 name: "memory.list",
@@ -203,7 +203,7 @@ pub const CAPABILITIES: &[Capability] = &[
                 name: "browser.shutdown",
                 destructive: false,
                 description:
-                    "Stop the browser the device started; a later browser tool call starts it again.",
+                    "Stop the browser this machine started; a later browser tool call starts it again.",
             },
         ],
     },
@@ -281,7 +281,7 @@ pub const CAPABILITIES: &[Capability] = &[
                 name: "system.process_list",
                 destructive: false,
                 description:
-                    "List running processes on this device: pid, executable name and resident memory, optionally filtered by name.",
+                    "List running processes on this machine: pid, executable name and resident memory, optionally filtered by name.",
             },
             ToolDef {
                 name: "system.process_kill",
@@ -293,7 +293,7 @@ pub const CAPABILITIES: &[Capability] = &[
                 name: "system.net_test",
                 destructive: false,
                 description:
-                    "Resolve a host name and connect to one TCP port from this device, returning the addresses resolved and the connect latency; ICMP needs raw sockets, so it is not offered.",
+                    "Resolve a host name and connect to one TCP port from this machine, returning the addresses resolved and the connect latency; ICMP needs raw sockets, so it is not offered.",
             },
         ],
     },
@@ -306,7 +306,7 @@ pub const CAPABILITIES: &[Capability] = &[
                 // Read-only, and the console's device page is the caller: an operator should not need a
                 // grant to learn what machine a device is.
                 description:
-                    "Read what machine this device is running on: operating system and build, host name, uptime, CPU cores, memory and disk totals, and the Windows sessions with their state (active, connected, disconnected, idle). Also whether the per-user helper is registered, its pid and session. Facts that cannot be read are zero or empty, never an error.",
+                    "Read what this machine is running on: operating system and build, host name, uptime, CPU cores, memory and disk totals, and the Windows sessions with their state (active, connected, disconnected, idle). Also whether the per-user helper is registered, its pid and session. Facts that cannot be read are zero or empty, never an error.",
             },
             ToolDef {
                 name: "host.restart",
@@ -315,7 +315,7 @@ pub const CAPABILITIES: &[Capability] = &[
                 // The budget is the launcher's, so it is stated where the operator chooses, not
                 // discovered by repeating the call until the device stays down.
                 description:
-                    "Restart this device's app through its launcher. Terminals, browser tabs and runs on the device end, and the device goes offline briefly. The launcher allows three consecutive restarts, so repeated restarts can leave the device down; a standalone process refuses.",
+                    "Restart this machine's app through its launcher. Terminals, browser tabs and runs on this machine end, and the machine goes offline briefly. The launcher allows three consecutive restarts, so repeated restarts can leave the device down; a standalone process refuses.",
             },
         ],
     },
@@ -339,7 +339,7 @@ pub const CAPABILITIES: &[Capability] = &[
             // mints a grant naming `state.get` and reads the device through `/mcp`, which also puts
             // the call in the console's audit index.
             description:
-                "Read the device's state document plus its health: status (ok or degraded), release version, pid, whether the state document is poisoned (unreadable), and the last ten events the device recorded. A poisoned document is returned as null state with degraded health rather than a failed call.",
+                "Read this machine's state document plus its health: status (ok or degraded), release version, pid, whether the state document is poisoned (unreadable), and the last ten events the device recorded. A poisoned document is returned as null state with degraded health rather than a failed call.",
         }],
     },
     Capability {

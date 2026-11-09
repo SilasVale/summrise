@@ -92,7 +92,7 @@ const READING_PROCESSES = "Reading the device's process list…";
  */
 const RESTARTED_SENTENCE =
   "The device is restarting through its launcher. It will reconnect in a few seconds; " +
-  "terminals, browser tabs and runs on the device ended.";
+  "terminals, browser tabs and runs on this machine ended.";
 
 /**
  * The device's own update story, as the device's panel draws it: a labelled grid, not a sentence.
@@ -591,7 +591,12 @@ export function SystemPage({
       </section>
 
       <section className="system-section" aria-labelledby="system-device-app">
-        <h3 id="system-device-app">Device app</h3>
+        {/* **ONE NOUN (the thirtieth list, item 2).** This heading was `Device app` on the tab called
+            `Machine`, while the fleet table, Home and the tab strip all say `machine`; the product
+            used `device` 27 times and `machine` 53, for one thing. The panel names what it is
+            (`the app`) and where it runs (`on this machine`), and the id stays `system-device-app`
+            because it is an anchor, not prose. */}
+        <h3 id="system-device-app">The app on this machine</h3>
         {/* The machine's start line belongs to the section that answers what the app is doing
             (audit-44 F1). The update card below states the running version and the updater's last
             answer, so the line keeps only the moment the process started. The recovery line is its
@@ -607,7 +612,7 @@ export function SystemPage({
         )}
         <p className="hint">
           The app the launcher supervises. Restarting it ends every open terminal, browser tab and
-          run on the device, and takes the device offline briefly while the launcher starts it again.
+          run on this machine, and takes it offline briefly while the launcher starts it again.
         </p>
         <div className="system-toolbar">
           <button
@@ -886,7 +891,7 @@ export function SystemPage({
         >
           <p>
             This asks the device to restart its app through the launcher. Every open terminal,
-            browser tab and run on the device ends, and the device goes offline briefly while the
+            browser tab and run on this machine ends, and the machine goes offline briefly while the
             launcher starts it again.
           </p>
           <p className="hint">
@@ -979,12 +984,12 @@ function megabytes(kb: number): string {
 function listNote(rows: DeviceProcess[], filter: string): string {
   if (rows.length === 0) {
     return filter === ""
-      ? "The device reports no running processes."
-      : `No process on the device has a name containing ${JSON.stringify(filter)}, ` +
+      ? "The machine reports no running processes."
+      : `No process on this machine has a name containing ${JSON.stringify(filter)}, ` +
           "case-insensitively.";
   }
   const noun = rows.length === 1 ? "process" : "processes";
-  if (filter === "") return `${rows.length} ${noun} on the device, by pid.`;
+  if (filter === "") return `${rows.length} ${noun} on this machine, by pid.`;
   return (
     `${rows.length} ${noun} whose name contains ${JSON.stringify(filter)}, ` +
     "case-insensitively, by pid."
