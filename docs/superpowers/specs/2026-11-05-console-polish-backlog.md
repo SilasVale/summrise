@@ -2004,6 +2004,39 @@ contract rhythm and padding below 640 (`16 px` padding, `16 px` gap).
    almost identical to 1088's, which is what makes the fold safe on the other side. Its gate refuses
    `900` the same way the console's does.)*
 
+## P0 — the forty-third list (opened 2026-11-10, two counts that disagree on one page)
+
+The forty-second list is closed. This list came from reading Activity's page as a reader does — both
+numbers it puts in front of that reader at once — rather than from a rule checklist. It is the first
+list in five that found a problem of MEANING rather than of geometry.
+
+Measured live `0.3.273-ux150` at 1440, twice, 26 seconds apart.
+
+One read was clean and is recorded as clean: the day line and the window line are both derived from the
+same audited rows and both say `client calls` for the same thing — the vocabulary is shared, which is
+what five rounds of copy work bought.
+
+1. **The page says two numbers, both called "client calls", and never says they cover different
+   intervals.** Measured at 19:48 and again at 19:51:
+
+       header  Today: 206 client calls, 21 failed.
+       bar     629 client calls in this window · spanning 12 h 15 m
+
+   Both are true. The header is TODAY (from midnight, ~19 h 50 m of it); the bar is the FETCHED WINDOW,
+   which spans 12 h 15 m and therefore starts **before midnight** — so the window's 629 includes part of
+   yesterday and the day's 206 does not. Nothing on the page says that, and a reader comparing the two
+   can only conclude one of them is wrong. The code's own comment says the span exists because
+   *"two true counts looked contradictory"* — it solved that for the count beside it and left the
+   count ABOVE it unexplained. **Fix:** the two sentences name their intervals in the same words, and
+   the page says once, in one place, how they relate. **S.**
+
+2. **The scope chips do not survive being read as a filter.** Measured on the same live page: the six
+   chips are `aria-pressed` toggles — `All machines` true, four machines false, `Clients only` false —
+   and the header's day line is computed for the SCOPE (`daySummary.device === auditScopeDevice`) while
+   the window line is computed from the rows. Two different scopes for two numbers on one screen is
+   correct; two different sentences for them is not. **Fix:** only after item 1 says which interval
+   each number is, the scope sentence says which subset each number is. **S.**
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
