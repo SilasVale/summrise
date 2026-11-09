@@ -1752,6 +1752,59 @@ try {
   step(`the window states the file it reads: ${sourceText}`);
   // **A DAY IS SIXTY ROWS AND ONE DOOR (backlog item 2).** The fixture is one day of 79 rows, so the
   // page draws the newest 60 and the door states the rest; pressing it draws the whole day.
+  // **THE DAY'S RECORD IS A LIST, NOT A STACK OF 118 BOXES (the twenty-seventh list, item 2).**
+  // Measured before this leg existed: Activity's Timeline at 1440 drew 150 bordered elements for
+  // 8,270 characters, 118 of them `.timeline-row` border-tops and 25 `.timeline-caller` pills, so
+  // every call was boxed off from the one above it. The rows are lines of one list now, and the
+  // caller is a small-caps word rather than a pill — this leg fails if either comes back.
+  const timelineBorders = await page.evaluate(() => {
+    const main = document.querySelector('main');
+    let bordered = 0;
+    const byClass = {};
+    for (const element of main.querySelectorAll('*')) {
+      const style = getComputedStyle(element);
+      const any = ['Top', 'Right', 'Bottom', 'Left'].some(
+        (side) =>
+          (parseFloat(style[`border${side}Width`]) || 0) > 0 &&
+          style[`border${side}Style`] !== 'none'
+      );
+      if (!any) continue;
+      bordered += 1;
+      const key =
+        typeof element.className === 'string' && element.className
+          ? element.className.split(' ')[0]
+          : element.tagName.toLowerCase();
+      byClass[key] = (byClass[key] ?? 0) + 1;
+    }
+    return {
+      bordered,
+      chars: (main.innerText ?? '').length,
+      rowRules: byClass['timeline-row'] ?? 0,
+      callerPills: [...document.querySelectorAll('.timeline-caller')].filter((element) => {
+        const style = getComputedStyle(element);
+        return ['Top', 'Right', 'Bottom', 'Left'].some(
+          (side) =>
+            (parseFloat(style[`border${side}Width`]) || 0) > 0 &&
+            style[`border${side}Style`] !== 'none'
+        );
+      }).length
+    };
+  });
+  if (timelineBorders.rowRules !== 0) {
+    throw new Error(
+      `the timeline draws ${timelineBorders.rowRules} rules between its rows; the day is one list`
+    );
+  }
+  if (timelineBorders.callerPills !== 0) {
+    throw new Error(
+      `the timeline draws ${timelineBorders.callerPills} caller pills; the caller is a word`
+    );
+  }
+  step(
+    `the timeline is one list: ${timelineBorders.bordered} bordered elements for ` +
+      `${timelineBorders.chars} chars, no row rules, no caller pills`
+  );
+
   const drawnRows = await page.locator('.timeline-row').count();
   const dayDoors = page.locator('.timeline-more');
   if ((await dayDoors.count()) !== 1) {
