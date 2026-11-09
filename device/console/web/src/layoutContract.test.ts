@@ -41,6 +41,11 @@ type Contract = {
   breakpoints: Record<string, number>;
   empty: { radius: number; pad: number; gap: number; textAlign: string; shadow: string };
   head: { gap: number; align: string };
+  section: {
+    h2: { size: number; weight: number };
+    h3: { size: number; weight: number };
+    eyebrow: { size: number; weight: number; tracking: number; transform: string };
+  };
   failed: { radius: number; pad: number; textTone: string; tint: string; role: string; retries: number };
   loading: {
     rowRadius: number;
@@ -105,7 +110,7 @@ describe("the layout contract", () => {
     // `agent/resources/panel-react/src/lib/layoutContract.test.ts`. If the two disagree, the two
     // frontends are drawn to different page systems and one of them is wrong.
     expect(createHash("sha256").update(contractText()).digest("hex")).toBe(
-      "ed201958262c5c9df80fdacb6e9b42a32ab8d4a916335ab3e31e5b509d42cb51"
+      "aaa468feabf81cfba71943bb7e990297a15a7d8e53b6046bf0571d62b4769743"
     );
   });
 
@@ -121,6 +126,61 @@ describe("the layout contract", () => {
     expect(page, "the page's rhythm comes from the scale").toContain(`gap: var(--${gap})`);
     expect(tokenPx(tokens(), pad)).toBe(contract.page.pad);
     expect(tokenPx(tokens(), gap)).toBe(contract.page.gap);
+  });
+
+  it("is the section level, and no heading below the title is a size of its own", () => {
+    // **AN `h2` WAS 22, 17, 14 OR 10 PX DEPENDING ON THE PAGE (the forty-ninth list).** Measured on the
+    // built surfaces: Activity's day heading drew 22 / 600 — the page TITLE's size, one weight lighter —
+    // while every other `h2` here drew 17 / 600. The record's day read as a second page title above its
+    // rows. The contract's `section.h2` is 17 / 600, and this is the assertion that both surfaces'
+    // headings land on it.
+    const source = css();
+    const scale = tokens();
+    // The one heading this surface sets by hand below the title: the day.
+    const day = ruleFor(source, ".timeline-day-label");
+    const size = day!.match(/font-size:\s*var\(--([\w-]+)\)/)?.[1];
+    expect(size, "the day's size is a TOKEN").toBeTruthy();
+    expect(tokenPx(scale, size!), "the day is a SECTION, not a second title").toBe(
+      contract.section.h2.size
+    );
+    // And the GLOBAL `h2` is the same level, so a page that writes no rule of its own lands there too.
+    // It is written on ONE line (`h2 { font-size: var(--fs-lg); … }`), which `ruleFor`'s
+    // `\n}`-terminated shape does not match, so this reads the declaration directly and says why.
+    const globalH2 = source.match(/\nh2\s*\{[^}]*font-size:\s*var\(--([\w-]+)\)/)?.[1];
+    expect(globalH2, "an h2's size is a TOKEN").toBeTruthy();
+    expect(tokenPx(scale, globalH2!), "an h2 is the section level").toBe(contract.section.h2.size);
+  });
+
+  it("is one eyebrow, and the twelve rules that drew it stop restating it", () => {
+    // **TWELVE RULES WROTE THE SAME FIVE DECLARATIONS (the forty-ninth list, item 2).** The console
+    // turned a small label into an eyebrow twelve times, each restating the size, the weight, the
+    // spacing and the case; the panel wrote a thirteenth with DIFFERENT numbers (11 px / 700 / a
+    // hard-coded 0.06em where this file reads the token). Three numbers for one idea is how a scale
+    // stops being one.
+    const source = css();
+    const scale = tokens();
+    // **THE ATOM IS A SELECTOR LIST, so `ruleFor` cannot find it** — it looks for one selector
+    // followed by `{`. The list itself is the measurement: whatever rule carries the eyebrow's
+    // numbers must name more than one label, because a rule per label is the spelling this replaced.
+    const start = source.indexOf(".filter-label,");
+    expect(start, "the eyebrow's rule exists").toBeGreaterThan(0);
+    const body = source.slice(start, source.indexOf("}", start) + 1);
+    const selectors = body.split("{")[0].split(",").map((part) => part.trim()).filter(Boolean);
+    expect(selectors.length, "the eyebrow is ONE rule over many labels").toBeGreaterThan(6);
+    const rule = body.slice(body.indexOf("{"));
+    const eyebrowSize = rule.match(/font-size:\s*var\(--([\w-]+)\)/)?.[1];
+    expect(tokenPx(scale, eyebrowSize!), "the eyebrow is the contract's size").toBe(
+      contract.section.eyebrow.size
+    );
+    expect((rule.match(/letter-spacing:\s*var\(--([\w-]+)\)/)?.[1] ?? ""), "spacing is a token")
+      .toBeTruthy();
+    // **AND NOTHING ELSE RESTATES IT.** The count of `text-transform: uppercase` IS the measurement:
+    // twelve before this round, and those that remain are labels that set a COLOUR of their own on top
+    // of the atom (an alarm, an accent) or belong to a table head, which is a different thing. A block
+    // of rules carrying the same five declarations is the drift this consolidation exists to prevent.
+    const uppercase = [...source.matchAll(/text-transform:\s*uppercase/g)].length;
+    expect(uppercase, "the eyebrow is ONE rule, not twelve").toBeLessThanOrEqual(4);
+
   });
 
   it("is one page head, drawn by every page, with the contract's row", () => {

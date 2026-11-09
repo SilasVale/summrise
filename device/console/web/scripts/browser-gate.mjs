@@ -2845,8 +2845,12 @@ try {
   if (activityDesign.sentence !== 17) {
     throw new Error(`the day's sentence is ${activityDesign.sentence}px, not the scale's 17px`);
   }
-  if (activityDesign.day !== 22) {
-    throw new Error(`the day heading is ${activityDesign.day}px, not the scale's 22px`);
+  // **THE DAY IS A SECTION, NOT A SECOND TITLE (the forty-ninth list).** This leg asserted 22 — the
+  // page TITLE's size — and the day drew exactly that, one weight lighter, so the record's day read as
+  // a second title above its rows. The contract's `section.h2` is 17 / 600; 22 is now a BUG here, not
+  // the target.
+  if (activityDesign.day !== 17) {
+    throw new Error(`the day heading is ${activityDesign.day}px, not the section level's 17px`);
   }
   if (activityDesign.verb !== 14) {
     throw new Error(`the row's verb is ${activityDesign.verb}px, not the scale's 14px`);
