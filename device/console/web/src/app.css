@@ -550,6 +550,8 @@ button {
 button:hover { background: var(--panel-3); border-color: var(--line-strong); }
 button:active:not(:disabled) { transform: translateY(1px); }
 button:disabled { opacity: 0.55; cursor: not-allowed; }
+
+
 button.primary { background: var(--accent-solid); border-color: var(--accent-solid); color: var(--accent-fg); }
 button.primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
 button.danger { color: var(--error); border-color: color-mix(in srgb, var(--error) 35%, var(--line-strong)); }
@@ -3498,4 +3500,36 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
      (x=33). It is full width on its own line, aligned with New folder and Upload. */
   .files-filter { margin-left: 0; width: 100%; }
   .files-filter input { width: 100%; }
+}
+
+/* **A THUMB IS NOT A CURSOR (the twenty-ninth list, items 1 and 3).** Measured at 390: every one of
+   Home's 25 controls in `main` was under 44 px — `Tokens` and `Add a machine` at 30 px, the fleet
+   row's name door at 26 px, the `⋯` menus at 32 px, and the audit table's per-row record opener at
+   **24 x 28 px** (999 of them). The page already gave the topbar a 44 px height and then never
+   applied the measure to the controls below it. This is one rule for the whole phone surface rather
+   than 25 nudges: a control is at least 44 px tall where it is reached by a thumb, and its own
+   padding still decides how wide it is. */
+/* Width, not pointer: a 390 px window is a phone's screen whether the pointer is a thumb or a
+   trackpad, and 44 px controls on a narrow desktop are bigger taps, not a defect. Querying the
+   pointer would also make the rule untestable in the gate, which runs with a fine pointer. */
+/* **IT IS THE SHEET'S LAST RULE ON PURPOSE.** `.device-tab { min-height: 0 }` and
+   `button { min-height: 28px }` are declared above and are more specific than `main button`
+   (0,0,1,0 against 0,0,0,2); a media query adds no specificity. Measured while getting this wrong:
+   the built page still drew `Tokens` at 30 px and the tabs at 35 px, and a probe button reported
+   `min-height: 0px`. So the phone's measure is stated last, and it names each surface it means:
+   `main .device-tab` and `main .tab-main` (the terminal's tabs) are written out because their own
+   rules zero them. */
+@media (max-width: 639px) {
+  main button,
+  main a[href],
+  main summary,
+  main input:not([type="checkbox"]):not([type="radio"]),
+  main select,
+  main .device-tab,
+  main .tab-main,
+  main .row-menu > summary,
+  .account > summary,
+  .rail-btn {
+    min-height: 44px;
+  }
 }

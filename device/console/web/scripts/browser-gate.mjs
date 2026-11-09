@@ -4471,6 +4471,45 @@ try {
   step(`the offline Retry is disabled as "Retrying…", then says "${retryOutcomeText}"`);
   await machineDoor.click();
   await page.getByRole('heading', { name: 'Machine', exact: true }).waitFor({ timeout: 10_000 });
+  // **A THUMB IS NOT A CURSOR (the twenty-ninth list, items 1 and 3).** Measured on the operator's
+  // phone: every one of Home's 25 controls in `main` was under 44 px — `Tokens` and `Add a machine`
+  // at 30 px, the fleet row's name door at 26 px, and the audit table's per-record opener at
+  // 24 x 28 px. The phone now has one rule that says a control is at least 44 px tall, and this
+  // leg counts the ones that are not. It runs with a coarse pointer, because that is when the rule
+  // is meant to apply — a desktop narrowed to 390 px is not a phone.
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.waitForTimeout(400);
+  const phoneTouch = await page.evaluate(() => {
+    const targets = [
+      ...document.querySelectorAll('main button, main a[href], main summary, main input')
+    ].filter((element) => {
+      const box = element.getBoundingClientRect();
+      return box.width > 0 && box.height > 0;
+    });
+    const under = targets.filter((element) => element.getBoundingClientRect().height < 43);
+    return {
+      coarse: window.matchMedia('(pointer: coarse)').matches,
+      targets: targets.length,
+      under44: under.length,
+      shortest: targets
+        .map((element) => ({
+          text: (element.getAttribute('aria-label') || element.textContent || '')
+            .replace(/\s+/g, ' ')
+            .trim()
+            .slice(0, 20),
+          height: Math.round(element.getBoundingClientRect().height)
+        }))
+        .sort((a, b) => a.height - b.height)
+        .slice(0, 4)
+    };
+  });
+  if (phoneTouch.under44 !== 0) {
+    throw new Error(`the phone's controls are under 44 px: ${JSON.stringify(phoneTouch)}`);
+  }
+  step(
+    `the phone's controls measure >= 44 px (${phoneTouch.targets} targets, ${phoneTouch.under44} under, coarse pointer ${phoneTouch.coarse})`
+  );
+
   step('at 390 the offline advice links Device → Machine and names the machine-local panel as local');
   await page.locator('nav.rail button[title="Home"]').click();
   await page.getByRole('heading', { name: 'Home', exact: true }).waitFor({ timeout: 10_000 });
