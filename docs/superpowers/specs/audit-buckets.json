@@ -1,0 +1,126 @@
+{
+  "$comment": "The audit's bucketing rule, as CASES rather than prose. Both implementations of the rule (the console's `is_client_call` in device/console/src/audit.rs and the page's `isClientCall` in device/console/web/src/activitySummary.ts) run this table in their own tests. A case that one side answers differently from the other is drift, and it fails in whichever repo changed. The fixtures' own key order is the line's JSON shape, which is what both read.",
+  "cases": [
+    {
+      "why": "a line that says it was a client is a client call",
+      "line": {
+        "caller": "client",
+        "kind": "mcp",
+        "tool": "files.read",
+        "token_id": "ab"
+      },
+      "client": true,
+      "console": false,
+      "poll": false,
+      "boundary": false
+    },
+    {
+      "why": "a line that says it was the console is never a client call, token or not",
+      "line": {
+        "caller": "console",
+        "kind": "mcp",
+        "tool": "state.get",
+        "token_id": "ab"
+      },
+      "client": false,
+      "console": true,
+      "poll": false,
+      "boundary": false
+    },
+    {
+      "why": "an older line with no caller but a token proves a client made it",
+      "line": {
+        "kind": "mcp",
+        "tool": "runs.exec",
+        "token_id": "ab"
+      },
+      "client": true,
+      "console": false,
+      "poll": false,
+      "boundary": false
+    },
+    {
+      "why": "an older line with no caller and no token is unattributed, not the console's",
+      "line": {
+        "kind": "mcp",
+        "tool": "runs.exec"
+      },
+      "client": false,
+      "console": false,
+      "poll": false,
+      "boundary": false
+    },
+    {
+      "why": "a failed poll is the console retrying itself, whatever its caller says",
+      "line": {
+        "caller": "console",
+        "kind": "poll",
+        "detail": "device offline"
+      },
+      "client": false,
+      "console": false,
+      "poll": true,
+      "boundary": false
+    },
+    {
+      "why": "a client's poll is still a poll, not work",
+      "line": {
+        "caller": "client",
+        "kind": "poll"
+      },
+      "client": false,
+      "console": false,
+      "poll": true,
+      "boundary": false
+    },
+    {
+      "why": "a channel opening is a fact about the machine and never work",
+      "line": {
+        "caller": "console",
+        "kind": "device",
+        "tool": "device.joined"
+      },
+      "client": false,
+      "console": false,
+      "poll": false,
+      "boundary": true
+    },
+    {
+      "why": "a channel close is the same, whatever its caller",
+      "line": {
+        "caller": "client",
+        "kind": "device",
+        "tool": "device.left"
+      },
+      "client": false,
+      "console": false,
+      "poll": false,
+      "boundary": true
+    },
+    {
+      "why": "a denied call is a client call it tried to make",
+      "line": {
+        "caller": "client",
+        "kind": "denied",
+        "tool": "terminal.write",
+        "token_id": "ab"
+      },
+      "client": true,
+      "console": false,
+      "poll": false,
+      "boundary": false
+    },
+    {
+      "why": "a console read of the machine is the console's, not the AI's",
+      "line": {
+        "caller": "console",
+        "kind": "mcp",
+        "tool": "terminal.list"
+      },
+      "client": false,
+      "console": true,
+      "poll": false,
+      "boundary": false
+    }
+  ]
+}
