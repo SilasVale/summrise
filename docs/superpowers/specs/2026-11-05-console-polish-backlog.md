@@ -1234,6 +1234,13 @@ the next round does not re-run it.)
    stretch labels' rules; the caller pills stop being bordered chips (`.timeline-caller` already
    has the type). Measure the same three numbers afterwards — bordered, shadowed, and `main`'s
    height — and record them. **M.**
+   *(**Done, live 0.3.273-ux114** (`b05e446`): measured on the same page at 1440, **150 bordered
+   elements → 7** for 8,360 characters (the 118 row rules and the 25 caller pills are both gone; what
+   remains is the search field, the stream bar, the two day-doors, the footer rule and a button).
+   The caller is now `CONSOLE` in the page's small-caps type — uppercase, not colour alone, is what
+   tells it from prose. `main` 10,921 → 10,816 px, a 105 px saving that is NOT the point: the point
+   is that a 8,000-character record no longer reads as a form. The browser gate fails on
+   `rowRules !== 0` or `callerPills !== 0` from now on.)*
 
 ## How a round goes
 
