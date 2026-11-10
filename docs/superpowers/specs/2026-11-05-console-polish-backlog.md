@@ -3666,6 +3666,30 @@ other list in the product fills its card (the fleet table's row measures 1,070 o
    while the head is one row and wrong the moment it wraps. **S.**
    *(**Done, console `0078b2f`**: `.device-head` reads `align-items: flex-start`, the atom's own value.)*
 
+## P0 — the eighty-fourth list (opened 2026-11-10, the port the product TELLS you to use is the port it left)
+
+The eighty-third list is closed. This list is what the two frontends TELL a reader, and it was found by chasing a
+question the operator asked and never got an answer to: *"我记得 18090 不是早就说要改成 7736 了吗"*.
+
+Measured 2026-11-10 in the tree, grepping every port the device code names:
+
+     `device/launch/src/lib.rs`     DEFAULT_PORT = **7737**, with its own note "(the operator's fleet
+                                    convention; `18080` before it)"
+     `device/device/src/config.rs`  DEFAULT_PORT = **7737**, same note
+     `device/launch/src/win.rs`     the usage text: "The port defaults to SUMMRISE_PORT, then **18080**."
+     `device/device/src/http.rs`    a served panel's MCP endpoint: "http://127.0.0.1:**18080**/mcp"
+     `device/device/src/panel.rs`   the same string in the panel's own fixture
+
+**The number the product SHIPS is 7737 on every machine that does not pass `--port`, and the number three of its
+own files PRINT is 18080** — the port it moved off on 2026-11-04. A reader who follows the usage text starts the
+service on a port the fleet no longer expects, and the panel's `/mcp` endpoint — the string a client is told to
+paste — points at a port nothing is listening on.
+
+1. **Three files print the port the code left.** **Fix:** one constant, read by the usage text and the endpoint
+   string, so a reader is never told a number the binary does not use. **M.**
+2. **The console's 7736 and the device's 7737 are two ports in one sentence** — the operator's recollection mixed
+   them, and nothing in the product says which is which. **Fix:** the docs name both, once. **S.**
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
