@@ -2998,11 +2998,20 @@ page-level actions are sentence case too** ("Search", "Reveal token", "Test the 
    press DOES**; `+ New` says neither what is created nor that it is the page's primary create action
    beside a search box. **Fix:** the label is the verb and the subject ("New entry"), and the `+` becomes
    the shape a create control earns rather than a character glued to a noun. **S.**
+   *(**Done, panel `13518758` / console `ff1d72a`, live 0.3.273-ux174**: `New entry` and `New session`,
+   re-measured `Search · New entry · Filters · Export`. **The console had the SAME fragment twice** — on the
+   shell's toolbar and in the empty state's actions — so the defect was a habit rather than one slip.
+   **And the browser gate is a THIRD consumer of a label:** it matched by accessible name and timed out,
+   which is the reason a rename has to be checked in markup, unit tests AND the browser gate.)*
 
 2. **Neither sheet records the case, so the next label is a fresh choice.** Measured: the console's
    `Copy console URL` capitalises `URL` mid-sentence and the panel's `Connect an AI client` capitalises
    `AI` — both correct, because both are ACRONYMS, but nothing distinguishes an acronym from a habit. **Fix:**
    the contract records sentence case with acronyms exempt, and each repo's test counts the exceptions. **S.**
+   *(**Done with item 1**: `label: { case "sentence", verbAndSubject true, acronyms [URL, AI, DSH, CSV,
+   JSON, SSH, PTY, MCP] }`. **The acronym exemption is a LIST rather than an inference** — `Copy console URL`
+   and `Connect an AI client` are both correct and a reader should not have to work out why. Both tests scan
+   the whole component tree for `>\s*\+\s*[A-Za-z]`, so a new glyph-led label anywhere is refused.)*
 
 ## How a round goes
 
