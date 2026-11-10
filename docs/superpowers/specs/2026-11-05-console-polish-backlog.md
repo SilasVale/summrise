@@ -4528,6 +4528,32 @@ write `0.12s` as a LITERAL: **the token exists and the majority of the surface i
    `moves at ONE duration, from the token layer` does the same. Mutations: the console's chevron back to `140ms` and
    a panel rule back to `0.2s` both fail.)*
 
+## P0 — the hundred-and-fifth list (opened 2026-11-11, a card's TITLE is an h2 drawn at EYEBROW size)
+
+The hundred-and-fourth list is closed. This list is the levels under a page title — the `section` and `cardTitle`
+atoms — measured on the two cards a reader meets first.
+
+Measured 2026-11-11 at 1,360, every card's own title:
+
+     surface   card            element   size/weight    transform     text
+     console   `.attention`   **h2**    **10 / 600**   **uppercase** "Needs attention"
+     panel     `.plug-card`   header    13 / 400       none          "Playwright…"
+
+**A card's title is an `h2` drawn at the EYEBROW's size.** The `section` atom says `h2` is **17 / 600** and
+`eyebrow` is **10 / 600 / tracking .05 / uppercase** — and this card is an `h2` at exactly the eyebrow's numbers.
+**The tag and the size disagree, and the tag is what a screen reader hears**: the document outline says "section
+heading", the page says "small label".
+
+**And `cardTitle` says 14 / 600**, which neither card draws: the console's is 10 and the panel's `header` is 13/400
+with no heading tag at all — **the panel's card has a title nobody can navigate to**, and the console's has a heading
+whose level is a lie.
+
+1. **An h2 at eyebrow size on one card, a non-heading `header` at 13/400 on the other, and the atom says 14/600.**
+   **Fix:** a card's title is one element at one level, and a SMALL UPPERCASE LABEL is an eyebrow, not an `h2`.
+   **M.**
+2. **Nothing reads a card's own title.** `maxHeadsPerPage` counts page heads; no gate checks that a card's title is
+   a heading at the atom's size, so a page can draw a label and call it a section. **S.**
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
