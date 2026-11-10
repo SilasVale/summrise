@@ -51,6 +51,7 @@ type Contract = {
   ground: { light: string; dark: string; gradients: number };
   elevation: { flat: string; pane: string; raised: string };
   palette: { ink: string; muted: string; faint: string; accent: string; semantic: string[] };
+  leading: { body: number; tight: number; mark: number };
   space: {
     scale: number[];
     controlH: number;
@@ -139,7 +140,7 @@ describe("the layout contract", () => {
     // `agent/resources/panel-react/src/lib/layoutContract.test.ts`. If the two disagree, the two
     // frontends are drawn to different page systems and one of them is wrong.
     expect(createHash("sha256").update(contractText()).digest("hex")).toBe(
-      "0dac76c1cd3ed989c46ab5b962adbee4ab5c1ab621e3539ed85203fa005a3ce3"
+      "14fa128cffc71b2d7bd6dc72a2a9689b2a37bff7039f5acc5123674f8acc8dd6"
     );
   });
 
@@ -155,6 +156,25 @@ describe("the layout contract", () => {
     expect(page, "the page's rhythm comes from the scale").toContain(`gap: var(--${gap})`);
     expect(tokenPx(tokens(), pad)).toBe(contract.page.pad);
     expect(tokenPx(tokens(), gap)).toBe(contract.page.gap);
+  });
+
+  it("is THREE line-height ratios, and the mark belongs to a glyph", () => {
+    // **EIGHT RATIOS ON THIS SHEET (the sixtieth list).** Measured before: `1` (8 sites), `1.45` (7),
+    // `1.5` (9), `1.4` (3), `1.2` (2), `1.6`, `1.55`, `0`. A reader cannot see .05 of a ratio, so it was
+    // never a design choice — and `0` on a rule that carried text was a collapsed box waiting to clip.
+    const tk = tokens();
+    const read = (name: string) => Number(tk.match(new RegExp(`--${name}: *(\\d+(?:\\.\\d+)?)`))?.[1]);
+    expect(read("lh-body"), "a paragraph's leading").toBe(contract.leading.body);
+    expect(read("lh-tight"), "a heading's leading").toBe(contract.leading.tight);
+    expect(read("lh-mark"), "a glyph in a box").toBe(contract.leading.mark);
+    // **NO BARE RATIO SURVIVES IN THE SHEET.** The lookahead has to skip the space a sheet may leave
+    // before the token: `(?! *var(--lh` refuses both spellings and still catches a literal like 1.4.
+    const literals = [...css().matchAll(/line-height: *(?! *var\(--lh)[^;}]+/g)].map((m) => m[0]);
+    expect(literals, "no bare line-height survives").toEqual([]);
+    // **AND THE MARK IS NOT A SENTENCE'S RATIO.** 1 sets a glyph's box to its own size, which is rule
+    // 13's floor; the contract says so, and body is looser than tight so the three cannot collapse.
+    expect(contract.leading.mark).toBe(1);
+    expect(contract.leading.body).toBeGreaterThan(contract.leading.tight);
   });
 
   it("is the rhythm, and a control's HEIGHT is not a padding", () => {
