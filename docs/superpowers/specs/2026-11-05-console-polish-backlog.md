@@ -4211,6 +4211,36 @@ one occurrence always leaves behind.
    BOTH pages' components — the atom's class, a "Reading the …" label, the `role` — and refuses the bare-sentence
    return the page used to make. Mutation: the class back to `hint` → "DevicePicker.tsx draws the atom".)*
 
+## P0 — the ninety-eighth list (opened 2026-11-11, the EMPTY atom says "one card", and five empty states draw a bare line)
+
+The ninety-seventh list is closed. This list is rule 19's EMPTY half, measured by serving zero rows so that what a
+page draws where its content would have been IS its empty state.
+
+The contract's `empty` atom is explicit — *"A page with nothing to list shows ONE CARD, on the page's own grid: the
+card's corner and padding, start-aligned text, no shadow, and the full width of the page's column"* — radius 14,
+pad 16, gap 12, `wayBack: true`. Measured 2026-11-11, every empty sentence in the product:
+
+     surface   element            border  radius  padding    height
+     console   `.home-verdict`    0       0       0/0        29 px
+     console   `.hint` ×2         0       0       0/0        36 px
+     console   `.hint` (Device)   0       0       0/0        18 px
+     panel     `.plug-empty`      0       0       0/0        18 px
+     panel     `.plug-log-empty`  0       0       0/0        18 px
+
+**Not one of them is the card the atom describes.** Every one is a bare line at the size of its text, and the two
+that DO sit inside a box are inside a box that pads nothing: the Device page's `card` is **52 px tall** for an 18 px
+line, and the Plugins page's is **20 px** — a hairline box 2 px taller than the sentence in it, because the card's
+padding is 0 and it is the CHILD that would have to bring the inset. **The atom's 32 px of padding is what those two
+cards are missing, and it is visible as a box that hugs a line like a label.**
+
+**And the empty state is where a reader first meets the product.** A page whose read answered "nothing" is a page a
+new operator sees on day one; five of them draw a fragment of text on a 1,120 px column with no box around it.
+
+1. **Five empty states draw a bare line; the atom says one card.** **Fix:** each takes the atom's box — its corner,
+   its 16 px inset, its own grid — and the two boxes that already exist stop hugging their line. **M.**
+2. **Nothing measures an empty state's own box**, so a hairline box 2 px taller than its text passes every gate.
+   **S.**
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
