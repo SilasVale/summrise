@@ -3091,6 +3091,33 @@ insets so the rows can span the card's full width.
    needs is the row's own and the rows can span the card for the hover. **A plain card pads itself**; both
    halves are asserted, and each has its own mutation.)*
 
+## P0 — the sixty-eighth list (opened 2026-11-10, a plugin row's state is an 8 px dot and a word on the next line)
+
+The sixty-seventh list is closed: a bordered box at `padding: 0` must be paid for by its child. This list is
+rule 6 — *"never colour alone — pair it with shape, weight or a word"* — measured by walking every
+state-bearing element on both rendered surfaces and asking which channels it actually carries.
+
+Two reads were clean and are recorded as clean: **the console's three state marks all carry a WORD**
+(`.fleet-status` says "offline · last seen …", `.fleet-state` says it again in the table, and
+`.home-verdict` says "0 of 1 online · 1 needs attention") — a dot sits beside the sentence rather than
+instead of it. And **the panel's `.plug-pill` carries the word `Enabled`** beside its dot.
+
+1. **The panel's plugin ROW has a dot and no word, while the plugin CARD beside it has the same dot AND
+   a label.** Measured:
+
+       .plug-row   .plug-dot (8 px, rgb(47,158,68) or rgb(191,58,10))   and NO text
+       .plug-card  .plug-dot (the same two colours) + .plug-tag "Enabled"
+
+   So the roster's rows say their state in colour only, and the one card below them says it in colour and
+   a word — the same information, two grammars, on one page. A reader with a colour deficiency reads the
+   roster's rows as eight identical grey rows; a screen reader reads them as nothing at all. **Fix:** the
+   row's dot carries its state in words, using the label the card already has. **M.**
+
+2. **Neither surface records that a state mark must carry a word, so the next dot is a fresh choice.**
+   The contract's `hairline` atom already says *"state marks carry their own colour"* — which is the
+   COLOUR half of rule 6 and not the other half. **Fix:** the contract records the second channel, and
+   each repo's test counts a dot with no adjacent word. **S.**
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
