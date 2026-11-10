@@ -401,7 +401,13 @@ main.terminal-main { display: grid; grid-template-rows: auto minmax(0, 1fr); ali
 .fleet-now { display: flex; align-items: center; gap: var(--sp-3); min-width: 0; }
 .fleet-state { color: var(--ink-muted); font-size: var(--fs-sm); white-space: nowrap; }
 .fleet-work { color: var(--ink-muted); font-size: var(--fs-sm); white-space: nowrap; }
-.fleet-build { color: var(--ink-faint); font-size: var(--fs-xs); white-space: nowrap; }
+/* **THE BUILD'S VERSION IS A VALUE, AND A VALUE HAS A STEP (the seventy-fifth list).** Measured 2026-11-10
+   by grouping the page by `font-size`: at 10 px the fleet's header labels carried `--tracking-label` and
+   THIS cell — `v0.3.292`, a mono value in the same row — carried the baseline, so one size had two
+   steps 0.5 px apart. It is a SMALL MONO RUN, not an uppercase label: the `.mono` size and a display step
+   would open it at the wrong moment. The step for a mono value is none, and it says so rather than
+   inheriting one. */
+.fleet-build { color: var(--ink-faint); font-size: var(--fs-xs); letter-spacing: 0; white-space: nowrap; }
 /* The staged installer is the fleet's other version. The cue rides in the build's own cell so the
    row does not grow a column for a comparison, and its weight lifts it out of the faint chip. */
 .fleet-behind { color: var(--ink-muted); font-weight: var(--fw-medium); }
@@ -2010,7 +2016,7 @@ span.files-name {
 .token-create { display: grid; gap: var(--sp-3); min-width: 0; }
 .token-create h3, .token-list h3 {
   margin: 0; font-size: var(--fs-base); font-weight: var(--fw-semi);
-  text-transform: none; letter-spacing: normal; color: var(--ink);
+  text-transform: none; color: var(--ink);
 }
 /* The credential list is the section's answer and the mint form is its door (backlog item 3). */
 .token-list-head, .token-create-head {
@@ -2172,7 +2178,7 @@ span.files-name {
 
 /* The record: the page scrolls, the row opens, and the device is a name. */
 .audit-table th {
-  text-transform: none; letter-spacing: normal;
+  text-transform: none;
   font-size: var(--fs-sm); font-weight: var(--fw-medium); color: var(--ink-muted);
 }
 /* **THE DAY'S DOOR, THE TIMELINE'S OWN SHAPE (the thirty-first list).** The Table drew every row
@@ -2382,7 +2388,17 @@ span.files-name {
   }
 }
 
-body { line-height: var(--lh-body); letter-spacing: -0.004em; }
+/* **THE BODY CARRIES NO TRACKING, AND THAT IS THE POINT (the seventy-fifth list).** This rule set
+   `letter-spacing: -0.004em` and let it INHERIT into every element on both pages, so the baseline for a
+   size was a fourth number none of the three tracking tokens names — and 19 rules opted INTO a token on
+   top of it. Measured 2026-11-10 by grouping every text node by its `font-size`: the same 12 px sentence
+   was set at **-0.052px** where it opted in and at **0** where a rule wrote `normal` — in the same row. At
+   22 px the same page had **-0.242px** and **-0.44px** for two sentences of the same size.
+   The four steps the sheet already declares are now the whole story: `--tracking-display` for a title,
+   NOTHING for body text, `--tracking-label` for small caps, `--tracking-eyebrow` for the eyebrow. An
+   element that wants the baseline does not have to know a number, and one that wants tight says which
+   token it wants. The literals that replaced `normal` with a fraction are gone with the inheritance. */
+body { line-height: var(--lh-body); }
 main { background: var(--canvas); }
 h1 { letter-spacing: var(--tracking-display); }
 h2 { letter-spacing: var(--tracking-tight); }
@@ -2598,7 +2614,7 @@ input:not([type="checkbox"]):not([type="radio"]):focus, select:focus, textarea:f
   position: sticky; top: 0; z-index: 1;
   background: var(--panel); color: var(--ink-muted);
   border-bottom: 1px solid var(--hairline);
-  text-transform: none; letter-spacing: normal; font-weight: var(--fw-medium);
+  text-transform: none; font-weight: var(--fw-medium);
 }
 .audit-row td { border-bottom: 1px solid var(--hairline); }
 .audit-record-row td { background: var(--canvas); }
@@ -2797,7 +2813,7 @@ input:not([type="checkbox"]):not([type="radio"]):focus, select:focus, textarea:f
   .audit-filter-fields .audit-field select { max-width: none; width: 100%; }
   .audit-filter-fields > button { justify-self: start; }
 }
-.audit-field > span { padding-left: 2px; font-size: var(--fs-2xs); color: var(--ink-muted); }
+.audit-field > span { padding-left: 2px; }
 .audit-field select, .audit-field input { min-height: 28px; border-radius: var(--radius-sm2); }
 .audit-field select:focus, .audit-field input:focus { outline: none; border-color: var(--focus-ring); box-shadow: var(--ring); }
 .audit-caption { font-size: var(--fs-sm); color: var(--ink-muted); }
@@ -2874,7 +2890,7 @@ input:not([type="checkbox"]):not([type="radio"]):focus, select:focus, textarea:f
 .files-list .files-row:last-child { border-bottom: 0; }
 .files-list .files-row:hover { background: var(--row-hover); }
 .files-name { flex: 1; min-width: 0; }
-.files-kind { color: var(--ink-muted); font-size: var(--fs-xs); text-transform: none; letter-spacing: normal; }
+.files-kind { color: var(--ink-muted); font-size: var(--fs-xs); text-transform: none; }
 .files-size { color: var(--ink-faint); font-size: var(--fs-xs); font-variant-numeric: tabular-nums; }
 .files-viewer { border: 1px solid var(--hairline); border-radius: var(--radius); background: var(--panel); }
 
@@ -2922,7 +2938,7 @@ main::-webkit-scrollbar-track, .sheet-body::-webkit-scrollbar-track, .scroll::-w
 .runs-shell input { accent-color: var(--accent); }
 .runs-history { background: var(--panel); border: 1px solid var(--hairline); border-radius: var(--radius); overflow: hidden; }
 .runs-history th {
-  text-transform: none; letter-spacing: normal; font-size: var(--fs-2xs);
+  text-transform: none; font-size: var(--fs-2xs);
   font-weight: var(--fw-medium); color: var(--ink-muted);
   border-bottom: 1px solid var(--hairline); padding: var(--sp-2) var(--sp-3); text-align: left;
 }
@@ -3177,7 +3193,13 @@ main::-webkit-scrollbar-track, .sheet-body::-webkit-scrollbar-track, .scroll::-w
    contract's `section.eyebrow` — 10 px, 600, 0.05em, uppercase — and this is the rule both surfaces
    are measured against. A label that needs a colour of its own (the alarm's, the accent's) still says
    so; it does not restate the size, the weight or the spacing. */
+/* **AND THE SEARCH FIELD'S WORD IS ONE OF THEM (the seventy-fifth list).** Measured 2026-11-10 by grouping
+   the page by `font-size`: at 10 px the uppercase labels carried `--tracking-label` (0.5 px) and this one
+   carried the baseline, because it declared a SIZE and not a step. It is the same kind of word as the
+   `MACHINES` label beside it, so it joins this ruleset rather than restating its five declarations —
+   which is what the count above this list exists to prevent. */
 .filter-label,
+.audit-field > span,
 th,
 .token-list h3,
 .monitor-kind,
@@ -3418,8 +3440,11 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
 .timeline-stretch.is-header { margin: var(--sp-2) 0 0; }
 .timeline-stretch.is-header::before { display: none; }
 .timeline-stretch.is-header .timeline-stretch-text { color: var(--ink-muted); }
+/* The eyebrow's token, not a fifth hand-written em (the seventy-fifth list). `0.02em` was a number this
+   rule made for itself; `--tracking-eyebrow: 0.08em` is the step the sheet declares for small muted words
+   above a block, and a stretch header IS one. */
 .timeline-stretch-text {
-  color: var(--ink-faint); font-size: var(--fs-xs); letter-spacing: 0.02em; white-space: nowrap;
+  color: var(--ink-faint); font-size: var(--fs-xs); letter-spacing: var(--tracking-eyebrow); white-space: nowrap;
 }
 
 /* THE DAY'S DOOR. Sixty rows are drawn and the rest are one quiet line rather than 632 more rows:
@@ -3466,10 +3491,15 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
    and the one the browser gate caught the moment it measured a rendered page instead of a
    stylesheet. A page does not get its own rhythm. */
 .home-page .page-head h1 { font-size: var(--fs-xl); }
+/* **A SIZE GETS ONE TRACKING, AND THE VERDICT IS THE TITLE'S SIZE (the seventy-fifth list).** This rule
+   read `--tracking-tight` (-0.02em, -0.44 px at 22) while the `h1` above it read `--tracking-display`
+   (-0.011em, -0.242 px at 22) — two steps for one size, 20 px apart on the page, and a reader cannot
+   see .009 of an em. The verdict IS the page's second title line; it takes the title's step. The step
+   for a size is a property of the size, not of which element happens to draw it. */
 .home-verdict {
   margin: var(--sp-1-5) 0 0; max-width: 40ch;
   color: var(--ink); font-size: var(--fs-xl); line-height: var(--lh-tight);
-  font-weight: var(--fw-semi); letter-spacing: var(--tracking-tight);
+  font-weight: var(--fw-semi); letter-spacing: var(--tracking-display);
   text-wrap: balance;
 }
 
@@ -3592,6 +3622,10 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
 .fleet-build {
   display: inline-block; padding: var(--sp-0-5) var(--sp-2); border-radius: var(--radius-pill);
   background: var(--panel-3); color: var(--ink);
+  /* **MONO CARRIES NO TRACKING, AND SAYS SO (the seventy-fifth list).** `0` here was a literal that reads
+     like "reset", and with the body's inheritance gone it is the baseline this rule would have had: the
+     declaration is KEPT because it is the one place the sheet states that a monospace run is not tracked,
+     and it costs nothing where the answer and the baseline are the same. */
   font-family: var(--font-mono); font-size: var(--fs-2xs); letter-spacing: 0;
 }
 .fleet-started { max-width: 26rem; }

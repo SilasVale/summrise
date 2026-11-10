@@ -58,6 +58,11 @@ type Contract = {
   };
   motion: { reducedMotion: string; cap: string; namedAnimationsStop: boolean };
   cardTitle: { size: number; weight: number };
+  tracking: {
+    bySize: Record<string, string>;
+    inherits: boolean;
+    literals: number;
+  };
   ground: { light: string; dark: string; gradients: number };
   elevation: { flat: string; pane: string; raised: string };
   palette: { washAlpha: number; ink: string; muted: string; faint: string; accent: string; semantic: string[] };
@@ -157,7 +162,7 @@ describe("the layout contract", () => {
     // `agent/resources/panel-react/src/lib/layoutContract.test.ts`. If the two disagree, the two
     // frontends are drawn to different page systems and one of them is wrong.
     expect(createHash("sha256").update(contractText()).digest("hex")).toBe(
-      "c05286571d683f1ada7876bac7094c7fb37315ba39d3b2e1d8147d3df6f92c45"
+      "72d6e4a4116e052d477cc50bd5e78ca7eff0861a564ccdbc6a9811204f5a9f58"
     );
   });
 
@@ -869,6 +874,50 @@ describe("the layout contract", () => {
     );
     expect(source, "the rail itself is the contract's width").toContain(
       `width: ${contract.rail.console}px`
+    );
+  });
+
+  it("is the tracking atom: a step belongs to a SIZE, and nothing inherits a fraction", () => {
+    // **RULE 14 AS A LINE THE EDITOR READS (the seventy-fifth list).** Measured by grouping every text node on a
+    // rendered page by `font-size` (then weight and kind) and asking whether that group carried ONE
+    // `letter-spacing`: this surface answered NO on every page — 22 px at -0.242 AND -0.44, 12 px at
+    // -0.052 AND 0, 10 px at 0.5 AND 0, 17 px at -0.052 AND -0.34 — while the panel answered YES.
+    expect(contract.tracking.inherits, "a tracking of the body's is one more answer").toBe(false);
+    expect(contract.tracking.literals, "a number written at a call site is a habit").toBe(0);
+    // The four steps are the ones the sheet declares, and each is the size it is for.
+    const tk = tokens();
+    for (const [size, step] of Object.entries(contract.tracking.bySize)) {
+      if (step === "none") continue;
+      expect(tk, `${size} reads the ${step} step`).toContain(`--tracking-${step}:`);
+    }
+    expect(tk, "the display step is the contract's").toMatch(/--tracking-display:\s*-0\.011em/);
+  });
+
+  it("is ONE tracking per size — the baseline is nobody's fourth number", () => {
+    // **RULES 3 AND 14, MEASURED (the seventy-fifth list).** Grouping every text node on a rendered page by
+    // its `font-size` and asking whether that size carries ONE tracking, the answer on 2026-11-10 was no:
+    //
+    //     console Home  22 px   -0.242px (h1) · -0.44px (home-verdict)
+    //     console Home  12 px   -0.052px where a rule opted in · 0 where a rule said `normal`
+    //     console Activity 17   -0.052px (page-sub) · -0.34px (timeline-day-label)
+    //
+    // The cause was `body { letter-spacing: -0.004em }`: an inherited baseline that no tracking token
+    // names, so "the default" and "-0.004em" were two answers to one question depending on which element
+    // you inspected, and a rule that wrote `normal` had to know the difference.
+    //
+    // The four steps the sheet declares are now the whole story, and NOTHING inherits a fraction:
+    const sheet = css();
+    expect(sheet, "the body carries no tracking of its own").not.toMatch(
+      /body \{[^}]*letter-spacing/,
+    );
+    for (const token of ["display", "tight", "label", "eyebrow"]) {
+      expect(tokens(), `${token}'s step is a token`).toContain(`--tracking-${token}:`);
+    }
+    // **AND NO TRACKING IS WRITTEN AT A CALL SITE.** `0.02em` on `.timeline-stretch-text` and `0` on a mono
+    // chip were the two that survived the inheritance; both read nothing but the scale now (the mono
+    // chip's `0` is the one kept, and it is the baseline rather than a fifth value).
+    expect(sheet, "no em or px tracking literal survives").not.toMatch(
+      /letter-spacing:\s*(?!var\()[-0-9.]+(?:em|px|rem)\s*;/,
     );
   });
 
