@@ -3965,6 +3965,36 @@ measurement against the deployed binary) are **held**. What that costs, stated r
 **This is not a pause on the program.** It is a pause on two commands, recorded here so that a later round
 cannot mistake a held item for a shipped one.
 
+## P0 — the ninety-second list (opened 2026-11-11, the record's GROUPING is one grey 11 px word)
+
+The ninety-first list's first item is done in the tree. This list is the operator's 2026-11-07 direction applied to
+Activity — *"Home is the verdict and next action, Activity is the record (what happened, when, on which machine)"*
+— and it was chosen because **the last five rounds changed 4 px and a font step, and the operator said the page looks
+unchanged**. So this one starts from the shape.
+
+Measured 2026-11-11 on the live console at 1,440, reading what a reader actually compares on the record page:
+
+     element             size/weight          colour                 what it does
+     day label "Today"   **17 / 600**         --ink                  32 px block, sticky
+     a row's verb        **13 / 400**         --ink                  the sentence
+     a row's machine     **12 / 500**         --ink-muted            under the verb
+     a stretch header    **11 / 400**         --ink-faint            "3 calls · 36 s" between two 1 px rules
+     a row's clock       **11 / 400**         --ink-muted
+
+**The one line that says "these calls belong together — six calls, two minutes, a stretch of work" is the SMALLEST
+and FAINTEST thing on the page**, smaller and lighter than the machine name it groups. The page draws 60 rows and
+groups them into **9 stretches**, and a reader scrolling it sees nine of those 11 px grey words between hairlines and
+has to know, before reading one, that they are the structure rather than a footnote.
+
+**And the day has no other mark.** `nDays` is 1 in this window, so the sticky "Today" is the ONLY structural
+division a reader ever sees on the page — every other division is that 11 px word.
+
+1. **The record's one grouping mark is quieter than the rows it groups.** **Fix:** a stretch is a LEVEL, not a
+   caption — it takes a size and a weight above the row's verb, and the rules stay as the second channel so the
+   grouping survives a reader who cannot see the type. **M.**
+2. **The stretch's population is not counted anywhere the eye lands.** The page knows 9 stretches and 60 rows;
+   the reader is told neither. **Fix:** the day's line says what the day holds. **S.**
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
