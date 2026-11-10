@@ -37,6 +37,10 @@ type Contract = {
   page: { max: number; pad: number; gap: number; listGap: number; boxSizing: string };
   card: { radius: number; pad: number; gap: number; headerGap: number };
   rail: {
+    // THE CONSOLE'S LABELLED RAIL STARTS AT THIS WIDTH (the seventy-fourth list); below it is the 56 px
+    // icon rail, and below `phone` the phone's bottom bar. The number used to say 767 and the CSS said
+    // 640, because two later `min-width: 640px` queries overrode the icon band's rule.
+    // (recorded as a measurement, not a preference)
     console: number;
     panel: number;
     consoleCollapsesAt: number | null;
@@ -153,7 +157,7 @@ describe("the layout contract", () => {
     // `agent/resources/panel-react/src/lib/layoutContract.test.ts`. If the two disagree, the two
     // frontends are drawn to different page systems and one of them is wrong.
     expect(createHash("sha256").update(contractText()).digest("hex")).toBe(
-      "0cefb910e7e6f53158ca5cadafb04b6ea09f60b7b4fb6d66e94f4e07a21176b4"
+      "c05286571d683f1ada7876bac7094c7fb37315ba39d3b2e1d8147d3df6f92c45"
     );
   });
 
@@ -824,11 +828,41 @@ describe("the layout contract", () => {
     // numbers so one of them cannot be changed by accident and called a fix. Measured before this
     // change: the sheet declared **200 px** twice and **232 px** twice, and the frame drew 232.
     const source = css();
-    // **AND IT COLLAPSES WHERE THE CONTRACT SAYS (the fifty-first list).** The rail is 232 px from
-    // `tablet` (767) up and a TOP BAR below it, so the page's left edge is 0 at 380/480/639 — measured.
-    // The panel never collapses (a device app in a window), and the contract records that difference as
-    // a RULE rather than leaving the next reader to measure both surfaces.
+    // **AND IT COLLAPSES WHERE THE RENDERED PAGE SAYS, NOT WHERE THE CSS MEANT (the seventy-fourth list).**
+    // The rail has THREE forms and this number is the widest one's floor: 232 px from `consoleCollapsesAt`
+    // up, a 56 px ICON rail from `breakpoints.phone` to that number, and the phone's bottom bar below.
+    //
+    // Measured 2026-11-10 on the live console, the old number (767) was what the icon band's rule SAID and
+    // not what the page did: `@media (min-width: 640px) and (max-width: 767px)` paints a 56 px rail, and
+    // TWO later `@media (min-width: 640px)` queries — one repainting `.shell`'s columns, one `.rail`'s
+    // width — overrode it on source order alone. Measured at 640/700/767 the rail was **232** wide, the
+    // page 408/468/535, and the fleet table (min-content 635 px, `overflow: hidden`) lost four of its five
+    // columns with nothing to scroll.
     expect(contract.rail.consoleCollapsesAt, "the console collapses").toBe(contract.breakpoints.tablet);
+    // **AND THE TWO RULES AGREE.** A number and a stylesheet that disagree is how the defect survived a
+    // contract test for a week: the test read the number, the page read the CSS.
+    // The assertion is on the RULE, not on any `min-width: 640px` query: this sheet has five of those,
+    // and a test that accepts any of them would pass with the defect still in place (it did, once).
+    // **AND THE STYLESHEET OBEYS IT.** Measured 2026-11-10: the number said 767 and the page drew a 232 px
+    // labelled rail at 640/700/767, because the icon band's rule was overridden — on source order alone —
+    // by two later `(min-width: 640px)` queries (one repainting `.shell`'s columns, one `.rail`'s width).
+    // The contract test read the number and passed; the page read the CSS. So the assertion is on the RULE
+    // that must start where the labelled form starts, not on any `min-width: 640px` query, of which this
+    // sheet has five.
+    const labelledFloor = (contract.rail.consoleCollapsesAt ?? 0) + 1;
+    const labelledRule = source.slice(source.indexOf(`@media (min-width: ${labelledFloor}px)`));
+    expect(
+      labelledRule.slice(0, 400),
+      "`.shell`'s labelled columns start where the labelled form starts",
+    ).toMatch(/\.shell \{ grid-template-columns: 232px/);
+    // The rail's own width is in the SECOND query at that floor (the file declares the shell's columns
+    // beside the topbar and the rail's width beside the sidebar rules), so the assertion reads the whole
+    // sheet for it and the NEXT `768`-and-up block for its floor.
+    const railRule = source.slice(source.indexOf("@media (min-width: 768px) {", source.indexOf("@media (min-width: 768px) {") + 1));
+    expect(railRule.slice(0, 400), "and so does the rail's own width").toMatch(/\.rail \{ width: 232px/);
+    // The ICON rail's band is the one between `phone` and that number, and its rule must not be
+    // overridden by anything declared later in the sheet.
+    expect(source, "the icon rail is 56 px").toContain("grid-template-columns: 56px minmax(0, 1fr)");
     expect(contract.rail.panelCollapsesAt, "the panel never collapses").toBeNull();
     expect(source, "the rail's width is the contract's").toContain(
       `grid-template-columns: ${contract.rail.console}px minmax(0, 1fr)`
@@ -836,6 +870,34 @@ describe("the layout contract", () => {
     expect(source, "the rail itself is the contract's width").toContain(
       `width: ${contract.rail.console}px`
     );
+  });
+
+  it("is a FLEET TABLE whose shape follows its box, not the window", () => {
+    // **MEASURED 2026-11-10 ON THE LIVE CONSOLE: the table's min-content is 635 px, and the box it is given
+    // is 360 px at 640, 487 at 767, 620 at 900** — it does not fit again until the window is 914. The
+    // wrapper is `overflow: hidden`, so the columns that do not fit are not scrolled away, they are GONE,
+    // and the row's `⋯` menu — the only way to a machine's diagnostics — was among them.
+    //
+    // The card form that already existed for the phone keeps every fact, draws the column names the hidden
+    // header can no longer draw, and needs no sideways scroll. It was gated on the WINDOW because the phone
+    // was the only place anyone had looked. The console's token table solved the same question with a
+    // container query ("the sheet is 600 px wide even at 1280, so the list is measured by its own scroller");
+    // a table's shape follows its box, and this asserts the box is what decides it.
+    const sheet = css();
+    expect(sheet, "the fleet's box is a container").toMatch(
+      /\.fleet-table-wrap\s*\{\s*container:\s*fleet-table\s*/,
+    );
+    expect(sheet, "and the card form is gated on it, not on the window").toMatch(
+      /@container\s+fleet-table\s*\(max-width:\s*639px\)/,
+    );
+    // **NO WINDOW QUERY MAY OWN THE CARD FORM.** A `@media (max-width: 639px)` copy of these rules is the
+    // defect coming back: at 900 px the window is wide and the table's box is 620.
+    const cardForm = sheet.slice(sheet.indexOf("@container fleet-table"));
+    const nextAt = cardForm.indexOf("\n@");
+    const block = cardForm.slice(0, nextAt === -1 ? undefined : nextAt);
+    expect(block, "the card form draws the labels the header cannot").toContain(".fleet-started-label");
+    expect(block, "and keeps the row's actions inside the card").toContain(".fleet-actions");
+    expect(contract.breakpoints.phone, "the container's threshold is the contract's").toBe(639);
   });
 
   it("is a card this console draws, through tokens", () => {
