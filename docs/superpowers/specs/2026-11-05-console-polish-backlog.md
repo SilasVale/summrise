@@ -3668,7 +3668,9 @@ other list in the product fills its card (the fleet table's row measures 1,070 o
 
 ## P0 — the eighty-fourth list (opened 2026-11-10, the port the product TELLS you to use is the port it left)
 
-The eighty-third list is closed. This list is what the two frontends TELL a reader, and it was found by chasing a
+The eighty-third list is closed. **This list is closed (2026-11-10): item 1 shipped as product `d2d0a37`,
+and item 2 is recorded as the two ports' relation rather than a code change.** This list was what the two
+frontends TELL a reader, and it was found by chasing a
 question the operator asked and never got an answer to: *"我记得 18090 不是早就说要改成 7736 了吗"*.
 
 Measured 2026-11-10 in the tree, grepping every port the device code names:
@@ -3687,8 +3689,17 @@ paste — points at a port nothing is listening on.
 
 1. **Three files print the port the code left.** **Fix:** one constant, read by the usage text and the endpoint
    string, so a reader is never told a number the binary does not use. **M.**
+   *(**Done, product `d2d0a37`**: the sentence interpolates `DEFAULT_PORT`, and the gate refuses a spelled
+   number on either side. **IT NEEDED `cargo xwin` TO CATCH** — the supervisor is `#[cfg(windows)]`, so the
+   Linux build never compiles `win.rs` and `cargo test` stayed green while the Windows-only text was wrong;
+   the cross-check also caught a first draft reaching for `crate::DEFAULT_PORT` from a binary root that has
+   no such item.)*
 2. **The console's 7736 and the device's 7737 are two ports in one sentence** — the operator's recollection mixed
    them, and nothing in the product says which is which. **Fix:** the docs name both, once. **S.**
+   *(**Done, product `d2d0a37`** for the device's half — its usage text and endpoint now read one constant.
+   The two ports' RELATION is still one sentence in the docs and this list records it that way: **7736 is the
+   console's web port; 7737 is a device app's own port**, and 18090 on the live box is a service argv that pins
+   an old number rather than a default.)*
 
 ## How a round goes
 
