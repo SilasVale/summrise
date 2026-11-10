@@ -4134,6 +4134,36 @@ subtitle 260, card text 279** (the card's own 16 + 1 hairline is the only step, 
    inset". Comments are stripped before the declaration scan, because these very rules say "9 px of its own" in
    prose.)*
 
+## P0 — the ninety-sixth list (opened 2026-11-11, the subtitle sits UNDER the title on one surface and BESIDE it on the other)
+
+The ninety-fifth list is closed on both sides. This list is the page HEAD — the one row every page of both surfaces
+draws, and the row the contract's `head` atom calls *"the page's ONE head"*.
+
+Measured 2026-11-11, every page of both surfaces, at 1,440 (console) and 1,360 (panel):
+
+     page               title      subtitle     same line?  beside?
+     console Home       22/700     —           —
+     console Activity   22/700     13/500      **no**      no       (subtitle under, at the title's left)
+     console Device     22/700     —           —
+     panel Terminal     22/700     —           —
+     panel Memory       22/700     13/400      **yes**     **yes**  (subtitle BESIDE, at 265 vs title's 253)
+     panel Plugins      22/700     13/400      **yes**     **yes**  (at 260 vs 250)
+
+**The contract says one thing and the surfaces do two.** `head.subtitleSlot` is `.page-sub`, described as *"the
+second line of the title's block"* — and the console draws it that way (300 under 300), while the panel puts it on
+the title's line, 12 px to its right. Both are styled with the same class name, from the same atom, and a reader
+who moves between the two windows sees the same page open two ways.
+
+**And the panel does it with a rule that says the opposite.** Its own `.page-head .page-sub` declares
+`margin: var(--sp-1) 0 0` — the contract's second-line margin — and the subtitle still lands BESIDE the title,
+because the two are `display: flex` siblings with `flex-wrap` and enough room on one line. **The atom's margin is
+being drawn in a layout that cannot honour it.**
+
+1. **One head, two shapes: the subtitle is a second line on the console and a sibling on the panel.** **Fix:** the
+   atom's slot means one thing — the second line of the title's block — and the panel's head honours it. **M.**
+2. **Nothing measures the head's shape at all.** The gates check the head's gap and its class names; none checks
+   that the subtitle is BELOW the title on every page of both surfaces. **S.**
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
