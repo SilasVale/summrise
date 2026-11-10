@@ -4079,6 +4079,34 @@ start, a length) in a place a reader looks for switches.
    the sheet — the count is outside the filter row, the row is `align-items: end`, and the count is no longer a
    filter column.)*
 
+## P0 — the ninety-fifth list (opened 2026-11-11, the two surfaces put the SAME title on TWO left edges)
+
+The ninety-fourth list is closed. This list is the operator's 2026-11-10 directive applied to the thing that
+actually makes two frontends feel like one product: **the page frame's left edge.**
+
+Measured 2026-11-11 at 1,360 × 900 on the panel, reading the gutter ladder page by page:
+
+     page        rail  canvas  header  page-head  h1    body
+     Terminal     0     52      68      **146**   170   68
+     Memory       0     52      68      **170**   170   68
+     Plugins      0     52      68      **170**   170   68
+
+**Two pages put their title on 170, one puts its title on 170 and its head BOX on 146** — because the terminal's
+head carries `padding: 24px` on a full-bleed body while every other page's head sits inside the page's own inset.
+The 22/700 titles line up by accident (170 both), and their frames do not: **the same page frame has two left
+edges, and only a coincidence makes the titles agree.**
+
+**And the console says the opposite in one line.** Its `.page` is `width: min(1120px, 100%); margin: 0 auto;
+padding: var(--sp-5)` — ONE inset for the head, the body and every card — and the panel's desktop pairs
+`.desktop-header` (1 px at 68) with `.desktop-content` (the same box, so the body starts at 68 while its content
+starts at 146). **The body's box and the body's content are two different left edges on the panel and one on the
+console.**
+
+1. **The terminal head carries its own 24 px inset inside a full-bleed body.** **Fix:** the page frame's inset is
+   declared once and the head reads it. **M.**
+2. **No gate compares the two surfaces' left edges, and none compares the panel's pages to each other.**
+   **Fix:** a measurement in each repo's contract test, at the same numbers. **S.**
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
