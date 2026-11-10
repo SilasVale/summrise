@@ -3076,11 +3076,20 @@ insets so the rows can span the card's full width.
    decided by which FOLD it sits in — a reader cannot see that rule, only its result. **Fix:** the
    difference is kept (a section inside a fold should not be a second card) but the class that means
    nothing says so, instead of two elements of one class painting two different things. **M.**
+   *(**Done, panel `e1513393`, live 0.3.273-ux176**: the real defect was not the two flattened sections — that
+   exception is stated in the rule — but the **FOLD**: measured on the rendered page its own top edge sat
+   **1 px** above its first child while the sections inside it sat **17 px** in. `padding: 0 16px` reads like a
+   complete answer and the vertical half was simply absent. After `12px 16px 16px`, re-measured **1 → 13 px**.)*
 
 2. **A card's padding is 16 on both surfaces and its gap is 8, but the pad is written per rule rather
    than read from the atom**, so the exceptions (a table card, a list card) have no way to say "I am the
    exception" other than a bare `padding: 0`. **Fix:** the table/list exception becomes a named class or a
    token, and each repo's test counts the cards that opt out. **S.**
+   *(**Done with item 1, console `37102a2`**: the rule the PAIR produced is **a bordered box at `padding: 0`
+   is right only when its CHILD supplies the inset**. `.fleet-table-wrap` sits 1 px from its first child and
+   is CORRECT, because the child is a table whose header row pads `9px var(--sp-4)` — so the inset every row
+   needs is the row's own and the rows can span the card for the hover. **A plain card pads itself**; both
+   halves are asserted, and each has its own mutation.)*
 
 ## How a round goes
 
