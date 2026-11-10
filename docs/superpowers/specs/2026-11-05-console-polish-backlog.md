@@ -3013,6 +3013,35 @@ page-level actions are sentence case too** ("Search", "Reveal token", "Test the 
    and `Connect an AI client` are both correct and a reader should not have to work out why. Both tests scan
    the whole component tree for `>\s*\+\s*[A-Za-z]`, so a new glyph-led label anywhere is refused.)*
 
+## P0 — the sixty-sixth list (opened 2026-11-10, the panel paints four colours that are in no scale)
+
+The sixty-fifth list is closed: a control's label names a verb and its subject. This list is rule 9 — *"fewer
+background colours"* — and rule 12 — *"no ambiguous or too-similar colours"* — read by walking every
+element on both rendered surfaces and asking what `background-color` it PAINTS, then asking each value
+whether a token produced it.
+
+Two reads were clean and are recorded as clean: **the console paints four literal backgrounds and all four
+are overlays or scrims** (`rgba(0,0,0,0.4)`, `rgba(12,16,20,0.38)`, a `color-mix` scrim) — a dialog's wash is
+not a surface colour and cannot be a token, and **the console's page paints SIX background values, every
+one from a token** (surface, surface-chip, accent, faint, the recessed row, the danger wash).
+
+1. **The panel paints FOUR values that no token produces, and three of them are the same idea in three
+   hues.** Measured from the sheet:
+
+       `.browser-action-badge.ok`   rgba(40, 160, 80, 0.18)    a green wash
+       `.browser-action-badge.err`  rgba(220, 60, 60, 0.18)    a red wash
+       `.browser-action-badge.run`  rgba(200, 160, 40, 0.18)   an amber wash
+       `.browser-ev-toggle.active`  rgba(90, 130, 240, 0.15)   a BLUE wash, plus `color: #7aa2ff`
+
+   The first three are the semantic trio and only the ALPHA is shared; the fourth is a fourth hue the
+   palette does not have. `#30d158` is a fifth — a status dot's green, brighter than the `ok` the palette
+   declares. **Fix:** the four become the contract's semantic tokens at one alpha, and the dot takes the
+   `ok` the palette already has. **M.**
+
+2. **The panel declares `--badge-ok-ink` and friends but no `--badge-*-wash`,** so the wash half of a badge
+   is a literal beside a tokened ink — one badge, two sources of colour. **Fix:** the wash joins the token
+   block, and each repo's test refuses a `background` that is a raw `rgba`/hex outside the overlay list. **S.**
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
