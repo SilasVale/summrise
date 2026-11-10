@@ -3967,7 +3967,8 @@ cannot mistake a held item for a shipped one.
 
 ## P0 — the ninety-second list (opened 2026-11-11, the record's GROUPING is one grey 11 px word)
 
-The ninety-first list's first item is done in the tree. This list is the operator's 2026-11-07 direction applied to
+The ninety-first list's first item is done in the tree. **This list's item 1 is shipped as `31d1453` (merged,
+held from deploy).** This list was the operator's 2026-11-07 direction applied to
 Activity — *"Home is the verdict and next action, Activity is the record (what happened, when, on which machine)"*
 — and it was chosen because **the last five rounds changed 4 px and a font step, and the operator said the page looks
 unchanged**. So this one starts from the shape.
@@ -3992,6 +3993,13 @@ division a reader ever sees on the page — every other division is that 11 px w
 1. **The record's one grouping mark is quieter than the rows it groups.** **Fix:** a stretch is a LEVEL, not a
    caption — it takes a size and a weight above the row's verb, and the rules stay as the second channel so the
    grouping survives a reader who cannot see the type. **M.**
+   *(**Done in the tree `31d1453`, MERGED, NOT DEPLOYED** — the deployment hold applies. Measured on the served
+   build at 1,440: **header 13/500 `--ink`, footer 13/500 `--ink-muted`, day 17/600, row verb 13/400** — the
+   grouping sits one weight step above the sentence it groups and one size below the day. The header form takes
+   the page's own ink and `--sp-4` above it, because a header opens rows the reader has not seen yet while a
+   footer only closes ones they have. The two hairlines stay as rule 6's second channel.
+   **The before/after pair is one seeded record captured from the same build** — 12/3/7-row stretches 5–7 s
+   apart — not two different live windows.)*
 2. **The stretch's population is not counted anywhere the eye lands.** The page knows 9 stretches and 60 rows;
    the reader is told neither. **Fix:** the day's line says what the day holds. **S.**
 
