@@ -4036,6 +4036,37 @@ day's SPAN appears, so a reader of a short day cannot tell whether they are look
    reads the markup and the sheet together — and its mutation (the facts back inside the heading) turns THREE
    tests red, including the accessible-name check.)*
 
+## P0 — the ninety-fourth list (opened 2026-11-11, the record's first row is 455 px down a 900 px viewport)
+
+The ninety-third list is closed. **This list is the top of the record page — the half of "一目了然" that has never
+been measured**: what a reader sees before the first line of the record.
+
+Measured 2026-11-11 on the served build at 1,440 × 900, on Activity:
+
+     page head bottom            155
+     the stream bar              179 → 224      (45)
+     the filter block            238 → 407      (**169**)
+       ├ machines + chips        49 px
+       ├ callers + chips + count **91 px**  ← label 15, chip row 28, count 36, two 6 px gaps
+       └ search field            49 px
+     a 1 px rule + 16 margin     407 → 423
+     **the day's head**          423 → 455
+     **the first record row**    **455**  ← half the viewport is gone before one call is drawn
+
+**169 px of filters and the first row a reader can read is at 455 of 900.** The record is what the page is; the
+controls are what you do to it, and the controls take half a screen. **`Callers` is the offender:** one chip
+("Clients only") in a 320 px block whose COUNT SENTENCE wraps to two lines at `--fs-sm`, making the row 91 px tall
+while the block beside it is 49.
+
+**And a count sentence is not a control.** `44 client calls in this window · from 13:27, spanning 26 h 5 m` sits
+UNDER a single pressed chip, inside the filter row, at the same weight as the label — three facts (a count, a
+start, a length) in a place a reader looks for switches.
+
+1. **The filter block spends 169 px and the first row starts at 455.** **Fix:** the controls take one row whatever
+   the viewport, and the count moves to where a count belongs. **M.**
+2. **The count sentence is a paragraph inside a filter group.** **Fix:** no gate measures a filter block's
+   content — add the measurement. **S.**
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
