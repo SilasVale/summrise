@@ -3,6 +3,9 @@
   color-scheme: light dark;
   --bg:#fafafa; --panel:#ffffff; --panel-2:#fafafa; --panel-3:#f4f4f5;
   --ink:#18181b; --muted:#71717a; --faint:#696a74;
+  /* **THE PRODUCT'S ONE INTERACTION DURATION (the hundred-and-fourth list).** The contract's `motion.interactionMs`
+     is 120; this sheet wrote `0.12s` nine times and `0.15s` six — the same hover, two speeds, in one file. */
+  --dur-interaction:120ms;
   --line:rgba(0,0,0,.08); --line-strong:rgba(0,0,0,.14); --line-soft:rgba(0,0,0,.05);
   --accent:#bf3a0a; --accent-solid:#b03a0a; --accent-hover:#963008;
   --accent-soft:#fff0e6; --accent-fg:#ffffff;

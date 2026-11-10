@@ -79,7 +79,7 @@ p { margin: var(--sp-1-5) 0; }
   max-width: 28rem; padding: var(--sp-1-5) var(--sp-2);
   border: 1px solid var(--line); border-radius: var(--radius-sm2);
   background: var(--surface); color: var(--ink); font-size: var(--fs-sm); cursor: pointer;
-  transition: background 0.12s ease, border-color 0.12s ease;
+  transition: background var(--dur-interaction) ease, border-color var(--dur-interaction) ease;
 }
 .machine-menu > summary::-webkit-details-marker { display: none; }
 .machine-menu > summary:hover { background: var(--panel-3); border-color: var(--line-strong); }
@@ -151,7 +151,7 @@ p { margin: var(--sp-1-5) 0; }
   padding: var(--sp-2) var(--sp-3); border: 0; border-radius: var(--radius-sm2);
   background: transparent; color: var(--nav-fg);
   font: inherit; font-size: var(--fs-base); font-weight: var(--fw-medium); text-align: left;
-  cursor: pointer; transition: background 0.15s ease, color 0.15s ease;
+  cursor: pointer; transition: background var(--dur-interaction) ease, color var(--dur-interaction) ease;
 }
 .rail-btn:hover { background: var(--nav-hover-bg); color: var(--nav-hover-fg); border-color: transparent; }
 /* The current destination is ink and a 3 px bar, not an accent fill: a page with a primary action
@@ -279,7 +279,7 @@ main.terminal-main { display: grid; grid-template-rows: auto minmax(0, 1fr); ali
     padding: var(--sp-1) var(--sp-2); border-radius: var(--radius-xs);
     background: var(--surface); color: var(--ink); border: 1px solid var(--line-strong);
     box-shadow: var(--shadow-1); white-space: nowrap; pointer-events: none;
-    opacity: 0; transition: opacity 0.12s ease;
+    opacity: 0; transition: opacity var(--dur-interaction) ease;
   }
   .rail-btn:hover .rail-label, .rail-btn:focus-visible .rail-label { opacity: 1; }
   .account > summary { justify-content: center; padding: var(--sp-1-5); }
@@ -393,7 +393,7 @@ main.terminal-main { display: grid; grid-template-rows: auto minmax(0, 1fr); ali
 .fleet-row {
   position: relative; display: flex; align-items: stretch; min-width: 0;
   border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface);
-  transition: border-color 0.15s ease;
+  transition: border-color var(--dur-interaction) ease;
 }
 .fleet-row:hover { border-color: var(--line-strong); }
 .fleet-row.is-current { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
@@ -617,7 +617,7 @@ button {
   font: inherit; font-size: var(--fs-sm); font-weight: var(--fw-medium);
   padding: var(--sp-1-5) var(--sp-3); border-radius: var(--radius-sm2);
   border: 1px solid var(--line-strong); background: var(--surface); color: var(--ink);
-  cursor: pointer; transition: background 0.12s ease, border-color 0.12s ease;
+  cursor: pointer; transition: background var(--dur-interaction) ease, border-color var(--dur-interaction) ease;
 }
 button:hover { background: var(--panel-3); border-color: var(--line-strong); }
 button:active:not(:disabled) { transform: translateY(1px); }
@@ -682,7 +682,7 @@ a.btn {
   display: inline-block; font: inherit; font-size: var(--fs-sm); font-weight: var(--fw-medium);
   padding: var(--sp-1-5) var(--sp-3); border-radius: var(--radius-sm2);
   border: 1px solid var(--line-strong); background: var(--surface); color: var(--ink);
-  text-decoration: none; cursor: pointer; transition: background 0.12s ease, border-color 0.12s ease;
+  text-decoration: none; cursor: pointer; transition: background var(--dur-interaction) ease, border-color var(--dur-interaction) ease;
 }
 a.btn:hover { background: var(--panel-3); border-color: var(--line-strong); }
 a.btn.primary { background: var(--accent-solid); border-color: var(--accent-solid); color: var(--accent-fg); }
@@ -729,7 +729,7 @@ a.btn.primary:hover { background: var(--accent-hover); border-color: var(--accen
   border: 1px solid var(--line); border-radius: var(--radius);
   padding: var(--sp-4); background: var(--surface);
   display: flex; flex-direction: column; gap: var(--sp-2);
-  transition: border-color 0.15s ease, transform 0.15s ease;
+  transition: border-color var(--dur-interaction) ease, transform var(--dur-interaction) ease;
 }
 .card:hover { border-color: var(--line-strong); }.card-selected { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
 .card header { display: flex; align-items: center; gap: var(--sp-2); }
@@ -765,7 +765,7 @@ a.btn.primary:hover { background: var(--accent-hover); border-color: var(--accen
 .card-details { margin-left: auto; }
 .card-details > summary { cursor: pointer; color: var(--ink-muted); font-size: var(--fs-sm); padding: var(--sp-1) var(--sp-1-5); border-radius: var(--radius-xs); list-style: none; }
 .card-details > summary::-webkit-details-marker { display: none; }
-.card-details > summary::before { content: "▸"; display: inline-block; margin-right: var(--sp-1); transition: transform 0.15s ease; }
+.card-details > summary::before { content: "▸"; display: inline-block; margin-right: var(--sp-1); transition: transform var(--dur-interaction) ease; }
 .card-details[open] > summary::before { transform: rotate(90deg); }
 .card-details > summary:hover { color: var(--ink); background: var(--surface-chip); }
 .card-details > summary:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
@@ -859,7 +859,7 @@ tr:last-child td { border-bottom: 0; }
   width: 600px; max-width: 100%; height: 100%;
   display: flex; flex-direction: column;
   background: var(--surface); border-left: 1px solid var(--line); box-shadow: var(--shadow-lg);
-  animation: sheet-in 0.16s ease-out;
+  animation: sheet-in var(--dur-interaction) ease-out;
 }
 .sheet-head {
   display: flex; align-items: center; gap: var(--sp-2);
@@ -888,7 +888,7 @@ tr:last-child td { border-bottom: 0; }
     width: 100%; height: auto; max-height: 92vh;
     border-left: 0; border-top: 1px solid var(--line);
     border-radius: var(--radius-lg) var(--radius-lg) 0 0;
-    animation: sheet-up 0.16s ease-out;
+    animation: sheet-up var(--dur-interaction) ease-out;
   }
   @keyframes sheet-up {
     from { transform: translateY(var(--sp-4)); opacity: 0.6; }
@@ -1680,7 +1680,7 @@ button.files-crumb:hover {
   font-size: var(--fs-sm);
   font-weight: var(--fw-medium);
   cursor: pointer;
-  transition: background 0.12s ease, border-color 0.12s ease;
+  transition: background var(--dur-interaction) ease, border-color var(--dur-interaction) ease;
 }
 .upload-control:hover { background: var(--surface-chip); }
 .upload-control:focus-within { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
@@ -2497,7 +2497,7 @@ h2 { letter-spacing: var(--tracking-tight); }
 .rail-items { gap: 2px; }
 .rail-btn {
   font-weight: var(--fw-regular);
-  transition: background 120ms var(--ease), color 120ms var(--ease);
+  transition: background var(--dur-interaction) var(--ease), color var(--dur-interaction) var(--ease);
 }
 .rail-btn:hover { background: var(--row-hover); border-color: transparent; }
 .rail-btn[aria-current="page"] {
@@ -2543,7 +2543,7 @@ button {
   background: var(--control-bg); color: var(--ink);
   font: inherit; font-size: var(--fs-sm); font-weight: var(--fw-medium);
   cursor: pointer;
-  transition: background 120ms var(--ease), transform 120ms var(--ease);
+  transition: background var(--dur-interaction) var(--ease), transform var(--dur-interaction) var(--ease);
 }
 button:hover:not(:disabled) { background: var(--control-hover-bg); border-color: transparent; }
 button:active:not(:disabled) { transform: scale(0.97); }
@@ -2566,7 +2566,7 @@ input:not([type="checkbox"]):not([type="radio"]), select, textarea {
   border: 1px solid var(--line-strong); border-radius: var(--radius-sm2);
   background: var(--panel); color: var(--ink);
   font: inherit; font-size: var(--fs-sm);
-  transition: border-color 120ms var(--ease), box-shadow 120ms var(--ease);
+  transition: border-color var(--dur-interaction) var(--ease), box-shadow var(--dur-interaction) var(--ease);
 }
 input:not([type="checkbox"]):not([type="radio"]):focus, select:focus, textarea:focus {
   outline: none; border-color: var(--focus-ring); box-shadow: var(--ring);
@@ -2583,7 +2583,7 @@ input:not([type="checkbox"]):not([type="radio"]):focus, select:focus, textarea:f
   border: 0; border-radius: var(--radius-xs); padding: 3px var(--sp-3);
   background: transparent; color: var(--ink-muted);
   font-size: var(--fs-sm); font-weight: var(--fw-regular);
-  transition: background 120ms var(--ease), color 120ms var(--ease);
+  transition: background var(--dur-interaction) var(--ease), color var(--dur-interaction) var(--ease);
 }
 .device-tab:hover { background: transparent; color: var(--ink); border-color: transparent; }
 .device-tab[aria-current="page"] {
@@ -2613,7 +2613,7 @@ input:not([type="checkbox"]):not([type="radio"]):focus, select:focus, textarea:f
 }
 .fleet-row {
   border: 0; border-bottom: 1px solid var(--hairline); border-radius: 0;
-  background: transparent; transition: background 120ms var(--ease);
+  background: transparent; transition: background var(--dur-interaction) var(--ease);
 }
 .fleet-row:last-child { border-bottom: 0; }
 .fleet-row:hover { background: transparent; }
@@ -2627,6 +2627,8 @@ input:not([type="checkbox"]):not([type="radio"]):focus, select:focus, textarea:f
 .sheet-scrim { background: var(--scrim); backdrop-filter: blur(3px); }
 .sheet {
   background: var(--panel); border-left: 1px solid var(--hairline); box-shadow: var(--elev-2);
+  /* An ANIMATION that explains a state change (a sheet arriving) is not an interaction; rule 18 asks it to explain
+     the change, not to match a hover. It keeps its own 180 ms. */
   animation: sheet-in 180ms var(--ease);
 }
 .sheet-head { padding: 16px 20px 12px; border-bottom: 1px solid var(--hairline); }
@@ -2922,7 +2924,7 @@ input:not([type="checkbox"]):not([type="radio"]):focus, select:focus, textarea:f
 .files-list .files-row {
   display: flex; align-items: center; gap: var(--sp-2); min-width: 0;
   padding: var(--sp-2) var(--sp-3-5); border-bottom: 1px solid var(--hairline);
-  transition: background 120ms var(--ease);
+  transition: background var(--dur-interaction) var(--ease);
 }
 .files-list .files-row:last-child { border-bottom: 0; }
 .files-list .files-row:hover { background: var(--row-hover); }
@@ -3421,9 +3423,13 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
    structure; this belongs to the sentence, so it is the page's small-caps type and no chrome. The
    uppercase is what still tells it from prose, which is rule 6's "not colour alone". */
 .timeline-caller, .audit-caller { display: inline; color: var(--ink-faint); line-height: var(--lh-body); }
+/* **THE CHEVRON MOVED AT 140 ms IN A PRODUCT THAT MOVES AT 120 (the hundred-and-fourth list).** It is the one
+   transition in this sheet written in MILLISECONDS, which is exactly why a regex over `0.NNs` could not see it:
+   measured as a VOCABULARY the page said `transform@0.14s` ×44 while everything else said 0.12. **A duration is the
+   token, whatever unit it is spelled in.** */
 .timeline-chev {
   align-self: center; color: var(--ink-faint); font-size: var(--fs-xs);
-  transition: transform 140ms var(--ease);
+  transition: transform var(--dur-interaction) var(--ease);
 }
 .timeline-chev.is-open { transform: rotate(180deg); }
 .timeline-row.is-open { background: var(--panel-2); }

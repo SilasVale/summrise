@@ -64,7 +64,12 @@ type Contract = {
     gapBoxes: number;
     boxed: string;
   };
-  motion: { reducedMotion: string; cap: string; namedAnimationsStop: boolean };
+  motion: {
+    reducedMotion: string;
+    cap: string;
+    namedAnimationsStop: boolean;
+    interactionMs: number;
+  };
   cardTitle: { size: number; weight: number };
   tracking: {
     bySize: Record<string, string>;
@@ -180,7 +185,7 @@ describe("the layout contract", () => {
     // The literal below is the sha256 of BOTH copies, and it is the same literal the panel's test carries.
     const ours = createHash("sha256").update(contractText()).digest("hex");
     expect(ours).toBe(
-      "250aa45fda3e2e9262f37e0191e912163738c94569eea3833012f9e561560063"
+      "09c27ced44f2f667057ff2d9046391533aef938eafd7e4530793ad3f174e1d91"
     );
     const sibling = path.join(here, "..", "..", "..", "..", "..", "summrise", "docs",
       "superpowers", "specs", "layout-contract.json");
@@ -1113,6 +1118,33 @@ describe("the layout contract", () => {
     const countRule = sheet.match(/\.filter-count \{\s[^}]*\}/);
     expect(countRule, "the count has a rule").toBeTruthy();
     expect(countRule![0], "the count is not a filter column any more").not.toContain("align-self: center");
+  });
+
+  it("moves at ONE interaction duration, read from the token layer", () => {
+    // **MEASURED 2026-11-11 AS A VOCABULARY.** The contract records the reduce MECHANISM and no number, so nothing
+    // could compare the two surfaces' dialects:
+    //
+    //     surface   the pair that carries every interactive element      other durations in the same page
+    //     console   `background@0.12s` ×39, `transform@0.12s` ×33        **`transform@0.14s` ×44**
+    //     panel     `background@0.12s` ×12, `color@0.12s` ×11            `background@0.2s`, `@0.15s`, `@0.06s`
+    //
+    // **The same hover took 0.12 s on one surface and 0.2 s on the other**, and even within this sheet a chevron
+    // moved at 140 ms while every control moved at 120 — written in MILLISECONDS, which is why a scan for `0.NNs`
+    // could not see it.
+    const sheet = css();
+    // **THE TOKEN LIVES WHERE TOKENS LIVE.** `app.css` USES them; `tokens.css` DEFINES them — a scan of the wrong
+    // file is a scan of nothing, which is what the first draft of this gate did.
+    const token = stripComments(tokens()).match(/--dur-interaction:\s*([^;]+);/);
+    expect(token, "the duration is a token").toBeTruthy();
+    expect(token![1].trim(), "and it is the contract's number").toBe(`${contract.motion.interactionMs}ms`);
+    // **NO TRANSITION WRITES ITS OWN DURATION** — in any unit. An `animation` may keep its own (a sheet arriving
+    // explains a state change; a hover does not), so this scans `transition` declarations only.
+    const decls = [...sheet.matchAll(/transition:\s*[^;]+;/g)].map((m) => m[0]);
+    const literals = decls.filter((d) => /\b\d+(?:\.\d+)?(?:ms|s)\b/.test(d));
+    expect(literals, "no transition declaration writes a literal duration").toEqual([]);
+    // And the reduce mechanism the atom records, so the gate reads the contract rather than the sheet.
+    expect(contract.motion.reducedMotion, "the reduce mechanism is a blanket").toBe("blanket");
+    expect(contract.motion.cap, "and its cap").toBe("0.01ms");
   });
 
   it("separates two LIKE things ONE way, with the family's `line`", () => {
