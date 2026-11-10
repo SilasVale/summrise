@@ -4592,8 +4592,26 @@ has a HUE the shared palette has no name for, on one page, next to an accent was
 1. **Five accent-adjacent tokens and two unspoken hues, where the atom declares one accent and four semantics.**
    **Fix:** the accent family's members are the atom's, at the distances a reader can name, and an undeclared hue
    either becomes a semantic or stops being drawn. **M.**
+   *(**Done in the tree, MERGED, NOT DEPLOYED** — contract `84d6a9e0`, console `4095fd8`, panel `d82a7d038`. **The
+   family is recorded as six JOBS**, because the two surfaces name the same job differently (`--accent-hover` on the
+   console, `--accent-solid-hover` on the panel): brand / wall / wallHover / wash / textOnWash / ink, each with the
+   contrast need that earns it, and the distances between them written down (**ΔE 6.6–15.8**, under the ~10 a reader
+   can name apart — which is WHY each needs a measured job rather than a taste). **The one extra hue is recorded too**:
+   the memory tag's teal `#0a6f64`.
+   **The two unspoken literals are gone**: `.dtab.active`'s edge and the dark shell's wash were `--accent-ink`'s
+   channels written by hand (`rgba(217,72,15,.22)` / `.18`), so the page carried a warm tone no token could name,
+   measure or change. Measured after: **the terminal page's warm family 9 → 8**, and the literals with them.
+   **And a hover that hid its own label**: `.btn.primary:hover` took `--accent-ink` (`#d9480f`), **lighter** than its
+   base `--accent` (`#bf3a0a`) — white on it measured **5.49 at rest, 4.30 hovered**, under AA. It is
+   `--accent-solid-hover` now (6.78), the same direction `.btn-new` took when the identical defect was measured two
+   rounds ago.)*
 2. **Nothing census-checks the palette.** `themeContrast` measures pairs it is told about; there is no gate that counts
    the HUES a page paints, so a sixth accent-adjacent colour ships with every contrast check passing. **S.**
+   *(**Done on both sides**: the console's `paints the accent family the contract declares, and no sixth member as a
+   literal` holds six jobs, six names per surface, and refuses a `rgb()` literal in the accent's own colour anywhere
+   in the sheet; the panel's `the accent family is ONE hue at distances a reader can name`. Mutations: a
+   `rgb(191, 58, 10)` in `button:hover` → "no rule paints the accent as a literal"; `.btn.primary:hover` back to
+   `--accent-ink` → "and it takes the DARKER step".)*
 
 ## How a round goes
 
