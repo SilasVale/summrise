@@ -56,6 +56,14 @@ type Contract = {
     subtitleSlot: string;
     maxHeadsPerPage: number;
   };
+  // A ROW inside a list (the eighty-seventh list, read by a test for the first time in the eighty-ninth).
+  row: {
+    insetX: number;
+    insetY: number;
+    gapLines: number;
+    gapBoxes: number;
+    boxed: string;
+  };
   motion: { reducedMotion: string; cap: string; namedAnimationsStop: boolean };
   cardTitle: { size: number; weight: number };
   tracking: {
@@ -906,6 +914,35 @@ describe("the layout contract", () => {
     expect(source, "the rail itself is the contract's width").toContain(
       `width: ${contract.rail.console}px`
     );
+  });
+
+  it("is a ROW inside a list, and the list's own rhythm is on the scale", () => {
+    // **THE ATOM WAS RECORDED AND NOBODY READ IT (the eighty-ninth list).** The `row` atom was written in the
+    // eighty-seventh list from a measurement — seven row shapes for one idea — and neither repo's test named
+    // it, so it was a comment with a schema rather than a decision. **AND ONE OF ITS NUMBERS WAS CONTRADICTED
+    // BY THE PAGE THAT PROVOKED IT**: measured 2026-11-10, `.timeline-row.is-stretch` carried `margin-top: 18px`
+    // and the stretch header `margin: 0 0 18px`, both on NO step of the scale the same contract declares
+    // (`2/4/6/8/10/12/14/16/24`), inside the very list the atom describes.
+    const sheet = css();
+    const scale = contract.space.scale.map((n) => n);
+    expect(contract.row.gapLines, "a list of LINES separates by its own leading").toBe(0);
+    expect(contract.row.gapBoxes, "a list of BOXES separates by a scale step").toBe(8);
+    // **ZERO IS NOT A STEP, IT IS THE ABSENCE OF ONE.** A line list separates by its own leading, so `gapLines`
+    // is 0 by definition — the value the atom exists to state — and the steps that must be ON the rhythm are
+    // the ones a container actually paints.
+    for (const [name, value] of Object.entries({ insetX: contract.row.insetX, insetY: contract.row.insetY,
+      gapBoxes: contract.row.gapBoxes })) {
+      expect(scale.includes(value as number), `row.${name} = ${value} is on the rhythm`).toBe(true);
+    }
+    expect(contract.row.gapLines, "a line list adds no separation of its own").toBe(0);
+    expect(contract.row.boxed, "a row that draws a box is a card").toBe("card");
+    // **AND THE PAGE'S OWN LIST SEPARATIONS ARE THE SCALE'S.** The stretch step is the one number in the
+    // timeline's list separations, and a literal there is a rhythm of one page.
+    const stretch = sheet.match(/\.timeline-row\.is-stretch\s*\{[^}]*\}/);
+    expect(stretch, "the stretch rule exists").toBeTruthy();
+    expect(stretch![0], "and takes a step, not a literal").toContain("margin-top: var(--sp-4)");
+    const offScale = [...stretch![0].matchAll(/(\d+)\.?\d*px/g)].map((m) => Math.round(parseFloat(m[0]))).filter((n) => n > 0);
+    expect(offScale, "no pixel literal in the stretch separation").toEqual([]);
   });
 
   it("is the CARD's own gap — a child of a card adds no margin of its own", () => {

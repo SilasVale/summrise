@@ -3210,7 +3210,7 @@ main::-webkit-scrollbar-track, .sheet-body::-webkit-scrollbar-track, .scroll::-w
    against 581 px of chips) — a chip row that wraps above 1440 is the shape the desktop does not have. */
 .timeline-filters {
   display: flex; align-items: start; flex-wrap: wrap; gap: var(--sp-3-5) var(--sp-5);
-  margin: 0 0 18px; padding-bottom: var(--sp-3-5);
+  margin: 0 0 var(--sp-4); padding-bottom: var(--sp-3-5);
   border-bottom: 1px solid var(--line);
 }
 .filter-block { display: grid; gap: var(--sp-1-5); min-width: 0; }
@@ -3314,7 +3314,12 @@ th,
    the open row still say which line you are on. */
 .timeline-rows { list-style: none; margin: 0; padding: 0; }
 .timeline-row { border-top: 0; }
-.timeline-row.is-stretch { border-top: 0; margin-top: 18px; }
+/* **A STRETCH'S SEPARATION IS ON THE SCALE (the eighty-ninth list).** Measured 2026-11-10: this rule carried
+   `margin-top: 18px` — a value on NO step of the scale both surfaces declare (`2/4/6/8/10/12/14/16/24`) —
+   inside the very list the contract's `row` atom describes. 18 was a nudge that happened to look right next to
+   a 15 px line; `--sp-4` is the step ABOVE the card's own 8, which is what a stretch header is: a new
+   grouping inside one list, one step louder than the lines under it. */
+.timeline-row.is-stretch { border-top: 0; margin-top: var(--sp-4); }
 .timeline-line {
   display: grid; grid-template-columns: 68px 20px minmax(0, 1fr) 18px;
   gap: var(--sp-3); align-items: start; padding: 15px var(--sp-2) 15px var(--sp-0-5); min-height: 64px;
