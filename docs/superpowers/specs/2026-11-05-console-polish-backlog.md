@@ -3266,6 +3266,31 @@ The contract's `empty` atom: **one card** — `radius 14, pad 16, gap 12, textAl
    start-aligned, no shadow, and the `Clear search` still inside it. The atom's gap is `--empty-gap`, the
    same custom property `.empty-state` reads, so the two empty shapes cannot drift.)*
 
+## P0 — the seventy-third list (opened 2026-11-10, a transport's words reach a reader who cannot use them)
+
+The seventy-second list is closed: an empty state is the card and keeps the way back. This list is the THIRD
+state of the same atom set — the FAILED — and the contract has already ruled on it: `failed.names: "subject"`,
+`failed.namesTransport: false`, `tokens/`… *"A failure's sentence NAMES THE SUBJECT, NOT THE TRANSPORT."*
+
+Measured 2026-11-10 with every API answer failed (the browser's own `TypeError: Failed to fetch`), walking
+every page the panel's rail reaches:
+
+     Memory    `.error`   "Failed to fetch"  + Retry              ← the BROWSER's words, verbatim
+     Plugins   `.plug-error`  "inventory: Failed to fetch" + Retry ← the browser's words, prefixed
+     History   "The device's session archive could not be read…"   ← the subject, correct
+     Settings  "The device's settings could not be read…"          ← the subject, correct
+     Terminal  "Sessions unavailable — reconnecting…"              ← the subject, correct
+
+**Two of five pages print the transport's own sentence**, and on a device whose read timed out or whose token
+lapsed, "Failed to fetch" is all a reader would ever see.
+
+1. **`MemoryPage` prints `e?.message || String(e)`** — three call sites. Under a refusal the `callTool`
+   fallback gives the right sentence; under a TRANSPORT failure the raw `TypeError` does. **Fix:** the page
+   owns its subject sentence, as the other four do. **S.**
+2. **`usePlugins` prefixes the raw reason with `inventory: `**, so `inventory: Failed to fetch` is a
+   transport's words with a subject's label glued on — the exact shape the contract calls out. **Fix:** the
+   subject's sentence when the reason is not one the device wrote. **S.**
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
