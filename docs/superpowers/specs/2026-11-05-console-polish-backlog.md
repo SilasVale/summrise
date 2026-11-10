@@ -3202,7 +3202,9 @@ the wider of the two by exactly the padding twice: 48 px.**
 
 ## P0 — the seventy-first list (opened 2026-11-10, the terminal is not a page and it is the only page without a head)
 
-The seventieth list is closed: `page.max` is the box on both surfaces. This list is the operator's directive
+The seventieth list is closed: `page.max` is the box on both surfaces. **This list is closed (2026-11-10):
+both items shipped as panel `43ce6aee`, and every page this rail reaches now draws one head.** This list was
+the operator's directive
 read literally — *"the same page frame (rail, header, page body…)"* — asked of the one page that does not
 draw it, and of the rail that is the frame's first column.
 
@@ -3222,10 +3224,13 @@ Measured 2026-11-10 on the built panel at 1360, walking every page the rail can 
    other page draws a title, and a full-bleed page can draw the head above its own scrolling region.
    **Fix:** the terminal draws the same head as the other six, at the contract's `title` (22/700), above a
    body that stays full-bleed below it. **M.**
+   *(**Done, panel `43ce6aee`**: the terminal draws `header.page-head` + `h1.page-title` as the content card's
+   first row — measured, five pages now read the same head at **22/700**, visible; the terminal keeps 759 of
+   its 805 px below it. The `sr-only` copy and the header's 13/600 span are gone, and `PAGE_TITLES` with them.)*
 2. **`h1.sr-only` at 17/700 is a third title type**, and it is the one nobody can see: the contract's `title`
    atom says 22/700 for both surfaces, and this is the surface's own 17 (`--fs-lg`) instead. **Fix:** the
-   same element the other six use. **S.** *(Folded into item 1's fix; recorded because the number is a
-   measurement, not a step.)*
+   same element the other six use. **S.** *(Folded into item 1's fix — `43ce6aee` deletes the 17/700 `sr-only`
+   element; the number stays here because it is a measurement, not a step.)*
 
 ## How a round goes
 
