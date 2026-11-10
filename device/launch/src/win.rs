@@ -46,9 +46,9 @@ use summrise_launch::{
     write_console_link, write_swap_result, Action, AppLocation, Baseline, BaselineChoice,
     BaselineInstall, Config, ConsoleLink, Generation, Migration, MigrationHost, Pointer,
     RestartBudget, Restore, Sidecar, StagedPair, StartWatch, SwapRequestState, SwapResult,
-    TokenAction, Version, VersionProbe, APP_EXE, CHILD_JOB_LIMITS, CURRENT_DIR, LAUNCHER_EXE,
-    LAUNCHER_PUBKEY_HEX, MAX_RESTARTS, PENDING_DIR, RELEASE_PUBKEY_HEX, STABLE_AFTER_MS,
-    SWAP_REQUEST_TIMEOUT_MS, TOKEN_BYTES,
+    TokenAction, Version, VersionProbe, APP_EXE, CHILD_JOB_LIMITS, CURRENT_DIR, DEFAULT_PORT,
+    LAUNCHER_EXE, LAUNCHER_PUBKEY_HEX, MAX_RESTARTS, PENDING_DIR, RELEASE_PUBKEY_HEX,
+    STABLE_AFTER_MS, SWAP_REQUEST_TIMEOUT_MS, TOKEN_BYTES,
 };
 use windows_service::service::{
     Service, ServiceAccess, ServiceAction, ServiceActionType, ServiceControl, ServiceControlAccept,
@@ -259,9 +259,9 @@ summrise-launch — repair, supervise and swap summrise-device.exe
                       [--mesh-broker ORIGIN [--mesh-relay ADDR] [--mesh-stun ADDR]]
   summrise-launch --uninstall-service
 
-The port defaults to SUMMRISE_PORT, then 18080. The install directory defaults to the launcher's
-own directory, and the data directory to <install>/data. The service name defaults to SummriseLaunch;
-a service registered under another name must pass that name to `service`.
+The port defaults to SUMMRISE_PORT, then {}. The install directory defaults to the
+launcher's own directory, and the data directory to <install>/data. The service name defaults to
+SummriseLaunch; a service registered under another name must pass that name to `service`.
 
 --files-shared-root, --console-url/--console-token-file and
 --mesh-broker/--mesh-relay/--mesh-stun are persisted as <data>/console.json for the app to read;
@@ -307,6 +307,8 @@ the sidecar it booted: --release-version, --release-sha and --release-channel (s
 The app records those in state.json and /api/health; there is no other source for its version or
 channel. The child is also marked SUMMRISE_SUPERVISED=1: only a process with a supervisor may exit
 after a panel enrollment and trust that it will be brought back."
+    ,
+        DEFAULT_PORT
     );
 }
 
