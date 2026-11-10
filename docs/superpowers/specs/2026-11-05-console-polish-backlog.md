@@ -2785,6 +2785,38 @@ most of this file could say a month ago.
    a step one surface cannot reach is not a rhythm they share. Mutations print the same sentence on both
    sides: `the control's height: expected 26 to be 28`.)*
 
+## P0 — the sixtieth list (opened 2026-11-10, line-height is eight ratios per sheet and no rule)
+
+The fifty-ninth list is closed: a control's height is a height. This list came from rule 13 — *"readable
+text: measure, line-height, contrast"* — read as a COUNT, the same way the last six lists read colour,
+radius, shadow and spacing.
+
+Three reads were clean and are recorded as clean: **the type sizes are a scale on both surfaces** (console
+Home paints 10/12/13/14/17/22 and the panel's Settings 11/12/13/14/17/22 — the same ladder), **the weights
+are four** (400/500/600/700, and 700 is used exactly once as the page title, which is the contract's
+`title.weight`), and **the text colours are the palette's** (ink, muted, faint on both, plus the accent
+and the semantic four).
+
+1. **Line-height is not a system: it is EIGHT ratios spread over two sheets, and the same size gets
+   different ones on the same page.** Measured from the built sheets:
+
+       console  `1` (8×)  `1.45` (7×)  `1.5` (9×)  `1.4` (3×)  `1.2` (2×)  `1.6`  `1.55`  `0`
+       panel    `1` (10×)  `1.5` (6×)  `1.55` (4×)  `1.6` (3×)  `1.45` (2×)  `1.3`
+
+   And measured on the RENDERED page, the panel's Memory paints `19.5px` (18 elements), `16.5px` (6)
+   and `normal` (4) — three different line boxes for the same 13 px text. **A reader cannot see a
+   difference of 0.05 in a ratio and an author cannot remember which one a rule used**, so every new
+   rule is a fresh choice. The console's body is `1.5` (`--ds-lh`-less: `body { line-height: 1.5 }`) and
+   the panel's is also 1.5, so the two surfaces agree on the DEFAULT and disagree on the six exceptions.
+   **Fix:** the contract names the body ratio and the ratios for a head, a tight mark and a monospace
+   block; the rest become those. **M.**
+
+2. **`line-height: 1` is used 18 times and means two different things.** On a MARK (a dot, a chevron,
+   a `span` inside a flex row) it means "do not add leading above a glyph", which is right. On TEXT —
+   and the console uses it on `.timeline-time`, which carries a sentence — it sets a 11 px glyph's box
+   to 11 px, which is rule 13's floor, not a decision. **Fix:** the ratio is named (`--lh-mark`) and a
+   rule that wants a text's leading cannot reach for it by accident. **S.**
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
