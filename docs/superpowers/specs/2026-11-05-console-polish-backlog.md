@@ -3592,7 +3592,8 @@ page. The panel draws it on six of seven.
 
 ## P0 — the eighty-second list (opened 2026-11-10, the head's SUBTITLE is four answers where the atom names one slot)
 
-The eighty-first list is closed: the Terminal draws the page frame. This list is the head — the one part of the
+The eighty-first list is closed: the Terminal draws the page frame. **This list is closed (2026-11-10),
+shipped as console `24a29d0`, with its own gate corrected in `d6bde24` — live `ux188`.** This list was the head — the one part of the
 frame the contract deliberately does not number — and **my first measurement of it was wrong**, which is the
 finding this list now carries.
 
@@ -3620,8 +3621,17 @@ head's.
 1. **Activity's count line is 17/500 in a slot the atom draws at 13/400**, so the page under the title starts
    at a size the other pages do not use for the same role. **Fix:** the subtitle's step is the atom's, and the
    count keeps its tabular figures. **M.**
+   *(**Done, console `24a29d0` + `d6bde24` (the gate it broke), live `ux188`**: `.activity-today` is `--fs-base`
+   in the head's slot, and keeps `--fw-medium` so the count is still the first thing the eye finds. Measured
+   after: `13px/500`, head 79 px against 89. **The browser gate had to be corrected with it** — it asserted
+   17, the number the line drew BEFORE the fix, so it failed on the fix itself: *a gate that asserts a value
+   the design has left is a gate that fails on the change.*)*
 2. **Nothing asserts the subtitle's size at all**: the console's gate checks that a page has one `.page-head`
    and that the subtitle slot is NAMED, not what it draws. **S.**
+   *(**Done, console `24a29d0`**: `is ONE subtitle step in the head's own slot, on every page` reads the slot's
+   declarations across BOTH rules that set them (the atom at line 207 and a `margin-top` refinement 2,283
+   lines later — the cascade's answer, not the first match), and refuses `--fs-lg` on the count line. Mutation:
+   the count back to `--fs-lg` → red.)*
 
 ## How a round goes
 
