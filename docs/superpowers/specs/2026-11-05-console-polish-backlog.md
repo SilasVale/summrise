@@ -3850,7 +3850,8 @@ The copies have already drifted, measurably:
 
 ## P0 — the eighty-ninth list (opened 2026-11-10, the row atom was written and NOBODY READ IT)
 
-The eighty-eighth list is closed: the two repos carry one contract file at one hash. That is what made this
+The eighty-eighth list is closed: the two repos carry one contract file at one hash. **This list is closed
+(2026-11-10), shipped as console `abe26e7` (live `ux191`).** That is what made this
 list findable — the atoms are in ONE place now, so an atom nobody reads is visible as an atom nobody reads.
 
 Measured 2026-11-10 in the tree, asking each repo's tests which contract atoms they name:
@@ -3871,8 +3872,15 @@ so the atom is not only unread, it is already wrong about the page that provoked
 
 1. **`row` is recorded and unread.** **Fix:** each repo's contract test reads the atom against the sheet, the
    way every other atom already is. **M.**
+   *(**Done, console `abe26e7` (live `ux191`)**: `is a ROW inside a list, and the list's own rhythm is on the
+   scale` reads every number in the atom, and the test's `Contract` TYPE gained the atom too — **`tsc` caught
+   that the runner could not**, because a test that reads a contract its type does not describe is a contract
+   half-read.)*
 2. **The timeline's 18 px is off the scale and inside the list the atom describes.** **Fix:** it takes a
    step, and the atom's `gapLines` says what a line list separates by. **S.**
+   *(**Done, console `abe26e7` (live `ux191`)**: both separations take `--sp-4`. Measured after on the live
+   console at 1,440: **31 stretch rows at 16 px, spaces 16** — the step above the card's own 8, which is what a
+   stretch header is: a new grouping inside one list, one step louder than the lines under it.)*
 
 ## How a round goes
 
