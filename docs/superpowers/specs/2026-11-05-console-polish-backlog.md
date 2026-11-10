@@ -4353,6 +4353,34 @@ BOX.
    the bare red line's rule is asserted gone. Mutation: the box back to a bare line → "the page draws one failure
    box: expected +0 to be 1".)*
 
+## P0 — the hundred-and-first list (opened 2026-11-11, the HEADER is a RULE on one surface and a CARD on the other)
+
+The hundredth list is closed. This list is the operator's 2026-11-10 directive's first clause — *"the same page
+frame (rail, header, page body, card grammar, density rhythm)"* — at the frame's own top row, which the directive
+names second.
+
+Measured 2026-11-11 at 1,360, the header against the body it sits on:
+
+     surface   header            height  background            border          radius  gap to body
+     console   `.topbar`         **52**  `--surface` (opaque)  0 / 1 px bottom  **0**   **0**
+     panel     `.desktop-header` **64**  glass 0.8             1 px all round  **14**  **8**
+
+**Two surfaces, one product, and the frame's top row is a full-bleed RULE on one and a rounded CARD on the other.**
+The console's header spans the window's content column edge to edge and is closed by a single hairline; the panel's
+is a 1,276 px rounded box inset 16 from the canvas, 8 px above the body, with a border on all four sides. **Neither
+is wrong alone** — the console's is a desktop window's title bar and the panel's is a pane floating over a canvas —
+**which is exactly the shape this directive exists to remove.**
+
+The `radius` atom records `overlay.sheet: 20, dialog: 14` and says the card's corner is 14; the panel's header spends
+the DIALOG's corner on a frame element, and the console spends none. The `card` atom's `pad: 16` is what the console's
+`0 var(--sp-5)` and the panel's `8px 14px` each approximate differently.
+
+1. **The frame's top row is a card on the panel and a rule on the console.** **Fix:** one decision in the contract —
+   the header's height, its corner, its border and its gap to the body — and both frames read it. **M.**
+2. **Nothing measures the header at all.** The contract has an atom for the page, the card, the row, the head, the
+   states and the rail; **the row above the page body is not one of them**, and a gate in each repo has nothing to
+   compare. **S.**
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
