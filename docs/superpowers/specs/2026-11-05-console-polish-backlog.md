@@ -3701,6 +3701,32 @@ paste — points at a port nothing is listening on.
    console's web port; 7737 is a device app's own port**, and 18090 on the live box is a service argv that pins
    an old number rather than a default.)*
 
+## P0 — the eighty-fifth list (opened 2026-11-10, the card's first line is 13 px in one block and 17 in the one beside it)
+
+The eighty-fourth list is closed. This list is rule 20 fixed by a grid — *"alignment and rhythm fixed by a grid,
+not by nudging"* — measured on the ONE page that draws two kinds of container side by side.
+
+Measured 2026-11-10 at 1,360 on the panel's Settings, reading each block's top inset and its first line's position:
+
+     block              left   width   padding          first line   inset (top / left)
+     settings-fold      170    1,072   `12px 16px 16px`  summary 17/600  **13 / 17**
+     settings-section   170    1,072   `16px`            h2 17/600      **17 / 17**
+     settings-section   187    1,038   `0`               h3 14/600      0 / 0   (inside a fold)
+     settings-fold      170    1,072   `12px 16px 16px`  summary 17/600  13 / 17
+     settings-section   187    1,038   `0`               h2 17/600      0 / 0   (inside a fold)
+
+**On the same page, two blocks that are both "a titled group of settings" put their first line at 13 px and at
+17 px from their own top edge**, because the fold is a `<details>` whose summary carries its own `--sp-3` and
+the section takes the card's 16. The 4 px is the visible drift: a reader scrolling Settings sees the folds' titles
+sit a hair higher than the sections' — the exact thing *"fixed by a grid"* is meant to prevent, on a page whose
+own history is a mountain of hand-tuned insets.
+
+1. **The fold's first line is 4 px off the sections' on the same page.** **Fix:** both blocks put their first
+   line on the same inset, and the fold's `--sp-3` becomes the card's `--sp-4` with its own top margin removed. **M.**
+2. **Nested sections draw a second box on one page and none on another**: measured, a section INSIDE a fold is
+   `0 / 0` with no border — correct, and already argued in the sheet — while a section on the page is a full card.
+   The rule holds; what no test holds is the top inset. **S.**
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
