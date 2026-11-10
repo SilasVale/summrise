@@ -76,6 +76,7 @@ type Contract = {
     soft: string;
     names: number;
     stateMarksCarryOwnColour: boolean;
+    stateMarksCarryWord: boolean;
   };
   label: {
     case: string;
@@ -151,7 +152,7 @@ describe("the layout contract", () => {
     // `agent/resources/panel-react/src/lib/layoutContract.test.ts`. If the two disagree, the two
     // frontends are drawn to different page systems and one of them is wrong.
     expect(createHash("sha256").update(contractText()).digest("hex")).toBe(
-      "e10993e7fb5a74f56fd98d03a18671c2e327031724708b188328f9ee41e4c2c8"
+      "3f0568323e0bad0b063e1cb7989737d275864d8143d5eff5d745c5e85f5d908d"
     );
   });
 
@@ -384,6 +385,35 @@ describe("the layout contract", () => {
     expect(sheet, "the chrome line is derived from the ink").toMatch(
       /--hairline:\s*color-mix\(in srgb, var\(--ink\)/);
     expect(contract.hairline.names, "one family, three steps").toBe(1);
+  });
+
+  it("is the OTHER half of a state mark: the word, and this surface already carried it", () => {
+    // **THE CONTRACT RECORDED THE COLOUR HALF OF RULE 6 AND NOT THE OTHER (the sixty-eighth list).**
+    // `stateMarksCarryOwnColour` says a mark takes its own ink; it says nothing about the WORD beside it,
+    // and the panel's rail mark turned out to carry its state only in colour and shape, with the words in a
+    // `title` — a hover, not a surface. Measured on this console: every state it draws already says it in
+    // words — `.fleet-status` reads "offline · last seen …", `.home-verdict` reads "3 of 4 online · 2 need
+    // attention" — so this surface is the one the rule came FROM and the one that must keep it.
+    expect(contract.hairline.stateMarksCarryOwnColour, "a mark takes its own colour").toBe(true);
+    expect(contract.hairline.stateMarksCarryWord, "and it carries a word").toBe(true);
+    const sheet = css();
+    // The three state marks this surface draws, each by the element that carries the sentence.
+    for (const [selector, why] of [
+      [".fleet-status", "the fleet's dot is beside the phrase that explains it"],
+      [".home-verdict", "the verdict counts in words, not only in tint"],
+      [".activity-status", "a run's status is a word"],
+    ]) {
+      const rule = ruleFor(sheet, selector.replace(/\\./g, "\\."));
+      expect(rule, `${why}: ${selector} is drawn`).toBeTruthy();
+    }
+    // **AND A MARK WITH NO WORDS AT ALL WOULD BE THE DEFECT** — so the dot-plus-word shape is asserted
+    // directly rather than only named: a `aria-hidden` state dot is legal (colour is decoration when the
+    // words are beside it) and a dot is NOT legal when it is the only thing that carries the state.
+    // `ruleFor` THROWS on a missing selector, so the absence of a rail-status mark is a regex, not a rule.
+    expect(sheet, "this surface has no unlabelled rail mark").not.toMatch(/\\.rail-status\s*\{/);
+    // Every dot this surface draws is `aria-hidden` and sits beside its sentence; the words are the state.
+    const dots = [...sheet.matchAll(/\b(\w+-status|\w+-state|\w+-dot)\s*\{/g)].map((m) => m[1]);
+    expect(dots.length, "the surface draws state elements").toBeGreaterThan(0);
   });
 
   it("is the palette's third grey, and this surface is the one it came from", () => {
