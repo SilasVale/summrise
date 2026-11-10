@@ -29,10 +29,25 @@ export function DevicePicker({
   const fleet = fleetRead ?? { state: "ready" as const };
   if (devices.length === 0) {
     if (fleet.state === "reading") {
+      // **THE PAGE RESERVES THE SHAPE, NOT A SENTENCE (the ninety-seventh list).** Measured 2026-11-11 with
+      // `/fleet` held 90 s: SIX of the seven pages of this product draw the contract's `loading` atom while a
+      // read is held, and this page drew `p.hint` — **the same sentence Home's skeleton carries as its
+      // `aria-label`, "Reading the machine list…", in a 52 px card where three 60 px rows will arrive.**
+      // The panel's own results page had this hole and the eightieth list fixed it there; the console's Device
+      // page was never fixed with it, which is what a list that names ONE occurrence always leaves behind.
+      //
+      // The rows are this page's own: the picker draws `.picker li` at the `row` atom's inset, so the skeleton
+      // reserves THEIR shape — a name and one line of facts, at the card's 8 px rhythm — and the page does not
+      // jump from a one-line box to a four-row list when the read answers.
       return (
-        <p className="hint" role="status">
-          Reading the machine list…
-        </p>
+        <div className="skeleton-list picker-skeleton" aria-label="Reading the machine list" role="status">
+          {[0, 1, 2].map((row) => (
+            <div className="skeleton-row" key={row}>
+              <span className="skeleton skeleton-name" />
+              <span className="skeleton skeleton-line" />
+            </div>
+          ))}
+        </div>
       );
     }
     if (fleet.state === "failed") {

@@ -2652,7 +2652,10 @@ describe("App", () => {
 
     // The fleet has not answered: the page says so. `0 machines · 0 online` and `No machines yet`
     // were the lie audit-38 measured on a slow link.
-    expect(screen.getByText("Reading the machine list…")).toBeInTheDocument();
+    // **AND IT SAYS SO IN THE SHAPE EVERY OTHER PAGE USES (the ninety-seventh list).** The sentence used to be
+    // `p.hint` on the Device page alone; it is the contract's `loading` atom now, and the sentence is the
+    // `aria-label` the atom carries — so both readings of "the read has not answered" are true at once.
+    expect(screen.getAllByLabelText("Reading the machine list").length).toBeGreaterThan(0);
     expect(screen.queryByText("No machines yet")).toBeNull();
     expect(screen.queryByText("0 machines · 0 online")).toBeNull();
     // The reading sentence is the fleet's state; the setup door is the account's and does not wait
@@ -2677,7 +2680,10 @@ describe("App", () => {
     const view = await signInWithoutFleet();
 
     fireEvent.click(screen.getByRole("button", { name: "Device" }));
-    expect(screen.getByText("Reading the machine list…")).toBeInTheDocument();
+    // **THE DEVICE PICKER'S READING STATE IS THE ATOM, NOT THE SENTENCE (the ninety-seventh list).** The
+    // sentence is still there — as the atom's `aria-label` — so both the machine and a person still read it, and
+    // the page now reserves the shape of the three rows that are about to arrive instead of drawing one line.
+    expect(screen.getByLabelText("Reading the machine list")).toBeInTheDocument();
     expect(screen.queryByText(/No devices are enrolled yet/)).toBeNull();
 
     await act(async () => {
@@ -2883,7 +2889,7 @@ describe("App", () => {
       within(screen.getByRole("main")).getByRole("button", { name: "Add a machine" })
     ).toBeInTheDocument();
     // A confirmed empty read is still a read: it is not the pending sentence.
-    expect(screen.queryByText("Reading the machine list…")).toBeNull();
+    expect(screen.queryByLabelText("Reading the machine list")).toBeNull();
     view.unmount();
   });
 });
