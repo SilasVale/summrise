@@ -3738,7 +3738,8 @@ own history is a mountain of hand-tuned insets.
 
 ## P0 — the eighty-sixth list (opened 2026-11-10, the card's 8 is 8 plus whatever its children bring)
 
-The eighty-fifth list is closed. This list is the card's INSIDE — the number the contract has always recorded
+The eighty-fifth list is closed. **This list is closed (2026-11-10), shipped on both surfaces: panel
+`4716632d`, console `f434d3a` (live `ux190`).** This list was the card's INSIDE — the number the contract has always recorded
 (`card{gap 8}`) and which no page actually gives its children.
 
 Measured 2026-11-10 at 1,360/1,440, reading each card's `row-gap` and then the space that lands between its
@@ -3763,8 +3764,17 @@ children.
 1. **A card's gap is its own; a child does not add to it.** **Fix:** the negative and the extra margins go, so
    every card's children sit 8 px apart — the number in the contract — or a card states a different gap and the
    contract records it. **M.**
+   *(**Done, both surfaces**: panel `4716632d`, console `f434d3a` (live `ux190`). Measured after at 1,360/1,440:
+   **mem-card 8 / 8, plug-card 8 / 8, attention card 8 / 8** — and no card child carries a margin at all
+   (`.card > * { margin-block: 0 }` in both sheets). The panel's half also needed a `p` reset: that sheet had
+   NONE, so one paragraph inside a card took **Chromium's `margin: 1em 0`** — 12 px because the paragraph is
+   `--fs-sm`, i.e. spacing that scaled with the TEXT. The console has had `p { margin: var(--sp-1-5) 0 }`
+   all along.)*
 2. **No test measures a card's INTERNAL rhythm at all.** The gates read the rule (`gap: 8`), never the rendering.
    **S.**
+   *(**Done, both repos**: `is the CARD's own gap — a child of a card adds no margin of its own` asserts the
+   container's rule, the children's zero, the paragraph reset (panel) and the two children that used to add
+   one. Mutations: `.card > *` removed, the `p` reset removed, the `-4px` restored — all red.)*
 
 ## How a round goes
 
