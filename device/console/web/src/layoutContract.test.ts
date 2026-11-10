@@ -1142,6 +1142,32 @@ describe("the layout contract", () => {
     expect(countRule![0], "the count is not a filter column any more").not.toContain("align-self: center");
   });
 
+  it("gives every (size, weight, kind) group ONE tracking, from the atom's four steps", () => {
+    // **MEASURED 2026-11-11, GROUPED BY SIZE THEN WEIGHT THEN KIND** — the atom's own method, because *"an uppercase
+    // label, a mono value and prose are three kinds"*. Every group that carried two trackings:
+    //
+    //     surface/page           group            the two answers
+    //     console Home           13/600/body      `-0.26px` (brand, machine menu) | **`normal`** (nav label)
+    //     console Activity       17/600/body      `-0.34px` (day label)        | **`normal`** (the count)
+    //     panel Settings         17/600/body      `-0.187px` (every `h2`)     | **normal** (a fold's summary)
+    //
+    // **Same size, same weight, one is a title and one a plain word** — and the product gave both the title's
+    // tracking in one place and none in the other. `tracking.bySize` says which is which.
+    const tokensSrc = stripComments(tokens());
+    // **ALL FOUR STEPS ARE NAMED**, including `none` — this sheet had three and `none` had no name, so a rule that
+    // wanted the body's step wrote nothing and a rule that wanted it explicitly had nothing to read.
+    for (const step of ["display", "tight", "label", "eyebrow", "none"]) {
+      expect(tokensSrc, `the ${step} step is a token`).toMatch(new RegExp(`--tracking-${step}\\s*:`));
+    }
+    // **A NAV LABEL IS BODY TEXT, AND IT SAYS SO.** It drew `normal` beside a brand at `-0.26px` because nothing
+    // had said which it was.
+    const railLabel = ruleFor(stripComments(css()), ".rail-label");
+    expect(railLabel, "the nav label declares the body's step").toContain("letter-spacing: var(--tracking-none)");
+    // The atom's own claims, so this reads the contract.
+    expect(contract.tracking.literals, "no rule writes a tracking by hand").toBe(0);
+    expect(contract.tracking.inherits, "and none is inherited as a baseline").toBe(false);
+  });
+
   it("steps the page's inset at the phone band, on BOTH surfaces", () => {
     // **MEASURED 2026-11-11 ACROSS FIFTEEN WIDTHS, 1,600 → 360:**
     //

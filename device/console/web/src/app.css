@@ -163,7 +163,16 @@ p { margin: var(--sp-1-5) 0; }
 .rail-btn[aria-current="page"]:hover { background: var(--nav-current-bg); color: var(--nav-current-fg); }
 .rail-btn:focus-visible { outline: 2px solid var(--nav-focus); outline-offset: 2px; }
 .rail-btn svg { flex: none; }
-.rail-label { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* **A (SIZE, WEIGHT, KIND) GROUP CARRIES ONE TRACKING, AND THAT IS WHAT IT DECLARES (the hundred-and-tenth list).**
+   Measured 2026-11-11: `13 px / 600 / body` answered **`-0.26px`** on `.brand-name` and `.machine-menu-label` and
+   **`normal`** here — same size, same weight, one is a title and one is a plain word, and the product gave both the
+   title's tracking in one place and none in the other. **The atom's `tracking.bySize` says a title takes `display`
+   and body text takes `none`**: a nav label is body text, so it takes `none` — and says so, rather than inheriting
+   the answer that happens to be there. */
+.rail-label {
+  display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  letter-spacing: var(--tracking-none);
+}
 .rail-foot { margin-top: auto; padding-top: var(--sp-4); position: relative; }
 
 /* The account menu: identity, version, the console's URL, docs and the way out. Settings do not
