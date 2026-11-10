@@ -54,12 +54,13 @@
     "codeExempt": true
   },
   "hairline": {
-    "$comment": "The one family of SEPARATING lines, and the rule about state marks (the fifty-seventh list). A hairline separates two regions and takes `line`; a STATE MARK declares a state and takes its own colour (a pill's edge is its ink, so greyscale keeps its shape and its word). Measured before: the panel had THREE names for the first family \u2014 `--line` and `--chrome-line` were the same `rgba(0,0,0,.08)` written twice, and `--glass-hairline` was a COOL `rgba(24,32,54,.07)` for the same job on the same page.",
+    "$comment": "The one family of SEPARATING lines, and the rule about state marks (the fifty-seventh list). A hairline separates two regions and takes `line`; a STATE MARK declares a state and takes its own colour (a pill's edge is its ink, so greyscale keeps its shape and its word). Measured before: the panel had THREE names for the first family \u2014 `--line` and `--chrome-line` were the same `rgba(0,0,0,.08)` written twice, and `--glass-hairline` was a COOL `rgba(24,32,54,.07)` for the same job on the same page. **AND A STATE MARK CARRIES A WORD, NOT ONLY A COLOUR (the sixty-eighth list):** the panel's rail mark cycles through all five liveness states and carried them in colour and shape only \u2014 its word lived in a `title`, which is a hover and not a surface \u2014 while its sibling `.plug-dot`s all have their state written beside them (`Loaded`, `Running`). The console was already right: `.fleet-status` says \"offline \u00b7 last seen \u2026\" and `.home-verdict` says \"0 of 1 online \u00b7 1 needs attention\".",
     "line": "rgba(0, 0, 0, 0.08)",
     "strong": "rgba(0, 0, 0, 0.14)",
     "soft": "rgba(0, 0, 0, 0.05)",
     "names": 1,
-    "stateMarksCarryOwnColour": true
+    "stateMarksCarryOwnColour": true,
+    "stateMarksCarryWord": true
   },
   "head": {
     "$comment": "The page's ONE head (the sixty-second list). Its height is its CONTENTS \u2014 the pages measured 68/68/33 px because one carries tabs and two carry a subtitle \u2014 so `height` is not a number. What IS recorded: the gap, the alignment, the subtitle SLOT (the second line of the title's block, `.page-sub`), and the rule that a page has ONE head \u2014 anything under it is a card.",
