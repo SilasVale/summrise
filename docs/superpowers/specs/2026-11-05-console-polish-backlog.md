@@ -4200,8 +4200,16 @@ one occurrence always leaves behind.
 
 1. **The Device page draws a sentence where every other page draws the atom.** **Fix:** the picker's reading branch
    reserves the shape its rows will take, in the contract's `loading` atom. **M.**
+   *(**Done in the tree `8bba4ad`, MERGED as `6895cfa`; NOT DEPLOYED** — the hold applies. The picker's reading
+   branch returns `.skeleton-list` with three `.skeleton-row`s, `role="status"`, `aria-label="Reading the machine
+   list"` — **the sentence survives as the LABEL**, so a person and a screen reader both still read it. Measured
+   after with the read still held: **3 rows at 60 px, 195 px in a 229 px card**, row radius 10 — the atom's own
+   numbers.)*
 2. **No gate counts the pages that draw the atom.** `role="status"` is checked where it exists; nothing asserts
    that a page which draws nothing yet draws the SHAPE. **S.**
+   *(**Done in the tree, MERGED**: `is a page that RESERVES THE SHAPE while a read is held, not a sentence` reads
+   BOTH pages' components — the atom's class, a "Reading the …" label, the `role` — and refuses the bare-sentence
+   return the page used to make. Mutation: the class back to `hint` → "DevicePicker.tsx draws the atom".)*
 
 ## How a round goes
 
