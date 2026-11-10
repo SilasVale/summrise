@@ -3200,6 +3200,33 @@ the wider of the two by exactly the padding twice: 48 px.**
    repo's test asks its own question: the panel's refuses a global reset arriving to solve the frame, the
    console's asserts the reset it has always had and that its width is derived from `page.max`.)*
 
+## P0 — the seventy-first list (opened 2026-11-10, the terminal is not a page and it is the only page without a head)
+
+The seventieth list is closed: `page.max` is the box on both surfaces. This list is the operator's directive
+read literally — *"the same page frame (rail, header, page body…)"* — asked of the one page that does not
+draw it, and of the rail that is the frame's first column.
+
+Measured 2026-11-10 on the built panel at 1360, walking every page the rail can reach:
+
+     History   .page-head   h1 "History"  22px/700   first block header.page-head
+     Memory    .page-head   h1 "Memory"   22px/700   first block header.page-head
+     Plugins   .page-head   h1 "Plugins"  22px/700   first block header.page-head
+     Settings  .page-head   h1 "Settings" 22px/700   first block header.page-head
+     Terminal  NO .page-head, NO visible title — an `h1.sr-only` at 17/700     ← the frame's first column
+
+1. **The terminal is the one page of seven that does not draw the page head.** It is the page the rail's
+   FIRST icon opens, so the first thing a reader sees when they use the product is the one page whose title
+   is hidden (`h1.sr-only`, 17 px/700 — a size and weight no other page uses, and invisible). `layout.css`
+   says the terminal "is full-bleed by definition — a shell needs the window — so it opts out with
+   `.page-none`, and only it" — but **opting out of the page column is not opting out of the head**: every
+   other page draws a title, and a full-bleed page can draw the head above its own scrolling region.
+   **Fix:** the terminal draws the same head as the other six, at the contract's `title` (22/700), above a
+   body that stays full-bleed below it. **M.**
+2. **`h1.sr-only` at 17/700 is a third title type**, and it is the one nobody can see: the contract's `title`
+   atom says 22/700 for both surfaces, and this is the surface's own 17 (`--fs-lg`) instead. **Fix:** the
+   same element the other six use. **S.** *(Folded into item 1's fix; recorded because the number is a
+   measurement, not a step.)*
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
