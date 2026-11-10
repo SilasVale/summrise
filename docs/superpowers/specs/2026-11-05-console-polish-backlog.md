@@ -3112,6 +3112,14 @@ instead of it. And **the panel's `.plug-pill` carries the word `Enabled`** besid
    a word — the same information, two grammars, on one page. A reader with a colour deficiency reads the
    roster's rows as eight identical grey rows; a screen reader reads them as nothing at all. **Fix:** the
    row's dot carries its state in words, using the label the card already has. **M.**
+   *(**MEASURED AGAIN BEFORE FIXING, AND THE LISTEN WAS WRONG TURNS OUT TO BE.** The roster's dot DOES have a
+   word beside it — `.plug-tag` carries `Loaded` / `Running` on every row — and the earlier audit missed it
+   because it filtered by CLASS-NAME KEYWORDS and `tag` was not in the list. **A filter that names the shapes
+   it expects cannot see a new one**, which is the flaw this workstream keeps re-learning. What IS
+   colour-and-shape-only is the RAIL's mark: one element cycling through all five liveness states, its word
+   in a `title` — a hover, not a surface. **Done, panel `5e236b4c`**: `role="img"` +
+   aria-label={label}`, the same string the tooltip already showed, and `stateMarksCarryWord: true` in the
+   contract beside `stateMarksCarryOwnColour`.)*
 
 2. **Neither surface records that a state mark must carry a word, so the next dot is a fresh choice.**
    The contract's `hairline` atom already says *"state marks carry their own colour"* — which is the
