@@ -2910,6 +2910,35 @@ and both start at the **same y=76** — the contract's `page.pad 24` under the r
    `<header className="page-head"` alone let a second header with another class slip through — the mutation
    PASSED. The refined check catches an ORPHAN header, which is what a second page head actually is.)*
 
+## P0 — the sixty-third list (opened 2026-11-10, an empty state that cannot be reached, and one that is a card inside a card)
+
+The sixty-second list is closed: a page has one head. This list came from rule 19 — *"every surface has an
+empty, a loading and a failed state that tell the truth"* — measured by FORCING each state on both
+surfaces and reading what the page says.
+
+Two reads were clean and are recorded as clean: **both surfaces' empty atom is the card** (radius 14, padding
+16, `box-shadow: none`, start-aligned — the console's `.empty-state` and the panel's `.empty-card` agree
+number for number), and **both loading states are a `role="status"` skeleton with a label** that a
+screen reader announces.
+
+1. **The panel's empty state could not be reached with the mock, and when it IS reached it is a card
+   inside a card.** Measured: every non-GET answer emptied and the page showed `.error` ("tool
+   memory_list failed") — which is the FAILED state telling the truth, so that is right. The empty
+   state needs `listed && !readFailed && entries.length === 0`, and reaching it shows:
+
+       #empty-state            a plain `<div>` with no rule of its own
+       .empty-card inside it   radius 14, padding 16, surface, hairline, no shadow — THE card
+
+   So the empty state is a card INSIDE an unstyled wrapper: the wrapper brings nothing, and a second
+   `<div>` between the page and the card is a box that exists only to be a box. **Fix:** the wrapper goes and
+   the card IS the state. **S.**
+
+2. **Neither surface's `failed` state says WHERE the failure was.** Measured: the console's notice says
+   *"The console could not read the machine list"* and the panel's says *"tool memory_list failed"* —
+   the first names the thing, the second names the RPC. A reader of the panel's message learns the
+   transport, not the page. **Fix:** the contract records that a failed state names the SUBJECT (what
+   could not be read) and not the transport, and the panel's copy follows. **M.**
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
