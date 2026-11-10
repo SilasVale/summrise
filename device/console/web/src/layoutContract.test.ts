@@ -77,6 +77,11 @@ type Contract = {
     names: number;
     stateMarksCarryOwnColour: boolean;
   };
+  label: {
+    case: string;
+    verbAndSubject: boolean;
+    acronyms: string[];
+  };
   section: {
     h2: { size: number; weight: number };
     h3: { size: number; weight: number };
@@ -146,7 +151,7 @@ describe("the layout contract", () => {
     // `agent/resources/panel-react/src/lib/layoutContract.test.ts`. If the two disagree, the two
     // frontends are drawn to different page systems and one of them is wrong.
     expect(createHash("sha256").update(contractText()).digest("hex")).toBe(
-      "10f9c08eeefaefc50d2ae5f4f74197b0c883f72d881043345da2d7a5d53863f6"
+      "98eb620c1790b33dd1598176ce91f9f516d40ab483a158759925d0a8161ff860"
     );
   });
 
@@ -162,6 +167,27 @@ describe("the layout contract", () => {
     expect(page, "the page's rhythm comes from the scale").toContain(`gap: var(--${gap})`);
     expect(tokenPx(tokens(), pad)).toBe(contract.page.pad);
     expect(tokenPx(tokens(), gap)).toBe(contract.page.gap);
+  });
+
+  it("is a control's LABEL: sentence case, and never a fragment with a glyph", () => {
+    // **THIS SURFACE HAD THE SAME FRAGMENT IN TWO PLACES (the sixty-fifth list).** `+ New session` appeared
+    // on the shell's toolbar and again in the empty state's actions — a glyph doing a word's job — while
+    // 21 of this surface's other 22 controls were already sentence case.
+    expect(contract.label.case, "a label is sentence case").toBe("sentence");
+    expect(contract.label.verbAndSubject, "and it names a verb and its subject").toBe(true);
+    expect(contract.label.acronyms).toContain("URL");
+    expect(contract.label.acronyms).toContain("AI");
+    // **NO LABEL IN THIS SURFACE'S COMPONENT TREE STARTS WITH A GLYPH.** The check is the whole tree, so a
+    // new `+ Something` is refused rather than the one this list fixed.
+    for (const file of ["TerminalWorkspace.tsx", "HomePage.tsx", "OverviewPage.tsx", "TerminalDialogs.tsx"]) {
+      let body: string;
+      try {
+        body = readFileSync(path.join(here, file), "utf8");
+      } catch {
+        continue; // a page this surface does not have is not a failure
+      }
+      expect(body, `${file} has no glyph-led label`).not.toMatch(/>\s*\+\s*[A-Za-z]/);
+    }
   });
 
   it("is the QUERY FORM at a breakpoint, and no width is claimed by both sides", () => {

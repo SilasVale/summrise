@@ -199,7 +199,7 @@ afterAll(() => {
 
 /** Open the pty dialog from the panel head and submit it. */
 async function startPtyTab() {
-  fireEvent.click(screen.getByRole("button", { name: "+ New session" }));
+  fireEvent.click(screen.getByRole("button", { name: "New session" }));
   const dialog = await screen.findByRole("dialog", { name: "New terminal session" });
   fireEvent.click(within(dialog).getByRole("button", { name: "Open" }));
   await waitFor(() =>
@@ -219,7 +219,7 @@ describe("TerminalWorkspace tab names", () => {
     render(<TerminalWorkspace grant={GRANT} />);
     // The session toolbar belongs to a session; at the empty state the page offers the one action
     // that makes one, and no disabled controls pretending to be a toolbar.
-    expect(screen.getByRole("button", { name: "+ New session" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "New session" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Rename tab" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Attach to a session" })).not.toBeInTheDocument();
   });
@@ -245,7 +245,7 @@ describe("TerminalWorkspace tab names", () => {
 
   it("turns off the action an offline machine cannot satisfy, and says why", () => {
     render(<TerminalWorkspace grant={GRANT} deviceOnline={false} />);
-    const start = screen.getByRole("button", { name: "+ New session" });
+    const start = screen.getByRole("button", { name: "New session" });
     expect(start).toBeDisabled();
     expect(start.getAttribute("title")).toMatch(/reconnects/);
     // The list cannot be refreshed from a machine that is not there either.
@@ -255,7 +255,7 @@ describe("TerminalWorkspace tab names", () => {
   it("does not accuse a machine it knows nothing about", () => {
     const { container } = render(<TerminalWorkspace grant={GRANT} />);
     expect(container.querySelector(".offline-notice")).toBeNull();
-    expect(screen.getByRole("button", { name: "+ New session" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "New session" })).toBeEnabled();
   });
 
   it("attaches the device's only live session without an Attach click", async () => {
@@ -2093,8 +2093,8 @@ describe("TerminalWorkspace session card", () => {
 
     // The one control that makes a session sits with that sentence, not in a second empty card.
     const sessions = screen.getByRole("region", { name: "Sessions on this machine" });
-    const start = within(sessions).getAllByRole("button", { name: "+ New session" });
+    const start = within(sessions).getAllByRole("button", { name: "New session" });
     expect(start).toHaveLength(1);
-    expect(screen.getAllByRole("button", { name: "+ New session" })).toHaveLength(1);
+    expect(screen.getAllByRole("button", { name: "New session" })).toHaveLength(1);
   });
 });

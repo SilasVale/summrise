@@ -127,6 +127,21 @@
       "transform": "uppercase"
     }
   },
+  "label": {
+    "$comment": "A CONTROL's label (the sixty-fifth list). SENTENCE case, and the verb plus its subject \u2014 `Add a machine`, `New entry`, `Test the connection`, never a fragment with a glyph (`+ New`). ACRONYMS KEEP THEIR CAPITALS (`URL`, `AI`, `DSH`), which is the ONE exception and is listed rather than inferred: `Copy console URL` and `Connect an AI client` are both correct and a reader should not have to work out why. Measured: 21 of the console's 22 controls were already sentence case; `+ New` was the only fragment-with-a-glyph on either surface.",
+    "case": "sentence",
+    "verbAndSubject": true,
+    "acronyms": [
+      "URL",
+      "AI",
+      "DSH",
+      "CSV",
+      "JSON",
+      "SSH",
+      "PTY",
+      "MCP"
+    ]
+  },
   "breakpoints": {
     "narrow": 480,
     "phone": 639,
