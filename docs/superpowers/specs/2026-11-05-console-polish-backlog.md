@@ -2769,10 +2769,21 @@ most of this file could say a month ago.
    names: a rhythm that is right on screen and unreadable in the sheet cannot survive its author. **Fix:**
    the scale gains the step that a control's height actually needs, the paddings that exist to reach a
    height become heights, and the rest move onto the scale. **M.**
+   *(**Done, panel `0c97d203` / console `1f7b8c8`, live 0.3.273-ux169**: `--control-h: 28px` and
+   `--control-pad-y: 5px` are tokens on both surfaces and the controls read them; `.tab` declares
+   `min-height: var(--control-h)`, and the console's `button` does too. `.attention-body`'s `gap: 3px`
+   became `--sp-0-5` and the two `9px` row paddings became `--sp-2`. **The 1 px kept its place on purpose:**
+   `.mem-more` is a fixed 24 × 24 target and 1 px keeps a glyph off its edge — part of a box, not a step on
+   a rhythm. **And the console's token block is MINIFIED** (`--control-h:28px`), which broke the first
+   draft of the test: a contract records a VALUE, not a source text.)*
 
 2. **Neither surface's spacing scale is in the contract**, so "is this on the scale" was a question each
    repo answered for itself — and the two answers agreed only because both copied the same ten numbers
    into two token files. **Fix:** `space` joins the contract, and each repo's test reads it. **S.**
+   *(**Done with item 1**: `space: { scale [2,4,6,8,10,12,14,16,24], controlH 28, controlPadY 5, target 24 }`.
+   The scale is the **shared ladder**, not the union — the console has a 32 step the panel does not, and
+   a step one surface cannot reach is not a rhythm they share. Mutations print the same sentence on both
+   sides: `the control's height: expected 26 to be 28`.)*
 
 ## How a round goes
 
