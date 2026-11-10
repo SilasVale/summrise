@@ -2621,6 +2621,37 @@ surfaces (**14 px / 1 px**), and the console's shadows are all tokens (`--shadow
    FLOAT is not deleted by being moved — `--shadow-lg` is the pane level and the test proves it is still
    used, because a modal with no shadow would read as part of the page.)*
 
+## P0 — the fifty-sixth list (opened 2026-11-10, the two palettes agree on the ink and disagree on the greys)
+
+The fifty-fifth list is closed: a card sits on the page on both surfaces. This list came from rules 2
+and 12 — *"a limited palette: greys plus one accent plus semantic"* and *"no ambiguous or too-similar
+colours"* — measured by counting the colours a page actually PAINTS.
+
+Two reads were clean and are recorded as clean: **the accent is the same token on both surfaces**
+(`#bf3a0a`, and the panel's own comment says the token contract requires it), and **the ink is the same**
+(`#18181b` = `--ds-neutral-900` = the console's `--ink`). The greys are where they part.
+
+1. **The second grey is `#71717a` on both surfaces, but the THIRD grey is a different colour on each**
+   and the panel uses it for text. Measured from the token blocks:
+
+       console  --muted:#71717a   --faint:#696a74  (used as the table heads' and labels' ink)
+       panel    --muted:#71717a   --faint:#6f707a  (--ds-neutral-400)
+
+   `#696a74` and `#6f707a` are six apart on one channel and identical on the others: **two greys the
+   eye cannot tell apart, carrying two different names**, which is rule 12's defect stated exactly.
+   A reader searching for "which grey is this" finds two answers and no difference. **Fix:** the third
+   grey is one value, in the contract, and both surfaces read it. **M.**
+
+2. **The painted-colour count differs by four between surfaces on comparable pages.** Measured on the
+   rendered Home and Memory:
+
+       console  11 distinct colours on Home
+       panel    14 on Memory, 16 on Settings
+and three of the panel's extra ones are its own alpha composites (`rgba(0,0,0,.08)`, `rgba(0,0,0,.05)`,
+   `rgba(24,32,54,.07)`) where the console derives the same greys from `--ink` with `color-mix`. That is
+   rule 2's "limited palette" read as a COUNT: two ways to say "a hairline". **Fix:** the alpha greys
+   are derived from the ink on both surfaces, and the contract records the palette's shape. **S.**
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
