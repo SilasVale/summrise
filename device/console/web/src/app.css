@@ -2553,7 +2553,7 @@ input:not([type="checkbox"]):not([type="radio"]):focus, select:focus, textarea:f
 /* ── Sheets and dialogs ──────────────────────────────────────────────────────────────────────── */
 /* These float, so they get the depth the cards do not. */
 
-.sheet-scrim { background: color-mix(in srgb, #000 30%, transparent); backdrop-filter: blur(3px); }
+.sheet-scrim { background: var(--scrim); backdrop-filter: blur(3px); }
 .sheet {
   background: var(--panel); border-left: 1px solid var(--hairline); box-shadow: var(--elev-2);
   animation: sheet-in 180ms var(--ease);
@@ -2567,7 +2567,7 @@ input:not([type="checkbox"]):not([type="radio"]):focus, select:focus, textarea:f
   from { transform: translateX(12px); opacity: 0; }
   to { transform: none; opacity: 1; }
 }
-.scrim { background: color-mix(in srgb, #000 30%, transparent); backdrop-filter: blur(3px); }
+.scrim { background: var(--scrim); backdrop-filter: blur(3px); }
 .modal {
   background: var(--panel); border: 1px solid var(--hairline);
   border-radius: var(--radius-lg); box-shadow: var(--elev-2);

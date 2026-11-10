@@ -12,7 +12,7 @@
     "gradients": 0
   },
   "palette": {
-    "$comment": "The greys, and the two rules about them (the fifty-sixth list). `ink` and `muted` were already identical on both surfaces; the THIRD grey was not \u2014 `#696a74` on the console and `#6f707a` on the panel, six apart on one channel and identical on the others, two names for a colour the eye cannot tell from the other. A palette is: ink, muted, faint, one accent, and the semantic four. Anything else is a decision that has to be made in the open.",
+    "$comment": "The greys, and the two rules about them (the fifty-sixth list). `ink` and `muted` were already identical on both surfaces; the THIRD grey was not \u2014 `#696a74` on the console and `#6f707a` on the panel, six apart on one channel and identical on the others, two names for a colour the eye cannot tell from the other. A palette is: ink, muted, faint, one accent, and the semantic four. Anything else is a decision that has to be made in the open. **AND A WASH IS A TOKEN TOO (the sixty-sixth list):** the panel's three badges took their ink from tokens and their backgrounds from literals (`rgba(40,160,80,.18)`, `rgba(220,60,60,.18)`, `rgba(200,160,40,.18)`), so one control had two sources of colour; a fourth hue (`rgba(90,130,240,.15)` / `#7aa2ff`) and a fifth green (`#30d158` beside `--success #2f9e44`) were colours no scale declared.",
     "ink": "#18181b",
     "muted": "#71717a",
     "faint": "#696a74",
@@ -22,7 +22,8 @@
       "warn",
       "danger",
       "focus"
-    ]
+    ],
+    "washAlpha": 0.18
   },
   "space": {
     "$comment": "The rhythm, and the two ways a number that is not on it can still be right (the fifty-ninth list). A rhythm is a scale: **2/4/6/8/10/12/14/16/24** \u2014 the steps BOTH surfaces declare; the console has a 32 step the panel does not, and the contract records the shared ladder rather than the union, because a step one surface cannot reach is not a rhythm they share. A painting value OFF it is a nudge UNLESS it measures something else: a CONTROL's height (5 + 5 + an 18 px line box = 28) or the padding inside a FIXED target (1 px inside a 24 px box). Those are named tokens, so an editor who changes a line-height cannot silently change a control's height.",
