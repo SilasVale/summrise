@@ -169,6 +169,24 @@ describe("the layout contract", () => {
     expect(tokenPx(tokens(), gap)).toBe(contract.page.gap);
   });
 
+  it("is a CARD's inset: `padding: 0` only when the child brings the inset", () => {
+    // **A CARD AT `padding: 0` IS RIGHT ONLY WHEN ITS CHILD BRINGS THE INSET (the sixty-seventh list).** The
+    // pair that produced this rule: the panel's `.settings-fold` painted a frame and hugged it (its child was
+    // a plain block, so the BOX had to pad), while this surface's `.fleet-table-wrap` does the same thing
+    // and is CORRECT, because its child is a table whose header row pads `9px var(--sp-4)`.
+    const sheet = css();
+    const wrap = ruleFor(sheet, ".fleet-table-wrap");
+    expect(wrap, "the table card exists").not.toBeNull();
+    expect(wrap!, "and it pads nothing itself").toMatch(/padding: *0/);
+    // **AND THE CHILD SUPPLIES IT.** The header row's padding is what makes the zero right.
+    const th = ruleFor(sheet, ".fleet-table thead th");
+    expect(th!, "the table's header row pads").toMatch(/padding: *[^;]*var\(--sp-4\)/);
+    // **A PLAIN CARD PADS ITSELF.** The other cards on the same page are at the atom's 16, which is what a
+    // card whose children are blocks must do.
+    const card = ruleFor(sheet, ".card");
+    expect(card!, "a plain card pads itself").toMatch(/padding: *var\(--sp-4\)/);
+  });
+
   it("is ONE scrim, and a background outside it is not a colour a surface may paint", () => {
     // **THE SAME SCRIM IN TWO SHADES (the sixty-sixth list).** `.sheet-scrim` painted `rgba(0,0,0,.4)` and
     // `.scrim` painted `rgba(12,16,20,.38)`, and a later rule repainted BOTH to the same `color-mix` — so
