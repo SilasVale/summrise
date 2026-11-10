@@ -2206,8 +2206,12 @@ try {
     };
   });
   if (phoneFrame === null) throw new Error('the phone draws no .page');
-  if (phoneFrame.pad !== '24px') {
-    throw new Error(`the phone's page padding is ${phoneFrame.pad}, the contract says 24px`);
+  // **THE PHONE'S INSET IS A STEP, NOT THE DESK'S NUMBER (the hundred-and-ninth list).** This leg asserted 24 at
+  // 390 — the desk's inset — which is why the console spent **12%** of a 390 px window on chrome where the panel,
+  // which steps at 639, spends 21% . **The step is the contract's own**: the atom's `space.scale` has no 24 below
+  // the desk either, and `--sp-3-5` (14) is the step the panel already drew. **One number, both frames.**
+  if (phoneFrame.pad !== '14px') {
+    throw new Error(`the phone's page padding is ${phoneFrame.pad}, the contract's phone step says 14px`);
   }
   if (phoneFrame.gap !== '24px') {
     throw new Error(`the phone's page rhythm is ${phoneFrame.gap}, the contract says 24px`);

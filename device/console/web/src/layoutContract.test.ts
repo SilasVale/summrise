@@ -34,7 +34,7 @@ const contractPath = path.join(
 );
 
 type Contract = {
-  page: { max: number; pad: number; gap: number; listGap: number; boxSizing: string };
+  page: { max: number; pad: number; gap: number; listGap: number; boxSizing: string; phonePad: number };
   card: { radius: number; pad: number; gap: number; headerGap: number };
   rail: {
     // THE CONSOLE'S LABELLED RAIL STARTS AT THIS WIDTH (the seventy-fourth list); below it is the 56 px
@@ -199,7 +199,7 @@ describe("the layout contract", () => {
     // The literal below is the sha256 of BOTH copies, and it is the same literal the panel's test carries.
     const ours = createHash("sha256").update(contractText()).digest("hex");
     expect(ours).toBe(
-      "84d6a9e05fd6a64743da8c68ec4165114cfb743891637a4b06bd08cadc665dd2"
+      "d8f36aa235388d7c87fe93c1708306608f9b30c2ec05752e6c41441368be608c"
     );
     const sibling = path.join(here, "..", "..", "..", "..", "..", "summrise", "docs",
       "superpowers", "specs", "layout-contract.json");
@@ -1140,6 +1140,31 @@ describe("the layout contract", () => {
     const countRule = sheet.match(/\.filter-count \{\s[^}]*\}/);
     expect(countRule, "the count has a rule").toBeTruthy();
     expect(countRule![0], "the count is not a filter column any more").not.toContain("align-self: center");
+  });
+
+  it("steps the page's inset at the phone band, on BOTH surfaces", () => {
+    // **MEASURED 2026-11-11 ACROSS FIFTEEN WIDTHS, 1,600 → 360:**
+    //
+    //     surface   width   page pad   content column of the window
+    //     console   390     **24**     **342 of 390 (88%)** — 12% chrome
+    //     panel     390     **14**     **308 of 390 (79%)** — 21% chrome
+    //
+    // **The two surfaces agreed at the desk and disagreed at the phone.** The panel's step was a measured FIX in an
+    // earlier round that never reached this sheet, and the console's 24 drew `24px/24px/24px/24px` from 1,600 to
+    // **360** — the `phone` breakpoint in the atom moved nothing in the page's own inset.
+    // **The step is the scale's own**: `space.scale` has no 24 below the desk, and 14 sits between 12 and 16.
+    const sheet = stripComments(css());
+    // The step is a query at the atom's own band, and it sets the atom's own number.
+    const step = sheet.match(/@media \(max-width: 639px\)[^{]*\{[^}]*\.page[^}]*padding: var\(--sp-3-5\)/);
+    expect(step, "the phone band steps the page's inset").toBeTruthy();
+    // **AND THE DESK KEEPS THE 24.** A step that replaced the desk's inset would be a different page.
+    const desk = ruleFor(sheet, ".page");
+    expect(desk, "the desk's inset is still the atom's 24").toContain("padding: var(--sp-5)");
+    // The atom's numbers.
+    expect(contract.page.pad, "the desk's inset").toBe(24);
+    expect(contract.page.phonePad, "and the phone's step").toBe(14);
+    expect(contract.breakpoints.phone, "at the band the atom names").toBe(639);
+    expect(contract.space.scale, "and the step is ON the scale").toContain(14);
   });
 
   it("measures a line with ONE token, in `ch`, on every block of prose", () => {

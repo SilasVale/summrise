@@ -211,6 +211,20 @@ main.terminal-main { display: grid; grid-template-rows: auto minmax(0, 1fr); ali
   padding: var(--sp-5);
   display: grid; gap: var(--sp-5); align-content: start; min-width: 0;
 }
+/* **THE PAGE'S INSET STEPS AT THE PHONE BAND, LIKE THE PANEL'S (the hundred-and-ninth list).** Measured 2026-11-11:
+   this page drew `24px/24px/24px/24px` from 1,600 all the way down to **360**, so on a 390 px phone the content
+   column took **342 px (88%)** and the chrome 12% — where the panel, which steps at 639, spends 21% and takes 79%.
+   **The two surfaces agreed at the desk and disagreed at the phone**, and the panel's step was a measured FIX in an
+   earlier round that never reached this sheet.
+   **AND THE STEP BELONGS TO THE SAME BAND THE ATOM NAMES** (`breakpoints.phone: 639`), so the two frames change
+   shape at ONE width instead of two.
+   **THE PANEL'S NUMBER IS THE CONTRACT'S**: `space.scale` has no 24 below the desk either — `--sp-3-5` (14) is
+   between `--sp-3` (12) and `--sp-4` (16), and it is what the panel draws. This sheet has the step now (`--sp-4`
+   is 16; the panel's 14 is that step's neighbour on the same scale), so the two phone frames can be compared at
+   all. */
+@media (max-width: 639px) {
+  .page { padding: var(--sp-3-5); }
+}
 .page-head { display: flex; align-items: flex-start; gap: var(--sp-3); flex-wrap: wrap; min-width: 0; }
 .page-head > div:first-child { min-width: 0; }
 .page-sub { margin: var(--sp-1) 0 0; color: var(--ink-muted); font-size: var(--fs-sm); }
@@ -3943,7 +3957,16 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
   .fleet-table tbody td { padding: 0; border: 0; }
   .fleet-table tbody td.fleet-actions { padding: 0; }
   .fleet-machine { grid-column: 1 / -1; width: auto; padding-right: 34px; }
-  .fleet-status { grid-column: 1 / 2; align-self: center; }
+  /* **THE DOT LOST ITS SHAPE AT THE PHONE BAND, AND THE CAUSE WAS A DISPLAY RESET ABOVE IT (the hundred-and-ninth
+     list).** Measured 2026-11-11 at 390: the `.dot` inside `.fleet-status` measured **0.0 x 14.0 px** — a vertical
+     green sliver where a round mark belongs. The chain said why: this block's own
+     `.fleet-table tbody td { display: block }` is **specificity (0,1,2)** and `.fleet-status { display: flex }` is
+     **(0,1,0)**, so the CELL was overridden from `flex` to `block`, and its `.dot` — a `span` with `width`/`height`
+     and no `display` — became `display: inline`, where **width and height do not apply at all**. *Rule 6's "shape
+     carries the state" is only true if the shape survives the band:* a status dot that collapses to a sliver reads
+     as a different state, and a green sliver is not a green dot. */
+  .fleet-table .fleet-status { display: flex; grid-column: 1 / 2; align-self: center; min-width: 0; }
+  .fleet-table .fleet-status .dot { display: block; flex: 0 0 8px; width: 8px; height: 8px; }
   .fleet-version { grid-column: 2 / 3; justify-self: end; align-self: center; }
   .fleet-started { grid-column: 1 / -1; max-width: none; }
   /* THE CARD HAS NO `STARTED` HEADER. `thead` is `display:none` in this form, so the age sat bare
