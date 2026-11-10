@@ -3232,6 +3232,32 @@ Measured 2026-11-10 on the built panel at 1360, walking every page the rail can 
    same element the other six use. **S.** *(Folded into item 1's fix — `43ce6aee` deletes the 17/700 `sr-only`
    element; the number stays here because it is a measurement, not a step.)*
 
+## P0 — the seventy-second list (opened 2026-11-10, the empty state is one card on one surface and a line of text on the other)
+
+The seventy-first list is closed: every page of the panel draws one head. This list is rule 19 — *"every
+surface has an empty, a loading and a failed state that tell the truth"* — asked of the state the contract
+already names most precisely: the EMPTY.
+
+The contract's `empty` atom: **one card** — `radius 14, pad 16, gap 12, textAlign start, shadow none`. Measured
+2026-11-10 on the rendered surfaces, after filtering a list until nothing matches:
+
+     console Activity   `.timeline-empty-filtered`   1,072 x 68   radius 0   pad 0   align start   no card
+                        + a `Clear search` button inside it                          ← keeps the way back
+     panel  Plugins     `.plug-empty`                1,042 x 18   radius 0   pad 0   align CENTRE
+                        wrapped in `.card` at pad 0                                  ← a card that hugs its text
+                        no control at all                                            ← no way back
+
+**So the atom's own numbers are met on neither surface, and the two miss it in opposite directions.**
+
+1. **The panel's filtered empty is a centred sentence inside a card that pads 0.** Its wrapper IS `.card`
+   (radius 14, border 1, white) but the card's inset is the CHILD's — and the child has `margin: 14px` and
+   `text-align: center`, so the card is **48 px tall** around one 18 px line, and the line is centred in
+   1,042 px. The atom says start-aligned and padded 16. **Fix:** the empty state is the atom: the card's
+   inset, start-aligned, and a control that undoes the filter. **M.**
+2. **The console's filtered empty is not a card at all** — no corner, no inset, a bare `p.hint` and a
+   button on the page's grid. It keeps the way back (which the atom does not require and which is right);
+   what it lacks is the box the atom says an empty state is. **Fix:** the same card, keeping the button. **S.**
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
