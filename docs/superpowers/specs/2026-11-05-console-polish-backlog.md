@@ -4749,6 +4749,37 @@ on chrome and the panel **21%**: the same page, two frames.
    sheet that writes the step on ONE line — *looking for a layout instead of a fact*, the same mistake this program
    keeps paying for.)*
 
+## P0 — the hundred-and-tenth list (opened 2026-11-11, `13 px / 600` carries TWO trackings, and the panel has a step nobody reads)
+
+The hundred-and-ninth list is closed. This list is rule 14 — *"letter-spacing by size"* — measured with the
+`tracking` atom's own grouping: **a size gets ONE step, grouped by size, then weight, then KIND** (an uppercase
+label, a mono value and prose are three kinds; the atom says so).
+
+Measured 2026-11-11 at 1,360, every (size / weight / kind) group that carried MORE THAN ONE tracking:
+
+     surface/page           group            the two answers, and who draws them
+     console Home           **13/600/body**   `-0.26px` ← `.brand-name`, `.machine-menu-label`
+                                              **`normal`** ← `.rail-label`
+     console Activity       **17/600/body**   `-0.34px` ← `.timeline-day-label`
+                                              **`normal`** ← `.activity-today` (the count I moved last round)
+     panel Settings         **17/600/body**   `-0.187px` ← every `h2`
+                                              **`normal`** ← `.settings-fold > summary`
+     panel Terminal         **13/400/mono**   `normal` ← xterm's measure element
+                                              `0.0166px` ← the terminal's own spans
+
+**Same size, same weight, one is a title and one is a plain word — and the product gives both the title's tracking
+in one place and none in the other.** The console's `.rail-label` ("Home") sits under a brand set at `-0.26px` and
+carries `normal`; the panel's fold `summary` ("Diagnostics") sits under `h2`s at `-0.187px` and carries `normal`.
+
+**And the panel declares a step nothing reads**: `--tracking-micro: 0.014em` is read by ONE rule in `dial.css`,
+while the two tokens the atom actually names (`label`, `eyebrow`) exist on the console and **`eyebrow` does not
+exist on the panel at all**.
+
+1. **A (size, weight, kind) group carries two trackings on both surfaces, and the atom's rule says it may not.**
+   **Fix:** the group's OWNER declares its step, and a step nothing reads is deleted. **M.**
+2. **Nothing gates rule 14.** The atom's `literals: 0` is a claim about the sheets, and no gate reads it — a rule
+   that writes `letter-spacing: normal` or a fifth hand-written number passes every gate in both repos. **S.**
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
