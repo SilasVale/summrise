@@ -4551,8 +4551,20 @@ whose level is a lie.
 1. **An h2 at eyebrow size on one card, a non-heading `header` at 13/400 on the other, and the atom says 14/600.**
    **Fix:** a card's title is one element at one level, and a SMALL UPPERCASE LABEL is an eyebrow, not an `h2`.
    **M.**
+   *(**Done on both sides, MERGED, NOT DEPLOYED** — console `3379b2c`, panel `ca48f508e`. The console's attention card
+   keeps its label's typography (10/600/uppercase/`--tracking-label`) and stops being a heading; the section keeps
+   its `aria-label`, so the accessible name a reader gets is unchanged. The panel's card title is an **`h2` at 14/600**
+   — and **the outline gate was right when it refused my first fix**: an `h3` under a page's `h1` skips a level, and
+   the card sits directly under the page. **The element says the RUNG it occupies; the size is the atom's.**
+   **AND THE BROWSER GATE CAUGHT THE CONSOLE'S SHAPE CHANGE THE MOMENT IT HAPPENED**: `the attention block's heading
+   read ""`, because its step queried `h2`. That is a gate doing its job; its selector now reads
+   `.attention-label, h2`, so the question — *what does the block call itself?* — survives a tag change.)*
 2. **Nothing reads a card's own title.** `maxHeadsPerPage` counts page heads; no gate checks that a card's title is
    a heading at the atom's size, so a page can draw a label and call it a section. **S.**
+   *(**Done on both sides**: the console's `draws a LABEL as a label and a HEADING as a heading, at the atom's levels`
+   reads the markup AND pins the browser gate's selector; the panel's `titles a card with a HEADING at the atom's
+   size, not a span at 13/400` reads the element and the atom's pair. Mutations: the `h2` back on the console and the
+   `<span>` back on the panel both fail.)*
 
 ## How a round goes
 
