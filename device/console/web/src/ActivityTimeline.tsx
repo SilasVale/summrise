@@ -1065,7 +1065,20 @@ export function ActivityTimeline(props: {
                 {dayIndex === 0 && cappedSentence !== null && (
                   <p className="hint timeline-capped">{cappedSentence}</p>
                 )}
-                <h2 className="timeline-day-label is-sticky">{day.label}</h2>
+                {/* **EVERY DAY SAYS WHAT IT HOLDS (the ninety-third list).** Measured 2026-11-11 on the
+                    served build with a seeded record of two days: a day's children were its label and its
+                    rows and NOTHING else, while `dayText(lines)` — which builds "22 calls · 15:30 → 15:34" —
+                    was drawn in exactly one place, the DOOR's title and facts, i.e. only when the day is
+                    longer than the 60 rows drawn. So "what does this day hold?" was answered on a long day and
+                    unanswerable on a short one: one question, one page, two behaviours, decided by a number
+                    the reader cannot see.
+                    **AND THE FACTS ARE THE HEADING'S SIBLING, NOT ITS CHILD**, so the day's heading name stays
+                    exactly what the day is called: a reader who jumps by heading hears "Today", "Monday,
+                    11/9" — the record's structure — instead of a heading whose name ends in a clock range. */}
+                <div className="timeline-day-head is-sticky">
+                  <h2 className="timeline-day-label">{day.label}</h2>
+                  <span className="timeline-day-facts">{dayText(day.lines)}</span>
+                </div>
                 <ol className="timeline-rows">
                   {shown.map((line, index) => {
                     const key = `${line.ts_ms}-${line.tool ?? line.kind}-${line.status}`;

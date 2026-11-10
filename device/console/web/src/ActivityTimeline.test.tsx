@@ -694,12 +694,19 @@ describe("ActivityTimeline", () => {
     expect(time).toHaveTextContent(/^\d{2}:\d{2}:\d{2}$/);
   });
 
-  it("marks the day label for the scroll container so it can stick", () => {
+  it("marks the day's head for the scroll container so it can stick", () => {
+    // **THE ROW THAT STICKS IS THE DAY'S HEAD, NOT ITS HEADING (the ninety-third list).** The head now carries
+    // the day's NAME and its FACTS on one line — `Today  22 calls · 15:30 → 15:34` — and the facts are the
+    // heading's SIBLING so a reader who jumps by heading still hears "Today" and not a heading ending in a
+    // clock range. What sticks is therefore the head; the heading is its first child.
     render(<ActivityTimeline lines={[fromAlpha]} devices={[]} nowMs={fromAlpha.ts_ms + 1_000} />);
 
     const label = screen.getByRole("heading", { name: "Today" });
     expect(label).toHaveClass("timeline-day-label");
-    expect(label).toHaveClass("is-sticky");
+    const head = label.closest(".timeline-day-head");
+    expect(head, "the heading lives in the day's head").not.toBeNull();
+    expect(head).toHaveClass("is-sticky");
+    expect(document.querySelector(".timeline-day-label.is-sticky")).toBeNull();
   });
 
   it("freezes the age column at nowMs so a paused page stops ageing", () => {
@@ -1416,7 +1423,10 @@ describe("ActivityTimeline's day door", () => {
         Node.DOCUMENT_POSITION_FOLLOWING
     ).toBeTruthy();
     // The day label is inside the timeline, so the sentence is above the record and not below it.
-    const before = document.querySelector<HTMLElement>(".timeline-day-label");
+    // **AND IT IS ABOVE THE DAY'S HEAD, WHICH IS WHAT THE LABEL NOW LIVES IN** (the ninety-third list): the
+    // head carries the day's name and its facts, and the cap sentence still comes before that head.
+    const before = document.querySelector<HTMLElement>(".timeline-day-head");
+    expect(before).not.toBeNull();
     expect(before?.previousElementSibling).toBe(capped);
   });
 });
