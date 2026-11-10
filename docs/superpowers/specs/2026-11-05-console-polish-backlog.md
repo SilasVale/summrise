@@ -4096,14 +4096,27 @@ head carries `padding: 24px` on a full-bleed body while every other page's head 
 The 22/700 titles line up by accident (170 both), and their frames do not: **the same page frame has two left
 edges, and only a coincidence makes the titles agree.**
 
-**And the console says the opposite in one line.** Its `.page` is `width: min(1120px, 100%); margin: 0 auto;
-padding: var(--sp-5)` — ONE inset for the head, the body and every card — and the panel's desktop pairs
-`.desktop-header` (1 px at 68) with `.desktop-content` (the same box, so the body starts at 68 while its content
-starts at 146). **The body's box and the body's content are two different left edges on the panel and one on the
-console.**
+**And it is not two edges, it is FIVE.** Measured the same page's inner strips, from the title down to the prompt:
 
-1. **The terminal head carries its own 24 px inset inside a full-bleed body.** **Fix:** the page frame's inset is
-   declared once and the head reads it. **M.**
+     element            text's left edge
+     title              170
+     view tabs           73
+     `Goal`              85
+     `Waiting for you`   89
+     the command line    98
+
+**One page, five left edges for its own content** — each strip bringing its own `padding` (9, 16, 16 + a 4 px
+border-left, then 9 more) and nothing declaring the page's measure once. A reader's eye is given no vertical
+line to follow from the title down to the first output line.
+
+**And the console says the opposite in one line.** Its `.page` is `width: min(1120px, 100%); margin: 0 auto;
+padding: var(--sp-5)` — ONE inset for the head, the body and every card — measured text edges: **title 260,
+subtitle 260, card text 279** (the card's own 16 + 1 hairline is the only step, which is the card grammar).
+**The console has one page measure and the panel's Terminal page has five.**
+
+1. **A full-bleed body's strips each bring their own inset — five left edges on one page.** **Fix:** the body
+   declares its measure once and the strips read it, so the title's line and the body's content share one edge
+   at the page's own numbers. **M.**
 2. **No gate compares the two surfaces' left edges, and none compares the panel's pages to each other.**
    **Fix:** a measurement in each repo's contract test, at the same numbers. **S.**
 
