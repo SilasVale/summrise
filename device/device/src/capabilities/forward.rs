@@ -1558,6 +1558,45 @@ mod tests {
             .unwrap_or(0)
     }
 
+    /// **WITHOUT A REACTOR, A ROW IS WRITTEN AND NOT LISTENING — AND THE ROW SAYS SO.**
+    /// `reconcile` returns early when no reactor is running, which is right: an executor cannot be
+    /// spawned outside one. But the row it leaves behind must not read as a working rule, because a
+    /// `forward.add` outside a runtime is a table entry somebody could believe in. The state starts
+    /// `listening: false` with an error naming the reason, which is what `forward.list` serves.
+    ///
+    /// **THE SYNCHRONOUS PATH IS NOT HYPOTHETICAL**: `ForwardRegistry::new` loads at construction,
+    /// and a unit test (or an embedder of this crate) can call `add` before a runtime exists. The
+    /// measured process never does — it starts executors under the reactor — so this asserts the
+    /// boundary rather than a field failure.
+    ///
+    /// MUTATION (run, not asserted): making the early return mark the rows `listening: true` made this
+    /// fail with `no reactor ran, so there is no listener: ForwardState { … listening: true, … }`.
+    /// Restored, green.
+    #[test]
+    fn a_row_added_without_a_reactor_does_not_claim_to_be_listening() {
+        let fixture = Fixture::new("noreactor");
+        // A synchronous `#[test]`, so there is no runtime to spawn into.
+        let added = fixture
+            .registry
+            .add(&spec("offline", "127.0.0.1:19800", "10.0.0.1:80", "u@h:22"))
+            .expect("the rule is configured");
+        assert_eq!(added.name, "offline");
+        // THE TABLE HAS IT — the write is a write, and it survives to the next boot, which is where
+        // the executor will start.
+        assert_eq!(fixture.registry.rules().len(), 1);
+        // THE ROW DOES NOT CLAIM A LISTENER. With no runtime nothing was bound, and a row that said
+        // `listening` while no socket existed is the failure this asserts against.
+        let state = fixture.registry.state("offline").expect("the row");
+        assert!(
+            !state.listening,
+            "no reactor ran, so there is no listener: {state:?}"
+        );
+        assert_eq!(
+            state.attempts, 0,
+            "no bind was attempted, so no attempt is recorded: {state:?}"
+        );
+    }
+
     /// A half-close is a half-close: each direction ends on its own EOF, so a client that sends its
     /// request and then shuts down its write half still GETS THE ANSWER.
     ///
