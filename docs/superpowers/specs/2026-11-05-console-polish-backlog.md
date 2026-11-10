@@ -4613,6 +4613,39 @@ has a HUE the shared palette has no name for, on one page, next to an accent was
    `rgb(191, 58, 10)` in `button:hover` → "no rule paints the accent as a literal"; `.btn.primary:hover` back to
    `--accent-ink` → "and it takes the DARKER step".)*
 
+## P0 — the hundred-and-seventh list (opened 2026-11-11, the subtitle slot draws TWO treatments and, on one page, TWO lines)
+
+The hundred-and-sixth list is closed. This list is rule 4 and rule 5 — *"fewer font weights"* and *"hierarchy from
+size, weight and colour"* — measured at the ONE element the `head` atom names: `subtitleSlot: ".page-sub"`, the
+page's second line.
+
+Measured 2026-11-11 at 1,360, every `.page-sub` inside a page head:
+
+     surface/page       count  size/weight   ink                what it says
+     console Activity   **2**  13 / **500**   **ink**            "Today: undefined client calls."
+                               12 / 400        muted              "The live stream is down; …"
+     panel Memory       **1**  13 / **400**   muted              "Knowledge this device has saved —"
+     panel Plugins      **1**  13 / 400        muted              "Device tooling and browser automation."
+     panel Settings     **1**  13 / 400        muted              "Connection, device limits and diag…"
+     console Home, console Device, panel Terminal   **0**        —   (no second line at all)
+
+**One slot, and the same class draws two treatments: 13/500 in the page's own ink on one surface, 13/400 in muted on
+the other.** `--fw-medium` (500) appears on 99 elements on the console's Activity page and on **2** on the panel's
+Plugins page — **a weight one surface uses for a subtitle and the other barely uses at all**.
+
+**And on Activity the slot carries TWO elements**, which the atom's `maxHeadsPerPage: 1` does not catch because both
+are `.page-sub`: the day's COUNT ("Today: undefined client calls") and the stream's STATUS ("The live stream is down")
+both wear the subtitle's name. **A count is not a subtitle**, and the second one is a paragraph where the slot is one
+line.
+
+**Three pages draw no subtitle at all** — Home, Device and the panel's Terminal — so the atom's slot exists on five
+pages of eight, at two inks.
+
+1. **The subtitle slot's treatment is two inks and two weights for one role.** **Fix:** one treatment in the contract,
+   read by both sheets, and a page that has nothing to say draws nothing. **M.**
+2. **The slot is a NAME, not a COUNT.** `maxHeadsPerPage` counts heads; nothing counts `.page-sub`, so a page can put a
+   number and a status paragraph inside the subtitle slot and no gate sees it. **S.**
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
