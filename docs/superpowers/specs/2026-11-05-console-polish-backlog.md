@@ -4566,6 +4566,35 @@ whose level is a lie.
    size, not a span at 13/400` reads the element and the atom's pair. Mutations: the `h2` back on the console and the
    `<span>` back on the panel both fail.)*
 
+## P0 — the hundred-and-sixth list (opened 2026-11-11, the panel paints NINE warm colours where the atom declares one accent)
+
+The hundred-and-fifth list is closed. This list is rule 2 — *"a limited palette: greys plus one accent plus
+semantic"* — measured as a HUE CENSUS, because the `palette` atom records `ink/muted/faint` + `accent` +
+`semantic: [ok, warn, danger, focus]` and the pages are the only place the claim can be checked.
+
+Measured 2026-11-11 at 1,360, every painted colour grouped into hue families:
+
+     surface/page      families                       members in the WARM (accent) family
+     console Home      ok, **accent ×4**              191,58,10 · 179,38,30 · 176,58,10 · 160,93,8
+     console Activity  ok, accent ×2                  191,58,10 · 255,240,230
+     panel Terminal    ok, **accent ×9**, blue ×1      **156,58,10 · 146,64,14 · 191,58,10 · 255,239,229 · 179,38,30 · 176,58,10 · 217,72,15 · 165,29,29**
+     panel Memory      **teal ×2, accent ×5**          191,58,10 · 156,58,10 · 255,239,229 · 146,64,14
+
+**Nine distinct warm colours on one page, all of them "the accent".** They are five TOKENS — `--accent` `#bf3a0a`,
+`--accent-ink` `#d9480f`, `--accent-solid` `#b03a0a`, `--accent-on-soft` `#9c3a0a`, `--warn-ink` `#92400e` — plus the
+`danger` family's reds and two washes. A reader cannot tell `#bf3a0a` from `#b03a0a` from `#9c3a0a`; **rule 12 names
+that as the defect: "no ambiguous or too-similar colours"**, and the palette atom's own sentence is *"Anything else is
+a decision that has to be made in the open."*
+
+**And the panel paints a TEAL that the atom does not declare at all** — `#0a6f64` for memory tags — so the surface
+has a HUE the shared palette has no name for, on one page, next to an accent wash.
+
+1. **Five accent-adjacent tokens and two unspoken hues, where the atom declares one accent and four semantics.**
+   **Fix:** the accent family's members are the atom's, at the distances a reader can name, and an undeclared hue
+   either becomes a semantic or stops being drawn. **M.**
+2. **Nothing census-checks the palette.** `themeContrast` measures pairs it is told about; there is no gate that counts
+   the HUES a page paints, so a sixth accent-adjacent colour ships with every contrast check passing. **S.**
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
