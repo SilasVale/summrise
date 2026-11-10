@@ -344,7 +344,7 @@ pub(crate) fn install_root() -> Result<PathBuf, UpdateError> {
 }
 
 /// [`install_root`] for one executable's directory, without reading this process's own path.
-fn install_root_of(dir: &Path) -> PathBuf {
+pub(crate) fn install_root_of(dir: &Path) -> PathBuf {
     let versioned = dir
         .parent()
         .filter(|versions| versions.file_name().is_some_and(|name| name == "versions"))

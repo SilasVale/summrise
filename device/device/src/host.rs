@@ -24,7 +24,7 @@
 //! state is unreadable omits the section rather than sending a story it does not have.
 
 use std::io::{BufRead, BufReader};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use summrise_core::{State, UpdateOutcome, VerdictOutcome};
 
@@ -72,12 +72,18 @@ pub fn facts(data: &std::path::Path) -> serde_json::Value {
     if let Some(task) = crate::repair_task::facts() {
         document["repair_task"] = task;
     }
-    // The install root is where this executable was started from: an installed app lives at
-    // `<install>/summrise-device.exe`. An executable that cannot name its directory reports the
-    // update facts as unknown rather than failing the facts.
+    /* **THE INSTALL ROOT IS NOT THE EXECUTABLE'S DIRECTORY ON A VERSIONED INSTALL (measured 2026-11-10).**
+       Every machine this product ships runs `<install>/versions/<name>/summrise-device.exe`, so
+       `current_exe().parent()` is `…/versions/0.3.292` — and the four facts that join the install root
+       (`summrise-shell.exe`, `baseline/`, `swap.result.json`) all came back absent on a machine where
+       every one of them exists. Measured on DESKTOP-9VH92BJ: `C:\Program Files\Summrise\summrise-shell.exe`
+       is there (1,514,496 bytes) while `/api/host` said `shell.present: false`, and that false fact is
+       what makes "is the tray installed?" unanswerable from the console. `updater::install_root_of`
+       already makes that decision (the launcher's `--stage` mode uses it); the facts were the one caller
+       still reading the raw directory. */
     let install = std::env::current_exe()
         .ok()
-        .and_then(|exe| exe.parent().map(Path::to_path_buf));
+        .and_then(|exe| exe.parent().map(install_root_of_dir));
     // What this build can do beyond request/answer. The console offers a terminal stream only to
     // a device that names this capability: an older build would fail to parse the subscribe frame
     // and answer nothing at all, which is a hung stream rather than a fallback.
@@ -101,6 +107,18 @@ pub fn facts(data: &std::path::Path) -> serde_json::Value {
         None => serde_json::json!({ "present": false }),
     };
     document
+}
+
+/// The install root the FACTS read, from the directory the running executable was started in.
+///
+/// **A VERSIONED INSTALL'S EXECUTABLE IS ONE LEVEL BELOW ITS ROOT** (measured 2026-11-10): every machine
+/// this product ships runs `<install>/versions/<name>/summrise-device.exe`, so the executable's own
+/// directory is the VERSION directory and the shell file, the baseline generations and the swap result
+/// all sit one level above it. `updater::install_root_of` already makes that decision for the launcher's
+/// hidden modes; this is the same rule at the seam the facts read, so a test can point at it without
+/// asking the process where it is.
+fn install_root_of_dir(dir: &Path) -> PathBuf {
+    crate::updater::install_root_of(dir)
 }
 
 /// The installed `summrise-shell.exe`'s digest and size, for the console to show beside the app's own
@@ -841,6 +859,48 @@ mod tests {
             present["sha256"].as_str().map(str::len),
             Some(64),
             "a digest, in the same hex the release documents use: {present}"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// **A VERSIONED INSTALL'S EXECUTABLE IS ONE LEVEL BELOW ITS ROOT, AND THE FACTS READ THE ROOT
+    /// (measured 2026-11-10).** `summrise-device.exe` runs from `<install>/versions/<name>/` on every
+    /// machine this product ships, so `current_exe().parent()` is the version directory — and the shell
+    /// file, the baseline generations and the swap result are all one level above it. Measured on a live
+    /// machine: the tray was at `<install>\summrise-shell.exe` (1,514,496 bytes) while `/api/host` said
+    /// `shell.present: false`, which is exactly the fact that makes "is the tray installed?" unanswerable.
+    /// The reader is `updater::install_root_of`, and this test is the shape it has to get right.
+    #[test]
+    fn a_versioned_installs_facts_read_the_root_not_the_version_directory() {
+        let dir = std::env::temp_dir().join(format!("summrise-versioned-facts-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let install = dir.join("install");
+        let version = install.join("versions").join("1.2.3");
+        std::fs::create_dir_all(&version).expect("the version directory is creatable");
+        std::fs::write(install.join(crate::update::CURRENT_POINTER), "1.2.3\n")
+            .expect("the pointer is writable");
+        std::fs::write(install.join("summrise-shell.exe"), b"a tray binary")
+            .expect("the fixture shell is writable");
+        std::fs::write(version.join("summrise-device.exe"), b"the app")
+            .expect("the fixture app is writable");
+
+        // The proxy for "where the facts look" is the same function the facts use.
+        let root = install_root_of_dir(&version);
+        assert_eq!(root, install, "the root is above versions/");
+        let shell = shell_state(&root);
+        assert_eq!(
+            shell["present"],
+            serde_json::json!(true),
+            "the shell beside the ROOT is found: {shell}"
+        );
+        assert_eq!(shell["bytes"], serde_json::json!(13), "{shell}");
+        // **AND THE VERSION DIRECTORY ITSELF WOULD HAVE SAID NO** — that is the defect, stated as a
+        // measurement rather than as a comment.
+        let naive = shell_state(&version);
+        assert_eq!(
+            naive["present"],
+            serde_json::json!(false),
+            "reading the executable's own directory misses the shell: {naive}"
         );
         let _ = std::fs::remove_dir_all(&dir);
     }
