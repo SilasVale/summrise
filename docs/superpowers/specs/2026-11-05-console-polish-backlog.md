@@ -4328,8 +4328,17 @@ transport's word with a subject's label glued on**, which the atom's own sentenc
 **The console is right here and the panel is wrong — which is the direction that matters**: the failed atom was
 written from the console's shape, and the panel's page that never got a list still prints a line where a box belongs.
 
-1. **The Plugins failure is a bare red line, drawn twice, in the transport's vocabulary.** **Fix:** one box, the
-   atom's, with the subject's sentence and its one Retry. **M.**
+**AND ONE CLAUSE OF THIS LIST WAS WRONG, caught by the suite before it shipped.** I first read
+`inventory: boom` as "the transport's word with a subject's label glued on" — but `boom` came from my own fixture
+answering `{"error": "boom"}`, which the hook's rule treats as **a device's own sentence**, exactly the case
+`inventory: <them>` was written for and that **six tests defend** (a refactor of the sentence broke all six, and the
+tests were right). **The measurement that lied was the fixture's, not the page's** — a fabricated `error` body is a
+refusal, and a refusal carries words a person can act on. What remains true, and what this list is about, is the
+BOX.
+
+1. **The Plugins failure is a bare red line, drawn TWICE, with neither the atom's box nor its tint.** **Fix:** one
+   box, the atom's (radius 8, pad 12, `tint: alarm`, `textTone: ink`, one Retry), and the duplicate line goes.
+   **M.**
 2. **Nothing measures a failed state's BOX.** `role="status"` and the sentence are checked where they exist; a
    failure drawn as a `p` with no `background` satisfies every rule 6 gate by having nothing to measure. **S.**
 
