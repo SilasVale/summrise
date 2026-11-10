@@ -2665,6 +2665,37 @@ and three of the panel's extra ones are its own alpha composites (`rgba(0,0,0,.0
    are the same grey only if the compositing stack underneath agrees, and that has to be measured on the
    rendered page rather than assumed from the declarations.)*
 
+## P0 — the fifty-seventh list (opened 2026-11-10, the hairline is three families on one page)
+
+The fifty-sixth list's first item is closed: the third grey is one colour. This list continues its
+SECOND item, measured where the last round said it must be — on the rendered page rather than in the
+declarations — and the measurement found something the declarations could not say.
+
+Measured by counting DISTINCT BORDER COLOURS on a page (rule 8, "fewer borders", read as a count):
+
+       console Home      4 distinct   (2 of them transparent)
+       panel  Memory      5 distinct   (5 opaque, one `rgba(24,32,54,.07)`)
+       panel  Settings    9 distinct   (2 of them are INK and MUTED used as borders)
+
+1. **A border is three different families on the panel, and one on the console.** Measured, the names
+   behind those pixels:
+
+       console  --line rgba(0,0,0,.08)  --line-strong .14  --line-soft .05   (one family, and
+                `--hairline` is DERIVED from the ink with color-mix — the same grey spelled once)
+       panel    --line rgba(0,0,0,.08)  --line-strong .14  --line-soft .05   (the same family)
+                PLUS --chrome-line rgba(0,0,0,.08)      ← the same value as --line
+                PLUS --glass-hairline rgba(24,32,54,.07) ← a COOL grey, 0.01 off the first
+
+   So `.08` has two names, and a third name is a different hue at almost the same alpha. **A hairline
+   is the least visible thing a page draws and the most expensive to reason about**, and the panel asks
+   a reader to choose between `--line`, `--chrome-line` and `--glass-hairline` with no rule to choose by.
+   **Fix:** one hairline family per theme, in the contract, and the extra names go. **M.**
+
+2. **And two of Settings' nine are not greys at all:** `rgb(113,113,122)` (`--muted`) and
+   `rgb(24,24,27)` (`--ink`) used as `border-color`. A border that is TEXT ink is a fourth way to say
+   "a line", and it makes the border count rise without making anything clearer. **Fix:** the count is
+   the assertion — a page draws its greys and its accent and its semantics, and nothing else. **S.**
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
