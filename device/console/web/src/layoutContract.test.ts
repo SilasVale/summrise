@@ -34,7 +34,7 @@ const contractPath = path.join(
 );
 
 type Contract = {
-  page: { max: number; pad: number; gap: number; listGap: number };
+  page: { max: number; pad: number; gap: number; listGap: number; boxSizing: string };
   card: { radius: number; pad: number; gap: number; headerGap: number };
   rail: {
     console: number;
@@ -152,7 +152,7 @@ describe("the layout contract", () => {
     // `agent/resources/panel-react/src/lib/layoutContract.test.ts`. If the two disagree, the two
     // frontends are drawn to different page systems and one of them is wrong.
     expect(createHash("sha256").update(contractText()).digest("hex")).toBe(
-      "6fb371cd748e6b38d9e59c1c686948eda739f6a567d57b448e205fa5f2f5959f"
+      "eb47909f905d8c76235d46b76d84ec9ec5bae3e0b6c36c5d7ff4bae81aab78b7"
     );
   });
 
@@ -168,6 +168,23 @@ describe("the layout contract", () => {
     expect(page, "the page's rhythm comes from the scale").toContain(`gap: var(--${gap})`);
     expect(tokenPx(tokens(), pad)).toBe(contract.page.pad);
     expect(tokenPx(tokens(), gap)).toBe(contract.page.gap);
+  });
+
+  it("is the frame's arithmetic: this surface's `max` is the BOX, which is the panel's defect to avoid", () => {
+    // **THE CONTRACT'S `max` MEANT THE BOX HERE AND THE CONTENTS ON THE PANEL (the seventieth list).**
+    // Measured 2026-11-10 at 1,440: this page is **1,120 wide with 1,072 of contents** because of the global
+    // `* { box-sizing: border-box }` and `width: min(1120px, 100%)`; the panel declared `max-width: 1120px`
+    // under content-box, drew a box of 1,168 with 1,120 of contents, and below `wide` stuck **31 px past the
+    // window's right edge**. This surface was already right, and that is why the number needed recording:
+    // an unrecorded correct answer is one a later page can get wrong.
+    expect(contract.page.boxSizing, "max is the box").toBe("border-box");
+    const sheet = css();
+    // The global reset is this surface's arithmetic, and the frame's width is derived from the contract.
+    expect(sheet, "this surface resets every box").toMatch(/\*\s*\{\s*box-sizing:\s*border-box/);
+    const page = ruleFor(sheet, "\\.page");
+    expect(page, "the page's width is capped by the contract's number").toContain(
+      `min(${contract.page.max}px, 100%)`
+    );
   });
 
   it("is the page body's rhythm, and a list's tick is the list's own", () => {
