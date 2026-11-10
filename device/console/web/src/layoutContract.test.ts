@@ -51,6 +51,13 @@ type Contract = {
   ground: { light: string; dark: string; gradients: number };
   elevation: { flat: string; pane: string; raised: string };
   palette: { ink: string; muted: string; faint: string; accent: string; semantic: string[] };
+  hairline: {
+    line: string;
+    strong: string;
+    soft: string;
+    names: number;
+    stateMarksCarryOwnColour: boolean;
+  };
   section: {
     h2: { size: number; weight: number };
     h3: { size: number; weight: number };
@@ -120,7 +127,7 @@ describe("the layout contract", () => {
     // `agent/resources/panel-react/src/lib/layoutContract.test.ts`. If the two disagree, the two
     // frontends are drawn to different page systems and one of them is wrong.
     expect(createHash("sha256").update(contractText()).digest("hex")).toBe(
-      "d9ff87c5f0b8b5931be03097835fb96ba989a604b63cd36507d22fc3f506248f"
+      "23106e9c4e6ca323c4a5c9663975f6ccb084612be0b866abba95dd977cee6618"
     );
   });
 
@@ -136,6 +143,24 @@ describe("the layout contract", () => {
     expect(page, "the page's rhythm comes from the scale").toContain(`gap: var(--${gap})`);
     expect(tokenPx(tokens(), pad)).toBe(contract.page.pad);
     expect(tokenPx(tokens(), gap)).toBe(contract.page.gap);
+  });
+
+  it("is ONE hairline family, and the chrome's line is derived rather than restated", () => {
+    // **THIS SURFACE HAD ONE FAMILY AND THE PANEL HAD THREE (the fifty-seventh list).** Measured, the
+    // panel's `--chrome-line` was the same `rgba(0,0,0,.08)` as `--line` under a second name, and its
+    // `--glass-hairline` was a COOL `.07` for the same job. This surface derives the chrome's line from
+    // the ink with `color-mix` and keeps the family at three steps — which is the shape the contract now
+    // records, so the surface that had three names could not keep them.
+    const tk = tokens();
+    expect(tk, "the line is the contract's").toMatch(/--line:rgba\(0,0,0,\.08\);|--line:rgba\(0, 0, 0, 0\.08\);/);
+    expect(tk, "the strong step").toContain("--line-strong:rgba(0,0,0,.14)");
+    expect(tk, "the soft step").toContain("--line-soft:rgba(0,0,0,.05)");
+    // **AND THE CHROME'S LINE IS NOT A FOURTH NAME** — it is the same `--line`, so a change to the
+    // hairline cannot leave the chrome behind.
+    const sheet = css();
+    expect(sheet, "the chrome line is derived from the ink").toMatch(
+      /--hairline:\s*color-mix\(in srgb, var\(--ink\)/);
+    expect(contract.hairline.names, "one family, three steps").toBe(1);
   });
 
   it("is the palette's third grey, and this surface is the one it came from", () => {
