@@ -792,7 +792,22 @@ mod tests {
             tokio::time::sleep(Duration::from_millis(50)).await;
         }
 
-        let events = std::fs::read_to_string(fixture.dir.join(EVENTS_FILE)).unwrap_or_default();
+        // THE LINE IS WRITTEN OFF THE REACTOR, so the row's error can be visible a beat before the
+        // file has it. Poll for the line itself; that is what the operator's reader does anyway.
+        let path = fixture.dir.join(EVENTS_FILE);
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+        let events = loop {
+            let text = std::fs::read_to_string(&path).unwrap_or_default();
+            if text.contains("forward.refused") {
+                break text;
+            }
+            assert!(
+                tokio::time::Instant::now() < deadline,
+                "no forward.refused line ever arrived at {}: {text}",
+                path.display()
+            );
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        };
         let refused: Vec<&str> = events
             .lines()
             .filter(|line| line.contains("forward.refused"))
@@ -905,6 +920,43 @@ mod tests {
             live.contains("the line that crosses the cap"),
             "the new line is in the live file, not lost to the rotation"
         );
+    }
+
+    /// **THE LINE IS WRITTEN OFF THE REACTOR, AND IT IS STILL WRITTEN.** Two facts, and the second is
+    /// the one that matters: `spawn_blocking` is asynchronous, so a test that reads the file at once
+    /// would be racing the worker. It polls, which is what an operator's reader does too.
+    ///
+    /// The path goes through `record_event_async` — the function the accept loop and the bind ladder
+    /// call — not `record_event` directly, because the wrapper IS the change: a rule's log line
+    /// arrived from a blocking worker, and a wrapper that silently dropped it would leave the tests
+    /// above green and the operator without the record D6 promises.
+    ///
+    /// MUTATION (run, not asserted): make the `Ok` arm a `{}` — the shape the `Err` arm had while
+    /// this was being written — and this fails on the deadline.
+    #[tokio::test]
+    async fn the_line_arrives_from_the_blocking_worker() {
+        let fixture = Fixture::new("offreactor");
+        let events = fixture.dir.join(EVENTS_FILE);
+        record_event_async(
+            events.clone(),
+            json!({ "ts_ms": 1u64, "event": "forward.refused", "rule": "late" }),
+        );
+
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+        loop {
+            let written = std::fs::read_to_string(&events)
+                .map(|text| text.contains("\"rule\":\"late\""))
+                .unwrap_or(false);
+            if written {
+                break;
+            }
+            assert!(
+                tokio::time::Instant::now() < deadline,
+                "the line never reached {}",
+                events.display()
+            );
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
     }
 
     /// A half-close is a half-close: each direction ends on its own EOF, so a client that sends its
@@ -1204,6 +1256,24 @@ fn load(path: &Path) -> Vec<Rule> {
 ///
 /// The cap here is the audit's own number, one generation, same rewrite-by-rename: an operator who
 /// reads `events.1.jsonl` gets the same shape from both writers.
+///
+/// **IT IS OFF THE REACTOR.** Every caller is async (the bind ladder and the accept loop), and this
+/// does blocking file IO — `metadata`, `rename`, `open`, `write`. The device's convention for that is
+/// `tokio::task::spawn_blocking` (`terminal.rs`, and `mcp.rs`'s two heavy capabilities), so the line
+/// is written on a blocking worker and a slow disk delays a rule's log rather than every other
+/// rule's connections. The line is not awaited: a caller must not fail because its audit line was
+/// slow, and D6's record is best-effort by design.
+fn record_event_async(path: PathBuf, event: serde_json::Value) {
+    match tokio::runtime::Handle::try_current() {
+        Ok(_) => {
+            tokio::task::spawn_blocking(move || record_event(&path, event));
+        }
+        // No reactor: the write happens here, on this thread, because there is no worker to borrow
+        // and dropping the line would be the one failure D6 must not have.
+        Err(_) => record_event(&path, event),
+    }
+}
+
 fn record_event(path: &Path, event: serde_json::Value) {
     if let Some(parent) = path.parent() {
         let _ = std::fs::create_dir_all(parent);
@@ -1257,8 +1327,8 @@ impl ForwardRegistry {
                         st.since_ms = Some(now_ms());
                         st.last_error = None;
                     });
-                    record_event(
-                        &self.events,
+                    record_event_async(
+                        self.events.clone(),
                         json!({
                             "ts_ms": now_ms(),
                             "event": "forward.listening",
@@ -1428,8 +1498,8 @@ impl ForwardRegistry {
     /// keeps the failures, which are the ones an operator asks "who tried, and why did it fail"
     /// about.
     fn audit_refusal(&self, rule: &Rule, peer: std::net::SocketAddr, reason: &str) {
-        record_event(
-            &self.events,
+        record_event_async(
+            self.events.clone(),
             json!({
                 "ts_ms": now_ms(),
                 "event": "forward.refused",
