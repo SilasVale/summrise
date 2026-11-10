@@ -3294,15 +3294,35 @@ th,
    one weight lighter, so the record's day read as a second page title above the rows. The contract's
    `section.h2` is 17 / 600 and this is that level. Its 24 px of padding and its stickiness stay: the
    day still has to hold its rows against the container's top. */
+/* **THE DAY SAYS WHAT IT HOLDS, IN ITS OWN ROW (the ninety-third list).** The label is the record's outermost
+   grouping and it carried only a NAME: the day's count and span lived in `dayText(lines)` but were drawn only
+   inside the fold's title and facts — i.e. only on the days long enough to be cut. A day of 22 rows said
+   "Today" and stopped, so a reader could not tell ten minutes from six hours.
+   The facts sit on the label's own baseline, at the page's subtitle step, so the day reads
+   `Today  22 calls · 15:30 → 15:34` — one structure, one line, on every day however long it is. */
+/* **THE DAY'S HEAD IS ITS NAME AND ITS FACTS, ON ONE LINE (the ninety-third list).** The label used to be the
+   whole row and carried only a name: the day's count and span lived in `dayText(lines)` but were drawn only
+   inside the fold's title and facts — i.e. only on the days long enough to be cut. A day of 22 rows said
+   "Today" and stopped, so a reader could not tell ten minutes from six hours.
+   The facts are the heading's SIBLING so the heading's accessible name stays the day's name (a reader who
+   jumps by heading hears "Today", "Monday, 11/9" — the record's structure — not a heading ending in a clock). */
+.timeline-day-head {
+  display: flex; align-items: baseline; gap: var(--sp-2); flex-wrap: wrap;
+  padding: 0 0 var(--sp-2-5);
+}
 .timeline-day-label {
-  margin: 0; padding: 0 0 var(--sp-2-5);
+  margin: 0; padding: 0;
   font-size: var(--fs-lg); line-height: var(--lh-tight); font-weight: var(--fw-semi);
   color: var(--ink); letter-spacing: var(--tracking-tight);
+}
+.timeline-day-facts {
+  font-size: var(--fs-sm); font-weight: var(--fw-regular);
+  color: var(--ink-muted); font-variant-numeric: tabular-nums;
 }
 /* The timeline scrolls inside `main`, not with the page, so the day's name sticks to that
    container's top while its rows pass under it. The panel's surface is painted behind the label
    because rows would otherwise be visible through it. */
-.timeline-day-label.is-sticky {
+.timeline-day-head.is-sticky {
   position: sticky; top: 0; z-index: 1;
   background: var(--canvas);
 }

@@ -1077,6 +1077,46 @@ describe("the layout contract", () => {
     }
   });
 
+  it("is a DAY that says what it holds, and its heading says only what it is called", () => {
+    // **MEASURED 2026-11-11 ON THE SERVED BUILD, a seeded record of TWO days (22 rows each):**
+    //
+    //     a day's own children   `h2.timeline-day-label`, `ol.timeline-rows` — and nothing else
+    //     a day's label          "Today" / "Monday, 11/9"
+    //     what the DAY said      **nothing**, unless it was long enough to need a door
+    //
+    // `dayText(lines)` — which builds "22 calls · 15:27 → 15:32" — existed and was drawn in ONE place, the door's
+    // title and facts, i.e. only on days longer than the 60 rows drawn. `DAY_VISIBLE` is 60 and the live window
+    // holds 1,000 lines in a single day, so a long day answers "what is this?" and a short day cannot: one
+    // question, one page, two behaviours, decided by a number the reader cannot see.
+    const source = readFileSync(path.join(here, "ActivityTimeline.tsx"), "utf8");
+    expect(source, "the day's head is drawn on every day").toContain("timeline-day-head");
+    expect(source, "and it carries the day's own sentence").toContain("dayText(day.lines)");
+    // **THE FACTS ARE THE HEADING'S SIBLING, NOT ITS CHILD**, so the heading's accessible name stays what the
+    // day is CALLED: a reader who jumps by heading hears "Today", "Monday, 11/9" — the record's structure — not
+    // a heading ending in a clock range. The suite's own heading test caught this when it was a child.
+    // A regex whose body contains `</div>` closes itself at the bare `/` — `indexOf` instead.
+    const open = source.indexOf('<div className="timeline-day-head is-sticky">');
+    expect(open, "the day's head is drawn").toBeGreaterThan(-1);
+    const head = source.slice(open, source.indexOf("</div>", open));
+    expect(head, "the head is its own row").toBeTruthy();
+    expect(head, "the heading is inside it").toContain("<h2 className=\"timeline-day-label\">");
+    expect(head, "and the facts are its sibling").toContain("<span className=\"timeline-day-facts\">");
+    expect(head.indexOf("</h2>"), "the facts come AFTER the heading closes").toBeLessThan(
+      head.indexOf("timeline-day-facts"),
+    );
+    const sheet = css();
+    const label = sheet.match(/\.timeline-day-label\s*\{[^}]*\}/);
+    expect(label![0], "the heading is the day's name, at the day's own step").toContain("font-size: var(--fs-lg)");
+    const facts = sheet.match(/\.timeline-day-facts\s*\{[^}]*\}/);
+    expect(facts, "the facts are a step down from the name").toBeTruthy();
+    expect(facts![0]).toContain("font-size: var(--fs-sm)");
+    expect(facts![0], "and a weight down").toContain("font-weight: var(--fw-regular)");
+    // **WHAT STICKS IS THE HEAD, NOT THE HEADING** — the head is the row, and the heading is its first child.
+    const sticky = sheet.match(/\.timeline-day-head\.is-sticky\s*\{[^}]*\}/);
+    expect(sticky, "the day's head is what sticks to the container").toBeTruthy();
+    expect(sticky![0]).toContain("position: sticky");
+  });
+
   it("is the RECORD's one grouping: a stretch is a LEVEL, not a caption", () => {
     // **MEASURED 2026-11-11 AT 1,440 ON THE LIVE CONSOLE**, reading what a reader actually compares on
     // Activity — the page whose own direction is *"the record: what happened, when, on which machine"*:
