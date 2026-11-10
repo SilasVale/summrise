@@ -2191,7 +2191,7 @@ export function TerminalWorkspace({
                   title={offline ? "The machine is offline; a session can start when it reconnects" : undefined}
                   onClick={() => openDialog({}, null)}
                 >
-                  + New session
+                  New session
                 </button>
                 <button
                   type="button"
@@ -2404,7 +2404,7 @@ export function TerminalWorkspace({
                 title={offline ? "The machine is offline; a session can start when it reconnects" : undefined}
                 onClick={() => openDialog({}, null)}
               >
-                + New session
+                New session
               </button>
         
           </div>

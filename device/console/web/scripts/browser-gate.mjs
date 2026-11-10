@@ -2338,7 +2338,7 @@ try {
   await page.getByRole('heading', { name: 'Terminal', exact: true }).waitFor({ timeout: 10_000 });
   step('opened Device → Terminal with a session-scoped grant');
 
-  await page.getByRole('button', { name: '+ New session' }).click();
+  await page.getByRole('button', { name: 'New session' }).click();
   const dialog = page.getByRole('dialog', { name: 'New terminal session' });
   await dialog.getByRole('button', { name: 'Open' }).click();
   await page.locator('.term-host .xterm').waitFor({ state: 'visible', timeout: 10_000 });
@@ -2390,7 +2390,7 @@ try {
   // first connection, and its MCP stub answers the page's limited reads with the retained output.
   // The page must draw that page, then open the stream at the cursor the page reached — not at the
   // refused cursor, and not at the retained start with a whole-ring subscribe frame.
-  await page.getByRole('button', { name: '+ New session' }).click();
+  await page.getByRole('button', { name: 'New session' }).click();
   await page
     .getByRole('dialog', { name: 'New terminal session' })
     .getByRole('button', { name: 'Open' })
