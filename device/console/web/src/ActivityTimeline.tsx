@@ -985,9 +985,25 @@ export function ActivityTimeline(props: {
         </div>
       )}
       {props.loading && !props.loadingFailed && (
-        <p className="hint timeline-loading">
-          {windowLoadingSentence(props.loadingMachine ?? null)}
-        </p>
+        // **A LOADING STATE RESERVES THE SHAPE, NOT A SENTENCE (the eightieth list).** Measured 2026-11-10
+        // with every read held 3.5 s: this page drew one 12 px sentence where the record will go, in no
+        // live region, while the contract's `loading` atom — three rows with the card's corner, padding
+        // and gap, the read's own label in a `role="status"` — was drawn on TWO pages of seven. The atom's
+        // own reason says why the sentence is the wrong shape: "It is NOT a word in a result line: a
+        // loading state is not a result, and the count line is drawn only when it has a count." This line
+        // sits where the day labels go, which is a result line.
+        <div
+          className="skeleton-list timeline-skeleton"
+          aria-label={windowLoadingSentence(props.loadingMachine ?? null)}
+          role="status"
+        >
+          {[0, 1, 2].map((row) => (
+            <div className="skeleton-row" key={row}>
+              <span className="skeleton skeleton-name" />
+              <span className="skeleton skeleton-line" />
+            </div>
+          ))}
+        </div>
       )}
       {!props.loading && (days.length === 0 ? (
         props.unread ? null : filtering ? (

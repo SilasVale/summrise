@@ -877,6 +877,40 @@ describe("the layout contract", () => {
     );
   });
 
+  it("is the LOADING atom, drawn where a read is out — not a word in a result line", () => {
+    // **RULE 19's LOADING HALF, MEASURED PAGE BY PAGE WITH EVERY READ HELD 3.5 s (the eightieth list).**
+    // The atom was written in the forty-seventh list — `rows 3, rowPad 12, rowRadius 10, rowGap 8,
+    // barRadius 6, role "status"` — and it shipped on TWO pages of seven:
+    //
+    //     console Home    "Reading the machine list" + 2 rows   ← two, not the atom's three
+    //     console Activity "Reading the audit…"                  ← no rows, no role
+    //
+    // **AND A LOADING STATE IS NOT A RESULT.** The sentences these pages printed sat where a COUNT goes:
+    // "a loading state is not a result, and the count line is drawn only when it has a count."
+    const sheet = css();
+    // The atom's own shape, as this sheet draws it.
+    const row = ruleFor(sheet, "\\.skeleton-row");
+    expect(row, "a skeleton row has the atom's padding").toContain(`padding: var(--sp-3)`);
+    expect(row, "and the atom's corner").toContain(`border-radius: var(--radius-sm)`);
+    expect(ruleFor(sheet, "\\.skeleton-list"), "and the atom's gap").toContain(`gap: var(--sp-2)`);
+    // **AND EVERY PLACE THAT RESERVES A LOADING SHAPE DRAWS THAT MANY ROWS.** `[0, 1, 2]` is the atom's
+    // three; a page that draws two is a page whose habit the atom recorded instead of its rule.
+    const sources = ["HomePage.tsx", "ActivityTimeline.tsx", "PluginList.tsx", "ToolCatalogue.tsx"]
+      .map((name) => readFileSync(path.join(here, name), "utf8"));
+    const drawing = sources.filter((source) => source.includes("skeleton-list"));
+    expect(drawing.length, "the pages that reserve a shape").toBeGreaterThanOrEqual(2);
+    for (const source of drawing) {
+      expect(source, "the atom's three rows").toContain("[0, 1, 2]");
+    }
+    // **AND THE READ'S LABEL IS IN A LIVE REGION.** Three of these pages said nothing to a screen reader
+    // before this list; `role="status"` with the read's own words is the atom's half that a sighted reader
+    // cannot see and a screen reader cannot miss.
+    for (const source of drawing) {
+      expect(source, "role=status on the placeholder").toContain('role="status"');
+      expect(source, "and the read's own label").toContain("aria-label");
+    }
+  });
+
   it("is the tracking atom: a step belongs to a SIZE, and nothing inherits a fraction", () => {
     // **RULE 14 AS A LINE THE EDITOR READS (the seventy-fifth list).** Measured by grouping every text node on a
     // rendered page by `font-size` (then weight and kind) and asking whether that group carried ONE

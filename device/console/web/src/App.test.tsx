@@ -1599,14 +1599,14 @@ describe("App", () => {
     expect(mocks.audit).toHaveBeenLastCalledWith(1000, attic.id);
     // Meanwhile the rows in hand belong to the workshop; drawing them under the attic chip would be
     // an answer from the wrong window.
-    expect(screen.getByText("Reading attic's window…")).toBeInTheDocument();
+    expect(screen.getByLabelText("Reading attic's window…")).toBeInTheDocument();
     expect(screen.queryByText("Read the workshop's notes")).toBeNull();
 
     await act(async () => {
       answer.resolve([{ ...atticLine, ts_ms: Date.now() }]);
     });
     expect(await screen.findByText("Listed the attic")).toBeInTheDocument();
-    expect(screen.queryByText("Reading attic's window…")).toBeNull();
+    expect(screen.queryByLabelText("Reading attic's window…")).toBeNull();
   }, 20_000);
 
   it("reads the machine's window for the page and after a dropped frame", async () => {
@@ -2547,7 +2547,7 @@ describe("App", () => {
     fireEvent.click(within(chips).getByRole("button", { name: "attic" }));
     await waitFor(() => expect(mocks.audit).toHaveBeenCalledTimes(readsBefore + 1));
     expect(mocks.audit).toHaveBeenLastCalledWith(1000, attic.id);
-    expect(screen.getByText("Reading attic's window…")).toBeInTheDocument();
+    expect(screen.getByLabelText("Reading attic's window…")).toBeInTheDocument();
 
     await act(async () => {
       answer.reject(new TypeError("Failed to fetch"));
@@ -2562,7 +2562,7 @@ describe("App", () => {
     ).toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: "Retry" })).toHaveLength(1);
     expect(document.body.textContent).not.toContain("Failed to fetch");
-    expect(screen.queryByText("Reading attic's window…")).toBeNull();
+    expect(screen.queryByLabelText("Reading attic's window…")).toBeNull();
     expect(screen.queryByText("Read the workshop's notes")).toBeNull();
   });
 
