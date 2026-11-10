@@ -3942,6 +3942,22 @@ still be working on it", which is true and unactionable in the one place a perso
 3. **The console's own `terminal.create` refusal carries the same defect** — "kind pty takes shell, rows and
    columns only" names the kind and not which of the three was wrong. **S.**
 
+## P0 — THE DEPLOYMENT HOLD (operator's instruction, 2026-11-11)
+
+> *"今天先不部署console,和升级summrise-device"* … *"等后天你全部改好告诉我我同意后再说"*
+
+**No `console-deploy.sh`, and no device upgrade, until the operator says so.** Work continues — items are still
+implemented, tested and committed — but the last two steps of every item (the live deploy and the live
+measurement against the deployed binary) are **held**. What that costs, stated rather than glossed:
+
+- the console's live version stays `0.3.273-ux191` while `hub/v1` moves ahead of it;
+- a live check now means *the served build from this checkout*, not `console.saisi.online`;
+- an item that cannot be verified without a deploy is **not closed** — it is recorded as done-and-verified
+  locally, with the live half named as owed.
+
+**This is not a pause on the program.** It is a pause on two commands, recorded here so that a later round
+cannot mistake a held item for a shipped one.
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
