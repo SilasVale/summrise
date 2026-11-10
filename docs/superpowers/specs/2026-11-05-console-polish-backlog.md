@@ -2890,11 +2890,25 @@ and both start at the **same y=76** — the contract's `page.pad 24` under the r
    under it is a card** — that is what `head` and `card` mean in the contract, and this page is the one
    place the two are confused. **Fix:** the machine's name and start move into the card grammar, and the
    Device head keeps the page's title. **M.**
+   *(**Done, console `736cb2a`, live 0.3.273-ux172**: `<section className="card overview-head"
+   aria-label="… — this machine">` — the same card grammar Home's `.machine-summary` already uses, whose
+   heading IS the machine's name. **Re-measured after: no second `<header>` on the page**, the card at
+   y=133 with the name and the start line in a row. **The card brought its padding, corner and surface AND
+   changed the layout** — `.card` is a column at `gap: 8`, so the name and the start stacked until
+   `.overview-head` declared `flex-direction: row`; a card's internal arrangement is the card's business.
+   The test COUNTS `<header>` tags per page file, because a second header is a shape and not a sentence.)*
 
 2. **The head's height is three values across three pages** (68 / 68 / 33) and the contract names only
    its `gap` and `align`. A head is a row whose height is its contents, so this is not a defect in
    itself — but nothing says so, and the next page will pick a fourth. **Fix:** the contract records that
    a head is content-sized and that its second line is the subtitle slot. **S.**
+   *(**Done with item 1, panel `1f630a79`**: `head: { gap, align, subtitleSlot ".page-sub",
+   maxHeadsPerPage 1 }`. The height is deliberately NOT a number — the pages measure 68/68/33 because one
+   carries tabs and two carry a subtitle, and a head's height is its contents; what IS recorded is the
+   SLOT and the count. **The panel's two "extra" headers are `.plug-card-head` — a CARD's own row**, so
+   the rule is the PAGE head's count and not the tag's. **And the first assertion was not enough:** counting
+   `<header className="page-head"` alone let a second header with another class slip through — the mutation
+   PASSED. The refined check catches an ORPHAN header, which is what a second page head actually is.)*
 
 ## How a round goes
 
