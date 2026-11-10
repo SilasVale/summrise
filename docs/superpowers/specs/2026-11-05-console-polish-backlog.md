@@ -4339,8 +4339,19 @@ BOX.
 1. **The Plugins failure is a bare red line, drawn TWICE, with neither the atom's box nor its tint.** **Fix:** one
    box, the atom's (radius 8, pad 12, `tint: alarm`, `textTone: ink`, one Retry), and the duplicate line goes.
    **M.**
+   *(**Done in the panel repo `697d06bb9`, MERGED as `b8fabc8a8`; NOT DEPLOYED** — the hold applies. **One failure,
+   one box**: `.error` at the atom's 8/12 with the alarm's tint and the words in ink, `role="status"`, one Retry —
+   the device's words, the stale-state clause and the Retry all moved IN from the deleted line. **And the failure
+   branch comes FIRST, before `!specLoaded`**: measured in the harness, `loadError` with a loaded spec drew the EMPTY
+   branch and lost the failure entirely — a page with a failed read claiming "nothing matches".
+   **THE DELETION HAD A SECOND HALF**: removing the red line left `.plug-error` in the sheet with nothing able to
+   render it, and the **dead-style ratchet caught it** and asked for the prune.)*
 2. **Nothing measures a failed state's BOX.** `role="status"` and the sentence are checked where they exist; a
    failure drawn as a `p` with no `background` satisfies every rule 6 gate by having nothing to measure. **S.**
+   *(**Done in the panel repo**: `is a FAILURE in the atom's box, drawn ONCE` — the box at the atom's 8/12, the
+   alarm's tint, the words in ink (`textTone` is NOT the state's tone), the page draws exactly ONE failure box, and
+   the bare red line's rule is asserted gone. Mutation: the box back to a bare line → "the page draws one failure
+   box: expected +0 to be 1".)*
 
 ## How a round goes
 
