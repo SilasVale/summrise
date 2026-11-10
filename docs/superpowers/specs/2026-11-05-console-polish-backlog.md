@@ -3165,6 +3165,32 @@ the thing they were made for.**
    *(**Done, panel `08cf4cab`**: the margins are gone and the frame's gap says it — measured after
    **24/24/24/24/24/24**, where it had been 36 six times.)*
 
+## P0 — the seventieth list (opened 2026-11-10, the frame's arithmetic is two answers)
+
+The sixty-ninth list is closed: the page body's rhythm is 24 on every page now. This list is rule 1 —
+*"start from a system"* — asked about the one number in the contract the two surfaces never agreed on the
+MEANING of: **`page.max = 1120` — is that the page's box, or its contents?**
+
+Both surfaces draw a 1,120 px column, and they get there two different ways:
+
+     console  `.page { width: min(1120px, 100%); padding: 24px }`   box-sizing: border-box (global `*`)
+              → at 1440 the page is 1,120 WIDE and its content is 1,072
+     panel    `.page { width: 100%; max-width: 1120px; padding: 24px }`   box-sizing: CONTENT-box
+              (there is no global reset; the panel sets `border-box` on six elements, never on `*`)
+              → at 1440 the page is 1,168 WIDE and its content is 1,120
+
+**So the contract's `page.max` means the BOX on one surface and the CONTENT on the other, and the panel is
+the wider of the two by exactly the padding twice: 48 px.**
+
+1. **The panel's page overflows the content area it lives in at every width below `wide`.** Measured at
+   390 / 639 / 767 / 1088: the page's box is **48 px** wider than its parent (`mem-pane`, 553 wide, content
+   box) and it sticks **31 px** past the window's right edge. Its parent scrolls (`overflow-x: auto`), so
+   nothing is permanently lost — but the page *is* clipped, and the last 31 px of every card's right edge
+   are off-screen until the reader scrolls sideways. The console, measured at the same six widths, is
+   **never** wider than its parent. **Fix:** one arithmetic, recorded. **S.**
+2. **`page.max` says a number and not what it measures**, which is why the two could differ for months
+   without either being wrong by its own reading. **Fix:** the contract records the box model. **S.**
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
