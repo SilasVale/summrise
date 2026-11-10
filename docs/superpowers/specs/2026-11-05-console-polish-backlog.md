@@ -4236,8 +4236,15 @@ cards are missing, and it is visible as a box that hugs a line like a label.**
 **And the empty state is where a reader first meets the product.** A page whose read answered "nothing" is a page a
 new operator sees on day one; five of them draw a fragment of text on a 1,120 px column with no box around it.
 
-1. **Five empty states draw a bare line; the atom says one card.** **Fix:** each takes the atom's box — its corner,
-   its 16 px inset, its own grid — and the two boxes that already exist stop hugging their line. **M.**
+**Two of those five are the SAME defect measured twice, and the sharper form is this:** a CARD that paints the bare
+line's border and pads NOTHING. `.card.plug-inventory` is **20 px tall** with an **18 px** child, `padding: 0px`, and
+its rule's own comment says why ("the child brings the inset") — but the child is `.plug-empty`, whose rule is
+`margin: 0; font-size: var(--fs-sm); color: var(--muted)` and **no padding at all**. **The exemption was written for a
+table's rows and is being spent on a sentence.**
+
+1. **The atom's empty state — one card at 14/16/12 — is drawn as a bare line in five places, and one of them is a
+   card that pads nothing.** **Fix:** each takes the atom's box; the box that already exists stops hugging its line.
+   **M.**
 2. **Nothing measures an empty state's own box**, so a hairline box 2 px taller than its text passes every gate.
    **S.**
 
