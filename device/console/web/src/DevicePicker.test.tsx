@@ -41,7 +41,13 @@ describe("DevicePicker", () => {
     // enrolled yet.` for every one of them. An empty list is a fact only when a read answered.
     render(<DevicePicker devices={[]} onChoose={vi.fn()} fleetRead={{ state: "reading" }} />);
 
-    expect(screen.getByRole("status")).toHaveTextContent("Reading the machine list…");
+    // **THE READING STATE IS THE SHAPE, NOT A SENTENCE (the ninety-seventh list).** Measured with `/fleet`
+    // held 90 s: six of this product's seven pages drew the contract's `loading` atom and this one drew
+    // `p.hint` — the same sentence, in a 52 px card where three 60 px rows were about to arrive.
+    const status = screen.getByRole("status");
+    expect(status).toHaveClass("skeleton-list");
+    expect(status).toHaveAttribute("aria-label", "Reading the machine list");
+    expect(status.querySelectorAll(".skeleton-row")).toHaveLength(3);
     expect(screen.queryByText(/No devices are enrolled yet/)).toBeNull();
   });
 

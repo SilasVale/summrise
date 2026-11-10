@@ -1115,6 +1115,46 @@ describe("the layout contract", () => {
     expect(countRule![0], "the count is not a filter column any more").not.toContain("align-self: center");
   });
 
+  it("is a page that RESERVES THE SHAPE while a read is held, not a sentence", () => {
+    // **RULE 19's LOADING HALF, MEASURED WITH EVERY READ PARKED 90 SECONDS (the ninety-seventh list).** What
+    // each page draws while a read is held:
+    //
+    //     Home      console   `.skeleton-list`, 3 rows, `role="status"`, "Reading the machine list"   (195 px)
+    //     Memory    panel     `.skeleton-list`, 3 rows, `role="status"`, "Reading the memory list"    (193 px)
+    //     Plugins   panel     `.skeleton-list`, 3 rows, `role="status"`, "Reading the plugin inventory" (193 px)
+    //     **Device console   `p.hint` — the sentence itself, in a 52 px card**                          **0 rows**
+    //
+    // **SIX of the seven pages drew the atom and ONE drew a sentence** — and it was the SAME sentence Home's
+    // skeleton carries as its `aria-label`, so the product said one thing in two shapes on two pages of one
+    // console, from the same read state. The panel had this hole and the eightieth list fixed it THERE; the
+    // console's Device page was never fixed with it.
+    const source = readFileSync(path.join(here, "DevicePicker.tsx"), "utf8");
+    // Every reading branch in this product draws the atom: the count of them is this file's and HomePage's.
+    for (const file of ["DevicePicker.tsx", "HomePage.tsx"]) {
+      const body = readFileSync(path.join(here, file), "utf8");
+      expect(body, `${file} draws the atom`).toContain('className="skeleton-list');
+      expect(body, `${file} carries the read's own label`).toMatch(/aria-label="Reading the /);
+      expect(body, `${file} announces it`).toMatch(/role="status"/);
+    }
+    // **THE SENTENCE IS STILL THERE — AS THE LABEL, NOT AS THE PAGE.** A person and a screen reader both read it;
+    // what changes is that the page also reserves the rows that are about to arrive, so the page does not jump
+    // from a one-line box to a four-row list when the read answers.
+    expect(source, "the picker's reading branch returns the atom").toContain(
+      'aria-label="Reading the machine list"',
+    );
+    expect(source, "and no longer returns the bare sentence").not.toMatch(
+      /return \(\s*\n\s*<p className="hint" role="status">/,
+    );
+    // The atom's own numbers, from the contract: three rows, the row's corner and the card's inset.
+    const row = ruleFor(css(), ".skeleton-row");
+    expect(row, "the skeleton row is declared").toBeTruthy();
+    expect(row, "at the atom's row corner").toContain("var(--radius-sm)");
+    // The atom's own numbers: three rows, and its role is `status`.
+    expect(readFileSync(path.join(here, "DevicePicker.tsx"), "utf8")).toContain("[0, 1, 2].map");
+    expect(contract.loading.rows, "the atom's rows").toBe(3);
+    expect(contract.loading.role, "the atom's role").toBe("status");
+  });
+
   it("is a DAY that says what it holds, and its heading says only what it is called", () => {
     // **MEASURED 2026-11-11 ON THE SERVED BUILD, a seeded record of TWO days (22 rows each):**
     //
