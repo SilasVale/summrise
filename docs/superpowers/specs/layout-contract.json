@@ -193,5 +193,17 @@
     "reducedMotion": "blanket",
     "cap": "0.01ms",
     "namedAnimationsStop": true
+  },
+  "tracking": {
+    "$comment": "RULE 14, AS A NUMBER: a size gets ONE step, and the step belongs to the SIZE (the seventy-fifth list). Measured 2026-11-10 by grouping every text node on a rendered page by its `font-size` (then by weight and by kind \u2014 an uppercase label, a mono value and prose are three kinds), and asking whether that group carried one `letter-spacing`: the console answered NO on every page (22 px at -0.242 AND -0.44, 12 px at -0.052 AND 0, 10 px at 0.5 AND 0, 17 px at -0.052 AND -0.34) while the panel answered YES. THE CAUSE WAS AN INHERITED BASELINE NO TOKEN NAMED: `body { letter-spacing: -0.004em }` reached every element, so 'the default' and '-0.004em' were two answers to one question depending on which element you inspected, and 19 rules opted INTO a token on top of it. After removing it every page of both surfaces answers YES: 22 px = display, 12 px = none, 10 px/label = label, 10 px/mono = none. THE STEPS ARE THE FOUR THE SHEETS ALREADY DECLARED and a caller reads one of them or none: display (-0.011em) for a title, nothing for body text, label (0.05em) for an uppercase label, eyebrow (0.08em) for the small word above a block. **`normal` is not a step** \u2014 a rule that writes it is answering a question the tokens already answer, and after this list not one rule on either surface does.",
+    "bySize": {
+      "title": "display",
+      "body": "none",
+      "label": "label",
+      "eyebrow": "eyebrow",
+      "mono": "none"
+    },
+    "inherits": false,
+    "literals": 0
   }
 }
