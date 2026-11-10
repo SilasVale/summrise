@@ -3128,7 +3128,9 @@ instead of it. And **the panel's `.plug-pill` carries the word `Enabled`** besid
 
 ## P0 — the sixty-ninth list (opened 2026-11-10, the page body's rhythm is 24 on every page but two)
 
-The sixty-eighth list is closed: a state mark carries a word, on both surfaces. This list is rule 20 —
+The sixty-eighth list is closed: a state mark carries a word, on both surfaces. **This list is closed
+(2026-11-10): both items shipped as panel `08cf4cab`, and the contract gained `page.listGap` so the
+distinction is a line rather than a habit.** This list was rule 20 —
 *"alignment and rhythm fixed by a grid, not by nudging"* — asked at the one place the previous rhythms
 never looked: **the page BODY's own gap, per page.**
 
@@ -3153,11 +3155,15 @@ the thing they were made for.**
    page separates it by 24**. Measured: the Plugins head ends at 154 and the search wrap starts at 162; on
    Memory the same pair is 144 → 168. **Fix:** the list keeps its 8 and the frame keeps its 24 — the rhythm
    belongs to the container of like things, not to the page. **S.**
+   *(**Done, panel `08cf4cab`**: the 8 moved to a `.plug-rows` container, and measured after —
+   head→body **24**, gaps **24/24/24**, rows still **8/8/8**.)*
 2. **Settings paints 36 px because a margin and the frame's gap are both charged for the same separation.**
    Measured: `settings-nav`, `settings-fold` and `settings-section` each carry
    `margin-bottom: var(--sp-3)` = 12, and the body's flex `gap` is 24 — so every separation is
    **24 + 12 = 36**, a value on NO surface's scale (2/4/6/8/10/12/14/16/24). **Fix:** one of the two says it.
    **S.**
+   *(**Done, panel `08cf4cab`**: the margins are gone and the frame's gap says it — measured after
+   **24/24/24/24/24/24**, where it had been 36 six times.)*
 
 ## How a round goes
 
