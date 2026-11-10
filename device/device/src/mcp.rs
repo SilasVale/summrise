@@ -1257,6 +1257,7 @@ impl DeviceServer {
                     &arguments.target,
                     &arguments.via,
                     arguments.auth,
+                    arguments.host_key.as_deref(),
                 )
                 .map_err(|message| refused(name, forward::ForwardError::Refused { message }))?;
                 let rule = self
@@ -2339,6 +2340,10 @@ fn input_schema(definition: &ToolDef) -> Value {
                     },
                     "required": ["kind"],
                     "additionalProperties": false
+                },
+                "host_key": {
+                    "type": "string",
+                    "description": "Optional SHA-256 fingerprint `via`'s key must match, e.g. SHA256:abc…. A rule is the one thing that connects with NOBODY PRESENT, so it is the one that least wants to decide a host's identity by itself; without this the device's known_hosts decides (first trust on use, refusal on a change)."
                 }
             },
             "required": ["name", "listen", "target", "via", "auth"],
@@ -3036,6 +3041,9 @@ struct ForwardAddArgs {
     /// How the `via` connection authenticates. A rule outlives the caller, so the credential is
     /// stored with it — there is no session to inherit one from.
     auth: ssh::Auth,
+    /// The fingerprint `via`'s key must match. Absent leaves it to the device's `known_hosts`.
+    #[serde(default)]
+    host_key: Option<String>,
 }
 
 /// The arguments `forward.remove` takes.

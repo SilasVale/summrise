@@ -88,6 +88,14 @@ pub struct Rule {
     pub via: String,
     /// How that connection authenticates.
     pub auth: Auth,
+    /// The fingerprint `via`'s key must match. `None` leaves it to the device's `known_hosts`
+    /// (trust on first use, refusal on a change).
+    ///
+    /// **A RULE IS THE ONE THING THAT CONNECTS WITH NOBODY PRESENT**, and it is the thing an operator
+    /// least wants deciding a host's identity by itself: it starts at boot and keeps carrying traffic
+    /// until somebody looks. `terminal.create` already takes `host_key` for exactly that reason; a
+    /// rule that could not was the gap this field closes.
+    pub host_key: Option<String>,
 }
 
 /// A rule that has been through [`RuleSpec::parse`]: the executor's inputs must come from something
@@ -99,6 +107,7 @@ pub struct RuleSpec {
     target: (String, u16),
     via: ViaSpec,
     auth: Auth,
+    host_key: Option<String>,
 }
 
 /// A parsed `via`: the SSH connection's three values.
@@ -205,6 +214,7 @@ impl RuleSpec {
             target: format!("{}:{}", self.target.0, self.target.1),
             via: self.via.to_string(),
             auth: self.auth.clone(),
+            host_key: self.host_key.clone(),
         }
     }
 
@@ -216,6 +226,7 @@ impl RuleSpec {
         target: &str,
         via: &str,
         auth: Auth,
+        host_key: Option<&str>,
     ) -> Result<RuleSpec, String> {
         if name.trim().is_empty() {
             return Err("a rule needs a name: it is how the panel and the log identify it".into());
@@ -239,12 +250,30 @@ impl RuleSpec {
                  service listens on"
             )
         })?;
+        // **A PIN THAT IS NOT A FINGERPRINT IS REFUSED HERE, NOT DISCOVERED LATER.** `ssh::open`
+        // compares strings, so `sha256:abc` or `abc` would simply never match — a rule that fails
+        // every connection with a mismatch whose cause is a spelling, not a key. The shape is
+        // checked once, where the operator can see the refusal.
+        let host_key = match host_key.map(str::trim).filter(|pin| !pin.is_empty()) {
+            Some(pin) if pin.starts_with("SHA256:") && pin.len() > "SHA256:".len() => {
+                Some(pin.to_owned())
+            }
+            Some(pin) => {
+                return Err(format!(
+                    "host_key \"{pin}\" is not a SHA-256 fingerprint — it must be the form ssh-keygen prints, \
+                     e.g. SHA256:abc…, because it is compared as a string and anything else would \
+                     refuse every connection instead of this one"
+                ));
+            }
+            None => None,
+        };
         Ok(RuleSpec {
             name: name.trim().to_string(),
             listen: listen_parts,
             target: target_parts,
             via: ViaSpec::parse(via)?,
             auth,
+            host_key,
         })
     }
 }
@@ -401,7 +430,7 @@ mod tests {
     }
 
     fn spec(name: &str, listen: &str, target: &str, via: &str) -> RuleSpec {
-        RuleSpec::parse(name, listen, target, via, password()).expect("a valid rule")
+        RuleSpec::parse(name, listen, target, via, password(), None).expect("a valid rule")
     }
 
     /// `host:port` splits on the LAST colon, and every malformed shape is refused rather than guessed.
@@ -428,32 +457,37 @@ mod tests {
     #[test]
     fn every_malformed_rule_is_refused_with_its_reason() {
         assert!(
-            RuleSpec::parse("", "1.2.3.4:1", "5.6.7.8:2", "u@h:22", password())
+            RuleSpec::parse("", "1.2.3.4:1", "5.6.7.8:2", "u@h:22", password(), None)
                 .unwrap_err()
                 .contains("name")
         );
         assert!(
-            RuleSpec::parse("r", "nope", "5.6.7.8:2", "u@h:22", password())
+            RuleSpec::parse("r", "nope", "5.6.7.8:2", "u@h:22", password(), None)
                 .unwrap_err()
                 .contains("host:port")
         );
         assert!(
-            RuleSpec::parse("r", "1.2.3.4:1", "nope", "u@h:22", password())
+            RuleSpec::parse("r", "1.2.3.4:1", "nope", "u@h:22", password(), None)
                 .unwrap_err()
                 .contains("host:port")
         );
         assert!(
-            RuleSpec::parse("r", "1.2.3.4:1", "5.6.7.8:2", "", password())
+            RuleSpec::parse("r", "1.2.3.4:1", "5.6.7.8:2", "", password(), None)
                 .unwrap_err()
                 .contains("via")
         );
+        assert!(RuleSpec::parse(
+            "r",
+            "1.2.3.4:1",
+            "5.6.7.8:2",
+            "no-at-sign",
+            password(),
+            None
+        )
+        .unwrap_err()
+        .contains("user@host:port"));
         assert!(
-            RuleSpec::parse("r", "1.2.3.4:1", "5.6.7.8:2", "no-at-sign", password())
-                .unwrap_err()
-                .contains("user@host:port")
-        );
-        assert!(
-            RuleSpec::parse("r", "1.2.3.4:1", "5.6.7.8:2", "@h:22", password())
+            RuleSpec::parse("r", "1.2.3.4:1", "5.6.7.8:2", "@h:22", password(), None)
                 .unwrap_err()
                 .contains("no user")
         );
@@ -466,7 +500,7 @@ mod tests {
     #[test]
     fn a_wildcard_listen_is_refused() {
         for wild in ["0.0.0.0:443", "[::]:80", "*:8080"] {
-            let error = RuleSpec::parse("r", wild, "10.0.0.5:80", "u@h:22", password())
+            let error = RuleSpec::parse("r", wild, "10.0.0.5:80", "u@h:22", password(), None)
                 .expect_err(&format!("{wild} must be refused"));
             assert!(error.contains("wildcard"), "{wild}: {error}");
         }
@@ -1143,6 +1177,99 @@ mod tests {
         drop(held);
     }
 
+    /// **A PIN OF THE WRONG SHAPE IS REFUSED WHERE THE OPERATOR CAN SEE IT.** `ssh::open` compares
+    /// fingerprints as STRINGS, so `sha256:abc`, `SHA256:` and `ABC…` would simply never match: the
+    /// rule would fail every connection with a mismatch whose cause is a spelling rather than a key,
+    /// and the sentence would send its reader to the wrong machine.
+    ///
+    /// MUTATION (run, not asserted): with the `starts_with("SHA256:")` check removed, this went
+    /// `FAILED. 0 passed; 1 failed` with `sha256:abc was accepted as a fingerprint`. Restored, green.
+    #[test]
+    fn a_pin_that_is_not_a_fingerprint_is_refused() {
+        for bad in ["sha256:abc", "SHA256:", "abc", "MD5:aa:bb", "SHA256 abc"] {
+            let refused = RuleSpec::parse(
+                "r",
+                "127.0.0.1:1",
+                "127.0.0.1:2",
+                "u@h:22",
+                password(),
+                Some(bad),
+            );
+            match refused {
+                Err(message) => assert!(
+                    message.contains("not a SHA-256 fingerprint"),
+                    "{bad} is refused with the shape named: {message}"
+                ),
+                Ok(_) => panic!("{bad} was accepted as a fingerprint"),
+            }
+        }
+        // …and the form `ssh-keygen` prints is taken, to the stored row.
+        let ok = RuleSpec::parse(
+            "r",
+            "127.0.0.1:1",
+            "127.0.0.1:2",
+            "u@h:22",
+            password(),
+            Some("SHA256:abc123def456"),
+        )
+        .expect("a fingerprint");
+        assert_eq!(
+            ok.to_rule().host_key.as_deref(),
+            Some("SHA256:abc123def456")
+        );
+        // An absent pin stays absent: `known_hosts` decides, which is what every rule did before.
+        let none = RuleSpec::parse(
+            "r",
+            "127.0.0.1:1",
+            "127.0.0.1:2",
+            "u@h:22",
+            password(),
+            None,
+        )
+        .expect("no pin");
+        assert_eq!(none.to_rule().host_key, None);
+        // An empty string is the same as absent, not a pin that can never match.
+        let empty = RuleSpec::parse(
+            "r",
+            "127.0.0.1:1",
+            "127.0.0.1:2",
+            "u@h:22",
+            password(),
+            Some("   "),
+        )
+        .expect("a blank pin is no pin");
+        assert_eq!(empty.to_rule().host_key, None);
+    }
+
+    /// **THE PIN SURVIVES A RESTART, BECAUSE IT IS IN THE ROW.** A rule is loaded from
+    /// `forwards.json` at boot with nobody present; a pin that lived only in the call that created it
+    /// would be gone by the time the executor connects.
+    #[test]
+    fn a_pin_outlives_the_registry_that_wrote_it() {
+        let fixture = Fixture::new("pin-persist");
+        let pin = Some("SHA256:abc123def456".to_owned());
+        let first = &fixture.registry;
+        let mut spec = RuleSpec::parse(
+            "pinned",
+            "127.0.0.1:1",
+            "127.0.0.1:2",
+            "u@h:22",
+            password(),
+            pin.as_deref(),
+        )
+        .expect("a valid rule");
+        spec.host_key = pin.clone();
+        first.add(&spec).expect("the rule");
+
+        let second = ForwardRegistry::new(&fixture.dir);
+        let recovered = second
+            .rules()
+            .into_iter()
+            .find(|rule| rule.name == "pinned")
+            .expect("the rule came back");
+        assert_eq!(recovered.host_key, pin, "the fingerprint is in the row");
+    }
+
     /// A half-close is a half-close: each direction ends on its own EOF, so a client that sends its
     /// request and then shuts down its write half still GETS THE ANSWER.
     ///
@@ -1624,7 +1751,7 @@ impl ForwardRegistry {
                 via.port,
                 &via.user,
                 &auth,
-                None,
+                rule.host_key.as_deref(),
                 &self.known_hosts,
             ),
         )
