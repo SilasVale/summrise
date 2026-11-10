@@ -576,8 +576,13 @@ function FleetHome(props: HomePageProps) {
       {fleet.state === "reading" && props.devices.length === 0 && (
         // The subtitle states it in words; the placeholder is the same fact for a reader who
         // navigates by region, in the shape the tool and plugin lists already use.
+        // **THREE ROWS IS THE ATOM'S NUMBER, ON EVERY SURFACE THAT DRAWS IT (the eightieth list).** Measured
+        // 2026-11-10: this page reserved TWO rows while the panel reserved three, and `layout-contract.json`
+        // records `loading.rows: 3` — so the atom was describing one surface's habit. The page's own list
+        // below draws a row per machine; the placeholder is the shape of what arrives, and three is the
+        // number the contract names rather than the number this page happened to pick.
         <div className="skeleton-list" aria-label="Reading the machine list" role="status">
-          {[0, 1].map((row) => (
+          {[0, 1, 2].map((row) => (
             <div className="skeleton-row" key={row}>
               <span className="skeleton skeleton-name" />
               <span className="skeleton skeleton-line" />

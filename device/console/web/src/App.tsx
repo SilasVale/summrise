@@ -554,7 +554,11 @@ export function App() {
         : auditRead.state === "failed"
           ? null
           : auditReadingFirst
-            ? "Reading the audit…"
+            ? // **THE HEADER SAYS WHAT IS HAPPENING; THE BODY RESERVES THE SHAPE (the eightieth list).**
+              // This sentence used to be the page's only loading state, drawn a second time as a paragraph
+              // where the record goes. The skeleton's live label carries the read now, so the header says
+              // the same thing in one word rather than the page saying it twice.
+              "Reading the audit…"
             : live.state === "live"
               ? "Following the console's audit as it is written."
               : live.state === "offline"

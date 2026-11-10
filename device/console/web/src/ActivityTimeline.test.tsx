@@ -1057,14 +1057,19 @@ describe("ActivityTimeline", () => {
     // hand belong to another machine's window, so drawing them under this chip would be the wrong
     // answer even before the fetch lands.
     expect(screen.getByRole("button", { name: "Beta" })).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByText("Reading Beta's window…")).toBeInTheDocument();
+    // **THE LOADING STATE IS THE ATOM'S SHAPE, NOT A SENTENCE (the eightieth list).** Its label lives on
+    // the live region, so the read is announced and the words are the same ones the page used to print.
+    expect(screen.getByLabelText("Reading Beta's window…")).toBeInTheDocument();
+    expect(screen.getByLabelText("Reading Beta's window…")).toHaveAttribute("role", "status");
+    expect(screen.getAllByRole("status").some((el) =>
+      el.classList.contains("skeleton-list")).valueOf()).toBe(true);
     expect(screen.queryByText("Read notes.txt")).toBeNull();
     expect(screen.queryByText(/No activity on Beta/)).toBeNull();
   });
 
   it("names the fleet when the window being read is the fleet's", () => {
     render(<ActivityTimeline lines={[fromAlpha]} devices={devices} loading />);
-    expect(screen.getByText("Reading the fleet's window…")).toBeInTheDocument();
+    expect(screen.getByLabelText("Reading the fleet's window…")).toBeInTheDocument();
   });
 });
 
