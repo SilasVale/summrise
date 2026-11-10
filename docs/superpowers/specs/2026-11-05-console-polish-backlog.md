@@ -3419,7 +3419,8 @@ to 390 on a phone-sized screen is the same thumb the console already plans for.
 
 ## P0 — the seventy-seventh list (opened 2026-11-10, the OS is dark, the console is dark, the panel is not)
 
-The seventy-sixth list is closed: a thumb is not a cursor. This list is the one DECISION the contract has
+The seventy-sixth list is closed: a thumb is not a cursor. **This list is closed (2026-11-10): both items
+shipped as panel `a24a7583`, and `theme` is a contract line in both repos.** This list was the one DECISION the contract has
 never recorded and the audit had never asked: **which surface decides the theme, and how.**
 
 Measured 2026-11-10 at 1,440 on both surfaces, in the same browser, at the same moment:
@@ -3438,10 +3439,16 @@ panel does not. Nothing recorded which is right, so neither can be called wrong.
 1. **The panel ignores the OS and defaults to light.** A reader on a dark desktop opens the device app and
    gets a white page — while the console beside it is already dark. **Fix:** the OS decides the default; the
    stored choice still overrides it; the switch stays. **M.**
+   *(**Done, panel `a24a7583`**: `getTheme()` asks `prefers-color-scheme` when nothing is stored, and the
+   stored choice still wins. Measured after on the served build: at OS-dark the body is `rgb(19,20,24)` with
+   `data-theme="dark"`; at OS-light `rgb(250,250,250)`; the switch still flips and persists.)*
 2. **The override exists on one surface only**, and that is a decision to record rather than to close: a
    desktop app in a window legitimately keeps a cockpit theme while the OS is light, and a web page that
    overrode its OS would be the odd one. **Fix:** the contract records `theme` — who decides, who may
    override — so the next reader does not have to measure both. **S.**
+   *(**Done, panel `a24a7583`**: `theme.decides: "system"` on both, `theme.override: true` on the panel,
+   `theme.consoleDecides: "system"` on the console (pin `e3d2d198…`). The console offering no switch and the
+   panel offering one is a recorded decision, not a drift.)*
 
 ## How a round goes
 
