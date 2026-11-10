@@ -3937,6 +3937,13 @@ still be working on it", which is true and unactionable in the one place a perso
 1. **A schema mismatch names the schema, not the field, and the caller cannot learn.** **Fix:** the refusal
    names the offending key (never its value — the same rule the existing code has for secrets), so the next
    call is correct. **M.**
+   *(**Done in the tree `1514a61`, MERGED, NOT DEPLOYED** — the deployment hold below applies. `parse` now answers
+   **`runs.exec: the argument \`timeoutMs\` is not what this tool takes`**, and `named_field` accepts only the
+   three `serde_json` messages that carry a KEY and no value (`unknown field`, `missing field`,
+   `invalid type: <type>, expected <type>`); everything else keeps the old category sentence, so a `DataError`
+   that could quote a value still cannot. Test `refusal_tests::a_bad_key_says_which_key` pins both halves, including
+   that `SENTINELVALUE` never reaches the sentence. **The live half is owed: the device on DESKTOP-84T3LIN still
+   runs the old binary, so this sentence is not what a caller sees yet.**)*
 2. **A run that the console stopped waiting for keeps running, and the answer says so without saying how to
    collect it.** **Fix:** the 504 sentence names `runs.list` and the id, so the record can be read. **S.**
 3. **The console's own `terminal.create` refusal carries the same defect** — "kind pty takes shell, rows and
