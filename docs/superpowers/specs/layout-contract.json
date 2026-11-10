@@ -24,6 +24,23 @@
       "focus"
     ]
   },
+  "space": {
+    "$comment": "The rhythm, and the two ways a number that is not on it can still be right (the fifty-ninth list). A rhythm is a scale: **2/4/6/8/10/12/14/16/24** \u2014 the steps BOTH surfaces declare; the console has a 32 step the panel does not, and the contract records the shared ladder rather than the union, because a step one surface cannot reach is not a rhythm they share. A painting value OFF it is a nudge UNLESS it measures something else: a CONTROL's height (5 + 5 + an 18 px line box = 28) or the padding inside a FIXED target (1 px inside a 24 px box). Those are named tokens, so an editor who changes a line-height cannot silently change a control's height.",
+    "scale": [
+      2,
+      4,
+      6,
+      8,
+      10,
+      12,
+      14,
+      16,
+      24
+    ],
+    "controlH": 28,
+    "controlPadY": 5,
+    "target": 24
+  },
   "hairline": {
     "$comment": "The one family of SEPARATING lines, and the rule about state marks (the fifty-seventh list). A hairline separates two regions and takes `line`; a STATE MARK declares a state and takes its own colour (a pill's edge is its ink, so greyscale keeps its shape and its word). Measured before: the panel had THREE names for the first family \u2014 `--line` and `--chrome-line` were the same `rgba(0,0,0,.08)` written twice, and `--glass-hairline` was a COOL `rgba(24,32,54,.07)` for the same job on the same page.",
     "line": "rgba(0, 0, 0, 0.08)",

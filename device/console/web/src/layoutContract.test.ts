@@ -51,6 +51,12 @@ type Contract = {
   ground: { light: string; dark: string; gradients: number };
   elevation: { flat: string; pane: string; raised: string };
   palette: { ink: string; muted: string; faint: string; accent: string; semantic: string[] };
+  space: {
+    scale: number[];
+    controlH: number;
+    controlPadY: number;
+    target: number;
+  };
   radius: {
     page: Record<string, number>;
     overlay: Record<string, number>;
@@ -133,7 +139,7 @@ describe("the layout contract", () => {
     // `agent/resources/panel-react/src/lib/layoutContract.test.ts`. If the two disagree, the two
     // frontends are drawn to different page systems and one of them is wrong.
     expect(createHash("sha256").update(contractText()).digest("hex")).toBe(
-      "8018b2cb4ca4982a05c0bf9e9a2214b7dd59bd3812bb70bca93f1034218e56e9"
+      "0dac76c1cd3ed989c46ab5b962adbee4ab5c1ab621e3539ed85203fa005a3ce3"
     );
   });
 
@@ -149,6 +155,27 @@ describe("the layout contract", () => {
     expect(page, "the page's rhythm comes from the scale").toContain(`gap: var(--${gap})`);
     expect(tokenPx(tokens(), pad)).toBe(contract.page.pad);
     expect(tokenPx(tokens(), gap)).toBe(contract.page.gap);
+  });
+
+  it("is the rhythm, and a control's HEIGHT is not a padding", () => {
+    // **A NUMBER OFF THE SCALE IS A NUDGE UNLESS IT MEASURES SOMETHING ELSE (the fifty-ninth list).**
+    // Measured on this surface: `button { padding: 5px }` looked like a nudge against a scale of
+    // 2/4/6/8 — and this sheet's own comment said why it is not: "One control height (28)". 5 + 5 over an
+    // 18 px line box is 28, so the number had been chosen for a HEIGHT and written as a padding.
+    const tk = tokens();
+    // The console's token file is MINIFIED (`--control-h:28px`) where the panel's is spaced; a contract
+    // records a VALUE, not a source text, so the separator is optional here.
+    const read = (name: string) => Number(tk.match(new RegExp(`--${name}: *(\\d+)px`))?.[1]);
+    for (const step of contract.space.scale) {
+      expect(tk, `the rhythm has a ${step} step`).toMatch(new RegExp(`--sp-[0-9-]+: *${step}px`));
+    }
+    expect(read("control-h"), "the control's height").toBe(contract.space.controlH);
+    expect(read("control-pad-y"), "and the padding that reaches it").toBe(contract.space.controlPadY);
+    // **AND THE BUTTON SAYS ITS HEIGHT AS A HEIGHT.** A token nothing reads is a number waiting to be typed
+    // twice; this asserts the rule that uses it.
+    const button = ruleFor(css(), "button");
+    expect(button, "the button reads the height").toMatch(/min-height:\s*var\(--control-h\)/);
+    expect(button, "and the padding").toMatch(/padding:\s*var\(--control-pad-y\)/);
   });
 
   it("is the radius scale, and every step means something rather than being available", () => {
