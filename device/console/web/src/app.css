@@ -3538,9 +3538,16 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
    decision or a leftover. `--sp-0-5` (2) is the nearest step and the pair still reads as one object;
    the difference it makes is half a pixel per edge, which is exactly what "not on the scale" was costing. */
 .attention-body { flex: 1; min-width: 15rem; display: grid; gap: var(--sp-0-5); }
+/* **AND THE ATTENTION ROW'S MACHINE NAME IS THE SAME 14/600 AS THE CARD'S TITLE ABOVE IT (the seventy-fifth
+   list).** Measured on the deployed build after the installer title took the display step: 14/600 still had
+   two answers — this row at the baseline and the installer's title at -0.154 px — because THIS rule also
+   sets only a size and a weight. The two are not the same OBJECT (a machine's name in a list vs a card's
+   title), and the rule that fixes both is the one the contract states: **a step belongs to the (size,
+   weight, kind) group**, so a 600 run at 14 px answers once. It takes the display step, like every other
+   600 at a title size on this surface. */
 .attention-machine {
   margin: 0; font-size: var(--fs-md); font-weight: var(--fw-semi);
-  overflow-wrap: anywhere;
+  letter-spacing: var(--tracking-display); overflow-wrap: anywhere;
 }
 .attention-problems { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--sp-0-5); }
 .attention-problems li { font-size: var(--fs-md); line-height: var(--lh-body); color: var(--ink-muted); max-width: var(--measure); }
