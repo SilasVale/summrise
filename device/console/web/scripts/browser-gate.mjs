@@ -2863,8 +2863,16 @@ try {
       verdict: document.querySelectorAll('.home-verdict, .attention').length
     };
   });
-  if (activityDesign.sentence !== 17) {
-    throw new Error(`the day's sentence is ${activityDesign.sentence}px, not the scale's 17px`);
+  // **THE HEAD'S COUNT LINE IS THE HEAD'S SUBTITLE (the eighty-second list).** This leg asserted 17 — the
+  // contract's `section.h2` — for `.activity-today`, so the page's SECOND line was drawn at the size the
+  // contract gives a SECTION heading, on the one page whose own hierarchy says the count is a subtitle under
+  // the title. `head.subtitleSlot` is `.page-sub` and both surfaces draw it at 13/400; the count keeps its
+  // `--fw-medium`, which is what makes it the first thing the eye finds under "Activity" without pretending
+  // to be a heading above a block. The 22 this leg once refused is still a bug here, and so is 17.
+  if (activityDesign.sentence !== 13) {
+    throw new Error(
+      `the head's count line is ${activityDesign.sentence}px, not the subtitle slot's 13px`
+    );
   }
   // **THE DAY IS A SECTION, NOT A SECOND TITLE (the forty-ninth list).** This leg asserted 22 — the
   // page TITLE's size — and the day drew exactly that, one weight lighter, so the record's day read as
