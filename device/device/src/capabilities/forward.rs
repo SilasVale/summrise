@@ -531,6 +531,99 @@ mod tests {
         assert!(state.last_error.is_some(), "the row carries why it failed");
     }
 
+    /// **AN EDITED RULE SERVES THE NEW PORT, AND THE OLD ONE STOPS.** An edit that left the old
+    /// executor alone would keep the previous listener bound while the table showed the new port — a
+    /// row that lies, which is worse than a row that fails.
+    ///
+    /// The two ports are this test's own, taken from the kernel and released before the rules use
+    /// them: a port the test holds would be bound by the test, not by the rule under test.
+    ///
+    /// MUTATION (run, not asserted): with `needs_rebuild.insert` in `add` disabled, this went
+    /// `FAILED. 0 passed; 1 failed` with `the old port 32781 was never released`; restored, it is
+    /// green. The flag is what cancels the previous executor, and this is the measurement of that.
+    #[tokio::test]
+    async fn editing_a_rule_moves_the_listener() {
+        let first = free_port();
+        let second = free_port();
+        assert_ne!(first, second);
+        let fixture = Fixture::new("edit");
+        fixture
+            .registry
+            .add(&spec(
+                "edit",
+                &format!("127.0.0.1:{first}"),
+                "10.0.0.1:80",
+                "u@h:22",
+            ))
+            .expect("the first rule");
+        assert!(
+            wait_listening(&fixture.registry, "edit", true).await,
+            "the first listener is up"
+        );
+
+        fixture
+            .registry
+            .add(&spec(
+                "edit",
+                &format!("127.0.0.1:{second}"),
+                "10.0.0.2:80",
+                "u@h:22",
+            ))
+            .expect("the edit");
+        assert!(
+            wait_listening(&fixture.registry, "edit", true).await,
+            "the second listener is up"
+        );
+
+        // THE OLD ADDRESS MUST BE FREE AGAIN. Waiting, because the cancelled executor releases its
+        // socket when tokio drops it, and that is a scheduler turn, not a synchronous fact.
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+        loop {
+            if tokio::net::TcpListener::bind(("127.0.0.1", first))
+                .await
+                .is_ok()
+            {
+                break;
+            }
+            assert!(
+                tokio::time::Instant::now() < deadline,
+                "the old port {first} was never released"
+            );
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        // …and the new one is still held by the rule, not by this test.
+        assert!(
+            tokio::net::TcpListener::bind(("127.0.0.1", second))
+                .await
+                .is_err(),
+            "the rule holds {second}"
+        );
+    }
+
+    /// Poll a rule's row until it says what the test expects, or the deadline passes.
+    async fn wait_listening(registry: &Arc<ForwardRegistry>, name: &str, want: bool) -> bool {
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+        while tokio::time::Instant::now() < deadline {
+            if registry
+                .state(name)
+                .map(|state| state.listening == want)
+                .unwrap_or(false)
+            {
+                return true;
+            }
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+        false
+    }
+
+    /// A port no rule and no test holds: asked for from the kernel, then released.
+    fn free_port() -> u16 {
+        let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).expect("a free port");
+        let port = listener.local_addr().expect("an address").port();
+        drop(listener);
+        port
+    }
+
     /// A half-close is a half-close: each direction ends on its own EOF, so a client that sends its
     /// request and then shuts down its write half still GETS THE ANSWER.
     ///
