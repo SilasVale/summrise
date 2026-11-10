@@ -877,6 +877,36 @@ describe("the layout contract", () => {
     );
   });
 
+  it("is a page BODY that is the page's content, not an empty state", () => {
+    // **MEASURED 2026-11-10 AT 1,440, WALKING THE DEVICE PAGE'S THREE STATES BY FORCING EACH READ (the
+    // eighty-third list):**
+    //
+    //     state          body element        body h   inner      rows
+    //     4 machines     **.empty-state**     248      ul.picker  4
+    //     0 machines     **.empty-state**      64      p.hint     0
+    //     failed read    **.empty-state**      90      .notice    0
+    //
+    // **The page's CONTENT was drawn inside the class that means "there is nothing here".** `.empty-state` is
+    // the atom the sixty-third list consolidated for genuine empties; this page used it as its BODY. Rule 19
+    // asks each state to tell the truth — a state whose element cannot tell "four" from "none" is the wrong
+    // ELEMENT, not a wrong sentence.
+    const source = readFileSync(path.join(here, "DevicePageShell.tsx"), "utf8");
+    expect(source, "the picker's block is a card").toMatch(/<section className="card device-picker-card">/);
+    expect(source, "and not the empty atom").not.toMatch(/<section className="empty-state">\s*<DevicePicker/);
+    // **AND A LIST FILLS THE CARD IT IS IN.** Measured before: the card was 1,072 px wide and its rows were
+    // **326** — 30 % of the page — because a `ul` sized to its content sat inside a card that fills the
+    // column, while the fleet table's row measures 1,070 of 1,072.
+    const picker = ruleFor(css(), "\\.picker");
+    expect(picker, "the list takes its card's width").toContain("width: 100%");
+    expect(contract.empty.radius, "and the empty atom still exists for real empties").toBe(14);
+    // **A HEAD ALIGNS AT ITS TOP EDGE.** `.device-head` said `center` where the atom says `flex-start` —
+    // invisible on a one-row head, wrong the moment it wraps.
+    expect(ruleFor(css(), "\\.device-head"), "the device head reads the atom").toContain(
+      "align-items: flex-start",
+    );
+    expect(contract.head.align, "which the contract names").toBe("flex-start");
+  });
+
   it("is ONE subtitle step in the head's own slot, on every page", () => {
     // **RULE 3 ASKED OF THE HEAD (the eighty-second list).** Measured 2026-11-10 across both surfaces: the
     // contract names ONE subtitle slot — `head.subtitleSlot: ".page-sub"` — and the pages drew it at 13/400
