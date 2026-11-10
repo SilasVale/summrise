@@ -3301,7 +3301,8 @@ lapsed, "Failed to fetch" is all a reader would ever see.
 
 ## P0 — the seventy-fourth list (opened 2026-11-10, the fleet table loses its right half for 274 px of window)
 
-The seventy-third list is closed: a failure names its subject on every page. This list is the predicted gap
+The seventy-third list is closed: a failure names its subject on every page. **This list is closed
+(2026-11-10): both items shipped as console `0a7e02f`, live `ux181`.** This list was the predicted gap
 from round 60, measured this time, and it is the one band of the window where the console's RAIL rule is
 overridden by a rule declared 1,300 lines later.
 
@@ -3326,10 +3327,17 @@ columns with no way to reach them.
 1. **The contract's one rail number is wrong for 128 px of window.** It says the console has a labelled rail
    at ≥768 and an icon rail below; measured, the labelled rail runs from **640**. `layoutContract.test.ts`
    asserts 767 and both surfaces agree on the number, so the number has to be re-measured and either the
-   rule or the CSS fixed. **M.**
+   rule or the CSS fixed. **M.** *(**Done, console `0a7e02f`, live `ux181`**: the NUMBER was right — `767`
+   is the last width at which the labelled rail is not drawn. The stylesheet did not obey it: two later
+   `(min-width: 640px)` queries overrode the icon band's rule on source order alone. Both labelled-form
+   rules now start at 768. Measured after: rail **56** at 640/700/767 and **232** from 768.)*
 2. **The fleet table clips 4 of 5 columns in the band**, and the phone's card form — which already exists,
    already draws the labels, and is already tested — starts only at ≤639. The table does not fit its
    min-content again until the window is **914**, so the card form is what the band needs. **M.**
+   *(**Done, console `0a7e02f`**: the card form is now `@container fleet-table (max-width: 639px)` — a
+   table's shape follows the BOX it is in, not the window (`--rail` takes 232 px, so a 900 px window gives
+   the table the room a 660 px one would). Measured after: **no column is lost at any width from 390 to
+   1,440**.)*
 
 ## How a round goes
 
