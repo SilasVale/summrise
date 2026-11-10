@@ -2487,6 +2487,33 @@ than 1 ms (a `0.01ms` duration is the console's blanket rule switching motion OF
    `Home: 3 element(s) still move … SUMMARY:0.12s, card attention:0.15s`; the panel prints
    `Memory: 4 element(s) still move … btn btn-primary btn-mini:0.2s`.)*
 
+## P0 — the fifty-third list (opened 2026-11-10, the card title is a `strong` on one surface and an `h2` on the other)
+
+The fifty-second list is closed: reduced motion is one blanket, proved on a rendered page. This list
+came from rule 5 (*"hierarchy from size, weight and colour"*) applied to the atom both surfaces draw
+most: the card. Measured on Home and Memory, reading each card's title and its body as a PAIR.
+
+The card's box is already one atom and both surfaces match: **16 px padding, 14 px corner** on every
+card of both surfaces — recorded as clean, and worth saying because it is the frame the title sits in.
+
+1. **The card's title is not one thing: it is an `h2` at 14/600 on the panel and a `<strong>` at 13/600
+   on the console, and one console card's `h2` is its EYEBROW.** Measured:
+
+       panel    .card > header > h2    `font-size: var(--fs-md)` (14) / 600, named in the sheet
+       console  .card header strong    `font-size: var(--fs-base)` (13) / 600
+       console  .card.attention        its `h2` is 10 / 600 / UPPERCASE — an eyebrow, not a title
+
+   So the same visual role is two elements at two sizes, and on the console the element that LOOKS
+   like a card title is not the element that IS one (a `<strong>`, which no assistive technology reads
+   as a heading, while the eyebrow beside it is the `h2`). **Fix:** the contract names the card title
+   (size, weight, and the element that carries it wins nothing from the contract — but the numbers do
+   not vary per surface), and the console's card headers use it. **M.**
+
+2. **The panel's card title is 14 and its section heading is 17; the console's card title is 13 and its
+   section heading is 17.** The step between a section and a card is therefore 3 px on one surface and
+   4 on the other — not a defect anyone can see, but the kind of drift rule 3 counts, and it exists
+   because neither surface wrote the pair down. **Fix:** the same contract line answers both. **S.**
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
