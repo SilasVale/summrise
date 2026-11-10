@@ -6,10 +6,11 @@
 //! back, which a real sshd does not do). So the authority for the wire is here: a real `sshd`, a
 //! real `summrise-device` process, and one `forward.add` through MCP.
 //!
-//! `#[ignore = "..."]`: this needs an sshd this test did not start — the box's own is the honest
-//! stand-in, because what a forward needs from `via` is `AllowTcpForwarding` and public-key auth,
-//! and any real sshd that grants both behaves the same. A conditionally-skipped test would be green
-//! when nothing ran; an ignored one is red when the CI step that runs it is deleted.
+//! `#[ignore = "..."]`: this needs an sshd this test did not start — the runner's own is the honest
+//! stand-in, because what a forward needs from `via` is `AllowTcpForwarding` and public-key auth, and
+//! any real sshd that grants both behaves the same. **CI STARTS THAT SSHD AND RUNS THIS FILE WITH
+//! `--ignored`**, so a conditionally-skipped test would be green when nothing ran and an ignored one
+//! is red when the CI step that runs it is deleted — which is the repository's convention (I8).
 //!
 //! PREPARE (once, on the box that runs it) — TWO inputs, and this test invents neither:
 //!   1. an sshd with `AllowTcpForwarding yes`;
@@ -195,7 +196,7 @@ fn read_body(mut stream: TcpStream) -> String {
 }
 
 #[tokio::test]
-#[ignore = "manual: needs a real sshd with AllowTcpForwarding and an accepted key; see the header"]
+#[ignore = "needs a real sshd; the CI step \"a forward rule carries a real answer through a real sshd\" starts one and runs this file with --ignored"]
 async fn a_forward_rule_carries_a_real_http_answer_through_a_real_sshd() {
     let via = std::env::var("SUMMRISE_FORWARD_VIA")
         .expect("SUMMRISE_FORWARD_VIA=user@host:port names the sshd this test forwards through");

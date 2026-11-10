@@ -1617,7 +1617,7 @@ mod tests {
     ///   SUMMRISE_PANEL_DIR=/tmp/panel cargo test -p summrise-device --bin summrise-device \
     ///       -- --ignored render_panel_for_review
     #[test]
-    #[ignore]
+    #[ignore = "writes review pages; the CI step \"the device panel fits the window\" runs it by name with --ignored"]
     fn render_panel_for_review() {
         let Some(dir) = std::env::var_os("SUMMRISE_PANEL_DIR") else {
             return;

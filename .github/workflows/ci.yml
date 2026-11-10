@@ -109,6 +109,14 @@ jobs:
             cargo test --manifest-path device/Cargo.toml -p summrise-device --test forward_wire \
               -- --ignored --nocapture
 
+      # **EVERY `#[ignore]` IS EITHER NAMED BY A STEP HERE OR SAYS `manual`.** The convention (I8) is
+      # that a test which needs something this workspace cannot provide is `#[ignore]`d AND run by
+      # exact name, "so deleting the CI step turns the proof red instead of silently green" — but
+      # nothing checked the two halves against each other. A `#[ignore]` with a reason nobody wired is
+      # a test that never runs and never complains, and this gate reads the tree for them.
+      - name: every ignored test has a runner
+        run: cargo test --manifest-path device/Cargo.toml -p summrise-device --test ignored_tests_have_a_runner
+
       # The panel is the device's own page, and it is the only surface a person sees without the
       # console; it gets the same measurement.
       - name: the device panel fits the window
