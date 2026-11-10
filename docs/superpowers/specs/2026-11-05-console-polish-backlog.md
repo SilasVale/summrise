@@ -4448,7 +4448,7 @@ answers to the same question.
 ## P0 — the hundred-and-third list (opened 2026-11-11, five lists, and FOUR ways to separate two like things)
 
 The hundred-and-second list's first item is closed; its second — *"nothing distinguishes a list of LINES from a list
-of BOXES"* — is this list, measured on every list the product draws.
+of BOXES"* — is this list, measured on every list the product draws. **Both items are shipped, in the tree.**
 
 The `row` atom answers the question twice and says so: **a list of LINES separates by its own leading
 (`gapLines: 0`); a list of BOXES separates by the scale's 8 (`gapBoxes: 8`).** The `hairline` atom adds the one family
@@ -4472,8 +4472,19 @@ what `soft` is for: *"a hairline separates two regions and takes `line`"*.
 
 1. **Two lists that separate by a rule take it from two different members of the family.** **Fix:** `line` for a
    separator, everywhere. **S.**
+   *(**Done in the tree, MERGED, NOT DEPLOYED** — console `be756b5`. The attention list's separator was
+   `--line-soft` (.05) and every other separator in the product is `--line` (.08); measured after:
+   **`rgba(0, 0, 0, 0.08)`**, the same value the panel's lists draw. The gait the atom states — *"a hairline
+   separates two regions and takes `line`"* — is now the value the console draws.)*
 2. **No page declares which kind of list it is, and no gate reads it.** **Fix:** the row atom's two arms become
    measurable: a list draws EITHER the leading OR the scale's 8, never both and never neither. **M.**
+   *(**Done on both sides.** Measured 2026-11-11, the atom's two arms across every list: **two lists drew BOTH** —
+   `.mem-list` (8 px between cards AND a four-sided rim on every card) and `.plug-rows` (a 1 px rule above every
+   row but the first AND an 8 px gap, which came from the card's own `gap` reaching the rows). **Two separators for
+   one gap**: every boundary read as 8 px of air AND a line, and a reader counting the edges around one memory entry
+   had four instead of the 8. **Fixed**: the memory entry drops its rim and keeps the column's 8; the plugin list
+   keeps its rule per row and drops its gap. Measured after: **`both: false` on every list**, memory at `gap: 8px`
+   and plugins at `gap: 0` with 3 of 4 rows ruled.)*
 
 ## How a round goes
 
