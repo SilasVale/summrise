@@ -919,6 +919,29 @@ describe("the layout contract", () => {
     expect(sheet, "no em or px tracking literal survives").not.toMatch(
       /letter-spacing:\s*(?!var\()[-0-9.]+(?:em|px|rem)\s*;/,
     );
+    // **AND A RULE THAT DRAWS A TITLE OR A LABEL SAYS WHICH STEP IT IS USING.** Two rules on this page
+    // looked like one object and were set at two steps (the installer's card title at the baseline while
+    // every other title carried the display's; the stretch line opened at the eyebrow's 0.08em in a column
+    // of 11 px clocks). Both are the same failure: a rule that sets SIZE and WEIGHT but leaves TRACKING to
+    // whatever the element rule underneath happened to paint.
+    const suspects = [
+      [".installer-strip h2", "display"],
+      [".home-verdict", "display"],
+      [".timeline-stretch-text", "none"],
+    ];
+    for (const [selector, step] of suspects) {
+      const rule = ruleFor(sheet, selector.replace(/\./g, "\\."));
+      expect(rule, `${selector} exists`).toBeTruthy();
+      if (step === "none") {
+        expect(rule, `${selector} is a record line, so it inherits the body's step`).not.toMatch(
+          /letter-spacing/,
+        );
+      } else {
+        expect(rule, `${selector} says which step it reads`).toContain(
+          `letter-spacing: var(--tracking-${step})`,
+        );
+      }
+    }
   });
 
   it("is a FLEET TABLE whose shape follows its box, not the window", () => {

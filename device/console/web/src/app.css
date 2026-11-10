@@ -3440,11 +3440,15 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
 .timeline-stretch.is-header { margin: var(--sp-2) 0 0; }
 .timeline-stretch.is-header::before { display: none; }
 .timeline-stretch.is-header .timeline-stretch-text { color: var(--ink-muted); }
-/* The eyebrow's token, not a fifth hand-written em (the seventy-fifth list). `0.02em` was a number this
-   rule made for itself; `--tracking-eyebrow: 0.08em` is the step the sheet declares for small muted words
-   above a block, and a stretch header IS one. */
+/* **THE STRETCH LINE IS A SENTENCE, NOT A LABEL (the seventy-fifth list, corrected by its own measurement).**
+   `0.02em` was a number this rule made for itself — the literal `tokens.css` forbids in writing — and the
+   fix that replaced it with `--tracking-eyebrow` (0.08em) made it OPEN at 11 px where every other 11 px
+   line on the page was set at the baseline: "2 calls · 8 s" stood out as a heading in a column of clocks.
+   Measured after: the only conflict left on the page was this rule against every other 11 px run.
+   It is a small muted RECORD line ("3 calls · 33 s"), so its step is the body's — none — and it says so
+   rather than inheriting a label's openness. */
 .timeline-stretch-text {
-  color: var(--ink-faint); font-size: var(--fs-xs); letter-spacing: var(--tracking-eyebrow); white-space: nowrap;
+  color: var(--ink-faint); font-size: var(--fs-xs); white-space: nowrap;
 }
 
 /* THE DAY'S DOOR. Sixty rows are drawn and the rest are one quiet line rather than 632 more rows:
@@ -3664,7 +3668,17 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
   display: flex; flex-direction: row; align-items: center; column-gap: var(--sp-3-5);
   row-gap: var(--sp-2); flex-wrap: wrap;
 }
-.installer-strip h2 { margin: 0; font-size: var(--fs-md); font-weight: var(--fw-semi); }
+/* **A CARD'S TITLE IS THE CONTRACT'S STEP, NOT A PARKED `normal` (the seventy-fifth list).** Measured 2026-11-10
+   on Home by grouping the page by size AND weight: at 14/600 two things carried two steps — "DESKTOP-14RJCR8"
+   in the attention row at the baseline and "Installer for a new or returning machine" at `-0.28px`, because
+   the `h2` element rule paints `--tracking-tight` and THIS rule — which is a card's title, `cardTitle` 14/600 —
+   only restated its size and weight while the element rule's tracking came through underneath it.
+   The card's title takes the display step, like every other title on the surface: an element that LOOKS
+   like a heading and is set at the baseline is the drift this list is about. */
+.installer-strip h2 {
+  margin: 0; font-size: var(--fs-md); font-weight: var(--fw-semi);
+  letter-spacing: var(--tracking-display);
+}
 .installer-strip .btn { flex: none; }
 .installer-strip .hint { margin: 0 0 0 auto; font-size: var(--fs-xs); }
 
