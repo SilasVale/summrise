@@ -2932,12 +2932,19 @@ screen reader announces.
    So the empty state is a card INSIDE an unstyled wrapper: the wrapper brings nothing, and a second
    `<div>` between the page and the card is a box that exists only to be a box. **Fix:** the wrapper goes and
    the card IS the state. **S.**
+   *(**Done, panel `060056f4`**: `<div className="empty-card" id="empty-state">` in all three places it
+   appears (Memory and the Terminal's two). Measured after: **`#empty-state` matches no rule** in the built
+   sheet, and a forced empty read shows `radius 14px`, `pad 16px`, `shadow none`, children
+   `[empty-mark, muted, btn]`.)*
 
 2. **Neither surface's `failed` state says WHERE the failure was.** Measured: the console's notice says
    *"The console could not read the machine list"* and the panel's says *"tool memory_list failed"* —
    the first names the thing, the second names the RPC. A reader of the panel's message learns the
    transport, not the page. **Fix:** the contract records that a failed state names the SUBJECT (what
    could not be read) and not the transport, and the panel's copy follows. **M.**
+   *(**Done with item 1, same commit**: the fallback is "The panel could not read the memory list" and the device's
+   own sentence is still used whenever it sends one. `failed: { …, names "subject", namesTransport false }`
+   is in the contract.)*
 
 ## How a round goes
 
