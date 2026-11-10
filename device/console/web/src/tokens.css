@@ -31,27 +31,32 @@
   --tracking-display:-0.011em; --tracking-tight:-0.02em;
   --tracking-label:0.05em; --tracking-eyebrow:0.08em;
   --sp-0-5:2px; --sp-1:4px; --sp-1-5:6px; --sp-2:8px; --sp-2-5:10px;
+  --sp-3:12px; --sp-3-5:14px; --sp-4:16px; --sp-5:24px; --sp-6:32px;
   /* **A CONTROL'S HEIGHT AND THE PADDING THAT REACHES IT (the fifty-ninth list).** The rhythm is
      2/4/6/8/10/12/14/16/24/32 and 5 is not on it — but 5 is not a nudge: 5 + 5 over an 18 px line box is
      the 28 px control every button in the product is. Two names, two jobs, and neither is a number
-     pretending to be a rhythm step. */
-  --control-h:28px; /* **ONE SCRIM, NAMED ONCE (the sixty-sixth list).** `.sheet-scrim` painted `rgba(0,0,0,.4)` and `.scrim`
- painted `rgba(12,16,20,.38)` — the same idea in two shades — and a later rule repainted BOTH to
- `color-mix(in srgb, #000 30%, transparent)`, so the first value was dead except in the cascade. A scrim
- is one proportion of one colour over the page; it is not a surface and it is not two surfaces. */
-  --scrim:color-mix(in srgb, #000 30%, transparent); --control-pad-y:5px;
-  /* **LINE-HEIGHT IS THREE RATIOS (the sixtieth list).** Measured on this sheet: `1` (8 sites), `1.45`
-     (7), `1.5` (9), `1.4` (3), `1.2` (2), `1.6`, `1.55`, `0`. A reader cannot see .05 of a ratio, so it
+     pretending to be a rhythm step.
+     **AND THESE SEVEN LIVE HERE NOW (the seventy-ninth list).** They were recorded in
+     `device/console/web/src/tokens.css` — a file whose own header says it is generated and must not be
+     edited — so the next run of `scripts/generate-tokens.sh` would have deleted all of them, and the gate
+     that compares the two files said so in a suite nobody ran. A decision the generator cannot see is a
+     decision the generator will remove. */
+  --control-h:28px; --control-pad-y:5px;
+  /* **ONE SCRIM, NAMED ONCE (the sixty-sixth list).** `.sheet-scrim` painted `rgba(0,0,0,.4)` and `.scrim`
+     painted `rgba(12,16,20,.38)` — the same idea in two shades — and a later rule repainted BOTH to
+     `color-mix(in srgb, #000 30%, transparent)`, so the first value was dead except in the cascade. A scrim
+     is one proportion of one colour over the page; it is not a surface and it is not two surfaces. */
+  --scrim:color-mix(in srgb, #000 30%, transparent);
+  /* **LINE-HEIGHT IS THREE RATIOS (the sixtieth list).** Measured on the console's sheet: `1` (8 sites),
+     `1.45` (7), `1.5` (9), `1.4` (3), `1.2` (2), `1.6`, `1.55`, `0`. A reader cannot see .05 of a ratio, so it
      was never a design choice. Three meanings: a PARAGRAPH (1.5), a HEADING or a display line whose size
      already carries the hierarchy (1.3), and a GLYPH IN A BOX (1). */
   --lh-body:1.5; --lh-tight:1.3; --lh-mark:1;
-  /* **A PROSE BLOCK HAS A MEASURE (the sixty-first list).** This surface's prose already sits at 46 ch —
+  /* **A PROSE BLOCK HAS A MEASURE (the sixty-first list).** The console's prose already sat at 46 ch —
      measured, the widest in the product and well inside the band a line is followed back along. What it did
-     NOT have is a rule: the blocks that ran long did so because their text happened to be short. A token
-     makes the next sentence take the measure instead of the card's 1,072 px.
+     NOT have is a rule, and a block that ran long would have run long because its text happened to be short.
      A CODE SNIPPET IS EXEMPT (scanned token by token, and wrapping breaks a copy-paste). */
   --measure:66ch;
-  --sp-3:12px; --sp-3-5:14px; --sp-4:16px; --sp-5:24px; --sp-6:32px;
 
   /* The terminal is a canvas that follows the page, the way summrise-legacy's does (`--term-canvas-bg`).
      An ANSI palette tuned for a light canvas is not the dark one with the colours swapped: these are

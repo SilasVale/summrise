@@ -509,7 +509,26 @@ fn the_tracking_literals_are_the_tokens_or_a_documented_exception() {
     // air small-caps labels at 10-11 px need (`0.02em`, `0.04em`) that the display scale does not
     // carry.
     let allowed = ["normal", "0", "-0.004em", "0.02em", "0.04em"];
+    // **A COMMENT IS PROSE, AND PROSE QUOTES WHAT THIS TEST FORBIDS (the seventy-ninth list).** The
+    // seventy-fifth list's own note records the line it removed — "`letter-spacing: -0.004em` and let it
+    // INHERIT into every element" — and this scan read that sentence as a declaration, so the file failed
+    // on its own explanation. The panel learned the same lesson first ("a comment that quotes what a gate
+    // forbids trips the gate"); the fix belongs in the scan, not in the prose.
+    let mut in_comment = false;
     for line in APP.lines() {
+        let trimmed = line.trim_start();
+        if in_comment {
+            if trimmed.contains("*/") {
+                in_comment = false;
+            }
+            continue;
+        }
+        if trimmed.starts_with("/*") {
+            if !trimmed.contains("*/") {
+                in_comment = true;
+            }
+            continue;
+        }
         let Some(index) = line.find("letter-spacing:") else {
             continue;
         };

@@ -3147,7 +3147,7 @@ main::-webkit-scrollbar-track, .sheet-body::-webkit-scrollbar-track, .scroll::-w
    the stream is live that would take the page's full width if the state were explained at length. The
    evidence transcript below it is NOT capped: a log is scanned token by token, like a command. */
 .activity-status {
-  margin-top: 4px;
+  margin-top: var(--sp-1);
   font-size: var(--fs-sm);
   color: var(--ink-muted);
   max-width: var(--measure);
@@ -3745,7 +3745,7 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
   margin: 0; font-size: var(--fs-lg); font-weight: var(--fw-semi);
   letter-spacing: var(--tracking-tight);
 }
-.overview-head .page-sub { margin-top: 4px; }
+.overview-head .page-sub { margin-top: var(--sp-1); }
 /* The start line shares the machine's head with the name it describes, rather than preceding it.
    Its recovery line sits under it, in the same right-hand block, so "started … ago" and "back
    after …" are read as one answer about this machine's return. */
