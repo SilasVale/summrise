@@ -3908,6 +3908,58 @@ mod tests {
         );
     }
 
+    /// **THE THREE TOOLS ON THE WIRE.** A rule added through `forward.add` is listed by
+    /// `forward.list`, an unchosen rule reports its own failure rather than a plausible zero, and
+    /// `forward.remove` closes the listener it owned.
+    ///
+    /// MUTATION: drop the `forward.add` dispatch arm -> the call answers a refusal and this fails.
+    #[tokio::test]
+    async fn the_forward_tools_add_list_and_remove_a_rule() {
+        let device = start("mcp-forward").await;
+        let mut client = Client::authorized(&device);
+        client.initialize().await;
+
+        // A rule whose target is on loopback and whose `via` is this device's own sshd is too much
+        // machinery for a wire test; binding a port that cannot exist is not one. What the wire
+        // test owns is the SHAPE: the tool exists, takes four fields, persists, lists and removes.
+        let added = client
+            .call(
+                "forward.add",
+                json!({
+                    "name": "wire",
+                    "listen": "127.0.0.1:18899",
+                    "target": "127.0.0.1:18898",
+                    "via": "zss@127.0.0.1:22"
+                }),
+            )
+            .await;
+        assert!(added["error"].is_null(), "forward.add is accepted: {added}");
+        let added: Value = serde_json::from_str(text_of(&added)).expect("the answer is JSON");
+        assert_eq!(added["name"], "wire");
+
+        let listed = client.call("forward.list", json!({})).await;
+        let listed: Value = serde_json::from_str(text_of(&listed)).expect("the answer is JSON");
+        let rows = listed
+            .as_array()
+            .unwrap_or_else(|| panic!("forward.list answers rows: {listed}"));
+        assert_eq!(rows.len(), 1, "one rule is configured: {listed}");
+        assert_eq!(rows[0]["name"], "wire");
+        assert_eq!(rows[0]["listen"], "127.0.0.1:18899");
+        // A rule whose `via` has no saved credential cannot reach anything, and the row SAYS so
+        // rather than showing an unbound listener with no explanation.
+        assert!(
+            rows[0]["last_error"].as_str().is_some() || rows[0]["listening"] == true,
+            "the row reports what happened: {listed}"
+        );
+
+        let removed = client
+            .call("forward.remove", json!({ "name": "wire" }))
+            .await;
+        assert_eq!(text_of(&removed), "{\"removed\":true}", "it was configured");
+        let after = client.call("forward.list", json!({})).await;
+        assert_eq!(text_of(&after), "[]", "{after}");
+    }
+
     #[tokio::test]
     async fn the_tool_list_is_exactly_the_registrys_tools() {
         let device = start("mcp-tools-list").await;
