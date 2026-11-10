@@ -60,7 +60,22 @@ export function DevicePicker({
         </div>
       );
     }
-    return <p className="hint">No devices are enrolled yet. Add one from Home.</p>;
+    // **AN EMPTY LIST IS THE ATOM'S CARD, NOT A BARE LINE (the ninety-eighth list).** Measured with `/fleet`
+    // answering `[]`: this branch drew `p.hint`, and the page's own `.card.device-picker-card` around it padded
+    // **16** — so the card was **52 px tall for an 18 px line**, a box hugging its sentence like a label, while the
+    // contract's `empty` atom says *"A page with nothing to list shows ONE CARD … the card's corner and padding,
+    // start-aligned text, no shadow"*. `.empty-state` IS that atom in this stylesheet — 14/16, start-aligned,
+    // no shadow — and the page already draws it as its failed and reading states elsewhere.
+    // **AND THE ATOM'S BOX IS ALREADY HERE.** `.card.device-picker-card` paints the atom's own 14/16 — so drawing
+    // `.empty-state` inside it would be a card inside a card, the shape the thirty-eighth list removed from
+    // Settings. What the branch must stop doing is pretending ONE LINE is a page: it says what it is (a heading),
+    // then what to do (the sentence), at the atom's gap u2014 which is what the card's 16 px was always waiting for.
+    return (
+      <div className="picker-empty">
+        <h2 className="picker-empty-title">No devices are enrolled yet</h2>
+        <p className="hint">Add one from Home, and it appears here with its own address and version.</p>
+      </div>
+    );
   }
   return (
     <ul className="picker">
