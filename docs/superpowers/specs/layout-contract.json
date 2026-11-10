@@ -61,9 +61,11 @@
     "stateMarksCarryOwnColour": true
   },
   "head": {
-    "$comment": "The page HEADER's row, which both surfaces draw (a cut): the title block on the left, its lede or its actions beside it, aligned to the top so a wrapping lede grows downward.",
+    "$comment": "The page's ONE head (the sixty-second list). Its height is its CONTENTS \u2014 the pages measured 68/68/33 px because one carries tabs and two carry a subtitle \u2014 so `height` is not a number. What IS recorded: the gap, the alignment, the subtitle SLOT (the second line of the title's block, `.page-sub`), and the rule that a page has ONE head \u2014 anything under it is a card.",
     "gap": 12,
-    "align": "flex-start"
+    "align": "flex-start",
+    "subtitleSlot": ".page-sub",
+    "maxHeadsPerPage": 1
   },
   "card": {
     "radius": 14,
