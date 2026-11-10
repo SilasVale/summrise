@@ -49,6 +49,21 @@ pub const RULES_MAX: usize = 4;
 /// permanent conflict must leave the row VISIBLE with its error instead of spinning.
 pub const BIND_RETRY_MS: [u64; 4] = [0, 1_000, 5_000, 15_000];
 
+/// Whether a bind failure cannot change by waiting.
+///
+/// **TWO REASONS, AND THEY ARE THE WHOLE LIST THIS BUILD CAN NAME.** `AddrNotAvailable` means no
+/// interface on this machine carries the address — an address that is not here will never be here.
+/// `PermissionDenied` means this process may not bind the port (a port below 1024 on Unix, or a
+/// Windows reservation): the device's own privilege does not change between attempts.
+///
+/// A busy port is deliberately NOT on the list: it is the one case the ladder exists for.
+fn is_permanent_bind(error: &std::io::Error) -> bool {
+    matches!(
+        error.kind(),
+        std::io::ErrorKind::AddrNotAvailable | std::io::ErrorKind::PermissionDenied
+    )
+}
+
 /// How long one accepted connection's SSH opening may take before it is abandoned.
 ///
 /// The SSH capability has its own connect bound; this one is the rule's, and it exists so a `via`
@@ -515,9 +530,22 @@ mod tests {
     #[tokio::test]
     async fn the_bind_ladder_stops_after_its_last_step() {
         let fixture = Fixture::new("ladder");
+        // **A PORT THIS TEST HOLDS FOR THE WHOLE LADDER, AND IT USED TO BE A PRIVILEGED ONE.**
+        // `203.0.113.7:9` was the old fixture, and `:9` is below 1024: that is `EACCES`, which is now
+        // classified as a permanent failure and stops at the first attempt — correctly, and this
+        // test was proving the ladder with a failure the ladder no longer takes. `EADDRINUSE` is the
+        // case it is FOR, so the test holds the port and lets go only when the ladder has spent
+        // itself.
+        let held = std::net::TcpListener::bind(("127.0.0.1", 0)).expect("a held port");
+        let port = held.local_addr().expect("an address").port();
         fixture
             .registry
-            .add(&spec("ladder", "203.0.113.7:9", "10.0.0.1:80", "u@h:22"))
+            .add(&spec(
+                "ladder",
+                &format!("127.0.0.1:{port}"),
+                "10.0.0.1:80",
+                "u@h:22",
+            ))
             .expect("the rule is configured even though it cannot bind");
         let total_ms: u64 = BIND_RETRY_MS.iter().sum();
         let budget = Duration::from_millis(total_ms + 400);
@@ -532,6 +560,7 @@ mod tests {
         })
         .await;
         let state = settled.expect("the ladder ended within its own steps");
+        drop(held);
         // THE ROW STAYS, WITH ITS ERROR: that is the state the operator reads instead of a log they
         // would have to find.
         assert!(!state.listening);
@@ -1036,6 +1065,84 @@ mod tests {
         );
     }
 
+    /// **A BIND THAT FAILS FOR A REASON THE ADDRESS CAUSES STOPS NOW; A PORT THAT IS MERELY BUSY
+    /// GETS THE LADDER.** The ladder exists for the second case — something else owns the port for a
+    /// moment — and retrying the first is four attempts and 21 seconds spent on an address that will
+    /// never work, behind a row that says nothing until the end.
+    ///
+    /// The failures are made real: a port uid 1000 may not bind (`:80`), and a port this test is
+    /// holding.
+    ///
+    /// MUTATION (run, not asserted), twice — and the first run found the test was a liar:
+    /// 1. with `return` deleted and the assertion made as soon as the first failure appeared, the
+    ///    test was GREEN: it read `attempts` before any second attempt could exist, so it could not
+    ///    tell the two behaviours apart. It now waits past `BIND_RETRY_MS[1]`.
+    /// 2. re-run against the corrected test: `FAILED. 0 passed; 1 failed` with
+    ///    `attempts: 2` against `right: 1` and the row's own sentence
+    ///    `binding 127.0.0.1:80 for rule "perm" failed: Permission denied (os error 13)`.
+    /// Restored, green.
+    #[tokio::test]
+    async fn a_permanent_bind_failure_stops_at_once_and_a_busy_port_gets_the_ladder() {
+        let fixture = Fixture::new("binderr");
+
+        // A. A PORT THIS PROCESS MAY NOT BIND. `EACCES` on any port below 1024 for uid 1000 — the
+        // failure that cannot change by waiting. (An address that is not this machine's would be
+        // `EADDRNOTAVAIL`, but this box sets `net.ipv4.ip_nonlocal_bind = 1`, measured, so a
+        // foreign address BINDS here and would prove nothing.)
+        fixture
+            .registry
+            .add(&spec("perm", "127.0.0.1:80", "10.0.0.1:80", "u@h:22"))
+            .expect("the rule is configured even though it cannot bind");
+        // WAIT PAST THE LADDER'S FIRST DELAY. Reading `attempts` the moment the first failure
+        // appears would see 1 either way — the mistake this test made at first, and the mutation
+        // (`return` deleted) proved it: green, because the assertion could not tell them apart.
+        let first_delay = Duration::from_millis(BIND_RETRY_MS[1]);
+        let deadline = tokio::time::Instant::now() + first_delay + Duration::from_secs(3);
+        tokio::time::sleep(first_delay + Duration::from_millis(250)).await;
+        let state = fixture.registry.state("perm").expect("the row");
+        assert!(
+            !state.listening && state.last_error.is_some(),
+            "the failure is on the row: {state:?}"
+        );
+        assert_eq!(
+            state.attempts, 1,
+            "a permanent failure is ONE attempt, not the ladder: {state:?}"
+        );
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "unreachable: the wait above is bounded"
+        );
+
+        // B. A PORT THIS TEST HOLDS. `EADDRINUSE` — the transient case the ladder is FOR.
+        let held = std::net::TcpListener::bind(("127.0.0.1", 0)).expect("a held port");
+        let port = held.local_addr().expect("an address").port();
+        fixture
+            .registry
+            .add(&spec(
+                "busy",
+                &format!("127.0.0.1:{port}"),
+                "10.0.0.2:80",
+                "u@h:22",
+            ))
+            .expect("the rule is configured");
+        // The ladder's first step is immediate, so one attempt is visible almost at once; it must
+        // keep going rather than stop, which is what `attempts` reaching 4 by the ladder's own clock
+        // would show. The first attempt is enough to prove the difference.
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
+        loop {
+            let state = fixture.registry.state("busy").expect("the row");
+            if state.attempts > 1 {
+                break;
+            }
+            assert!(
+                tokio::time::Instant::now() < deadline,
+                "a busy port did not get a second attempt: {state:?}"
+            );
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+        drop(held);
+    }
+
     /// A half-close is a half-close: each direction ends on its own EOF, so a client that sends its
     /// request and then shuts down its write half still GETS THE ANSWER.
     ///
@@ -1424,6 +1531,14 @@ impl ForwardRegistry {
                         rule.name
                     );
                     self.update(&rule.name, |st| st.last_error = Some(reason));
+                    // **A FAILURE THE ADDRESS CAUSES DOES NOT GET THE LADDER.** `EADDRNOTAVAIL` is
+                    // "no interface has this address" and `EACCES`/`EPERM` is "this process may not
+                    // bind that port"; neither changes by waiting, so the four attempts are 21
+                    // seconds spent behind a row that reports only at the end. `EADDRINUSE` is the
+                    // case the ladder was written for and keeps it.
+                    if is_permanent_bind(&error) {
+                        return;
+                    }
                     if attempt + 1 == BIND_RETRY_MS.len() {
                         // The ladder is spent. The row stays, with its error.
                         return;
