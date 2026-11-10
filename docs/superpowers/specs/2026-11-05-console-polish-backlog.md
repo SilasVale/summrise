@@ -4245,8 +4245,21 @@ table's rows and is being spent on a sentence.**
 1. **The atom's empty state — one card at 14/16/12 — is drawn as a bare line in five places, and one of them is a
    card that pads nothing.** **Fix:** each takes the atom's box; the box that already exists stops hugging its line.
    **M.**
+   *(**Done in the tree `1ce79af` (console) and `88548785` (panel), MERGED, NOT DEPLOYED** — the hold applies.
+   **Console Device: 52 px → 98 px at pad 16.** The branch now says the FACT and the DOOR — a heading "No devices are
+   enrolled yet" at `--fs-lg`, then "Add one from Home, and it appears here with its own address and version." at
+   the card's own 16, because `.card.device-picker-card` already paints the atom's box; drawing `.empty-state` inside
+   it would be a card inside a card (the thirty-eighth list's rule).
+   **Panel Plugins: `.plug-inventory` 20 px → 142 px (empty) / 52 px (failed read)**, both at `padding:
+   var(--sp-4)`, decided by `inventoryRows === 0`. **The failed branch had the same defect** — measured with the spec
+   refusing, that card was the same 20 px hugging "Inventory unavailable." — so the box asks whether it holds ROWS,
+   not whether the page is empty.)*
 2. **Nothing measures an empty state's own box**, so a hairline box 2 px taller than its text passes every gate.
    **S.**
+   *(**Done in the panel repo**: `is an EMPTY state in the atom's box, not a hairline hugging a line` — the exemption
+   stays for the list, a sentence branch pads at the atom's `--sp-4`, and the page's own decision is read from its
+   source (`inventoryRows === 0`, not `rows.length === 0`). Mutation: `.is-sentence` back to `padding: 0` →
+   "at the atom's own inset", proven with a rebuilt sheet.)*
 
 ## How a round goes
 
