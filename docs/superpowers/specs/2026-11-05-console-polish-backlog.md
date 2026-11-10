@@ -2946,6 +2946,32 @@ screen reader announces.
    own sentence is still used whenever it sends one. `failed: { …, names "subject", namesTransport false }`
    is in the contract.)*
 
+## P0 — the sixty-fourth list (opened 2026-11-10, a rule that fires 133 px before the breakpoint it names)
+
+The sixty-third list is closed: the empty state is the card. This list came from rule 20 at the widths the
+contract declares — measured by walking EACH SIDE of every breakpoint (479/480/481, 638/639/640,
+766/767/768, 1087/1088/1089, 1279/1280) on both surfaces and asking what shape each page takes.
+
+Two reads were clean and are recorded as clean: **no media width in either sheet is off the contract**
+(the console uses 480/639/640/767/1088/1280 and the panel 639/767/1088 — every value is a breakpoint or
+its `+1`), and **the console's phone/tablet switch is exact**: at 639 the table is `display: block` and at
+640 it is `display: table`, which is `phone` doing what a breakpoint should.
+
+1. **The panel's approval banner collapses ONE PIXEL EARLY: `@media (max-width: 1088px)` fires AT
+   `columns` (1088), so at the width the contract calls "the width the page goes from one column to two"
+   the two-column form is already gone.** Measured: at 1087 the banner is one column and at 1088 it is
+   still one column, while the page itself is still one column at 1087 and two at 1280. Every other
+   boundary in the product is written `(max-width: N)` for its own side and `(min-width: N+1)` for the
+   other, so `columns` is the ONE place where two rules disagree about which side of 1088 they are on.
+   **Fix:** the fold is `(max-width: 1087px)`, matching `phone` and `tablet`, which already use the
+   `-1` form. **S.**
+
+2. **The widths are a habit rather than a syntax.** Three `@media` blocks in the product use `max-width:`
+   with the breakpoint's own number and three use `min-width:` with `+1`; both are correct and neither is
+   written down, so each new rule re-derives which form to use. **Fix:** the contract records the form
+   (a downward query ends at `N-1`, an upward one starts at `N`) and each repo's test counts the exception.
+   **S.**
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
