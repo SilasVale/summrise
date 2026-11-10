@@ -3736,6 +3736,36 @@ own history is a mountain of hand-tuned insets.
    `scroll-margin-top` note and the card) and the test accepted any matching rule; it reads the block carrying
    `background` now.)*
 
+## P0 — the eighty-sixth list (opened 2026-11-10, the card's 8 is 8 plus whatever its children bring)
+
+The eighty-fifth list is closed. This list is the card's INSIDE — the number the contract has always recorded
+(`card{gap 8}`) and which no page actually gives its children.
+
+Measured 2026-11-10 at 1,360/1,440, reading each card's `row-gap` and then the space that lands between its
+children:
+
+     surface   card                declared gap   children's own margins   space they get
+     console   card.attention      8 px           `-4px`, `0`              **4**, 8
+     console   card.installer      8 px           `0`, `0`, `0`, `0`       **-26, -41, 13, -23**
+     panel     card.mem-card       8 px           `6px`, `8px`             **14**, **16**
+     panel     card.plug-card      8 px           `8px`, `8px`             **16**, 16
+
+**Not one of them is 8.** The console's attention card gets 4 px under its header because `.attention-release`
+carries `margin: -4px 0 0` — a negative margin used to tighten a gap the container already set. The panel's memory
+card gets 14 and 16 because `.mem-tags` brings `6px` and `.mem-content` brings `8px` ON TOP of the container's 8.
+And the installer strip's children get negative space — they are laid out in a row that wraps, and the measurement
+walks them in visual order, which is what a reader sees: two of them share a line.
+
+**Rule 7 says spacing and grouping do the work; here the spacing is done twice and the group is one number that
+nobody reads.** A card's rhythm that is `8 + the child's margin` is a rhythm with as many values as there are
+children.
+
+1. **A card's gap is its own; a child does not add to it.** **Fix:** the negative and the extra margins go, so
+   every card's children sit 8 px apart — the number in the contract — or a card states a different gap and the
+   contract records it. **M.**
+2. **No test measures a card's INTERNAL rhythm at all.** The gates read the rule (`gap: 8`), never the rendering.
+   **S.**
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
