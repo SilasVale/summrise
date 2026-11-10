@@ -27,6 +27,12 @@
     "size": 14,
     "weight": 600
   },
+  "elevation": {
+    "$comment": "The three LEVELS a shadow can mean, and which atoms may carry one (the fifty-fifth list). `flat` is a card ON the page \u2014 a hairline and a tint, no shadow. `pane` is a surface ABOVE it (a drawer, a modal, a popover) and is the only thing that floats. `raised` is a control lifted inside a pane (a segmented switch's active arm), a 1-2 px lift. Measured before: the panel's card carried a four-layer `--glass-shadow` while the console's carried `none`, so a card was two objects on the two surfaces.",
+    "flat": "none",
+    "pane": "--glass-shadow",
+    "raised": "--shadow"
+  },
   "rail": {
     "$comment": "Each surface's first column. The CONSOLE collapses at `tablet` (767): below it the rail becomes the top bar, so the page's left is 0 \u2014 measured at 380/480/639. The PANEL never collapses: it is a device app in a window, and its rail is the page's first column at every width. The widths are recorded rather than equalized; the COLLAPSE is a rule, not a habit.",
     "console": 232,

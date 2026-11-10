@@ -49,6 +49,7 @@ type Contract = {
   motion: { reducedMotion: string; cap: string; namedAnimationsStop: boolean };
   cardTitle: { size: number; weight: number };
   ground: { light: string; dark: string; gradients: number };
+  elevation: { flat: string; pane: string; raised: string };
   section: {
     h2: { size: number; weight: number };
     h3: { size: number; weight: number };
@@ -118,7 +119,7 @@ describe("the layout contract", () => {
     // `agent/resources/panel-react/src/lib/layoutContract.test.ts`. If the two disagree, the two
     // frontends are drawn to different page systems and one of them is wrong.
     expect(createHash("sha256").update(contractText()).digest("hex")).toBe(
-      "e93101e9201ccc6cfa4133dc264d425194965afd777b1fea32ccb4a14caafd63"
+      "f01eb8235c918d99ab66c6f1f64dea91d453780f79baac022e6a3464dff75bee"
     );
   });
 
@@ -134,6 +135,26 @@ describe("the layout contract", () => {
     expect(page, "the page's rhythm comes from the scale").toContain(`gap: var(--${gap})`);
     expect(tokenPx(tokens(), pad)).toBe(contract.page.pad);
     expect(tokenPx(tokens(), gap)).toBe(contract.page.gap);
+  });
+
+  it("is the card's elevation, and this surface already drew it", () => {
+    // **THE CONSOLE WAS THE SURFACE THE PANEL WAS MEASURED AGAINST (the fifty-fifth list).** Its card
+    // measured `box-shadow: none` — a hairline on the ground — while the panel's carried a four-layer
+    // float. So this test is the line being HELD rather than a fix: `elevation.flat` is `none`, a card
+    // is flat on the page, and `elevation.pane` (`--glass-shadow`) is the level that may float.
+    const source = css();
+    const card = ruleFor(source, ".card");
+    expect(card, "the card must have a rule").not.toBeNull();
+    const declared = card!.match(/box-shadow:\s*([^;}]+)/)?.[1]?.trim() ?? "";
+    // **FLAT IS ABSENCE AS MUCH AS IT IS `none`** — this surface's `.card` never declared a shadow, and a
+    // rule that carries none satisfies the level exactly as a rule that says `none` does.
+    expect(declared === "" || declared === contract.elevation.flat, "the card sits ON the page").toBe(
+      true
+    );
+    // **AND THE FLOAT IS STILL SOMEWHERE** — a modal or a drawer with no shadow would read as part of the
+    // page. This surface's `--shadow-lg` is that level, and it is used.
+    expect(source, "the pane level exists and is used").toContain("var(--shadow-lg)");
+    expect(contract.elevation.pane).toBe("--glass-shadow");
   });
 
   it("is the ground, and it is ONE colour rather than a wash", () => {
