@@ -4423,8 +4423,20 @@ answers to the same question.
 
 1. **A row's inset is 0 on the console's lists and 12 on the panel's, where the atom says 8.** **Fix:** one row inset,
    read from the atom, and the two lists that draw a row AS a card stop doing that. **M.**
+   *(**Done in the tree** — console `attention-row` `10px 0` → `10px var(--sp-2)` and panel `.plug-row` `8px 12px` →
+   `8px`, both **MERGED, NOT DEPLOYED**. **Measured after: the panel's plugin row's text 29 → 25 px from its card's
+   edge**, and the console's attention row's rows now share the card's heading line (319) instead of its text
+   starting 19 px in with an ul that pads nothing.
+   **BUT ONE NUMBER IN THIS ITEM WAS WRONG.** I first reported the console's row as *"a bare line 19 px inside its
+   card"* and "fixed" it by insetting the `li` — and the measurement after the fix says the row's TEXT went 299 →
+   **347**, i.e. 28 px from the card's edge, because the `li` sits on an `ul` that pads 0 INSIDE the card's 16. The
+   atom's `insetX: 8` is the row's own inset **inside its list**, and 16 + 8 = 24 is what the panel draws; the
+   console now draws 16 + 8 + 8 = 32. **The fix is not finished and the item is still open.**)*
 2. **Nothing distinguishes a list of LINES from a list of BOXES.** The atom names the difference and no gate reads it:
    a list that draws neither a leading rhythm nor the scale's 8 passes every gate it has. **S.**
+   *(**Still open.** Measured: the console's timeline draws a **76 px pitch with no gap and no rule**; the panel's
+   memory draws **8 between cards**; the fleet table draws its own 1 px separators — three answers to the question the
+   atom already answers twice.)*
 
 ## How a round goes
 

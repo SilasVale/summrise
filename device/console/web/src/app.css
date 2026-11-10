@@ -3630,9 +3630,14 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
    whole answer, and the line keeps only its size. */
 .attention-release { font-size: var(--fs-xs); }
 .attention-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 0; }
+/* **A ROW INSETS BY THE ATOM'S 8, NOT BY ZERO (the hundred-and-second list).** Measured 2026-11-11: this row drew
+   `padding: 10px 0` inside a card that pads 16 — so its text sat **19 px** from the card's edge while the contract's
+   `row.insetX: 8` says 8, and the block's own first line (the attention heading) sits at the card's 16. **A row of
+   LINES still insets**: the atom's `gapLines: 0` is about the space BETWEEN rows, not about the inset that makes
+   them belong to the card. */
 .attention-row {
   display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap;
-  padding: var(--sp-2-5) 0; border-top: 1px solid var(--line-soft);
+  padding: var(--sp-2-5) var(--sp-2); border-top: 1px solid var(--line-soft);
 }
 .attention-row:first-child { padding-top: 0; border-top: 0; }
 .attention-row:last-child { padding-bottom: 0; }
