@@ -3908,6 +3908,40 @@ named. A reader who moves between the two surfaces sees the same failure in two 
 2. **`tint: "alarm"` names no colour, so the two surfaces paint two.** **Fix:** the atom records the pair, and
    each repo reads it. **S.**
 
+## P0 — the ninety-first list (opened 2026-11-11, the operator's own MCP calls fail and nothing says which field)
+
+The ninetieth list is closed. This list came from the operator, in words: *"看一下今天的mcp日志是不是又调用失败的，
+你看看能不能解决下"* — and the answer is yes, and it is three separate defects.
+
+Measured 2026-11-11 by pulling the live console's own audit (`/audit?limit=1000`, 1,000 lines, 102 failures) and
+classifying every one:
+
+     61  `runs.exec: run run-… exited 1 in N ms`      **the command failed** — the record telling the truth
+      8  `runs.exec: 424 … arguments do not match`   **the same call, refused on a FIELD NAME**
+     10  `runs.exec: 504 the device accepted …`       **the console gave up at the proxy bound**
+      7  `files.*: 424`                                a file that was not there, and a route
+      4  `… 503 device not connected`                 the device was offline
+      1  `terminal.create: kind pty takes shell, …`    the same schema's words, refusing my call
+
+**AND EIGHT OF THEM ARE THE SAME MISTAKE, MADE EIGHT TIMES THIS MORNING.** `runs.exec`'s schema declares
+`timeout_ms`; my calls sent `timeoutMs`, and the device answered **424 "the arguments do not match the tool's input
+schema"** — a sentence that names the SCHEMA and not the FIELD. The refusal is correct and unhelpful: a client
+that has just invented `timeoutMs` from the thousands of camelCase tools in the same surface has no way to learn
+which of its six keys was wrong, so it retries the same call. **8 of 102 failures are one client learning nothing.**
+
+**And ten 504s are the console's bound, not the device's:** `RUNS_MAX_PROXY_WAIT` is ninety seconds, measured at
+1,007 live `runs.exec` calls today whose median run took 1.8 s but whose longest took **87.98 s** and whose
+**147 finished after 30 s** — so a legal run that takes a minute is cut at the proxy and the audit says "it may
+still be working on it", which is true and unactionable in the one place a person looks.
+
+1. **A schema mismatch names the schema, not the field, and the caller cannot learn.** **Fix:** the refusal
+   names the offending key (never its value — the same rule the existing code has for secrets), so the next
+   call is correct. **M.**
+2. **A run that the console stopped waiting for keeps running, and the answer says so without saying how to
+   collect it.** **Fix:** the 504 sentence names `runs.list` and the id, so the record can be read. **S.**
+3. **The console's own `terminal.create` refusal carries the same defect** — "kind pty takes shell, rows and
+   columns only" names the kind and not which of the three was wrong. **S.**
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
