@@ -1453,7 +1453,12 @@ export function App() {
                   atLimit={shownAtLimit}
                   cappedMachine={shownWindowName}
                   windowCounts={shownCounts}
-                  loading={auditReadingOther}
+                  // **THE FIRST READ IS A READ TOO (the eightieth list).** `auditReadingOther` is the scope's
+                  // SECOND read — a changed chip asking for another machine's window — and the FIRST read
+                  // was left to a sentence in the header alone, which is why the page drew no shape at all
+                  // while the fleet's window was on its way. `auditReadingFirst` is that state, and the
+                  // skeleton's label names which window is being read.
+                  loading={auditReadingOther || auditReadingFirst}
                   loadingFailed={auditScopeReadFailed}
                   loadingMachine={auditReadingName}
                   unread={auditUnread}
