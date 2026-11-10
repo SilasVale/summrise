@@ -3339,6 +3339,37 @@ columns with no way to reach them.
    the table the room a 660 px one would). Measured after: **no column is lost at any width from 390 to
    1,440**.)*
 
+## P0 — the seventy-fifth list (opened 2026-11-10, one size gets five different trackings on one page)
+
+The seventy-fourth list is closed: the rail obeys its number and the table follows its box. This list is
+rule 14 — *"letter-spacing by size"* — and it is the last of the twenty with a MEASURED conflict on both
+surfaces' own pages. Measured 2026-11-10 on the rendered pages, grouping every text node by its `font-size`
+and asking whether that size carries ONE tracking:
+
+     page      size   the trackings that size carried
+     console Home   22  -0.242px (h1) · **-0.44px** (home-verdict, the sentence under it)
+     console Home   12  normal (button, primary, attention-open, danger) · **-0.052px** (fleet-state, btn)
+     console Home   10  0.5px (th, eyebrow) · normal (fleet-build)
+     console Activity 17 -0.052px (page-sub) · **-0.34px** (timeline-day-label)
+     console Activity 12 -0.052px · normal (timeline-machine, timeline-clock)
+     console Activity 11 normal (chip, clock) · -0.052px (hint) · **0.22px** (timeline-stretch-text)
+     console Device 11 -0.052px (chip) · normal (mini)
+     panel  Memory/Plugins  NONE — the panel has this right
+
+**`body { letter-spacing: -0.004em }` is inherited by everything, and 19 rules opt INTO one of three
+tracking tokens on top of it** — so an element that does not opt in carries `-0.052px` at 12 px and an
+element that sets `normal` carries nothing, and the two sit in the same row. The tokens are not the defect;
+the *inherited default plus an opt-in* is: the same 12 px sentence is set twice on one page, once at
+-0.052 and once at 0.
+
+1. **The inherited `body { letter-spacing: -0.004em }` makes the baseline a number none of the three
+   tokens names**, so "no tracking" and "-0.004em" are two different answers to the same question depending
+   on which element you inspect. **Fix:** the body carries no tracking; each size reads its step from the
+   tokens (display for a title, none for body, label for small caps), and a rule that wants `normal`
+   says so. **M.**
+2. **Three literals are still written at their call sites** — `-0.004em`, `0.02em` and `0` — which is the
+   rule `tokens.css` states against itself ("a number written at the call site is a habit"). **S.**
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
