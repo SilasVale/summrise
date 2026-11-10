@@ -3633,6 +3633,33 @@ head's.
    lines later — the cascade's answer, not the first match), and refuses `--fs-lg` on the count line. Mutation:
    the count back to `--fs-lg` → red.)*
 
+## P0 — the eighty-third list (opened 2026-11-10, the Device page's CONTENT is drawn in the EMPTY state's element)
+
+The eighty-second list is closed. This list is the Device page — the third console page, and the only one whose
+body is a single block whatever it holds.
+
+Measured 2026-11-10 at 1,440, walking its four states by forcing each read:
+
+     state          body element        body h   inner      rows   reader sees
+     4 machines     **.empty-state**     248      ul.picker  4      the picker
+     0 machines     **.empty-state**     64       p.hint     0      "No devices are enrolled yet."
+     failed read    **.empty-state**     90       .notice    0      the failure + Retry
+
+**The page's CONTENT is drawn inside the class that means "there is nothing here".** `.empty-state` is the atom
+the sixty-third list consolidated for genuine empties — it draws the card, the 12 px gap, the start alignment —
+and this page uses it as its body, so the picker with four machines and the sentence with none are the same
+element in the same slot. Rule 19 asks each state to tell the truth; a state whose element cannot tell "four"
+from "none" is the wrong element, not a wrong sentence.
+
+**And the card it draws is 30 % full:** measured, the card is 1,072 px wide with 16 px of padding and its rows
+are **326 px** — the picker is a `ul` sized to its content inside a card that fills the column, while every
+other list in the product fills its card (the fleet table's row measures 1,070 of 1,072).
+
+1. **The Device page's body is a list, not an empty state.** The picker is the page's content and gets its own
+   block; the empty, loading and failed states keep the atom and draw only when the read says so. **M.**
+2. **The head is `align-items: center` where the atom says `flex-start`** (`.device-head`), which is invisible
+   while the head is one row and wrong the moment it wraps. **S.**
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
