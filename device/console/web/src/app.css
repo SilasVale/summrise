@@ -3137,9 +3137,16 @@ main::-webkit-scrollbar-track, .sheet-body::-webkit-scrollbar-track, .scroll::-w
    the one page no browser leg measured. Live at 1440, its two blocks sat 16 px apart while Home's
    sat 24. A page does not get its own rhythm; the frame supplies it. */
 .activity-page .page-head h1 { font-size: var(--fs-xl); }
+/* **THE HEAD HAS ONE SUBTITLE SLOT AND ONE STEP (the eighty-second list).** Measured 2026-11-10 across both
+   surfaces: `head.subtitleSlot` is `.page-sub` and the pages draw it at 13/400 (the panel's Memory, Plugins
+   and Settings) — while THIS line, the title's own count sentence, was 17/500, the size the contract gives a
+   section `h2`. The reader was told that "Today: 898 client calls, 113 failed" is a section heading under the
+   page's name, on the page whose own hierarchy rule says Home is the verdict and Activity is the record.
+   It is the subtitle at `--fs-base` now, in the head's own slot — with `--fw-medium` kept so the count stays
+   the first thing the eye finds under the title, which is what 500 is for. */
 .activity-today {
-  margin: var(--sp-2) 0 0; max-width: 80ch;
-  font-size: var(--fs-lg); line-height: var(--lh-body); font-weight: var(--fw-medium);
+  margin: var(--sp-1) 0 0; max-width: 80ch;
+  font-size: var(--fs-base); line-height: var(--lh-body); font-weight: var(--fw-medium);
   color: var(--ink); font-variant-numeric: tabular-nums; text-wrap: pretty;
 }
 /* **A PROSE BLOCK HAS A MEASURE (the sixty-first list).** This surface's prose already measured 46 ch, so
