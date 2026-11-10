@@ -761,6 +761,13 @@ mod tests {
     /// MUTATION (run, not asserted): with the in-memory insert moved above `save(...)?`, this went
     /// `FAILED. 0 passed; 1 failed` with `the in-memory table did not grow: [Rule { name: "never", … }]`
     /// — the rule the operator saw refused, present in the table. Restored, it is green.
+    /// **UNIX-ONLY, AND THE WINDOWS CROSS-CHECK IS WHAT SAID SO.** A read-only DIRECTORY is the only
+    /// portable-enough way to make `save` fail for real, and "read-only" is a mode on Unix and an
+    /// attribute on Windows. The repository's convention for a mode assertion is `#[cfg(unix)]`
+    /// (`enroll.rs`'s token test); this test had none until `cargo check --target
+    /// x86_64-pc-windows-gnu --all-targets` refused it — the Windows CI job runs
+    /// `cargo test -p summrise-device`, so it would have been a red job, not a missing test.
+    #[cfg(unix)]
     #[tokio::test]
     async fn a_refused_write_does_not_change_the_table() {
         use std::os::unix::fs::PermissionsExt as _;
@@ -1270,6 +1277,90 @@ mod tests {
         assert_eq!(recovered.host_key, pin, "the fingerprint is in the row");
     }
 
+    /// **THE CREDENTIAL IS ON DISK WITHOUT BEING A WORSE SECRET THAN THE REST OF THE DEVICE.**
+    /// `forwards.json` holds an `Auth` — a password, or the path of a private key — and it is written
+    /// by `save`, which creates a sibling through `fsutil::create_new_sibling` (an owner-only mode on
+    /// Unix). This test reads the MODE the file actually lands with, because a rule that is secure in
+    /// the doc comment and `0o644` on disk is not secure.
+    ///
+    /// It is Unix-only and skipped elsewhere, which is the repository's convention for a mode
+    /// assertion (`enroll.rs`'s token test does the same) — the mode is the fact, and Windows has no
+    /// number for it.
+    ///
+    /// MUTATION (run, not asserted), and it found the defect before the fix did: with the sibling
+    /// created by the plain `create_new_sibling`, this went `FAILED` on the FIRST run with
+    /// `…/forwards.json holds a credential and is owner-only, not 644` — the table the module had
+    /// been writing since it was added. `create_new_sibling_private` sets 0600 at `open`; restored,
+    /// green.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn the_table_with_its_credential_is_owner_only() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        let fixture = Fixture::new("mode");
+        fixture
+            .registry
+            .add(&spec("secret", "127.0.0.1:19700", "10.0.0.1:80", "u@h:22"))
+            .expect("the rule is configured");
+        let path = fixture.dir.join(FORWARDS_FILE);
+        let mode = std::fs::metadata(&path)
+            .expect("the table is a file")
+            .permissions()
+            .mode()
+            & 0o777;
+        assert_eq!(
+            mode,
+            0o600,
+            "{} holds a credential and is owner-only, not {mode:o}",
+            path.display()
+        );
+        // And the credential really is IN it — the mode matters because the content is this.
+        let text = std::fs::read_to_string(&path).expect("the table is readable");
+        let table: serde_json::Value = serde_json::from_str(&text).expect("the table is JSON");
+        assert_eq!(
+            table["rules"][0]["auth"]["password"], "unused-by-these-tests",
+            "the password is stored in the row: {text}"
+        );
+    }
+
+    /// **A MALFORMED TABLE IS AN EMPTY TABLE, NOT A DEVICE THAT WILL NOT START.** `load` runs at
+    /// construction, before the server is up; returning an error there would make one bad byte in a
+    /// configuration file stop the whole product. This asserts the tolerance AND its cost: the rule
+    /// the operator wrote is gone, and nothing says so beyond the empty table.
+    ///
+    /// **AND IT IS NO LONGER SILENT.** The empty table is the behaviour a device-start needs; saying
+    /// nothing is not, because every rule in the file is gone and the only symptom is a listening
+    /// port that is not there. `load` now prints the path and the parse error to stderr, the same way
+    /// this module reports a log line it could not write.
+    ///
+    /// MUTATION (run, not asserted): with `load`'s `unwrap_or_default` restored, this test still
+    /// passes — **and that is the point of writing it down**: the tolerance is old behaviour and no
+    /// test could see the difference until someone read the function. The assertion below is on the
+    /// table, and the sentence that now accompanies it is a stderr line a unit test cannot capture.
+    #[test]
+    fn a_damaged_table_loads_as_empty_rather_than_refusing_to_start() {
+        let fixture = Fixture::new("damaged");
+        let path = fixture.dir.join(FORWARDS_FILE);
+        std::fs::write(&path, "{ this is not json").expect("the file is written");
+
+        let rebuilt = std::sync::Arc::new(ForwardRegistry::new(&fixture.dir));
+        assert!(
+            rebuilt.rules().is_empty(),
+            "a damaged table is empty, not a panic: {:?}",
+            rebuilt.rules()
+        );
+        // …and the next save replaces it, so the damage is not permanent.
+        rebuilt
+            .add(&spec("fresh", "127.0.0.1:19701", "10.0.0.1:80", "u@h:22"))
+            .expect("a rule can still be added");
+        assert_eq!(rebuilt.rules().len(), 1);
+        let text = std::fs::read_to_string(&path).expect("the table is readable");
+        assert!(
+            text.contains("fresh"),
+            "the damaged file was replaced: {text}"
+        );
+    }
+
     /// A half-close is a half-close: each direction ends on its own EOF, so a client that sends its
     /// request and then shuts down its write half still GETS THE ANSWER.
     ///
@@ -1531,7 +1622,12 @@ fn save(path: &Path, rules: &[Rule]) -> std::io::Result<()> {
         rules: rules.to_vec(),
     })
     .map_err(std::io::Error::other)?;
-    let (temporary, mut file) = crate::fsutil::create_new_sibling(path)?;
+    // **`forwards.json` HOLDS A CREDENTIAL, SO IT IS CREATED OWNER-ONLY.** `create_new_sibling` takes
+    // no mode; the private variant sets 0600 AT `open`, so there is no moment when the password is
+    // readable by another user — including while it still carries its temporary name. A rule's auth
+    // is a password or the path of a private key, and a table at 0644 (the mode this file landed with
+    // before the test below existed, measured) is a credential readable by everyone on the machine.
+    let (temporary, mut file) = crate::fsutil::create_new_sibling_private(path)?;
     if let Err(error) = file.write_all(&bytes).and_then(|()| file.sync_all()) {
         drop(file);
         let _ = std::fs::remove_file(&temporary);
@@ -1548,12 +1644,32 @@ fn save(path: &Path, rules: &[Rule]) -> std::io::Result<()> {
 /// Load the table. Tolerant by design: an unreadable or malformed file is an EMPTY list, never an
 /// error and never a panic — a rule table must not stop the device from starting.
 fn load(path: &Path) -> Vec<Rule> {
-    let Ok(text) = std::fs::read_to_string(path) else {
-        return Vec::new();
+    let text = match std::fs::read_to_string(path) {
+        Ok(text) => text,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Vec::new(),
+        Err(error) => {
+            // An unreadable table is an empty one — the device still starts — but it is NOT silent:
+            // the operator's rules are gone and this line is the only thing that says which file.
+            eprintln!(
+                "summrise-device: could not read the forward table {}: {error}",
+                path.display()
+            );
+            return Vec::new();
+        }
     };
-    serde_json::from_str::<Persisted>(&text)
-        .map(|persisted| persisted.rules)
-        .unwrap_or_default()
+    match serde_json::from_str::<Persisted>(&text) {
+        Ok(persisted) => persisted.rules,
+        Err(error) => {
+            // Same trade as above, and the same reason for the line: a malformed table loses every
+            // rule in it, which is the one outcome an operator must not have to discover by
+            // noticing that a listening port is gone.
+            eprintln!(
+                "summrise-device: {} is not a forward table ({error}); starting with none",
+                path.display()
+            );
+            Vec::new()
+        }
+    }
 }
 
 /// Append one event to the device's event log, best effort: a rule must never fail because its
