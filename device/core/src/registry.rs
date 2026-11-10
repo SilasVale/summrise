@@ -508,7 +508,15 @@ mod tests {
 
     #[test]
     fn the_destructive_flag_is_the_declared_value() {
-        for (name, destructive) in [
+        // **ONE TABLE, AND IT IS CHECKED AGAINST THE REGISTRY IN BOTH DIRECTIONS.** The list below is the
+        // EXPECTATION;  reads the DECLARATION. Two lists that agree only for the tools
+        // both of them name is a sample, not a check — measured: the table used to stop at
+        // `("plugins.logs", false)` and six real tools (`memory.export`, `memory.list`,
+        // `system.net_test`, `system.process_kill`, `system.process_list`, `terminal.screen`) had no
+        // row at all. **One of those, `system.process_kill`, is destructive** — a kill signal that
+        // anyone could send through a token that never consented, with the flag that authorizes it
+        // unasserted.
+        let expected: [(&str, bool); 49] = [
             ("files.read", false),
             ("files.write", true),
             ("files.mkdir", false),
@@ -517,12 +525,15 @@ mod tests {
             ("memory.update", true),
             ("memory.delete", true),
             ("memory.search", false),
+            ("memory.list", false),
+            ("memory.export", false),
             ("terminal.create", true),
             ("terminal.write", true),
             ("terminal.read", false),
             ("terminal.resize", false),
             ("terminal.close", false),
             ("terminal.list", false),
+            ("terminal.screen", false),
             ("browser.list", false),
             ("browser.open", true),
             ("browser.navigate", true),
@@ -546,19 +557,55 @@ mod tests {
             ("host.restart", true),
             ("screen.capture", false),
             ("state.get", false),
+            ("system.net_test", false),
+            ("system.process_list", false),
+            ("system.process_kill", true),
             ("plugins.list", false),
             ("plugins.inspect", false),
             ("plugins.add", true),
             ("plugins.remove", true),
             ("plugins.restart", true),
             ("plugins.logs", false),
-        ] {
+        ];
+
+        for (name, destructive) in expected {
             assert_eq!(
                 is_destructive(name),
                 Some(destructive),
                 "{name}'s destructive flag is the fact authorize's Ask rule consults"
             );
         }
+
+        // **EVERY REGISTRY TOOL HAS A ROW, OR THE TABLE ABOVE IS A LIST OF SAMPLES.** A tool added to
+        // `CAPABILITIES` without a row here was never compared; deleting `("forward.list", false)`
+        // from the old table left this suite green.
+        let declared: Vec<&str> = CAPABILITIES
+            .iter()
+            .flat_map(|capability| capability.tools)
+            .map(|tool| tool.name)
+            .collect();
+        let mut missing: Vec<&str> = declared
+            .iter()
+            .copied()
+            .filter(|name| !expected.iter().any(|(row, _)| row == name))
+            .collect();
+        missing.sort_unstable();
+        assert!(
+        missing.is_empty(),
+        "a tool in CAPABILITIES has no row in the table above, so its destructive flag is          unasserted: {missing:?}"
+    );
+        // And the other direction: a row for a tool the registry no longer declares is a stale line that
+        // would keep passing after the tool was removed.
+        let mut stale: Vec<&str> = expected
+            .iter()
+            .map(|(row, _)| *row)
+            .filter(|name| !declared.contains(name))
+            .collect();
+        stale.sort_unstable();
+        assert!(
+            stale.is_empty(),
+            "a row names a tool the registry does not declare: {stale:?}"
+        );
     }
 
     #[test]

@@ -3065,6 +3065,110 @@ async fn a_read_only_grant_refuses_a_destructive_tool_call() {
     );
 }
 
+/// **A TOKEN THAT DID NOT CONSENT CANNOT ADD A FORWARD RULE, AND THE REFUSAL IS THE DEVICE'S.**
+///
+/// **THE CONSOLE DOES NOT REFUSE A DESTRUCTIVE CALL LOCALLY FOR A TOKEN.** `a_destructive_call_
+/// without_token_consent_is_refused_immediately` shows the mechanism: the frame IS forwarded, the
+/// DEVICE answers `-32002` from `authorize`, and the console rewrites the sentence so the operator
+/// reads how to consent (`mint one with destructive consent`). A GRANT is refused before the frame
+/// leaves; a token is not, because the token's consent travels with the call and the device is the
+/// one that holds the flag.
+///
+/// So this asserts the shape `forward.add` actually has: the frame reaches the device, the device
+/// refuses it by name, the operator gets the sentence, and `forward.list` — the same token, no
+/// destructive flag — passes. The point is that `forward.add` is in the destructive set, which is a
+/// row in the registry that can be forgotten; if it were absent, this test's device answer would be
+/// never asked for and the call would succeed.
+#[tokio::test]
+async fn a_token_without_consent_cannot_add_a_forward_rule_but_can_list_them() {
+    let fixture = Fixture::new("forward-destructive-consent");
+    let server = TestServer::start(&fixture.console).await;
+    let (device_id, _token, mut device) =
+        connected_device(&fixture, &server, &signing_key(0xd4)).await;
+    let session = fixture.authenticate().await;
+    let (status, created) = fixture
+        .create_token(
+            &session,
+            &device_id,
+            "no-consent",
+            &["forward.add", "forward.list"],
+            false,
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{created}");
+    let plaintext = created["token"].as_str().expect("the token").to_owned();
+
+    // 1. THE DESTRUCTIVE CALL REACHES THE DEVICE, WHICH REFUSES IT BY NAME.
+    let call = json!({
+        "jsonrpc": "2.0",
+        "id": 71,
+        "method": "tools/call",
+        "params": {
+            "name": "forward.add",
+            "arguments": {
+                "name": "denied",
+                "listen": "127.0.0.1:18700",
+                "target": "127.0.0.1:18701",
+                "via": "u@127.0.0.1:22",
+                "auth": { "kind": "password", "password": "never-recorded" }
+            }
+        },
+    });
+    let app = fixture.app();
+    let request = post_token(&device_id, &plaintext, call.clone());
+    let client = tokio::spawn(async move { send(app, request).await });
+
+    let frame = next_json(&mut device).await;
+    assert_eq!(
+        frame["mcp"], call,
+        "the frame is the one that was sent: {frame}"
+    );
+    answer_error(
+        &mut device,
+        &frame,
+        json!({ "jsonrpc": "2.0", "id": 71, "error": { "code": -32002, "message": "'forward.add' is destructive and needs approval" } }),
+    )
+    .await;
+
+    let (status, body) = client.await.expect("the client finishes");
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["error"]["code"], json!(-32002), "{body}");
+    assert!(
+        body["error"]["message"]
+            .as_str()
+            .is_some_and(|message| message.contains("does not allow destructive calls")),
+        "the operator reads how to consent: {body}"
+    );
+    // AND THE PASSWORD IS NOT IN THE RECORD, only the tool.
+    assert!(
+        !audit_text(&fixture).contains("never-recorded"),
+        "the audit records the tool, never its arguments"
+    );
+
+    // 2. THE NON-DESTRUCTIVE CALL PASSES THE SAME TOKEN, so the refusal above is a consent check
+    //    rather than a block on everything that names `forward`.
+    let listing = json!({
+        "jsonrpc": "2.0",
+        "id": 72,
+        "method": "tools/call",
+        "params": { "name": "forward.list", "arguments": {} },
+    });
+    let app = fixture.app();
+    let request = post_token(&device_id, &plaintext, listing.clone());
+    let client = tokio::spawn(async move { send(app, request).await });
+    let frame = next_json(&mut device).await;
+    assert_eq!(frame["mcp"], listing, "{frame}");
+    answer(
+        &mut device,
+        &frame,
+        json!({ "content": [{ "type": "text", "text": "[]" }] }),
+    )
+    .await;
+    let (status, body) = client.await.expect("the client finishes");
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert!(body["error"].is_null(), "the read is permitted: {body}");
+}
+
 #[tokio::test]
 async fn the_forwarded_grant_reverifies_over_the_canonical_bytes() {
     let fixture = Fixture::new("mcp-forwarded-grant");
