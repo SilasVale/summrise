@@ -2576,6 +2576,38 @@ that a horizontally scrolling table continues past its edge, which is a STATE, n
    gradient on `.desktop-canvas`; the console's refuses an image on `body` and counts page-level
    gradients at ≤ 2, which is the two edge fades rule 17 permits.)*
 
+## P0 — the fifty-fifth list (opened 2026-11-10, the card is a shadow on one surface and none on the other)
+
+The fifty-fourth list is closed: the page's ground is one colour on both surfaces. This list came from
+rule 10 — *"consistent, limited shadows"* — measured on the SAME atom the last two lists used: the card.
+
+Two reads were clean and are recorded as clean: the card's corner and border are identical on both
+surfaces (**14 px / 1 px**), and the console's shadows are all tokens (`--shadow-lg`, `--shadow-1`,
+`--shadow-2`, `--elev-2`, `--elev-segment`, `--ring`) rather than literals — rule 1 holds there.
+
+1. **The card carries a four-layer shadow on the panel and `box-shadow: none` on the console.**
+   Measured on the rendered card:
+
+       panel    `rgba(255,255,255,.9) 0 1px 0 inset, rgba(24,32,54,.04) 0 1px 1px,
+                rgba(24,32,54,.06) 0 4px 10px -4px, rgba(24,32,54,.2) 0 18px 40px -24px`
+       console  `none`
+
+   The panel's `--glass-shadow` is a deliberate three-layer material (its own comment argues for it:
+   *"a single hard box-shadow is the tell of a cheap surface"*), and it is applied to the card. The
+   console's card is a hairline on the ground. **So a card on the two surfaces is two objects:** one
+   sits on the page, one floats above it, and the operator's directive asks for one card grammar. This
+   is also the one place the panel's ground change (last list) did NOT settle the surfaces: with the
+   wash gone, the shadow is the only thing left making the card "material". **Fix:** the contract names
+   the card's elevation on both surfaces, and the surface that disagrees moves. **M.**
+
+2. **The panel's shadow SCALE is four families with three members each, and nothing names when to use
+   which.** `--shadow` (2 layers), `--shadow-lg` (1), `--shadow-pop` (2 + a ring) and `--glass-shadow`
+   (3, plus an inset rim) — twelve shadow declarations across four tokens, and the only rule about them
+   is a comment. The console has `--shadow`, `--shadow-lg`, `--shadow-1` (an alias of `--shadow`),
+   `--shadow-2`, `--elev-2` and `--elev-segment` — six names for what the contract should call three
+   levels. **Fix:** the contract names the LEVELS (a flat card on the page, a pane above it, a popover
+   above that), and each surface's tokens map onto them. **S.**
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
