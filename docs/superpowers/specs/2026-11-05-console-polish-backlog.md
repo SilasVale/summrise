@@ -4793,6 +4793,39 @@ exist on the panel at all**.
    steps` reads the token set, refuses a step the atom does not name, and pins the rule that had inherited. Mutations:
    the nav label's declaration removed on the console; the fold's tracking removed on the panel.)*
 
+## P0 — the hundred-and-eleventh list (opened 2026-11-11, the `pane` level exists on ONE surface and the two popovers are two objects)
+
+The hundred-and-tenth list is closed. This list is rule 10 — *"consistent, limited shadows"* — measured at the
+`elevation` atom, which names three LEVELS and says which atom may carry one: **`flat` is a card ON the page (a
+hairline and a tint, no shadow), `pane` is the one thing that FLOATS, `raised` is a control lifted inside a pane.**
+
+Measured 2026-11-11 at 1,360, with a popover OPEN on each surface:
+
+     surface   the thing that floats   shadow                                        radius   edge
+     console   `.machine-pop`          `rgba(0,0,0,.12) 0 12px 32px`  (`--shadow-lg`)   10     1px `.14`
+     console   `.account-pop`          same                                           10     1px `.14`
+     console   `.row-menu-pop` (×4)    same                                           10     1px `.14`
+     panel     `.session-menu`         **`rgba(0,0,0,.16) 0 12px 32px, 0 0 0 1px .06`** (`--shadow-pop`) **14**  1px `.08`
+
+**Two popovers, two objects.** The console's floats with a **one-layer** shadow, a **10 px** radius and a `.14` edge;
+the panel's floats with a **two-layer** shadow (a wide drop AND a drawn 1px ring), a **14 px** radius and a `.08` edge.
+The atom names ONE token for this level — `elevation.pane: "--glass-shadow"` — and **neither surface carries that
+token**: the console has no `--glass-shadow` at all (0 rules), and the panel declares it and paints something else.
+
+**And the panel's token is a THIRD shadow nobody declared**: `--shadow-pop` is not in the atom, and neither is the
+console's `--shadow-lg`.
+
+**At the card level the surfaces now agree** (the fifty-fifth list did that): every page's cards carry `none` and a
+`1px solid` hairline (console Home 89 borders / 3 shadows, all of them rings or a popover; panel Memory 43 borders /
+0 floats).
+
+1. **The `pane` level is declared once and drawn three ways (`--shadow-lg`, `--shadow-pop`, `--glass-shadow`), and
+   the two surfaces' popovers are visibly different objects.** **Fix:** one pane token, both sheets, one radius and
+   one edge. **M.**
+2. **Nothing measures the LEVEL.** The card gates say a card has no shadow; **nothing asks whether the thing that
+   floats is the same object on both surfaces** — a popover that is a soft drop on one and a drawn ring on the other
+   passes every gate in both repos. **S.**
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
