@@ -4302,6 +4302,37 @@ which is wrong alone.
    written there loses on source order alone. Mutations: the override moved to `layout.css` fails that assertion;
    the first draft's comment-matching scan reported a position inside its own prose.)*
 
+## P0 — the hundredth list (opened 2026-11-11, the panel's failure is a RED LINE and the console's is a BOX)
+
+The ninety-ninth list is closed. This list is rule 19's FAILED half, measured by refusing every read so that what a
+page draws where its content would have been IS its failed state.
+
+The contract's `failed` atom is explicit: **radius 8, pad 12, `textTone: ink`, `tint: alarm`, `role: status`,
+`retries: 1`**, and its own words — *"A failure's sentence NAMES THE SUBJECT, NOT THE TRANSPORT"*.
+
+Measured 2026-11-11, every read refused with `HTTP 500`:
+
+     surface   element          role     radius  pad      tint                       sentence
+     console   `.notice` ×3     status   8       12       alarm (rgb 255,244,229)    "The console could not read the machine list."
+     panel     `.error`         status   8       12       alarm (danger-soft)        "The memory list could not be read (HTTP 500)."
+     panel     `.plug-empty`     —       0       0        none — a BARE LINE      **"Inventory unavailable."**
+     panel     `.plug-error`      —       0       0        none — **a RED TEXT LINE** **"inventory: boom"** + Retry
+
+**The panel's Plugins page draws its failure TWICE and neither of them is the atom**: a bare grey line
+"Inventory unavailable." where the list would go, and below it a **red sentence on the page's ground**
+`inventory: boom` with its Retry. **Colour alone** — rule 6, which this product has a gate for everywhere it looks,
+and this line passes that gate because a plain `p` has no `background` to compare. **And `inventory: boom` is the
+transport's word with a subject's label glued on**, which the atom's own sentence refuses by name
+(`namesTransport: false`).
+
+**The console is right here and the panel is wrong — which is the direction that matters**: the failed atom was
+written from the console's shape, and the panel's page that never got a list still prints a line where a box belongs.
+
+1. **The Plugins failure is a bare red line, drawn twice, in the transport's vocabulary.** **Fix:** one box, the
+   atom's, with the subject's sentence and its one Retry. **M.**
+2. **Nothing measures a failed state's BOX.** `role="status"` and the sentence are checked where they exist; a
+   failure drawn as a `p` with no `background` satisfies every rule 6 gate by having nothing to measure. **S.**
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
