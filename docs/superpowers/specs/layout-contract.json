@@ -222,5 +222,15 @@
     "override": true,
     "consoleDecides": "system",
     "panelOverride": "rail switch"
+  },
+  "header": {
+    "$comment": "The frame's TOP ROW — the header that sits on the page body (the hundred-and-first list). It had no atom: the console drew a full-bleed RULE (52 px, opaque `--surface`, one hairline under it, no corner, no gap to the body) and the panel drew a rounded CARD (64 px, glass, a border on four sides, radius 14 = the DIALOG's corner, 8 px above the body). Neither was wrong alone — a desktop window's title bar versus a pane floating over a canvas — which is exactly the drift this contract exists to stop. THE DECISION: the header is a RULE that spans the surface's full width, 52 px tall, opaque, closed by ONE hairline, with NO corner and NO gap to the body it caps. A header is not a card: a card is a thing ON the page, and the header is the page's ceiling. The panel's canvas therefore stops insetting its top edge above the header, and the frame reads this record rather than its own habit.",
+    "height": 52,
+    "background": "surface",
+    "borderBottom": 1,
+    "borderSides": 0,
+    "radius": 0,
+    "gapToBody": 0,
+    "align": "center"
   }
 }

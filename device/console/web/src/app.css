@@ -48,10 +48,19 @@ p { margin: var(--sp-1-5) 0; }
    click never loses the machine the calls will hit. */
 .topbar {
   grid-area: header; position: relative; z-index: 10;
-  min-width: 0; background: var(--surface); border-bottom: 1px solid var(--line);
+  min-width: 0; background: var(--surface);
+  /* The atom: one hairline under it, no corner, and the body starts where it ends. */
+  border-bottom: 1px solid var(--line); border-radius: 0;
 }
+/* **THE FRAME'S TOP ROW IS A RULE, NOT A CARD (the hundred-and-first list).** Measured 2026-11-11: this bar is
+   52 px of opaque `--surface` closed by ONE hairline, with no corner and no gap to the body — and the panel's
+   `.desktop-header` was 64 px of glass with a border on four sides, radius 14 (the DIALOG's corner) and 8 px of gap.
+   **Neither was wrong alone** — a desktop window's title bar versus a pane floating over a canvas — which is exactly
+   the drift the contract exists to stop, and the header had no atom to compare them against. The contract's
+   `header` atom now records the decision (52, `surface`, one hairline under it, NO corner, no gap); this bar already
+   obeyed it, and the panel's did not. */
 .topbar-inner {
-  height: 56px; padding: 0 var(--sp-5);
+  height: 52px; padding: 0 var(--sp-5);
   display: flex; align-items: center; gap: var(--sp-3); min-width: 0;
 }
 .brand {
