@@ -3818,6 +3818,42 @@ pub fn wait_healthy(
     }
 }
 
+/// **THE PORT THE PRODUCT PRINTS IS THE PORT THE PRODUCT SHIPS (the eighty-fourth list).**
+///
+/// Measured 2026-11-10: `DEFAULT_PORT` is 7737 — with this crate's own note "*the operator's fleet
+/// convention; `18080` before it*" — while `win.rs`'s usage text told a reader *"The port defaults to
+/// SUMMRISE_PORT, then 18080"* and the device's panel printed `http://127.0.0.1:18080/mcp` as the endpoint a
+/// client should paste. A reader who follows the usage text starts the service on a port the fleet no longer
+/// expects; the panel's endpoint points at a port nothing listens on.
+///
+/// The fix is one constant read by the text, and this check: the number must not appear in the usage prose.
+#[cfg(test)]
+mod port_text_tests {
+    #[test]
+    fn the_usage_text_names_the_port_the_binary_uses() {
+        let usage = include_str!("win.rs");
+        let Some(first) = usage.find("The port defaults to SUMMRISE_PORT, then") else {
+            panic!("the usage text states the port's default");
+        };
+        let tail = &usage[first..];
+        let end = tail.find('.').expect("the sentence ends");
+        let sentence = &tail[..end];
+        assert!(
+            sentence.contains("{}"),
+            "the sentence interpolates the constant rather than spelling a number: {sentence}"
+        );
+        assert!(
+            !sentence.contains("18080") && !sentence.contains("7737"),
+            "a number in the sentence is one the binary can drift from: {sentence}"
+        );
+        assert_eq!(
+            super::DEFAULT_PORT,
+            7_737,
+            "the default the sentence now states"
+        );
+    }
+}
+
 #[cfg(test)]
 mod tests {
     #[test]
