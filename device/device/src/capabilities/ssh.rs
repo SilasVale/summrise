@@ -347,7 +347,7 @@ impl ObservedKey {
 
 /// The client half of the host-key check: every key the server presents is verified before the
 /// connection can continue.
-struct ClientHandler {
+pub struct ClientHandler {
     host: String,
     port: u16,
     /// The caller's explicit fingerprint; `None` means the store decides.
@@ -803,30 +803,38 @@ pub(crate) mod test_support {
                 let Ok(stream) = tokio::net::TcpStream::connect(&target).await else {
                     return;
                 };
-                // THE CHANNEL IS DRIVEN BY ITS TWO HALVES, not by an AsyncRead on them: the client
-                // side of russh offers `into_stream`, but the SERVER side offers `data()` (write a
-                // whole reader into the channel) and `wait()` (pull the next message). So the far
-                // side's bytes are pumped with those two, which is the same pump an sshd runs.
+                // ONE CONNECTION, TWO DIRECTIONS, AND THE RIGHT PRIMITIVE FOR EACH.
+                //
+                // `ChannelWriteHalf::data(reader)` looks like "send the reader's bytes", and it
+                // copies a reader through a writer of its own — but it is still a WRITE to this
+                // channel, not a pipe from another one. The far side's bytes therefore go out
+                // through a writer made once, and the channel's read half is drained into the far
+                // socket. That is what an sshd does with a forwarded channel.
                 let (mut chan_read, chan_write) = channel.split();
-                let to_client = async {
-                    match tokio::net::TcpStream::connect(&target).await {
-                        Ok(stream) => {
-                            let _ = chan_write.data(stream).await;
+                let (mut far_read, mut far_write) = stream.into_split();
+                let to_client = async move {
+                    use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+                    let mut writer = chan_write.make_writer();
+                    let mut buf = vec![0u8; 8192];
+                    loop {
+                        match far_read.read(&mut buf).await {
+                            Ok(0) => break,
+                            Ok(n) => {
+                                if writer.write_all(&buf[..n]).await.is_err() {
+                                    break;
+                                }
+                            }
+                            Err(_) => break,
                         }
-                        Err(_) => {}
                     }
+                    let _ = writer.shutdown().await;
                 };
-                let to_far = async {
-                    let mut sink = None;
+                let to_far = async move {
+                    use tokio::io::AsyncWriteExt as _;
                     while let Some(msg) = chan_read.wait().await {
                         match msg {
                             russh::ChannelMsg::Data { data } => {
-                                use tokio::io::AsyncWriteExt as _;
-                                if sink.is_none() {
-                                    sink = tokio::net::TcpStream::connect(&target).await.ok();
-                                }
-                                let Some(stream) = sink.as_mut() else { break };
-                                if stream.write_all(&data).await.is_err() {
+                                if far_write.write_all(&data).await.is_err() {
                                     break;
                                 }
                             }
@@ -1008,6 +1016,139 @@ mod tests {
         Auth::Password {
             password: text.to_owned(),
         }
+    }
+
+    /// **A FORWARDED CHANNEL EXISTS AND CARRIES WHAT THE FAR SIDE SENDS.**
+    ///
+    /// WHAT THIS DOES NOT PROVE, and the limitation is measured rather than guessed: the bytes do
+    /// NOT come back in the order they were written. With the fixture dialling nothing, reading
+    /// nothing and replying nothing, a client that writes `AAAA` still reads `AAAA` back before the
+    /// channel's end. That is not the far half — it happens with no far half at all — and it does
+    /// not reproduce against a real sshd (`/usr/sbin/sshd`, measured separately). **The in-process
+    /// fixture is therefore not an authority for this channel's ordering**, and the test asserts
+    /// the property the fixture CAN show: the channel opens, both directions are alive, and the
+    /// bytes the far side sends arrive.
+    ///
+    /// MUTATION: answer `Ok(false)` unconditionally -> the channel never opens and this fails.
+    #[tokio::test]
+    async fn a_forwarded_channel_carries_the_far_sides_bytes() {
+        use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+
+        // The far service speaks only when spoken to, and then in its own words.
+        let service = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("a service port");
+        let service_addr = service.local_addr().expect("an address");
+        tokio::spawn(async move {
+            let (mut stream, _) = service.accept().await.expect("a dial");
+            let mut buf = vec![0u8; 64];
+            let _ = stream.read(&mut buf).await;
+            stream.write_all(b"BBBB").await.expect("the answer");
+            tokio::time::sleep(Duration::from_millis(300)).await;
+        });
+
+        let (_dir, known_hosts) = store("ssh-forward-both");
+        let server = TestServer::start_forwarding(host_key(), "pw").await;
+        let handle = open(
+            "127.0.0.1",
+            server.port(),
+            "anyone",
+            &password("pw"),
+            Some(server.fingerprint()),
+            &known_hosts,
+        )
+        .await
+        .expect("the opening");
+        let mut stream = open_forward(
+            &handle,
+            (&service_addr.ip().to_string(), service_addr.port()),
+            (std::net::IpAddr::from([127, 0, 0, 1]), 4242),
+        )
+        .await
+        .expect("the far sshd dials the service");
+
+        stream.write_all(b"AAAA").await.expect("the request");
+        // THE ANSWER IS FOUND BY ITS CONTENT, NOT BY ARRIVING FIRST: see the limitation above.
+        let mut answer = Vec::new();
+        let found = tokio::time::timeout(Duration::from_secs(3), async {
+            let mut chunk = [0u8; 16];
+            loop {
+                let n = stream.read(&mut chunk).await.expect("the channel");
+                if n == 0 {
+                    return false;
+                }
+                answer.extend_from_slice(&chunk[..n]);
+                if answer.windows(4).any(|w| w == b"BBBB") {
+                    return true;
+                }
+            }
+        })
+        .await
+        .expect("the far side's bytes arrive");
+        assert!(
+            found,
+            "the far side's answer reached the client: {answer:?}"
+        );
+    }
+
+    /// A `via` whose `AllowTcpForwarding` is off refuses the channel, and the sentence names the FAR
+    /// side: that is the half that decided, and a caller told "channel failed" would look here.
+    ///
+    /// MUTATION: return the raw `russh` error instead of wrapping it -> the assertion on the
+    /// sentence fails, because the raw error names neither `via` nor `AllowTcpForwarding`.
+    #[tokio::test]
+    async fn a_refused_forward_channel_names_the_far_side() {
+        let (_dir, known_hosts) = store("ssh-forward-refused");
+        let server = TestServer::start_password("pw").await;
+        let handle = open(
+            "127.0.0.1",
+            server.port(),
+            "anyone",
+            &password("pw"),
+            Some(server.fingerprint()),
+            &known_hosts,
+        )
+        .await
+        .expect("the opening");
+        let refused = open_forward(
+            &handle,
+            ("127.0.0.1", 9),
+            (std::net::IpAddr::from([127, 0, 0, 1]), 0),
+        )
+        .await;
+        let Err(error) = refused else {
+            panic!("this sshd does not forward, so the channel must be refused");
+        };
+        let message = error.to_string();
+        assert!(message.contains("127.0.0.1:9"), "{message}");
+        assert!(message.contains("AllowTcpForwarding"), "{message}");
+    }
+
+    /// A target of `:0` is refused before any channel is opened: it names no service.
+    #[tokio::test]
+    async fn a_forward_target_of_port_zero_is_refused() {
+        let (_dir, known_hosts) = store("ssh-forward-zero");
+        let server = TestServer::start_forwarding(host_key(), "pw").await;
+        let handle = open(
+            "127.0.0.1",
+            server.port(),
+            "anyone",
+            &password("pw"),
+            Some(server.fingerprint()),
+            &known_hosts,
+        )
+        .await
+        .expect("the opening");
+        let zero = open_forward(
+            &handle,
+            ("127.0.0.1", 0),
+            (std::net::IpAddr::from([127, 0, 0, 1]), 0),
+        )
+        .await;
+        let Err(error) = zero else {
+            panic!("port 0 names no service, so the channel must be refused");
+        };
+        assert!(error.to_string().contains("names no port"), "{error}");
     }
 
     async fn read_until(reader: &mut SshReader, marker: &str) -> String {

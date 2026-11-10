@@ -331,6 +331,33 @@ pub const CAPABILITIES: &[Capability] = &[
         }],
     },
     Capability {
+        name: "forward",
+        tools: &[
+            // A rule's four values decide who can reach what, so `forward.add` and `forward.remove`
+            // are the operator's own act and are DESTRUCTIVE in this registry's sense: they change
+            // a listening socket and persist a credential, and a later read cannot undo that.
+            // `forward.list` only observes.
+            ToolDef {
+                name: "forward.add",
+                destructive: true,
+                description:
+                    "Add or replace a forward rule: `listen` is bound on THIS machine, `via` makes the SSH connection, and that host's sshd dials `target`. The far host therefore gains NO listening port. Nothing is created until the rule is persisted; a rule that cannot bind stays visible with its error rather than retrying forever.",
+            },
+            ToolDef {
+                name: "forward.remove",
+                destructive: true,
+                description:
+                    "Remove a rule and stop its executor; `removed` says whether one was configured. The listener is closed with it, so the address becomes bindable again.",
+            },
+            ToolDef {
+                name: "forward.list",
+                destructive: false,
+                description:
+                    "List every rule with its live state: whether the listener is bound, since when, how many connections it has carried, how many bind attempts it has made, and what its last failure said. An unbound rule reports its error rather than a plausible-looking zero.",
+            },
+        ],
+    },
+    Capability {
         name: "state",
         tools: &[ToolDef {
             name: "state.get",
@@ -409,7 +436,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_registry_declares_the_whole_surface_and_eleven_capabilities() {
+    fn the_registry_declares_the_whole_surface_and_twelve_capabilities() {
         let tools: Vec<&str> = CAPABILITIES
             .iter()
             .flat_map(|capability| capability.tools)
@@ -418,10 +445,10 @@ mod tests {
 
         assert_eq!(
             CAPABILITIES.len(),
-            11,
-            "eleven capabilities declare the surface"
+            12,
+            "twelve capabilities declare the surface"
         );
-        assert_eq!(tools.len(), 46, "the surface is 46 tools");
+        assert_eq!(tools.len(), 49, "the surface is 49 tools");
         assert_eq!(
             tools,
             [
@@ -464,6 +491,9 @@ mod tests {
                 "host.facts",
                 "host.restart",
                 "screen.capture",
+                "forward.add",
+                "forward.remove",
+                "forward.list",
                 "state.get",
                 "plugins.list",
                 "plugins.inspect",
@@ -501,6 +531,9 @@ mod tests {
             ("browser.cast", false),
             ("browser.close", false),
             ("browser.shutdown", false),
+            ("forward.add", true),
+            ("forward.remove", true),
+            ("forward.list", false),
             ("monitor.add", false),
             ("monitor.remove", false),
             ("monitor.list", false),

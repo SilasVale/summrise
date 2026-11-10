@@ -46,7 +46,8 @@ use summrise_core::{
 use tokio::io::AsyncWriteExt;
 
 use crate::capabilities::{
-    browser, files, memory, monitor, plugins as plugins_capability, runs, ssh, system, terminal,
+    browser, files, forward, memory, monitor, plugins as plugins_capability, runs, ssh, system,
+    terminal,
 };
 use crate::config::{Config, Release};
 use crate::plugins::host::PluginHost;
@@ -115,6 +116,8 @@ pub(crate) struct DeviceServer {
     /// The reachability monitors. Shared like the PTY registry: one set of watches with one probe
     /// loop per target, whichever MCP session asks.
     monitor: Arc<monitor::MonitorRegistry>,
+    /// The forward rules. Shared like the monitors: one listener per rule, not one per session.
+    forwards: Arc<forward::ForwardRegistry>,
     /// The run history, and through it the files root `runs.exec`'s cwd resolves against.
     runs: Arc<runs::Runs>,
     /// The per-call audit log; shared so concurrent sessions serialize their appends.
@@ -269,6 +272,9 @@ pub(crate) fn service_with_terminal(
         .with_update_check(update_check);
     let terminal = Arc::clone(&server.terminal);
     let browser = Arc::clone(&server.browser);
+    // A rule created in an earlier boot must be LISTENING before any client asks about it, so the
+    // executors start with the device rather than with the first `forward.list`.
+    server.forwards.start();
     // The sweeper is the device's, not a client's: it holds a weak reference, so the children are
     // closed when the service (and its registry) is dropped.
     server.terminal.spawn_sweeper();
@@ -371,6 +377,7 @@ impl DeviceServer {
             )),
             browser: Arc::new(browser::BrowserRegistry::new(&config.data, &config.install)),
             monitor: Arc::new(monitor::MonitorRegistry::new(&config.data)),
+            forwards: Arc::new(forward::ForwardRegistry::new(&config.data)),
             runs: Arc::new(runs::Runs::new(&config.data, &config.files_root)),
             audit,
             nonces: crate::remote::NonceLog::new(),
@@ -1242,6 +1249,50 @@ impl DeviceServer {
                 let stopped = self.browser.shutdown().await;
                 Ok(json!({ "stopped": stopped }).to_string())
             }
+            Handler::ForwardAdd => {
+                let arguments: ForwardAddArgs = parse(arguments, name)?;
+                let spec = forward::RuleSpec::parse(
+                    &arguments.name,
+                    &arguments.listen,
+                    &arguments.target,
+                    &arguments.via,
+                )
+                .map_err(|message| refused(name, forward::ForwardError::Refused { message }))?;
+                let rule = self
+                    .forwards
+                    .add(&spec)
+                    .map_err(|error| refused(name, error))?;
+                Ok(json!(rule).to_string())
+            }
+            Handler::ForwardRemove => {
+                let arguments: ForwardNameArgs = parse(arguments, name)?;
+                let removed = self
+                    .forwards
+                    .remove(&arguments.name)
+                    .map_err(|error| refused(name, error))?;
+                Ok(json!({ "removed": removed }).to_string())
+            }
+            Handler::ForwardList => {
+                let state: Vec<Value> = self
+                    .forwards
+                    .list()
+                    .into_iter()
+                    .map(|row| {
+                        json!({
+                            "name": row.name,
+                            "listen": row.listen,
+                            "target": row.target,
+                            "via": row.via,
+                            "listening": row.listening,
+                            "since_ms": row.since_ms,
+                            "attempts": row.attempts,
+                            "connections": row.connections,
+                            "last_error": row.last_error,
+                        })
+                    })
+                    .collect();
+                Ok(Value::Array(state).to_string())
+            }
             Handler::MonitorAdd => {
                 let arguments: MonitorAddArgs = parse(arguments, name)?;
                 let target = self
@@ -1621,6 +1672,9 @@ enum Handler {
     BrowserCast,
     BrowserClose,
     BrowserShutdown,
+    ForwardAdd,
+    ForwardRemove,
+    ForwardList,
     MonitorAdd,
     MonitorRemove,
     MonitorList,
@@ -1672,6 +1726,9 @@ const HANDLERS: &[(&str, Handler)] = &[
     ("browser.cast", Handler::BrowserCast),
     ("browser.close", Handler::BrowserClose),
     ("browser.shutdown", Handler::BrowserShutdown),
+    ("forward.add", Handler::ForwardAdd),
+    ("forward.remove", Handler::ForwardRemove),
+    ("forward.list", Handler::ForwardList),
     ("monitor.add", Handler::MonitorAdd),
     ("monitor.remove", Handler::MonitorRemove),
     ("monitor.list", Handler::MonitorList),
@@ -2247,6 +2304,46 @@ fn input_schema(definition: &ToolDef) -> Value {
             "additionalProperties": false
         }),
         "browser.shutdown" => json!({
+            "type": "object",
+            "properties": {},
+            "additionalProperties": false
+        }),
+        "forward.add" => json!({
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "The rule's name: how a panel and the log identify it, and how an edit replaces the existing rule with that name."
+                },
+                "listen": {
+                    "type": "string",
+                    "description": "The host:port to bind on THIS machine. A wildcard (0.0.0.0, ::, *) is refused: a rule that widens its own audience is the failure the refusal prevents."
+                },
+                "target": {
+                    "type": "string",
+                    "description": "The host:port that `via` dials. IPv6 literals need brackets, because the split is on the last colon."
+                },
+                "via": {
+                    "type": "string",
+                    "description": "user@host:port of the SSH connection that MAKES the connection, e.g. zss@100.64.0.9:22. The far host therefore gains no listening port."
+                }
+            },
+            "required": ["name", "listen", "target", "via"],
+            "additionalProperties": false
+        }),
+        "forward.remove" => json!({
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "description": "The rule to remove; its listener is closed with it, so the address becomes bindable again."
+                }
+            },
+            "required": ["name"],
+            "additionalProperties": false
+        }),
+        "forward.list" => json!({
             "type": "object",
             "properties": {},
             "additionalProperties": false
@@ -2914,6 +3011,23 @@ struct BrowserNavigateArgs {
 struct BrowserEvalArgs {
     target: String,
     expression: String,
+}
+
+/// The arguments `forward.add` takes.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ForwardAddArgs {
+    name: String,
+    listen: String,
+    target: String,
+    via: String,
+}
+
+/// The arguments `forward.remove` takes.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ForwardNameArgs {
+    name: String,
 }
 
 /// The arguments `monitor.add` takes.
@@ -3853,6 +3967,9 @@ mod tests {
                 "host.facts",
                 "host.restart",
                 "screen.capture",
+                "forward.add",
+                "forward.remove",
+                "forward.list",
                 "state.get",
                 "plugins.list",
                 "plugins.inspect",
