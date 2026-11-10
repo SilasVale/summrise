@@ -334,7 +334,10 @@ pub struct ForwardState {
     pub last_error: Option<String>,
     /// How many bind attempts the ladder has made.
     pub attempts: u64,
-    /// How many connections this executor has carried since it started.
+    /// How many connections this executor has CARRIED — both directions ended without an error —
+    /// since it started. It is not the number that arrived: a connection that was accepted and
+    /// refused is a log line (D6), not a count, or the field means "arrived" while its name and the
+    /// panel read "worked".
     pub connections: u64,
 }
 
@@ -721,6 +724,105 @@ mod tests {
         assert!(!path.exists(), "no half-written file was left behind");
     }
 
+    /// **D6, MEASURED: A REFUSED CONNECTION WRITES ONE LINE; A CARRIED ONE WRITES NONE.**
+    ///
+    /// A rule whose `via` cannot be reached accepts the client, fails to open the channel, and is
+    /// gone — that is the case an operator asks "who tried, and why did it fail" about, so it leaves
+    /// a record. The record is the ROW's error plus one line in `events.jsonl`.
+    ///
+    /// **THE OTHER HALF IS THE POINT OF THE DECISION**: a connection that WORKS is counted
+    /// (`connections`) and NOT written. Written literally, "one line per connection" is a file written
+    /// on the busiest path this module has, where a rule carrying a UI's requests appends hundreds of
+    /// lines a minute. This test reads the log to prove both halves at once.
+    ///
+    /// MUTATION (run, not asserted): counting a connection when it is ACCEPTED rather than when it is
+    /// CARRIED — the shape `connections` had before this test — went `FAILED. 0 passed; 1 failed`
+    /// with `a refused connection is not a carried one, left: Some(1), right: Some(0)`. That is the
+    /// defect this test found: the field was named, and documented, for carried connections while the
+    /// accept arm moved it. Restored, it is green.
+    #[tokio::test]
+    async fn a_refused_connection_is_one_line_and_a_carried_one_is_none() {
+        use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+
+        let listener_port = free_port();
+        let fixture = Fixture::new("audit");
+        fixture
+            .registry
+            .add(&spec(
+                "audit",
+                &format!("127.0.0.1:{listener_port}"),
+                "127.0.0.1:9",
+                // Port 1 is this box's own; nothing listens there, so the SSH opening fails at once.
+                "u@127.0.0.1:1",
+            ))
+            .expect("the rule");
+        assert!(
+            wait_listening(&fixture.registry, "audit", true).await,
+            "the listener is up"
+        );
+
+        // ONE CLIENT that is carried nowhere: the connection is accepted, the channel is not opened.
+        let mut client = tokio::net::TcpStream::connect(("127.0.0.1", listener_port))
+            .await
+            .expect("a connection to the rule");
+        let _ = client.write_all(b"hi").await;
+        let mut sink = [0u8; 8];
+        let _ = client.read(&mut sink).await; // the rule closes it; either answer is fine here
+
+        // WAIT FOR THE ROW TO CARRY ITS ERROR, which is written beside the log line.
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+        loop {
+            if fixture
+                .registry
+                .state("audit")
+                .and_then(|state| state.last_error)
+                .is_some()
+            {
+                break;
+            }
+            assert!(
+                tokio::time::Instant::now() < deadline,
+                "the row never recorded the failure"
+            );
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+
+        let events = std::fs::read_to_string(fixture.dir.join(EVENTS_FILE)).unwrap_or_default();
+        let refused: Vec<&str> = events
+            .lines()
+            .filter(|line| line.contains("forward.refused"))
+            .collect();
+        assert_eq!(
+            refused.len(),
+            1,
+            "one refused connection is one line: {events}"
+        );
+        let line: serde_json::Value = serde_json::from_str(refused[0]).expect("the line is JSON");
+        assert_eq!(line["rule"], "audit");
+        assert_eq!(line["listen"], format!("127.0.0.1:{listener_port}"));
+        assert!(
+            line["from"]
+                .as_str()
+                .is_some_and(|from| from.contains("127.0.0.1")),
+            "the line says who arrived: {line}"
+        );
+        assert!(
+            line["reason"]
+                .as_str()
+                .is_some_and(|reason| !reason.is_empty()),
+            "the line says why: {line}"
+        );
+        // A CARRIED CONNECTION WOULD HAVE COUNTED `connections`; a refused one must not.
+        assert_eq!(
+            fixture
+                .registry
+                .state("audit")
+                .map(|state| state.connections),
+            Some(0),
+            "a refused connection is not a carried one"
+        );
+    }
+
     /// A half-close is a half-close: each direction ends on its own EOF, so a client that sends its
     /// request and then shuts down its write half still GETS THE ANSWER.
     ///
@@ -1088,7 +1190,11 @@ impl ForwardRegistry {
             };
             match accepted {
                 Ok((stream, peer)) => {
-                    self.update(&rule.name, |st| st.connections += 1);
+                    // THE COUNT MOVES WHEN A CONNECTION IS CARRIED, NOT WHEN ONE IS ACCEPTED (see
+                    // `carry`: it increments after the pipes finish). An accepted-then-refused
+                    // connection is exactly the case D6 writes a LOG line for, and counting it as
+                    // carried would make `connections` mean "how many arrived" while its name and
+                    // the panel read "how many worked".
                     let registry = Arc::clone(&self);
                     let rule = rule.clone();
                     tokio::spawn(async move {
@@ -1186,6 +1292,8 @@ impl ForwardRegistry {
         if let Err(error) = pipe_bidirectional(client, stream).await {
             self.update(&rule.name, |st| st.last_error = Some(error.to_string()));
         } else {
+            // THE CARRIED CONNECTION IS COUNTED HERE, once both directions ended without an error.
+            self.update(&rule.name, |st| st.connections += 1);
             // A SUCCESS CLEARS THE PREVIOUS FAILURE. Otherwise a rule that answered one bad
             // connection reads as broken forever, which is the state an operator then acts on.
             self.update(&rule.name, |st| st.last_error = None);
