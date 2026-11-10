@@ -206,7 +206,10 @@ main.terminal-main { display: grid; grid-template-rows: auto minmax(0, 1fr); ali
 .page-head > div:first-child { min-width: 0; }
 .page-sub { margin: var(--sp-1) 0 0; color: var(--ink-muted); font-size: var(--fs-sm); }
 .page-actions { margin-left: auto; display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
-.device-head { align-items: center; }
+/* **A HEAD ALIGNS AT ITS TOP EDGE, EVEN WHEN IT WRAPS (the eighty-third list).** The atom is
+   `align-items: flex-start`; this override said `center`, which is invisible while the head is one row and
+   wrong the moment it wraps — a 22/700 title centred against a two-row strip sits half a line low. */
+.device-head { align-items: flex-start; }
 /* The strip and its two edge chevrons share one box. The wrapper is the head's flex item, so the
    strip can shrink below its tabs' width and scroll while a chevron stays over the edge it names. */
 .device-tabs-wrap {
@@ -1021,9 +1024,16 @@ tr:last-child td { border-bottom: 0; }
 }
 
 /* A device list inside a page that needs one, so the rail is never a dead end. */
+/* **A LIST FILLS THE CARD IT IS IN (the eighty-third list).** Measured 2026-11-10 on the Device page: the
+   card was 1,072 px wide with 16 px of padding and the rows measured **326** — a `ul` sized to its content
+   inside a card that fills the column, so the page's one piece of content used 30 % of the page. The
+   fleet table, which is the same kind of list, measures 1,070 of 1,072. `width: 100%` is the whole fix; the
+   rows are a `flex` line and stretch to the track, and the three terminal pickers that share this class fill
+   their own boxes the same way. */
 .picker {
   list-style: none;
-  margin: var(--sp-3) 0 0;
+  width: 100%;
+  margin: 0;
   padding: 0;
   display: grid;
   gap: var(--sp-1-5);
@@ -1039,6 +1049,8 @@ tr:last-child td { border-bottom: 0; }
 .picker li strong {
   flex: 1;
 }
+/* The device page's body is the card's own children: the card supplies the pad and the gap. */
+.device-picker-card { display: grid; gap: var(--sp-2); }
 /* The picker's state is a word beside its dot, in Home's vocabulary; the age behind a last-seen
    moment stays the title rather than widening the row at 390. */
 .picker-state { color: var(--ink-muted); font-size: var(--fs-sm); white-space: nowrap; }

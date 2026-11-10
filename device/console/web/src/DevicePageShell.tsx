@@ -179,7 +179,16 @@ export function DevicePageShell({
       {chosen && grant ? (
         children(grant)
       ) : (
-        <section className="empty-state">
+        /* **THE CONTENT IS NOT AN EMPTY STATE (the eighty-third list).** Measured 2026-11-10 at 1,440: this
+           page drew `.empty-state` as its BODY in all three of its states — four machines, none, and a failed
+           read were the same element in the same slot — so the class that means "there is nothing here"
+           wrapped the one thing the page HAS. Rule 19 asks each state to tell the truth; a state whose
+           element cannot tell "four" from "none" is the wrong element.
+           The picker is a CARD now, the product's own block (radius 14, pad 16, gap 8), and its list fills it
+           — measured before, the rows were 326 of a 1,072 px card, because a `ul` sized to its content sat
+           inside a card that fills the column, while every other list in the product fills its card (the
+           fleet table's row measures 1,070 of 1,072). */
+        <section className="card device-picker-card">
           <DevicePicker
             devices={devices}
             onChoose={onChoose}
