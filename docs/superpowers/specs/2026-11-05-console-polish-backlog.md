@@ -4377,9 +4377,23 @@ the DIALOG's corner on a frame element, and the console spends none. The `card` 
 
 1. **The frame's top row is a card on the panel and a rule on the console.** **Fix:** one decision in the contract —
    the header's height, its corner, its border and its gap to the body — and both frames read it. **M.**
+   *(**Done: contract `header` atom written, console `7ff6c32` (merged `428a4cc`), panel `7962327cc` (merged
+   `4b2eb35c2`); NOT DEPLOYED** — the hold applies. **The decision**: 52 (border box), `--surface` opaque, ONE
+   hairline on the underside, `radius: 0`, `gapToBody: 0`, centred — *a header is not a card: a card is a thing ON
+   the page, and the header is the page's ceiling.* **Both surfaces now measure 52 / 0 / 1 / 0 / 52** (height,
+   corners, borders, gap, top edge). The panel's canvas lost its top gutter and its `gap: var(--sp-2)` (8 px between
+   the header and the body), and the console's inner row stopped measuring 56 under a 52 bar.
+   **And the atom's 52 had to mean the ROW, not the box inside its own border**: the first attempt set 52 px of
+   content and measured **53**, because the panel's header is `content-box` while the console's `.topbar` is
+   `border-box` — two sheets, two box models, one number. The contract's hash moved with the atom
+   (`f2e8a065…` → `250aa45f…`) in **both** repos' pins.)*
 2. **Nothing measures the header at all.** The contract has an atom for the page, the card, the row, the head, the
    states and the rail; **the row above the page body is not one of them**, and a gate in each repo has nothing to
    compare. **S.**
+   *(**Done**: the atom exists, and the panel's `is ONE header: a RULE across the frame, not a card floating on it`
+   reads all six of its numbers out of the built sheet — border box, 52, `--surface`, one underside hairline, no
+   corner, no rim — plus the canvas's `gap: 0` and its missing top gutter. Mutation: back to glass + the card's
+   corner → "an opaque surface, not glass".)*
 
 ## How a round goes
 
