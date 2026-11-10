@@ -4688,8 +4688,19 @@ own comment names 103 as the defect it was written to fix.
 
 1. **The measure is two names and a pixel literal, and the panel has no token for it.** **Fix:** one token, in both
    layers, and every prose rule reads it. **M.**
+   *(**Done on both sides, MERGED, NOT DEPLOYED** — console `831b8b7`, panel `dfc958a90`. **The panel got the token it
+   never had** (`--measure: 66ch`, beside `--page-measure` which is a COLUMN — a LINE is a different thing), and
+   **all 23 `66ch` spellings and all 6 pixel measurements read it**. **The widest line in the product got a measure**:
+   `.plug-log-empty` ran **153ch** — 1,020 px on a 1,360 card — where the atom's own comment names 103 as the defect
+   it was written to fix. On the console, 2 hand-written `66ch` and 3 pixels became the token it already declared.)*
 2. **Nothing measures a line.** `designScale` measures spaces, radii and sizes; **a `ch` is not one of them**, so a
    rule with no `max-width` and a rule with `440px` both pass. **S.**
+   *(**Done on both sides** — and **the gate I wrote to do it was broken twice, both found by its own mutation
+   proof**. First: a double-escaped regex (`\s` inside a literal) matched NOTHING and PASSED on a sheet where I had
+   just planted `477px` — *a gate whose pattern cannot occur passes on every sheet, including a broken one*. Second:
+   it had to tell a MEDIA QUERY from a MEASURE (`@container token-list (max-width: 639px)` is a breakpoint) and a
+   BOX from a LINE (a modal card's width is its own business) — it now splits the sheet into top-level blocks and
+   names the boxes it permits.)*
 
 ## How a round goes
 
