@@ -3268,7 +3268,9 @@ The contract's `empty` atom: **one card** — `radius 14, pad 16, gap 12, textAl
 
 ## P0 — the seventy-third list (opened 2026-11-10, a transport's words reach a reader who cannot use them)
 
-The seventy-second list is closed: an empty state is the card and keeps the way back. This list is the THIRD
+The seventy-second list is closed: an empty state is the card and keeps the way back. **This list is closed
+(2026-11-10): both items shipped as panel `abb83b46`, and `failureSentence` is the one place the rule lives.**
+This list was the THIRD
 state of the same atom set — the FAILED — and the contract has already ruled on it: `failed.names: "subject"`,
 `failed.namesTransport: false`, `tokens/`… *"A failure's sentence NAMES THE SUBJECT, NOT THE TRANSPORT."*
 
@@ -3287,9 +3289,15 @@ lapsed, "Failed to fetch" is all a reader would ever see.
 1. **`MemoryPage` prints `e?.message || String(e)`** — three call sites. Under a refusal the `callTool`
    fallback gives the right sentence; under a TRANSPORT failure the raw `TypeError` does. **Fix:** the page
    owns its subject sentence, as the other four do. **S.**
+   *(**Done, panel `abb83b46`**: all five call sites (two reads, delete, save, export) go through
+   `failureSentence`; measured after on the served build — "The memory list could not be read." where
+   "Failed to fetch" had been.)*
 2. **`usePlugins` prefixes the raw reason with `inventory: `**, so `inventory: Failed to fetch` is a
    transport's words with a subject's label glued on — the exact shape the contract calls out. **Fix:** the
    subject's sentence when the reason is not one the device wrote. **S.**
+   *(**Done, panel `abb83b46`**: a fold's own words keep the `inventory:` prefix (two tests pin that shape);
+   only a throw that names no subject becomes the page's sentence, which takes no prefix. The status read
+   had the same hole and takes the same rule.)*
 
 ## How a round goes
 
