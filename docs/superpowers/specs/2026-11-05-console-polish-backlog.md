@@ -4261,6 +4261,35 @@ table's rows and is being spent on a sentence.**
    source (`inventoryRows === 0`, not `rows.length === 0`). Mutation: `.is-sentence` back to `padding: 0` →
    "at the atom's own inset", proven with a rebuilt sheet.)*
 
+## P0 — the ninety-ninth list (opened 2026-11-11, the phone is 100% page on one surface and 78% on the other)
+
+The ninety-eighth list is closed. This list is the operator's 2026-11-10 directive's third clause — **the same
+responsive rules** — measured at the contract's own breakpoints (390 / 480 / 639 / 640 / 767 / 1,024 / 1,440).
+
+Measured 2026-11-11, the frame's inset counted once per surface: how much of a 390 px window is chrome before the
+page's first text begins.
+
+     surface  window  what sits between the rail and the text           text at   page width
+     console   390    the page's own 24                                  24        **390 (100%)**
+     console   640    icon rail 56 + the page's 24                       80        584 (91%)
+     panel     390    rail 52 + canvas 16 + page 24                      **93**    **304 (78%)**
+     panel     640    rail 52 + canvas 16 + page 24                      93        554 (87%)
+
+**The console gives a phone the whole window and the panel gives it 78%.** At 390 the panel spends **93 px of 390
+on chrome** — the 52 px rail (which never collapses, and the contract says so deliberately), a 16 px canvas, and the
+page's own 24 — leaving a 304 px column, where the console's column is the window.
+
+**And the 24 is spent twice on nothing.** The canvas already insets 16 on each side; the page adds 24 more inside
+that. On the phone the console's page inset **is** 24 and nothing else indents it, so the two surfaces' first text
+starts at 24 (console) and 93 (panel) from the same window edge — a 69 px difference made of three numbers, none of
+which is wrong alone.
+
+1. **The panel's phone spends 24% of the window on chrome and gives the page 78%.** **Fix:** the frame's inset is
+   declared once and the page does not add a second one inside it, at the band where the window is the scarce
+   resource. **M.**
+2. **No gate measures the product at the phone at all.** The console has `breakpoints` and a rail test; the panel
+   has neither, and the contract's `rail.$comment` records the panel's widths but not its PAGE. **S.**
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
