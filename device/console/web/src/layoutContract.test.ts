@@ -50,6 +50,7 @@ type Contract = {
   cardTitle: { size: number; weight: number };
   ground: { light: string; dark: string; gradients: number };
   elevation: { flat: string; pane: string; raised: string };
+  palette: { ink: string; muted: string; faint: string; accent: string; semantic: string[] };
   section: {
     h2: { size: number; weight: number };
     h3: { size: number; weight: number };
@@ -119,7 +120,7 @@ describe("the layout contract", () => {
     // `agent/resources/panel-react/src/lib/layoutContract.test.ts`. If the two disagree, the two
     // frontends are drawn to different page systems and one of them is wrong.
     expect(createHash("sha256").update(contractText()).digest("hex")).toBe(
-      "f01eb8235c918d99ab66c6f1f64dea91d453780f79baac022e6a3464dff75bee"
+      "d9ff87c5f0b8b5931be03097835fb96ba989a604b63cd36507d22fc3f506248f"
     );
   });
 
@@ -135,6 +136,23 @@ describe("the layout contract", () => {
     expect(page, "the page's rhythm comes from the scale").toContain(`gap: var(--${gap})`);
     expect(tokenPx(tokens(), pad)).toBe(contract.page.pad);
     expect(tokenPx(tokens(), gap)).toBe(contract.page.gap);
+  });
+
+  it("is the palette's third grey, and this surface is the one it came from", () => {
+    // **THE THIRD GREY WAS TWO COLOURS SIX APART (the fifty-sixth list).** Measured from both token
+    // blocks: the ink was already identical (`#18181b`) and so was the second grey (`#71717a`), but the
+    // third was `#696a74` here and `#6f707a` on the panel — two names for a colour the eye cannot tell
+    // from the other, which rule 12 refuses.
+    const source = tokens();
+    // The rule: FEWER NUMBERS, so the third grey is not a fourth family waiting to appear.
+    expect(source, "the third grey is the contract's").toContain(`--faint:${contract.palette.faint};`);
+    expect(source, "the ink is the contract's").toContain(`--ink:${contract.palette.ink};`);
+    expect(source, "the second grey is the contract's").toContain(`--muted:${contract.palette.muted};`);
+    expect(source, "the accent is the contract's").toContain(`--accent:${contract.palette.accent};`);
+    // **AND THE PALETTE IS FIVE NAMES, NOT A SPECTRUM.** `ink`, `muted`, `faint`, one accent, and the
+    // semantic four — anything else is a decision that has to be made in the open, which is what the
+    // surface that added `#6f707a` had not done.
+    expect(contract.palette.semantic.length, "four semantic names").toBe(4);
   });
 
   it("is the card's elevation, and this surface already drew it", () => {
