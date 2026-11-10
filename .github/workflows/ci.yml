@@ -66,6 +66,49 @@ jobs:
       - name: the device workspace is clippy-clean
         run: cargo clippy --manifest-path device/Cargo.toml -p summrise-core -p summrise-device -p summrise-launch -p summrise-mesh -p summrise-release -p summrise-console -p summrise-winsec -p summrise-winsys -p summrise-shell --all-targets -- -D warnings
 
+      # **A FORWARD IS A RULE, AND THE ONLY HONEST PROOF OF A FORWARDED CHANNEL IS A REAL sshd.**
+      # `capabilities::forward`'s unit tests drive an IN-PROCESS SSH server, and that fixture cannot
+      # be the authority for a forwarded channel's byte order (measured: with the fixture dialling
+      # nothing and replying nothing, a client still read its own bytes back, which a real sshd does
+      # not do). This step starts the runner's own sshd on a throwaway port with its own host key and
+      # its own authorized_keys, and drives `device/tests/forward_wire.rs` against it — the rule
+      # binds, `forward.list` reports it listening, an HTTP answer crosses the SSH connection byte for
+      # byte, and `forward.remove` closes the listener.
+      #
+      # IT IS `--ignored`, NOT CONDITIONALLY SKIPPED (I8): the test needs an sshd it did not start,
+      # and this step is what satisfies that. Deleting this step turns the test into a silent skip
+      # instead of a red, which is why the step exists rather than a `#[ignore]` nothing runs.
+      - name: a forward rule carries a real answer through a real sshd
+        run: |
+          set -euo pipefail
+          work="$RUNNER_TEMP/forward"
+          rm -rf "$work"
+          mkdir -p "$work/keys"
+          ssh-keygen -q -t ed25519 -N '' -f "$work/hostkey"
+          ssh-keygen -q -t ed25519 -N '' -f "$work/client"
+          cp "$work/client.pub" "$work/keys/authorized_keys"
+          chmod 700 "$work/keys"
+          chmod 600 "$work/keys/authorized_keys"
+          port=$(python3 -c 'import socket;s=socket.socket();s.bind(("127.0.0.1",0));print(s.getsockname()[1]);s.close()')
+          cat > "$work/sshd_config" <<CONF
+          Port $port
+          ListenAddress 127.0.0.1
+          HostKey $work/hostkey
+          PidFile $work/sshd.pid
+          AuthorizedKeysFile $work/keys/authorized_keys
+          PubkeyAuthentication yes
+          PasswordAuthentication no
+          AllowTcpForwarding yes
+          StrictModes no
+          UsePAM no
+          CONF
+          /usr/sbin/sshd -f "$work/sshd_config" -E "$work/sshd.log"
+          trap 'kill "$(cat "$work/sshd.pid" 2>/dev/null)" 2>/dev/null || true' EXIT
+          SUMMRISE_FORWARD_VIA="$(whoami)@127.0.0.1:$port" \
+            SUMMRISE_FORWARD_KEY="$work/client" \
+            cargo test --manifest-path device/Cargo.toml -p summrise-device --test forward_wire \
+              -- --ignored --nocapture
+
       # The panel is the device's own page, and it is the only surface a person sees without the
       # console; it gets the same measurement.
       - name: the device panel fits the window
