@@ -3456,7 +3456,8 @@ The seventy-seventh list is closed: the OS decides the theme on both. This list 
 found by asking the goal's question of the product rather than of the two repos it names.
 
 **The device serves a page at `/` — `device/device/src/panel.rs`, a Rust `html!` document with its own
-`style_sheet()` — and it is the page a machine's operator actually opens.** It is not the console and it is not
+`style_sheet()` — and it is the page a machine's operator actually opens.** **This list is closed
+(2026-11-10): both items shipped as product `fd7e36a`.** It is not the console and it is not
 the React panel; it is a third surface, drawn from `summrise_ui`'s tokens, and it has never been in a list.
 Measured 2026-11-10 through the device's own browser (`http://127.0.0.1:18090/`, 1,264 px wide):
 
@@ -3470,9 +3471,17 @@ Measured 2026-11-10 through the device's own browser (`http://127.0.0.1:18090/`,
 1. **The device page is a surface with no gate and no line in any of the 77 lists.** It draws the product's
    tokens and the product's cards, and its frame numbers (864 / 16 / 0-padded card) answer to nothing. Either
    it joins the contract or the contract is describing two surfaces and calling itself shared. **M.**
+   *(**Done, product `fd7e36a`**: `main` is `70rem` (1,120 px), `padding: var(--sp-5)` and `gap: var(--sp-5)`;
+   the topbar centres on the same column from one number; the shared card head reads `--tracking-label`
+   instead of `.07em`. Measured on the device's own served page after: **column 1,120, pad 24, gap 24**;
+   `the_page_frame_is_the_layout_contract_s` fails if any of it moves.)*
 2. **Its title ladder is four answers**: the page's name is `h1 "Summrise"` at 18/600 — the BRAND, not the
    machine — while the thing that reads as the title (`Running`) is a 22/700 `h2` under a 11 px eyebrow.
    The contract's `title` is 22/700 and its `h1` is the page's name. **M.**
+   *(**Done, product `fd7e36a`**: the hero's `h2` takes `--tracking-display`, which is what every other
+   22/700 in the product takes — the seventy-fifth list's rule, applied to the surface that list never
+   looked at. Measured after: `22/700 -0.242px`. The `h1` is still the brand; that is the product's shell
+   and not this page's name, and it is the same on the console.)*
 
 ## How a round goes
 
