@@ -877,6 +877,38 @@ describe("the layout contract", () => {
     );
   });
 
+  it("is ONE subtitle step in the head's own slot, on every page", () => {
+    // **RULE 3 ASKED OF THE HEAD (the eighty-second list).** Measured 2026-11-10 across both surfaces: the
+    // contract names ONE subtitle slot — `head.subtitleSlot: ".page-sub"` — and the pages drew it at 13/400
+    // on three of them and at **17/500** on Activity, where the count sentence was set at the size the
+    // contract gives a SECTION `h2`. The head's second line is a subtitle on every page or it is not the
+    // head's.
+    //
+    // **AND THIS LIST EXISTS BECAUSE THE FIRST MEASUREMENT WAS WRONG.** The probe read `head.children` and
+    // concluded History drew no `h1`; the `h1` is inside that `div`, at 22/700, on all seven pages. A probe
+    // that reports a page's name missing is worth re-running before a list is written about it.
+    const sheet = css();
+    // The slot's own step, as this sheet draws it.
+    // **THE CASCADE'S ANSWER, NOT THE FIRST MATCH.** This sheet declares `.page-sub` twice — the atom at
+    // line 207 and a `margin-top: 3px` refinement 2,283 lines later — so the slot's declarations have to be
+    // read across BOTH, which is what a reader sees.
+    const subRules = [...sheet.matchAll(/\.page-sub\s*\{([^}]*)\}/g)].map((m) => m[1]);
+    expect(subRules.length, "the slot is declared").toBeGreaterThanOrEqual(1);
+    const sub = subRules.join(" ");
+    expect(sub, "the subtitle's size is the atom's").toContain("font-size: var(--fs-sm)");
+    expect(sub, "and it is the muted step, not the ink").toContain("color: var(--ink-muted)");
+    // **AND THE COUNTS THAT RIDE IN THAT SLOT ARE THE SAME STEP.** `.activity-today` is the head's subtitle on
+    // this page: it must not take a section's size (which is what `--fs-lg` was).
+    const today = ruleFor(sheet, "\\.activity-today");
+    expect(today, "the count line is a subtitle, not a section head").not.toContain("--fs-lg");
+    expect(today, "and it reads the body's size").toContain("--fs-base");
+    // `--fw-medium` stays: the count is the first thing the eye finds under the title.
+    expect(today, "the count keeps its one weight step").toContain("--fw-medium");
+    // Every page's name is an `h1` at the contract's title step — the re-run's finding, recorded.
+    expect(contract.head.subtitleSlot, "one slot, named once").toBe(".page-sub");
+    expect(contract.title.size, "and the name above it is the contract's").toBe(22);
+  });
+
   it("is the LOADING atom, drawn where a read is out — not a word in a result line", () => {
     // **RULE 19's LOADING HALF, MEASURED PAGE BY PAGE WITH EVERY READ HELD 3.5 s (the eightieth list).**
     // The atom was written in the forty-seventh list — `rows 3, rowPad 12, rowRadius 10, rowGap 8,
