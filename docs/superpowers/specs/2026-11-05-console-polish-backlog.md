@@ -4287,8 +4287,20 @@ which is wrong alone.
 1. **The panel's phone spends 24% of the window on chrome and gives the page 78%.** **Fix:** the frame's inset is
    declared once and the page does not add a second one inside it, at the band where the window is the scarce
    resource. **M.**
+   *(**Done in the panel repo `7042feede`, MERGED as `5b8c8b548`; NOT DEPLOYED** — the hold applies. Below 639 the
+   canvas keeps its 14 px top and 16 px bottom and drops its horizontal inset, so the page's own `--sp-3-5` IS the
+   edge: **content column 276 → 308 px of 390 (71% → 79%), chrome 93 → 77 px (24% → 20%)**, and at the band's own
+   edge (639) **87%**, so the form now widens with the window instead of stepping at 640.
+   **"Just shrink the page" buys nothing visible**: with `box-sizing: border-box` the page's padding eats the width
+   it appears to save — 24 → 8 moved the chrome 93 → 77 and the content 304 → 288. **The number to report is the
+   content column, not the padding.**)*
 2. **No gate measures the product at the phone at all.** The console has `breakpoints` and a rail test; the panel
    has neither, and the contract's `rail.$comment` records the panel's widths but not its PAGE. **S.**
+   *(**Done in the panel repo**: `is ONE inset at the phone band: the page does not add a second inside the canvas`
+   — the canvas drops its horizontal inset in the narrow band, the page keeps the frame's step, and **the override
+   is asserted to come LAST for its selector**, because `desktop.css` is concatenated after `layout.css` and a rule
+   written there loses on source order alone. Mutations: the override moved to `layout.css` fails that assertion;
+   the first draft's comment-matching scan reported a position inside its own prose.)*
 
 ## How a round goes
 
