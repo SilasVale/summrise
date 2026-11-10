@@ -3809,7 +3809,8 @@ decision (the row's inset, the space after it, and which rows are cards) and let
 
 ## P0 — the eighty-eighth list (opened 2026-11-10, the cross-repo pin compares each copy to ITSELF)
 
-The eighty-seventh list is closed for its first half: the contract gained a `row` atom (seven row shapes, measured)
+The eighty-seventh list is closed for its first half — **and this list is closed too (2026-11-10), shipped on
+both sides: product `be7307f`, panel `45ed35a2`.** This list was the pin: the contract gained a `row` atom (seven row shapes, measured)
 and item 1 shipped as the contract change. **And adding that atom exposed the bigger defect, which is this list.**
 
 Both repos carry a copy of `docs/superpowers/specs/layout-contract.json` and a test that pins its sha256. Both
@@ -3840,6 +3841,12 @@ The copies have already drifted, measurably:
 1. **One contract, one hash.** **Fix:** the two copies become byte-identical files whose union carries every
    atom either surface needs, and BOTH tests pin **one** literal — so a change in one repo turns the other red.
    **M.**
+   *(**Done**: product `be7307f`, panel `45ed35a2`. Both copies are one file — `f2e8a065…` — carrying every atom
+   either surface needs (`row`, `tracking`, `theme`, `space.targetTouch: 44`, `space.targetBand: "phone"`), with
+   the two `rail.$comment`s merged into the paragraph that describes all three of the console's columns AND the
+   panel's no-collapse rule. **The pin now reads the OTHER repo's copy** and skips with its reason named when the
+   sibling checkout is absent. Mutations, both directions: one byte added to the panel's copy → the console's pin
+   red; one byte added to the product's copy → the panel's pin red.)*
 
 ## How a round goes
 
