@@ -52,7 +52,7 @@ const KEEPALIVE_INTERVAL: Duration = Duration::from_secs(5);
 ///
 /// The `Debug` implementation is redacted: a password and a private-key path are configuration a
 /// log line must never carry, and this type is the one place they are held.
-#[derive(PartialEq, Eq, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Deserialize, serde::Serialize)]
 #[serde(tag = "kind", rename_all = "lowercase")]
 pub enum Auth {
     /// Password authentication.
@@ -472,22 +472,25 @@ impl SshReader {
     }
 }
 
-/// Open an SSH connection and an interactive shell on it.
+/// Open an authenticated SSH connection, and nothing more.
+///
+/// THE OPENING IS SHARED, THE CHANNEL IS NOT. A shell needs one kind of channel and a forward needs
+/// another (a `direct-tcpip` channel to a host:port the far sshd dials), but the part that decides
+/// whether this connection may exist at all — the target's own refusals, the key file, the pinned
+/// host key, the transport's bound, and the authentication — is the same for both. It lives here so
+/// a second caller cannot reach the far host with a weaker check.
 ///
 /// `host_key` is the caller's explicit SHA-256 fingerprint; when it is given, the pinning store is
 /// not consulted or updated. Otherwise `known_hosts` records the key on first use and insists on
-/// it thereafter. `rows`/`cols` size the remote pseudo-terminal.
-#[allow(clippy::too_many_arguments)] // every one is part of the wire contract
-pub async fn connect(
+/// it thereafter.
+pub async fn open(
     host: &str,
     port: u16,
     user: &str,
     auth: &Auth,
-    rows: u16,
-    cols: u16,
     host_key: Option<&str>,
     known_hosts: &KnownHosts,
-) -> Result<SshSession, SshError> {
+) -> Result<Handle<ClientHandler>, SshError> {
     if host.is_empty() {
         return Err(SshError::InvalidTarget {
             message: "the host is empty".to_owned(),
@@ -586,6 +589,32 @@ pub async fn connect(
         }
     }
 
+    // A completed handshake must have presented a key; without one the key check never ran, and
+    // the connection is not something this module can vouch for.
+    observed.take().ok_or_else(|| SshError::Channel {
+        message: "the server presented no host key".to_owned(),
+    })?;
+
+    Ok(handle)
+}
+
+/// Open an SSH connection and an interactive shell on it.
+///
+/// `rows`/`cols` size the remote pseudo-terminal. Every refusal — the target, the key, the host key,
+/// the credentials — is [`open`]'s, so this function adds only the shell channel and cannot weaken
+/// the check that admitted the connection.
+#[allow(clippy::too_many_arguments)] // every one is part of the wire contract
+pub async fn connect(
+    host: &str,
+    port: u16,
+    user: &str,
+    auth: &Auth,
+    rows: u16,
+    cols: u16,
+    host_key: Option<&str>,
+    known_hosts: &KnownHosts,
+) -> Result<SshSession, SshError> {
+    let handle = open(host, port, user, auth, host_key, known_hosts).await?;
     let channel = handle
         .channel_open_session()
         .await
@@ -613,11 +642,6 @@ pub async fn connect(
             message: error.to_string(),
         })?;
 
-    // A completed handshake must have presented a key; without one the key check never ran, and
-    // the connection is not something this module can vouch for.
-    observed.take().ok_or_else(|| SshError::Channel {
-        message: "the server presented no host key".to_owned(),
-    })?;
     let (reader, writer) = channel.split();
 
     Ok(SshSession {
@@ -628,6 +652,57 @@ pub async fn connect(
         writer,
         _handle: handle,
     })
+}
+
+/// The stream a forwarded connection carries: one `direct-tcpip` channel, read and written as bytes.
+pub type ForwardStream = russh::ChannelStream<Msg>;
+
+/// Open a `direct-tcpip` channel: the far sshd dials `target` for this caller.
+///
+/// **THIS IS THE CHANNEL THAT MAKES A FORWARD A FORWARD.** `listen` is bound on THIS machine, and
+/// the bytes arriving on it travel over an existing authenticated SSH connection to `via`, whose
+/// sshd then connects to `target`. The far host therefore never gains a listening port — that is
+/// the whole property the design exists for — and the trust on this path is the same host key and
+/// the same credentials `open` already checked. Nothing here can bypass them: this function takes
+/// the `Handle` [`open`] returned, so a caller cannot reach a channel without having opened one.
+///
+/// The originator is the client's own peer address when it can be read. A client that has already
+/// gone has no peer address, and this then reports loopback with port 0 — a value it INVENTS, said
+/// here rather than denied: the far sshd's log then records a placeholder for that connection, which
+/// is a fact lost, not a fact claimed.
+pub async fn open_forward(
+    handle: &Handle<ClientHandler>,
+    target: (&str, u16),
+    originator: (std::net::IpAddr, u16),
+) -> Result<ForwardStream, SshError> {
+    let (host, port) = target;
+    if host.is_empty() {
+        return Err(SshError::InvalidTarget {
+            message: "the forward target's host is empty".to_owned(),
+        });
+    }
+    if port == 0 {
+        return Err(SshError::InvalidTarget {
+            message: format!("the forward target {host}:0 names no port a service listens on"),
+        });
+    }
+    let channel = handle
+        .channel_open_direct_tcpip(
+            host.to_owned(),
+            u32::from(port),
+            originator.0.to_string(),
+            u32::from(originator.1),
+        )
+        .await
+        .map_err(|error| SshError::Channel {
+            // The sentence names the far side, because that is the half that refused: `via`'s sshd
+            // could not reach `target`, or its `AllowTcpForwarding` is off.
+            message: format!(
+                "via refused to open a channel to {host}:{port}: {error} \
+                 (the far sshd's AllowTcpForwarding decides this, not this device)"
+            ),
+        })?;
+    Ok(channel.into_stream())
 }
 
 #[cfg(test)]
@@ -661,6 +736,9 @@ pub(crate) mod test_support {
     struct EchoHandler {
         password: String,
         accept_public_keys: bool,
+        /// Whether this fixture's sshd dials a `direct-tcpip` target, like a real one with
+        /// `AllowTcpForwarding` on. Off by default, so a test can prove the refusal.
+        accept_forwarding: bool,
         auth_attempts: Arc<AtomicUsize>,
     }
 
@@ -698,6 +776,67 @@ pub(crate) mod test_support {
             _channel: Channel<Msg>,
             _session: &mut ServerSession,
         ) -> Result<bool, Self::Error> {
+            Ok(true)
+        }
+
+        /// The far half of a forward: when it is enabled, this server DIALS the target for the
+        /// client and pipes the channel to it — which is what an sshd does, and the only honest way
+        /// to test a `direct-tcpip` channel end to end.
+        ///
+        /// The answer is `false` when the fixture disabled it, which is how a test proves the
+        /// refusal is reported rather than swallowed: a real `via` with `AllowTcpForwarding no`
+        /// answers exactly this, and the client's error must name the far side.
+        async fn channel_open_direct_tcpip(
+            &mut self,
+            channel: Channel<Msg>,
+            host_to_connect: &str,
+            port_to_connect: u32,
+            _originator_address: &str,
+            _originator_port: u32,
+            _session: &mut ServerSession,
+        ) -> Result<bool, Self::Error> {
+            if !self.accept_forwarding {
+                return Ok(false);
+            }
+            let target = format!("{host_to_connect}:{port_to_connect}");
+            tokio::spawn(async move {
+                let Ok(stream) = tokio::net::TcpStream::connect(&target).await else {
+                    return;
+                };
+                // THE CHANNEL IS DRIVEN BY ITS TWO HALVES, not by an AsyncRead on them: the client
+                // side of russh offers `into_stream`, but the SERVER side offers `data()` (write a
+                // whole reader into the channel) and `wait()` (pull the next message). So the far
+                // side's bytes are pumped with those two, which is the same pump an sshd runs.
+                let (mut chan_read, chan_write) = channel.split();
+                let to_client = async {
+                    match tokio::net::TcpStream::connect(&target).await {
+                        Ok(stream) => {
+                            let _ = chan_write.data(stream).await;
+                        }
+                        Err(_) => {}
+                    }
+                };
+                let to_far = async {
+                    let mut sink = None;
+                    while let Some(msg) = chan_read.wait().await {
+                        match msg {
+                            russh::ChannelMsg::Data { data } => {
+                                use tokio::io::AsyncWriteExt as _;
+                                if sink.is_none() {
+                                    sink = tokio::net::TcpStream::connect(&target).await.ok();
+                                }
+                                let Some(stream) = sink.as_mut() else { break };
+                                if stream.write_all(&data).await.is_err() {
+                                    break;
+                                }
+                            }
+                            russh::ChannelMsg::Eof | russh::ChannelMsg::Close => break,
+                            _ => {}
+                        }
+                    }
+                };
+                tokio::join!(to_client, to_far);
+            });
             Ok(true)
         }
 
@@ -740,6 +879,7 @@ pub(crate) mod test_support {
     struct EchoServer {
         password: String,
         accept_public_keys: bool,
+        accept_forwarding: bool,
         auth_attempts: Arc<AtomicUsize>,
     }
 
@@ -750,6 +890,7 @@ pub(crate) mod test_support {
             EchoHandler {
                 password: self.password.clone(),
                 accept_public_keys: self.accept_public_keys,
+                accept_forwarding: self.accept_forwarding,
                 auth_attempts: Arc::clone(&self.auth_attempts),
             }
         }
@@ -765,7 +906,13 @@ pub(crate) mod test_support {
 
     impl TestServer {
         pub(crate) async fn start(key: PrivateKey, password: &str, port: u16) -> TestServer {
-            Self::start_with(key, password, port, false).await
+            Self::start_with(key, password, port, false, false).await
+        }
+
+        /// A password server whose sshd DIALS `direct-tcpip` targets, like a real one with
+        /// `AllowTcpForwarding` on. Off everywhere else, so the refusal has a fixture too.
+        pub(crate) async fn start_forwarding(key: PrivateKey, password: &str) -> TestServer {
+            Self::start_with(key, password, 0, false, true).await
         }
 
         pub(crate) async fn start_with(
@@ -773,6 +920,7 @@ pub(crate) mod test_support {
             password: &str,
             port: u16,
             accept_public_keys: bool,
+            forwarding: bool,
         ) -> TestServer {
             let fingerprint = fingerprint_of(&key);
             // `SO_REUSEADDR` is what lets the restarted-server test bind the same port again while
@@ -802,6 +950,7 @@ pub(crate) mod test_support {
             let mut server = EchoServer {
                 password: password.to_owned(),
                 accept_public_keys,
+                accept_forwarding: forwarding,
                 auth_attempts: Arc::clone(&auth_attempts),
             };
             let task = tokio::spawn(async move {
@@ -1114,7 +1263,7 @@ mod tests {
             .write_openssh_file(&key_path, LineEnding::LF)
             .expect("the test key is written");
 
-        let server = TestServer::start_with(host_key(), "unused", 0, true).await;
+        let server = TestServer::start_with(host_key(), "unused", 0, true, false).await;
         let session = connect(
             "127.0.0.1",
             server.port(),
