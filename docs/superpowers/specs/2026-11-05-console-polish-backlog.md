@@ -2522,9 +2522,11 @@ card of both surfaces — recorded as clean, and worth saying because it is the 
    section heading is 17.** The step between a section and a card is therefore 3 px on one surface and
    4 on the other — not a defect anyone can see, but the kind of drift rule 3 counts, and it exists
    because neither surface wrote the pair down. **Fix:** the same contract line answers both. **S.**
-   *(**Done with item 1**: `cardTitle: { size 14, weight 600 }` is in the contract beside `section.h2`
-   (17), so the two-step ladder is written once. The panel already drew 14 / 600 — its card title needed
-   no code, only a number it could be measured against.)*
+   *(**Done with item 1, panel `2fb9fa93`**: `cardTitle: { size 14, weight 600 }` is in the contract
+   beside `section.h2` (17), so title (22) → section (17) → card (14) is one ladder on both surfaces.
+   The panel already drew 14 / 600 — **its card title needed no code, only a number to be held to**, and
+   that is the reason the contract exists rather than two habits that happen to agree. Mutation on each
+   side prints the same sentence: `the card title is the contract's: expected 13 to be 14`.)*
 
 ## How a round goes
 
