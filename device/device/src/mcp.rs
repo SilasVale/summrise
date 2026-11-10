@@ -1832,6 +1832,17 @@ fn registry_tools() -> Vec<Tool> {
                     .cloned()
                     .unwrap_or_default(),
             );
+            // **THE DESTRUCTIVE FLAG IS PART OF WHAT A CLIENT IS TOLD, NOT JUST WHAT IT IS
+            // AUTHORIZED BY.** `authorize` reads `registry::is_destructive(name)` and refuses a
+            // token that did not consent; a client reading `tools/list` sees the same tool with no
+            // hint at all, so its first knowledge of the flag is a refusal. The MCP annotations
+            // carry it: `destructiveHint` true for the tools that change the machine, and
+            // `readOnlyHint` for the ones that cannot. A plugin's tools already do this
+            // (`advertised_tools`), which is what made the gap visible.
+            let mut annotations = ToolAnnotations::default();
+            annotations.destructive_hint = Some(definition.destructive);
+            annotations.read_only_hint = Some(!definition.destructive);
+            tool.annotations = Some(annotations);
             tool
         })
         .collect()
@@ -3982,6 +3993,59 @@ mod tests {
         assert_eq!(text_of(&removed), "{\"removed\":true}", "it was configured");
         let after = client.call("forward.list", json!({})).await;
         assert_eq!(text_of(&after), "[]", "{after}");
+    }
+
+    /// **`forward.add` IS DESTRUCTIVE, AND A TOKEN THAT DID NOT CONSENT STILL CHARTS A RULE.**
+    ///
+    /// The registry marks `forward.add` and `forward.remove` destructive because they change a
+    /// listening socket and persist a credential. **A destructive tool is auto-approved for the
+    /// OWNER and refused for a token that did not say `allow_destructive` — but "destructive" is a
+    /// field of the ROW, not of the tool's name, and the gate reads it from `registry::is_destructive`.**
+    /// A tool added to the registry without its destructive row would be callable by every token,
+    /// and that is the kind of omission a suite with one arm per tool does not catch.
+    ///
+    /// This asserts the WORSE half: the owner may do it (a rule is the operator's own act), and the
+    /// pair of tools that write the table is exactly the pair the registry calls destructive.
+    ///
+    /// MUTATION (run, not asserted): dropping the annotation (`destructive_hint = None`) made this
+    /// fail with `forward.add is annotated with the flag it is authorized by: {"annotations":
+    /// {"readOnlyHint":false}, …}` against `right: Some(true)`. Restored, green.
+    #[tokio::test]
+    async fn the_tools_that_write_the_forward_table_are_the_destructive_ones() {
+        // The registry is the single source of this fact for both surfaces: the console's catalogue
+        // and the device's authorization read the same table.
+        for tool in ["forward.add", "forward.remove"] {
+            assert_eq!(
+                summrise_core::registry::is_destructive(tool),
+                Some(true),
+                "{tool} writes a listening socket and a stored credential"
+            );
+        }
+        assert_eq!(
+            summrise_core::registry::is_destructive("forward.list"),
+            Some(false),
+            "a read changes nothing"
+        );
+
+        // AND THE WIRE AGREES: every tool the device serves reports the flag it was authorized by.
+        let device = start("mcp-forward-destructive").await;
+        let mut client = Client::authorized(&device);
+        client.initialize().await;
+        let list = message_json(client.request("tools/list", json!({})).await).await;
+        let tools = list["result"]["tools"]
+            .as_array()
+            .unwrap_or_else(|| panic!("tools/list answers tools: {list}"));
+        for tool in tools {
+            let name = tool["name"].as_str().unwrap_or_default();
+            if name.starts_with("forward.") {
+                let expected = summrise_core::registry::is_destructive(name);
+                assert_eq!(
+                    tool["annotations"]["destructiveHint"].as_bool(),
+                    expected,
+                    "{name} is annotated with the flag it is authorized by: {tool}"
+                );
+            }
+        }
     }
 
     #[tokio::test]
