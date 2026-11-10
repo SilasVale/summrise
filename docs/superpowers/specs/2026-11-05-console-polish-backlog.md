@@ -2528,6 +2528,39 @@ card of both surfaces — recorded as clean, and worth saying because it is the 
    that is the reason the contract exists rather than two habits that happen to agree. Mutation on each
    side prints the same sentence: `the card title is the contract's: expected 13 to be 14`.)*
 
+## P0 — the fifty-fourth list (opened 2026-11-10, the page's ground is gradients on one surface and a colour on the other)
+
+The fifty-third list is closed: the card's title is one number, held on both sides. This list came from
+rule 17 — *"no gradients as decoration"* — read against the one surface both pages sit ON: the ground.
+Measured on the built console at 1440 and the built panel at 1360.
+
+Two reads were clean and are recorded as clean: **`body` is `rgb(250,250,250)` on BOTH surfaces**, and
+neither draws a `::before` overlay on the console (`content: none`). And the console's two gradients
+(`.table-scroll`'s two edge fades at `app.css:230/233`) are the one kind rule 17 permits: they explain
+that a horizontally scrolling table continues past its edge, which is a STATE, not decoration.
+
+1. **The panel's page ground is three decorative gradients, and none of them says anything.** Measured:
+
+       body::before   position: fixed, inset: 0, z-index: 0, pointer-events: none
+                      radial-gradient(76rem 44rem at 14% -12%, rgba(245,159,0,.05), transparent 62%)
+                      radial-gradient(70rem 44rem at 88% 108%, rgba(120,100,80,.05), transparent 64%)
+                      linear-gradient(180deg, #f1f0ee 0%, #f7f6f4 40%, #f3f1ee 100%)
+       body[data-theme=dark]::before
+                      the same two radials plus linear-gradient(180deg, #121316 … #111215)
+       .desktop-main  radial-gradient(1200px 500px at 85% -10%, 60% accent-soft, transparent 60%)
+
+   Those numbers are not a system's: `#f1f0ee`, `#f7f6f4`, `#f3f1ee`, `#121316`, `#16171b` and `#111215`
+   are six colours written by hand for four stops of one gradient, and the console — the same product,
+   the same ground — paints **one** colour. A page's ground that is a warm-to-cool wash on one surface
+   and a flat grey on the other is not "the same page frame"; it is the most visible difference on
+   screen, and it is decoration carrying no information. **Fix:** the ground is the contract's one
+   colour on both surfaces; the gradients go with the reason recorded. **M.**
+
+2. **Neither surface's ground is in the contract**, so the difference had nowhere to be seen. The
+   contract names the frame, the atoms, the levels, the motion — the surface everything else sits on
+   is not among them. **Fix:** `surface` joins the contract with the page ground's colour, and each
+   repo's test reads it. **S.**
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
