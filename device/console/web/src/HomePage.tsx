@@ -351,7 +351,13 @@ function AttentionBlock(props: {
   const behind = props.release !== null && props.problems.some((problem) => problem.tone === "behind");
   return (
     <section className="card attention" aria-label="Needs attention">
-      <h2>Needs attention</h2>
+      {/* **AN EYEBROW IS NOT AN `h2` (the hundred-and-fifth list).** Measured 2026-11-11: this card drew an `h2` at
+          **10 / 600, uppercase** — exactly the `section.eyebrow` atom's numbers — while the atom says `h2` is
+          **17 / 600**. **The tag and the size disagreed, and the tag is what a screen reader hears**: the document
+          outline announced a section heading, the page drew a small label. The card keeps its label and its
+          `aria-label` (which is the accessible name the section already had); the outline stops inventing a level
+          that is not drawn. */}
+      <div className="attention-label">Needs attention</div>
       {behind && props.release && (
         // **THE SENTENCE SAYS WHICH NUMBER IT NAMES.** A fleet that has outrun the staged installer
         // and a fleet that is behind it are different claims, and `The release is 0.3.291` was

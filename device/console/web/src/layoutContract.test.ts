@@ -1120,6 +1120,38 @@ describe("the layout contract", () => {
     expect(countRule![0], "the count is not a filter column any more").not.toContain("align-self: center");
   });
 
+  it("draws a LABEL as a label and a HEADING as a heading, at the atom's levels", () => {
+    // **MEASURED 2026-11-11, EVERY CARD'S OWN TITLE:**
+    //
+    //     surface   card            element   size/weight    transform     text
+    //     console   `.attention`   **h2**    **10 / 600**   **uppercase** "Needs attention"
+    //     panel     `.plug-card`   header    13 / 400       none          "Playwright…"
+    //
+    // **A card's title was an `h2` drawn at the EYEBROW's size.** The `section` atom says `h2` is **17 / 600** and
+    // `eyebrow` is **10 / 600 / tracking .05 / uppercase** — and this card was an `h2` at exactly the eyebrow's
+    // numbers. **The tag and the size disagreed, and the tag is what a screen reader hears**: the outline announced a
+    // section heading, the page drew a small label.
+    // **AND THE OUTLINE GATE WAS RIGHT WHEN IT REFUSED MY FIRST FIX**: wrapping the panel's card title in an `h3`
+    // skips a level under a page's `h1`, and the card sits directly under the page. The element says the RUNG it
+    // occupies; the size is the atom's.
+    const src = readFileSync(path.join(here, "HomePage.tsx"), "utf8");
+    expect(src, "the attention label is not a heading").toContain('className="attention-label"');
+    expect(src, "and it is not an h2").not.toMatch(/<h2>Needs attention<\/h2>/);
+    // The label's typography is still the eyebrow's, and the rule that gives it that is keyed by the class.
+    const sheet = css();
+    expect(sheet, "the label is drawn at the eyebrow's size").toMatch(/\.attention-label,[\s\S]{0,400}font-size: var\(--fs-2xs\)/);
+    expect(sheet, "with the eyebrow's step").toMatch(/\.attention-label,[\s\S]{0,400}text-transform: uppercase/);
+    // **AND THE BROWSER GATE READS IT BY NAME.** This step compared `h2` for a year; the day the tag stopped being one,
+    // it failed with `the attention block's heading read ""` — which is a gate doing its job on a shape that changed.
+    const gateSrc = readFileSync(path.join(here, "..", "scripts", "browser-gate.mjs"), "utf8");
+    expect(gateSrc, "the gate reads the block's label").toContain("block.querySelector('.attention-label, h2')");
+    // The atom's own numbers, so this reads the contract and not taste.
+    expect(contract.section.h2.size, "a section heading is 17").toBe(17);
+    expect(contract.section.eyebrow.size, "a label is 10").toBe(10);
+    expect(contract.section.eyebrow.transform, "and uppercase").toBe("uppercase");
+    expect(contract.section.eyebrow.weight, "at 600").toBe(600);
+  });
+
   it("moves at ONE interaction duration, read from the token layer", () => {
     // **MEASURED 2026-11-11 AS A VOCABULARY.** The contract records the reduce MECHANISM and no number, so nothing
     // could compare the two surfaces' dialects:

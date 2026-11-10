@@ -3263,7 +3263,7 @@ th,
 .timeline-caller,
 .audit-caller,
 .evidence-label,
-.attention h2,
+.attention-label,
 .fleet-started-label {
   font-size: var(--fs-2xs); font-weight: var(--fw-semi);
   text-transform: uppercase; letter-spacing: var(--tracking-label);

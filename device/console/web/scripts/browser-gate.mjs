@@ -1408,7 +1408,11 @@ try {
     const block = document.querySelector('.attention');
     if (!block) return null;
     return {
-      heading: block.querySelector('h2')?.textContent?.trim() ?? '',
+      // **THE LABEL IS THE BLOCK'S NAME, WHATEVER ITS TAG (the hundred-and-fifth list).** This read `h2` — and
+      // the block drew an `h2` at the EYEBROW's size (10/600, uppercase) where the atom says `h2` is 17/600,
+      // so the tag and the size disagreed and the tag is what a screen reader hears. The label is `.attention-label`
+      // now; the sentence a person reads has not changed, which is what this step is for.
+      heading: block.querySelector('.attention-label, h2')?.textContent?.trim() ?? '',
       top: Math.round(block.getBoundingClientRect().top),
       rows: [...block.querySelectorAll('.attention-row')].map((row) => ({
         name: row.querySelector('.attention-machine')?.textContent?.trim() ?? '',
