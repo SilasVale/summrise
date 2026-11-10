@@ -4702,6 +4702,36 @@ own comment names 103 as the defect it was written to fix.
    BOX from a LINE (a modal card's width is its own business) — it now splits the sheet into top-level blocks and
    names the boxes it permits.)*
 
+## P0 — the hundred-and-ninth list (opened 2026-11-11, at the phone the console keeps 24 and the panel steps to 14)
+
+The hundred-and-eighth list is closed. This list is the operator's directive's fifth clause — *"the same responsive
+rules"* — measured as the page's own inset ACROSS the bands, because `page.pad: 24` is one number and a band is a
+different page.
+
+Measured 2026-11-11, the page's own padding at seven widths:
+
+     surface   width   page pad      content column of the window
+     console   1600    24            1120 of 1600  (70%)
+     console   1024    24             792 of 1024  (77%)
+     console   390     **24**         **342 of 390 (88%)** — 12% chrome
+     panel     1600    24            1120 of 1600  (70%)
+     panel     1024    24             890 of 1024  (87%)
+     panel     390     **14**         **308 of 390 (79%)** — 21% chrome
+
+**The two surfaces agree at the desk and disagree at the phone**: the console holds its 24 all the way down, the
+panel steps to 14 at 639. **The panel's step was measured as a FIX in an earlier round** (chrome 93 → 77 px, 20% →
+17%, content 304 → 288) — and the console never got it, so on a 390 px phone the console spends **12%** of the window
+on chrome and the panel **21%**: the same page, two frames.
+
+**And the console's 24 does not step at ANY width** — it draws `24px/24px/24px/24px` from 1,600 to 360, so the
+`narrow` and `phone` breakpoints in the atom move nothing in the page's own inset.
+
+1. **The page's inset is 24 at the phone on one surface and 14 on the other, and the direction is unexplained.**
+   **Fix:** the atom records the inset PER BAND, both sheets read it, and the two surfaces' phone frames agree.
+   **M.**
+2. **Nothing measures a band's inset.** The gates measure the frame at 1,360 (where both agree) and the phone is
+   checked for *"content is not clipped"*, not for **how much of the window the chrome takes**. **S.**
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
