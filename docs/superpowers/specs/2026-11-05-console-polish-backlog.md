@@ -3341,8 +3341,9 @@ columns with no way to reach them.
 
 ## P0 — the seventy-fifth list (opened 2026-11-10, one size gets five different trackings on one page)
 
-The seventy-fourth list is closed: the rail obeys its number and the table follows its box. This list is
-rule 14 — *"letter-spacing by size"* — and it is the last of the twenty with a MEASURED conflict on both
+The seventy-fourth list is closed: the rail obeys its number and the table follows its box. **This list is
+closed (2026-11-10), across four builds (`676073d`, `4903e0b`, `3967c03`), live `ux184` — the last one found
+by re-measuring the DEPLOYED page rather than the built one.** This list was rule 14 — *"letter-spacing by size"* — and it is the last of the twenty with a MEASURED conflict on both
 surfaces' own pages. Measured 2026-11-10 on the rendered pages, grouping every text node by its `font-size`
 and asking whether that size carries ONE tracking:
 
@@ -3367,8 +3368,17 @@ the *inherited default plus an opt-in* is: the same 12 px sentence is set twice 
    on which element you inspect. **Fix:** the body carries no tracking; each size reads its step from the
    tokens (display for a title, none for body, label for small caps), and a rule that wants `normal`
    says so. **M.**
+   *(**Done, console `676073d`, live `ux182`**: `body` carries no tracking. The baseline is now nobody's
+   number, and the four steps the sheet already declared are the whole story — display for a title, nothing
+   for body, label for small caps, eyebrow above a block. Measured after: **zero conflicts on Home, Activity
+   and Device**, grouped by size AND weight AND kind.)*
 2. **Three literals are still written at their call sites** — `-0.004em`, `0.02em` and `0` — which is the
    rule `tokens.css` states against itself ("a number written at the call site is a habit"). **S.**
+   *(**Done, console `676073d` + three follow-ups (`4903e0b`, `3967c03`), live `ux184`**: the `0.02em` literal
+   is gone. Each follow-up was found by re-measuring the DEPLOYED build, because a rule that sets a size and
+   a weight and leaves TRACKING to the element underneath only shows up once its neighbour changes: the
+   installer's card title at the baseline (`4903e0b`), the stretch line opened to 0.08em in a column of 11 px
+   clocks (same commit), and `.attention-machine` (`3967c03`). Four builds to zero.)*
 
 ## How a round goes
 
