@@ -4663,6 +4663,34 @@ pages of eight, at two inks.
    `.page-sub`. Mutations: the count back into the slot on the console, the subtitle back to the page's ink on the
    panel.)*
 
+## P0 — the hundred-and-eighth list (opened 2026-11-11, the panel draws `66ch` as a PIXEL LITERAL on every page)
+
+The hundred-and-seventh list is closed. This list is rule 13 — *"readable text: measure, line-height, contrast"* —
+measured at the `measure` atom, which records `prose: "66ch"` and says why a measure is not a taste.
+
+Measured 2026-11-11 at 1,600, every block of prose, in `ch` (the width of a `0` at that element's own font):
+
+     surface/page   block                width  measure   max-width as written   takes the token?
+     console Home   `.hint`              **68ch**    68ch   `var(--measure)`       **yes**
+     console Home   `.attention-release` 68ch      68ch   `416.002px`            no — a pixel literal
+     console Act.   `.hint`              **78ch**   78ch   `477.179px`            no — a pixel literal
+     panel Plugins  `.plug-card-desc`     66ch      66ch   `66ch`                 **yes**
+     panel Settings `.connect-muted`      66ch      66ch   `440.473px`            no — a pixel literal
+     panel Plugins  `.plug-log-empty`   **153ch**  153ch   **`none`**             no — no measure at all
+
+**Two surfaces, and the measure arrives three ways**: the console's `--measure` token (**3** rules read it) beside
+**2** rules that write `66ch` themselves; the panel's `66ch` written per rule (**23** times) beside **6** rules that
+write a PIXEL (`416px`, `440px`, `477px`) and land on 66ch at ONE font size only. **The panel has no measure token at
+all** — its `tokens.css` declares `--page-measure` (a COLUMN) and nothing that means "a line".
+
+**And one block has no measure**: `.plug-log-empty` runs **153ch** — the widest line in the product, where the atom's
+own comment names 103 as the defect it was written to fix.
+
+1. **The measure is two names and a pixel literal, and the panel has no token for it.** **Fix:** one token, in both
+   layers, and every prose rule reads it. **M.**
+2. **Nothing measures a line.** `designScale` measures spaces, radii and sizes; **a `ch` is not one of them**, so a
+   rule with no `max-width` and a rule with `440px` both pass. **S.**
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
