@@ -3776,6 +3776,37 @@ children.
    container's rule, the children's zero, the paragraph reset (panel) and the two children that used to add
    one. Mutations: `.card > *` removed, the `p` reset removed, the `-4px` restored — all red.)*
 
+## P0 — the eighty-seventh list (opened 2026-11-10, a list ROW has seven shapes and the contract names none)
+
+The eighty-sixth list is closed. This list is one level below the card: the ROW, which is what every page is
+actually made of — and which the contract does not name at all (its atoms are `page, card, head, section, …`;
+there is no `row`).
+
+Measured 2026-11-10, one row of each kind, on both surfaces at 1,360:
+
+     where                         row h   padding       radius   border   gap after
+     console Home  attention       77       `0 0 10px`    0        0        0
+     console Home  fleet table     57       `0`           0        0        0
+     console Activity timeline     76       `0`           0        0        18
+     console Device picker         46       `8px 10px`    8        1        6
+     panel   Plugins inventory     36       `8px 12px`    0        0        8
+     panel   Memory cards          134      `16px`        14       1        8
+     panel   History rows          36       `0`           0        0        0
+
+**Seven shapes for one idea.** Some rows are 36 px and some 134; some draw a hairline and a corner and some
+draw nothing; the space after a row is 0, 6, 8 or 18. Every one of those is defensible on its own — a memory
+entry IS taller than a plugin name — and **none of it is recorded**, so the next page to draw a list has no
+answer to "what is a row here?" except to look at whichever page the author happened to open.
+
+**Rule 20 asks alignment and rhythm to come from a grid.** A seven-value rhythm is not a grid; it is seven
+decisions that look like one. The fix is not to make every row 36 px — it is to name the parts that ARE one
+decision (the row's inset, the space after it, and which rows are cards) and let the rest follow from a level.
+
+1. **A row's inset and the space after it are seven answers.** **Fix:** the contract gains a `row` atom — inset,
+   separation, and "a row that draws a box is a card" — and both surfaces read it. **M.**
+2. **The list's 18 px in the timeline is a third rhythm inside a page whose blocks are 24 and whose cards are 8.**
+   **Fix:** it reads the atom. **S.**
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
