@@ -34,7 +34,7 @@ const contractPath = path.join(
 );
 
 type Contract = {
-  page: { max: number; pad: number; gap: number };
+  page: { max: number; pad: number; gap: number; listGap: number };
   card: { radius: number; pad: number; gap: number; headerGap: number };
   rail: {
     console: number;
@@ -152,7 +152,7 @@ describe("the layout contract", () => {
     // `agent/resources/panel-react/src/lib/layoutContract.test.ts`. If the two disagree, the two
     // frontends are drawn to different page systems and one of them is wrong.
     expect(createHash("sha256").update(contractText()).digest("hex")).toBe(
-      "3f0568323e0bad0b063e1cb7989737d275864d8143d5eff5d745c5e85f5d908d"
+      "6fb371cd748e6b38d9e59c1c686948eda739f6a567d57b448e205fa5f2f5959f"
     );
   });
 
@@ -168,6 +168,31 @@ describe("the layout contract", () => {
     expect(page, "the page's rhythm comes from the scale").toContain(`gap: var(--${gap})`);
     expect(tokenPx(tokens(), pad)).toBe(contract.page.pad);
     expect(tokenPx(tokens(), gap)).toBe(contract.page.gap);
+  });
+
+  it("is the page body's rhythm, and a list's tick is the list's own", () => {
+    // **THE RHYTHM BELONGS TO THE CONTAINER THAT HAS LIKE THINGS IN IT (the sixty-ninth list).** Measured
+    // 2026-11-10: this console is uniform — every page's head sits 24 px above its first block and its
+    // blocks run 24 apart — and the panel was not: `page-plugins` put the card's 8 on the PAGE ROOT, so its
+    // head sat 8 px off its first block while Memory's sat 24, and Settings charged the frame's 24 plus a
+    // `margin-bottom: 12` for the same separation, which is 36 — a value on no surface's scale.
+    expect(contract.page.gap, "the page body's rhythm").toBe(24);
+    expect(contract.page.listGap, "a list ticks at the card's own gap").toBe(contract.card.gap);
+    const sheet = css();
+    // **1. THE PAGE ROOT DECLARES THE FRAME'S RHYTHM ONCE AND NO PAGE OVERRIDES IT.** This surface was
+    // already right, and that is why the rule is recorded: the panel's exception was invisible here.
+    const pageRules = [...sheet.matchAll(/\n(\.page[\w-]*)\s*\{([^}]*)\}/g)]
+      .filter((m) => !m[1].startsWith(".page-"))
+      .filter((m) => /[;\s]gap:/.test(m[2]));
+    expect(pageRules.map((m) => m[1]), "no page body restates the frame's gap").toEqual([".page"]);
+    // **2. AND A LIST DECLARES ITS TICK ON ITS OWN ELEMENT**, which is what the panel's fix added and what
+    // this surface must keep if it grows one: `.runs-history`, `.files-list` and `.attention-problems` are
+    // lists, and none of them may move the page's rhythm to say so.
+    for (const list of [".files-list", ".attention-problems", ".runs-history"]) {
+      const rule = ruleFor(sheet, list.replace(/\./g, "\\."));
+      expect(rule, `${list} is a list this page draws`).toBeTruthy();
+      expect(rule, `${list} does not restate the page's gap`).not.toMatch(/[;\s]gap:\s*var\(--sp-5\)/);
+    }
   });
 
   it("is a CARD's inset: `padding: 0` only when the child brings the inset", () => {

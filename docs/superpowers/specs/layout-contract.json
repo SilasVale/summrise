@@ -3,7 +3,9 @@
   "page": {
     "max": 1120,
     "pad": 24,
-    "gap": 24
+    "gap": 24,
+    "listGap": 8,
+    "$comment": "The page BODY: one column, one inset, one rhythm (the sixty-second and sixty-ninth lists). `gap` is 24 on EVERY page of both surfaces. **AND THE RHYTHM BELONGS TO THE CONTAINER THAT HAS LIKE THINGS IN IT (the sixty-ninth list):** a LIST declares its own tick (`listGap`, the card's own 8) on ITS OWN element, never on the page root. Measured before: `page-plugins` put the card's 8 on the page root, so that page's head sat 8 px off its first block while Memory's sat 24 (144 \u2192 168); and Settings charged the frame's 24 AND a `margin-bottom: 12` for the same separation, which is 36 \u2014 a value on no surface's scale (2/4/6/8/10/12/14/16/24). A separation declared twice is not a separation twice as clear; it is a number nobody chose."
   },
   "ground": {
     "$comment": "The surface every page sits ON, which both draw (the fifty-fourth list). ONE colour per theme \u2014 no gradient, because a wash behind a page is decoration carrying no information, and rule 17 refuses it. Measured: the panel carried three decorative gradients behind a fixed overlay plus a fourth on its canvas, in six hand-written colours, while the console painted one.",
