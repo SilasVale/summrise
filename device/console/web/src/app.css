@@ -708,6 +708,14 @@ a.btn.primary:hover { background: var(--accent-hover); border-color: var(--accen
    a smaller grammar — radius 10 and padding 12 — while the desktop panel's pages had no atom at
    all and hand-rolled eight of them. The contract fixes 14 / 16 / 8 for both, so a block reads the
    same size in the web console and in the desktop app. */
+/* **A CARD'S GAP IS THE CARD'S; A CHILD ADDS NOTHING (the eighty-sixth list).** Measured 2026-11-10 at 1,440 on
+   the live console: this rule declares `gap: var(--sp-2)` and the attention card's children landed **4** and
+   8 apart, because `.attention-release` carried `margin: -4px 0 0` — a NEGATIVE margin used to tighten a gap
+   the container had already set. The panel had the same disease in the other direction (14 and 16, from `6px`
+   and `8px` margins its children brought, and one paragraph taking the browser's own `1em`), so this is one
+   decision recorded in both sheets: **the container states the separation once, and a child of a card brings
+   none.** A page that wants a paragraph held apart puts it in its own block. */
+.card > * { margin-block: 0; }
 .card {
   border: 1px solid var(--line); border-radius: var(--radius);
   padding: var(--sp-4); background: var(--surface);
@@ -3543,7 +3551,12 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
 }
 .attention h2 { margin: 0; color: var(--ink-muted); }
 /* The one place the release is named: every behind row below is measured against this version. */
-.attention-release { margin: -4px 0 0; font-size: var(--fs-xs); }
+/* **THE RELEASE LINE IS THE CARD'S CHILD, NOT A NEGATIVE MARGIN (the eighty-sixth list).** Measured at 1,440:
+   this rule carried `margin: -4px 0 0` and the card's own gap is 8, so the space under the title was **4 px**
+   while every other card's is 8 — a gap tightened by pulling one child UP into it. Rule 7 says spacing and
+   grouping do the work; here the spacing was done twice and one of them was negative. The card's 8 is the
+   whole answer, and the line keeps only its size. */
+.attention-release { font-size: var(--fs-xs); }
 .attention-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 0; }
 .attention-row {
   display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap;

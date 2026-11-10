@@ -877,6 +877,42 @@ describe("the layout contract", () => {
     );
   });
 
+  it("is the CARD's own gap — a child of a card adds no margin of its own", () => {
+    // **RULE 7, MEASURED AS A RHYTHM RATHER THAN A RULE (the eighty-sixth list).** Measured 2026-11-10 at
+    // 1,440 on the live console by reading each card's declared `row-gap` and then the space that landed
+    // BETWEEN its children:
+    //
+    //     card             declared gap   children's own margins   space they got
+    //     card.attention   8 px           `-4px`, `0`              **4**, 8
+    //
+    // The 4 was a NEGATIVE margin on `.attention-release`, pulling a child up into a gap the container had
+    // already set — spacing done twice, and one of the two was negative. The panel had the mirror image
+    // (14 and 16, from margins its children brought and the browser's own `1em`), and this list recorded it
+    // as ONE decision in both sheets: the container states the separation, and a child of a card brings none.
+    const sheet = css();
+    expect(ruleFor(sheet, "\\.card > \\*"), "a child of a card adds no margin").toContain("margin-block: 0");
+    expect(ruleFor(sheet, "\\.card"), "and the card states the separation").toContain(
+      "gap: var(--sp-2)",
+    );
+    // **AND THE ONE CHILD THAT USED TO ADD ONE STILL EXISTS AND STILL DRAWS NO MARGIN.**
+    // **AND THE ONE CHILD THAT USED TO ADD ONE STILL EXISTS AND STILL DRAWS NO MARGIN.** `ruleFor` needs a
+    // rule whose brace is on its OWN line, and this sheet writes small rules on one line — so the scan below
+    // reads every declaration block whose selector names the release line, however it is line-broken.
+    // The `*` in `.card > * { margin-block: 0 }` matches this element too, which is the POINT of the rule;
+    // what the scan refuses is a margin on the element's OWN selector.
+    // **COMMENTS NAME THE THING TOO, AND THIS SHEET'S COMMENTS QUOTE THE MARGIN THEY REMOVED.** The scan
+    // reads the sheet with its comments stripped first — a chapter that explains `margin: -4px 0 0` is not a
+    // rule that draws it, and the first draft of this test failed on exactly that quotation.
+    const bare = sheet.replace(/\/\*[\s\S]*?\*\//g, "");
+    const release = [...bare.matchAll(/([^{}]*)\{([^{}]*)\}/g)]
+      .filter((m) => m[1].includes(".attention-release"))
+      .map((m) => m[2]);
+    expect(release.length, "the release line is still drawn").toBeGreaterThanOrEqual(1);
+    for (const body of release) {
+      expect(body, "and adds no margin to the card's gap").not.toMatch(/margin/);
+    }
+  });
+
   it("is a page BODY that is the page's content, not an empty state", () => {
     // **MEASURED 2026-11-10 AT 1,440, WALKING THE DEVICE PAGE'S THREE STATES BY FORCING EACH READ (the
     // eighty-third list):**
