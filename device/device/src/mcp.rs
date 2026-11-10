@@ -3384,7 +3384,8 @@ mod tests {
     use crate::test_support::TempDir;
 
     use super::{
-        dispatch_supports, handler, registry_tools, HANDLERS, MAX_BODY_BYTES, MAX_FILE_BYTES,
+        dispatch_supports, handler, input_schema, registry_tools, HANDLERS, MAX_BODY_BYTES,
+        MAX_FILE_BYTES,
     };
 
     const TOKEN: [u8; 32] = [0x6b; 32];
@@ -6174,6 +6175,70 @@ mod tests {
         assert_eq!(
             implementations, registry,
             "the registry and the dispatch table must name the same tools"
+        );
+    }
+
+    /// **EVERY ADVERTISED SCHEMA IS A REAL OBJECT SCHEMA, AND NO TOOL FALLS INTO THE FALLBACK.**
+    ///
+    /// `input_schema` ends with `_ => json!({ "type": "object" })`, which is what a tool with no arm
+    /// would silently advertise: a schema that accepts anything, tells a client nothing, and refuses
+    /// nothing. **Nothing asserted that every registry tool had an arm** — the alignment test above
+    /// checks `HANDLERS`, not the schema table, and those are two different lists.
+    ///
+    /// It also validates each schema the way a client would: an object, a `properties` map, every
+    /// `required` name actually a property, and `additionalProperties` set (the device's `parse`
+    /// refuses unknown keys, so a schema that omitted the flag would describe a call the device then
+    /// rejects — the client cannot know its own mistake from the schema alone).
+    ///
+    /// MUTATION (run, not asserted): deleting `forward.list`'s arm made it advertise `{"type":
+    /// "object"}` and this fail with `forward.list: the device refuses an unknown key, so the schema
+    /// must say so: {"type":"object"}`. Restored, green.
+    #[test]
+    fn every_advertised_schema_is_a_real_object_schema() {
+        let mut fallbacks = Vec::new();
+        for capability in CAPABILITIES {
+            for definition in capability.tools {
+                let schema = input_schema(definition);
+                let object = schema.as_object().unwrap_or_else(|| {
+                    panic!("{}: the schema is an object: {schema}", definition.name)
+                });
+                assert_eq!(
+                    object.get("type").and_then(Value::as_str),
+                    Some("object"),
+                    "{}: the schema type is object: {schema}",
+                    definition.name
+                );
+                let properties = object
+                    .get("properties")
+                    .and_then(Value::as_object)
+                    .map(|properties| properties.keys().cloned().collect::<Vec<_>>())
+                    .unwrap_or_default();
+                // THE FALLBACK IS RECOGNISABLE, AND IT IS NOT "NO ARGUMENTS": eleven tools really
+                // take none, and each says so with `"properties": {}` and
+                // `"additionalProperties": false`. The fallback is the bare `{"type": "object"}`.
+                if !object.contains_key("additionalProperties") {
+                    fallbacks.push(definition.name);
+                }
+                if let Some(required) = object.get("required").and_then(Value::as_array) {
+                    for name in required {
+                        let name = name.as_str().unwrap_or_default();
+                        assert!(
+                            properties.iter().any(|property| property == name),
+                            "{}: `required` names {name}, which is not a property of the schema: {schema}",
+                            definition.name
+                        );
+                    }
+                }
+                assert!(
+                    object.contains_key("additionalProperties"),
+                    "{}: the device refuses an unknown key, so the schema must say so: {schema}",
+                    definition.name
+                );
+            }
+        }
+        assert!(
+            fallbacks.is_empty(),
+            "these tools advertise the fallback schema instead of their own: {fallbacks:?}"
         );
     }
 
