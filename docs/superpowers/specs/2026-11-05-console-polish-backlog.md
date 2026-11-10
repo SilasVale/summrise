@@ -4395,6 +4395,37 @@ the DIALOG's corner on a frame element, and the console spends none. The `card` 
    corner, no rim — plus the canvas's `gap: 0` and its missing top gutter. Mutation: back to glass + the card's
    corner → "an opaque surface, not glass".)*
 
+## P0 — the hundred-and-second list (opened 2026-11-11, a row's inset is 0 on the console and 8/12 on the panel)
+
+The hundred-and-first list is closed. This list is the operator's 2026-11-10 directive's fourth clause — *"the same …
+card grammar, density rhythm"* — measured at the ROW, which the contract has owned since the eighty-seventh list:
+
+     `row.insetX: 8, insetY: 8, gapLines: 0, gapBoxes: 8, boxed: "card"`
+
+Measured 2026-11-11 at 1,360, the first element of each list, its padding and where its TEXT starts:
+
+     surface   list              row padding      text inside its card
+     console   `.attention-row`  **0 0 10px**      19 px        (card pad 16 + a row inset of 0)
+     console   `tbody tr`        **0**            17 px
+     console   `.timeline-row`   **0**            —            (a bare row on the page's own gap)
+     panel     `.plug-row`       **8px 12px**     29 px        (12, not the atom's 8)
+     panel     `.mem-card`       **16px**         16 px        (a row drawn as a card of its own)
+
+**Every surface insets its rows by a different number, and two of them by none at all.** The console's attention row
+is a bare line 19 px inside its card; the panel's plugin row is `8px 12px` where the atom says 8 and 8. And the
+panel's memory LIST draws each entry as **a card inside the page** — a second `radius 14` surface, a border of its own
+and 16 px of inset — which is the `boxed: "card"` arm of the atom taken by the ROW instead of by the list.
+
+**The atom also says which of the two a list is: a list of LINES separates by its own leading (`gapLines: 0`), a list
+of BOXES by the scale's 8.** No page declares which it is; the console's timeline draws a 76 px pitch with no gap and
+no rule, the panel's memory draws 8 px between cards, and the fleet table draws its own 1 px separators — three
+answers to the same question.
+
+1. **A row's inset is 0 on the console's lists and 12 on the panel's, where the atom says 8.** **Fix:** one row inset,
+   read from the atom, and the two lists that draw a row AS a card stop doing that. **M.**
+2. **Nothing distinguishes a list of LINES from a list of BOXES.** The atom names the difference and no gate reads it:
+   a list that draws neither a leading rhythm nor the scale's 8 passes every gate it has. **S.**
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
