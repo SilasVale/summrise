@@ -3498,6 +3498,12 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
 /* The fleet is a table, not a stack of cards: the four facts align and the eye compares a column
    at a time. The first cell is the row's link; the status cell owns the dot and its word. */
 /* The table is the card's content: it clips to the card's own corners and adds no box of its own. */
+/* **A CARD WITH `padding: 0` IS RIGHT WHEN ITS CHILD BRINGS THE INSET (the sixty-seventh list).** Measured:
+   this card's frame sits **1 px** from its first child, exactly like the panel's `.settings-fold` did — and
+   unlike that one, this is CORRECT: the child is a TABLE whose header row pads `9px var(--sp-4)`, so the
+   inset every row needs is the row's own, and the rows can span the card's full width for the hover and the
+   separator. **The rule the pair produced:** a bordered box at `padding: 0` is right only when its child
+   supplies the inset; when the child is a plain block, the BOX must. */
 .fleet-table-wrap { overflow: hidden; padding: 0; gap: 0; }
 .fleet-table { width: 100%; border-collapse: collapse; table-layout: auto; }
 .fleet-table thead th {
