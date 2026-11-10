@@ -139,9 +139,16 @@ the registry's sense and why `forward.add` and `forward.remove` are the operator
 ## 6. Open
 
 - **Which TLS front end** (D4) — bundle, embed, or HTTP/1.1 with a stated cap. Settle it by measuring
-  the same six-connection starvation under each.
+  the same six-connection starvation under each. **NOT MEASURED, and that sentence is here so
+  nobody reads this line as a finding.** The three fronts differ in one case this branch never
+  built: a client that speaks plaintext to `listen` while the far side is TLS, or the reverse.
+  Until one of them is built and the starvation measured, "which front end" stays a question with
+  no evidence behind either answer.
 - **Where the rules are edited** — the console's device page is where an operator would look; the
   CLI is where they would be written. `forward.list` is the wire surface both read.
 - **How many rules one device may carry** — `RULES_MAX` is 4 today, and a fifth NAME is refused while
   an EDIT of an existing name is not (a full device has to stay maintainable). Whether 4 is the right
   number is the open part; the audit and the panel read better with a stated small maximum.
+  **WHAT WOULD SETTLE IT:** the cap exists so a device's forward table stays a list somebody can read
+  and revoke. Four is chosen, not derived; a deployment that needs six has to edit rather than add,
+  which is the friction the number is for.
