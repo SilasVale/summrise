@@ -160,12 +160,13 @@
     }
   },
   "empty": {
-    "$comment": "The EMPTY state's atom, which both surfaces draw (the forty-sixth list). A page with nothing to list shows one card, on the page's own grid: the card's corner and padding, start-aligned text, no shadow, and the full width of the page's column. It is NOT a dialog \u2014 a 20px corner, a drop shadow and centred text on a 1120px column is a modal drawn where a page's empty state belongs.",
+    "$comment": "The EMPTY state's atom, which both surfaces draw (the forty-sixth list). A page with nothing to list shows one card, on the page's own grid: the card's corner and padding, start-aligned text, no shadow, and the full width of the page's column. It is NOT a dialog \u2014 a 20px corner, a drop shadow and centred text on a 1120px column is a modal drawn where a page's empty state belongs. **AND THE STATE KEEPS THE WAY BACK, AND THE CARD'S INSET IS ON THE CARD (the seventy-second list):** measured 2026-11-10 after filtering a list into nothing \u2014 the panel's was one 18 px line CENTRED in 1,042 px inside a `.card` whose inset came from the child's `margin: 14px` (so the card stood 48 px tall around one line), with NO control; the console's had the `Clear search` and no card. A reader who filtered a list into nothing needs the control that undoes it beside the sentence that explains it.",
     "radius": 14,
     "pad": 16,
     "gap": 12,
     "textAlign": "start",
-    "shadow": "none"
+    "shadow": "none",
+    "wayBack": true
   },
   "failed": {
     "$comment": "A failure's sentence NAMES THE SUBJECT, NOT THE TRANSPORT (the sixty-third list). Measured: the console's notice said \"The console could not read the machine list\" \u2014 the THING a person was waiting for \u2014 and the panel's said \"tool memory_list failed\", which names the RPC and leaves the reader to infer the page.",
