@@ -1361,6 +1361,98 @@ mod tests {
         );
     }
 
+    /// **THE CREDENTIAL IS WRITTEN TO THE TABLE AND NOWHERE ELSE.**
+    /// `forwards.json` holds a rule's password or its key path, and D5 says it is protected by
+    /// whatever protects `<data>`. **That promise is only true if nothing else in this module writes
+    /// the credential out.** The two ways it leaks are a log line built from the whole row and an
+    /// error that formats the `Auth` — and `Auth` already has a custom `Debug` that redacts, which is
+    /// a promise no test in this module was checking.
+    ///
+    /// The sweep is over the fixture's whole directory (the table and `events.jsonl`), and the
+    /// password is distinctive so a hit cannot be a coincidence.
+    ///
+    /// MUTATION (run, not asserted): adding `"auth": rule.auth` to `audit_refusal`'s event made this
+    /// fail with `the password is in exactly the table, not in ["forwards.json", "events.jsonl"]`.
+    /// Restored, green. (The mutation is what a careless "log the whole row" would produce, and the
+    /// `Auth` type's own redacting `Debug` does not help a `serde_json::json!` call that names the
+    /// field directly.)
+    #[tokio::test]
+    async fn the_credential_is_in_the_table_and_in_no_other_file() {
+        use tokio::io::AsyncReadExt as _;
+
+        let password = "SWEEP-ME-hunter2-DO-NOT-LEAK";
+        let fixture = Fixture::new("leak");
+        let port = free_port();
+        // A `via` nothing answers on, so the rule is refused and an event line IS written — the
+        // leak this test looks for would ride on exactly that line.
+        let spec = RuleSpec::parse(
+            "leaky",
+            &format!("127.0.0.1:{port}"),
+            "127.0.0.1:9",
+            "u@127.0.0.1:1",
+            Auth::Password {
+                password: password.to_owned(),
+            },
+            None,
+        )
+        .expect("the rule");
+        fixture.registry.add(&spec).expect("the rule is configured");
+        assert!(
+            wait_listening(&fixture.registry, "leaky", true).await,
+            "the listener is up"
+        );
+        let mut client = tokio::net::TcpStream::connect(("127.0.0.1", port))
+            .await
+            .expect("a connection to the rule");
+        let mut sink = [0u8; 8];
+        let _ = client.read(&mut sink).await;
+
+        // WAIT FOR THE EVENT LINE, which is the file the credential must not be in.
+        let events = fixture.dir.join(EVENTS_FILE);
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+        loop {
+            let text = std::fs::read_to_string(&events).unwrap_or_default();
+            if text.contains("forward.refused") {
+                break;
+            }
+            assert!(
+                tokio::time::Instant::now() < deadline,
+                "no refusal was recorded, so this test would prove nothing: {text}"
+            );
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+
+        // THE SWEEP: every file in the directory, byte for byte.
+        let mut hits = Vec::new();
+        let mut seen = Vec::new();
+        for entry in std::fs::read_dir(&fixture.dir).expect("the fixture directory") {
+            let entry = entry.expect("an entry");
+            if !entry.path().is_file() {
+                continue;
+            }
+            let name = entry.file_name().to_string_lossy().into_owned();
+            let bytes = std::fs::read(entry.path()).unwrap_or_default();
+            let text = String::from_utf8_lossy(&bytes);
+            seen.push(name.clone());
+            if text.contains(password) {
+                hits.push(name);
+            }
+        }
+        assert!(
+            seen.iter().any(|name| name == FORWARDS_FILE),
+            "the table was among the files swept: {seen:?}"
+        );
+        assert!(
+            seen.iter().any(|name| name == EVENTS_FILE),
+            "the event log was among the files swept: {seen:?}"
+        );
+        assert_eq!(
+            hits,
+            vec![FORWARDS_FILE.to_owned()],
+            "the password is in exactly the table, not in {hits:?}"
+        );
+    }
+
     /// A half-close is a half-close: each direction ends on its own EOF, so a client that sends its
     /// request and then shuts down its write half still GETS THE ANSWER.
     ///
