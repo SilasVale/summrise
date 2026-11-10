@@ -3126,6 +3126,39 @@ instead of it. And **the panel's `.plug-pill` carries the word `Enabled`** besid
    COLOUR half of rule 6 and not the other half. **Fix:** the contract records the second channel, and
    each repo's test counts a dot with no adjacent word. **S.**
 
+## P0 — the sixty-ninth list (opened 2026-11-10, the page body's rhythm is 24 on every page but two)
+
+The sixty-eighth list is closed: a state mark carries a word, on both surfaces. This list is rule 20 —
+*"alignment and rhythm fixed by a grid, not by nudging"* — asked at the one place the previous rhythms
+never looked: **the page BODY's own gap, per page.**
+
+The contract says `page.gap = 24`. Measured 2026-11-10 on the rendered surfaces, the head's distance to
+the first block under it and the distance between every pair of blocks:
+
+     console   Home      head→body 24   gaps 24 / 24 / 24     ← the frame, every page, no exceptions
+     console   Activity  head→body 24   gaps 24
+     console   Device    head→body 24   gaps 24
+     console   Tokens    head→body 24   gaps 24
+
+     panel     Memory    head→body 24   gaps 24 / 24 / 24
+     panel     Plugins   head→body  8   gaps  8 /  8 /  8     ← the FRAME is 8 on this page
+     panel     Settings  head→body 24   gaps 36 / 36 / 36 / 36 / 36
+
+**The console is uniform and the panel has two exceptions, both of them rhythm decisions that leaked out of
+the thing they were made for.**
+
+1. **`page-plugins` applies a LIST's rhythm to the whole page body.** Its own comment is right about the
+   intent — *"a list of like things ticks at the card's own 8"* (the thirty-eighth list) — but the rule sets
+   `gap: var(--sp-2)` on the page root, so the **head is 8 px from the title's first block while every other
+   page separates it by 24**. Measured: the Plugins head ends at 154 and the search wrap starts at 162; on
+   Memory the same pair is 144 → 168. **Fix:** the list keeps its 8 and the frame keeps its 24 — the rhythm
+   belongs to the container of like things, not to the page. **S.**
+2. **Settings paints 36 px because a margin and the frame's gap are both charged for the same separation.**
+   Measured: `settings-nav`, `settings-fold` and `settings-section` each carry
+   `margin-bottom: var(--sp-3)` = 12, and the body's flex `gap` is 24 — so every separation is
+   **24 + 12 = 36**, a value on NO surface's scale (2/4/6/8/10/12/14/16/24). **Fix:** one of the two says it.
+   **S.**
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
