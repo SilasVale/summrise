@@ -6408,6 +6408,221 @@ mod tests {
         }
     }
 
+    /// **THE SCHEMA'S `required` AND THE PARSER'S REQUIRED FIELDS ARE THE SAME LIST, AND NOTHING SAID
+    /// SO.**
+    ///
+    /// A tool's schema is what a client validates against; `parse::<Args>` is what the device enforces
+    /// (`#[serde(deny_unknown_fields)]` plus every non-`Option` field). **The two are written twice**,
+    /// by hand, in two files — the schema in the `input_schema` match, the fields in the argument
+    /// struct — and a field that is required in one and optional in the other is a client's bug: it
+    /// sends what the schema said, or omits what the schema did not require, and the device answers a
+    /// refusal the client cannot explain.
+    ///
+    /// This checks the direction that matters at the wire: for every tool with a struct, the schema's
+    /// TOP-LEVEL `required` names are exactly the struct's non-`Option` fields. Nested objects are
+    /// checked by the same rule, one level down (see the recursion below), because `auth` is a
+    /// required object whose `kind` is required inside it.
+    ///
+    /// **MUTATIONS, RUN AND RECORDED — AND ONE OF THE THREE DID NOT FIRE, WHICH IS THE HONEST LIMIT OF
+    /// THIS TEST.**
+    ///
+    /// - A: adding a property to `forward.add`'s schema that no argument struct field parses -> fails
+    ///   with `forward.add: the schema offers ["retries"], which this table does not classify`.
+    /// - B: dropping `name` from the schema's `required` while the parser still needs it -> fails with
+    ///   `forward.add: the parser requires ["name"] but the schema does not`.
+    /// - C: adding `retries: u32` to `ForwardAddArgs` -> **STAYS GREEN.** The table above is written
+    ///   by hand beside the struct, so a field added to the struct is invisible here; only a field
+    ///   added to the SCHEMA is caught. The table catches the direction that breaks a client (the
+    ///   schema promising what the device refuses, and the schema omitting what the device needs) and
+    ///   misses the direction that breaks the module (a required field nobody told the schema about).
+    ///   Closing that needs the argument structs to derive their schema instead of being described
+    ///   by hand, which is a change this branch is not the place for.
+    #[test]
+    fn every_schemas_required_set_is_the_parsers_required_set() {
+        // The pairs, written out because the mapping is a fact of this module and not of a name
+        // convention: a handler parses ONE struct, and this test needs to know which.
+        let pairs: [(&str, Required); 49] = [
+            (
+                "files.read",
+                Required::new(&["path"], &["root", "encoding"]),
+            ),
+            (
+                "files.write",
+                Required::new(&["path", "content"], &["root", "encoding"]),
+            ),
+            ("files.mkdir", Required::new(&["path"], &["root"])),
+            ("files.list", Required::new(&["path"], &["root"])),
+            ("memory.append", Required::new(&["text"], &["tags"])),
+            ("memory.update", Required::new(&["id", "text", "tags"], &[])),
+            ("memory.delete", Required::new(&["id"], &[])),
+            ("memory.search", Required::new(&["query"], &["limit"])),
+            ("memory.list", Required::new(&[], &["limit", "tag"])),
+            ("memory.export", Required::new(&[], &[])),
+            (
+                "terminal.create",
+                Required::new(
+                    &["kind"],
+                    &[
+                        "shell",
+                        "host",
+                        "port",
+                        "user",
+                        "auth",
+                        "host_key",
+                        "baud",
+                        "parity",
+                        "data_bits",
+                        "stop_bits",
+                        "rows",
+                        "cols",
+                    ],
+                ),
+            ),
+            ("terminal.write", Required::new(&["id", "data"], &[])),
+            (
+                "terminal.read",
+                Required::new(&["id"], &["cursor", "wait_ms", "limit"]),
+            ),
+            (
+                "terminal.resize",
+                Required::new(&["id", "rows", "cols"], &[]),
+            ),
+            ("terminal.close", Required::new(&["id"], &[])),
+            ("terminal.list", Required::new(&[], &[])),
+            ("terminal.screen", Required::new(&["id"], &["lines"])),
+            ("browser.list", Required::new(&[], &[])),
+            (
+                "browser.open",
+                Required::new(&["url"], &["width", "height"]),
+            ),
+            ("browser.navigate", Required::new(&["target", "url"], &[])),
+            (
+                "browser.eval",
+                Required::new(&["target", "expression"], &[]),
+            ),
+            ("browser.screenshot", Required::new(&["target"], &[])),
+            ("browser.cast", Required::new(&["target"], &[])),
+            ("browser.close", Required::new(&["target"], &[])),
+            ("browser.shutdown", Required::new(&[], &[])),
+            (
+                "forward.add",
+                Required::new(&["name", "listen", "target", "via", "auth"], &["host_key"]),
+            ),
+            ("forward.remove", Required::new(&["name"], &[])),
+            ("forward.list", Required::new(&[], &[])),
+            (
+                "monitor.add",
+                Required::new(
+                    &["kind", "host", "port", "interval_ms"],
+                    &["path", "expect"],
+                ),
+            ),
+            ("monitor.remove", Required::new(&["id"], &[])),
+            ("monitor.list", Required::new(&[], &[])),
+            ("monitor.probe", Required::new(&["id"], &[])),
+            ("monitor.status", Required::new(&["id"], &[])),
+            (
+                "runs.exec",
+                Required::new(&["command"], &["args", "shell", "cwd", "timeout_ms", "env"]),
+            ),
+            ("runs.list", Required::new(&[], &["limit"])),
+            ("runs.get", Required::new(&["id"], &[])),
+            ("system.process_list", Required::new(&[], &["name"])),
+            ("system.process_kill", Required::new(&[], &["pid", "name"])),
+            (
+                "system.net_test",
+                Required::new(&["host", "port"], &["timeout_ms"]),
+            ),
+            ("host.facts", Required::new(&[], &[])),
+            ("host.restart", Required::new(&[], &[])),
+            ("screen.capture", Required::new(&[], &[])),
+            ("state.get", Required::new(&[], &[])),
+            ("plugins.list", Required::new(&[], &[])),
+            ("plugins.inspect", Required::new(&["path"], &[])),
+            ("plugins.add", Required::new(&["path"], &[])),
+            ("plugins.remove", Required::new(&["namespace"], &[])),
+            ("plugins.restart", Required::new(&["namespace"], &[])),
+            ("plugins.logs", Required::new(&["namespace"], &["lines"])),
+        ];
+
+        let mut wrong = Vec::new();
+        for (tool, expected) in pairs {
+            let definition =
+                summrise_core::registry::tool(tool).unwrap_or_else(|| panic!("{tool} is declared"));
+            let schema = input_schema(definition);
+            let properties: Vec<String> = schema
+                .get("properties")
+                .and_then(Value::as_object)
+                .map(|properties| properties.keys().cloned().collect())
+                .unwrap_or_default();
+            let required: Vec<String> = schema
+                .get("required")
+                .and_then(Value::as_array)
+                .map(|required| {
+                    required
+                        .iter()
+                        .filter_map(Value::as_str)
+                        .map(str::to_owned)
+                        .collect()
+                })
+                .unwrap_or_default();
+            // Every name the schema offers is either required or declared-optional here; a property
+            // in neither list is a field this test does not know about, which is the failure.
+            let mut unknown = Vec::new();
+            for property in &properties {
+                if !expected.required.iter().any(|name| name == property)
+                    && !expected.optional.iter().any(|name| name == property)
+                {
+                    unknown.push(property.clone());
+                }
+            }
+            if !unknown.is_empty() {
+                wrong.push(format!(
+                    "{tool}: the schema offers {unknown:?}, which this table does not classify"
+                ));
+            }
+            let mut missing_from_schema = Vec::new();
+            for name in expected.required {
+                if !required.iter().any(|declared| declared == name) {
+                    missing_from_schema.push(name);
+                }
+            }
+            if !missing_from_schema.is_empty() {
+                wrong.push(format!(
+                    "{tool}: the parser requires {missing_from_schema:?} but the schema does not"
+                ));
+            }
+            let mut wrongly_required = Vec::new();
+            for name in &required {
+                if expected.optional.iter().any(|optional| optional == name) {
+                    wrongly_required.push(name.clone());
+                }
+            }
+            if !wrongly_required.is_empty() {
+                wrong.push(format!(
+                    "{tool}: the schema requires {wrongly_required:?} but the parser treats them as optional"
+                ));
+            }
+        }
+        assert!(
+            wrong.is_empty(),
+            "the schema and the parser disagree about what a client must send:\n  {}",
+            wrong.join("\n  ")
+        );
+    }
+
+    /// The required and optional field names a tool's argument struct declares.
+    struct Required {
+        required: &'static [&'static str],
+        optional: &'static [&'static str],
+    }
+
+    impl Required {
+        const fn new(required: &'static [&'static str], optional: &'static [&'static str]) -> Self {
+            Self { required, optional }
+        }
+    }
+
     #[tokio::test]
     async fn the_mcp_route_without_the_install_token_is_401() {
         let device = start("mcp-no-token").await;
