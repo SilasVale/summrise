@@ -3450,6 +3450,30 @@ panel does not. Nothing recorded which is right, so neither can be called wrong.
    `theme.consoleDecides: "system"` on the console (pin `e3d2d198…`). The console offering no switch and the
    panel offering one is a recorded decision, not a drift.)*
 
+## P0 — the seventy-eighth list (opened 2026-11-10, there is a THIRD surface and nobody has measured it)
+
+The seventy-seventh list is closed: the OS decides the theme on both. This list is the audit's own blind spot,
+found by asking the goal's question of the product rather than of the two repos it names.
+
+**The device serves a page at `/` — `device/device/src/panel.rs`, a Rust `html!` document with its own
+`style_sheet()` — and it is the page a machine's operator actually opens.** It is not the console and it is not
+the React panel; it is a third surface, drawn from `summrise_ui`'s tokens, and it has never been in a list.
+Measured 2026-11-10 through the device's own browser (`http://127.0.0.1:18090/`, 1,264 px wide):
+
+     its page column   main { max-width: 864px; padding: 24px 16px 32px; gap: 16px }
+     the contract       page { max 1120; pad 24; gap 24 }
+     its card          radius 14, pad **0**, head 12/16, body 16   ← the contract's pad is 16
+     its title         `.hero h2` **22/700**, and `h1` is the brand "Summrise" at **18/600**
+     its ladder        11 sizes of text; `22/700` once, `13/600` with **0.91px** tracking and `13/600` with none
+     its doc           **2,856 px tall** and the body scrolls — the second surface to do that
+
+1. **The device page is a surface with no gate and no line in any of the 77 lists.** It draws the product's
+   tokens and the product's cards, and its frame numbers (864 / 16 / 0-padded card) answer to nothing. Either
+   it joins the contract or the contract is describing two surfaces and calling itself shared. **M.**
+2. **Its title ladder is four answers**: the page's name is `h1 "Summrise"` at 18/600 — the BRAND, not the
+   machine — while the thing that reads as the title (`Running`) is a 22/700 `h2` under a 11 px eyebrow.
+   The contract's `title` is 22/700 and its `h1` is the page's name. **M.**
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
