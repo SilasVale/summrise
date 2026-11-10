@@ -3848,6 +3848,32 @@ The copies have already drifted, measurably:
    sibling checkout is absent. Mutations, both directions: one byte added to the panel's copy → the console's pin
    red; one byte added to the product's copy → the panel's pin red.)*
 
+## P0 — the eighty-ninth list (opened 2026-11-10, the row atom was written and NOBODY READ IT)
+
+The eighty-eighth list is closed: the two repos carry one contract file at one hash. That is what made this
+list findable — the atoms are in ONE place now, so an atom nobody reads is visible as an atom nobody reads.
+
+Measured 2026-11-10 in the tree, asking each repo's tests which contract atoms they name:
+
+     atom      recorded (the eighty-seventh list)          read by a test?
+     row       insetX 8, insetY 8, gapLines 0,              **NO** — no test in either repo names it
+               gapBoxes 8, boxed "card"
+
+**The `row` atom was added last round and nothing reads it.** It was written from a measurement — seven row
+shapes for one idea — and then not connected to the thing it measures, which makes it a comment with a
+schema rather than a decision. The contract's own job is to be the answer to "what is a row here?"; an atom no
+gate checks is that answer written down where nobody looks.
+
+**And one of the numbers it records is contradicted by the page it was measured on:** the timeline's stretch
+separation is **18 px**, which is on NO step of the scale the same contract declares
+(`2/4/6/8/10/12/14/16/24`). The atom says a list of lines separates by 0; the page separates a stretch by 18 —
+so the atom is not only unread, it is already wrong about the page that provoked it.
+
+1. **`row` is recorded and unread.** **Fix:** each repo's contract test reads the atom against the sheet, the
+   way every other atom already is. **M.**
+2. **The timeline's 18 px is off the scale and inside the list the atom describes.** **Fix:** it takes a
+   step, and the atom's `gapLines` says what a line list separates by. **S.**
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
