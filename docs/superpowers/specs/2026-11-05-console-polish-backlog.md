@@ -4643,8 +4643,25 @@ pages of eight, at two inks.
 
 1. **The subtitle slot's treatment is two inks and two weights for one role.** **Fix:** one treatment in the contract,
    read by both sheets, and a page that has nothing to say draws nothing. **M.**
+   *(**Done on both sides, MERGED, NOT DEPLOYED** — console `287e362`, panel `237d02c9d`. **The count left the
+   slot**: it is the page's FACT, not its context, and it takes the `section` rung the atom records (17 / 600), so
+   that head draws **22 → 17 → 13** where it drew `22 / 13 / 12` — two near-identical small lines a reader could
+   not tell apart. The subtitle slot itself is one line, 13 / 400 / muted. **And the two pages do NOT converge**:
+   Home's verdict IS the title's second line at the title's size, while Activity opens with the day's number —
+   which is what the standing direction asks for.
+   **The panel was the RIGHT one and right by INHERITANCE**: its weight scale starts at 500 and declares nothing at
+   400, so a subtitle drew the browser's default. *A treatment that is nobody's decision is not a treatment* — it
+   states `--fs-base` / `--muted` / `font-weight: 400` now.
+   **Two gates caught the console's change, both right**: the browser leg failed with *"the head's count line is
+   17px, not the subtitle slot's 13px"* (the eighty-second list had asserted 13), and the old contract test asserted
+   the count keeps `--fs-base`. Both now read the section's rung, and the new gate pins the browser leg's number so
+   they cannot drift.)*
 2. **The slot is a NAME, not a COUNT.** `maxHeadsPerPage` counts heads; nothing counts `.page-sub`, so a page can put a
    number and a status paragraph inside the subtitle slot and no gate sees it. **S.**
+   *(**Done on both sides**: the console's `draws the subtitle slot ONCE per page, at ONE treatment` and the panel's
+   `draws the subtitle slot ONCE, at ONE treatment` — the panel also walks every component and refuses a second
+   `.page-sub`. Mutations: the count back into the slot on the console, the subtitle back to the page's ink on the
+   panel.)*
 
 ## How a round goes
 
