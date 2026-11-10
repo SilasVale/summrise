@@ -3590,6 +3590,36 @@ page. The panel draws it on six of seven.
    `max-width` of its own, so the frame and the deliberate bleed are both recorded. Mutation: the head back to
    its strip → red.)*
 
+## P0 — the eighty-second list (opened 2026-11-10, the page's name is a 22/700 line on three pages and not on two)
+
+The eighty-first list is closed: the Terminal draws the page frame. This list is the HEAD, measured page by page
+on both surfaces — and it is the one part of the frame the contract deliberately does NOT number, which is exactly
+why it drifted.
+
+Measured 2026-11-10, all seven pages, reading each head's height and what is inside it:
+
+     surface   page        head height   h1 present   `.page-sub` lines   actions
+     console   Home        68            yes (22/700)  1                  2 buttons
+     console   Activity    89            yes           2                  live state + pause
+     console   Device      33            yes (22/700)  0                  none
+     panel     Memory      33            yes           1                  none
+     panel     Plugins     43            yes           1                  none
+     panel     History     **33**        **NO h1**     1                  none
+     panel     Settings    33            yes           3                  none
+
+**Two findings, and they are the same finding twice:**
+
+1. **History draws no page name at all.** Its head is one `<div>` holding a `.page-sub` — there is no `h1` in it —
+   while the other six pages put a 22/700 title in exactly that row. Measured: the head is 33 px, the same as
+   Memory's, but the row that should hold `History` at 22/700 holds a 13 px subtitle.
+2. **Plugins' head is 43 px where every other 33**, because its subtitle wraps to two lines inside a 1,120 px
+   column — which is not a head's defect but proof that the head's height is its contents, and the contract says
+   so: *"`height` is not a number. What IS recorded: the gap, the alignment, the subtitle SLOT."*
+   The number nobody wrote down is the one the pages disagree about.
+
+**Fix:** History's head becomes the atom's — a 22/700 `h1.page-title` with its subtitle in the slot below — and
+the atom gains the one line it is missing: **a head's first child IS the page's name**, in both repos. **M.**
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
