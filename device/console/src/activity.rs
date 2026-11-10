@@ -148,6 +148,18 @@ pub(crate) fn describe(tool: &str, arguments: &Value) -> String {
         "browser.cast" => "Took a frame of a live browser page".to_owned(),
         "browser.close" => "Closed a browser page".to_owned(),
         "browser.shutdown" => "Stopped the browser".to_owned(),
+        // A forward rule is the console's own subject: a panel shows these rows, so the sentence
+        // names the RULE, not the mechanism. The reader of an activity line wants to know which
+        // rule changed, and `quoted("name", …)` is what carries that when the arguments have it.
+        "forward.add" => match quoted("name", arguments) {
+            Some(name) => format!("Forwarded a route as `{name}`"),
+            None => "Added a forward rule".to_owned(),
+        },
+        "forward.remove" => match quoted("name", arguments) {
+            Some(name) => format!("Removed the forward rule `{name}`"),
+            None => "Removed a forward rule".to_owned(),
+        },
+        "forward.list" => "Listed the forward rules".to_owned(),
         "monitor.add" => "Added a watch".to_owned(),
         "monitor.remove" => "Removed a watch".to_owned(),
         "monitor.list" => "Listed the watched targets".to_owned(),
