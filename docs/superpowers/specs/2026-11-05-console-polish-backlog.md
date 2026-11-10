@@ -2810,12 +2810,21 @@ and the semantic four).
    the panel's is also 1.5, so the two surfaces agree on the DEFAULT and disagree on the six exceptions.
    **Fix:** the contract names the body ratio and the ratios for a head, a tight mark and a monospace
    block; the rest become those. **M.**
+   *(**Done, panel `c4e84ae2` / console `89a7a62`, live 0.3.273-ux170**: `leading: { body 1.5, tight 1.3,
+   mark 1 }` and every `line-height` in both sheets reads one of them. **No bare ratio survives**, asserted
+   by a COUNT on each side. **And the panel's measurement found a real defect:** four buttons painted
+   `line-height: normal` — the USER AGENT's — inside a control whose height is a token; they take the mark
+   ratio now, and `normal` is gone from Memory. The console's `line-height: 0` was the worst of its eight:
+   a rule carrying text with no line box at all.)*
 
 2. **`line-height: 1` is used 18 times and means two different things.** On a MARK (a dot, a chevron,
    a `span` inside a flex row) it means "do not add leading above a glyph", which is right. On TEXT —
    and the console uses it on `.timeline-time`, which carries a sentence — it sets a 11 px glyph's box
    to 11 px, which is rule 13's floor, not a decision. **Fix:** the ratio is named (`--lh-mark`) and a
    rule that wants a text's leading cannot reach for it by accident. **S.**
+   *(**Done with item 1**: `1` is `--lh-mark` and the contract defines it as the GLYPH'S ratio — `1` sets a
+   glyph's box to its own size, which is rule 13's floor and never a sentence's. The console's `0` went
+   with it: a rule carrying text with no line box at all.)*
 
 ## How a round goes
 
