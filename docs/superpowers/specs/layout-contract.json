@@ -5,6 +5,12 @@
     "pad": 24,
     "gap": 24
   },
+  "ground": {
+    "$comment": "The surface every page sits ON, which both draw (the fifty-fourth list). ONE colour per theme \u2014 no gradient, because a wash behind a page is decoration carrying no information, and rule 17 refuses it. Measured: the panel carried three decorative gradients behind a fixed overlay plus a fourth on its canvas, in six hand-written colours, while the console painted one.",
+    "light": "rgb(250, 250, 250)",
+    "dark": "#131418",
+    "gradients": 0
+  },
   "head": {
     "$comment": "The page HEADER's row, which both surfaces draw (a cut): the title block on the left, its lede or its actions beside it, aligned to the top so a wrapping lede grows downward.",
     "gap": 12,
