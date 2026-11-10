@@ -4777,8 +4777,21 @@ exist on the panel at all**.
 
 1. **A (size, weight, kind) group carries two trackings on both surfaces, and the atom's rule says it may not.**
    **Fix:** the group's OWNER declares its step, and a step nothing reads is deleted. **M.**
+   *(**Done on both sides, MERGED, NOT DEPLOYED** — console `d9d6162`, panel `73e688453`. **`--tracking-none: normal`
+   joins the scale**: the atom's `bySize` says body text takes `none`, and *"none" is a step too* — a rule that says it
+   by INHERITING is not saying anything. The console's `.rail-label` ("Home") sits under a brand at `-0.26px` and
+   drew `normal` because neither rule had chosen; it declares the step now.
+   **On the panel a FOLD'S TITLE carried `normal` between two `h2`s at `-0.187px`** — one word in a column of headings
+   tracked differently, which is the only visible break in that page's rhythm. It takes `--tracking-display` now.
+   **AND THE TOKEN SET WAS WRONG AT BOTH ENDS**: `eyebrow` — a step the atom names — **did not exist on the panel at
+   all**, and the small word above a block reached for a FIFTH step instead (`--tracking-micro: 0.014em`, read by
+   exactly ONE rule in `dial.css`); `none` had no name either. **`--tracking-micro` is DELETED** — a step the atom
+   does not declare is not a step, it is a leftover.)*
 2. **Nothing gates rule 14.** The atom's `literals: 0` is a claim about the sheets, and no gate reads it — a rule
    that writes `letter-spacing: normal` or a fifth hand-written number passes every gate in both repos. **S.**
+   *(**Done on both sides**: each repo's `gives every (size, weight, kind) group ONE tracking, from the atom's four
+   steps` reads the token set, refuses a step the atom does not name, and pins the rule that had inherited. Mutations:
+   the nav label's declaration removed on the console; the fold's tracking removed on the panel.)*
 
 ## How a round goes
 
