@@ -4161,8 +4161,19 @@ being drawn in a layout that cannot honour it.**
 
 1. **One head, two shapes: the subtitle is a second line on the console and a sibling on the panel.** **Fix:** the
    atom's slot means one thing — the second line of the title's block — and the panel's head honours it. **M.**
+   *(**Done in the panel repo `5c9863fc3`, MERGED as `30c9e65f4`; NOT DEPLOYED** — the hold applies. `MemoryPage` and
+   `PluginsPage` wrap their title and subtitle in ONE block, the way the console's Activity head already did;
+   `HistoryPage` already wrapped its title, so all four panel pages now share one head shape. **Measured after:
+   subtitle at 170 under a title at 170, top 148 against the title's 111** — and the console reads 300 / 300.
+   The defect's own shape is worth keeping: `.page-head` is `display: flex` with `flex-wrap`, so two sibling
+   children share a line whenever the row is wide enough, and the slot's `margin: var(--sp-1) 0 0` was being drawn
+   in a layout that could not honour it.)*
 2. **Nothing measures the head's shape at all.** The gates check the head's gap and its class names; none checks
    that the subtitle is BELOW the title on every page of both surfaces. **S.**
+   *(**Done in the panel repo**: `is ONE head whose subtitle is the title's SECOND LINE, on every page` reads both
+   page components' markup — one block, the subtitle after the title, nothing closing the block between them — and
+   the slot's own `margin: var(--sp-1) 0 0`. Mutation: the subtitle put back beside the title → "the subtitle sits
+   inside the same block as the title".)*
 
 ## How a round goes
 
