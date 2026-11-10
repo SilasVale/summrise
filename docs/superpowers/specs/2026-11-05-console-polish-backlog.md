@@ -2850,10 +2850,21 @@ has been careful about it for a long time. And the panel's **`--lh-body` 1.5** i
    failure as a scale that only some rules use** — and 103 characters is past the point where a line
    is hard to follow back. **Fix:** the contract names a measure, and the surfaces' prose blocks cap
    to it. **M.**
+   *(**Done, panel `ab5e7d53` / console `aa6339f`, live 0.3.273-ux171**: `--measure: 66ch`, and re-measured
+   after — History's rows **103 → 44 ch** (477 px), Settings' sentence **109 → 44 ch** (440 px). **The first
+   attempt capped the wrong box:** I capped `.archive-row` (the `<li>`'s child) and the probe still read 103
+   ch, because the wide element is the list ITEM that spans the card. **A measurement that does not move
+   after a fix is the fix not having reached the thing measured.** The console needed no repair — its widest
+   line was 46 ch — but it had no rule, and now `.hint`, `.attention-problems li` and `.activity-status`
+   read the token.)*
 
 2. **Neither surface's sheet states a measure anywhere**, so the 66 on Memory is an accident of
    `max-width: 380px` rather than a rule — and the next block added will pick its own. **Fix:**
    `measure` joins the contract, and each repo's test reads it. **S.**
+   *(**Done with item 1**: `measure: { prose "66ch", codeExempt true }`. **A CODE SNIPPET AND A TRANSCRIPT
+   ARE EXEMPT** — a command and a device's output are scanned token by token, and wrapping either to a prose
+   measure breaks a copy-paste or the shape of what the console reports. Both tests assert BOTH halves: the
+   prose blocks opt in AND the exempt ones do not.)*
 
 ## How a round goes
 
