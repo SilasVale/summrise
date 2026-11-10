@@ -3417,6 +3417,32 @@ to 390 on a phone-sized screen is the same thumb the console already plans for.
    `space.targetBand: "phone"` are recorded beside it (pin `8d90a192…`), because one name for both is how the
    thinner surface went unnoticed through four lists of phone work.)*
 
+## P0 — the seventy-seventh list (opened 2026-11-10, the OS is dark, the console is dark, the panel is not)
+
+The seventy-sixth list is closed: a thumb is not a cursor. This list is the one DECISION the contract has
+never recorded and the audit had never asked: **which surface decides the theme, and how.**
+
+Measured 2026-11-10 at 1,440 on both surfaces, in the same browser, at the same moment:
+
+     OS colour scheme   console `body`                    panel `body`
+     dark               **rgb(19, 20, 24)**  ← dark        **rgb(250, 250, 250)**  ← light
+     light              rgb(250, 250, 250)               rgb(250, 250, 250)
+
+     console: no theme control at all; `@media (prefers-color-scheme: dark)` in `tokens.css` flips the tokens
+     panel:   a rail button `aria-label="theme"`; `lib/theme.ts` returns `localStorage` or **`"light"`**,
+              and applies `body[data-theme]` — it never reads `prefers-color-scheme`
+
+**Two answers to "is this machine dark", from one product, at one moment.** The console asks the OS and the
+panel does not. Nothing recorded which is right, so neither can be called wrong.
+
+1. **The panel ignores the OS and defaults to light.** A reader on a dark desktop opens the device app and
+   gets a white page — while the console beside it is already dark. **Fix:** the OS decides the default; the
+   stored choice still overrides it; the switch stays. **M.**
+2. **The override exists on one surface only**, and that is a decision to record rather than to close: a
+   desktop app in a window legitimately keeps a cockpit theme while the OS is light, and a web page that
+   overrode its OS would be the odd one. **Fix:** the contract records `theme` — who decides, who may
+   override — so the next reader does not have to measure both. **S.**
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
