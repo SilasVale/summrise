@@ -3052,6 +3052,36 @@ one from a token** (surface, surface-chip, accent, faint, the recessed row, the 
    every badge, so the ALPHA is the recorded number rather than three nearly-equal ones. Mutation:
    `badge-ok-wash is a token`.)*
 
+## P0 — the sixty-seventh list (opened 2026-11-10, four cards on one page and three of them pad differently)
+
+The sixty-sixth list is closed: a wash names a state, a scrim names a mode. This list is rule 7 — *"spacing
+and grouping instead of borders and boxes"* — applied to the atom the contract calls `card`, measured by
+walking every `.card` on both rendered surfaces and reading its padding, gap and surface off the element.
+
+Two reads were clean and are recorded as clean: **every card on both surfaces is `box-shadow: none` at
+radius 14** (the contract's `elevation.flat` and `radius.page.card` hold everywhere), and **the cards that
+hold a table or a list of rows are the ones that pad differently** — `.fleet-table-wrap` at `padding: 0`
+and `.plug-inventory` at `padding: 0` — which is a real exception with a reason: their children bring the
+insets so the rows can span the card's full width.
+
+1. **The panel's Settings page has FOUR `.settings-section` elements and they do not agree: two paint a
+   card (16 px, a surface, a hairline) and two paint NOTHING (0 px, transparent, no border).** Measured:
+
+       .settings-fold        pad 0 16px   surface 250,250,250   border 1px
+       .settings-section     pad 0        transparent          border 0     ← nothing at all
+       .settings-section     pad 16px     surface 250,250,250   border 1px   ← a card
+       .settings-section     pad 0        transparent          border 0     ← nothing at all
+
+   A block called a SECTION is a card on this page and not a card on the same page, and the difference is
+   decided by which FOLD it sits in — a reader cannot see that rule, only its result. **Fix:** the
+   difference is kept (a section inside a fold should not be a second card) but the class that means
+   nothing says so, instead of two elements of one class painting two different things. **M.**
+
+2. **A card's padding is 16 on both surfaces and its gap is 8, but the pad is written per rule rather
+   than read from the atom**, so the exceptions (a table card, a list card) have no way to say "I am the
+   exception" other than a bare `padding: 0`. **Fix:** the table/list exception becomes a named class or a
+   token, and each repo's test counts the cards that opt out. **S.**
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
