@@ -2725,6 +2725,10 @@ console's Home paints 6/8/10/14/999 and the panel's Settings the same family).
    Plugins — never draw it. **A scale whose largest step is invisible is a step that will drift**, because
    nothing on a page can show it is wrong. **Fix:** the contract records which steps a PAGE may paint and
    which belong to an overlay, and the overlay-only step is named as such. **S.**
+   *(**Done, panel `158cb591` / console `4f3b83c`, live 0.3.273-ux168**: `radius: { page: { card 14,
+   row 10, control 8, mark 6 }, overlay: { sheet 20, dialog 14 }, pill 999, target 10 }`. The console's test
+   COUNTS the overlay step's call sites — three on this surface, all inside overlays — because a rule
+   nobody can measure is the habit this workstream keeps finding.)*
 
 2. **The panel's page-level corners step 6 → 8 → 14 and skip 10, while the console's step 6 → 8 → 14 and
    skip 10 too — but the panel also paints 10 on Settings (12 corners) and the console paints 10 on Home
@@ -2733,6 +2737,12 @@ console's Home paints 6/8/10/14/999 and the panel's Settings the same family).
    count is small and the rule is real: rule 11 is not "four radii" but "four radii that MEAN
    something". **Fix:** the contract assigns each step a meaning, so the fifth name cannot be invented
    later. **M.**
+   *(**Done with item 1, and the 10 px COMMENT was the defect** (panel `158cb591`): `--radius-sm` read
+   "cards inside a pane" and is painted on `.btn` (a 24 px button), `.tab` and both rail buttons — CONTROLS,
+   every one — while the console paints its 10 px on `.fleet-row`, `.tool-list` and `.skeleton-row`, which
+   ARE rows. **One step, one meaning:** `.btn` takes the `control` step (8), and a 40 px TARGET gets its own
+   named step rather than bending `control` to cover both — 40/10 and 24/8 are the same proportion, which
+   is exactly why one value cannot serve both. Mutation: `a target's corner: expected 12 to be 10`.)*
 
 ## How a round goes
 
