@@ -926,6 +926,10 @@ describe("the layout contract", () => {
     // whatever the element rule underneath happened to paint.
     const suspects = [
       [".installer-strip h2", "display"],
+      // **A 600 RUN AT A TITLE SIZE ANSWERS ONCE.** The installer's title took the display step and this row
+      // — which also sets only a size and a weight — was still at the baseline, so 14/600 had two answers
+      // on the deployed build. The rule is the size/weight/kind group, not the element.
+      [".attention-machine", "display"],
       [".home-verdict", "display"],
       [".timeline-stretch-text", "none"],
     ];
