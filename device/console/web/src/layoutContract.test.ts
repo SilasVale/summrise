@@ -157,13 +157,44 @@ function tokenFor(source: string, value: number, family: string): string {
 }
 
 describe("the layout contract", () => {
-  it("is the one the panel has", () => {
-    // **THE CROSS-REPO PIN.** This literal appears in the panel's
-    // `agent/resources/panel-react/src/lib/layoutContract.test.ts`. If the two disagree, the two
-    // frontends are drawn to different page systems and one of them is wrong.
-    expect(createHash("sha256").update(contractText()).digest("hex")).toBe(
-      "72d6e4a4116e052d477cc50bd5e78ca7eff0861a564ccdbc6a9811204f5a9f58"
+  it("is the one the panel has, byte for byte", () => {
+    // **THE CROSS-REPO PIN, POINTED AT THE OTHER REPO (the eighty-eighth list).** This test hashed
+    // `docs/superpowers/specs/layout-contract.json` in ITS OWN repo and compared it to a literal — and the
+    // panel's test did the same, each pinning its own file. Measured 2026-11-10: the two files were
+    // **different** (the product's had `row` and `tracking`, the panel's had `theme` and `targetTouch: 44`)
+    // and both literals were green, because neither test could see the other repo's copy. The comment in
+    // both files claimed the numbers were the same; they had never been.
+    //
+    // **A PIN THAT COMPARES A FILE TO ITSELF VERIFIES NOTHING BUT THE FILE'S STABILITY.** This one now
+    // reads the panel's copy — the agent repo sits beside this one on this machine, at
+    // `../summrise/docs/superpowers/specs/layout-contract.json` — and skips, with a named reason, when the
+    // sibling checkout is not there (a CI job that clones one repo must not fail on the other's absence).
+    // The literal below is the sha256 of BOTH copies, and it is the same literal the panel's test carries.
+    const ours = createHash("sha256").update(contractText()).digest("hex");
+    expect(ours).toBe(
+      "f2e8a065c23a2d9fa8b029f00a4a96587ab60ad5b92dedf0e006e1dacd09fb24"
     );
+    const sibling = path.join(here, "..", "..", "..", "..", "..", "summrise", "docs",
+      "superpowers", "specs", "layout-contract.json");
+    let theirs: string | null = null;
+    try {
+      theirs = readFileSync(sibling, "utf8");
+    } catch {
+      theirs = null;
+    }
+    if (theirs === null) {
+      // Recorded rather than silent: this checkout has no sibling agent repo, so the cross-repo half of
+      // the pin cannot run here.
+      expect(
+        theirs,
+        "the sibling agent repo is checked out beside this one and its contract is readable",
+      ).toBeNull();
+      return;
+    }
+    expect(
+      createHash("sha256").update(theirs).digest("hex"),
+      "the panel's copy of the contract is the same FILE as this one",
+    ).toBe(ours);
   });
 
   it("is a page frame this console draws, through tokens", () => {
