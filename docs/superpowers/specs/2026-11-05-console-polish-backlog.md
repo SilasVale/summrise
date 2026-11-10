@@ -2744,6 +2744,36 @@ console's Home paints 6/8/10/14/999 and the panel's Settings the same family).
    named step rather than bending `control` to cover both — 40/10 and 24/8 are the same proportion, which
    is exactly why one value cannot serve both. Mutation: `a target's corner: expected 12 to be 10`.)*
 
+## P0 — the fifty-ninth list (opened 2026-11-10, the rhythm is off the scale on both surfaces)
+
+The fifty-eighth list is closed: every radius step has a meaning. This list came from rule 20 —
+*"alignment and rhythm fixed by a grid, not by nudging"* — measured by reading every gap, padding and
+margin a page PAINTS and asking which of them is on the declared scale.
+
+The scale both surfaces declare is `2 / 4 / 6 / 8 / 10 / 12 / 14 / 16 / 24 / 32`, and both are measured
+from it for almost everything: the panel's Memory paints **8 (28 uses), 16 (7), 6 (6), 4 (8), 24 (3)** and
+the console's Home the same family. That is recorded as clean — the rhythm IS a scale, which is more than
+most of this file could say a month ago.
+
+1. **Six painted values are on neither surface's scale, and each one is a measurement wearing a nudge's
+   clothes.** Measured, the worst offenders:
+
+       console  `button { padding: 5px var(--sp-3) }`  — off-scale, and its own comment says why:
+                *"One control height (28)"*. 5 + 5 + 18 px of line box = 28, so the number was
+                CHOSEN to hit a height, then written as a padding instead of a height.
+       console  `.attention-body { gap: 3px }`          — the one gap on Home that is not on the scale
+       console  `.files-list .files-row { padding: 9px … }`
+       panel    `.mem-search { padding-top: 5px }`, `.mem-more { padding-top: 1px }`
+
+   None of these is wrong by eye. **All of them are wrong as RECORDS**, which is the failure mode rule 20
+   names: a rhythm that is right on screen and unreadable in the sheet cannot survive its author. **Fix:**
+   the scale gains the step that a control's height actually needs, the paddings that exist to reach a
+   height become heights, and the rest move onto the scale. **M.**
+
+2. **Neither surface's spacing scale is in the contract**, so "is this on the scale" was a question each
+   repo answered for itself — and the two answers agreed only because both copied the same ten numbers
+   into two token files. **Fix:** `space` joins the contract, and each repo's test reads it. **S.**
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
