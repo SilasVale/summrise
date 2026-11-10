@@ -2982,6 +2982,28 @@ its `+1`), and **the console's phone/tablet switch is exact**: at 639 the table 
    (the console pairs `max 639` with `min 640`, the panel writes `639` alone) and both are right. What is
    refused is one number claimed by both forms. Mutation: `no width is claimed by both query forms`.)*
 
+## P0 — the sixty-fifth list (opened 2026-11-10, a control's label is a sentence on one surface and a fragment on the other)
+
+The sixty-fourth list is closed: a fold ends at N-1. This list came from the operator's 一目了然 read
+against the ONE thing a person clicks: the label. Measured by walking every `button`, `a.btn` and `summary`
+on both built surfaces and asking two questions — is it SENTENCE case, and is it a VERB.
+
+Two reads were clean and are recorded as clean: **the console's labels are sentence case almost without
+exception** (21 of 22 measured: "Add a machine", "Connect a client", "Copy diagnostics"), and **the panel's
+page-level actions are sentence case too** ("Search", "Reveal token", "Test the connection").
+
+1. **`+ New` is the only label on either surface that is a FRAGMENT with a glyph in it.** Measured: the
+   panel's Memory offers `Search`, `+ New`, `Filters`, `Export` — one of the four breaks the pattern the
+   other three set, and the `+` carries a meaning the word does not. **A control's label says what the
+   press DOES**; `+ New` says neither what is created nor that it is the page's primary create action
+   beside a search box. **Fix:** the label is the verb and the subject ("New entry"), and the `+` becomes
+   the shape a create control earns rather than a character glued to a noun. **S.**
+
+2. **Neither sheet records the case, so the next label is a fresh choice.** Measured: the console's
+   `Copy console URL` capitalises `URL` mid-sentence and the panel's `Connect an AI client` capitalises
+   `AI` — both correct, because both are ACRONYMS, but nothing distinguishes an acronym from a habit. **Fix:**
+   the contract records sentence case with acronyms exempt, and each repo's test counts the exceptions. **S.**
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
