@@ -3703,7 +3703,8 @@ paste — points at a port nothing is listening on.
 
 ## P0 — the eighty-fifth list (opened 2026-11-10, the card's first line is 13 px in one block and 17 in the one beside it)
 
-The eighty-fourth list is closed. This list is rule 20 fixed by a grid — *"alignment and rhythm fixed by a grid,
+The eighty-fourth list is closed. **This list is closed (2026-11-10), shipped as panel `5db53dad`.** This list
+was rule 20 fixed by a grid — *"alignment and rhythm fixed by a grid,
 not by nudging"* — measured on the ONE page that draws two kinds of container side by side.
 
 Measured 2026-11-10 at 1,360 on the panel's Settings, reading each block's top inset and its first line's position:
@@ -3723,9 +3724,17 @@ own history is a mountain of hand-tuned insets.
 
 1. **The fold's first line is 4 px off the sections' on the same page.** **Fix:** both blocks put their first
    line on the same inset, and the fold's `--sp-3` becomes the card's `--sp-4` with its own top margin removed. **M.**
+   *(**Done, panel `5db53dad`**: `.settings-fold` is `padding: var(--sp-4)` and its `> summary` is
+   `padding: 0 0 var(--sp-3)`. Measured after at 1,360: **fold insetTop 17 / insetLeft 17, section 17 / 17** —
+   the two blocks' first lines are one line.)*
 2. **Nested sections draw a second box on one page and none on another**: measured, a section INSIDE a fold is
    `0 / 0` with no border — correct, and already argued in the sheet — while a section on the page is a full card.
    The rule holds; what no test holds is the top inset. **S.**
+   *(**Done, panel `5db53dad`**: `is ONE first line for every titled block on a page, whatever the block's
+   element is` asserts the fold's card inset, its summary's zero leading, AND the nested section's `border: 0`
+   / `padding: 0`. **Its first version passed a mutation** — this sheet declares `.settings-fold` twice (a
+   `scroll-margin-top` note and the card) and the test accepted any matching rule; it reads the block carrying
+   `background` now.)*
 
 ## How a round goes
 
