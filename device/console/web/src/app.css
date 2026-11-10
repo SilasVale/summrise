@@ -3183,9 +3183,27 @@ main::-webkit-scrollbar-track, .sheet-body::-webkit-scrollbar-track, .scroll::-w
    page's name, on the page whose own hierarchy rule says Home is the verdict and Activity is the record.
    It is the subtitle at `--fs-base` now, in the head's own slot — with `--fw-medium` kept so the count stays
    the first thing the eye finds under the title, which is what 500 is for. */
+/* **THE SUBTITLE SLOT HAS ONE TREATMENT (the hundred-and-seventh list).** Measured 2026-11-11: `.page-sub` drew
+   **13 / 400 in muted** on the panel's three pages and **13 / 500 in the page's own ink** here, because this rule
+   redeclared the size, the weight and the colour of a role the atom already names. `subtitleSlot: ".page-sub"` is
+   ONE line under the title: the title is the page's voice, the subtitle is the context, and a subtitle set in the
+   title's ink reads as a second sentence of the title rather than as context.
+   **AND THE COUNT IS NOT A SUBTITLE.** This element is the day's NUMBER ("Today: undefined client calls"), which is
+   DATA — a fact of the same kind the verdict sentence is on Home — so it keeps the larger step the record's own
+   numbers take (`--fs-base` at `--fw-medium`) and drops the subtitle's class. What made it unreadable was not the
+   size: it was being asked to be two things at once. */
+/* **THE COUNT IS THE RECORD'S VERDICT, AND IT WAS SET AT SUBTITLE SIZE (the hundred-and-seventh list).** Measured
+   2026-11-11, the page's three lines under the title were **22 / 13 / 12**: a title, then two near-identical small
+   lines that a reader could not tell apart — the day's count and the stream's status, one at 13/500 and one at
+   12/400, both under `.page-sub`. **`head.maxHeadsPerPage: 1` could not see it, because both wore the subtitle's
+   class.**
+   The count is the page's FACT — the thing a reader opens Activity to learn — so it takes the `section` rung the
+   atom records (17 / 600), which gives this head **22 → 17 → 13**, three steps where before there were two. Home
+   keeps its own shape (its verdict is the title's second line, at the title's size), so the two pages do NOT
+   converge: one opens with a sentence about the fleet, the other with the day's number. */
 .activity-today {
   margin: var(--sp-1) 0 0; max-width: 80ch;
-  font-size: var(--fs-base); line-height: var(--lh-body); font-weight: var(--fw-medium);
+  font-size: var(--fs-lg); line-height: var(--lh-tight); font-weight: var(--fw-semi);
   color: var(--ink); font-variant-numeric: tabular-nums; text-wrap: pretty;
 }
 /* **A PROSE BLOCK HAS A MEASURE (the sixty-first list).** This surface's prose already measured 46 ch, so

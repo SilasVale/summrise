@@ -1050,13 +1050,21 @@ describe("the layout contract", () => {
     const sub = subRules.join(" ");
     expect(sub, "the subtitle's size is the atom's").toContain("font-size: var(--fs-sm)");
     expect(sub, "and it is the muted step, not the ink").toContain("color: var(--ink-muted)");
-    // **AND THE COUNTS THAT RIDE IN THAT SLOT ARE THE SAME STEP.** `.activity-today` is the head's subtitle on
-    // this page: it must not take a section's size (which is what `--fs-lg` was).
+    // **AND THE COUNT IS NO LONGER IN THAT SLOT AT ALL (the hundred-and-seventh list).** The eighty-second
+    // list put `.activity-today` INSIDE `.page-sub` and asked it to be the same step as a subtitle — which made
+    // the head draw `22 / 13 / 12`, two near-identical small lines a reader could not tell apart. **`head.
+    // maxHeadsPerPage: 1` could not see it because both wore the subtitle's class.** The count is the page's
+    // FACT, not its context: it leaves the slot and takes the `section` rung, giving that head `22 → 17 → 13`.
     const today = ruleFor(sheet, "\\.activity-today");
-    expect(today, "the count line is a subtitle, not a section head").not.toContain("--fs-lg");
-    expect(today, "and it reads the body's size").toContain("--fs-base");
-    // `--fw-medium` stays: the count is the first thing the eye finds under the title.
-    expect(today, "the count keeps its one weight step").toContain("--fw-medium");
+    expect(today, "the count is at the section's rung the atom records").toContain("--fs-lg");
+    expect(today, "at the section's weight").toContain("--fw-semi");
+    const appSrc = readFileSync(path.join(here, "App.tsx"), "utf8");
+    expect(appSrc, "and it is not in the subtitle slot").not.toMatch(/className="page-sub activity-today"/);
+    // **AND THE BROWSER LEG ASKS THE SAME NUMBER.** It asserted 13 for a year (the subtitle's step, after the
+    // eighty-second list caught it at 22); the day the count left the slot, that leg failed with
+    // `the head's count line is 17px` — a gate doing its job on a shape that changed.
+    const gateSrc = readFileSync(path.join(here, "..", "scripts", "browser-gate.mjs"), "utf8");
+    expect(gateSrc, "the browser leg reads the section's rung").toContain("activityDesign.sentence !== 17");
     // Every page's name is an `h1` at the contract's title step — the re-run's finding, recorded.
     expect(contract.head.subtitleSlot, "one slot, named once").toBe(".page-sub");
     expect(contract.title.size, "and the name above it is the contract's").toBe(22);
@@ -1132,6 +1140,35 @@ describe("the layout contract", () => {
     const countRule = sheet.match(/\.filter-count \{\s[^}]*\}/);
     expect(countRule, "the count has a rule").toBeTruthy();
     expect(countRule![0], "the count is not a filter column any more").not.toContain("align-self: center");
+  });
+
+  it("draws the subtitle slot ONCE per page, at ONE treatment", () => {
+    // **MEASURED 2026-11-11, EVERY `.page-sub` INSIDE A PAGE HEAD:**
+    //
+    //     surface/page       count  size/weight   ink
+    //     console Activity   **2**  13 / **500**   **ink**   (the day's COUNT and the stream's STATUS)
+    //                               12 / 400        muted
+    //     panel Memory/Plugins/Settings  **1**  13 / 400  muted
+    //
+    // **One slot, two treatments — and Activity put TWO lines in it**, which `head.maxHeadsPerPage: 1` could not
+    // see because both wore the subtitle's class. A count is not a subtitle: it is the page's FACT, and it takes
+    // the `section` rung the atom records, which gives that head **22 → 17 → 13** where before it had two.
+    const src = readFileSync(path.join(here, "App.tsx"), "utf8");
+    // The count is not in the slot.
+    expect(src, "the day's count is not a `.page-sub`").not.toMatch(/className="page-sub activity-today"/);
+    expect(src, "and it says what it is").toContain('className="activity-today"');
+    // **HOME KEEPS ITS OWN SHAPE.** Its verdict is the title's second line at the title's size; Activity opens with
+    // the day's number. The two pages must NOT converge — that is the standing direction.
+    const sheet = css();
+    const verdict = ruleFor(sheet, ".home-verdict");
+    const count = ruleFor(sheet, ".activity-today");
+    expect(verdict, "Home's verdict is at the title's rung").toContain("font-size: var(--fs-xl)");
+    expect(count, "Activity's count is at the section's").toContain("font-size: var(--fs-lg)");
+    expect(verdict, "which is not the count's").not.toBe(count);
+    // The atom's own numbers.
+    expect(contract.head.subtitleSlot, "the slot the atom names").toBe(".page-sub");
+    expect(contract.head.maxHeadsPerPage, "and one per page").toBe(1);
+    expect(contract.section.h2.size, "the section rung the count now takes").toBe(17);
   });
 
   it("paints the accent family the contract declares, and no sixth member as a literal", () => {

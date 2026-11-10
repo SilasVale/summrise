@@ -1357,7 +1357,12 @@ export function App() {
                     count carries, instead of comparing two English sentences. */}
                 {activityCount !== null && activityRange === null && (
                   <p
-                    className="page-sub activity-today"
+                    /* **THE COUNT IS DATA, NOT THE SUBTITLE (the hundred-and-seventh list).** It wore
+                       `.page-sub` — the atom's ONE subtitle slot — so `head.maxHeadsPerPage: 1` could not see
+                       that this page put TWO lines in one slot: the day's count and the stream's status.
+                       A count is a fact of the same kind the verdict sentence is on Home; the subtitle is
+                       the page's context. The two are different elements now. */
+                    className="activity-today"
                     data-interval-kind="day"
                     data-interval-from={shownDayStartMs ?? undefined}
                     data-interval-to={activityPaused && pausedAt !== null ? pausedAt : undefined}
