@@ -78,6 +78,14 @@
     "gap": 8,
     "headerGap": 8
   },
+  "row": {
+    "$comment": "A ROW inside a list (the eighty-seventh list). Measured 2026-11-10 across both surfaces: seven row shapes for ONE idea — heights 36/46/57/76/77/134, insets `0`, `8px 10px`, `8px 12px`, `16px`, and the space AFTER a row 0/6/8/18. What is ONE decision is recorded here; what is a LEVEL is left to the page, because a memory entry IS taller than a plugin name. A list of LINES (the attention rows, the fleet table, the timeline) separates by its own leading and draws a rule only where the meaning changes; a list of BOXES separates by the scale's 6-8.",
+    "insetX": 8,
+    "insetY": 8,
+    "gapLines": 0,
+    "gapBoxes": 8,
+    "boxed": "card"
+  },
   "cardTitle": {
     "$comment": "The card's TITLE, which both surfaces draw (the fifty-third list). Measured before: the panel's card header drew `h2` at 14/600 and the console's drew `<strong>` at 13/600 \u2014 the same visual role, two elements at two sizes, and on the console the element that LOOKED like the title was not one. `level` is the section above it (`section.h2` is 17), so the pair is a two-step ladder rather than two opinions.",
     "size": 14,

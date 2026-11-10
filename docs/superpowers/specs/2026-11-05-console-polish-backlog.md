@@ -3807,6 +3807,40 @@ decision (the row's inset, the space after it, and which rows are cards) and let
 2. **The list's 18 px in the timeline is a third rhythm inside a page whose blocks are 24 and whose cards are 8.**
    **Fix:** it reads the atom. **S.**
 
+## P0 — the eighty-eighth list (opened 2026-11-10, the cross-repo pin compares each copy to ITSELF)
+
+The eighty-seventh list is closed for its first half: the contract gained a `row` atom (seven row shapes, measured)
+and item 1 shipped as the contract change. **And adding that atom exposed the bigger defect, which is this list.**
+
+Both repos carry a copy of `docs/superpowers/specs/layout-contract.json` and a test that pins its sha256. Both
+tests say the same thing in their comments:
+
+     console  "...equals a literal recorded in the PANEL's copy of this test. If the two disagree, the two
+               frontends are drawn to different page systems and one of them is wrong."
+     panel    "...equals a literal recorded in the CONSOLE's copy of this test."
+
+**Each test hashes its OWN repo's file.** Measured 2026-11-10:
+
+     product copy   sha256 c1880d04…   atoms: … card, **row**, … **tracking**, …
+     panel copy     sha256 e3d2d198…   atoms: … card, … **theme**, …   (no row, no tracking)
+     console test pins 72d6e4a4…       (its own file, before this list's atom)
+     panel  test pins e3d2d198…        (its own file)
+
+**Two different literals, each pinning its own file, and the comment claiming they are the same number.** The
+mechanism cannot detect what it claims to detect: a repo can change its copy and update its own literal and the
+other repo stays green for ever.
+
+The copies have already drifted, measurably:
+
+     only in the product copy   `row`, `tracking`
+     only in the panel copy     `theme`
+     inside `space`             panel adds `targetTouch: 44`, `targetBand: "phone"`, and a longer `$comment`
+     inside `rail`              two different `$comment`s, each describing half of what the two surfaces do
+
+1. **One contract, one hash.** **Fix:** the two copies become byte-identical files whose union carries every
+   atom either surface needs, and BOTH tests pin **one** literal — so a change in one repo turns the other red.
+   **M.**
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
