@@ -3380,6 +3380,36 @@ the *inherited default plus an opt-in* is: the same 12 px sentence is set twice 
    installer's card title at the baseline (`4903e0b`), the stretch line opened to 0.08em in a column of 11 px
    clocks (same commit), and `.attention-machine` (`3967c03`). Four builds to zero.)*
 
+## P0 — the seventy-sixth list (opened 2026-11-10, the console sizes its buttons for a thumb and the panel does not)
+
+The seventy-fifth list is closed across four builds. This list is the ONE measurement the twenty rules never
+asked for, and the two surfaces answer it in opposite directions: **the touch target.**
+
+Measured 2026-11-10 at 390 px wide, counting every reachable control inside the page body:
+
+     console Home      26 controls, **0** under 44 px
+     console Activity  97 controls, **0** under 44 px
+     console Device     4 controls, **0** under 44 px
+     panel  Memory      8 controls, **8** under 44 px — the field at 27, four buttons at 22, three doors at 24
+     panel  Plugins     3 controls, **3** under 44 px — the search field at 32, two buttons at 26
+
+**The console got this right in the twenty-ninth list and wrote the reason down**: *"every one of Home's 25
+controls in `main` was under 44 px … It is one rule for the whole phone surface rather than 25 nudges: a
+control is at least 44 px tall where it is reached by a thumb."* It is a `@media (max-width: 639px)` block
+naming `main button`, `main a[href]`, `main summary`, the two doors whose own rules set `min-height: 0`, and
+the sheet's — one rule, one band, measured at 0.
+
+**The panel has no such rule.** Its band at `max-width: 639px` restyles the session menu and nothing else, and
+its controls keep the desktop's arithmetic: a `btn-mini` is 22 px because a mouse is precise. A window dragged
+to 390 on a phone-sized screen is the same thumb the console already plans for.
+
+1. **The panel's controls are 22–32 px at 390**, where every one of them is a thumb's target. **Fix:** the
+   console's rule, in the panel's own band: `button, a[href], summary, input, select` inside the page body at
+   the contract's 44 where the window is a phone's. **M.**
+2. **`space.target: 24` in the contract does not say which size it describes** — the console proves 44 is
+   what a phone needs, and 24 is what a desktop's control can be hit at with a mouse. Two numbers, one name.
+   **Fix:** the atom records both, and which band each belongs to. **S.**
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
