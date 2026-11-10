@@ -55,7 +55,7 @@ type Contract = {
   cardTitle: { size: number; weight: number };
   ground: { light: string; dark: string; gradients: number };
   elevation: { flat: string; pane: string; raised: string };
-  palette: { ink: string; muted: string; faint: string; accent: string; semantic: string[] };
+  palette: { washAlpha: number; ink: string; muted: string; faint: string; accent: string; semantic: string[] };
   leading: { body: number; tight: number; mark: number };
   measure: { prose: string; codeExempt: boolean };
   space: {
@@ -151,7 +151,7 @@ describe("the layout contract", () => {
     // `agent/resources/panel-react/src/lib/layoutContract.test.ts`. If the two disagree, the two
     // frontends are drawn to different page systems and one of them is wrong.
     expect(createHash("sha256").update(contractText()).digest("hex")).toBe(
-      "98eb620c1790b33dd1598176ce91f9f516d40ab483a158759925d0a8161ff860"
+      "e10993e7fb5a74f56fd98d03a18671c2e327031724708b188328f9ee41e4c2c8"
     );
   });
 
@@ -167,6 +167,26 @@ describe("the layout contract", () => {
     expect(page, "the page's rhythm comes from the scale").toContain(`gap: var(--${gap})`);
     expect(tokenPx(tokens(), pad)).toBe(contract.page.pad);
     expect(tokenPx(tokens(), gap)).toBe(contract.page.gap);
+  });
+
+  it("is ONE scrim, and a background outside it is not a colour a surface may paint", () => {
+    // **THE SAME SCRIM IN TWO SHADES (the sixty-sixth list).** `.sheet-scrim` painted `rgba(0,0,0,.4)` and
+    // `.scrim` painted `rgba(12,16,20,.38)`, and a later rule repainted BOTH to the same `color-mix` — so
+    // the two literals were dead except in the cascade. A scrim is one proportion of one colour over the
+    // page; it is not a surface, and there are not two of them.
+    const tk = tokens();
+    expect(tk, "the scrim is a token").toMatch(/--scrim: *color-mix\(in srgb, #000 30%, transparent\)/);
+    for (const selector of [".sheet-scrim", ".scrim"]) {
+      const body = ruleFor(css(), selector);
+      expect(body, selector + " must have a rule").not.toBeNull();
+      expect(body!, selector + " paints the one scrim").toMatch(/background: *var\(--scrim\)/);
+    }
+    // **AND NO SCRIM IS A RAW COLOUR.** The two shades this list found cannot come back as literals.
+    expect(tk, "no .4 black scrim literal").not.toMatch(/rgba\(0, 0, 0, 0\.4\)/);
+    expect(tk, "no tinted scrim literal").not.toMatch(/rgba\(12, 16, 20, 0\.38\)/);
+    // **THE OTHER FOUR LITERAL BACKGROUNDS ON THIS SURFACE ARE OVERLAYS**, and they are recorded as such
+    // rather than forgiven: a dialog's wash cannot be a surface colour.
+    expect(contract.palette.washAlpha).toBe(0.18);
   });
 
   it("is a control's LABEL: sentence case, and never a fragment with a glyph", () => {
