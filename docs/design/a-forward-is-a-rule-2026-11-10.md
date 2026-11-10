@@ -72,6 +72,17 @@ must reach `via` at boot with nobody present. Keying a table by `via` would also
 one host silently share one credential — a decision nobody made. It is not a server secret store, and
 the file says so: `<data>/forwards.json`, protected by whatever protects `<data>`.
 
+**The directory is the protection, and that is now true on Unix as well as Windows.**
+`launch/src/win.rs` has hardened `<data>` with inheritable SYSTEM/Administrators ACEs since review C1,
+for the reason its own comment gives: on Windows a child inherits its parent's protection. Unix's
+equivalent is a mode, and it was missing — a fresh `<data>` was created `0755`, so
+`memory.jsonl` (whatever a session asked the device to remember) and `state.json` were readable by
+every account on the machine, while `token` and `forwards.json` were not.
+`lock::DeviceLock::acquire` is the first writer of `<data>` and now creates it `0700`; an EXISTING
+directory keeps its mode, because narrowing an operator's deliberate choice is not a startup's job.
+The files inside are still written with their own modes (`create_new_sibling_private` for the table,
+and `0600`/an ACL for the identity), so this is defence in depth rather than a substitute.
+
 **The pin lives there too, for the same reason as the credential:** a rule that outlives its caller
 cannot depend on a parameter somebody passed it once. `host_key` is written into the row, read back
 at boot, and handed to the SSH opening — and a pin of the wrong shape (`sha256:abc`, a bare digest)
