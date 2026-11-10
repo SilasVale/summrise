@@ -699,7 +699,27 @@ a.btn.primary:hover { background: var(--accent-hover); border-color: var(--accen
 }
 .card:hover { border-color: var(--line-strong); }.card-selected { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
 .card header { display: flex; align-items: center; gap: var(--sp-2); }
-.card header strong { font-size: var(--fs-base); font-weight: var(--fw-semi); overflow-wrap: anywhere; }
+/* **THE CARD'S TITLE IS 14 / 600, AND IT IS A HEADING (the fifty-third list).** Measured: this rule drew
+   `<strong>` at 13 px / 600 while the panel's card header drew `h2` at 14 / 600 — the same visual role,
+   two elements at two sizes, and on this surface the element that LOOKED like the card's title was not
+   one: a `<strong>` is read as emphasis, never as a heading, while the `h2` inside `.attention` is the
+   card's EYEBROW (10 px, uppercase). The contract's `cardTitle` is 14 / 600 and the section above it is
+   17, so a page reads title → section → card as one two-step ladder on both surfaces.
+   The rule still styles `strong` because a card header may hold one (`1980 · 2 devices`); what it no
+   longer does is let `strong` be the title's size by accident — a header that carries an `h2` or `h3`
+   takes this too, and nothing else in a header is 14 / 600. */
+/* **THE CARD'S TITLE IS 14 / 600, AND IT IS A HEADING (the fifty-third list).** Measured: this rule drew
+   `<strong>` at 13 px / 600 while the panel's card header drew `h2` at 14 / 600 — the same visual role,
+   two elements at two sizes, and on this surface the element that LOOKED like the card's title was not
+   one: a `<strong>` is read as emphasis, never as a heading, while the `h2` inside `.attention` is the
+   card's EYEBROW (10 px, uppercase). The contract's `cardTitle` is 14 / 600 and the section above it is
+   17, so a page reads title → section → card as one two-step ladder on both surfaces.
+   The rule still styles `strong` because a card header may hold one (`1980 · 2 devices`); what it no
+   longer does is let `strong` be the title's size by accident — a header that carries an `h2` or `h3`
+   takes this too, and nothing else in a header is 14 / 600. */
+.card header strong,
+.card header h2,
+.card header h3 { font-size: var(--fs-md); font-weight: var(--fw-semi); overflow-wrap: anywhere; }
 .card header .chip { margin-left: auto; }
 .card footer { display: flex; flex-wrap: wrap; gap: var(--sp-1-5); margin-top: auto; }
 .card .id { color: var(--ink-faint); margin: 0; font-size: var(--fs-xs); }

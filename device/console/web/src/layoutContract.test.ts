@@ -47,6 +47,7 @@ type Contract = {
   empty: { radius: number; pad: number; gap: number; textAlign: string; shadow: string };
   head: { gap: number; align: string };
   motion: { reducedMotion: string; cap: string; namedAnimationsStop: boolean };
+  cardTitle: { size: number; weight: number };
   section: {
     h2: { size: number; weight: number };
     h3: { size: number; weight: number };
@@ -116,7 +117,7 @@ describe("the layout contract", () => {
     // `agent/resources/panel-react/src/lib/layoutContract.test.ts`. If the two disagree, the two
     // frontends are drawn to different page systems and one of them is wrong.
     expect(createHash("sha256").update(contractText()).digest("hex")).toBe(
-      "7665774e553c63eca4e89aacd929fbd80a70d8ee4cda8157f4671c67a6e87935"
+      "23e0de0ccefe0bb21fdc3a662660db40e2ca5890ff9bcdf41e114d7ae495eab9"
     );
   });
 
@@ -132,6 +133,29 @@ describe("the layout contract", () => {
     expect(page, "the page's rhythm comes from the scale").toContain(`gap: var(--${gap})`);
     expect(tokenPx(tokens(), pad)).toBe(contract.page.pad);
     expect(tokenPx(tokens(), gap)).toBe(contract.page.gap);
+  });
+
+  it("is the card title, and a card header is not styled by accident", () => {
+    // **THE SAME VISUAL ROLE WAS TWO ELEMENTS AT TWO SIZES (the fifty-third list).** Measured: this
+    // surface drew the card's title as `<strong>` at 13 px / 600 while the panel's card header drew
+    // `h2` at 14 / 600. Worse than a size mismatch: a `<strong>` is read as emphasis and NEVER as a
+    // heading, so the element that looked like the card's title was not one — while the `h2` beside it
+    // was the card's EYEBROW (10 px, uppercase). The contract's `cardTitle` is 14 / 600.
+    const source = css();
+    const rule = source.slice(source.indexOf(".card header strong,"), source.indexOf("}", source.indexOf(".card header strong,")) + 1);
+    expect(rule, "the card title's rule exists").toContain("h2");
+    expect(rule, "and a card header's h3 is the same level").toContain("h3");
+    const size = rule.match(/font-size:\s*var\(--([\w-]+)\)/)?.[1];
+    expect(size, "the card title's size is a TOKEN").toBeTruthy();
+    expect(tokenPx(tokens(), size!), "the card title is the contract's").toBe(contract.cardTitle.size);
+    // **A WEIGHT IS A BARE NUMBER, NOT A `px` VALUE**, so it is read from the token block directly rather
+    // than through `tokenPx` (which would look for `--fw-semi: 600px` and find nothing).
+    const weightTok = rule.match(/font-weight:\s*var\(--([\w-]+)\)/)?.[1];
+    expect(weightTok, "the card title's weight is a TOKEN").toBeTruthy();
+    expect(
+      Number(tokens().match(new RegExp(`--${weightTok}: *(\\d+)`))![1]),
+      "and its weight",
+    ).toBe(contract.cardTitle.weight);
   });
 
   it("is the section level, and no heading below the title is a size of its own", () => {

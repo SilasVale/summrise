@@ -79,7 +79,22 @@ const indexHtml = await readFile(DIST_INDEX).catch((error) => {
   process.exit(2);
 });
 
-const NOW = Date.now();
+// **THE CLOCK IS PINNED TO NOON, BECAUSE THE FIXTURE IS REASONED ABOUT IN LOCAL DAYS.** Found by running
+// this gate at 00:09: the 75 historic lines sit ONE SECOND INTO the local day, and the `Last hour` leg
+// asks for `[now-1h, now)`. At any hour after 01:00 that window cannot contain them, so the answer holds
+// the two recent lines and the page draws two. Between midnight and 01:00 the window spans the day's
+// boundary: the answer holds 77, the table draws 60, and the leg fails on a CALENDAR rather than on a
+// defect. The gate used to read `Date.now()`, which meant it tested a different page every hour.
+//
+// **A FIXED CLOCK IS NOT A FAKE RESULT.** Every fixture line is still derived from `NOW`; the page still
+// computes its own labels and windows from its own `Date`; the legs still assert what the product draws.
+// What changes is that the gate no longer moves under itself. Noon is the hour furthest from both
+// midnight boundaries, so every window the gate asks for sits wholly inside one day.
+const NOW = (() => {
+  const at = new Date();
+  at.setHours(12, 0, 0, 0);
+  return at.getTime();
+})();
 const DEVICE = {
   // The live fleet's ids are 64 hex and the Connect sentence carries one in a URL: with a short
   // fixture id the phone's sheet fitted, and audit-41 F3's clipping could not be measured.
@@ -958,6 +973,12 @@ console.log(`browser-gate: page at ${base} (echo MCP, not a shell)`);
 
 const browser = await playwright.chromium.launch();
 const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+// **AND THE BROWSER AGREES WITH THE FIXTURE.** `NOW` is pinned; the page's clock is pinned to the SAME
+// instant, so the labels it draws ("2m ago", "Today") and the windows it asks for are computed from the
+// time the fixture was built at. Without this the gate would reason about noon and the page about 00:09 —
+// the same mismatch, one layer down.
+await page.clock.setFixedTime(NOW);
+console.log(`browser-gate: the fixture's clock is ${new Date(NOW).toISOString()}`);
 const errors = [];
 page.on('console', (message) => {
   if (message.type() !== 'error') return;

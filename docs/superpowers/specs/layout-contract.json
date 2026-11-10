@@ -16,6 +16,11 @@
     "gap": 8,
     "headerGap": 8
   },
+  "cardTitle": {
+    "$comment": "The card's TITLE, which both surfaces draw (the fifty-third list). Measured before: the panel's card header drew `h2` at 14/600 and the console's drew `<strong>` at 13/600 \u2014 the same visual role, two elements at two sizes, and on the console the element that LOOKED like the title was not one. `level` is the section above it (`section.h2` is 17), so the pair is a two-step ladder rather than two opinions.",
+    "size": 14,
+    "weight": 600
+  },
   "rail": {
     "$comment": "Each surface's first column. The CONSOLE collapses at `tablet` (767): below it the rail becomes the top bar, so the page's left is 0 \u2014 measured at 380/480/639. The PANEL never collapses: it is a device app in a window, and its rail is the page's first column at every width. The widths are recorded rather than equalized; the COLLAPSE is a rule, not a habit.",
     "console": 232,
