@@ -9,7 +9,7 @@
 
 ## 0. The decision in one page
 
-**`forward` is a rule: four values, one executor per row, and no verbs.** The operator asked for it
+**`forward` is a rule: five values, one executor per row, and no verbs.** The operator asked for it
 in one line, and the correction in that line is the design:
 
 > 「不是这个转发不是一条规则吗，又不是网关 · 只是软路由吧」
@@ -18,6 +18,7 @@ One row:
 
 ```
 forward  name=work  listen=100.117.43.107:443  target=10.10.61.83:7738  via=zhengsaisi@10.10.61.83:22122
+                                                                                     host_key=SHA256:…
 ```
 
 It says "traffic arriving here leaves there". It does not describe a role for the device, does not
@@ -37,16 +38,23 @@ forward is the same kind of object with a different executor.
 
 ## 2. The decisions
 
-**D1 — The rule is data with four values, and it is the whole interface.** `{name, listen, target,
-via}` plus the credential the `via` connection needs. No verbs, no script, no environment: if a
-behaviour cannot be expressed by changing one of those values, it is not a forward. The deletion
-test passes — delete the rule type and every caller is back to hand-assembling DNS + tunnel + server
-+ certificate.
+**D1 — The rule is data with five values, and it is the whole interface.** `{name, listen, target,
+via, host_key}` plus the credential the `via` connection needs. No verbs, no script, no environment:
+if a behaviour cannot be expressed by changing one of those values, it is not a forward.
+
+**The fifth value is `host_key`, and it was added AFTER the first four were shipped, which is why
+D1 said four.** `terminal.create` has taken a fingerprint since the SSH capability existed; a rule
+could not, and a rule is the only object in this product that connects with NOBODY PRESENT — it
+starts at boot and keeps carrying traffic until somebody looks. Leaving `via`'s identity to
+trust-on-first-use was not a smaller interface, it was a rule that decides a host's identity by
+itself at 3 a.m. It is optional and absent means "the device's `known_hosts` decides", so the original
+four values are unchanged for every rule that does not want it. The deletion test passes — delete the
+rule type and every caller is back to hand-assembling DNS + tunnel + server + certificate.
 
 **D2 — A wildcard `listen` is refused.** `0.0.0.0`, `::` and `*` name no audience the operator
-chose. A rule that silently widens who can reach `target` is the failure this prevents, and the row
-has no fifth field to unlock it with. A LAN address or a tailnet address is a legitimate choice and
-a visible one.
+chose. A rule that silently widens who can reach `target` is the failure this prevents, and there is
+no field that unlocks it: `listen` names an address or the rule is refused. A LAN address or a
+tailnet address is a legitimate choice and a visible one.
 
 **D3 — The executor is the device, and it starts with the device.** The table is loaded at
 construction and one executor starts per row, so a rule created in an earlier boot is listening
@@ -64,6 +72,13 @@ must reach `via` at boot with nobody present. Keying a table by `via` would also
 one host silently share one credential — a decision nobody made. It is not a server secret store, and
 the file says so: `<data>/forwards.json`, protected by whatever protects `<data>`.
 
+**The pin lives there too, for the same reason as the credential:** a rule that outlives its caller
+cannot depend on a parameter somebody passed it once. `host_key` is written into the row, read back
+at boot, and handed to the SSH opening — and a pin of the wrong shape (`sha256:abc`, a bare digest)
+is refused when the rule is created rather than at the first connection, because `ssh::open` compares
+fingerprints as STRINGS and a spelling would have looked like a key mismatch on a machine the
+operator was told to go and inspect.
+
 **D6 — A success is COUNTED, a refusal is WRITTEN.** One line per refused connection and per rule
 change; carried connections increment the row's `connections`. Written literally, "one line per
 connection" is a file written on the busiest path this module has, where a rule carrying a UI's
@@ -79,11 +94,23 @@ requests appends hundreds of lines a minute.
 
 ## 4. The limits this build states rather than hides
 
-- **The bind ladder is bounded.** An immediate attempt, then 1 s / 5 s / 15 s, then STOP. A permanent
+- **The bind ladder is bounded, and it does not spend itself on a failure that cannot change.** An
+  immediate attempt, then 1 s / 5 s / 15 s, then STOP — but `EADDRNOTAVAIL` (no interface carries that
+  address) and `EACCES` (this process may not bind that port) return at the FIRST attempt, because
+  neither changes by waiting. `EADDRINUSE` is the case the ladder is FOR and keeps it. A permanent
   conflict leaves the row VISIBLE with its error instead of retrying forever behind a table that
   looks merely quiet.
 - **A failed `accept` does not end the listener.** One reset connection must not take a rule down
   while its row still says `listening: true`.
+- **`connections` counts CARRIED connections, not arrivals.** Both pipes must have ended without an
+  error. An accepted-then-refused connection is a log line (D6), and counting it would make the
+  field mean "arrived" while its name and the panel read "worked".
+- **A rule's log line is written off the reactor**, on a `spawn_blocking` worker, because every
+  caller is async and the write is blocking. It is not awaited: a caller must not fail because its
+  audit line was slow.
+- **The rule's log lines land in the device audit's own file, so they rotate at its cap.** `events.jsonl`
+  is capped at 64 MB with one generation, by `mcp::Audit`; a rule's writer would otherwise grow the
+  file past a limit it does not own, and the audit would then rotate a file a rule was still writing.
 - **A half-close is a half-close.** Each direction ends on its own EOF, so a client that sends its
   request and shuts down its write half still gets the answer. The obvious version — return as soon
   as either direction ends — loses that answer for the commonest client there is.
@@ -104,5 +131,6 @@ the registry's sense and why `forward.add` and `forward.remove` are the operator
   the same six-connection starvation under each.
 - **Where the rules are edited** — the console's device page is where an operator would look; the
   CLI is where they would be written. `forward.list` is the wire surface both read.
-- **How many rules one device may carry** — the row is a list, `RULES_MAX` is 4 today, and the audit
-  and the panel read better with a stated small maximum.
+- **How many rules one device may carry** — `RULES_MAX` is 4 today, and a fifth NAME is refused while
+  an EDIT of an existing name is not (a full device has to stay maintainable). Whether 4 is the right
+  number is the open part; the audit and the panel read better with a stated small maximum.
