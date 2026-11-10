@@ -45,7 +45,12 @@ type Contract = {
   title: { size: number; weight: number };
   breakpoints: Record<string, number>;
   empty: { radius: number; pad: number; gap: number; textAlign: string; shadow: string };
-  head: { gap: number; align: string };
+  head: {
+    gap: number;
+    align: string;
+    subtitleSlot: string;
+    maxHeadsPerPage: number;
+  };
   motion: { reducedMotion: string; cap: string; namedAnimationsStop: boolean };
   cardTitle: { size: number; weight: number };
   ground: { light: string; dark: string; gradients: number };
@@ -141,7 +146,7 @@ describe("the layout contract", () => {
     // `agent/resources/panel-react/src/lib/layoutContract.test.ts`. If the two disagree, the two
     // frontends are drawn to different page systems and one of them is wrong.
     expect(createHash("sha256").update(contractText()).digest("hex")).toBe(
-      "6f090346733c60d4af442a3e861b8533e4150f327b4414ad82051b4559fae199"
+      "326b54e574ccd98a0d47989d20e8bc02cd8c59247de101c423ebc142ea13afaa"
     );
   });
 
@@ -157,6 +162,26 @@ describe("the layout contract", () => {
     expect(page, "the page's rhythm comes from the scale").toContain(`gap: var(--${gap})`);
     expect(tokenPx(tokens(), pad)).toBe(contract.page.pad);
     expect(tokenPx(tokens(), gap)).toBe(contract.page.gap);
+  });
+
+  it("is ONE head per page, and everything under it is a card", () => {
+    // **THE DEVICE PAGE DREW TWO HEADERS 57 px APART (the sixty-second list).** Measured: `.page-head`
+    // at y=76 and `.overview-head` — a `<header>` — at y=133, whose `h2` read as a second page title. A
+    // page has ONE head; anything under it is a card, which is what `card` means in the contract.
+    // The overview's block is a `<section className="card">` now, and this test refuses the old shape.
+    expect(contract.head.maxHeadsPerPage, "one head per page").toBe(1);
+    expect(contract.head.subtitleSlot, "the subtitle slot is named").toBe(".page-sub");
+    // **NO PAGE MARKUP HAS TWO HEADERS.** The check is per page file: a `<header>` and a second one, or a
+    // `<header>` wrapping a block that is a card elsewhere.
+    const pages = ["OverviewPage.tsx", "HomePage.tsx", "ActivityTimeline.tsx"];
+    for (const file of pages) {
+      const source = readFileSync(path.join(here, file), "utf8");
+      const headers = [...source.matchAll(/<header\b/g)].length;
+      expect(headers, `${file} draws at most one <header>`).toBeLessThanOrEqual(1);
+    }
+    const overview = readFileSync(path.join(here, "OverviewPage.tsx"), "utf8");
+    expect(overview, "the machine's block is a CARD").toContain('className="card overview-head"');
+    expect(overview, "and it is a section with a label").toMatch(/<section className="card overview-head" aria-label=/);
   });
 
   it("is a MEASURE for prose, and a transcript is exempt", () => {

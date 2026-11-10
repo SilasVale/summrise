@@ -414,7 +414,13 @@ export function OverviewPage(props: OverviewPageProps) {
 
   return (
     <div className="overview-page">
-      <header className="overview-head">
+      {/* **A PAGE HAS ONE HEAD, AND THIS IS A CARD (the sixty-second list).** Measured: the Device page
+          drew `.page-head.device-head` at y=76 and this block — a `<header>` — at y=133, so two headers
+          sat 57 px apart and the second one's `h2` read as a second page title. The machine's name and
+          its start are the SUBJECT of a card: the same `card` grammar Home's `.machine-summary` uses,
+          whose heading is the machine's name. A `<section aria-label>` with an `h2` inside it is the
+          same shape as that card, and a page keeps the one head it is allowed. */}
+      <section className="card overview-head" aria-label={`${name} — this machine`}>
         <div>
           <h2>{name}</h2>
           <p className="page-sub">{statusLine}</p>
@@ -427,7 +433,7 @@ export function OverviewPage(props: OverviewPageProps) {
           <StartedLine device={device} />
           <RecoveryLine device={device} consoleStartedAt={props.consoleStartedAt} />
         </div>
-      </header>
+      </section>
 
       {notice && (
         <div className="notice" role="status" title={live.error ?? undefined}>

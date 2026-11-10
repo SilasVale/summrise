@@ -3624,9 +3624,18 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
 /* The Overview is a page, so it takes the page's rhythm (see `.home-page` above). It keeps only
    what it genuinely adds: the day line sits above the record here. */
 .overview-page { display: grid; min-width: 0; }
+/* **THE MACHINE'S BLOCK IS A CARD, SO IT IS LAID OUT AS ONE (the sixty-second list).** It was a
+   `<header>` with its own flex rule — `align-items: flex-start`, `justify-content: space-between`,
+   `gap: var(--sp-3)` — which is a header's shape drawn beside `.card`'s. It takes `.card` now, and the
+   only thing left here is the ROW'S INTERNAL arrangement: the name on the left, the start on the right,
+   both at the top. The padding, the corner, the surface and the card's own `gap: 8` come from the atom. */
 .overview-head {
-  display: flex; align-items: flex-start; justify-content: space-between;
-  gap: var(--sp-3); flex-wrap: wrap; min-width: 0;
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  min-width: 0;
 }
 .overview-head h2 {
   margin: 0; font-size: var(--fs-lg); font-weight: var(--fw-semi);
