@@ -3167,7 +3167,9 @@ the thing they were made for.**
 
 ## P0 — the seventieth list (opened 2026-11-10, the frame's arithmetic is two answers)
 
-The sixty-ninth list is closed: the page body's rhythm is 24 on every page now. This list is rule 1 —
+The sixty-ninth list is closed: the page body's rhythm is 24 on every page now. **This list is closed
+(2026-11-10): both items shipped as panel `c76e4073`, and `page.boxSizing` is a contract line in both
+repos.** This list was rule 1 —
 *"start from a system"* — asked about the one number in the contract the two surfaces never agreed on the
 MEANING of: **`page.max = 1120` — is that the page's box, or its contents?**
 
@@ -3188,8 +3190,15 @@ the wider of the two by exactly the padding twice: 48 px.**
    nothing is permanently lost — but the page *is* clipped, and the last 31 px of every card's right edge
    are off-screen until the reader scrolls sideways. The console, measured at the same six widths, is
    **never** wider than its parent. **Fix:** one arithmetic, recorded. **S.**
+   *(**Done, panel `c76e4073`**: `box-sizing: border-box` on the two frame rules — not a global reset,
+   because that would move ~60 other boxes laid out and tested against their current arithmetic. Measured
+   after at 390/639/767/1088: the page box EQUALS its parent (304/553/681/1,002) and sticks **0 px** past the
+   window, where it had been +48 and +31. At 1440: box 1,120 / contents 1,072 — the console's own figures.)*
 2. **`page.max` says a number and not what it measures**, which is why the two could differ for months
    without either being wrong by its own reading. **Fix:** the contract records the box model. **S.**
+   *(**Done**: `page.boxSizing: "border-box"`, pin `eb47909f…`, in both repos the same round — and each
+   repo's test asks its own question: the panel's refuses a global reset arriving to solve the frame, the
+   console's asserts the reset it has always had and that its width is derived from `page.max`.)*
 
 ## How a round goes
 
