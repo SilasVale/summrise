@@ -4486,6 +4486,31 @@ what `soft` is for: *"a hairline separates two regions and takes `line`"*.
    keeps its rule per row and drops its gap. Measured after: **`both: false` on every list**, memory at `gap: 8px`
    and plugins at `gap: 0` with 3 of 4 rows ruled.)*
 
+## P0 — the hundred-and-fourth list (opened 2026-11-11, motion is 0.12s on one surface and 0.2s on the other)
+
+The hundred-and-third list is closed. This list is rule 18 — *"motion only where it explains a state change, and
+respect reduced motion"* — measured as a VOCABULARY, because the contract records the mechanism (`reducedMotion:
+"blanket"`, `cap: "0.01ms"`, `namedAnimationsStop: true`) and says nothing about the NUMBERS motion moves at.
+
+**First, the good news, measured: under `prefers-reduced-motion: reduce` BOTH surfaces move NOTHING** — 0 transitions
+and 0 animations on five pages, so the blanket cap does its job on both sides.
+
+**And at rest the two surfaces speak two different dialects:**
+
+     surface   the pair that carries every interactive element        other durations in the same page
+     console   `background@0.12s` ×39, `transform@0.12s` ×31           `border-color@0.15s`, `transform@0.15s`, `@0.14s`
+     panel     `background@0.12s` ×12, `color@0.12s` ×11               **`background@0.2s`, `color@0.2s`, `opacity@0.2s`**
+
+**The same hover takes 0.12 s on the console and 0.2 s on the panel** — one product, two speeds — and the panel is the
+slower one, which is the direction a reader notices when clicking between the two windows. The panel also carries a
+`--ds-transition-duration: 0.2s` token family that only a handful of rules read, while its most-used transitions
+write `0.12s` as a LITERAL: **the token exists and the majority of the surface ignores it.**
+
+1. **One interaction, two durations (0.12 s vs 0.2 s), and a token the majority of one sheet does not read.**
+   **Fix:** the duration is ONE number in the contract, both sheets read it, and the literals go. **M.**
+2. **The motion atom records the reduce mechanism and no number**, so nothing can compare the two dialects — and
+   nothing catches a rule that writes a third duration tomorrow. **S.**
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
