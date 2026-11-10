@@ -36,6 +36,11 @@ const FORWARDS_FILE: &str = "forwards.json";
 /// The device's audit log; a rule's own events land here beside the call records.
 const EVENTS_FILE: &str = "events.jsonl";
 
+/// The same 64 MB the device's audit rotates `events.jsonl` at (`mcp::AUDIT_MAX_BYTES`). Stated
+/// here rather than referenced because the audit's constant is private to that module: a rule and
+/// the audit writing one file must agree on the number, and this is the copy that says so.
+pub const EVENTS_MAX_BYTES: u64 = 64 * 1024 * 1024;
+
 /// How many rules one device carries. Small on purpose: every rule is a listening port and an SSH
 /// hop, and an operator's forward table is a handful of entries.
 pub const RULES_MAX: usize = 4;
@@ -823,6 +828,85 @@ mod tests {
         );
     }
 
+    /// **THE RULE'S LOG ROTATES AT THE AUDIT'S CAP, SO THE FILE CANNOT GROW WITHOUT ONE.**
+    ///
+    /// `events.jsonl` is the device audit's file (`mcp::Audit`, capped and rotated); a rule appends
+    /// to it too. Without a cap here, a rule that is refused in a loop would grow it past the audit's
+    /// limit and the audit's next line would rotate a file a rule is still appending to.
+    ///
+    /// The cap is redirected for the test rather than the 64 MB one: `record_event` is given a path
+    /// whose sibling `.1.jsonl` the test then reads, and the rotation is driven by filling the file
+    /// to the module's own limit — which the test does by lowering nothing, because the limit is a
+    /// constant. So the file is pre-filled to one line short of it and one more line is appended.
+    ///
+    /// MUTATION (run, not asserted): with the rotation's rename removed, this went
+    /// `FAILED. 0 passed; 1 failed` with `the live file is back under the cap: 67108928 bytes`
+    /// (64 MB + one line) — the audit's limit crossed by the writer that does not own it. Restored,
+    /// it is green.
+    #[tokio::test]
+    async fn the_rule_log_rotates_instead_of_growing_without_a_cap() {
+        let fixture = Fixture::new("rotate");
+        let events = fixture.dir.join(EVENTS_FILE);
+        let rotated = fixture.dir.join("events.1.jsonl");
+
+        // ONE LINE SHORT OF THE CAP, filled with the same shape this module writes.
+        let line_len = json!({
+            "ts_ms": 0u64,
+            "event": "forward.refused",
+            "rule": "r",
+            "listen": "127.0.0.1:1",
+            "target": "127.0.0.1:2",
+            "via": "u@h:22",
+            "from": "127.0.0.1:3",
+            "reason": "",
+        })
+        .to_string()
+        .len() as u64
+            + 1;
+        // ONE LINE SHORT OF THE CAP, so the append below is the line that crosses it.
+        let filler = "x".repeat(line_len as usize - 1) + "\n";
+        let mut content = String::new();
+        while content.len() as u64 + filler.len() as u64 <= EVENTS_MAX_BYTES {
+            content.push_str(&filler);
+        }
+        std::fs::write(&events, &content).expect("the log is pre-filled");
+
+        record_event(
+            &events,
+            json!({
+                "ts_ms": 1u64,
+                "event": "forward.refused",
+                "rule": "r",
+                "listen": "127.0.0.1:1",
+                "target": "127.0.0.1:2",
+                "via": "u@h:22",
+                "from": "127.0.0.1:3",
+                "reason": "the line that crosses the cap",
+            }),
+        );
+
+        let after = std::fs::metadata(&events)
+            .map(|meta| meta.len())
+            .unwrap_or(0);
+        assert!(
+            after < EVENTS_MAX_BYTES,
+            "the live file is back under the cap: {after} bytes"
+        );
+        assert!(
+            rotated.exists(),
+            "the previous generation is kept as events.1.jsonl"
+        );
+        let kept = std::fs::metadata(&rotated)
+            .map(|meta| meta.len())
+            .unwrap_or(0);
+        assert!(kept > 0, "the rotated generation carries the old lines");
+        let live = std::fs::read_to_string(&events).unwrap_or_default();
+        assert!(
+            live.contains("the line that crosses the cap"),
+            "the new line is in the live file, not lost to the rotation"
+        );
+    }
+
     /// A half-close is a half-close: each direction ends on its own EOF, so a client that sends its
     /// request and then shuts down its write half still GETS THE ANSWER.
     ///
@@ -1110,12 +1194,32 @@ fn load(path: &Path) -> Vec<Rule> {
 
 /// Append one event to the device's event log, best effort: a rule must never fail because its
 /// record could not be written, and the ROW carries the failure for the operator anyway.
+/// Append one line, rotating the file at [`EVENTS_MAX_BYTES`] the same way the device's audit does.
+///
+/// **THIS FILE IS THE AUDIT'S FILE, SO ITS CAP IS THE AUDIT'S PROBLEM TOO.** `execute` writes
+/// `events.jsonl` through `mcp::Audit`, which rotates at 64 MB and keeps one generation; this module
+/// appends to the same path. A writer without that cap would grow the file past the limit, and the
+/// device's next audit line would then rotate a file a rule is still appending to — the audit's
+/// rotation is not a rule's, and the mismatch is a disk that fills on the one path that must not.
+///
+/// The cap here is the audit's own number, one generation, same rewrite-by-rename: an operator who
+/// reads `events.1.jsonl` gets the same shape from both writers.
 fn record_event(path: &Path, event: serde_json::Value) {
     if let Some(parent) = path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
     let mut line = event.to_string();
     line.push('\n');
+    let rotated = path.with_extension("1.jsonl");
+    let needs_rotation = std::fs::metadata(path)
+        .map(|meta| meta.len() + line.len() as u64 > EVENTS_MAX_BYTES)
+        .unwrap_or(false);
+    if needs_rotation {
+        // A rotation that fails leaves the append below to grow the file rather than lose the fact:
+        // a growing log is a worse warning than a missing one, the same trade the audit makes.
+        let _ = std::fs::remove_file(&rotated);
+        let _ = std::fs::rename(path, &rotated);
+    }
     if let Ok(mut file) = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
