@@ -2707,6 +2707,33 @@ Measured by counting DISTINCT BORDER COLOURS on a page (rule 8, "fewer borders",
    mark DECLARES a state and takes its own colour. `stateMarksCarryOwnColour: true` is in the contract, so
    the next reader does not have to rediscover why two of Settings' borders are ink.)*
 
+## P0 — the fifty-eighth list (opened 2026-11-10, the radius scale has six steps and the pages use five)
+
+The fifty-seventh list is closed: one hairline family, and a state mark is not a hairline. This list came
+from rule 11 — *"a limited set of radii"* — measured the same way the last three were: on the rendered
+page, counting the corner values actually painted.
+
+Three reads were clean and are recorded as clean: **both surfaces' token blocks declare the SAME six
+radii** (`6 / 8 / 10 / 14 / 20 / 999`), the card's 14 px corner was already asserted by the card atom's
+test, and **every painted corner on both surfaces is one of those six** (no literals: measured, the
+console's Home paints 6/8/10/14/999 and the panel's Settings the same family).
+
+1. **`--radius-lg: 20px` is declared on both surfaces and painted on NEITHER page that a person browses.**
+   Measured uses: the console paints it 3 times, all three inside overlays (a bottom sheet's top corners,
+   a dialog, a second dialog); the panel paints it **once**, on a sheet. So the largest step of the scale
+   exists for three call sites, and the pages — Home, Activity, Device, Memory, Settings, History,
+   Plugins — never draw it. **A scale whose largest step is invisible is a step that will drift**, because
+   nothing on a page can show it is wrong. **Fix:** the contract records which steps a PAGE may paint and
+   which belong to an overlay, and the overlay-only step is named as such. **S.**
+
+2. **The panel's page-level corners step 6 → 8 → 14 and skip 10, while the console's step 6 → 8 → 14 and
+   skip 10 too — but the panel also paints 10 on Settings (12 corners) and the console paints 10 on Home
+   (4 corners).** So the fourth step is drawn on both surfaces, on DIFFERENT kinds of element: on the
+   console it is `.card`'s inner rows and on the panel it is a control. Neither surface says which. The
+   count is small and the rule is real: rule 11 is not "four radii" but "four radii that MEAN
+   something". **Fix:** the contract assigns each step a meaning, so the fifth name cannot be invented
+   later. **M.**
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
