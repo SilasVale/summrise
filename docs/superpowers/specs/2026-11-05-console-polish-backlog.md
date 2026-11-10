@@ -2599,6 +2599,12 @@ surfaces (**14 px / 1 px**), and the console's shadows are all tokens (`--shadow
    is also the one place the panel's ground change (last list) did NOT settle the surfaces: with the
    wash gone, the shadow is the only thing left making the card "material". **Fix:** the contract names
    the card's elevation on both surfaces, and the surface that disagrees moves. **M.**
+   *(**Done, panel `89e236b2` / console `c390395`, live 0.3.273-ux165**: the panel's card is
+   `box-shadow: none` now — measured after: **`none`, `radius 14px`, `1px` border,
+   `rgba(255,255,255,.8)` tint** — the console's card with the panel's translucent tint kept. Flattened:
+   `.card`, `.mem-card`, `.plug-card`, `.desktop-content` (the largest card in the product) and the desk's
+   header. **`--glass-shadow` was NOT deleted** — it is kept for the level that means something: a pane
+   ABOVE the page. Mutation: `.mem-card sits ON the page: expected false to be true`.)*
 
 2. **The panel's shadow SCALE is four families with three members each, and nothing names when to use
    which.** `--shadow` (2 layers), `--shadow-lg` (1), `--shadow-pop` (2 + a ring) and `--glass-shadow`
@@ -2607,6 +2613,13 @@ surfaces (**14 px / 1 px**), and the console's shadows are all tokens (`--shadow
    `--shadow-2`, `--elev-2` and `--elev-segment` — six names for what the contract should call three
    levels. **Fix:** the contract names the LEVELS (a flat card on the page, a pane above it, a popover
    above that), and each surface's tokens map onto them. **S.**
+   *(**Done with item 1**: `elevation: { flat "none", pane "--glass-shadow", raised "--shadow" }` is in
+   the contract — three LEVELS where the two repos had ten shadow names between them (`--shadow`,
+   `--shadow-1`, `--shadow-2`, `--shadow-lg`, `--shadow-pop`, `--glass-shadow`, `--elev-2`,
+   `--elev-segment`, `--ring`, plus the inline rings). **Both tests guard the two mistakes this workstream
+   keeps making:** `flat` is ABSENCE as much as it is `none` (`.card` never declared a shadow), and the
+   FLOAT is not deleted by being moved — `--shadow-lg` is the pane level and the test proves it is still
+   used, because a modal with no shadow would read as part of the page.)*
 
 ## How a round goes
 
