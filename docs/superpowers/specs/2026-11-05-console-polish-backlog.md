@@ -2690,11 +2690,22 @@ Measured by counting DISTINCT BORDER COLOURS on a page (rule 8, "fewer borders",
    is the least visible thing a page draws and the most expensive to reason about**, and the panel asks
    a reader to choose between `--line`, `--chrome-line` and `--glass-hairline` with no rule to choose by.
    **Fix:** one hairline family per theme, in the contract, and the extra names go. **M.**
+   *(**Done, panel `dab1b3e1` / console `3b2a745`, live 0.3.273-ux167**: `--chrome-line: var(--line)` and
+   `--glass-hairline: var(--line)`, in BOTH themes. Measured on the rendered pages: Memory **5 → 4**
+   distinct border colours, Settings **9 → 8**. The cool tint's argument — "a neutral-black shadow greys
+   warm paper" — stays where it is true, on `--glass-shadow`; **a 1 px edge is not a shadow.**
+   `hairline: { line, strong, soft, names 1, stateMarksCarryOwnColour true }` is in the contract.)*
 
 2. **And two of Settings' nine are not greys at all:** `rgb(113,113,122)` (`--muted`) and
    `rgb(24,24,27)` (`--ink`) used as `border-color`. A border that is TEXT ink is a fourth way to say
    "a line", and it makes the border count rise without making anything clearer. **Fix:** the count is
    the assertion — a page draws its greys and its accent and its semantics, and nothing else. **S.**
+   *(**Measured, and recorded as NOT A DEFECT**: those two colour-named borders are the state pills —
+   `.run-row-state`, `.activity-row-source`, `.archive-state` carry `border: 1px solid currentColor` and
+   set their colour per state, so the edge and the word are one ink and greyscale keeps shape and word
+   (rule 6). **The distinction is the rule:** a hairline SEPARATES two regions and takes `--line`; a state
+   mark DECLARES a state and takes its own colour. `stateMarksCarryOwnColour: true` is in the contract, so
+   the next reader does not have to rediscover why two of Settings' borders are ink.)*
 
 ## How a round goes
 
