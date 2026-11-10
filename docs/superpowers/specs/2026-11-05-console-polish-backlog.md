@@ -3635,7 +3635,8 @@ head's.
 
 ## P0 — the eighty-third list (opened 2026-11-10, the Device page's CONTENT is drawn in the EMPTY state's element)
 
-The eighty-second list is closed. This list is the Device page — the third console page, and the only one whose
+The eighty-second list is closed. **This list is closed (2026-11-10), shipped as console `0078b2f` (live
+`ux189`).** This list was the Device page — the third console page, and the only one whose
 body is a single block whatever it holds.
 
 Measured 2026-11-10 at 1,440, walking its four states by forcing each read:
@@ -3657,8 +3658,13 @@ other list in the product fills its card (the fleet table's row measures 1,070 o
 
 1. **The Device page's body is a list, not an empty state.** The picker is the page's content and gets its own
    block; the empty, loading and failed states keep the atom and draw only when the read says so. **M.**
+   *(**Done, console `0078b2f`, live `ux189`**: the body is `<section className="card device-picker-card">`, and
+   `.picker` takes `width: 100%` and loses its private `margin-top`. Measured after: **rows 1,038 of a 1,038 px
+   list in a 1,072 px card — 97 %**, up from 326 / 30 %. The three states still draw inside the one card, in
+   the same slot; what changed is that the slot no longer MEANS "nothing here".)*
 2. **The head is `align-items: center` where the atom says `flex-start`** (`.device-head`), which is invisible
    while the head is one row and wrong the moment it wraps. **S.**
+   *(**Done, console `0078b2f`**: `.device-head` reads `align-items: flex-start`, the atom's own value.)*
 
 ## How a round goes
 
