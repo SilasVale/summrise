@@ -2533,21 +2533,120 @@ enum ToolError {
 
 /// Parse a call's arguments, naming the argument schema rather than echoing a value.
 ///
-/// `serde_json`'s own message quotes the offending value (`invalid type: string
-/// "SENTINELVALUE"`), and a client can put a secret in the wrong field. Only the error category is
-/// reported, so neither the audit nor the response can carry an argument value.
+/// **A REFUSAL THAT CANNOT NAME THE FIELD TEACHES THE CALLER NOTHING (the ninety-first list).** Measured
+/// 2026-11-11 on the live console's own audit: **8 of 102 failures in 1,000 lines were the same mistake** —
+/// `runs.exec`'s schema declares `timeout_ms`, the caller sent `timeoutMs`, and the answer was *"the arguments
+/// do not match the tool's input schema"*. The refusal is correct and unhelpful: a client that invented a key
+/// from the camelCase tools around it has no way to learn WHICH of six keys was wrong, so it retries the same
+/// call. A sentence that names the schema is a sentence that says "one of these is wrong".
+///
+/// The field name is safe to name; the VALUE is not. `serde_json` writes three shapes that carry the key and
+/// never a value — `unknown field \`X\`, expected one of …`, `missing field \`X\``, and
+/// `invalid type: string, expected …` (which names the type, not the bytes) — and this rule KEEPS those three
+/// and DROPS everything else, because a `DataError` on a nested type can quote a value (`invalid value: string
+/// "SENTINELVALUE"`). The categories that are not about a field keep their sentence.
 fn parse<T: DeserializeOwned>(arguments: Map<String, Value>, tool: &str) -> Result<T, ToolError> {
     serde_json::from_value(Value::Object(arguments)).map_err(|error| {
         let reason = match error.classify() {
             serde_json::error::Category::Data => {
-                "the arguments do not match the tool's input schema"
+                // `serde_json`'s message is the only place the key exists. Naming it is safe by
+                // construction: every message this layer passes takes its key from the SCHEMA and its
+                // (absent) value text from nowhere.
+                let named = named_field(&error);
+                match named {
+                    Some(field) => format!("the argument `{field}` is not what this tool takes"),
+                    // A `DataError` this rule cannot pin to a key may quote a value, so it falls back
+                    // to the category sentence — the same words as before, and never a value.
+                    None => "the arguments do not match the tool's input schema".to_owned(),
+                }
             }
-            serde_json::error::Category::Syntax => "the arguments are not valid JSON",
-            serde_json::error::Category::Eof => "the arguments are incomplete JSON",
-            serde_json::error::Category::Io => "the arguments could not be read",
+            serde_json::error::Category::Syntax => "the arguments are not valid JSON".to_owned(),
+            serde_json::error::Category::Eof => "the arguments are incomplete JSON".to_owned(),
+            serde_json::error::Category::Io => "the arguments could not be read".to_owned(),
         };
         ToolError::Arguments(format!("{tool}: {reason}"))
     })
+}
+
+#[cfg(test)]
+mod refusal_tests {
+    use super::*;
+
+    /// A REFUSAL THAT NAMES THE FIELD, AND NEVER THE VALUE (the ninety-first list).
+    #[test]
+    fn a_bad_key_says_which_key() {
+        #[derive(serde::Deserialize, Debug)]
+        #[serde(deny_unknown_fields)]
+        struct Exec {
+            command: String,
+            #[allow(dead_code)]
+            timeout_ms: Option<u64>,
+        }
+        // The measured case: `timeoutMs` instead of `timeout_ms`.
+        let wrong_key = json!({ "command": "x", "timeoutMs": 5000 });
+        let error = parse::<Exec>(wrong_key.as_object().unwrap().clone(), "runs.exec").unwrap_err();
+        let ToolError::Arguments(sentence) = error else {
+            panic!("a schema refusal")
+        };
+        assert_eq!(
+            sentence, "runs.exec: the argument `timeoutMs` is not what this tool takes",
+            "the caller learns WHICH key was wrong: {sentence}"
+        );
+        // And a missing key names itself too.
+        let missing = json!({ "timeout_ms": 1 });
+        let error = parse::<Exec>(missing.as_object().unwrap().clone(), "runs.exec").unwrap_err();
+        let ToolError::Arguments(sentence) = error else {
+            panic!("a schema refusal")
+        };
+        assert!(
+            sentence.contains("`command`"),
+            "the missing key is named: {sentence}"
+        );
+        // **AND A VALUE IS NEVER IN THE SENTENCE**, which is the rule the old comment argued for: a client
+        // that put a secret in the wrong field must not read it back out of the refusal.
+        let secret = json!({ "command": "x", "timeoutMs": "SENTINELVALUE" });
+        let error = parse::<Exec>(secret.as_object().unwrap().clone(), "runs.exec").unwrap_err();
+        let ToolError::Arguments(sentence) = error else {
+            panic!("a schema refusal")
+        };
+        assert!(
+            !sentence.contains("SENTINELVALUE"),
+            "no value reaches the sentence: {sentence}"
+        );
+    }
+}
+
+/// The field `serde_json` named, when it named one — and never anything else in its message.
+///
+/// The three shapes this accepts are the three `serde` writes WITHOUT a value: an unknown key, a missing key,
+/// and a wrong TYPE (which names the type it wanted, not the bytes it got).
+fn named_field(error: &serde_json::Error) -> Option<String> {
+    let message = error.to_string();
+    let quoted = |marker: &str| -> Option<String> {
+        let rest = message.strip_prefix(marker)?;
+        let rest = rest.strip_prefix('`')?;
+        rest.split('`').next().map(str::to_owned)
+    };
+    if let Some(field) = quoted("unknown field ") {
+        return Some(field);
+    }
+    if let Some(field) = quoted("missing field ") {
+        return Some(field);
+    }
+    // `invalid type: <the type found>, expected <the type wanted>` — a type, not a value. The message
+    // continues with the position ("at line 1 column 12"), which is not the field's name; the guard is
+    // that the whole tail is a TYPE word.
+    let rest = message.strip_prefix("invalid type: ")?;
+    let found = rest.split(',').next()?.trim();
+    if found.contains('"') || found.contains('(') || found.contains('{') {
+        return None;
+    }
+    // `invalid type: string, expected u64` names no key at all, so it cannot help a caller; what it CAN
+    // honestly say is what the schema wanted, which the caller can compare with what it sent.
+    Some(format!(
+        "(expected {})",
+        rest.split("expected ").nth(1)?.trim()
+    ))
 }
 
 /// Refuse the serial framing fields on a kind that has no serial line.
