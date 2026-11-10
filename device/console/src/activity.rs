@@ -444,6 +444,44 @@ mod tests {
         assert_eq!(sentence, "Read `notes/todo.md`");
     }
 
+    /// **THE FORWARD SENTENCES NAME THE RULE, WHICH IS THE ONLY THING IN THE LINE WORTH READING.**
+    /// `Used \`forward.add\`` would tell an operator that something was forwarded and nothing else;
+    /// the name is what the panel and the rule table identify the row by, so it is what the line
+    /// carries — and the no-argument form must still be a sentence rather than an empty tick.
+    ///
+    /// MUTATION (run, not asserted): with the `quoted("name", …)` arm replaced by the flat sentence
+    /// (the shape `Used \`forward.add\`` has), this went `left: "Added a forward rule"` against
+    /// `right: "Forwarded a route as \`work\`"`. Restored, it is green.
+    #[test]
+    fn a_forward_line_names_the_rule_that_changed() {
+        assert_eq!(
+            describe(
+                "forward.add",
+                &json!({ "name": "work", "listen": "1.2.3.4:443" })
+            ),
+            "Forwarded a route as `work`"
+        );
+        // A rule added without a name cannot happen through the tool (the schema requires one), but
+        // `describe` is also the READER of old log lines, where the arguments are whatever was
+        // written then — so the no-argument form is a sentence too.
+        assert_eq!(
+            describe("forward.add", &Value::Null),
+            "Added a forward rule"
+        );
+        assert_eq!(
+            describe("forward.remove", &json!({ "name": "work" })),
+            "Removed the forward rule `work`"
+        );
+        assert_eq!(
+            describe("forward.remove", &Value::Null),
+            "Removed a forward rule"
+        );
+        assert_eq!(
+            describe("forward.list", &Value::Null),
+            "Listed the forward rules"
+        );
+    }
+
     #[test]
     fn a_run_names_the_command_and_its_arguments() {
         let sentence = describe(
