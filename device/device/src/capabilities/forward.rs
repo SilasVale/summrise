@@ -959,6 +959,83 @@ mod tests {
         }
     }
 
+    /// **A REMOVED RULE IS NOT RESURRECTED BY A LATER `reconcile`.** The two tables that decide what
+    /// is running are `cancels` (one entry per executor) and `rules` (the configuration). `remove`
+    /// deletes from both, and `reconcile` spawns for every rule whose name is not in `cancels` —
+    /// so a removal that forgot one table would leave a rule that comes back on the next add of
+    /// anything else, listening on a port its operator deleted.
+    ///
+    /// MUTATION (run, not asserted): with the `cancels.remove` in `remove` deleted, this went
+    /// `FAILED. 0 passed; 1 failed` with `the removed rule still holds 46051` — the row gone from the
+    /// table while its listener kept serving. Restored, it is green.
+    #[tokio::test]
+    async fn a_removed_rule_stops_and_a_later_add_does_not_revive_it() {
+        let first = free_port();
+        let second = free_port();
+        let fixture = Fixture::new("remove");
+        fixture
+            .registry
+            .add(&spec(
+                "gone",
+                &format!("127.0.0.1:{first}"),
+                "10.0.0.1:80",
+                "u@h:22",
+            ))
+            .expect("the rule");
+        assert!(
+            wait_listening(&fixture.registry, "gone", true).await,
+            "the rule listens"
+        );
+
+        assert!(
+            fixture.registry.remove("gone").expect("the removal"),
+            "it was configured"
+        );
+        assert!(fixture.registry.state("gone").is_none(), "the row is gone");
+        assert!(fixture.registry.rules().is_empty(), "the table is empty");
+
+        // THE PORT MUST BE FREE AGAIN: a cancelled executor releases its socket on a scheduler turn.
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+        loop {
+            if tokio::net::TcpListener::bind(("127.0.0.1", first))
+                .await
+                .is_ok()
+            {
+                break;
+            }
+            assert!(
+                tokio::time::Instant::now() < deadline,
+                "the removed rule still holds {first}"
+            );
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+
+        // ADDING AN UNRELATED RULE RUNS `reconcile`, which must not bring `gone` back.
+        fixture
+            .registry
+            .add(&spec(
+                "other",
+                &format!("127.0.0.1:{second}"),
+                "10.0.0.2:80",
+                "u@h:22",
+            ))
+            .expect("the second rule");
+        assert_eq!(
+            fixture.registry.rules().len(),
+            1,
+            "only the rule that was added: {:?}",
+            fixture.registry.rules()
+        );
+        assert!(fixture.registry.state("gone").is_none(), "gone stayed gone");
+        // …and the removed name's port is still free, so nothing was respawned behind it.
+        assert!(
+            tokio::net::TcpListener::bind(("127.0.0.1", first))
+                .await
+                .is_ok(),
+            "{first} is still free after reconcile"
+        );
+    }
+
     /// A half-close is a half-close: each direction ends on its own EOF, so a client that sends its
     /// request and then shuts down its write half still GETS THE ANSWER.
     ///
@@ -1171,11 +1248,13 @@ impl ForwardRegistry {
             }
             let registry = Arc::clone(self);
             let spawned = rule.clone();
-            let name = rule.name.clone();
-            let handle = tokio::spawn(async move {
+            // NOTHING JOINS THIS TASK, AND THAT IS DELIBERATE: its executor is stopped by its
+            // `Cancel`, which is stored in `cancels` and taken out when a rule is removed or
+            // replaced. Keeping a `JoinHandle` in a second table would be a handle for a task
+            // nobody waits for — a map that only grows, holding finished tasks.
+            tokio::spawn(async move {
                 registry.run_executor(spawned, cancel).await;
             });
-            lock(&self.inner).tasks.insert(name, handle);
         }
     }
 }
@@ -1185,7 +1264,6 @@ struct Inner {
     rules: Vec<Rule>,
     states: HashMap<String, ForwardState>,
     cancels: HashMap<String, Cancel>,
-    tasks: HashMap<String, tokio::task::JoinHandle<()>>,
     /// Rules whose executor no longer matches their row.
     needs_rebuild: HashMap<String, bool>,
 }
