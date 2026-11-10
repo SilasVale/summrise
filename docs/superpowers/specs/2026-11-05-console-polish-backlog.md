@@ -2965,12 +2965,22 @@ its `+1`), and **the console's phone/tablet switch is exact**: at 639 the table 
    other, so `columns` is the ONE place where two rules disagree about which side of 1088 they are on.
    **Fix:** the fold is `(max-width: 1087px)`, matching `phone` and `tablet`, which already use the
    `-1` form. **S.**
+   *(**Done, panel `6f5cfeae`, live 0.3.273-ux173**: measured across the boundary, before `1087 one column /
+   1088 one column / 1089 two columns`, after `1087 one column / 1088 two columns`. **And both assertions
+   had to be rewritten because the first drafts asserted the wrong thing:** the older "no width outside the
+   contract" test allowed `N` and `N+1` (the correction is `N-1`), and the new one asserted "no `max-width`
+   equals a breakpoint" — which the panel's own `(max-width: 639px)` does legitimately. **The defect is a
+   CONFLICT, not a value**: no width may be claimed by BOTH forms.)*
 
 2. **The widths are a habit rather than a syntax.** Three `@media` blocks in the product use `max-width:`
    with the breakpoint's own number and three use `min-width:` with `+1`; both are correct and neither is
    written down, so each new rule re-derives which form to use. **Fix:** the contract records the form
    (a downward query ends at `N-1`, an upward one starts at `N`) and each repo's test counts the exception.
    **S.**
+   *(**Done with item 1, console `a75858b`**: `breakpoints.queryForm { below "N-1", at "N" }`, and **the
+   assertion is OWNERSHIP rather than spelling** — the two surfaces write the SAME boundary differently
+   (the console pairs `max 639` with `min 640`, the panel writes `639` alone) and both are right. What is
+   refused is one number claimed by both forms. Mutation: `no width is claimed by both query forms`.)*
 
 ## How a round goes
 
