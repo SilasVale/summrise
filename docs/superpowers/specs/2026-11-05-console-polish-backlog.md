@@ -2641,6 +2641,14 @@ Two reads were clean and are recorded as clean: **the accent is the same token o
    eye cannot tell apart, carrying two different names**, which is rule 12's defect stated exactly.
    A reader searching for "which grey is this" finds two answers and no difference. **Fix:** the third
    grey is one value, in the contract, and both surfaces read it. **M.**
+   *(**Done, panel `1c03bfc7` / console `82ba041`, live 0.3.273-ux166**: `--ds-neutral-400: #696a74`, the
+   console's value, so `--faint` is one colour on both surfaces. `palette: { ink, muted, faint, accent,
+   semantic[4] }` is in the contract. **One token in the same file keeps its own value ON PURPOSE:**
+   `--chrome-ink-faint` is a GLYPH's ink on the rail, where the contrast sweep measured `#a1a1aa` at
+   **2.56:1** and left it valid for a mark and never for text — two tokens, two jobs, two numbers in one
+   file, which is why the palette needed writing down rather than deducing. **And the gate reads with
+   COMMENTS STRIPPED** because my own prose quotes the old value; a regex over raw CSS read the
+   quotation, the same trap the failed-state gate hit.)*
 
 2. **The painted-colour count differs by four between surfaces on comparable pages.** Measured on the
    rendered Home and Memory:
@@ -2651,6 +2659,11 @@ and three of the panel's extra ones are its own alpha composites (`rgba(0,0,0,.0
    `rgba(24,32,54,.07)`) where the console derives the same greys from `--ink` with `color-mix`. That is
    rule 2's "limited palette" read as a COUNT: two ways to say "a hairline". **Fix:** the alpha greys
    are derived from the ink on both surfaces, and the contract records the palette's shape. **S.**
+   *(**The palette's shape is recorded; the alpha composites are NOT unified yet.** The counts above stand
+   as measured — 11 console / 14–16 panel — and this item remains the next list's first candidate rather
+   than a claim that it is done. Measurement is the reason: `rgba(0,0,0,.08)` and `color-mix(--ink 8.5%)`
+   are the same grey only if the compositing stack underneath agrees, and that has to be measured on the
+   rendered page rather than assumed from the declarations.)*
 
 ## How a round goes
 
