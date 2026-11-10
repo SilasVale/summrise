@@ -2393,8 +2393,20 @@ h2 { letter-spacing: var(--tracking-tight); }
 .topbar { background: var(--panel); border-bottom: 1px solid var(--hairline); }
 /* Desktop geometry lives in a query of its own: the phone layout is declared earlier in this sheet,
    and an unqualified rule here would outrank it on source order alone. */
-@media (min-width: 640px) {
+/* **AND THE ICON RAIL'S BAND IS THE ONE WINDOW THIS RULE MUST NOT TOUCH (the seventy-fourth list).**
+   Measured 2026-11-10: `rail.consoleCollapsesAt` in `layout-contract.json` says the console's labelled
+   rail becomes an icon rail below 768, and the rule that does it — `@media (min-width: 640px) and
+   (max-width: 767px)`, declared near the top of this sheet — was being OVERRIDDEN HERE, on source order
+   alone, because this query says `min-width: 640px` and paints the same property. So the labelled sidebar
+   never collapsed: at 640/700/767 the rail measured **232** wide, the page 408/468/535, and the fleet
+   table — whose min-content is 635 px — lost four of its five columns inside an `overflow: hidden` wrapper
+   with nothing to scroll. The comment above already warned about exactly this ("an unqualified rule here
+   would outrank it"); the warning was about the PHONE band (< 640) and the band it actually broke is the
+   icon rail's. `topbar-inner` is the row's height, not the rail's, so it keeps its desktop value throughout. */
+@media (min-width: 768px) {
   .shell { grid-template-columns: 232px minmax(0, 1fr); grid-template-rows: 52px auto minmax(0, 1fr); }
+}
+@media (min-width: 640px) {
   .topbar-inner { height: 52px; padding: 0 20px; gap: var(--sp-2-5); }
 }
 .brand { padding: 4px 6px; border-radius: var(--radius-xs); }
@@ -2416,7 +2428,13 @@ h2 { letter-spacing: var(--tracking-tight); }
    that competes with the page's primary button. */
 
 .rail { background: var(--sidebar); border-right: 1px solid var(--hairline); }
-@media (min-width: 640px) {
+/* **THE LABELLED SIDEBAR'S OWN NUMBERS ARE THE 768 BAND'S TOO (the seventy-fourth list).** This query
+   repainted the rail's width and its button's height at `min-width: 640px`, which is the ICON rail's band —
+   the band whose whole job is `width: 56px; align-items: center; justify-content: center` four hundred lines
+   above. Two rules, one band, and the later one wins on source order: measured at 640/700/767 the rail was
+   **232** wide with the labels still on (`.rail-label` was hidden by the icon rule's opacity, but the width
+   the page had already given away was not). The band is the same band the `.shell` rule above now uses. */
+@media (min-width: 768px) {
   .rail { width: 232px; padding: var(--sp-2-5) var(--sp-2-5) var(--sp-3); }
   .rail-btn {
     height: 30px; padding: 0 var(--sp-2-5); gap: var(--sp-2-5); border-radius: var(--radius-xs);
@@ -3509,6 +3527,19 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
 
 /* The fleet is a table, not a stack of cards: the four facts align and the eye compares a column
    at a time. The first cell is the row's link; the status cell owns the dot and its word. */
+/* **THE FLEET TABLE IS MEASURED BY THE BOX IT IS IN, NOT BY THE WINDOW (the seventy-fourth list).**
+   Measured 2026-11-10 on the live console: the table's min-content is **635 px**, and the wrapper it is
+   given is 360 px at 640, 487 at 767, 620 at 900 — it does not fit again until the window is **914**.
+   `overflow: hidden` means the four columns that do not fit are not scrolled away, they are GONE, and
+   the row's `⋯` menu — the only way to a machine's diagnostics — is off the card.
+
+   The card form below already exists for the phone and already solves this: it keeps every fact, draws
+   the column names the header can no longer draw, and needs no sideways scroll. It was gated on the
+   WINDOW (`@media (max-width: 639px)`) because the phone was the only place anyone had looked. The
+   console's token table solved the same question with a container query (`@container token-list`) —
+   "the sheet is 600 px wide even at 1280, so the list is measured by its own scroller" — and this is the
+   same rule for the same reason: a table's shape follows its box. */
+.fleet-table-wrap { container: fleet-table / inline-size; }
 /* The table is the card's content: it clips to the card's own corners and adds no box of its own. */
 /* **A CARD WITH `padding: 0` IS RIGHT WHEN ITS CHILD BRINGS THE INSET (the sixty-seventh list).** Measured:
    this card's frame sits **1 px** from its first child, exactly like the panel's `.settings-fold` did — and
@@ -3682,6 +3713,30 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
   .attention-row .dot { grid-column: 1; grid-row: 1; margin-top: var(--sp-1-5); }
   .attention-body { grid-column: 2; min-width: 0; }
   .attention-open { grid-column: 2; justify-self: start; }
+  .installer-strip .hint { margin-left: 0; flex-basis: 100%; }
+  .machine-summary { padding: 12px 14px; }
+  .machine-summary-actions .primary { flex: 1 1 auto; }
+  .overview-page { gap: var(--sp-4); }
+  /* **THE FILTER BELONGS WITH THE LIST ON A PHONE.** `margin-left: auto` pushed the wrapped filter
+     to the row's right edge (measured x=101) while every other control started at the panel's left
+     (x=33). It is full width on its own line, aligned with New folder and Upload. */
+  .files-filter { margin-left: 0; width: 100%; }
+  .files-filter input { width: 100%; }
+}
+
+/* **THE FLEET'S CARD FORM FOLLOWS ITS OWN BOX, NOT THE WINDOW (the seventy-fourth list).**
+   Measured 2026-11-10 on the live console: the table's min-content is **635 px** and the box it is given
+   is 360 px at 640, 487 at 767 and 620 at 900 — so four of its five columns sat outside an
+   `overflow: hidden` wrapper that could not be scrolled, and the row's `⋯` menu, the only way to a
+   machine's diagnostics, was among them. The window that matters is the CARD's: the rail takes 232 px
+   from 640 up, so a 900 px window gives the table the same room a 660 px one would with no rail.
+
+   The card form below was written for the phone and already keeps every fact, draws the column names
+   the hidden header can no longer draw, and needs no sideways scroll. It was gated on the window
+   because the phone was the only place anyone had looked. A table's shape follows its box — the same
+   rule the token table states for itself (`@container token-list`, "the sheet is 600 px wide even at
+   1280"). `639` is the contract's `phone`, which is where the six-column table stops fitting anyway. */
+@container fleet-table (max-width: 639px) {
   /* The table becomes one card per machine: the name owns the first line, the status and the
      version share the next, and the start gets the line under them. No sideways scroll. */
   .fleet-table-wrap { background: transparent; border: 0; border-radius: 0; overflow: visible; }
@@ -3698,25 +3753,16 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
   .fleet-status { grid-column: 1 / 2; align-self: center; }
   .fleet-version { grid-column: 2 / 3; justify-self: end; align-self: center; }
   .fleet-started { grid-column: 1 / -1; max-width: none; }
-  /* THE PHONE'S CARD HAS NO `STARTED` HEADER. `thead` is `display:none` at this width, so the age
-     sat bare under the status age and the two read as the same fact. The visible word is the
-     header the card does not draw; the desktop table keeps the age alone. It stays on the age's
-     line, because the card's third line is one fact. */
+  /* THE CARD HAS NO `STARTED` HEADER. `thead` is `display:none` in this form, so the age sat bare
+     under the status age and the two read as the same fact. The visible word is the header the card
+     does not draw; the wide table keeps the age alone. It stays on the age's line, because the card's
+     third line is one fact. */
   .fleet-started-label {
     display: inline; margin-right: var(--sp-1-5); color: var(--ink-faint); font-size: var(--fs-2xs);
     text-transform: uppercase; letter-spacing: var(--tracking-label);
   }
   .fleet-verdict { display: inline; white-space: normal; overflow: visible; text-overflow: clip; }
   .fleet-actions { position: absolute; right: var(--sp-2); top: var(--sp-2); width: auto; }
-  .installer-strip .hint { margin-left: 0; flex-basis: 100%; }
-  .machine-summary { padding: 12px 14px; }
-  .machine-summary-actions .primary { flex: 1 1 auto; }
-  .overview-page { gap: var(--sp-4); }
-  /* **THE FILTER BELONGS WITH THE LIST ON A PHONE.** `margin-left: auto` pushed the wrapped filter
-     to the row's right edge (measured x=101) while every other control started at the panel's left
-     (x=33). It is full width on its own line, aligned with New folder and Upload. */
-  .files-filter { margin-left: 0; width: 100%; }
-  .files-filter input { width: 100%; }
 }
 
 /* **A THUMB IS NOT A CURSOR (the twenty-ninth list, items 1 and 3).** Measured at 390: every one of
