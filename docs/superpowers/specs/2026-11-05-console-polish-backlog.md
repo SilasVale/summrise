@@ -3882,6 +3882,32 @@ so the atom is not only unread, it is already wrong about the page that provoked
    console at 1,440: **31 stretch rows at 16 px, spaces 16** — the step above the card's own 8, which is what a
    stretch header is: a new grouping inside one list, one step louder than the lines under it.)*
 
+## P0 — the ninetieth list (opened 2026-11-10, a failed read says `HTTP 500` on one surface and the subject on the other)
+
+The eighty-ninth list is closed. This list is rule 19's FAILED half, measured by forcing every read to fail —
+the only way to see a failure on a page that is otherwise full of real data.
+
+Measured 2026-11-10, forcing `/fleet` and `/api/**` to answer 500 on the two surfaces:
+
+     surface   page      block      h    radius   pad    tint                     words
+     console   Home      `.notice`  56   8        12     `rgb(255, 244, 229)`     "The console could not read
+                                                                                 the machine list. Retry"
+     panel     Memory    `.error`   56   8        12     `rgba(220, 38, 38, 0.08)` **"HTTP 500 Retry"**
+
+**Same height, same corner, same inset, same role — and one of them tells the reader WHAT FAILED while the other
+tells them what a server answered.** The contract's `failed` atom says it in one line — *"A failure's sentence
+NAMES THE SUBJECT, NOT THE TRANSPORT … `namesTransport: false`"* — and the panel's memory page draws "HTTP 500"
+as its whole sentence, with the subject nowhere on screen.
+
+**And the two tints are two answers to the same idea:** the console paints a warm wash (`rgb(255, 244, 229)`),
+the panel a red one (`rgba(220, 38, 38, 0.08)`) — the atom records `tint: "alarm"` and neither surface's is
+named. A reader who moves between the two surfaces sees the same failure in two colours and two grammars.
+
+1. **The panel's failed read draws the transport's words as the page's sentence.** **Fix:** the subject is
+   always on screen, and the status is the detail — never the sentence. **M.**
+2. **`tint: "alarm"` names no colour, so the two surfaces paint two.** **Fix:** the atom records the pair, and
+   each repo reads it. **S.**
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
