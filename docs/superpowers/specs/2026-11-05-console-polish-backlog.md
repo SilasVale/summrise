@@ -4038,7 +4038,8 @@ day's SPAN appears, so a reader of a short day cannot tell whether they are look
 
 ## P0 — the ninety-fourth list (opened 2026-11-11, the record's first row is 455 px down a 900 px viewport)
 
-The ninety-third list is closed. **This list is the top of the record page — the half of "一目了然" that has never
+The ninety-third list is closed. **This list's two items are shipped as `e3d44dd` (merged, held from deploy).**
+This list was the top of the record page — the half of "一目了然" that has never
 been measured**: what a reader sees before the first line of the record.
 
 Measured 2026-11-11 on the served build at 1,440 × 900, on Activity:
@@ -4064,8 +4065,19 @@ start, a length) in a place a reader looks for switches.
 
 1. **The filter block spends 169 px and the first row starts at 455.** **Fix:** the controls take one row whatever
    the viewport, and the count moves to where a count belongs. **M.**
+   *(**Done in the tree, MERGED, NOT DEPLOYED** — the deployment hold applies. **Filter block 169 → 58 px; the
+   first record row 455 → 359** of a 900 px viewport. `align-items: end` plus the scale's 12/8 puts every block on
+   the same 49 px baseline; the count takes its own line under the controls at `--fs-xs` in muted ink, drawn in
+   every state so the chip's `aria-describedby` never dangles. **The gate had to be CORRECTED rather than moved**:
+   `browser-gate`'s step required the count on the Callers column's x — the shape being removed — and the first
+   replacement draft inverted its comparison, failing on the page it was meant to bless. Mutations: `end` → `start`
+   fails "and its blocks are aligned"; the count moved back inside the callers block fails "the caller count is
+   back inside the filter row".)*
 2. **The count sentence is a paragraph inside a filter group.** **Fix:** no gate measures a filter block's
    content — add the measurement. **S.**
+   *(**Done in the tree, MERGED**: `is a RECORD whose first row is above half the viewport` reads the markup and
+   the sheet — the count is outside the filter row, the row is `align-items: end`, and the count is no longer a
+   filter column.)*
 
 ## How a round goes
 
