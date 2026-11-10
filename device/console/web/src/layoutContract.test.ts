@@ -51,6 +51,12 @@ type Contract = {
   ground: { light: string; dark: string; gradients: number };
   elevation: { flat: string; pane: string; raised: string };
   palette: { ink: string; muted: string; faint: string; accent: string; semantic: string[] };
+  radius: {
+    page: Record<string, number>;
+    overlay: Record<string, number>;
+    pill: number;
+    target: number;
+  };
   hairline: {
     line: string;
     strong: string;
@@ -127,7 +133,7 @@ describe("the layout contract", () => {
     // `agent/resources/panel-react/src/lib/layoutContract.test.ts`. If the two disagree, the two
     // frontends are drawn to different page systems and one of them is wrong.
     expect(createHash("sha256").update(contractText()).digest("hex")).toBe(
-      "23106e9c4e6ca323c4a5c9663975f6ccb084612be0b866abba95dd977cee6618"
+      "8018b2cb4ca4982a05c0bf9e9a2214b7dd59bd3812bb70bca93f1034218e56e9"
     );
   });
 
@@ -143,6 +149,31 @@ describe("the layout contract", () => {
     expect(page, "the page's rhythm comes from the scale").toContain(`gap: var(--${gap})`);
     expect(tokenPx(tokens(), pad)).toBe(contract.page.pad);
     expect(tokenPx(tokens(), gap)).toBe(contract.page.gap);
+  });
+
+  it("is the radius scale, and every step means something rather than being available", () => {
+    // **SIX DECLARED VALUES, AND THE LARGEST IS PAINTED ONLY INSIDE AN OVERLAY (the fifty-eighth list).**
+    // `--radius-lg: 20px` exists here and is used three times — a bottom sheet's top corners, and two
+    // dialogs — so a PAGE never draws it. **A scale whose largest step is invisible on a page is a step
+    // that drifts**, because nothing a person sees can show it is wrong. The contract says what each step
+    // is FOR, and this surface is the one that supplied the row meaning (`10` on `.fleet-row`,
+    // `.tool-list`, `.skeleton-row`).
+    const tk = tokens();
+    const read = (name: string) => Number(tk.match(new RegExp(`--${name}:\\s*(\\d+)px;`))?.[1]);
+    expect(read("radius"), "a card's corner").toBe(contract.radius.page.card);
+    expect(read("radius-sm"), "a ROW's corner").toBe(contract.radius.page.row);
+    expect(read("radius-sm2"), "a control's corner").toBe(contract.radius.page.control);
+    expect(read("radius-xs"), "a mark's corner").toBe(contract.radius.page.mark);
+    expect(read("radius-lg"), "an overlay's corner").toBe(contract.radius.overlay.sheet);
+    // **AND THE OVERLAY STEP IS BIGGER THAN THE PANE STEP BY DEFINITION** — a sheet covers a page, so its
+    // corner is drawn larger. Equal values would mean there is no reason for two names.
+    expect(contract.radius.overlay.sheet).toBeGreaterThan(contract.radius.page.card);
+    expect(contract.radius.pill, "one pill").toBe(999);
+    // **AND THE LARGEST STEP IS USED ONLY WHERE AN OVERLAY IS** — proven by where it appears, not by a
+    // promise about intent.
+    const uses = [...css().matchAll(/(\.[\w-]+(?:\s*\{\s*|\s*\[[^\]]*\]\s*\{)?)[^{}]*?var\(--radius-lg\)/g)].length;
+    expect(uses, "the overlay step has call sites").toBeGreaterThan(0);
+    expect(uses, "and not one of them is a page-level card").toBeLessThanOrEqual(4);
   });
 
   it("is ONE hairline family, and the chrome's line is derived rather than restated", () => {

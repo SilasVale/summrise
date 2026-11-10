@@ -54,6 +54,21 @@
     "pane": "--glass-shadow",
     "raised": "--shadow"
   },
+  "radius": {
+    "$comment": "The corner scale, and WHAT EACH STEP IS FOR (the fifty-eighth list). The rule is not the count but the MEANING: a page nests card -> row -> control -> mark, and each is one step; an overlay is drawn LARGER than the pane it covers, which is why its steps are bigger. Measured: `--radius-lg: 20px` is painted on NO page a person browses \u2014 the console uses it inside three overlays and the panel on one dialog \u2014 so the largest step is an OVERLAY step and is recorded as one. `row` (10) was the step neither side assigned: the panel's own comment called it \"cards inside a pane\" while painting it on `.btn` and `.tab`, and the console paints it on `.fleet-row` and `.tool-list`. A 40 px TARGET and a 24 px control are the same proportion, so they cannot share one value: `target` is its own step.",
+    "page": {
+      "card": 14,
+      "row": 10,
+      "control": 8,
+      "mark": 6
+    },
+    "overlay": {
+      "sheet": 20,
+      "dialog": 14
+    },
+    "pill": 999,
+    "target": 10
+  },
   "rail": {
     "$comment": "Each surface's first column. The CONSOLE collapses at `tablet` (767): below it the rail becomes the top bar, so the page's left is 0 \u2014 measured at 380/480/639. The PANEL never collapses: it is a device app in a window, and its rail is the page's first column at every width. The widths are recorded rather than equalized; the COLLAPSE is a rule, not a habit.",
     "console": 232,
