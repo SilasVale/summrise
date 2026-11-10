@@ -3512,6 +3512,37 @@ quotes what a gate forbids trips the gate* — and the console's scan does not s
 same `in_comment` state the spacing scan already had, so the fix is in the SCAN and not in the prose; the two
 `4px` literals are `var(--sp-1)`.)*
 
+## P0 — the eightieth list (opened 2026-11-10, the loading state is a WORD on four of the six pages that read)
+
+The seventy-ninth list is closed. This list is rule 19's LOADING half, measured page by page with every read
+held 3.5 s, so the reader's view is the one *while* the answer is out:
+
+     page            what is drawn while the read is out            skeleton rows   role=status
+     console Home    "Reading the machine list" + 2 skeleton rows   **2**          ✓ (aria-label)
+     console Device  "Reading the machine list…"                    **0**          ✓
+     console Activity "Reading the audit…"                          **0**          ✗
+     panel  Memory   "Reading the memory list" + 3 skeleton rows    **3**          ✓ (aria-label)
+     panel  History  "Reading the device's session archive…"        **0**          ✗
+     panel  Plugins  "Loading inventory…"                           **0**          ✗
+     panel  Settings "Reading this device's settings…"              **0**          ✓
+
+**The contract's `loading` atom — `rowRadius 10, rowPad 12, rowGap 8, barRadius 6, rows 3, role "status"` —
+was written in the forty-seventh list and shipped on TWO pages of seven.** Where the two do draw it, they
+match the atom exactly (measured: pad 12, radius 10, gap 8, bars 14/11 px at radius 6, `role=status` with a
+label). Everywhere else the page draws ONE SENTENCE where the shape will be.
+
+**And the sentence is where a COUNT will be.** The panel's `archive-empty` is the line above a result count;
+the console's `.timeline-loading` sits where the day labels go; Plugins' `Loading inventory…` is where the
+plugin list goes. The atom's own reason says it: *"It is NOT a word in a result line: a loading state is not a
+result, and the count line is drawn only when it has a count."*
+
+1. **Four pages reserve a sentence where they should reserve the shape**, and three of them say nothing to a
+   screen reader (no `role`, no live region). **Fix:** the four draw the atom — three rows, the card's corner
+   and padding, the read's own label in a live region — and the sentence goes. **M.**
+2. **`rows: 3` is the atom's number and the console's Home draws two** — it passes on the panel and not on the
+   console, so the atom describes one surface's habit. **Fix:** the number is enforced by a gate in each repo
+   rather than by two people reading it. **S.**
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
