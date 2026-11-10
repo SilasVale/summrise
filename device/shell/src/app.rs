@@ -287,6 +287,19 @@ const RECONNECT_TASK: &str = "SummriseShellOnReconnect";
 
 /// The `schtasks` arguments that register the reconnect task for `exe`.
 ///
+/// **THE `/tr` VALUE IS QUOTED, AND THE MEASUREMENT THAT MOTIVATED IT IS AMBIGUOUS — SAID HERE SO THE NEXT
+/// READER DOES NOT INHERIT A PROVEN CONCLUSION (measured 2026-11-10).** The shell logs
+/// `could not register the session-reconnect task (schtasks exit exit code: 1)` on one machine and
+/// `registered the session-reconnect task` on another, running the SAME binary with the SAME unquoted
+/// argument — so the failed registration's CAUSE IS NOT ESTABLISHED. What IS measured: (a) `schtasks`
+/// invoked through `cmd /c` with an unquoted `/tr C:\Program Files\…` fails and prints "单词不能与安全
+/// 标识符进行任何映射", because CMD re-splits the line before schtasks ever sees it; (b) the Rust code
+/// passes ONE argv element, so that re-split does not happen there and the same unquoted form registered
+/// successfully on DESKTOP-84T3LIN; (c) `/change /tr "<quoted>"` succeeds from CMD and the task then starts
+/// the tray. So the quoting is CORRECT AND CHEAP (it is what `summrise_core::repair_task` has always
+/// done), and it makes a CMD-shaped invocation survivable — but it does not explain the one machine's
+/// failure, and this comment must not pretend it does.
+///
 /// A function so the wiring can be read and tested: the trigger is Windows' own *session reconnection*
 /// event (TerminalServices-LocalSessionManager, id 25), because a reconnected session has no logon for the
 /// Run key to fire on, and "run only when the user is logged on" is what puts the icon in that session.
