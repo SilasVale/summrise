@@ -2337,13 +2337,52 @@ mod tests {
         );
 
         // And the follow is still live: the next output is pushed, not polled.
+        //
+        // **THE FRAME IS CHECKED BY CURSOR, NOT BY CONTENT.** A `pty` session prints its shell's
+        // prompt on its own schedule, and this test read the prompt as the next chunk —
+        // `left: String("zss@zss:~$ "), right: "after\n"` — because the prompt landed between the
+        // subscribe ack and this append. That is the MACHINE under test, not the follow. What the
+        // follow promises is the next chunk AFTER the last cursor it pushed, and the chunk's text is
+        // whatever the session produced next.
+        let last = *cursors.last().expect("at least one pushed frame");
         registry
             .push_output_for_test(&session, b"after\n")
             .expect("the ring takes output");
         let frame = tokio::time::timeout(Duration::from_secs(5), next_frame(&mut console))
             .await
             .expect("the follow is still live");
-        assert_eq!(frame["term"]["data"], "after\n", "{frame}");
+        let cursor = frame["term"]["cursor"]
+            .as_u64()
+            .unwrap_or_else(|| panic!("a pushed frame names its cursor: {frame}"));
+        assert!(
+            cursor > last,
+            "the follow pushed the chunk after {last}, not one before it: {frame}"
+        );
+        let data = frame["term"]["data"]
+            .as_str()
+            .expect("a pushed chunk is text");
+        assert!(
+            data == "after\n" || !data.is_empty(),
+            "the chunk after the last cursor is the session's next output, not empty: {frame}"
+        );
+        if data != "after\n" {
+            // The prompt arrived first. The FOLLOW is still what is being asserted: consume up to a
+            // few more frames and require `after\n` among them, in order.
+            let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+            loop {
+                let frame = tokio::time::timeout_at(deadline, next_frame(&mut console))
+                    .await
+                    .expect("the follow is still live")
+                    .clone();
+                if frame["term"]["data"] == "after\n" {
+                    break;
+                }
+                assert!(
+                    tokio::time::Instant::now() < deadline,
+                    "the appended bytes never arrived: the frames stopped at {frame}"
+                );
+            }
+        }
         let _ = registry.close(&session).await;
     }
 

@@ -98,7 +98,7 @@ const CAST_POLL_MS: u64 = 20;
 
 /// How long a screencast may go unpolled before its task stops Chrome's stream: a console tab that
 /// was closed or navigated away should not leave Chrome encoding frames nobody reads.
-const CAST_IDLE_MS: u64 = 60_000;
+pub const CAST_IDLE_MS: u64 = 60_000;
 
 /// One screencast frame: a base64 JPEG Chrome produced for a page, with its size and arrival time.
 #[derive(Clone)]

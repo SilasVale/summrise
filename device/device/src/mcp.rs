@@ -6242,6 +6242,172 @@ mod tests {
         );
     }
 
+    /// **A DESCRIPTION THAT STATES A NUMBER IS A PROMISE, AND NOTHING TIED THE NUMBERS TO THE CODE.**
+    ///
+    /// The registry's `description` is the MCP tool description: it is what a client's model reads
+    /// before it calls. Several of them state limits — "at most 1000 entries", "at most 16 sessions",
+    /// "a frame over 8 MiB is refused" — and a limit that drifts from the constant behind it makes
+    /// the description a lie in the one direction that matters: the model budgets for a number the
+    /// device does not honour.
+    ///
+    /// The check is a table of (tool, the text the description must contain, the constant, the text
+    /// its value must render as). **It reads the CONSTANTS, not a copy of them**, so changing
+    /// `MAX_SESSIONS` to 32 without touching the sentence fails here instead of in a model's context
+    /// window.
+    ///
+    /// MUTATION (run, not asserted): setting `MAX_SESSIONS` to 32 while the sentence still said 16
+    /// made this fail with `terminal.create: the description must state \`At most 32 sessions\` (the
+    /// value is 32); it says \`… At most 16 sessions may be live …\``. Restored, green.
+    #[test]
+    fn the_limits_a_description_states_are_the_limits_the_code_enforces() {
+        use crate::capabilities::browser;
+        use crate::capabilities::files;
+        use crate::capabilities::memory;
+        use crate::capabilities::monitor;
+        use crate::capabilities::runs;
+        use crate::capabilities::terminal;
+        use crate::plugins::logs;
+
+        // (tool, text the description must contain, the value the constant renders as)
+        let rows: [(&str, String, &str); 14] = [
+            (
+                "files.list",
+                format!("{} entries", files::MAX_LIST_ENTRIES),
+                &format!("{}", files::MAX_LIST_ENTRIES),
+            ),
+            (
+                "memory.export",
+                format!("up to {}", human_bytes(memory::MAX_EXPORT_BYTES)),
+                &human_bytes(memory::MAX_EXPORT_BYTES),
+            ),
+            (
+                "terminal.create",
+                format!("At most {} sessions", terminal::MAX_SESSIONS),
+                &format!("{}", terminal::MAX_SESSIONS),
+            ),
+            (
+                "terminal.create",
+                format!("retains {}", human_bytes(terminal::BUFFER_BYTES)),
+                &human_bytes(terminal::BUFFER_BYTES),
+            ),
+            (
+                "terminal.create",
+                format!("idle for {} minutes", terminal::IDLE_TIMEOUT_MS / 60_000),
+                &format!("{}", terminal::IDLE_TIMEOUT_MS / 60_000),
+            ),
+            (
+                "terminal.write",
+                format!("At most {}", human_bytes(terminal::MAX_INPUT_BYTES)),
+                &human_bytes(terminal::MAX_INPUT_BYTES),
+            ),
+            (
+                "terminal.write",
+                format!(
+                    "cannot finish in {} seconds",
+                    terminal::WRITE_TIMEOUT_MS / 1_000
+                ),
+                &format!("{}", terminal::WRITE_TIMEOUT_MS / 1_000),
+            ),
+            (
+                "terminal.read",
+                format!("newest {}", human_bytes(terminal::BUFFER_BYTES)),
+                &human_bytes(terminal::BUFFER_BYTES),
+            ),
+            (
+                "terminal.resize",
+                format!("1..={}", terminal::MAX_DIMENSION),
+                &format!("{}", terminal::MAX_DIMENSION),
+            ),
+            (
+                "browser.open",
+                format!("at most {} tabs", browser::MAX_TABS),
+                &format!("{}", browser::MAX_TABS),
+            ),
+            (
+                "browser.eval",
+                format!("over {} is refused", human_bytes(browser::EVAL_MAX_BYTES)),
+                &human_bytes(browser::EVAL_MAX_BYTES),
+            ),
+            (
+                "monitor.add",
+                format!("At most {} targets", monitor::MAX_TARGETS),
+                &format!("{}", monitor::MAX_TARGETS),
+            ),
+            (
+                "monitor.add",
+                format!("at least {} ms", monitor::MIN_INTERVAL_MS),
+                &format!("{}", monitor::MIN_INTERVAL_MS),
+            ),
+            (
+                "runs.exec",
+                format!("at most {} variables", runs::MAX_ENV_VARS),
+                &format!("{}", runs::MAX_ENV_VARS),
+            ),
+        ];
+        let _ = logs::MAX_LOG_LINES;
+
+        for (tool, needle, rendered) in rows {
+            let definition =
+                summrise_core::registry::tool(tool).unwrap_or_else(|| panic!("{tool} is declared"));
+            assert!(
+                definition.description.contains(&needle),
+                "{tool}: the description must state `{needle}` (the value is {rendered}); it says \
+                 `{}`",
+                definition.description
+            );
+        }
+
+        // THE ROWS THAT ARE PLAIN NUMBERS, kept separate because they need no unit conversion.
+        let plain: [(&str, String, usize); 5] = [
+            (
+                "browser.screenshot",
+                format!("{} MiB", browser::SCREENSHOT_MAX_BYTES / (1024 * 1024)),
+                browser::SCREENSHOT_MAX_BYTES / (1024 * 1024),
+            ),
+            (
+                "browser.cast",
+                format!("{} MiB", browser::CAST_MAX_BYTES / (1024 * 1024)),
+                browser::CAST_MAX_BYTES / (1024 * 1024),
+            ),
+            (
+                "browser.cast",
+                format!("{} s unpolled", browser::CAST_IDLE_MS / 1_000),
+                (browser::CAST_IDLE_MS / 1_000) as usize,
+            ),
+            (
+                "runs.list",
+                format!("defaults to {}", runs::DEFAULT_LIST_LIMIT),
+                runs::DEFAULT_LIST_LIMIT,
+            ),
+            (
+                "plugins.logs",
+                format!("at most {}", logs::MAX_LOG_LINES),
+                logs::MAX_LOG_LINES,
+            ),
+        ];
+        for (tool, needle, rendered) in plain {
+            let definition =
+                summrise_core::registry::tool(tool).unwrap_or_else(|| panic!("{tool} is declared"));
+            assert!(
+                definition.description.contains(&needle),
+                "{tool}: the description must state `{needle}` (the value is {rendered}); it says \
+                 `{}`",
+                definition.description
+            );
+        }
+    }
+
+    /// The way a byte count is written in these descriptions: exact powers of two as whole MiB.
+    fn human_bytes(bytes: usize) -> String {
+        if bytes.is_multiple_of(1024 * 1024) {
+            format!("{} MiB", bytes / (1024 * 1024))
+        } else if bytes.is_multiple_of(1024) {
+            format!("{} KiB", bytes / 1024)
+        } else {
+            format!("{bytes} bytes")
+        }
+    }
+
     #[tokio::test]
     async fn the_mcp_route_without_the_install_token_is_401() {
         let device = start("mcp-no-token").await;
