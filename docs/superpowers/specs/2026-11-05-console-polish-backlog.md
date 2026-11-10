@@ -3556,8 +3556,8 @@ result, and the count line is drawn only when it has a count."*
 
 ## P0 — the eighty-first list (opened 2026-11-10, the panel's first page does not sit on the page frame)
 
-The eightieth list is closed: six of the seven reading pages reserve the loading shape. This list is the page
-FRAME, measured on the surface whose own numbers were never compared page to page.
+The eightieth list is closed: six of the seven reading pages reserve the loading shape. **This list is closed
+(2026-11-10), shipped as panel `cd19b3de`.** This list was the page FRAME, measured on the surface whose own numbers were never compared page to page.
 
 Measured 2026-11-10 at 1,360 on the panel, walking its four pages and reading where each one's content lands:
 
@@ -3578,8 +3578,17 @@ page. The panel draws it on six of seven.
 
 1. **The Terminal's body joins the frame.** Its title and its shell sit on the page's column at the page's
    inset, so navigating from Terminal to Memory does not move the title 85 px. **M.**
+   *(**Done, panel `cd19b3de`**: `.terminal-head` takes `max-width: 1120px`, `margin: 0 auto` and
+   `padding: var(--sp-5) var(--sp-5) 0`, and loses the hairline the content card already draws. Measured
+   after: **head 146 / 1,120 / title 170 — identical to Memory, Plugins and Settings; at 390 the head is 304
+   wide and the document does not scroll sideways.** The BODY stays full-bleed, because a shell needs the
+   window.)*
 2. **Nothing detects this today** — the panel's own contract test asserts `.page`'s rule, and `.page` is the
    element the Terminal does not have. **Fix:** the gate asks every page, not the rule. **S.**
+   *(**Done, panel `cd19b3de`**: `is ONE page frame, drawn by EVERY page — including the one the app opens on`
+   reads `.terminal-head`'s rule for the frame's column and inset, and asserts the body did NOT acquire a
+   `max-width` of its own, so the frame and the deliberate bleed are both recorded. Mutation: the head back to
+   its strip → red.)*
 
 ## How a round goes
 
