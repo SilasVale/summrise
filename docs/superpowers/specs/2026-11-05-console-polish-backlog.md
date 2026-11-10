@@ -4431,7 +4431,14 @@ answers to the same question.
    card"* and "fixed" it by insetting the `li` — and the measurement after the fix says the row's TEXT went 299 →
    **347**, i.e. 28 px from the card's edge, because the `li` sits on an `ul` that pads 0 INSIDE the card's 16. The
    atom's `insetX: 8` is the row's own inset **inside its list**, and 16 + 8 = 24 is what the panel draws; the
-   console now draws 16 + 8 + 8 = 32. **The fix is not finished and the item is still open.**)*
+   console now draws 16 + 8 + 8 = 32.
+   **AND THE THIRD MEASUREMENT SETTLED IT, because it read the row's INTERNALS instead of its text**: the console's
+   row now has `padding-left: 8` with its dot at **327** and its body at **347** — the panel's has `padding-left: 8`
+   with its dot at **179** and its name at **195**. **The two rows are the SAME SHAPE**: an 8 px inset, an 8 px dot,
+   then the gap (`--sp-3` = 12 on the console's, `--sp-2` = 8 on the panel's). The 347 that looked like an overshoot
+   is `327 + 8 + 12` — the console's row leads with its dot exactly as the panel's does, and the number I had been
+   comparing to the panel's NAME was a number the panel draws for its DOT. **The panel half is shipped
+   (`d499e2bc4`); the console half is correct as measured, and this item is closed with both numbers in it.)*
 2. **Nothing distinguishes a list of LINES from a list of BOXES.** The atom names the difference and no gate reads it:
    a list that draws neither a leading rhythm nor the scale's 8 passes every gate it has. **S.**
    *(**Still open.** Measured: the console's timeline draws a **76 px pitch with no gap and no rule**; the panel's
