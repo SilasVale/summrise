@@ -3037,10 +3037,20 @@ one from a token** (surface, surface-chip, accent, faint, the recessed row, the 
    palette does not have. `#30d158` is a fifth — a status dot's green, brighter than the `ok` the palette
    declares. **Fix:** the four become the contract's semantic tokens at one alpha, and the dot takes the
    `ok` the palette already has. **M.**
+   *(**Done, panel `e034fdb3`, live 0.3.273-ux175**: three named washes at ONE alpha, the active toggle on
+   `--accent` (the colour the rail, the tabs and the focus ring already use for "chosen"), and the live dot
+   plus its pulse ring on `--success` with a `color-mix` ring so the two cannot drift. **The console had the
+   same defect at the level of the OVERLAY** — `.sheet-scrim` at `rgba(0,0,0,.4)` and `.scrim` at
+   `rgba(12,16,20,.38)`, two shades repainted to one `color-mix` in a later rule; `--scrim` is a token now
+   (console `489a224`). **A wash is a token when it names a STATE and a scrim when it names a MODE.**)*
 
 2. **The panel declares `--badge-ok-ink` and friends but no `--badge-*-wash`,** so the wash half of a badge
    is a literal beside a tokened ink — one badge, two sources of colour. **Fix:** the wash joins the token
    block, and each repo's test refuses a `background` that is a raw `rgba`/hex outside the overlay list. **S.**
+   *(**Done with item 1**: `--badge-ok-wash` / `--badge-err-wash` / `--badge-run-wash` beside the three inks,
+   and `palette.washAlpha: 0.18` in the contract — a wash is the same proportion of the same semantics on
+   every badge, so the ALPHA is the recorded number rather than three nearly-equal ones. Mutation:
+   `badge-ok-wash is a token`.)*
 
 ## How a round goes
 
