@@ -911,67 +911,6 @@ export function ActivityTimeline(props: {
                 Clients only
               </button>
             </div>
-            <span
-              className="filter-count"
-              id="timeline-clients-window"
-              // **THE WINDOW'S COUNT CARRIES ITS OWN INTERVAL (the forty-fifth list).** The sentence
-              // beside it names its start and length in prose; these are the same two facts as
-              // numbers, so a gate can compare them with the day's interval above instead of parsing
-              // two English sentences. The window is the READ's span, not the filter's subset.
-              data-interval-kind="window"
-              data-interval-from={windowSpan?.oldest_ts_ms ?? undefined}
-              data-interval-to={windowSpan?.newest_ts_ms ?? undefined}
-            >
-              {/* **THE COUNT NAMES THE NOUN IT COUNTED.** It is always the client-call subset of
-                    the fetched window; while the chip is off the list beside it draws every caller,
-                    so `353 rows` named the wrong thing and read as the window's size (audit-43 F6).
-                    Pressed, the subset is the list and `rows` is true. */}
-                {clientCalls}{" "}
-                {clientsOnly
-                  ? clientCalls === 1
-                    ? "row"
-                    : "rows"
-                  : clientCalls === 1
-                    ? "client call"
-                    : "client calls"}
-                {/* **THE COUNT'S QUALIFIER MUST BE THE COUNT'S SET (the thirty-seventh list).**
-                    Measured after typing a search that matched nothing: `0 client calls in this
-                    window · spanning 10 h 50 m`, where the `0` is the SEARCH-FILTERED client-call
-                    count and the span is the UNFILTERED window's — a `·` joining two different
-                    measurements as if one described the other, under a head that still said
-                    `Today: 876 client calls`. When the list is narrowed the sentence says so, and the
-                    span is withheld while it is: the span belongs to the read, and the read is not
-                    what the reader is looking at. */}
-                {/* The query itself is NOT repeated here: the empty state below already quotes it
-                    once, and a reader who is looking at their own search does not need it echoed in
-                    a subordinate count. `matching the search` says which set the number is of. */}
-                {needle !== "" || scope !== "" ? (
-                  // One separator, not two: the fragments are joined by the page's own `·`, so
-                  // `on Beta in this window` reads as one clause rather than `on Beta  in this`.
-                  // One space, one clause: the separators are inside each fragment so the sentence
-                  // cannot pick up a second space from a conditional that did not fire.
-                  <>
-                    {needle !== "" ? " matching the search" : ""}
-                    {scope !== "" ? ` on ${deviceLabel}` : ""}
-                    {" in this window"}
-                  </>
-                ) : (
-                  <>
-                    {/* **THE WINDOW NAMES WHERE IT STARTS, NOT ONLY HOW LONG IT IS (the
-                        forty-third list).** Measured live at 19:48: the header said `Today: 206
-                        client calls` and this line said `629 client calls in this window · spanning
-                        12 h 15 m` — both true, and 629 > 206 for a reason nothing on the page said:
-                        a 12 h 15 m window read at 19:48 STARTS AT 07:33, so it never crosses midnight
-                        and the day's 206 cannot be a subset of it. A span alone cannot say that; the
-                        START can, and it is the fact that reconciles the two numbers. */}
-                    {" in this window"}
-                    {windowSpan !== null
-                      ? ` · from ${clockTime(windowSpan.oldest_ts_ms)}` +
-                        (windowSpanMs > 0 ? `, spanning ${spanText(windowSpanMs)}` : "")
-                      : ""}
-                  </>
-                )}
-            </span>
           </div>
           <label className="audit-field timeline-search">
             <span>Search activity</span>
@@ -983,6 +922,75 @@ export function ActivityTimeline(props: {
             />
           </label>
         </div>
+      )}
+      {filterable && (
+        /* **THE COUNT IS THE RECORD'S LINE, NOT A FILTER ROW (the ninety-fourth list).** Measured 1,440 x 900:
+           it wrapped to TWO LINES inside the 320 px callers block, which made that block **91 px** while the
+           machines block beside it was 49 - so the record's first row sat at **455 of a 900 px viewport**.
+           It is a sentence about the READ (its count, its start, its length), so it takes its own line under
+           the controls. Drawn in EVERY state, because a narrowed search can leave no day to hang it from and
+           the chip's `aria-describedby` must never dangle. */
+                <span
+                  className="filter-count"
+                  id="timeline-clients-window"
+                  // **THE WINDOW'S COUNT CARRIES ITS OWN INTERVAL (the forty-fifth list).** The sentence
+                  // beside it names its start and length in prose; these are the same two facts as
+                  // numbers, so a gate can compare them with the day's interval above instead of parsing
+                  // two English sentences. The window is the READ's span, not the filter's subset.
+                  data-interval-kind="window"
+                  data-interval-from={windowSpan?.oldest_ts_ms ?? undefined}
+                  data-interval-to={windowSpan?.newest_ts_ms ?? undefined}
+                >
+                  {/* **THE COUNT NAMES THE NOUN IT COUNTED.** It is always the client-call subset of
+                        the fetched window; while the chip is off the list beside it draws every caller,
+                        so `353 rows` named the wrong thing and read as the window's size (audit-43 F6).
+                        Pressed, the subset is the list and `rows` is true. */}
+                    {clientCalls}{" "}
+                    {clientsOnly
+                      ? clientCalls === 1
+                        ? "row"
+                        : "rows"
+                      : clientCalls === 1
+                        ? "client call"
+                        : "client calls"}
+                    {/* **THE COUNT'S QUALIFIER MUST BE THE COUNT'S SET (the thirty-seventh list).**
+                        Measured after typing a search that matched nothing: `0 client calls in this
+                        window · spanning 10 h 50 m`, where the `0` is the SEARCH-FILTERED client-call
+                        count and the span is the UNFILTERED window's — a `·` joining two different
+                        measurements as if one described the other, under a head that still said
+                        `Today: 876 client calls`. When the list is narrowed the sentence says so, and the
+                        span is withheld while it is: the span belongs to the read, and the read is not
+                        what the reader is looking at. */}
+                    {/* The query itself is NOT repeated here: the empty state below already quotes it
+                        once, and a reader who is looking at their own search does not need it echoed in
+                        a subordinate count. `matching the search` says which set the number is of. */}
+                    {needle !== "" || scope !== "" ? (
+                      // One separator, not two: the fragments are joined by the page's own `·`, so
+                      // `on Beta in this window` reads as one clause rather than `on Beta  in this`.
+                      // One space, one clause: the separators are inside each fragment so the sentence
+                      // cannot pick up a second space from a conditional that did not fire.
+                      <>
+                        {needle !== "" ? " matching the search" : ""}
+                        {scope !== "" ? ` on ${deviceLabel}` : ""}
+                        {" in this window"}
+                      </>
+                    ) : (
+                      <>
+                        {/* **THE WINDOW NAMES WHERE IT STARTS, NOT ONLY HOW LONG IT IS (the
+                            forty-third list).** Measured live at 19:48: the header said `Today: 206
+                            client calls` and this line said `629 client calls in this window · spanning
+                            12 h 15 m` — both true, and 629 > 206 for a reason nothing on the page said:
+                            a 12 h 15 m window read at 19:48 STARTS AT 07:33, so it never crosses midnight
+                            and the day's 206 cannot be a subset of it. A span alone cannot say that; the
+                            START can, and it is the fact that reconciles the two numbers. */}
+                        {" in this window"}
+                        {windowSpan !== null
+                          ? ` · from ${clockTime(windowSpan.oldest_ts_ms)}` +
+                            (windowSpanMs > 0 ? `, spanning ${spanText(windowSpanMs)}` : "")
+                          : ""}
+                      </>
+                    )}
+                </span>
       )}
       {props.loading && !props.loadingFailed && (
         // **A LOADING STATE RESERVES THE SHAPE, NOT A SENTENCE (the eightieth list).** Measured 2026-11-10

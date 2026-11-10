@@ -2474,6 +2474,7 @@ try {
       callersLabel: byId('timeline-callers-label'),
       callersChips: box(document.querySelector('.timeline-callers')),
       count: byId('timeline-clients-window'),
+      bar: box(document.querySelector('.timeline-filters')),
       searchLabel: search ? box(search.querySelector('span')) : null,
       searchField: search ? box(search.querySelector('input')) : null
     };
@@ -2506,15 +2507,20 @@ try {
   if (misaligned.length !== 0) {
     throw new Error(`the Activity filter bar has edges off its columns: ${misaligned.join('; ')}`);
   }
-  // The count belongs to the Callers column, not floating where the chip row ended.
-  if (filterGrid.count && filterGrid.callersChips) {
-    if (Math.abs(filterGrid.count.x - filterGrid.callersChips.x) > 1) {
+  // **THE COUNT IS NOT A COLUMN ANY MORE (the ninety-fourth list).** This step used to require the count to
+  // start on the Callers column's own x — it was a third item inside that block, and it wrapped to two lines
+  // there, making the block 91 px while the machines block beside it was 49 and pushing the record's first
+  // row to 455 of a 900 px viewport. The count is a sentence about the READ; it now has its own line under
+  // the controls. What this step still holds is that it is nowhere inside the filter row at all.
+  if (filterGrid.count && filterGrid.bar) {
+    // **IT THROWS WHEN THE COUNT IS INSIDE THE ROW, NOT WHEN IT IS OUTSIDE IT** — the first draft of this
+    // step had the comparison inverted and failed on the very page it was meant to bless (measured y 373
+    // against a row ending at 357). A gate whose failure message contradicts its condition is a gate nobody
+    // has read.
+    if (filterGrid.count.y >= filterGrid.bar.y && filterGrid.count.y <= filterGrid.bar.y + filterGrid.bar.h) {
       throw new Error(
-        `the caller count starts at ${filterGrid.count.x}, its column starts at ${filterGrid.callersChips.x}`
+        `the caller count is back inside the filter row (count y ${filterGrid.count.y}, row ${filterGrid.bar.y}+${filterGrid.bar.h})`
       );
-    }
-    if (filterGrid.count.y < filterGrid.callersChips.y) {
-      throw new Error('the caller count sits above the chip it counts');
     }
   }
   // **THE MACHINE CHIPS STAY ON ONE LINE WHEN THE BAR CAN HOLD THEM (1440).** The first grid gave

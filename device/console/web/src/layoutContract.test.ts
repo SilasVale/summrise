@@ -1077,6 +1077,44 @@ describe("the layout contract", () => {
     }
   });
 
+  it("is a RECORD whose first row is above half the viewport", () => {
+    // **MEASURED 2026-11-11 AT 1,440 × 900 ON THE RECORD PAGE**, counting the space before the first row a
+    // reader can actually read:
+    //
+    //     page head bottom      155
+    //     stream bar            179 → 224      (45)
+    //     the filter block      238 → 407      (**169**)
+    //       ├ machines + chips 49
+    //       ├ callers + chip + count **91**   ← one chip and a two-line count sentence
+    //       └ search field      49
+    //     day head              423 → 455
+    //     **first record row  455**           ← half the viewport gone before one call is drawn
+    //
+    // **The offender was not the machines row (49 px): it was `Callers`**, a block holding ONE chip whose
+    // count sentence wrapped to two lines at `--fs-sm`, so that block was 91 px while its neighbour was 49.
+    // **And a count sentence is not a control**: it is a sentence about the READ, and it belongs on the
+    // record's own line.
+    const source = readFileSync(path.join(here, "ActivityTimeline.tsx"), "utf8");
+    const sheet = css();
+    // The count is drawn OUTSIDE the filter row: `filterable` renders the filters, then the count.
+    const callers = source.indexOf("filter-block-callers");
+    const count = source.indexOf('className="filter-count"');
+    expect(callers, "the callers control still exists").toBeGreaterThan(-1);
+    expect(count, "the count still exists").toBeGreaterThan(-1);
+    // Its own wrapper, drawn in every state, not inside the filter row's grid.
+    expect(source, "the count has its own line").toContain("{filterable && (");
+    const countBlock = source.slice(Math.max(0, source.lastIndexOf("{filterable && (", count)) + 16, count);
+    expect(countBlock, "and it is NOT inside the filter row").not.toContain("timeline-filters");
+    // The filter row is one row: `align-items: end` keeps every block on the baseline its label starts.
+    const row = sheet.match(/\.timeline-filters \{\s[^}]*\}/);
+    expect(row, "the filter row is declared").toBeTruthy();
+    expect(row![0], "and its blocks are aligned, not stacked from the top").toContain("align-items: end");
+    // A count that cannot wrap cannot make a row tall: it has no width to wrap in.
+    const countRule = sheet.match(/\.filter-count \{\s[^}]*\}/);
+    expect(countRule, "the count has a rule").toBeTruthy();
+    expect(countRule![0], "the count is not a filter column any more").not.toContain("align-self: center");
+  });
+
   it("is a DAY that says what it holds, and its heading says only what it is called", () => {
     // **MEASURED 2026-11-11 ON THE SERVED BUILD, a seeded record of TWO days (22 rows each):**
     //
