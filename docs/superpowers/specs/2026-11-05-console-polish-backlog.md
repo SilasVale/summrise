@@ -4003,6 +4003,31 @@ division a reader ever sees on the page — every other division is that 11 px w
 2. **The stretch's population is not counted anywhere the eye lands.** The page knows 9 stretches and 60 rows;
    the reader is told neither. **Fix:** the day's line says what the day holds. **S.**
 
+## P0 — the ninety-third list (opened 2026-11-11, the day tells a reader NOTHING about itself)
+
+The ninety-second list's item 1 is shipped in the tree. This list is the DAY — the record's outermost grouping,
+and the one thing that tells a reader where in the record they are.
+
+Measured 2026-11-11 on the served build at 1,440, with a seeded record of TWO days (22 rows each):
+
+     a day's own children        `h2.timeline-day-label`, `ol.timeline-rows` — and nothing else
+     what its label says         "Today" / "Monday, 11/9"
+     what its rows say           22 rows, 2 stretches
+     what the DAY says about     **nothing**, unless it is cut short enough to need a door
+
+**The day's count and span exist in the code — `dayText(lines)` builds `692 calls · 11:52 → 12:43` — and they are
+drawn in ONE place: the door's `title` and its `.timeline-more-facts`, i.e. only when a day is longer than the
+60 rows drawn.** Measured on the live record: `DAY_VISIBLE` is 60, the live window holds **1,000 lines in a single
+day**, so the live day DOES draw its door. A day of 22 rows draws nothing at all.
+
+**So "what does this day hold?" is answered on a long day and unanswerable on a short one** — the same question,
+one page, two behaviours, decided by a number the reader cannot see. And the door's sentence is the only place the
+day's SPAN appears, so a reader of a short day cannot tell whether they are looking at ten minutes or six hours.
+
+1. **A day's count and span are drawn only when it is long enough to be cut.** **Fix:** the day's line is part of
+   the day, not of its door — every day says what it holds. **M.**
+2. **Nothing measures a day's head at all**: the gates read the timeline's rows and its separations. **S.**
+
 ## How a round goes
 
 1. Read this file; pick the first item that is not done.
