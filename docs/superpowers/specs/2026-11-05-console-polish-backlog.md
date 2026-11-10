@@ -2508,11 +2508,23 @@ card of both surfaces — recorded as clean, and worth saying because it is the 
    as a heading, while the eyebrow beside it is the `h2`). **Fix:** the contract names the card title
    (size, weight, and the element that carries it wins nothing from the contract — but the numbers do
    not vary per surface), and the console's card headers use it. **M.**
+   *(**Done on the console, live 0.3.273-ux163** (`12e5870`): the rule covers `strong`, `h2` and `h3` at
+   the contract's `cardTitle` (14 / 600). Mutation: `the card title is the contract's: expected 13 to be
+   14`. **A SECOND DEFECT THE RUN FOUND BY BEING RUN AT THE WRONG HOUR:** the browser gate anchors 75
+   historic lines one second into the LOCAL day, and its `Last hour` leg asks for `[now-1h, now)` — so
+   between midnight and 01:00 the window spans the day's boundary, the answer holds 77, the day's door
+   caps the table at 60, and the leg fails **on a calendar**. The gate read `Date.now()`, which meant it
+   tested a different page every hour, and it had been green all evening because this workstream only
+   ever ran it after 01:00. `NOW` is pinned to noon and `page.clock.setFixedTime(NOW)` pins the browser to
+   the same instant. **A fixed clock is not a fake result — it is a test that stops moving under itself.**)*
 
 2. **The panel's card title is 14 and its section heading is 17; the console's card title is 13 and its
    section heading is 17.** The step between a section and a card is therefore 3 px on one surface and
    4 on the other — not a defect anyone can see, but the kind of drift rule 3 counts, and it exists
    because neither surface wrote the pair down. **Fix:** the same contract line answers both. **S.**
+   *(**Done with item 1**: `cardTitle: { size 14, weight 600 }` is in the contract beside `section.h2`
+   (17), so the two-step ladder is written once. The panel already drew 14 / 600 — its card title needed
+   no code, only a number it could be measured against.)*
 
 ## How a round goes
 
