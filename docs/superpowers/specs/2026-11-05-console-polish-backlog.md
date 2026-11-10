@@ -4729,8 +4729,25 @@ on chrome and the panel **21%**: the same page, two frames.
 1. **The page's inset is 24 at the phone on one surface and 14 on the other, and the direction is unexplained.**
    **Fix:** the atom records the inset PER BAND, both sheets read it, and the two surfaces' phone frames agree.
    **M.**
+   *(**Done on both sides, MERGED, NOT DEPLOYED** — contract `d8f36aa2`, console `b8b6b85`, panel merged. **The atom
+   records `page.phonePad: 14`** at `breakpoints.phone: 639`, and both sheets draw it; the console's page went
+   `24px` → `14px` at 390, so its **content column went 342 of 390 (88%) → 362 (93%)** and the chrome **12% → 7%**.
+   **The panel was the RIGHT one** — its step was a measured fix that never reached the other sheet — and the
+   comparison only became POSSIBLE when both sheets drew the number: *a comparison needs the number in BOTH.*
+   **AND THE DOT I FOUND ON THE WAY**: at 390 the fleet row's status mark measured **0.0 × 14.0 px** — a vertical green
+   sliver. The chain said why: the container query's `.fleet-table tbody td { display: block }` is **specificity
+   (0,1,2)** and `.fleet-status { display: flex }` is **(0,1,0)**, so the CELL became `block` and its `.dot` — a
+   `span` with width/height and no `display` — became `display: inline`, **where width and height do not apply at
+   all**. *Rule 6's "shape carries the state" is only true if the shape survives the band.* Measured after: **8 × 8**.)*
 2. **Nothing measures a band's inset.** The gates measure the frame at 1,360 (where both agree) and the phone is
    checked for *"content is not clipped"*, not for **how much of the window the chrome takes**. **S.**
+   *(**Done on both sides**: each repo's `steps the page's inset at the phone band` reads the query, the step and the
+   atom's two numbers. Mutations: the step back to `24` on the console → "the phone band steps the page's inset".
+   **And the browser leg failed the moment the step landed** (`the phone's page padding is 14px, the contract says
+   24px`) — a gate doing its job on a shape that changed; its assertion is the atom's `phonePad` now.
+   **THE PANEL'S GATE TOOK TWO DRAFTS**: the first demanded a newline-laid-out query block and found nothing in a
+   sheet that writes the step on ONE line — *looking for a layout instead of a fact*, the same mistake this program
+   keeps paying for.)*
 
 ## How a round goes
 
