@@ -296,7 +296,7 @@ fn reconnect_task_args(exe: &str) -> Vec<String> {
         "/tn",
         RECONNECT_TASK,
         "/tr",
-        exe,
+        &quote_action(exe),
         "/sc",
         "onevent",
         "/ec",
@@ -308,6 +308,27 @@ fn reconnect_task_args(exe: &str) -> Vec<String> {
     .iter()
     .map(|argument| (*argument).to_owned())
     .collect()
+}
+
+/// The `/tr` value for one executable: ONE argument, QUOTED when the path has a space in it.
+///
+/// **MEASURED ON A LIVE MACHINE, 2026-11-10:** the reconnect task could not be created at all —
+///
+///     could not register the session-reconnect task (schtasks exit exit code: 1)
+///
+/// — and the reason was this value: the shell passed the RAW path, so on the install root the product
+/// actually ships (`C:\Program Files\Summrise\summrise-shell.exe`) `schtasks` read `/tr C:\Program` and
+/// then tried to interpret `Files\Summrise\...` as a `/ru` value ("单词不能与安全标识符进行任何映射").
+/// The task that exists on that machine still points at `C:\SummriseInstall\summrise-shell.exe` — the
+/// path WITHOUT a space, from an older install — which is why this survived: it only breaks on the
+/// default install root. The repair task (`summrise_core::repair_task::registration_args`) has quoted its
+/// `/tr` all along, and its own comment calls this "the form measured to survive a path with a space".
+fn quote_action(exe: &str) -> String {
+    if exe.contains(' ') && !exe.starts_with('"') {
+        format!("\"{exe}\"")
+    } else {
+        exe.to_owned()
+    }
 }
 
 /// Keep this process registered with the device.
@@ -1100,6 +1121,30 @@ mod tests {
         assert!(
             joined.contains("C:\\SummriseCanary\\summrise-shell.exe"),
             "it names this binary: {joined}"
+        );
+        // **A PATH WITH A SPACE IS ONE QUOTED ARGUMENT (measured 2026-11-10).** The install root the
+        // product ships is `C:\Program Files\Summrise`, and the raw path made `schtasks` read `/tr
+        // C:\Program` and treat `Files\...` as another switch — so the task could not be created at all.
+        let spaced = reconnect_task_args("C:\\Program Files\\Summrise\\summrise-shell.exe");
+        let action = spaced
+            .iter()
+            .position(|argument| argument == "/tr")
+            .and_then(|index| spaced.get(index + 1))
+            .expect("the task names an action");
+        assert_eq!(
+            action, "\"C:\\Program Files\\Summrise\\summrise-shell.exe\"",
+            "a path with a space is quoted, as ONE argument: {action}"
+        );
+        // AND A PATH WITHOUT ONE IS NOT: the quoting is for the separator, not for the look of it.
+        let flat = reconnect_task_args("C:\\SummriseCanary\\summrise-shell.exe");
+        let flat_action = flat
+            .iter()
+            .position(|argument| argument == "/tr")
+            .and_then(|index| flat.get(index + 1))
+            .expect("the task names an action");
+        assert_eq!(
+            flat_action, "C:\\SummriseCanary\\summrise-shell.exe",
+            "no space, no quotes: {flat_action}"
         );
         assert!(
             joined.contains("/sc onevent"),
