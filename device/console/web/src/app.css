@@ -3208,12 +3208,20 @@ main::-webkit-scrollbar-track, .sheet-body::-webkit-scrollbar-track, .scroll::-w
    overflowed the bar by 247 px at 1280, `minmax(0,max-content)` split the caller label from its chip
    (627 vs 684), and a fixed search track forced the chips onto a second row at 1440 (452 px column
    against 581 px of chips) — a chip row that wraps above 1440 is the shape the desktop does not have. */
+/* **THE CONTROLS ARE ONE ROW, AND THE COUNT IS NOT AMONG THEM (the ninety-fourth list).** Measured 2026-11-11 at
+   1,440 × 900 on the record page: the filter block was **169 px** and the FIRST RECORD ROW sat at **455** of a
+   900 px viewport — half the screen spent before one call is drawn. The offender was not the machines row (49 px):
+   it was `Callers`, a 320 px block holding ONE chip and whose count sentence WRAPPED TO TWO LINES at `--fs-sm`,
+   making it **91 px while the block beside it was 49**.
+   The controls take one baseline-aligned row whatever the viewport; the count is the record's own sentence and
+   moves to the line the record already owns, where a reader looks for a count and not for a switch. */
 .timeline-filters {
-  display: flex; align-items: start; flex-wrap: wrap; gap: var(--sp-3-5) var(--sp-5);
-  margin: 0 0 var(--sp-4); padding-bottom: var(--sp-3-5);
+  display: flex; align-items: end; flex-wrap: wrap; gap: var(--sp-3) var(--sp-5);
+  margin: 0 0 var(--sp-3); padding-bottom: var(--sp-2);
   border-bottom: 1px solid var(--line);
 }
 .filter-block { display: grid; gap: var(--sp-1-5); min-width: 0; }
+
 /* **THE EYEBROW, ONE ATOM (the forty-ninth list).** Twelve rules on this surface write the same five
    declarations to turn a small label into an eyebrow, and the panel writes a thirteenth with different
    numbers (11 px / 700 / a hard-coded 0.06em where this file reads the token). The numbers are the
@@ -3243,7 +3251,12 @@ th,
   color: var(--ink-muted);
 }
 .filter-block-callers { align-items: start; }
-.filter-count { align-self: center; font-size: var(--fs-sm); color: var(--ink-faint); white-space: nowrap; }
+/* **THE COUNT IS THE RECORD'S LINE, NOT A FILTER ROW (the ninety-fourth list).** Measured 1,440 × 900: it
+   wrapped to TWO LINES inside the 320 px callers block, making that block **91 px** while the machines block
+   beside it was 49 — and the record's first row sat at **455 of a 900 px viewport**. A sentence about the
+   record's count, start and length belongs where the record starts, on the day's own line and at the page's
+   small step. */
+.filter-count { font-size: var(--fs-xs); color: var(--ink-muted); }
 .timeline-machines { align-items: center; flex: 0 1 auto; }
 .timeline-machines .chip { border: 0; cursor: pointer; }
 .timeline-machines .chip[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); }
@@ -3260,8 +3273,7 @@ th,
    sits on the same column start the input does (`display: grid` with one column). */
 .timeline-search { display: grid; gap: var(--sp-1-5); min-width: 0; margin-left: auto; }
 .timeline-search input { width: 18rem; max-width: 100%; }
-/* One line under its chips, on the column's own edge, wrapping rather than forcing the bar wide. */
-.filter-count { white-space: normal; max-width: 20rem; }
+
 @media (max-width: 639px) {
   .activity-page .page-head h1 { font-size: var(--fs-xl); }
   .activity-today { font-size: var(--fs-lg); }
