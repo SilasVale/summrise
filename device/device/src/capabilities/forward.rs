@@ -624,6 +624,103 @@ mod tests {
         port
     }
 
+    /// **THE CAP IS REAL, AND REPLACING A RULE AT THE CAP STILL WORKS.** `RULES_MAX` exists because
+    /// every rule is a listening socket and an SSH hop, so the fifth rule is refused — but an EDIT of
+    /// an existing name is not a fifth rule, and refusing it would make a full device unmaintainable
+    /// (the only way to change anything would be to delete something first).
+    ///
+    /// MUTATION (run, not asserted): with `!replacing &&` dropped from the cap check, this went
+    /// `FAILED. 0 passed; 1 failed` with `the fourth rule can still be edited: TooManyRules { max: 4 }`.
+    /// Restored, it is green.
+    #[tokio::test]
+    async fn the_fifth_rule_is_refused_and_an_edit_at_the_cap_is_not() {
+        let fixture = Fixture::new("cap");
+        for index in 0..RULES_MAX {
+            fixture
+                .registry
+                .add(&spec(
+                    &format!("r{index}"),
+                    &format!("127.0.0.1:{}", 19000 + index as u16),
+                    "10.0.0.1:80",
+                    "u@h:22",
+                ))
+                .expect("a rule below the cap");
+        }
+        assert_eq!(fixture.registry.rules().len(), RULES_MAX);
+
+        let fifth = fixture
+            .registry
+            .add(&spec("r5", "127.0.0.1:19500", "10.0.0.1:80", "u@h:22"))
+            .expect_err("the fifth rule is refused");
+        match fifth {
+            ForwardError::TooManyRules { max } => assert_eq!(max, RULES_MAX),
+            other => panic!("expected TooManyRules, got {other}"),
+        }
+        // THE REFUSAL CHANGED NOTHING: still four, and none of them is `r5`.
+        assert_eq!(fixture.registry.rules().len(), RULES_MAX);
+        assert!(!fixture
+            .registry
+            .rules()
+            .iter()
+            .any(|rule| rule.name == "r5"));
+
+        // …and the fourth rule CAN still be edited, which is what keeps a full device usable.
+        fixture
+            .registry
+            .add(&spec("r3", "127.0.0.1:19501", "10.0.0.9:443", "u@h:22"))
+            .expect("the fourth rule can still be edited");
+        assert_eq!(fixture.registry.rules().len(), RULES_MAX);
+        let edited = fixture
+            .registry
+            .rules()
+            .into_iter()
+            .find(|rule| rule.name == "r3")
+            .expect("r3 is still configured");
+        assert_eq!(edited.listen, "127.0.0.1:19501");
+    }
+
+    /// **A WRITE THAT FAILS LEAVES THE REGISTRY AS IT WAS.** The file is the commit point: if
+    /// `forwards.json` cannot be written, the in-memory table must not grow a rule that nothing will
+    /// restore after a restart — a rule that lives only until the next boot is worse than a refusal,
+    /// because the operator saw it succeed.
+    ///
+    /// The failure is made REAL, not simulated: the table's own directory is made read-only, so
+    /// `save` fails the way it would on a full disk or a refused permission.
+    ///
+    /// MUTATION (run, not asserted): with the in-memory insert moved above `save(...)?`, this went
+    /// `FAILED. 0 passed; 1 failed` with `the in-memory table did not grow: [Rule { name: "never", … }]`
+    /// — the rule the operator saw refused, present in the table. Restored, it is green.
+    #[tokio::test]
+    async fn a_refused_write_does_not_change_the_table() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        let fixture = Fixture::new("readonly");
+        let path = fixture.dir.join(FORWARDS_FILE);
+        let read_only = fixture.dir.clone();
+        std::fs::set_permissions(&read_only, std::fs::Permissions::from_mode(0o500))
+            .expect("the directory becomes read-only");
+
+        let refused = fixture
+            .registry
+            .add(&spec("never", "127.0.0.1:19600", "10.0.0.1:80", "u@h:22"))
+            .map_err(|error| error.to_string());
+        // Restore the mode before asserting, so a panic does not leave an undeletable directory.
+        std::fs::set_permissions(&read_only, std::fs::Permissions::from_mode(0o700))
+            .expect("the directory is writable again");
+
+        let refused = refused.expect_err("a table that cannot be written must refuse the rule");
+        assert!(
+            !refused.is_empty(),
+            "the refusal carries its reason: {refused}"
+        );
+        assert!(
+            fixture.registry.rules().is_empty(),
+            "the in-memory table did not grow: {:?}",
+            fixture.registry.rules()
+        );
+        assert!(!path.exists(), "no half-written file was left behind");
+    }
+
     /// A half-close is a half-close: each direction ends on its own EOF, so a client that sends its
     /// request and then shuts down its write half still GETS THE ANSWER.
     ///
