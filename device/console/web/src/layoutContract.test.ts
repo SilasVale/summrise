@@ -185,7 +185,7 @@ describe("the layout contract", () => {
     // The literal below is the sha256 of BOTH copies, and it is the same literal the panel's test carries.
     const ours = createHash("sha256").update(contractText()).digest("hex");
     expect(ours).toBe(
-      "09c27ced44f2f667057ff2d9046391533aef938eafd7e4530793ad3f174e1d91"
+      "84d6a9e05fd6a64743da8c68ec4165114cfb743891637a4b06bd08cadc665dd2"
     );
     const sibling = path.join(here, "..", "..", "..", "..", "..", "summrise", "docs",
       "superpowers", "specs", "layout-contract.json");
@@ -1118,6 +1118,50 @@ describe("the layout contract", () => {
     const countRule = sheet.match(/\.filter-count \{\s[^}]*\}/);
     expect(countRule, "the count has a rule").toBeTruthy();
     expect(countRule![0], "the count is not a filter column any more").not.toContain("align-self: center");
+  });
+
+  it("paints the accent family the contract declares, and no sixth member as a literal", () => {
+    // **MEASURED 2026-11-11 AS A HUE CENSUS.** The palette atom declares ONE accent and the pages painted NINE warm
+    // colours; the members sit so close a reader cannot name them apart:
+    //
+    //     --accent          #bf3a0a   the brand
+    //     --accent-solid    #b03a0a   ΔE 6.6 from --accent
+    //     --accent-on-soft  #9c3a0a   ΔE 9.2
+    //     --accent-ink      #d9480f   ΔE 9.2
+    //
+    // **Rule 12: "no ambiguous or too-similar colours".** Each member earns its place by a MEASURED contrast job —
+    // which is the decision the atom now records — and what a gate can hold is that the FAMILY is the atom's list
+    // and that no rule paints one of its members as a literal the layer cannot name.
+    const tokensSrc = stripComments(tokens());
+    // **A MEMBER IS A JOB, AND EACH SURFACE NAMES IT ITS OWN WAY.** The console calls its hover step
+    // `--accent-hover` and the panel `--accent-solid-hover`; the contract records the JOB so the two surfaces can be
+    // compared without pretending they share a spelling.
+    const family = contract.palette.accentFamily;
+    expect(family.jobs.length, "the family has six jobs").toBe(6);
+    expect(family.names.console.length, "and the console names each of them").toBe(6);
+    expect(family.names.panel.length, "and the panel names each of them").toBe(6);
+    for (let i = 0; i < family.jobs.length; i++) {
+      const name = family.names.console[i];
+      if (name === "(none)") continue;   // the console's brand IS its graphic ink; that slot is the accent itself
+      expect(tokensSrc, `the console declares ${name} for the ${family.jobs[i]} job`).toContain(`${name}:`);
+    }
+    // **AND THE ONE EXTRA HUE IS WRITTEN DOWN.** The memory tag's teal is a hue the semantic four cannot carry;
+    // the atom names it, so a second unspoken hue is a failure rather than a habit.
+    expect(contract.palette.extraHues.length, "the product draws one hue outside the palette").toBe(1);
+    // **THE HUE IS THE PALETTE'S; THE TOKEN IS THE PANEL'S.** The memory tag exists on one surface, so this sheet
+    // cannot be asked to declare it — the panel's own gap does, and this gate only holds the atom's INVENTORY.
+    expect(contract.palette.extraHues[0].ink, "the extra hue is recorded with its value").toBe("#0a6f64");
+    expect(tokensSrc, "and this surface paints no contradicting hue").not.toContain("--tag-ink:");
+    // The console paints no literal in the accent's ink either.
+    const sheet = stripComments(css());
+    const accentInk = /--accent:\s*(#[0-9a-f]{6})/i.exec(tokensSrc);
+    expect(accentInk, "the accent is a hex token").toBeTruthy();
+    const hex = accentInk![1].slice(1).toLowerCase();
+    const rgb = `${parseInt(hex.slice(0, 2), 16)}, ${parseInt(hex.slice(2, 4), 16)}, ${parseInt(hex.slice(4, 6), 16)}`;
+    const literals = [...sheet.matchAll(/rgba?\(([^)]+)\)/g)]
+      .map((m) => m[1].split(",").slice(0, 3).map((x) => parseInt(x.trim(), 10)).join(", "))
+      .filter((triple) => triple === rgb);
+    expect(literals, "no rule paints the accent as a literal").toEqual([]);
   });
 
   it("draws a LABEL as a label and a HEADING as a heading, at the atom's levels", () => {

@@ -15,7 +15,7 @@
     "gradients": 0
   },
   "palette": {
-    "$comment": "The greys, and the two rules about them (the fifty-sixth list). `ink` and `muted` were already identical on both surfaces; the THIRD grey was not — `#696a74` on the console and `#6f707a` on the panel, six apart on one channel and identical on the others, two names for a colour the eye cannot tell from the other. A palette is: ink, muted, faint, one accent, and the semantic four. Anything else is a decision that has to be made in the open. **AND A WASH IS A TOKEN TOO (the sixty-sixth list):** the panel's three badges took their ink from tokens and their backgrounds from literals (`rgba(40,160,80,.18)`, `rgba(220,60,60,.18)`, `rgba(200,160,40,.18)`), so one control had two sources of colour; a fourth hue (`rgba(90,130,240,.15)` / `#7aa2ff`) and a fifth green (`#30d158` beside `--success #2f9e44`) were colours no scale declared.",
+    "$comment": "The greys, and the two rules about them (the fifty-sixth list). `ink` and `muted` were already identical on both surfaces; the THIRD grey was not — `#696a74` on the console and `#6f707a` on the panel, six apart on one channel and identical on the others, two names for a colour the eye cannot tell from the other. A palette is: ink, muted, faint, one accent, and the semantic four. Anything else is a decision that has to be made in the open. **AND A WASH IS A TOKEN TOO (the sixty-sixth list):** the panel's three badges took their ink from tokens and their backgrounds from literals (`rgba(40,160,80,.18)`, `rgba(220,60,60,.18)`, `rgba(200,160,40,.18)`), so one control had two sources of colour; a fourth hue (`rgba(90,130,240,.15)` / `#7aa2ff`) and a fifth green (`#30d158` beside `--success #2f9e44`) were colours no scale declared. **AND THE HUES A PAGE MAY PAINT ARE ENUMERABLE (the hundred-and-sixth list).** Measured 2026-11-11 as a census: the panel's Terminal page painted **nine** warm colours for one accent, and the memory page a **teal** the palette had no name for. The accent family is now written down with its distances in CIE76 (accent→solid 6.6, accent→on-soft 9.2, accent→ink 9.2 — all under the ~10 a reader can name apart, which is why each member earns its place by a MEASURED contrast job rather than by taste), and `extraHues` records the one non-semantic hue the product deliberately draws: the memory tag's teal, whose ink must clear AA on its own wash.",
     "ink": "#18181b",
     "muted": "#71717a",
     "faint": "#696a74",
@@ -26,7 +26,44 @@
       "danger",
       "focus"
     ],
-    "washAlpha": 0.18
+    "washAlpha": 0.18,
+    "accentFamily": {
+      "jobs": [
+        "brand",
+        "wall",
+        "wallHover",
+        "wash",
+        "textOnWash",
+        "ink"
+      ],
+      "names": {
+        "console": [
+          "--accent",
+          "--accent-solid",
+          "--accent-hover",
+          "--accent-soft",
+          "(none)",
+          "--accent"
+        ],
+        "panel": [
+          "--accent",
+          "--accent-solid",
+          "--accent-solid-hover",
+          "--accent-soft",
+          "--accent-on-soft",
+          "--accent-ink"
+        ]
+      },
+      "note": "each job exists for a measured contrast need: brand 5.49 white, wall 6.08 white at button size, wallHover 6.78 (a hover that DARKENS), textOnWash 6.95 (a label on the wash), ink 3:1 for graphics; the console's brand doubles as its graphic ink, which is why its `ink` slot is the accent itself",
+      "maxDeltaE": 16
+    },
+    "extraHues": [
+      {
+        "name": "tag",
+        "ink": "#0a6f64",
+        "reason": "the memory tag's chips; a hue the semantic four cannot carry, and it reads on its own wash"
+      }
+    ]
   },
   "space": {
     "$comment": "The rhythm, and the two ways a number that is not on it can still be right (the fifty-ninth list). A rhythm is a scale: **2/4/6/8/10/12/14/16/24** — the steps BOTH surfaces declare; the console has a 32 step the panel does not, and the contract records the shared ladder rather than the union, because a step one surface cannot reach is not a rhythm they share. A painting value OFF it is a nudge UNLESS it measures something else: a CONTROL's height (5 + 5 + an 18 px line box = 28) or the padding inside a FIXED target (1 px inside a 24 px box). Those are named tokens, so an editor who changes a line-height cannot silently change a control's height. **AND A TARGET HAS TWO NUMBERS, ONE PER INPUT DEVICE (the seventy-sixth list).** `target` (24) is the smallest box a MOUSE can be aimed at, and it is what this scale's controls are built to. A THUMB needs 44: measured 2026-11-10 at 390 px wide, the console had **0 of 127** controls under 44 across its three pages (one `@media (max-width: 639px)` block naming `main`'s controls, written in the twenty-ninth list) while the panel had **11 of 11** — a 27 px field, 22 px buttons and 24 px doors. 44 is not on the spacing scale and does not need to be: it is a TARGET, like `target` itself — a box that must be hit, not a gap between boxes. The two numbers are recorded together because one name for both is how the thinner surface went unnoticed.",
