@@ -2555,11 +2555,26 @@ that a horizontally scrolling table continues past its edge, which is a STATE, n
    and a flat grey on the other is not "the same page frame"; it is the most visible difference on
    screen, and it is decoration carrying no information. **Fix:** the ground is the contract's one
    colour on both surfaces; the gradients go with the reason recorded. **M.**
+   *(**Done, panel `a881b5f8` / console `7731006`, live 0.3.273-ux164**: the panel's ground is
+   `body { background: var(--bg) }` and `.desktop-canvas` the same, with no `body::before` at all —
+   measured after: `beforeImage: none`, `bodyBg: rgb(250,250,250)`, the console's own value. **The grain
+   stayed** (`body::after`'s noise has a practical reason — it stops a large soft field banding on 8-bit
+   panels — and `--grain-opacity: 0` disables it), and so did the history above the ground: the comment
+   now records WHY the last of the 炫彩 aurora retired rather than deleting the argument with the code.
+   **The console's test found a helper that would have lied:** its first version asserted through
+   `ruleFor(source, "body")`, which returns the LAST match of `body { … \n}` — and of twelve
+   `body`-containing rules it read one that was not the ground's. The mutation proved it: a decorative
+   `background-image: linear-gradient(…, #f1f0ee, #f3f1ee)` went into `body` and **the test stayed green**.
+   It reads the ground's own declaration directly now.)*
 
 2. **Neither surface's ground is in the contract**, so the difference had nowhere to be seen. The
    contract names the frame, the atoms, the levels, the motion — the surface everything else sits on
    is not among them. **Fix:** `surface` joins the contract with the page ground's colour, and each
    repo's test reads it. **S.**
+   *(**Done with item 1**: `ground: { light "rgb(250, 250, 250)", dark "#131418", gradients 0 }` is in
+   the contract and both repos read it. The panel's test also refuses any `body::before` layer and any
+   gradient on `.desktop-canvas`; the console's refuses an image on `body` and counts page-level
+   gradients at ≤ 2, which is the two edge fades rule 17 permits.)*
 
 ## How a round goes
 
