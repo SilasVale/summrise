@@ -1508,10 +1508,6 @@ async fn a_machine_with_no_line_today_serves_no_day() {
     );
 }
 
-/// The day route counts the page's four buckets by Activity's rule, from midnight: the console's own
-/// read, a failed poll, an unattributed row and a channel boundary each go to their own place, and a
-/// client failure is the client's.
-#[tokio::test]
 /// **THE DAY'S ANSWER IS CHECKABLE FROM THE WINDOW IT SITS ABOVE (the forty-fourth list, item 2).**
 ///
 /// The item that opened this work claimed the day "read 302 lines to answer a day the window shows
@@ -1522,6 +1518,7 @@ async fn a_machine_with_no_line_today_serves_no_day() {
 /// the day, and 312 = 311 + the one line that proved the cut.
 ///
 /// This test seeds that shape and refuses a day whose scan is not the rows at or after its cut.
+#[tokio::test]
 async fn the_day_scan_covers_exactly_the_rows_at_or_after_its_cut() {
     let fixture = Fixture::new("day-scan-coverage");
     // **A CLOCK WITH A DAY IN IT, SET BEFORE THE SESSION IS MINTED.** The fixture starts at
