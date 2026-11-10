@@ -4508,8 +4508,25 @@ write `0.12s` as a LITERAL: **the token exists and the majority of the surface i
 
 1. **One interaction, two durations (0.12 s vs 0.2 s), and a token the majority of one sheet does not read.**
    **Fix:** the duration is ONE number in the contract, both sheets read it, and the literals go. **M.**
+   *(**Done in the tree, MERGED, NOT DEPLOYED** — console `96c2084`, panel `62e5e9a90`. **`motion.interactionMs: 120`**
+   in the contract (the number both surfaces already used most), `--dur-interaction: 120ms` in the console's token
+   layer and `--ds-transition-duration: 0.12s` in the panel's — both token families existed or were added, and now
+   **every `transition` declaration reads one of them** (17 rewrites on the console, 20 on the panel).
+   **And the measurement found one the regex could not**: the timeline's chevron moved at **140 ms while every
+   control moved at 120 — written in MILLISECONDS**, so a scan for `0.NNs` never saw it. *A duration is the token,
+   whatever unit it is spelled in.*
+   **An `animation` keeps its own duration on purpose**: a sheet arriving (180 ms), a live line (160 ms), the
+   terminal's caret (1 s) and `plug-pulse` (1.6 s) explain a STATE CHANGE; the atom is about interaction, and the
+   gate scans `transition` declarations only.
+   Measured after: **both surfaces read `0.12s` everywhere**, and under `prefers-reduced-motion: reduce` still
+   **0 transitions and 0 animations** on five pages.)*
 2. **The motion atom records the reduce mechanism and no number**, so nothing can compare the two dialects — and
    nothing catches a rule that writes a third duration tomorrow. **S.**
+   *(**Done**: `motion.interactionMs: 120` is in the atom, and each repo's gate reads it — the console's
+   `moves at ONE interaction duration, read from the token layer` compares the token to the atom's number and refuses
+   any `transition` declaration carrying a literal in **either unit**; the panel's
+   `moves at ONE duration, from the token layer` does the same. Mutations: the console's chevron back to `140ms` and
+   a panel rule back to `0.2s` both fail.)*
 
 ## How a round goes
 
