@@ -4117,8 +4117,22 @@ subtitle 260, card text 279** (the card's own 16 + 1 hairline is the only step, 
 1. **A full-bleed body's strips each bring their own inset — five left edges on one page.** **Fix:** the body
    declares its measure once and the strips read it, so the title's line and the body's content share one edge
    at the page's own numbers. **M.**
+   *(**Done in the panel repo `f1343744`, MERGED as `f570f4025`; NOT DEPLOYED** — the deployment hold applies.
+   **170 / 170 / 170 / 170 / 170.** `--page-measure: min(1120px, 100%)` is a TOKEN, the frame's own number in the
+   layer that owns numbers; `.desktop-terminal` declares it and the term bar, the goal line and the approval banner
+   read it as `padding-inline`. The banner keeps its 4 px accent edge and still lands on the line: its border box
+   starts on the edge, its padding subtracts the border's own room.
+   **Three defects the measurement found that the first draft had introduced**: `padding: 0 0 6px` four lines BELOW
+   the new `padding-inline` zeroed both sides as a SHORTHAND; `margin-inline-start: -16px` made the banner 1,290 px
+   against the body's 1,274; and a nested `calc(max(…))` with a missing paren collapsed the measure to 0.)*
 2. **No gate compares the two surfaces' left edges, and none compares the panel's pages to each other.**
    **Fix:** a measurement in each repo's contract test, at the same numbers. **S.**
+   *(**Done in the panel repo**: `is ONE left edge for a full-bleed page: every strip reads the page's measure` —
+   the measure is a token holding the contract's own `page.max` and `min(`, every strip on the terminal page
+   reads it, and no strip's inline inset carries a pixel literal. Mutation — the term bar back to `--sp-2-5`, with
+   the sheet REBUILT so the suite could see it — fails "reads the page's measure instead of bringing its own
+   inset". Comments are stripped before the declaration scan, because these very rules say "9 px of its own" in
+   prose.)*
 
 ## How a round goes
 
