@@ -1077,6 +1077,36 @@ describe("the layout contract", () => {
     }
   });
 
+  it("is the RECORD's one grouping: a stretch is a LEVEL, not a caption", () => {
+    // **MEASURED 2026-11-11 AT 1,440 ON THE LIVE CONSOLE**, reading what a reader actually compares on
+    // Activity — the page whose own direction is *"the record: what happened, when, on which machine"*:
+    //
+    //     day label "Today"   17 / 600   --ink
+    //     a row's verb        13 / 400   --ink
+    //     **a stretch header 11 / 400   --ink-faint**   "3 calls · 36 s"
+    //     a row's machine     12 / 500   --ink-muted
+    //
+    // **The line that says "these calls belong together" was the smallest and faintest thing on the page** —
+    // smaller and lighter than the machine name it groups. The page drew 60 rows in 9 stretches, and a reader
+    // met nine grey 11 px words between hairlines with no way to know they were the structure.
+    const sheet = css();
+    const stretch = ruleFor(sheet, "\\.timeline-stretch-text");
+    // Above the row's verb (13/400) by a WEIGHT step, and not above the day's 17/600.
+    expect(stretch, "the level's size is the row's").toContain("font-size: var(--fs-base)");
+    expect(stretch, "and it is heavier than the sentence it groups").toContain("font-weight: var(--fw-medium)");
+    expect(stretch, "in the page's muted ink, not its faintest").toContain("color: var(--ink-muted)");
+    // **THE HEADER FORM IS THE ONE THAT NEEDS IT MOST**, and it was drawn at the same quiet step as the
+    // footer: a header opens rows the reader has not seen yet.
+    const header = sheet.match(/\.timeline-stretch\.is-header \.timeline-stretch-text\s*\{[^}]*\}/);
+    expect(header, "the header form is its own declaration").toBeTruthy();
+    expect(header![0], "and it takes the page's own ink").toContain("color: var(--ink)");
+    // **THE RULES STAY**: the grouping survives a reader who cannot see the type (rule 6's second channel).
+    expect(ruleFor(sheet, "\\.timeline-stretch"), "the hairlines are still drawn").toBeTruthy();
+    const rules = sheet.match(/\.timeline-stretch::before, \.timeline-stretch::after\s*\{[^}]*\}/);
+    expect(rules, "two 1 px rules around the words").toBeTruthy();
+    expect(rules![0]).toContain("height: 1px");
+  });
+
   it("is the tracking atom: a step belongs to a SIZE, and nothing inherits a fraction", () => {
     // **RULE 14 AS A LINE THE EDITOR READS (the seventy-fifth list).** Measured by grouping every text node on a
     // rendered page by `font-size` (then weight and kind) and asking whether that group carried ONE

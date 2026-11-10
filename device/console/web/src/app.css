@@ -3469,18 +3469,36 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
 .timeline-stretch::before, .timeline-stretch::after {
   content: ""; height: 1px; background: var(--hairline); flex: 1;
 }
-.timeline-stretch.is-header { margin: var(--sp-2) 0 0; }
+/* **THE HEADER FORM IS THE ONE THAT MOST NEEDS THE LEVEL (the ninety-second list).** A footer closes a
+   stretch the reader has already scrolled through; a HEADER opens twelve rows they have not seen yet, and it
+   was drawn at the same 11/400 --ink-faint as the footer. Measured on a seeded record of 12/3/7-row
+   stretches at 1,440: the "12 calls · 1 m 6 s" line sat above its rows in the page's quietest step, so the
+   one line that frames the whole brace read as the caption of the row under it.
+   The header takes the level's full weight and an inset that marks the group as opening rather than closing:
+   the rule after the words stays, the space above it is the block's, and the words are the level's. */
+.timeline-stretch.is-header { margin: var(--sp-4) 0 var(--sp-2); }
 .timeline-stretch.is-header::before { display: none; }
-.timeline-stretch.is-header .timeline-stretch-text { color: var(--ink-muted); }
-/* **THE STRETCH LINE IS A SENTENCE, NOT A LABEL (the seventy-fifth list, corrected by its own measurement).**
-   `0.02em` was a number this rule made for itself — the literal `tokens.css` forbids in writing — and the
-   fix that replaced it with `--tracking-eyebrow` (0.08em) made it OPEN at 11 px where every other 11 px
-   line on the page was set at the baseline: "2 calls · 8 s" stood out as a heading in a column of clocks.
-   Measured after: the only conflict left on the page was this rule against every other 11 px run.
-   It is a small muted RECORD line ("3 calls · 33 s"), so its step is the body's — none — and it says so
-   rather than inheriting a label's openness. */
+.timeline-stretch.is-header .timeline-stretch-text { color: var(--ink); }
+/* **THE RECORD'S ONE GROUPING IS A LEVEL, NOT A CAPTION (the ninety-second list).** Measured 2026-11-11 at
+   1,440 on the live console, reading what a reader actually compares on this page:
+
+       day label "Today"   17 / 600   --ink
+       a row's verb        13 / 400   --ink
+       **a stretch header 11 / 400   --ink-faint**      "3 calls · 36 s"
+       a row's machine     12 / 500   --ink-muted
+
+   **The line that says "these calls belong together" was the smallest and faintest thing on the page** — smaller
+   and lighter than the machine name it groups. The page draws 60 rows in 9 stretches, and a reader scrolling it
+   met nine grey 11 px words between hairlines with no way to know, before reading one, that they were the
+   structure rather than a footnote.
+   The seventy-fifth list was right that a stretch is not a SECTION heading — it may not open like `--tracking-eyebrow`
+   in a column of clocks — and wrong to conclude that the record's only division should therefore be quieter than
+   its own rows. It is a LEVEL between the row and the day: `--fs-base` at `--fw-medium`, in the muted ink, so it
+   sits **above the verb's 13/400 by one weight step** and **below the day's 17/600 by a size**. The two 1 px rules
+   stay: the grouping survives a reader who cannot see the type, which is rule 6's second channel. */
 .timeline-stretch-text {
-  color: var(--ink-faint); font-size: var(--fs-xs); white-space: nowrap;
+  color: var(--ink-muted); font-size: var(--fs-base); font-weight: var(--fw-medium);
+  white-space: nowrap;
 }
 
 /* THE DAY'S DOOR. Sixty rows are drawn and the rest are one quiet line rather than 632 more rows:
