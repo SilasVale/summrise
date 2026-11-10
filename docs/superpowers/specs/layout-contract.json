@@ -132,7 +132,12 @@
     "phone": 639,
     "tablet": 767,
     "columns": 1088,
-    "wide": 1280
+    "wide": 1280,
+    "$comment": "The widths where a page's SHAPE changes, and the FORM a query takes (the sixty-fourth list). A downward query ends at `N-1` and an upward one starts at `N`, so a breakpoint's two sides cannot both claim the same width \u2014 verified: the console's min set {640, 1088, 1280} and max set {480, 639, 767} do not intersect, and the panel's max set {639, 767, 1087} follows the same form. Measured before: the panel's approval banner used `(max-width: 1088px)` \u2014 AT the `columns` width \u2014 so it held its one-column shape one pixel into the wide band, which no eye can see and no author would feel.",
+    "queryForm": {
+      "below": "N-1",
+      "at": "N"
+    }
   },
   "empty": {
     "$comment": "The EMPTY state's atom, which both surfaces draw (the forty-sixth list). A page with nothing to list shows one card, on the page's own grid: the card's corner and padding, start-aligned text, no shadow, and the full width of the page's column. It is NOT a dialog \u2014 a 20px corner, a drop shadow and centred text on a 1120px column is a modal drawn where a page's empty state belongs.",
@@ -142,6 +147,17 @@
     "textAlign": "start",
     "shadow": "none"
   },
+  "failed": {
+    "$comment": "A failure's sentence NAMES THE SUBJECT, NOT THE TRANSPORT (the sixty-third list). Measured: the console's notice said \"The console could not read the machine list\" \u2014 the THING a person was waiting for \u2014 and the panel's said \"tool memory_list failed\", which names the RPC and leaves the reader to infer the page.",
+    "radius": 8,
+    "pad": 12,
+    "textTone": "ink",
+    "tint": "alarm",
+    "role": "status",
+    "retries": 1,
+    "names": "subject",
+    "namesTransport": false
+  },
   "loading": {
     "$comment": "The LOADING state's atom, which both surfaces draw (the forty-seventh list). A read that has not answered reserves the SHAPE of what it will draw: a card-sized skeleton row per item, with the read's own label in a live region. It is NOT a word in a result line: a loading state is not a result, and the count line is drawn only when it has a count.",
     "rowRadius": 10,
@@ -150,15 +166,6 @@
     "barRadius": 6,
     "rows": 3,
     "role": "status"
-  },
-  "failed": {
-    "$comment": "The FAILED state's atom, which both surfaces draw (the forty-eighth list). A failure is a NOTICE: the page's card grammar with the alarm's tint, its words in INK (the sentence is the message; the tint is the alarm), one Retry, and ONE live region \u2014 a second region saying the same failure in other words is two announcements.",
-    "radius": 8,
-    "pad": 12,
-    "textTone": "ink",
-    "tint": "alarm",
-    "role": "status",
-    "retries": 1
   },
   "motion": {
     "$comment": "Rule 18's mechanism, recorded once for both surfaces (the fifty-second list). REDUCED MOTION IS A BLANKET: every transition and animation is capped at 0.01ms under `prefers-reduced-motion: reduce`, because a NAMED LIST cannot cover a rule added later \u2014 measured, the panel still moved 4 elements at 0.2s under reduce while the console moved 0. The named list stays for the second half: an animation whose state must also stop (`animation: none`). `0.01ms` rather than `0s` so a `transitionend` listener still fires.",

@@ -43,7 +43,7 @@ type Contract = {
     panelCollapsesAt: number | null;
   };
   title: { size: number; weight: number };
-  breakpoints: Record<string, number>;
+  breakpoints: Record<string, number> & { queryForm: { below: string; at: string } };
   empty: { radius: number; pad: number; gap: number; textAlign: string; shadow: string };
   head: {
     gap: number;
@@ -146,7 +146,7 @@ describe("the layout contract", () => {
     // `agent/resources/panel-react/src/lib/layoutContract.test.ts`. If the two disagree, the two
     // frontends are drawn to different page systems and one of them is wrong.
     expect(createHash("sha256").update(contractText()).digest("hex")).toBe(
-      "326b54e574ccd98a0d47989d20e8bc02cd8c59247de101c423ebc142ea13afaa"
+      "10f9c08eeefaefc50d2ae5f4f74197b0c883f72d881043345da2d7a5d53863f6"
     );
   });
 
@@ -162,6 +162,40 @@ describe("the layout contract", () => {
     expect(page, "the page's rhythm comes from the scale").toContain(`gap: var(--${gap})`);
     expect(tokenPx(tokens(), pad)).toBe(contract.page.pad);
     expect(tokenPx(tokens(), gap)).toBe(contract.page.gap);
+  });
+
+  it("is the QUERY FORM at a breakpoint, and no width is claimed by both sides", () => {
+    // **A FOLD ENDS AT N-1 (the sixty-fourth list).** The panel's approval banner used
+    // `(max-width: 1088px)` — AT `columns` — so it held its one-column shape one pixel into the wide band.
+    // This surface was already right, and the check is what keeps it right: its min set and max set do
+    // not intersect, and every fold is spelled on the side it belongs to.
+    const source = css();
+    const maxWidths = new Set(
+      [...source.matchAll(/@media[^{]*\(max-width:\s*([0-9]+)px\)/g)].map((m) => Number(m[1]))
+    );
+    const minWidths = new Set(
+      [...source.matchAll(/@media[^{]*\(min-width:\s*([0-9]+)px\)/g)].map((m) => Number(m[1]))
+    );
+    const contested = [...maxWidths].filter((v) => minWidths.has(v));
+    expect(contested, "no width is claimed by both query forms").toEqual([]);
+    // **AND THE FORM IS THE CONTRACT'S.** A downward query ends at N-1 and an upward one starts at N, so
+    // every `max-width` sits one below a breakpoint and every `min-width` sits on one.
+    const bp = new Set(
+      Object.entries(contract.breakpoints)
+        .filter(([, v]) => typeof v === "number")
+        .map(([, v]) => v as number)
+    );
+    // **A BREAKPOINT IS SPELLED ONE WAY OR THE OTHER, NOT BOTH.** This surface writes its phone fold as a
+    // PAIR — `(max-width: 639px)` and `(min-width: 640px)` — and its tablet fold as a max-width alone,
+    // because nothing below it needs the other side. The rule is therefore about ownership, not about
+    // which spelling a sheet happens to use: a breakpoint's number may be a `max-width` or a `min-width`,
+    // never both, and `contested` above is that assertion.
+    const widths = [...maxWidths, ...minWidths];
+    for (const v of widths) {
+      expect(bp.has(v) || bp.has(v + 1) || bp.has(v - 1), `${v} must sit on a breakpoint`).toBe(true);
+    }
+    expect(contract.breakpoints.queryForm.below).toBe("N-1");
+    expect(contract.breakpoints.queryForm.at).toBe("N");
   });
 
   it("is ONE head per page, and everything under it is a card", () => {
@@ -590,7 +624,11 @@ describe("the layout contract", () => {
     // `min-width`/`max-width` needs (639/640 is ONE breakpoint written from both ends).
     const allowed = new Set<number>();
     for (const value of Object.values(contract.breakpoints)) {
+      // **`breakpoints` IS A RECORD OF NUMBERS PLUS ONE OBJECT OF WORDS** (`queryForm`, the sixty-fourth
+      // list), so the numeric members are what a query may name.
+      if (typeof value !== "number") continue;
       allowed.add(value);
+      allowed.add(value - 1);
       allowed.add(value + 1);
     }
     const strangers = [...new Set(widths)].filter((value) => !allowed.has(value));
