@@ -1059,6 +1059,14 @@ tr:last-child td { border-bottom: 0; }
 }
 /* The device page's body is the card's own children: the card supplies the pad and the gap. */
 .device-picker-card { display: grid; gap: var(--sp-2); }
+/* **AN EMPTY PAGE SAYS WHAT IT IS, THEN WHAT TO DO (the ninety-eighth list).** Measured with `/fleet` answering
+   `[]`: the picker drew one 18 px line inside a 52 px card — `padding: 16` around a sentence, a box hugging its
+   text like a label, where the contract's `empty` atom says *"the card's corner and padding, start-aligned text"*
+   and `wayBack: true`. A reader who arrives at an empty Device page needs the FACT (nothing is enrolled) and the
+   DOOR (where to add one); one line gives the first and leaves the second implicit. The heading is the fact at
+   the page's own step, the sentence is the door, and the atom's `gap` is the card's own 16 — not a third box. */
+.picker-empty { display: grid; gap: var(--sp-2); justify-items: start; }
+.picker-empty-title { margin: 0; font-size: var(--fs-lg); font-weight: var(--fw-semi); color: var(--ink); }
 /* The picker's state is a word beside its dot, in Home's vocabulary; the age behind a last-seen
    moment stays the title rather than widening the row at 390. */
 .picker-state { color: var(--ink-muted); font-size: var(--fs-sm); white-space: nowrap; }

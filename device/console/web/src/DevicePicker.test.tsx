@@ -73,7 +73,21 @@ describe("DevicePicker", () => {
   it("states the enrollment sentence only when a successful read brought no machines", () => {
     render(<DevicePicker devices={[]} onChoose={vi.fn()} fleetRead={{ state: "ready" }} />);
 
-    expect(screen.getByText("No devices are enrolled yet. Add one from Home.")).toBeInTheDocument();
+    // **THE EMPTY PAGE SAYS THE FACT, THEN THE DOOR (the ninety-eighth list).** Measured with `/fleet`
+    // answering `[]`: this drew ONE 18 px line inside the card's own 16 px — a box hugging its sentence like
+    // a label — where the contract's `empty` atom says a card at 14/16 with `wayBack: true`. A reader who
+    // arrives here needs BOTH: nothing is enrolled, and where to add one. One line gives the first and leaves
+    // the second implicit.
+    expect(screen.getByRole("heading", { name: "No devices are enrolled yet" })).toBeInTheDocument();
+    expect(
+      screen.getByText("Add one from Home, and it appears here with its own address and version."),
+    ).toBeInTheDocument();
+    // **AND IT IS NOT A CARD INSIDE A CARD**: the page's `.card` already paints the atom's box, so this
+    // branch brings the atom's CONTENT and no second surface (the thirty-eighth list's rule).
+    expect(document.querySelector(".empty-state")).toBeNull();
+    // (This test renders the picker alone, so the page's card is not here to check; what the PICKER owns is
+    // the atom's content and no second surface — the page's `.card` paints the box.)
+    expect(document.querySelector(".picker-empty")).not.toBeNull();
     expect(screen.queryByRole("status")).toBeNull();
   });
 
