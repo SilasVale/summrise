@@ -31,6 +31,11 @@
   --tracking-display:-0.011em; --tracking-tight:-0.02em;
   --tracking-label:0.05em; --tracking-eyebrow:0.08em;
   --sp-0-5:2px; --sp-1:4px; --sp-1-5:6px; --sp-2:8px; --sp-2-5:10px;
+  /* **A CONTROL'S HEIGHT AND THE PADDING THAT REACHES IT (the fifty-ninth list).** The rhythm is
+     2/4/6/8/10/12/14/16/24/32 and 5 is not on it — but 5 is not a nudge: 5 + 5 over an 18 px line box is
+     the 28 px control every button in the product is. Two names, two jobs, and neither is a number
+     pretending to be a rhythm step. */
+  --control-h:28px; --control-pad-y:5px;
   --sp-3:12px; --sp-3-5:14px; --sp-4:16px; --sp-5:24px; --sp-6:32px;
 
   /* The terminal is a canvas that follows the page, the way summrise-legacy's does (`--term-canvas-bg`).

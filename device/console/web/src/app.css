@@ -2452,8 +2452,14 @@ h2 { letter-spacing: var(--tracking-tight); }
 /* One control height (28), one radius (8), two fills: neutral and accent. A button is never a
    block, and its press is a 3% scale, not a 1 px drop. */
 
+/* **A CONTROL'S HEIGHT IS A HEIGHT (the fifty-ninth list).** `padding: 5px` on a button looked like a
+   nudge against a scale of 2/4/6/8 — and it is a MEASUREMENT: 5 + 5 over an 18 px line box is the **28 px**
+   control height this sheet's own comment names ("One control height (28)"). The number had been chosen
+   for a HEIGHT and then written as a padding, so it silently stops being 28 the day someone changes the
+   line-height. It is a token now, and `min-height` says the same thing in the place a reader looks for a
+   height. */
 button {
-  min-height: 28px; padding: 5px var(--sp-3);
+  min-height: var(--control-h); padding: var(--control-pad-y) var(--sp-3);
   border: 1px solid transparent; border-radius: var(--radius-sm2);
   background: var(--control-bg); color: var(--ink);
   font: inherit; font-size: var(--fs-sm); font-weight: var(--fw-medium);
@@ -2836,7 +2842,7 @@ input:not([type="checkbox"]):not([type="radio"]):focus, select:focus, textarea:f
 }
 .files-list .files-row {
   display: flex; align-items: center; gap: var(--sp-2); min-width: 0;
-  padding: 9px var(--sp-3-5); border-bottom: 1px solid var(--hairline);
+  padding: var(--sp-2) var(--sp-3-5); border-bottom: 1px solid var(--hairline);
   transition: background 120ms var(--ease);
 }
 .files-list .files-row:last-child { border-bottom: 0; }
@@ -2894,7 +2900,7 @@ main::-webkit-scrollbar-track, .sheet-body::-webkit-scrollbar-track, .scroll::-w
   font-weight: var(--fw-medium); color: var(--ink-muted);
   border-bottom: 1px solid var(--hairline); padding: var(--sp-2) var(--sp-3); text-align: left;
 }
-.runs-history td { padding: 9px 12px; border-bottom: 1px solid var(--hairline); }
+.runs-history td { padding: var(--sp-2) var(--sp-3); border-bottom: 1px solid var(--hairline); }
 .runs-history tr:last-child td { border-bottom: 0; }
 .runs-row-active td { background: color-mix(in srgb, var(--accent) 8%, transparent); }
 /* ONE MOMENT, ONE VALUE CELL (audit-43 F8). The clock and its age share this wrapper so the phone's
@@ -3445,7 +3451,12 @@ button.timeline-line:focus-visible { box-shadow: var(--ring); outline: none; }
 }
 .attention-row:first-child { padding-top: 0; border-top: 0; }
 .attention-row:last-child { padding-bottom: 0; }
-.attention-body { flex: 1; min-width: 15rem; display: grid; gap: 3px; }
+/* **THE ONE GAP ON HOME THAT WAS NOT ON THE SCALE (the fifty-ninth list).** `gap: 3px` separated a
+   machine's NAME from its `offline · last seen …` line — a tighter pair than the 8 px between cards, and
+   tighter than the 6 px inside a control. 3 is on no step, so a reader cannot tell whether it is a
+   decision or a leftover. `--sp-0-5` (2) is the nearest step and the pair still reads as one object;
+   the difference it makes is half a pixel per edge, which is exactly what "not on the scale" was costing. */
+.attention-body { flex: 1; min-width: 15rem; display: grid; gap: var(--sp-0-5); }
 .attention-machine {
   margin: 0; font-size: var(--fs-md); font-weight: var(--fw-semi);
   overflow-wrap: anywhere;
