@@ -44,7 +44,8 @@ type Contract = {
   };
   title: { size: number; weight: number };
   breakpoints: Record<string, number> & { queryForm: { below: string; at: string } };
-  empty: { radius: number; pad: number; gap: number; textAlign: string; shadow: string };
+  empty: {
+    wayBack: boolean; radius: number; pad: number; gap: number; textAlign: string; shadow: string };
   head: {
     gap: number;
     align: string;
@@ -152,7 +153,7 @@ describe("the layout contract", () => {
     // `agent/resources/panel-react/src/lib/layoutContract.test.ts`. If the two disagree, the two
     // frontends are drawn to different page systems and one of them is wrong.
     expect(createHash("sha256").update(contractText()).digest("hex")).toBe(
-      "eb47909f905d8c76235d46b76d84ec9ec5bae3e0b6c36c5d7ff4bae81aab78b7"
+      "0cefb910e7e6f53158ca5cadafb04b6ea09f60b7b4fb6d66e94f4e07a21176b4"
     );
   });
 
@@ -670,6 +671,32 @@ describe("the layout contract", () => {
     // One announcer: the surfaces' failures are reported by ONE live region each.
     const home = stripComments(readFileSync(path.join(here, "HomePage.tsx"), "utf8"));
     expect(home, "the failed read is a live region").toMatch(/role="status"/);
+  });
+
+  it("is an empty state with the reader's way back, on BOTH empty shapes of this surface", () => {
+    // **THE CONTRACT NOW RECORDS THAT AN EMPTY STATE KEEPS THE WAY BACK (the seventy-second list).**
+    // Measured 2026-11-10 after filtering Activity into nothing: this surface drew a bare `p.hint` and a
+    // button on the page's grid — it HAD the `Clear search` (which the panel's empty did not) and not the
+    // box the atom says an empty state is. Both shapes are the atom now.
+    expect(contract.empty.wayBack, "an empty state keeps the way back").toBe(true);
+    const sheet = css();
+    for (const [selector, why] of [
+      [".empty-state", "the page's own empty shape was already the card"],
+      [".timeline-empty-filtered", "the filtered empty is the same card now"],
+    ]) {
+      const rule = ruleFor(sheet, selector.replace(/\./g, "\\."));
+      expect(rule, `${why}: ${selector}`).toBeTruthy();
+      const radius = rule!.match(/border-radius:\s*var\(--([\w-]+)\)/)?.[1];
+      expect(tokenPx(tokens(), radius!), `${selector}'s corner is the atom's`).toBe(contract.empty.radius);
+      const pad = rule!.match(/padding:\s*var\(--([\w-]+)\)/)?.[1];
+      expect(tokenPx(tokens(), pad!), `${selector}'s inset is the atom's`).toBe(contract.empty.pad);
+      expect(rule, `${selector} is start-aligned`).toContain("justify-items: start");
+      expect(rule, `${selector} has no shadow`).toContain("box-shadow: none");
+    }
+    // **AND THE FILTERED SHAPE KEEPS ITS CONTROL.** A sentence that names what narrowed the list, with
+    // nothing beside it that undoes the narrowing, is a dead end however well boxed it is.
+    const timeline = stripComments(readFileSync(path.join(here, "ActivityTimeline.tsx"), "utf8"));
+    expect(timeline, "the filtered empty offers the clear").toMatch(/Clear search/);
   });
 
   it("is the loading state's atom, and a read in flight reserves the shape it will draw", () => {
