@@ -37,7 +37,20 @@ const COMPONENTS: &str = r##"  * { box-sizing: border-box; }
     font-variant-numeric: tabular-nums;
     -webkit-font-smoothing: antialiased;
   }
-  main { flex: 1; width: 100%; max-width: 54rem; margin: 0 auto; padding: var(--sp-5) var(--sp-4) var(--sp-6); display: grid; gap: var(--sp-4); }
+  /* **THE PAGE FRAME, WHICH THIS SURFACE HAD NEVER AGREED WITH (the seventy-eighth list).** Measured
+     2026-11-10 through the device's own browser at 1,264 px: this page's column was **864** wide (54rem),
+     its padding `24px 16px 32px` and its rhythm **16** — while `layout-contract.json` records
+     `page {max 1120, pad 24, gap 24}` and BOTH other surfaces draw those three numbers. The device page drew
+     the product's TOKENS and the product's CARDS while its frame answered to nothing, so a machine's own
+     page was the one page of three where the column, the inset and the rhythm were all different.
+
+     `70rem` is 1,120 px at the root size; `--sp-5` is 24 on all four sides; the rhythm is the page's 24. The
+     `gap` is the PAGE'S, and the two blocks that are a LIST of cards keep their own 16 in `.cards` — a page's
+     rhythm is between its BLOCKS, a list's is between its rows (the sixty-ninth list's rule). */
+  main {
+    flex: 1; width: 100%; max-width: 70rem; margin: 0 auto;
+    padding: var(--sp-5); display: grid; gap: var(--sp-5);
+  }
   /* The shared card carries a bottom margin; in a grid that owns the gap it doubled the space
      between siblings (16 + 20 = 36px). One owner of the gap. */
   main .card { margin-bottom: 0; }
@@ -183,7 +196,12 @@ const COMPONENTS: &str = r##"  * { box-sizing: border-box; }
   /* The first screen is a sentence and two actions, not a config block. */
   .hero { display: grid; gap: var(--sp-0-5); padding: var(--sp-0-5) 0 var(--sp-1-5); }
   .hero .eyebrow { margin: 0; color: var(--ink-faint); font-size: var(--fs-xs); font-weight: 600; letter-spacing: var(--tracking-eyebrow); text-transform: uppercase; }
-  .hero h2 { margin: var(--sp-0-5) 0 0; font-size: var(--fs-xl); line-height: 1.15; letter-spacing: var(--tracking-tight); }
+  /* **THE HERO'S `h2` IS THIS PAGE'S NAME, SO IT IS SET AS ONE (the seventy-eighth list).** Measured
+     2026-11-10: the page's `h1` is the BRAND ("Summrise", 18/600) and the thing a reader reads as the
+     title — "Running" — is this `h2` at 22/700 with `--tracking-tight`. The contract's `title` is 22/700
+     and the seventy-fifth list settled that a step belongs to the SIZE: 22/700 on this surface is
+     `--tracking-display`, which is what the other two surfaces paint for the same pair. */
+  .hero h2 { margin: var(--sp-0-5) 0 0; font-size: var(--fs-xl); line-height: 1.25; letter-spacing: var(--tracking-display); }
   .hero .meta { margin: var(--sp-1-5) 0 0; color: var(--ink-muted); font-size: var(--fs-base); }
   .hero .lede { margin: var(--sp-1-5) 0 0; }
   .hero .actions { display: flex; flex-wrap: wrap; gap: var(--sp-2); margin-top: var(--sp-2-5); }
@@ -204,7 +222,11 @@ const COMPONENTS: &str = r##"  * { box-sizing: border-box; }
      edge while `main` is a centred 54 rem column, so on a 1280 px screen the brand started at 24 px
      and the first card at 224 — two different pages stacked. The padding is the column's own offset
      plus its gutter, which falls back to the plain gutter on a window with no margins left to give. */
-  header.topbar { padding: var(--sp-2) max(var(--sp-4), calc((100% - 54rem) / 2 + var(--sp-4))); }
+  /* **THE TOPBAR LINES UP WITH THE COLUMN IT SITS ABOVE, AND THE COLUMN IS THE CONTRACT'S NOW (the
+     seventy-eighth list).** This rule centred the bar's contents on `54rem` — the OLD page width — while
+     `main` drew an 864 px column; the two answered to the same number by hand. The page's column is
+     `70rem` (1,120 px) and this reads it, so the bar and the column cannot drift. */
+  header.topbar { padding: var(--sp-2) max(var(--sp-4), calc((100% - 70rem) / 2 + var(--sp-4))); }
 
   /* A phone, or a console window dragged narrow: an 11 rem label column leaves the value column about
      ten characters wide, so the two stack instead. */
@@ -2234,5 +2256,71 @@ mod tests {
         assert!(text.contains("last verdict: verified the baseline booted at 2026-10-27T11:00:00Z"));
         assert!(text.contains("terminal.create allow → ok"));
         assert!(text.contains("  repair"));
+    }
+
+    // **THE THIRD SURFACE DRAWS THE CONTRACT'S FRAME (the seventy-eighth list).** Measured 2026-11-10
+    // through the device's own browser at 1,264 px: this page's column was 864 (54rem), its padding
+    // `24px 16px 32px` and its rhythm 16, while `layout-contract.json` records `page {max 1120, pad 24,
+    // gap 24}` — the numbers BOTH other surfaces draw. The page drew the product's tokens and the
+    // product's cards while its frame answered to nothing.
+    //
+    // The test reads the SHIPPED sheet, so it fails when the numbers move, not when a comment does.
+    #[test]
+    fn the_page_frame_is_the_layout_contract_s() {
+        let sheet = style_sheet();
+        // **THE COMMENTS TRAVEL WITH THE SHEET, SO THE ASSERTIONS READ THE RULES.** A list's own note quotes
+        // the number it replaced ("864 (54rem)"), and a test that reads the whole string would fail on its
+        // own explanation — the same accident the panel's stylesheet-hygiene gate had with a quoted rule.
+        let rules: String = {
+            let mut out = String::with_capacity(sheet.len());
+            let mut depth = 0usize;
+            let mut chars = sheet.chars().peekable();
+            while let Some(c) = chars.next() {
+                if c == '/' && chars.peek() == Some(&'*') && depth == 0 {
+                    depth = 1;
+                    chars.next();
+                    continue;
+                }
+                if depth > 0 {
+                    if c == '*' && chars.peek() == Some(&'/') {
+                        chars.next();
+                        depth = 0;
+                    }
+                    continue;
+                }
+                out.push(c);
+            }
+            out
+        };
+        // 70rem is the contract's 1,120 px at the root size, and the topbar centres on the same column.
+        assert!(
+            rules.contains("max-width: 70rem"),
+            "the page's column is the contract's 1,120 px"
+        );
+        assert!(
+            rules.contains("calc((100% - 70rem) / 2"),
+            "the topbar centres on the same column it sits above"
+        );
+        assert!(
+            !rules.contains("54rem"),
+            "the old 864 px column is gone, not kept beside the new one"
+        );
+        // The page's inset and rhythm are the frame's 24, on the page and NOT on its cards.
+        assert!(
+            rules.contains("padding: var(--sp-5); display: grid; gap: var(--sp-5);"),
+            "the page's inset and rhythm are the contract's 24"
+        );
+        // **AND THE HERO'S TITLE IS SET AS A TITLE.** Its `h2` is this page's name ("Running"), and the
+        // seventy-fifth list settled that a step belongs to the SIZE: 22/700 is `--tracking-display`.
+        assert!(
+            rules.contains("letter-spacing: var(--tracking-display)")
+                && !rules.contains("line-height: 1.15"),
+            "the page's title takes the title's step, not the tight one"
+        );
+        // The shared card's head reads the label's token rather than a hand-written `.07em`.
+        assert!(
+            !rules.contains("letter-spacing:.07em"),
+            "a label's spacing is the token's on every surface that reads this sheet"
+        );
     }
 }
