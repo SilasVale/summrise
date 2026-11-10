@@ -6,16 +6,16 @@
     "gap": 24,
     "listGap": 8,
     "boxSizing": "border-box",
-    "$comment": "The page BODY: one column, one inset, one rhythm (the sixty-second and sixty-ninth lists). `gap` is 24 on EVERY page of both surfaces. **AND THE RHYTHM BELONGS TO THE CONTAINER THAT HAS LIKE THINGS IN IT (the sixty-ninth list):** a LIST declares its own tick (`listGap`, the card's own 8) on ITS OWN element, never on the page root. Measured before: `page-plugins` put the card's 8 on the page root, so that page's head sat 8 px off its first block while Memory's sat 24 (144 \u2192 168); and Settings charged the frame's 24 AND a `margin-bottom: 12` for the same separation, which is 36 \u2014 a value on no surface's scale (2/4/6/8/10/12/14/16/24). A separation declared twice is not a separation twice as clear; it is a number nobody chose. **AND `max` IS THE BOX, NOT THE CONTENTS (the seventieth list):** the console draws `width: min(1120px, 100%)` under a global `* { box-sizing: border-box }`, so its page is 1,120 WIDE with 1,072 of contents; the panel declared `max-width: 1120px` with no reset, so its page was 1,168 wide with 1,120 of contents \u2014 the same contract number meaning two different measurements, 48 px apart. Below `wide` that 48 was not free: measured at 390/639/767/1088 the panel's page box was 48 wider than the pane holding it and stuck 31 px past the window's right edge, where the console was never wider than its parent. `boxSizing` is recorded here so the next frame reads one arithmetic."
+    "$comment": "The page BODY: one column, one inset, one rhythm (the sixty-second and sixty-ninth lists). `gap` is 24 on EVERY page of both surfaces. **AND THE RHYTHM BELONGS TO THE CONTAINER THAT HAS LIKE THINGS IN IT (the sixty-ninth list):** a LIST declares its own tick (`listGap`, the card's own 8) on ITS OWN element, never on the page root. Measured before: `page-plugins` put the card's 8 on the page root, so that page's head sat 8 px off its first block while Memory's sat 24 (144 → 168); and Settings charged the frame's 24 AND a `margin-bottom: 12` for the same separation, which is 36 — a value on no surface's scale (2/4/6/8/10/12/14/16/24). A separation declared twice is not a separation twice as clear; it is a number nobody chose. **AND `max` IS THE BOX, NOT THE CONTENTS (the seventieth list):** the console draws `width: min(1120px, 100%)` under a global `* { box-sizing: border-box }`, so its page is 1,120 WIDE with 1,072 of contents; the panel declared `max-width: 1120px` with no reset, so its page was 1,168 wide with 1,120 of contents — the same contract number meaning two different measurements, 48 px apart. Below `wide` that 48 was not free: measured at 390/639/767/1088 the panel's page box was 48 wider than the pane holding it and stuck 31 px past the window's right edge, where the console was never wider than its parent. `boxSizing` is recorded here so the next frame reads one arithmetic."
   },
   "ground": {
-    "$comment": "The surface every page sits ON, which both draw (the fifty-fourth list). ONE colour per theme \u2014 no gradient, because a wash behind a page is decoration carrying no information, and rule 17 refuses it. Measured: the panel carried three decorative gradients behind a fixed overlay plus a fourth on its canvas, in six hand-written colours, while the console painted one.",
+    "$comment": "The surface every page sits ON, which both draw (the fifty-fourth list). ONE colour per theme — no gradient, because a wash behind a page is decoration carrying no information, and rule 17 refuses it. Measured: the panel carried three decorative gradients behind a fixed overlay plus a fourth on its canvas, in six hand-written colours, while the console painted one.",
     "light": "rgb(250, 250, 250)",
     "dark": "#131418",
     "gradients": 0
   },
   "palette": {
-    "$comment": "The greys, and the two rules about them (the fifty-sixth list). `ink` and `muted` were already identical on both surfaces; the THIRD grey was not \u2014 `#696a74` on the console and `#6f707a` on the panel, six apart on one channel and identical on the others, two names for a colour the eye cannot tell from the other. A palette is: ink, muted, faint, one accent, and the semantic four. Anything else is a decision that has to be made in the open. **AND A WASH IS A TOKEN TOO (the sixty-sixth list):** the panel's three badges took their ink from tokens and their backgrounds from literals (`rgba(40,160,80,.18)`, `rgba(220,60,60,.18)`, `rgba(200,160,40,.18)`), so one control had two sources of colour; a fourth hue (`rgba(90,130,240,.15)` / `#7aa2ff`) and a fifth green (`#30d158` beside `--success #2f9e44`) were colours no scale declared.",
+    "$comment": "The greys, and the two rules about them (the fifty-sixth list). `ink` and `muted` were already identical on both surfaces; the THIRD grey was not — `#696a74` on the console and `#6f707a` on the panel, six apart on one channel and identical on the others, two names for a colour the eye cannot tell from the other. A palette is: ink, muted, faint, one accent, and the semantic four. Anything else is a decision that has to be made in the open. **AND A WASH IS A TOKEN TOO (the sixty-sixth list):** the panel's three badges took their ink from tokens and their backgrounds from literals (`rgba(40,160,80,.18)`, `rgba(220,60,60,.18)`, `rgba(200,160,40,.18)`), so one control had two sources of colour; a fourth hue (`rgba(90,130,240,.15)` / `#7aa2ff`) and a fifth green (`#30d158` beside `--success #2f9e44`) were colours no scale declared.",
     "ink": "#18181b",
     "muted": "#71717a",
     "faint": "#696a74",
@@ -29,7 +29,7 @@
     "washAlpha": 0.18
   },
   "space": {
-    "$comment": "The rhythm, and the two ways a number that is not on it can still be right (the fifty-ninth list). A rhythm is a scale: **2/4/6/8/10/12/14/16/24** \u2014 the steps BOTH surfaces declare; the console has a 32 step the panel does not, and the contract records the shared ladder rather than the union, because a step one surface cannot reach is not a rhythm they share. A painting value OFF it is a nudge UNLESS it measures something else: a CONTROL's height (5 + 5 + an 18 px line box = 28) or the padding inside a FIXED target (1 px inside a 24 px box). Those are named tokens, so an editor who changes a line-height cannot silently change a control's height.",
+    "$comment": "The rhythm, and the two ways a number that is not on it can still be right (the fifty-ninth list). A rhythm is a scale: **2/4/6/8/10/12/14/16/24** — the steps BOTH surfaces declare; the console has a 32 step the panel does not, and the contract records the shared ladder rather than the union, because a step one surface cannot reach is not a rhythm they share. A painting value OFF it is a nudge UNLESS it measures something else: a CONTROL's height (5 + 5 + an 18 px line box = 28) or the padding inside a FIXED target (1 px inside a 24 px box). Those are named tokens, so an editor who changes a line-height cannot silently change a control's height. **AND A TARGET HAS TWO NUMBERS, ONE PER INPUT DEVICE (the seventy-sixth list).** `target` (24) is the smallest box a MOUSE can be aimed at, and it is what this scale's controls are built to. A THUMB needs 44: measured 2026-11-10 at 390 px wide, the console had **0 of 127** controls under 44 across its three pages (one `@media (max-width: 639px)` block naming `main`'s controls, written in the twenty-ninth list) while the panel had **11 of 11** — a 27 px field, 22 px buttons and 24 px doors. 44 is not on the spacing scale and does not need to be: it is a TARGET, like `target` itself — a box that must be hit, not a gap between boxes. The two numbers are recorded together because one name for both is how the thinner surface went unnoticed.",
     "scale": [
       2,
       4,
@@ -43,21 +43,23 @@
     ],
     "controlH": 28,
     "controlPadY": 5,
-    "target": 24
+    "target": 24,
+    "targetTouch": 44,
+    "targetBand": "phone"
   },
   "leading": {
-    "$comment": "Line-height, as THREE ratios rather than eight (the sixtieth list). Measured before: the console declared `1` (8x), `1.45` (7x), `1.5` (9x), `1.4` (3x), `1.2` (2x), `1.6`, `1.55` and `0`; the panel `1` (10x), `1.5` (6x), `1.55` (4x), `1.6` (3x), `1.45` (2x) and `1.3` \u2014 and on ONE rendered page the same 13 px text painted 19.5 px, 16.5 px and `normal`. A reader cannot see .05 of a ratio, so it was never a choice. `mark` is 1 and means a GLYPH IN A BOX (a dot, a chevron, a button's label inside a fixed control); a sentence may not take it.",
+    "$comment": "Line-height, as THREE ratios rather than eight (the sixtieth list). Measured before: the console declared `1` (8x), `1.45` (7x), `1.5` (9x), `1.4` (3x), `1.2` (2x), `1.6`, `1.55` and `0`; the panel `1` (10x), `1.5` (6x), `1.55` (4x), `1.6` (3x), `1.45` (2x) and `1.3` — and on ONE rendered page the same 13 px text painted 19.5 px, 16.5 px and `normal`. A reader cannot see .05 of a ratio, so it was never a choice. `mark` is 1 and means a GLYPH IN A BOX (a dot, a chevron, a button's label inside a fixed control); a sentence may not take it.",
     "body": 1.5,
     "tight": 1.3,
     "mark": 1
   },
   "measure": {
-    "$comment": "How wide a line of PROSE runs (the sixty-first list). Measured before: the panel's `.archive-row-item` ran to 103 characters and `.connect-where` to 109 while Memory's entries stopped at 66 and the console's prose at 46 \u2014 the same product asking a reader to move their eye 1,120 px on one page and 517 on another. A measure is not a taste: 66ch is where the block that already reads well sits, and it is inside the 45-75 band a line is followed back along. A CODE SNIPPET IS EXEMPT \u2014 scanned token by token, and wrapping it would break copy-paste \u2014 so this is a TOKEN a rule opts into, never a blanket.",
+    "$comment": "How wide a line of PROSE runs (the sixty-first list). Measured before: the panel's `.archive-row-item` ran to 103 characters and `.connect-where` to 109 while Memory's entries stopped at 66 and the console's prose at 46 — the same product asking a reader to move their eye 1,120 px on one page and 517 on another. A measure is not a taste: 66ch is where the block that already reads well sits, and it is inside the 45-75 band a line is followed back along. A CODE SNIPPET IS EXEMPT — scanned token by token, and wrapping it would break copy-paste — so this is a TOKEN a rule opts into, never a blanket.",
     "prose": "66ch",
     "codeExempt": true
   },
   "hairline": {
-    "$comment": "The one family of SEPARATING lines, and the rule about state marks (the fifty-seventh list). A hairline separates two regions and takes `line`; a STATE MARK declares a state and takes its own colour (a pill's edge is its ink, so greyscale keeps its shape and its word). Measured before: the panel had THREE names for the first family \u2014 `--line` and `--chrome-line` were the same `rgba(0,0,0,.08)` written twice, and `--glass-hairline` was a COOL `rgba(24,32,54,.07)` for the same job on the same page. **AND A STATE MARK CARRIES A WORD, NOT ONLY A COLOUR (the sixty-eighth list):** the panel's rail mark cycles through all five liveness states and carried them in colour and shape only \u2014 its word lived in a `title`, which is a hover and not a surface \u2014 while its sibling `.plug-dot`s all have their state written beside them (`Loaded`, `Running`). The console was already right: `.fleet-status` says \"offline \u00b7 last seen \u2026\" and `.home-verdict` says \"0 of 1 online \u00b7 1 needs attention\".",
+    "$comment": "The one family of SEPARATING lines, and the rule about state marks (the fifty-seventh list). A hairline separates two regions and takes `line`; a STATE MARK declares a state and takes its own colour (a pill's edge is its ink, so greyscale keeps its shape and its word). Measured before: the panel had THREE names for the first family — `--line` and `--chrome-line` were the same `rgba(0,0,0,.08)` written twice, and `--glass-hairline` was a COOL `rgba(24,32,54,.07)` for the same job on the same page. **AND A STATE MARK CARRIES A WORD, NOT ONLY A COLOUR (the sixty-eighth list):** the panel's rail mark cycles through all five liveness states and carried them in colour and shape only — its word lived in a `title`, which is a hover and not a surface — while its sibling `.plug-dot`s all have their state written beside them (`Loaded`, `Running`). The console was already right: `.fleet-status` says \"offline · last seen …\" and `.home-verdict` says \"0 of 1 online · 1 needs attention\".",
     "line": "rgba(0, 0, 0, 0.08)",
     "strong": "rgba(0, 0, 0, 0.14)",
     "soft": "rgba(0, 0, 0, 0.05)",
@@ -66,7 +68,7 @@
     "stateMarksCarryWord": true
   },
   "head": {
-    "$comment": "The page's ONE head (the sixty-second list). Its height is its CONTENTS \u2014 the pages measured 68/68/33 px because one carries tabs and two carry a subtitle \u2014 so `height` is not a number. What IS recorded: the gap, the alignment, the subtitle SLOT (the second line of the title's block, `.page-sub`), and the rule that a page has ONE head \u2014 anything under it is a card.",
+    "$comment": "The page's ONE head (the sixty-second list). Its height is its CONTENTS — the pages measured 68/68/33 px because one carries tabs and two carry a subtitle — so `height` is not a number. What IS recorded: the gap, the alignment, the subtitle SLOT (the second line of the title's block, `.page-sub`), and the rule that a page has ONE head — anything under it is a card.",
     "gap": 12,
     "align": "flex-start",
     "subtitleSlot": ".page-sub",
@@ -87,18 +89,18 @@
     "boxed": "card"
   },
   "cardTitle": {
-    "$comment": "The card's TITLE, which both surfaces draw (the fifty-third list). Measured before: the panel's card header drew `h2` at 14/600 and the console's drew `<strong>` at 13/600 \u2014 the same visual role, two elements at two sizes, and on the console the element that LOOKED like the title was not one. `level` is the section above it (`section.h2` is 17), so the pair is a two-step ladder rather than two opinions.",
+    "$comment": "The card's TITLE, which both surfaces draw (the fifty-third list). Measured before: the panel's card header drew `h2` at 14/600 and the console's drew `<strong>` at 13/600 — the same visual role, two elements at two sizes, and on the console the element that LOOKED like the title was not one. `level` is the section above it (`section.h2` is 17), so the pair is a two-step ladder rather than two opinions.",
     "size": 14,
     "weight": 600
   },
   "elevation": {
-    "$comment": "The three LEVELS a shadow can mean, and which atoms may carry one (the fifty-fifth list). `flat` is a card ON the page \u2014 a hairline and a tint, no shadow. `pane` is a surface ABOVE it (a drawer, a modal, a popover) and is the only thing that floats. `raised` is a control lifted inside a pane (a segmented switch's active arm), a 1-2 px lift. Measured before: the panel's card carried a four-layer `--glass-shadow` while the console's carried `none`, so a card was two objects on the two surfaces.",
+    "$comment": "The three LEVELS a shadow can mean, and which atoms may carry one (the fifty-fifth list). `flat` is a card ON the page — a hairline and a tint, no shadow. `pane` is a surface ABOVE it (a drawer, a modal, a popover) and is the only thing that floats. `raised` is a control lifted inside a pane (a segmented switch's active arm), a 1-2 px lift. Measured before: the panel's card carried a four-layer `--glass-shadow` while the console's carried `none`, so a card was two objects on the two surfaces.",
     "flat": "none",
     "pane": "--glass-shadow",
     "raised": "--shadow"
   },
   "radius": {
-    "$comment": "The corner scale, and WHAT EACH STEP IS FOR (the fifty-eighth list). The rule is not the count but the MEANING: a page nests card -> row -> control -> mark, and each is one step; an overlay is drawn LARGER than the pane it covers, which is why its steps are bigger. Measured: `--radius-lg: 20px` is painted on NO page a person browses \u2014 the console uses it inside three overlays and the panel on one dialog \u2014 so the largest step is an OVERLAY step and is recorded as one. `row` (10) was the step neither side assigned: the panel's own comment called it \"cards inside a pane\" while painting it on `.btn` and `.tab`, and the console paints it on `.fleet-row` and `.tool-list`. A 40 px TARGET and a 24 px control are the same proportion, so they cannot share one value: `target` is its own step.",
+    "$comment": "The corner scale, and WHAT EACH STEP IS FOR (the fifty-eighth list). The rule is not the count but the MEANING: a page nests card -> row -> control -> mark, and each is one step; an overlay is drawn LARGER than the pane it covers, which is why its steps are bigger. Measured: `--radius-lg: 20px` is painted on NO page a person browses — the console uses it inside three overlays and the panel on one dialog — so the largest step is an OVERLAY step and is recorded as one. `row` (10) was the step neither side assigned: the panel's own comment called it \"cards inside a pane\" while painting it on `.btn` and `.tab`, and the console paints it on `.fleet-row` and `.tool-list`. A 40 px TARGET and a 24 px control are the same proportion, so they cannot share one value: `target` is its own step.",
     "page": {
       "card": 14,
       "row": 10,
@@ -113,7 +115,7 @@
     "target": 10
   },
   "rail": {
-    "$comment": "Each surface's first column, and THE WIDTH EACH FORM STARTS AT (the seventy-fourth list). The CONSOLE has THREE: the LABELLED rail is 232 px from `tablet`+1 (768) up; the ICON rail is 56 px from `phone`+1 (640) through 767; below 640 the rail is the phone's bottom bar and the page's left is 0 \u2014 measured at 390/480/639. `consoleCollapsesAt` is 767, the last width at which the labelled rail is NOT drawn. **THE NUMBER WAS RIGHT AND THE STYLESHEET DID NOT OBEY IT.** Measured 2026-11-10: the icon band's rule `(min-width: 640px) and (max-width: 767px)` paints a 56 px rail, and TWO later `(min-width: 640px)` queries \u2014 one repainting `.shell`'s columns, one `.rail`'s width \u2014 overrode it on source order alone, so the labelled sidebar never collapsed: the rail measured **232** wide at 640/700/767, the page 408/468/535, and the fleet table (min-content 635 px inside `overflow: hidden`) lost four of its five columns with nothing to scroll. The contract test read the number and passed; the page read the CSS. The contract records the FORM's floor for that reason, and each repo's test now compares the NUMBER against the RULE rather than against a breakpoint it happens to equal. The PANEL never collapses: it is a device app in a window, and its rail is the page's first column at every width.",
+    "$comment": "Each surface's first column, and THE WIDTH EACH FORM STARTS AT (the seventy-fourth list). The CONSOLE has THREE: the LABELLED rail is 232 px from `tablet`+1 (768) up; the ICON rail is 56 px from `phone`+1 (640) through 767; below 640 the rail is the phone's bottom bar and the page's left is 0 — measured at 390/480/639. `consoleCollapsesAt` is 767, the last width at which the labelled rail is NOT drawn. **THE NUMBER WAS RIGHT AND THE STYLESHEET DID NOT OBEY IT.** Measured 2026-11-10: the icon band's rule `(min-width: 640px) and (max-width: 767px)` paints a 56 px rail, and TWO later `(min-width: 640px)` queries — one repainting `.shell`'s columns, one `.rail`'s width — overrode it on source order alone, so the labelled sidebar never collapsed: the rail measured **232** wide at 640/700/767, the page 408/468/535, and the fleet table (min-content 635 px inside `overflow: hidden`) lost four of its five columns with nothing to scroll. The contract test read the number and passed; the page read the CSS. The contract records the FORM's floor for that reason, and each repo's test now compares the NUMBER against the RULE rather than against a breakpoint it happens to equal. The PANEL never collapses: it is a device app in a window, and its rail is the page's first column at every width. The widths are recorded rather than equalized; the COLLAPSE is a rule, not a habit.",
     "console": 232,
     "panel": 52,
     "consoleCollapsesAt": 767,
@@ -141,7 +143,7 @@
     }
   },
   "label": {
-    "$comment": "A CONTROL's label (the sixty-fifth list). SENTENCE case, and the verb plus its subject \u2014 `Add a machine`, `New entry`, `Test the connection`, never a fragment with a glyph (`+ New`). ACRONYMS KEEP THEIR CAPITALS (`URL`, `AI`, `DSH`), which is the ONE exception and is listed rather than inferred: `Copy console URL` and `Connect an AI client` are both correct and a reader should not have to work out why. Measured: 21 of the console's 22 controls were already sentence case; `+ New` was the only fragment-with-a-glyph on either surface.",
+    "$comment": "A CONTROL's label (the sixty-fifth list). SENTENCE case, and the verb plus its subject — `Add a machine`, `New entry`, `Test the connection`, never a fragment with a glyph (`+ New`). ACRONYMS KEEP THEIR CAPITALS (`URL`, `AI`, `DSH`), which is the ONE exception and is listed rather than inferred: `Copy console URL` and `Connect an AI client` are both correct and a reader should not have to work out why. Measured: 21 of the console's 22 controls were already sentence case; `+ New` was the only fragment-with-a-glyph on either surface.",
     "case": "sentence",
     "verbAndSubject": true,
     "acronyms": [
@@ -161,14 +163,14 @@
     "tablet": 767,
     "columns": 1088,
     "wide": 1280,
-    "$comment": "The widths where a page's SHAPE changes, and the FORM a query takes (the sixty-fourth list). A downward query ends at `N-1` and an upward one starts at `N`, so a breakpoint's two sides cannot both claim the same width \u2014 verified: the console's min set {640, 1088, 1280} and max set {480, 639, 767} do not intersect, and the panel's max set {639, 767, 1087} follows the same form. Measured before: the panel's approval banner used `(max-width: 1088px)` \u2014 AT the `columns` width \u2014 so it held its one-column shape one pixel into the wide band, which no eye can see and no author would feel.",
+    "$comment": "The widths where a page's SHAPE changes, and the FORM a query takes (the sixty-fourth list). A downward query ends at `N-1` and an upward one starts at `N`, so a breakpoint's two sides cannot both claim the same width — verified: the console's min set {640, 1088, 1280} and max set {480, 639, 767} do not intersect, and the panel's max set {639, 767, 1087} follows the same form. Measured before: the panel's approval banner used `(max-width: 1088px)` — AT the `columns` width — so it held its one-column shape one pixel into the wide band, which no eye can see and no author would feel.",
     "queryForm": {
       "below": "N-1",
       "at": "N"
     }
   },
   "empty": {
-    "$comment": "The EMPTY state's atom, which both surfaces draw (the forty-sixth list). A page with nothing to list shows one card, on the page's own grid: the card's corner and padding, start-aligned text, no shadow, and the full width of the page's column. It is NOT a dialog \u2014 a 20px corner, a drop shadow and centred text on a 1120px column is a modal drawn where a page's empty state belongs. **AND THE STATE KEEPS THE WAY BACK, AND THE CARD'S INSET IS ON THE CARD (the seventy-second list):** measured 2026-11-10 after filtering a list into nothing \u2014 the panel's was one 18 px line CENTRED in 1,042 px inside a `.card` whose inset came from the child's `margin: 14px` (so the card stood 48 px tall around one line), with NO control; the console's had the `Clear search` and no card. A reader who filtered a list into nothing needs the control that undoes it beside the sentence that explains it.",
+    "$comment": "The EMPTY state's atom, which both surfaces draw (the forty-sixth list). A page with nothing to list shows one card, on the page's own grid: the card's corner and padding, start-aligned text, no shadow, and the full width of the page's column. It is NOT a dialog — a 20px corner, a drop shadow and centred text on a 1120px column is a modal drawn where a page's empty state belongs. **AND THE STATE KEEPS THE WAY BACK, AND THE CARD'S INSET IS ON THE CARD (the seventy-second list):** measured 2026-11-10 after filtering a list into nothing — the panel's was one 18 px line CENTRED in 1,042 px inside a `.card` whose inset came from the child's `margin: 14px` (so the card stood 48 px tall around one line), with NO control; the console's had the `Clear search` and no card. A reader who filtered a list into nothing needs the control that undoes it beside the sentence that explains it.",
     "radius": 14,
     "pad": 16,
     "gap": 12,
@@ -177,7 +179,7 @@
     "wayBack": true
   },
   "failed": {
-    "$comment": "A failure's sentence NAMES THE SUBJECT, NOT THE TRANSPORT (the sixty-third list). Measured: the console's notice said \"The console could not read the machine list\" \u2014 the THING a person was waiting for \u2014 and the panel's said \"tool memory_list failed\", which names the RPC and leaves the reader to infer the page.",
+    "$comment": "A failure's sentence NAMES THE SUBJECT, NOT THE TRANSPORT (the sixty-third list). Measured: the console's notice said \"The console could not read the machine list\" — the THING a person was waiting for — and the panel's said \"tool memory_list failed\", which names the RPC and leaves the reader to infer the page.",
     "radius": 8,
     "pad": 12,
     "textTone": "ink",
@@ -197,13 +199,13 @@
     "role": "status"
   },
   "motion": {
-    "$comment": "Rule 18's mechanism, recorded once for both surfaces (the fifty-second list). REDUCED MOTION IS A BLANKET: every transition and animation is capped at 0.01ms under `prefers-reduced-motion: reduce`, because a NAMED LIST cannot cover a rule added later \u2014 measured, the panel still moved 4 elements at 0.2s under reduce while the console moved 0. The named list stays for the second half: an animation whose state must also stop (`animation: none`). `0.01ms` rather than `0s` so a `transitionend` listener still fires.",
+    "$comment": "Rule 18's mechanism, recorded once for both surfaces (the fifty-second list). REDUCED MOTION IS A BLANKET: every transition and animation is capped at 0.01ms under `prefers-reduced-motion: reduce`, because a NAMED LIST cannot cover a rule added later — measured, the panel still moved 4 elements at 0.2s under reduce while the console moved 0. The named list stays for the second half: an animation whose state must also stop (`animation: none`). `0.01ms` rather than `0s` so a `transitionend` listener still fires.",
     "reducedMotion": "blanket",
     "cap": "0.01ms",
     "namedAnimationsStop": true
   },
   "tracking": {
-    "$comment": "RULE 14, AS A NUMBER: a size gets ONE step, and the step belongs to the SIZE (the seventy-fifth list). Measured 2026-11-10 by grouping every text node on a rendered page by its `font-size` (then by weight and by kind \u2014 an uppercase label, a mono value and prose are three kinds), and asking whether that group carried one `letter-spacing`: the console answered NO on every page (22 px at -0.242 AND -0.44, 12 px at -0.052 AND 0, 10 px at 0.5 AND 0, 17 px at -0.052 AND -0.34) while the panel answered YES. THE CAUSE WAS AN INHERITED BASELINE NO TOKEN NAMED: `body { letter-spacing: -0.004em }` reached every element, so 'the default' and '-0.004em' were two answers to one question depending on which element you inspected, and 19 rules opted INTO a token on top of it. After removing it every page of both surfaces answers YES: 22 px = display, 12 px = none, 10 px/label = label, 10 px/mono = none. THE STEPS ARE THE FOUR THE SHEETS ALREADY DECLARED and a caller reads one of them or none: display (-0.011em) for a title, nothing for body text, label (0.05em) for an uppercase label, eyebrow (0.08em) for the small word above a block. **`normal` is not a step** \u2014 a rule that writes it is answering a question the tokens already answer, and after this list not one rule on either surface does.",
+    "$comment": "RULE 14, AS A NUMBER: a size gets ONE step, and the step belongs to the SIZE (the seventy-fifth list). Measured 2026-11-10 by grouping every text node on a rendered page by its `font-size` (then by weight and by kind — an uppercase label, a mono value and prose are three kinds), and asking whether that group carried one `letter-spacing`: the console answered NO on every page (22 px at -0.242 AND -0.44, 12 px at -0.052 AND 0, 10 px at 0.5 AND 0, 17 px at -0.052 AND -0.34) while the panel answered YES. THE CAUSE WAS AN INHERITED BASELINE NO TOKEN NAMED: `body { letter-spacing: -0.004em }` reached every element, so 'the default' and '-0.004em' were two answers to one question depending on which element you inspected, and 19 rules opted INTO a token on top of it. After removing it every page of both surfaces answers YES: 22 px = display, 12 px = none, 10 px/label = label, 10 px/mono = none. THE STEPS ARE THE FOUR THE SHEETS ALREADY DECLARED and a caller reads one of them or none: display (-0.011em) for a title, nothing for body text, label (0.05em) for an uppercase label, eyebrow (0.08em) for the small word above a block. **`normal` is not a step** — a rule that writes it is answering a question the tokens already answer, and after this list not one rule on either surface does.",
     "bySize": {
       "title": "display",
       "body": "none",
@@ -213,5 +215,12 @@
     },
     "inherits": false,
     "literals": 0
+  },
+  "theme": {
+    "$comment": "WHICH SURFACE DECIDES THE THEME, AND HOW (the seventy-seventh list). Measured 2026-11-10 at 1,440 on both surfaces in one browser at one moment: with the OS dark the console's body was **rgb(19,20,24)** and the panel's was **rgb(250,250,250)** — two answers to one question, from one product. The console reads `@media (prefers-color-scheme: dark)` and nothing else; the panel's `lib/theme.ts` returned `\"light\"` whenever nothing was stored and NEVER asked the OS, and its rail's switch flipped `body[data-theme]`. THE RULE, in two parts, because the two surfaces differ for a reason and only one of them is a defect: `decides` is SYSTEM on both — the first paint agrees with the reader's machine, because a device app is opened ON that machine and a web page beside it should not disagree. `override` is true on the panel and false on the console: a desktop app in a window may keep a cockpit theme while the OS is light, and the switch is how; a web page that overrode its OS would be the odd one, and the console has never offered it.",
+    "decides": "system",
+    "override": true,
+    "consoleDecides": "system",
+    "panelOverride": "rail switch"
   }
 }
